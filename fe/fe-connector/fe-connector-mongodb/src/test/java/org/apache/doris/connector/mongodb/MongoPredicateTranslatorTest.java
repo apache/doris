@@ -122,6 +122,43 @@ class MongoPredicateTranslatorTest {
     }
 
     @Test
+    void allDatetimeScalesRetainUtcMillisecondsAndRejectSubMilliseconds() {
+        for (int scale = 0; scale <= 6; scale++) {
+            var schema = schema("DATETIME(" + scale + ")", "date");
+            for (long millis : new long[] {-1001, -1000, -1, 0, 1, 1000, 253402300799999L}) {
+                var literal = ConnectorLiteral.ofDatetime(LocalDateTime.ofInstant(
+                        new Date(millis).toInstant(), ZoneOffset.UTC));
+                var result = translate(schema, comparison(schema, ConnectorComparison.Operator.GE, literal));
+                Assertions.assertEquals(new Date(millis), result.filter().get("Source", Document.class).get("$gte"));
+            }
+            for (int nanos : new int[] {1000, 999000, 999999000}) {
+                var literal = ConnectorLiteral.ofDatetime(LocalDateTime.of(1969, 12, 31, 23, 59, 59, nanos));
+                Assertions.assertEquals(MongoPredicateTranslator.Kind.UNSUPPORTED,
+                        translate(schema, comparison(schema, ConnectorComparison.Operator.LT, literal)).kind());
+            }
+        }
+    }
+
+    @Test
+    void decimalPrecisionScaleCandidatesRemainExactOrStayLocal() {
+        for (int precision : new int[] {1, 9, 10, 18, 19, 38}) {
+            for (int scale : new int[] {0, precision / 2, precision}) {
+                var schema = schema("DECIMAL(" + precision + "," + scale + ")", "decimal");
+                var exact = BigDecimal.ONE.scaleByPowerOfTen(-scale);
+                var literal = ConnectorLiteral.ofDecimal(exact, precision, scale);
+                var result = translate(schema, comparison(schema, ConnectorComparison.Operator.EQ, literal));
+                Assertions.assertEquals(new Decimal128(exact), result.filter().get("Source", Document.class).get("$eq"));
+            }
+        }
+        var schema = schema("DECIMAL(38,0)", "decimal");
+        for (String value : List.of("99999999999999999999999999999999999999", "1E+6145", "1E-6177")) {
+            var literal = ConnectorLiteral.ofDecimal(new BigDecimal(value), 38, 0);
+            Assertions.assertEquals(MongoPredicateTranslator.Kind.UNSUPPORTED,
+                    translate(schema, comparison(schema, ConnectorComparison.Operator.EQ, literal)).kind());
+        }
+    }
+
+    @Test
     void inDropsNullArmsButNeverRewritesNotIn() {
         var schema = schema("INT", "int");
         var values = List.<ConnectorExpression>of(ConnectorLiteral.ofLong(1), ConnectorLiteral.ofNull(ConnectorType.of("INT")));

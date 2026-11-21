@@ -807,6 +807,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     @Override
     protected List<String> getPathPartitionKeys() throws UserException {
+        // Asked first while the node initializes, before the filter is attached: a provider that can name
+        // the columns directly spares building its whole property map, which is rebuilt once the filter is in.
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider != null) {
+            Optional<List<String>> named = onPluginClassLoader(scanProvider,
+                    () -> scanProvider.getPathPartitionKeys(connectorSession, currentHandle));
+            if (named.isPresent()) {
+                return named.get();
+            }
+        }
         Map<String, String> props = getOrLoadScanNodeProperties();
         String keys = props.get(ScanNodePropertyKeys.PATH_PARTITION_KEYS);
         if (keys != null && !keys.isEmpty()) {
@@ -1938,6 +1948,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .requiredPartitions(requiredPartitions)
                 .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
                 .countPushdown(countPushdown)
+                .coarseSplitSize(coarseSplitSizeForBeRefinement())
                 .aggregatePushdown(getPushDownAggNoGroupingOp() != TPushAggOp.NONE)
                 .backendCapabilities(commonBackendCapabilities(backendPolicy.getBackends()))
                 // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
@@ -2349,6 +2360,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         pinRewriteFileScope();
         queryFinishCleanup.bind(resolveScanProvider());
         return ConnectorScanRequest.builder(currentHandle, columns).filter(remainingFilter)
+                .coarseSplitSize(isTableLevelCountStarPushdown() ? -1 : coarseSplitSizeForBeRefinement())
                 .scanContext(splitAssignment.getScanContext()).build();
     }
 
@@ -2592,6 +2604,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     @Override
+    protected boolean supportsBeSplitRefinement(FileSplit split) {
+        return ((PluginDrivenSplit) split).getConnectorScanRange().supportsBeSplitRefinement();
+    }
+
+    @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
         if (!(split instanceof PluginDrivenSplit)) {
             return;
@@ -2813,6 +2830,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 // remote_doris scan node already outside this switch). Without this the format falls to
                 // FORMAT_JNI below and BE never enters the Arrow reader path.
                 return TFileFormatType.FORMAT_ARROW;
+            case "lance":
+                // BE reads a Lance dataset through lance-c rather than a file reader or JNI.
+                return TFileFormatType.FORMAT_LANCE;
             default:
                 return TFileFormatType.FORMAT_JNI;
         }

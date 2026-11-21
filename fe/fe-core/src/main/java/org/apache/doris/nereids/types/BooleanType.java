@@ -36,6 +36,11 @@ public class BooleanType extends PrimitiveType {
     }
 
     @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
+    }
+
+    @Override
     public boolean isInjectiveCastTo(DataType target) {
         if (target instanceof DecimalV2Type) {
             // DECIMALV2 is deprecated, so every cast involving it is conservatively non-injective.

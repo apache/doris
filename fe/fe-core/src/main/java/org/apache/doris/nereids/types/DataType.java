@@ -873,6 +873,17 @@ public abstract class DataType {
         return this.equals(target);
     }
 
+    /**
+     * Whether grouping and null-safe equality can be used to replace a value by its group
+     * representative in deterministic expressions. Both operations must identify the same
+     * values, and expressions must observe the same value for all members of a group.
+     * For example, {@code signbit(CAST('+0.0' AS DOUBLE))} is false and
+     * {@code signbit(CAST('-0.0' AS DOUBLE))} is true, even though both zeros belong to the same group.
+     */
+    public boolean supportsValuePreservingGrouping() {
+        return false;
+    }
+
     public static List<DataType> trivialTypes() {
         return Type.getTrivialTypes()
                 .stream()

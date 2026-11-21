@@ -83,7 +83,26 @@ class CalendarAddSubMonotonicTest {
                 Assertions.assertFalse(function.isMonotonic(lower, upperBounds.get(i)));
                 Assertions.assertFalse(function.isMonotonic(lower, null));
                 Assertions.assertFalse(function.isMonotonic(null, upperBounds.get(i)));
-                Assertions.assertTrue(function.isMonotonic(lower, lower));
+                Assertions.assertEquals(function.canEvaluateRange(), function.isMonotonic(lower, lower));
+            }
+        }
+    }
+
+    @Test
+    void testTimestampTzYearsDoNotInferRanges() {
+        SlotReference date = new SlotReference("ts", TimeStampTzType.of(6));
+        Literal lower = new TimestampTzLiteral(TimeStampTzType.of(6), "2024-02-28 12:00:00 +00:00");
+        Literal upper = new TimestampTzLiteral(TimeStampTzType.of(6), "2024-02-28 20:00:00 +00:00");
+        for (String zone : new String[] {"+08:00", "+00:00", "America/New_York"}) {
+            ConnectContext.get().getSessionVariable().setTimeZone(zone);
+            for (CalendarAddSubMonotonic function : Arrays.asList(
+                    new YearsAdd(date, new IntegerLiteral(1)), new YearsSub(date, new IntegerLiteral(1)))) {
+                Assertions.assertFalse(function.canEvaluateRange());
+                // Even one UTC day can cross local midnight or a DST transition.
+                Assertions.assertFalse(function.isMonotonic(lower, upper));
+                Assertions.assertFalse(function.inferRange(lower, upper, context).isPresent());
+                Assertions.assertFalse(function.inferRange(lower, null, context).isPresent());
+                Assertions.assertFalse(function.inferRange(null, upper, context).isPresent());
             }
         }
     }

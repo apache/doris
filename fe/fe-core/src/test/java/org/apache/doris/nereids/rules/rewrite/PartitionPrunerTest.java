@@ -51,13 +51,16 @@ import org.apache.doris.nereids.trees.expressions.functions.RangeInferable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.utframe.TestWithFeService;
@@ -114,7 +117,7 @@ public class PartitionPrunerTest extends TestWithFeService {
 
     private void assertCalendarRangePruned(SlotReference date, String lower, String upper,
             Expression predicate, boolean expectedPruned) throws Exception {
-        List<Column> columns = ImmutableList.of(new Column("dt", PrimitiveType.DATETIMEV2));
+        List<Column> columns = ImmutableList.of(new Column("dt", date.getDataType().toCatalogDataType()));
         PartitionKey lowerKey = PartitionKey.createPartitionKey(ImmutableList.of(new PartitionValue(lower)), columns);
         PartitionKey upperKey = PartitionKey.createPartitionKey(ImmutableList.of(new PartitionValue(upper)), columns);
         OneRangePartitionEvaluator<String> evaluator = new OneRangePartitionEvaluator<>(
@@ -123,6 +126,42 @@ public class PartitionPrunerTest extends TestWithFeService {
         Pair<Boolean, Boolean> result =
                 (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, evaluator);
         Assertions.assertEquals(expectedPruned, result.first, predicate.toSql());
+    }
+
+    @Test
+    public void testTimestampTzYearPruningUsesSessionCalendar() throws Exception {
+        String previousZone = connectContext.getSessionVariable().getTimeZone();
+        SlotReference date = new SlotReference("ts", TimeStampTzType.of(6));
+        try {
+            connectContext.getSessionVariable().setTimeZone("+08:00");
+            for (int years : new int[] {1, -1}) {
+                for (Expression year : Arrays.asList(new YearsAdd(date, new IntegerLiteral(years)),
+                        new YearsSub(date, new IntegerLiteral(-years)))) {
+                    Expression predicate = new EqualTo(year, new TimestampTzLiteral(TimeStampTzType.of(6),
+                            (2024 + years) + "-02-27 16:30:00 +00:00"));
+                    // The interior UTC February 28 16:30 is local February 29 00:30.
+                    assertCalendarRangePruned(date, "2024-02-28 12:00:00 +00:00", "2024-03-01 00:00:00 +00:00",
+                            predicate, false);
+                    assertCalendarRangePruned(date, "2024-02-28 12:00:00 +00:00", "2024-02-28 20:00:00 +00:00",
+                            predicate, false);
+                }
+            }
+            connectContext.getSessionVariable().setTimeZone("America/New_York");
+            for (Expression year : Arrays.asList(new YearsAdd(date, new IntegerLiteral(1)),
+                    new YearsSub(date, new IntegerLiteral(-1)))) {
+                // The repeated input hour resets the local clock inside this UTC range.
+                assertCalendarRangePruned(date, "2024-11-03 05:45:00 +00:00", "2024-11-03 06:45:00 +00:00",
+                        new EqualTo(year, new TimestampTzLiteral(TimeStampTzType.of(6),
+                                "2025-11-03 06:15:00 +00:00")), false);
+                // A target DST gap clamps to the transition but preserves microseconds.
+                assertCalendarRangePruned(date, "2023-03-10 07:10:00.900000 +00:00",
+                        "2023-03-10 07:50:00.900000 +00:00",
+                        new EqualTo(year, new TimestampTzLiteral(TimeStampTzType.of(6),
+                                "2024-03-10 07:00:00.100000 +00:00")), false);
+            }
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(previousZone);
+        }
     }
 
     @Test

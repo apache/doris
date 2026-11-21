@@ -577,6 +577,10 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    public static final String FILE_SPLIT_SIZE_ON_FE = "file_split_size_on_fe";
+
+    public static final String FILE_SPLIT_SIZE_ON_BE = "file_split_size_on_be";
+
     public static final String MAX_INITIAL_FILE_SPLIT_SIZE = "max_initial_file_split_size";
 
     public static final String MAX_FILE_SPLIT_SIZE = "max_file_split_size";
@@ -2590,6 +2594,15 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
 
+    @VarAttrDef.VarAttr(name = FILE_SPLIT_SIZE_ON_FE, needForward = true,
+            description = "Target bytes for FE coarse file splits when BE refinement is supported. Default: 512 MiB.")
+    public long fileSplitSizeOnFe = 512L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(name = FILE_SPLIT_SIZE_ON_BE, needForward = true,
+            description = "Target bytes for coalescing BE physical splits. Default: 64 MiB. "
+                    + "A nonpositive value does not disable BE refinement.")
+    public long fileSplitSizeOnBe = 64L * 1024L * 1024L;
+
     @VarAttrDef.VarAttr(
             name = MAX_INITIAL_FILE_SPLIT_SIZE,
             description = "For each table scan, The maximum initial file split size. "
@@ -3103,9 +3116,10 @@ public class SessionVariable implements Serializable, Writable {
     public String mongodbReadPreference = "inherit";
 
     @VarAttrDef.VarAttr(name = MONGODB_READ_CONCERN, needForward = true,
-            checker = "checkMongoDBReadConcern", options = {"inherit", "local", "majority", "available"},
+            checker = "checkMongoDBReadConcern", affectQueryResultInExecution = true,
+            options = {"inherit", "local", "majority", "available", "snapshot"},
             description = "MongoDB data-read visibility for this session or SET_VAR statement. "
-                    + "inherit follows the catalog policy; shared snapshots are not supported")
+                    + "inherit follows the catalog policy; snapshot pins a shared MongoDB cluster timestamp")
     public String mongodbReadConcern = "inherit";
 
     @VarAttrDef.VarAttr(name = "enable_mongodb_predicate_pushdown", needForward = true,
@@ -4618,9 +4632,9 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void checkMongoDBReadConcern(String value) {
-        if (!Set.of("inherit", "local", "majority", "available").contains(value.toLowerCase(Locale.ROOT))) {
+        if (!Set.of("inherit", "local", "majority", "available", "snapshot").contains(value.toLowerCase(Locale.ROOT))) {
             throw new UnsupportedOperationException("Invalid mongodb_read_concern; expected inherit, local, "
-                    + "majority or available");
+                    + "majority, available or snapshot");
         }
     }
 
@@ -5075,6 +5089,22 @@ public class SessionVariable implements Serializable, Writable {
 
     public long getFileSplitSize() {
         return fileSplitSize;
+    }
+
+    public long getFileSplitSizeOnFe() {
+        return fileSplitSizeOnFe;
+    }
+
+    public void setFileSplitSizeOnFe(long fileSplitSizeOnFe) {
+        this.fileSplitSizeOnFe = fileSplitSizeOnFe;
+    }
+
+    public long getFileSplitSizeOnBe() {
+        return fileSplitSizeOnBe;
+    }
+
+    public void setFileSplitSizeOnBe(long fileSplitSizeOnBe) {
+        this.fileSplitSizeOnBe = fileSplitSizeOnBe;
     }
 
     public void setFileSplitSize(long fileSplitSize) {

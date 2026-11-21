@@ -32,12 +32,16 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
     private final MongoCatalogProperties properties;
 
-    MongoScanPlanProvider(MongoCatalogProperties properties) {
+    private final Supplier<MongoCatalogClient> client;
+
+    MongoScanPlanProvider(MongoCatalogProperties properties, Supplier<MongoCatalogClient> client) {
         this.properties = properties;
+        this.client = client;
     }
 
     @Override
@@ -49,38 +53,60 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
                 throw new IllegalArgumentException("MongoDB column schema changed; refresh metadata and retry");
             }
         }
+        // FE-to-BE value contract; no driver object, cursor or active session crosses this boundary.
         TMongoScanDesc d = new TMongoScanDesc();
+        // Layout version and pool isolation: configurationVersion fingerprints connection/auth settings.
         d.setVersion(1);
         d.setCatalogId(session.getCatalogId());
         d.setConfigurationVersion(properties.configurationVersion());
+        // Preserve the public source namespace. objectKind selects view/time-series restrictions;
+        // collectionUuid detects namespace replacement independently of the decoding schema version.
         d.setDatabase(handle.getDatabase());
         d.setCollection(handle.getName());
         d.setObjectKind(handle.getObjectKind());
         d.setCollectionUuid(handle.getUuid());
+        // These owned values freeze exact field paths, accepted BSON tags and target column bindings.
         d.setSchemaVersion(handle.getSchema().getVersion());
         d.setBindingsJson(handle.getSchema().toBindingsJson());
+        // Secrets travel only in the typed descriptor. authDatabase authenticates the separate user
+        // and can differ from the data database; URI credentials are used when no separate user is set.
         d.setUri(properties.getUri());
         d.setUsername(properties.getUsername());
         d.setPassword(properties.getPassword());
         d.setAuthDatabase(properties.getAuthDatabase());
+        // Conversion mismatch policy only; it never suppresses source, cancellation or allocation errors.
         d.setTypeMismatchAsNull("null".equals(properties.getTypeMismatch()));
         Map<String, String> policies = session.getSessionProperties();
+        // Resolve inherit before RPC: readPreference chooses nodes, readConcern controls visibility.
         // Pin effective policies in the range; never mutate the catalog or its shared metadata client.
         d.setReadPreference(properties.resolveReadPreference(
                 policies.getOrDefault("mongodb_read_preference", "inherit")));
         d.setReadConcern(properties.resolveReadConcern(policies.getOrDefault("mongodb_read_concern", "inherit")));
+        // Source batch size is a document count. timeoutMs is a scan budget in milliseconds;
+        // snapshot selection below subtracts elapsed FE time before the range is published.
         d.setBatchSize(bounded(policies, "batch_size", 1024, 1, 65536));
         d.setTimeoutMs(1000L * bounded(policies, "query_timeout", 300, 1, Integer.MAX_VALUE / 1000));
+        var snapshot = MongoSnapshot.prepare(session, properties, handle, client,
+                d.getReadConcern(), d.getReadPreference(), d.getTimeoutMs());
+        if (snapshot != null) {
+            // Each range owns a copy of the statement's T/source pins; BE opens an independent session.
+            d.setSnapshot(snapshot);
+            d.setTimeoutMs(MongoSnapshot.remainingMillis(session));
+        }
+        // Distinct limits for connection setup, node selection and socket I/O. BE caps these by
+        // the scan budget; poolMaxClients limits leased clients per compatible BE-local pool.
         d.setConnectTimeoutMs(properties.getConnectTimeoutMs());
         d.setServerSelectionTimeoutMs(properties.getServerSelectionTimeoutMs());
         d.setSocketTimeoutMs(properties.getSocketTimeoutMs());
         d.setPoolMaxClients(properties.getPoolMaxClients());
         MongoPredicateTranslator.Result predicate = predicate(session, handle, request.getFilter());
         if (predicate.kind() != MongoPredicateTranslator.Kind.UNSUPPORTED) {
+            // Binary BSON preserves Int64/Decimal128/Date tags. This candidate never replaces the residual.
             d.setFilterBson(encode(predicate.filter()));
         }
         Document projection = projection(session, handle, request.getColumns());
         if (!projection.isEmpty()) {
+            // Include complete source roots so pruning cannot turn malformed nested paths into missing values.
             d.setProjectionBson(encode(projection));
         }
         // One cursor owns the entire logical namespace. Filters and LIMIT remain Doris residuals.
@@ -104,6 +130,15 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter) {
         MongoTableHandle table = (MongoTableHandle) handle;
         Map<String, String> result = new LinkedHashMap<>();
+        var policies = session.getSessionProperties();
+        String concern = properties.resolveReadConcern(policies.getOrDefault("mongodb_read_concern", "inherit"));
+        String preference = properties.resolveReadPreference(
+                policies.getOrDefault("mongodb_read_preference", "inherit"));
+        var snapshot = MongoSnapshot.prepare(session, properties, table, client, concern, preference,
+                1000L * bounded(policies, "query_timeout", 300, 1, Integer.MAX_VALUE / 1000));
+        result.put("read_concern", concern);
+        result.put("snapshot", snapshot == null ? "none" : snapshot.getTimestampSeconds()
+                + ":" + snapshot.getTimestampIncrement());
         result.put("object_kind", table.getObjectKind());
         result.put("schema_source", table.getSchema().getSource());
         result.put("schema_version", table.getSchema().getVersion());
@@ -117,6 +152,8 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
         output.append(prefix).append("MongoDB object: ").append(nodeProperties.get("object_kind"))
                 .append("; schema: ").append(nodeProperties.get("schema_source"))
                 .append("; version: ").append(nodeProperties.get("schema_version")).append("\n");
+        output.append(prefix).append("MongoDB read concern: ").append(nodeProperties.get("read_concern"))
+                .append("; snapshot: ").append(nodeProperties.get("snapshot")).append("\n");
         output.append(prefix).append("MongoDB predicate: ").append(nodeProperties.get("predicate_pushdown"))
                 .append("; residual: retained; projection: ").append(nodeProperties.get("projection_pushdown"))
                 .append("\n");

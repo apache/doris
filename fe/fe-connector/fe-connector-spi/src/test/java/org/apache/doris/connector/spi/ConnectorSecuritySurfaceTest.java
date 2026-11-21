@@ -148,4 +148,43 @@ public class ConnectorSecuritySurfaceTest {
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> withPrefix.sensitiveKeyPrefixes().get(0).markers().add("key"));
     }
+
+    @Test
+    public void addingEndpointChecksPreservesTheExistingDriverPolicy() {
+        ConnectorSecuritySurface original = ConnectorSecuritySurface.ofJdbcDriverUrls("catalog.type", "driver_url")
+                .withSensitiveKeys("catalog.token")
+                .withSensitiveKeyPrefix("catalog.auth.", "secret");
+        ConnectorSecuritySurface composed = original.withSsrfEndpoints("kms.endpoint");
+        Assertions.assertEquals(List.of("driver_url"), composed.jdbcDriverUrlKeys());
+        Assertions.assertEquals("catalog.type", composed.jdbcDriverUrlFlavorKey());
+        Assertions.assertEquals(List.of("kms.endpoint"), composed.ssrfEndpointKeys());
+        Assertions.assertEquals(List.of("catalog.token"), composed.sensitiveKeys());
+        Assertions.assertEquals(original.sensitiveKeyPrefixes(), composed.sensitiveKeyPrefixes());
+        Assertions.assertTrue(composed.sensitiveKeyPrefixes().get(0).covers("catalog.auth.client-secret"));
+        Assertions.assertTrue(original.ssrfEndpointKeys().isEmpty(), "composing must not mutate the original surface");
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> composed.ssrfEndpointKeys().clear());
+    }
+
+    @Test
+    public void composingEndpointChecksKeepsExistingEndpointsWithoutDuplicates() {
+        ConnectorSecuritySurface original = ConnectorSecuritySurface.ofSsrfEndpoints("catalog.uri");
+        ConnectorSecuritySurface composed = original.withSsrfEndpoints("catalog.uri", "kms.endpoint");
+        Assertions.assertEquals(List.of("catalog.uri", "kms.endpoint"), composed.ssrfEndpointKeys());
+        Assertions.assertEquals(List.of("catalog.uri"), original.ssrfEndpointKeys());
+    }
+
+    @Test
+    public void addingSecretsAfterEndpointChecksPreservesEveryDeclaration() {
+        ConnectorSecuritySurface surface = ConnectorSecuritySurface.ofJdbcDriverUrls("catalog.type", "driver_url")
+                .withSsrfEndpoints("kms.endpoint")
+                .withSensitiveKeys("catalog.token")
+                .withSensitiveKeyPrefix("catalog.auth.", "secret");
+
+        Assertions.assertEquals(List.of("driver_url"), surface.jdbcDriverUrlKeys());
+        Assertions.assertEquals("catalog.type", surface.jdbcDriverUrlFlavorKey());
+        Assertions.assertEquals(List.of("kms.endpoint"), surface.ssrfEndpointKeys());
+        Assertions.assertEquals(List.of("catalog.token"), surface.sensitiveKeys());
+        Assertions.assertTrue(surface.sensitiveKeyPrefixes().get(0).covers("catalog.auth.client-secret"));
+    }
 }

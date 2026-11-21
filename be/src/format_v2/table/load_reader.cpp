@@ -186,7 +186,8 @@ Status LoadTableReader::prepare_split(const SplitReadOptions& options) {
     return TableReader::prepare_split(source_options);
 }
 
-Status LoadTableReader::refresh_conjuncts(VExprContextSPtrs) {
+Status LoadTableReader::refresh_conjuncts(VExprContextSPtrs, std::optional<uint64_t>, bool,
+                                          std::shared_ptr<const format::PredicateSnapshot>) {
     return Status::OK();
 }
 

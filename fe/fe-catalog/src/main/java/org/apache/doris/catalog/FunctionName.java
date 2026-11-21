@@ -101,7 +101,7 @@ public class FunctionName {
 
     @Override
     public int hashCode() {
-        return 31 * Objects.hashCode(db.toLowerCase()) + Objects.hashCode(fn.toLowerCase());
+        return 31 * Objects.hashCode(db == null ? null : db.toLowerCase()) + Objects.hashCode(fn.toLowerCase());
     }
 
     @Override

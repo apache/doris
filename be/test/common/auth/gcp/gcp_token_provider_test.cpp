@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cpp/obj-client/auth/gcp/gcp_token_provider.h"
+#include "cpp/obj-storage/auth/gcp/gcp_token_provider.h"
 
 #include <gtest/gtest.h>
 #include <openssl/evp.h>

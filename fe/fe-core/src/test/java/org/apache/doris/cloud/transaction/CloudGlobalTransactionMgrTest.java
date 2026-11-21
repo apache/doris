@@ -58,6 +58,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
+import org.apache.doris.load.DeleteJob;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -75,6 +76,7 @@ import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionCommitFailedException;
+import org.apache.doris.transaction.TransactionNotFoundException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnStateChangeCallback;
@@ -716,6 +718,52 @@ public class CloudGlobalTransactionMgrTest {
             Mockito.doReturn(getTxnResponse).when(mockProxy).getTxn(Mockito.any());
             Mockito.doReturn(abortTxnResponse).when(mockProxy).abortTxn(Mockito.any());
             masterTransMgr.abortTransaction(CatalogTestUtil.testDbId1, transactionId, "User Cancelled");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testAbortDeleteTransactionRemovesCallback(boolean alreadyAborted) throws Exception {
+        long transactionId = 123535;
+        long jobId = 1002;
+        DeleteJob job = Mockito.spy(new DeleteJob(jobId, transactionId, "delete_abort", Map.of(), null));
+        masterTransMgr.getCallbackFactory().addCallback(job);
+
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            TxnInfoPB txnInfo = buildTxnInfo(transactionId).toBuilder()
+                    .setListenerId(jobId)
+                    .setStatus(alreadyAborted ? Cloud.TxnStatusPB.TXN_STATUS_ABORTED
+                            : Cloud.TxnStatusPB.TXN_STATUS_PREPARED)
+                    .build();
+            Mockito.when(proxy.getTxn(Mockito.any())).thenReturn(Cloud.GetTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
+                    .setTxnInfo(txnInfo).build());
+            AbortTxnResponse.Builder response = AbortTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(alreadyAborted ? MetaServiceCode.TXN_ALREADY_ABORTED : MetaServiceCode.OK));
+            if (!alreadyAborted) {
+                response.setTxnInfo(txnInfo.toBuilder().setStatus(Cloud.TxnStatusPB.TXN_STATUS_ABORTED)
+                        .setReason("User Cancelled"));
+            }
+            Mockito.when(proxy.abortTxn(Mockito.any())).thenReturn(response.build());
+
+            if (alreadyAborted) {
+                TransactionNotFoundException exception = Assertions.assertThrows(TransactionNotFoundException.class,
+                        () -> masterTransMgr.abortTransaction(CatalogTestUtil.testDbId1, transactionId,
+                                "User Cancelled"));
+                Assertions.assertTrue(exception.getMessage().contains("is already aborted"), exception.getMessage());
+            } else {
+                masterTransMgr.abortTransaction(CatalogTestUtil.testDbId1, transactionId, "User Cancelled");
+            }
+
+            Mockito.verify(job).beforeAborted(Mockito.any());
+            Mockito.verify(job).afterAborted(Mockito.any(), Mockito.eq(!alreadyAborted), Mockito.anyString());
+            Assertions.assertNull(masterTransMgr.getCallbackFactory().getCallback(jobId),
+                    "an aborted cloud DELETE must release its callback even when MS aborted it first");
+        } finally {
+            masterTransMgr.getCallbackFactory().removeCallback(jobId);
         }
     }
 
