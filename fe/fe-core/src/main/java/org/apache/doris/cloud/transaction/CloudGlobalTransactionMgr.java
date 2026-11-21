@@ -1124,14 +1124,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return partitionToSubTxnIds;
     }
 
-    private void getPartitionInfo(List<OlapTable> tableList,
+    private void getPartitionInfo(Map<Long, OlapTable> tableMap,
             List<TabletCommitInfo> tabletCommitInfos,
             DeleteBitmapUpdateLockContext lockContext) throws MetaNotFoundException {
-        Map<Long, OlapTable> tableMap = Maps.newHashMap();
-        for (OlapTable olapTable : tableList) {
-            tableMap.put(olapTable.getId(), olapTable);
-        }
-
         List<Long> tabletIds = tabletCommitInfos.stream()
                 .map(TabletCommitInfo::getTabletId).collect(Collectors.toList());
         TabletInvertedIndex tabletInvertedIndex = Env.getCurrentEnv().getTabletInvertedIndex();
@@ -1185,8 +1180,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             partitionToTablets.get(partitionId).add(tabletId);
             lockContext.getPartitions().putIfAbsent(partitionId, partition);
         }
-        if (!tableList.isEmpty() && !tabletCommitInfos.isEmpty() && lockContext.getTableToTabletList().isEmpty()) {
-            String tableListDebugStr = tableList.stream().map(table -> String.valueOf(table.getId()))
+        if (!tableMap.isEmpty() && !tabletCommitInfos.isEmpty() && lockContext.getTableToTabletList().isEmpty()) {
+            String tableListDebugStr = tableMap.keySet().stream().map(String::valueOf)
                     .collect(Collectors.joining(", "));
             String tabletMetaDebugStr = tabletMetaList.stream().map(TabletMeta::toString)
                     .collect(Collectors.joining("\n"));
@@ -1320,13 +1315,18 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         boolean res = false;
         long startTime = System.currentTimeMillis();
         try {
-            getPartitionInfo(mowTableList, tabletCommitInfos, lockContext);
+            Map<Long, OlapTable> tableMap = Maps.newHashMap();
+            for (OlapTable table : mowTableList) {
+                tableMap.put(table.getId(), table);
+            }
+            getPartitionInfo(tableMap, tabletCommitInfos, lockContext);
             for (Map.Entry<Long, Set<Long>> entry : lockContext.getTableToPartitions().entrySet()) {
                 GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder()
                         .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 long tableId = entry.getKey();
                 builder.setTableId(tableId).setLockId(transactionId).setInitiator(-1)
                         .setExpiration(Config.delete_bitmap_lock_expiration_seconds).setRequireCompactionStats(true);
+                tableMap.get(tableId).getEnableDeleteBitmapLockV2().ifPresent(builder::setEnableDeleteBitmapLockV2);
                 List<Long> tabletList = lockContext.getTableToTabletList().get(tableId);
                 for (Long tabletId : tabletList) {
                     TabletMeta tabletMeta = lockContext.getTabletToTabletMeta().get(tabletId);
@@ -1496,6 +1496,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             builder.setTableId(table.getId())
                     .setLockId(transactionId)
                     .setInitiator(-1);
+            table.getEnableDeleteBitmapLockV2().ifPresent(builder::setEnableDeleteBitmapLockV2);
             final RemoveDeleteBitmapUpdateLockRequest request = builder.build();
             RemoveDeleteBitmapUpdateLockResponse response = null;
             try {

@@ -33,6 +33,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <string>
 #include <string_view>
@@ -6733,6 +6734,76 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     testGetDeleteBitmapUpdateLock(2, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
     testGetDeleteBitmapUpdateLock(1, COMPACTION_DELETE_BITMAP_LOCK_ID);
     testGetDeleteBitmapUpdateLock(1, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
+}
+
+TEST(MetaServiceTest, TableDeleteBitmapLockVersion) {
+    auto old_white_list = config::delete_bitmap_lock_v2_white_list;
+    DORIS_CLOUD_DEFER {
+        config::delete_bitmap_lock_v2_white_list = old_white_list;
+    };
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+    constexpr int64_t initiator = 100;
+
+    auto exercise = [&](int64_t table_id, std::optional<bool> lock_v2, bool expect_v2) {
+        SCOPED_TRACE(table_id);
+        remove_delete_bitmap_lock(meta_service.get(), table_id);
+        DORIS_CLOUD_DEFER {
+            remove_delete_bitmap_lock(meta_service.get(), table_id);
+        };
+
+        GetDeleteBitmapUpdateLockRequest get;
+        get.set_cloud_unique_id("test_cloud_unique_id");
+        get.set_table_id(table_id);
+        get.set_lock_id(COMPACTION_DELETE_BITMAP_LOCK_ID);
+        get.set_initiator(initiator);
+        get.set_expiration(60);
+        GetDeleteBitmapUpdateLockResponse get_res;
+
+        UpdateDeleteBitmapRequest update;
+        update.set_cloud_unique_id(get.cloud_unique_id());
+        update.set_table_id(table_id);
+        update.set_tablet_id(table_id);
+        update.set_lock_id(get.lock_id());
+        update.set_initiator(initiator);
+        UpdateDeleteBitmapResponse update_res;
+
+        RemoveDeleteBitmapUpdateLockRequest remove;
+        remove.set_cloud_unique_id(get.cloud_unique_id());
+        remove.set_table_id(table_id);
+        remove.set_tablet_id(table_id);
+        remove.set_lock_id(get.lock_id());
+        remove.set_initiator(initiator);
+        RemoveDeleteBitmapUpdateLockResponse remove_res;
+
+        if (lock_v2.has_value()) {
+            get.set_enable_delete_bitmap_lock_v2(*lock_v2);
+            update.set_enable_delete_bitmap_lock_v2(*lock_v2);
+            remove.set_enable_delete_bitmap_lock_v2(*lock_v2);
+        }
+        meta_service->get_delete_bitmap_update_lock(&cntl, &get, &get_res, nullptr);
+        ASSERT_EQ(get_res.status().code(), MetaServiceCode::OK) << get_res.status().msg();
+        check_mow_tablet_job_key(meta_service.get(), table_id, initiator, expect_v2);
+
+        meta_service->update_delete_bitmap(&cntl, &update, &update_res, nullptr);
+        ASSERT_EQ(update_res.status().code(), MetaServiceCode::OK) << update_res.status().msg();
+        meta_service->remove_delete_bitmap_update_lock(&cntl, &remove, &remove_res, nullptr);
+        ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK) << remove_res.status().msg();
+        check_mow_tablet_job_key(meta_service.get(), table_id, initiator, false);
+
+        get.set_lock_id(888);
+        get.set_initiator(-1);
+        get_res.Clear();
+        meta_service->get_delete_bitmap_update_lock(&cntl, &get, &get_res, nullptr);
+        ASSERT_EQ(get_res.status().code(), MetaServiceCode::OK) << get_res.status().msg();
+    };
+
+    config::delete_bitmap_lock_v2_white_list = "";
+    exercise(501, true, true);
+    exercise(502, std::nullopt, false);
+    config::delete_bitmap_lock_v2_white_list = "test_instance";
+    exercise(503, false, false);
+    exercise(504, std::nullopt, true);
 }
 
 void testUrgentLoadDeleteBitmapLock(int lock_version) {

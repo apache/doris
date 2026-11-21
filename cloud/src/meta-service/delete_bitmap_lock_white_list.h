@@ -38,6 +38,15 @@ public:
     void update_white_list(std::string white_list);
     std::string get_delete_bitmap_lock_version(std::string instance_id);
 
+    template <typename LockContext>
+    std::string get_delete_bitmap_lock_version(const std::string& instance_id,
+                                               const LockContext& context) {
+        if (context.has_enable_delete_bitmap_lock_v2()) {
+            return context.enable_delete_bitmap_lock_v2() ? "v2" : "v1";
+        }
+        return get_delete_bitmap_lock_version(instance_id);
+    }
+
 private:
     std::set<std::string> _delete_bitmap_lock_v2_white_list_set;
     std::string _last_white_list_value;

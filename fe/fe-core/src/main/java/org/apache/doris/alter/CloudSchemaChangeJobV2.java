@@ -280,7 +280,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 } // end for rollupTablets
                 requestBuilder.setDbId(dbId);
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                        .sendCreateTabletsRpc(requestBuilder);
+                        .sendCreateTabletsRpc(requestBuilder, tbl);
             }
         }
     }

@@ -61,6 +61,7 @@ import org.mockito.Mockito;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 public class CloudInternalCatalogTest {
     private static final long ROW_TTL_DURATION_MICROS = 86_400_000_000L;
@@ -148,6 +149,37 @@ public class CloudInternalCatalogTest {
 
         Assertions.assertEquals(SegmentV2.CompressionTypePB.LZ4HC,
                 tabletMeta.getSchema().getCompressionType());
+    }
+
+    @Test
+    public void testCreateTabletsCarriesTableDeleteBitmapLockVersion() throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(proxy.createTablets(Mockito.any())).thenReturn(Cloud.CreateTabletsResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK))
+                .build());
+        OlapTable table = new OlapTable();
+        try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            for (Optional<Boolean> setting : Arrays.asList(Optional.<Boolean>empty(),
+                    Optional.of(false), Optional.of(true))) {
+                setting.ifPresent(table::setEnableDeleteBitmapLockV2);
+                Cloud.CreateTabletsRequest.Builder request = Cloud.CreateTabletsRequest.newBuilder()
+                        .setDbId(DB_ID)
+                        .addTabletMetas(OlapFile.TabletMetaCloudPB.newBuilder().setTabletId(100L))
+                        .addTabletMetas(OlapFile.TabletMetaCloudPB.newBuilder().setTabletId(101L));
+                catalog.sendCreateTabletsRpc(request, table);
+                ArgumentCaptor<Cloud.CreateTabletsRequest> sent =
+                        ArgumentCaptor.forClass(Cloud.CreateTabletsRequest.class);
+                Mockito.verify(proxy).createTablets(sent.capture());
+                Assertions.assertEquals(2, sent.getValue().getTabletMetasCount());
+                for (OlapFile.TabletMetaCloudPB meta : sent.getValue().getTabletMetasList()) {
+                    Assertions.assertEquals(setting.isPresent(), meta.hasEnableDeleteBitmapLockV2());
+                    boolean expected = setting.orElse(false);
+                    Assertions.assertEquals(expected, meta.getEnableDeleteBitmapLockV2());
+                }
+                Mockito.clearInvocations(proxy);
+            }
+        }
     }
 
     @Test

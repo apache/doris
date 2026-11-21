@@ -4522,7 +4522,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
 
     std::string use_version =
-            delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
+            delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id, *request);
     RPC_RATE_LIMIT(update_delete_bitmap)
 
     uint64_t fdb_txn_size = 0;
@@ -6069,7 +6069,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
     }
     RPC_RATE_LIMIT(get_delete_bitmap_update_lock)
     std::string use_version =
-            delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
+            delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id, *request);
     LOG(INFO) << "get_delete_bitmap_update_lock instance_id=" << instance_id
               << " use_version=" << use_version;
     if (use_version == "v2") {
@@ -6107,7 +6107,7 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
     }
     RPC_RATE_LIMIT(remove_delete_bitmap_update_lock)
     std::string use_version =
-            delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
+            delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id, *request);
     LOG(INFO) << "remove_delete_bitmap_update_lock instance_id=" << instance_id
               << " use_version=" << use_version;
     if (use_version == "v2") {

@@ -127,7 +127,7 @@ Status CloudBaseCompaction::request_global_lock() {
     compaction_job->set_expiration(_expiration);
     compaction_job->set_lease(now + config::lease_compaction_interval_seconds * 4);
     cloud::StartTabletJobResponse resp;
-    auto st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
+    auto st = _engine.meta_mgr().prepare_tablet_job(*cloud_tablet(), job, &resp);
     cloud_tablet()->set_last_base_compaction_status(st.to_string());
     if (resp.has_alter_version()) {
         (static_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());

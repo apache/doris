@@ -2892,6 +2892,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 
+        String lockV2Property = properties.remove(PropertyAnalyzer.ENABLE_DELETE_BITMAP_LOCK_V2);
+        if (Config.isCloudMode() && enableUniqueKeyMergeOnWrite) {
+            if (lockV2Property != null
+                    && !"true".equalsIgnoreCase(lockV2Property) && !"false".equalsIgnoreCase(lockV2Property)) {
+                throw new DdlException(PropertyAnalyzer.ENABLE_DELETE_BITMAP_LOCK_V2 + " must be true or false");
+            }
+            olapTable.setEnableDeleteBitmapLockV2(lockV2Property == null || Boolean.parseBoolean(lockV2Property));
+        } else if (lockV2Property != null) {
+            throw new DdlException(PropertyAnalyzer.ENABLE_DELETE_BITMAP_LOCK_V2
+                    + " is only supported for cloud merge-on-write tables");
+        }
+
         if (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite) {
             try {
                 // don't store this property, check and remove it from `properties`

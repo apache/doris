@@ -301,6 +301,7 @@ public class PropertyAnalyzer {
     // For the detail design, see the [DISP-018](https://cwiki.apache.org/confluence/
     // display/DORIS/DSIP-018%3A+Support+Merge-On-Write+implementation+for+UNIQUE+KEY+data+model)
     public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
+    public static final String ENABLE_DELETE_BITMAP_LOCK_V2 = "enable_delete_bitmap_lock_v2";
     public static final String ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN = "enable_unique_key_skip_bitmap_column";
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     public static final String COMMA_SEPARATOR = ",";

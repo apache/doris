@@ -254,7 +254,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
             } // end for rollupTablets
             requestBuilder.setDbId(dbId);
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                    .sendCreateTabletsRpc(requestBuilder);
+                    .sendCreateTabletsRpc(requestBuilder, tbl);
         }
     }
 

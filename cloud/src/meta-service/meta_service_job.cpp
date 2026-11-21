@@ -388,6 +388,9 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
     if (!job_pb.has_idx()) {
         job_pb.mutable_idx()->CopyFrom(request->job().idx());
     }
+    if (request->job().has_enable_delete_bitmap_lock_v2()) {
+        job_pb.set_enable_delete_bitmap_lock_v2(request->job().enable_delete_bitmap_lock_v2());
+    }
     job_pb.add_compaction()->CopyFrom(compaction);
     job_pb.SerializeToString(&job_val);
     if (job_val.empty()) {
@@ -523,6 +526,9 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
         return;
     }
     job_pb.mutable_idx()->CopyFrom(request->job().idx());
+    if (request->job().has_enable_delete_bitmap_lock_v2()) {
+        job_pb.set_enable_delete_bitmap_lock_v2(request->job().enable_delete_bitmap_lock_v2());
+    }
     // FE can ensure that a tablet does not have more than one schema_change job at the same time,
     // so we can directly preempt previous schema_change job.
     job_pb.mutable_schema_change()->CopyFrom(schema_change);
@@ -627,8 +633,8 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
     };
 
     if (!request->job().compaction().empty()) {
-        std::string use_version =
-                delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
+        std::string use_version = delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(
+                instance_id, request->job());
         start_compaction_job(code, msg, ss, txn, request, response, instance_id, need_commit,
                              is_versioned_read, resource_mgr_.get(), use_version);
         return;
@@ -2214,8 +2220,8 @@ void _finish_tablet_job(const FinishTabletJobRequest* request, FinishTabletJobRe
                    << " job=" << proto_to_json(recorded_job);
         FinishTabletJobRequest_Action action = request->action();
 
-        std::string use_version =
-                delete_bitmap_lock_white_list->get_delete_bitmap_lock_version(instance_id);
+        std::string use_version = delete_bitmap_lock_white_list->get_delete_bitmap_lock_version(
+                instance_id, recorded_job);
         LOG(INFO) << "finish_tablet_job instance_id=" << instance_id
                   << " use_version=" << use_version;
         if (!request->job().compaction().empty()) {

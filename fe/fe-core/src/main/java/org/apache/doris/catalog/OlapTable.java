@@ -3369,6 +3369,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         getOrCreatTableProperty().setEnableUniqueKeyMergeOnWrite(speedup);
     }
 
+    public void setEnableDeleteBitmapLockV2(boolean enable) {
+        getOrCreatTableProperty().modifyTableProperties(
+                PropertyAnalyzer.ENABLE_DELETE_BITMAP_LOCK_V2, Boolean.toString(enable));
+    }
+
+    // Absence identifies tables whose lock version is still selected by Meta Service configuration.
+    public Optional<Boolean> getEnableDeleteBitmapLockV2() {
+        return Optional.ofNullable(tableProperty)
+                .map(property -> property.getProperties().get(PropertyAnalyzer.ENABLE_DELETE_BITMAP_LOCK_V2))
+                .map(Boolean::parseBoolean);
+    }
+
     public boolean getEnableUniqueKeySkipBitmap() {
         return hasSkipBitmapColumn();
     }
