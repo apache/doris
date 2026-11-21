@@ -43,11 +43,20 @@ suite("test_flight_cancel_cleanup", "arrow_flight_sql") {
         def info = client.execute(query, auth)
         def rows = 0
         info.endpoints.each { endpoint ->
-            FlightClient.builder(allocator, endpoint.locations[0]).build().withCloseable { beClient ->
-                beClient.getStream(endpoint.ticket, auth).withCloseable { stream ->
+            def readFrom = { FlightClient reader ->
+                reader.getStream(endpoint.ticket, auth).withCloseable { stream ->
                     while (stream.next()) {
                         rows += stream.root.rowCount
                     }
+                }
+            }
+            // An endpoint with no location (an FE-held result under arrow_flight_fe_result_empty_location) is
+            // redeemed on the client that issued the ticket, as the Flight SQL JDBC driver does.
+            if (endpoint.locations.isEmpty()) {
+                readFrom(feClient)
+            } else {
+                FlightClient.builder(allocator, endpoint.locations[0]).build().withCloseable { beClient ->
+                    readFrom(beClient)
                 }
             }
         }
