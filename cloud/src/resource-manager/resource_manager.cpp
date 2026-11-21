@@ -24,6 +24,7 @@
 #include <sstream>
 
 #include "common/logging.h"
+#include "common/network_util.h"
 #include "common/string_util.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -427,9 +428,9 @@ static std::pair<std::set<std::string>, std::set<std::string>> get_nodes_endpoin
             const auto& [addr, port] =
                     get_node_endpoint_from_cluster(instance_cluster.type(), node);
             if (ClusterPB::SQL == instance_cluster.type()) {
-                instance_sql_node_endpoints.insert(addr + ":" + std::to_string(port));
+                instance_sql_node_endpoints.insert(get_host_port(addr, port));
             } else if (ClusterPB::COMPUTE == instance_cluster.type()) {
-                instance_compute_node_endpoints.insert(addr + ":" + std::to_string(port));
+                instance_compute_node_endpoints.insert(get_host_port(addr, port));
             }
         }
     }
@@ -459,7 +460,7 @@ static std::pair<MetaServiceCode, std::string> check_node_has_been_registered(
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
     }
 
-    std::string node_endpoint = addr + ":" + std::to_string(port);
+    std::string node_endpoint = get_host_port(addr, port);
 
     if (type == ClusterPB::SQL) {
         if (fe_endpoints_registered.count(node_endpoint)) {
@@ -1166,13 +1167,11 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         bool is_compute_node = n.node_info.has_heartbeat_port();
         for (auto it = c.nodes().begin(); it != c.nodes().end(); ++it) {
             if (it->has_ip() && n.node_info.has_ip()) {
-                std::string c_endpoint = it->ip() + ":" +
-                                         (is_compute_node ? std::to_string(it->heartbeat_port())
-                                                          : std::to_string(it->edit_log_port()));
-                std::string n_endpoint =
-                        n.node_info.ip() + ":" +
-                        (is_compute_node ? std::to_string(n.node_info.heartbeat_port())
-                                         : std::to_string(n.node_info.edit_log_port()));
+                std::string c_endpoint = get_host_port(
+                        it->ip(), is_compute_node ? it->heartbeat_port() : it->edit_log_port());
+                std::string n_endpoint = get_host_port(
+                        n.node_info.ip(), is_compute_node ? n.node_info.heartbeat_port()
+                                                          : n.node_info.edit_log_port());
                 if (c_endpoint == n_endpoint) {
                     // replicate request, do nothing
                     return "";
@@ -1180,14 +1179,11 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
             }
 
             if (it->has_host() && n.node_info.has_host()) {
-                std::string c_endpoint_host =
-                        it->host() + ":" +
-                        (is_compute_node ? std::to_string(it->heartbeat_port())
-                                         : std::to_string(it->edit_log_port()));
-                std::string n_endpoint_host =
-                        n.node_info.host() + ":" +
-                        (is_compute_node ? std::to_string(n.node_info.heartbeat_port())
-                                         : std::to_string(n.node_info.edit_log_port()));
+                std::string c_endpoint_host = get_host_port(
+                        it->host(), is_compute_node ? it->heartbeat_port() : it->edit_log_port());
+                std::string n_endpoint_host = get_host_port(
+                        n.node_info.host(), is_compute_node ? n.node_info.heartbeat_port()
+                                                            : n.node_info.edit_log_port());
                 if (c_endpoint_host == n_endpoint_host) {
                     // replicate request, do nothing
                     return "";
@@ -1244,15 +1240,14 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         for (auto it = start; it != end; ++it) {
             const auto& m_node = it->second.node_info;
             if (m_node.has_ip() && n.node_info.has_ip()) {
-                std::string m_endpoint =
-                        m_node.ip() + ":" +
-                        (m_node.has_heartbeat_port() ? std::to_string(m_node.heartbeat_port())
-                                                     : std::to_string(m_node.edit_log_port()));
+                std::string m_endpoint = get_host_port(
+                        m_node.ip(), m_node.has_heartbeat_port() ? m_node.heartbeat_port()
+                                                                 : m_node.edit_log_port());
 
-                std::string n_endpoint = n.node_info.ip() + ":" +
-                                         (n.node_info.has_heartbeat_port()
-                                                  ? std::to_string(n.node_info.heartbeat_port())
-                                                  : std::to_string(n.node_info.edit_log_port()));
+                std::string n_endpoint =
+                        get_host_port(n.node_info.ip(), n.node_info.has_heartbeat_port()
+                                                                ? n.node_info.heartbeat_port()
+                                                                : n.node_info.edit_log_port());
 
                 if (m_endpoint == n_endpoint) {
                     found = true;
@@ -1261,16 +1256,14 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
             }
 
             if (m_node.has_host() && n.node_info.has_host()) {
-                std::string m_endpoint_host =
-                        m_node.host() + ":" +
-                        (m_node.has_heartbeat_port() ? std::to_string(m_node.heartbeat_port())
-                                                     : std::to_string(m_node.edit_log_port()));
+                std::string m_endpoint_host = get_host_port(
+                        m_node.host(), m_node.has_heartbeat_port() ? m_node.heartbeat_port()
+                                                                   : m_node.edit_log_port());
 
                 std::string n_endpoint_host =
-                        n.node_info.host() + ":" +
-                        (n.node_info.has_heartbeat_port()
-                                 ? std::to_string(n.node_info.heartbeat_port())
-                                 : std::to_string(n.node_info.edit_log_port()));
+                        get_host_port(n.node_info.host(), n.node_info.has_heartbeat_port()
+                                                                  ? n.node_info.heartbeat_port()
+                                                                  : n.node_info.edit_log_port());
 
                 if (m_endpoint_host == n_endpoint_host) {
                     found = true;
@@ -1307,14 +1300,12 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
             idx++;
             if (cn.has_ip() && ni.has_ip()) {
                 std::string cn_endpoint =
-                        cn.ip() + ":" +
-                        (cn.has_heartbeat_port() ? std::to_string(cn.heartbeat_port())
-                                                 : std::to_string(cn.edit_log_port()));
+                        get_host_port(cn.ip(), cn.has_heartbeat_port() ? cn.heartbeat_port()
+                                                                       : cn.edit_log_port());
 
                 std::string ni_endpoint =
-                        ni.ip() + ":" +
-                        (ni.has_heartbeat_port() ? std::to_string(ni.heartbeat_port())
-                                                 : std::to_string(ni.edit_log_port()));
+                        get_host_port(ni.ip(), ni.has_heartbeat_port() ? ni.heartbeat_port()
+                                                                       : ni.edit_log_port());
 
                 if (ni.cloud_unique_id() == cn.cloud_unique_id() && cn_endpoint == ni_endpoint) {
                     copy_node.CopyFrom(cn);
@@ -1325,14 +1316,12 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
 
             if (cn.has_host() && ni.has_host()) {
                 std::string cn_endpoint_host =
-                        cn.host() + ":" +
-                        (cn.has_heartbeat_port() ? std::to_string(cn.heartbeat_port())
-                                                 : std::to_string(cn.edit_log_port()));
+                        get_host_port(cn.host(), cn.has_heartbeat_port() ? cn.heartbeat_port()
+                                                                         : cn.edit_log_port());
 
                 std::string ni_endpoint_host =
-                        ni.host() + ":" +
-                        (ni.has_heartbeat_port() ? std::to_string(ni.heartbeat_port())
-                                                 : std::to_string(ni.edit_log_port()));
+                        get_host_port(ni.host(), ni.has_heartbeat_port() ? ni.heartbeat_port()
+                                                                         : ni.edit_log_port());
 
                 if (ni.cloud_unique_id() == cn.cloud_unique_id() &&
                     cn_endpoint_host == ni_endpoint_host) {

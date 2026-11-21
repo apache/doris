@@ -26,7 +26,10 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
-#include <sstream>
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
@@ -37,16 +40,25 @@ namespace doris::cloud {
 
 class CIDR {
 public:
-    CIDR() : address_(0), netmask_(0xffffffff) {}
     bool reset(const std::string& cidr_str) {
-        address_ = 0;
-        netmask_ = 0xffffffff;
+        address_.fill(0);
 
         // check if have mask
         std::string cidr_format_str = cidr_str;
         int32_t have_mask = cidr_str.find("/");
+        std::string ip_str = have_mask == -1 ? cidr_str : cidr_str.substr(0, have_mask);
+        if (inet_pton(AF_INET, ip_str.c_str(), address_.data())) {
+            family_ = AF_INET;
+            netmask_len_ = kIPv4Bits;
+        } else if (inet_pton(AF_INET6, ip_str.c_str(), address_.data())) {
+            family_ = AF_INET6;
+            netmask_len_ = kIPv6Bits;
+        } else {
+            LOG(WARNING) << "wrong CIDR IP value. network=" << cidr_str;
+            return false;
+        }
         if (have_mask == -1) {
-            cidr_format_str.assign(cidr_str + "/32");
+            cidr_format_str.assign(cidr_str + "/" + std::to_string(netmask_len_));
         }
         VLOG_DEBUG << "cidr format str: " << cidr_format_str;
 
@@ -73,71 +85,61 @@ public:
                          << ", errmsg=" << errmsg << ", strerror_r returns=" << ret;
             return false;
         }
-        if (mask_length <= 0 || mask_length > 32) {
+        if (mask_length <= 0 || mask_length > netmask_len_) {
             LOG(WARNING) << "wrong CIDR mask format. network=" << cidr_str
                          << ", mask_length=" << mask_length;
             return false;
         }
-
-        uint32_t address = 0;
-        if (!ip_to_int(cidr_items[0], &address)) {
-            LOG(WARNING) << "wrong CIDR IP value. network=" << cidr_str;
-            return false;
-        }
-        address_ = address;
-
-        netmask_ = 0xffffffff;
-        netmask_ = netmask_ << (32 - mask_length);
+        netmask_len_ = mask_length;
         return true;
     }
     bool contains(const std::string& ip) {
-        uint32_t ip_int = 0;
-        if (!ip_to_int(ip, &ip_int)) {
+        CIDR ip_cidr;
+        if (!ip_cidr.reset(ip)) {
             return false;
         }
-        if ((address_ & netmask_) == (ip_int & netmask_)) {
+        if ((family_ != ip_cidr.family_) || (netmask_len_ > ip_cidr.netmask_len_)) {
+            return false;
+        }
+        auto bytes = netmask_len_ / 8;
+        auto cidr_begin = address_.cbegin();
+        auto ip_begin = ip_cidr.address_.cbegin();
+        if (!std::equal(cidr_begin, cidr_begin + bytes, ip_begin, ip_begin + bytes)) {
+            return false;
+        }
+        if ((netmask_len_ % 8) == 0) {
             return true;
         }
-        return false;
+        auto mask = (0xFF << (8 - (netmask_len_ % 8))) & 0xFF;
+        return (address_[bytes] & mask) == (ip_cidr.address_[bytes] & mask);
     }
 
 private:
-    bool ip_to_int(const std::string& ip_str, uint32_t* value) {
-        struct in_addr addr;
-        int flag = inet_aton(ip_str.c_str(), &addr);
-        if (flag == 0) {
-            return false;
-        }
-        *value = ntohl(addr.s_addr);
-        return true;
-    }
+    static constexpr std::uint8_t kIPv4Bits = 32;
+    static constexpr std::uint8_t kIPv6Bits = 128;
 
-    uint32_t address_;
-    uint32_t netmask_;
+    sa_family_t family_ = AF_UNSPEC;
+    std::array<std::uint8_t, 16> address_;
+    int32_t netmask_len_ = 0;
 };
 
 class InetAddress {
 public:
-    InetAddress(struct sockaddr* addr) { this->addr_ = *(struct sockaddr_in*)addr; }
-    bool is_address_v4() const { return addr_.sin_family == AF_INET; }
-    bool is_loopback_v4() const {
-        in_addr_t s_addr = addr_.sin_addr.s_addr;
-        return (ntohl(s_addr) & 0xFF000000) == 0x7F000000;
-    }
-    std::string get_host_address_v4() {
-        char addr_buf[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &(addr_.sin_addr), addr_buf, INET_ADDRSTRLEN);
-        return std::string(addr_buf);
-    }
+    InetAddress(std::string ip, sa_family_t family, bool is_loopback)
+            : ip_addr_(std::move(ip)), family_(family), is_loopback_(is_loopback) {}
+    bool is_loopback() const { return is_loopback_; }
+    bool is_ipv6() const { return family_ == AF_INET6; }
+    const std::string& get_host_address() const { return ip_addr_; }
 
 private:
-    struct sockaddr_in addr_;
+    std::string ip_addr_;
+    sa_family_t family_;
+    bool is_loopback_;
 };
 
-static bool get_hosts_v4(std::vector<InetAddress>* hosts) {
+static bool get_hosts(std::vector<InetAddress>* hosts) {
     ifaddrs* if_addrs = nullptr;
     if (getifaddrs(&if_addrs)) {
-        std::stringstream ss;
         char buf[64];
         LOG(FATAL) << "getifaddrs failed because " << strerror_r(errno, buf, sizeof(buf));
         return false;
@@ -147,9 +149,20 @@ static bool get_hosts_v4(std::vector<InetAddress>* hosts) {
         if (!if_addr->ifa_addr) {
             continue;
         }
-        if (if_addr->ifa_addr->sa_family == AF_INET) { // check it is IP4
-            // is a valid IP4 Address
-            hosts->emplace_back(if_addr->ifa_addr);
+        auto addr = if_addr->ifa_addr;
+        if (addr->sa_family == AF_INET) {
+            char addr_buf[INET_ADDRSTRLEN];
+            auto tmp_addr = &((struct sockaddr_in*)addr)->sin_addr;
+            inet_ntop(AF_INET, tmp_addr, addr_buf, INET_ADDRSTRLEN);
+            in_addr_t s_addr = ((struct sockaddr_in*)addr)->sin_addr.s_addr;
+            bool is_loopback = (ntohl(s_addr) & 0xFF000000) == 0x7F000000;
+            hosts->emplace_back(std::string(addr_buf), AF_INET, is_loopback);
+        } else if (addr->sa_family == AF_INET6) {
+            char addr_buf[INET6_ADDRSTRLEN];
+            auto tmp_addr = &((struct sockaddr_in6*)addr)->sin6_addr;
+            inet_ntop(AF_INET6, tmp_addr, addr_buf, sizeof(addr_buf));
+            bool is_loopback = IN6_IS_ADDR_LOOPBACK(tmp_addr);
+            hosts->emplace_back(std::string(addr_buf), AF_INET6, is_loopback);
         }
     }
 
@@ -163,10 +176,13 @@ static bool get_hosts_v4(std::vector<InetAddress>* hosts) {
 std::string get_local_ip(const std::string& priority_networks) {
     std::string localhost_str = butil::my_ip_cstr();
     DORIS_CLOUD_DEFER {
-        // Check if ip eq 127.0.0.1, ms/recycler exit
+        // Check if ip is loopback, ms/recycler exit
         LOG(INFO) << "get the IP for ms is " << localhost_str;
-        if (config::enable_loopback_address_for_ms || localhost_str != "127.0.0.1") return;
-        LOG(WARNING) << "localhost IP is loopback address (127.0.0.1), "
+        if (config::enable_loopback_address_for_ms ||
+            (localhost_str != "127.0.0.1" && localhost_str != "::1")) {
+            return;
+        }
+        LOG(WARNING) << "localhost IP is loopback address (" << localhost_str << "), "
                      << "there may be multiple NICs for use, "
                      << "please set priority_networks with a CIDR expression in doris_cloud.conf "
                      << "to choose a non-loopback address accordingly";
@@ -191,7 +207,7 @@ std::string get_local_ip(const std::string& priority_networks) {
     }
 
     std::vector<InetAddress> hosts;
-    if (!get_hosts_v4(&hosts)) {
+    if (!get_hosts(&hosts)) {
         LOG(FATAL) << "failed to getifaddrs";
         return localhost_str;
     }
@@ -213,20 +229,23 @@ std::string get_local_ip(const std::string& priority_networks) {
     std::string loopback;
     localhost_str = "";
     for (auto addr_it = hosts.begin(); addr_it != hosts.end(); ++addr_it) {
-        if ((*addr_it).is_address_v4()) {
-            VLOG_DEBUG << "check ip=" << addr_it->get_host_address_v4();
-            if ((*addr_it).is_loopback_v4()) {
-                loopback = addr_it->get_host_address_v4();
-            } else if (!priority_cidrs.empty()) {
-                if (is_in_prior_network(addr_it->get_host_address_v4())) {
-                    localhost_str = addr_it->get_host_address_v4();
-
-                    break;
-                }
-            } else {
-                localhost_str = addr_it->get_host_address_v4();
+        VLOG_DEBUG << "check ip=" << addr_it->get_host_address();
+        if ((*addr_it).is_loopback()) {
+            if (!priority_cidrs.empty() && is_in_prior_network(addr_it->get_host_address())) {
+                localhost_str = addr_it->get_host_address();
                 break;
             }
+            if (loopback.empty()) {
+                loopback = addr_it->get_host_address();
+            }
+        } else if (!priority_cidrs.empty()) {
+            if (is_in_prior_network(addr_it->get_host_address())) {
+                localhost_str = addr_it->get_host_address();
+                break;
+            }
+        } else {
+            localhost_str = addr_it->get_host_address();
+            break;
         }
     }
     if (!localhost_str.empty()) {
@@ -246,6 +265,26 @@ std::string get_local_ip(const std::string& priority_networks) {
     }
 
     return localhost_str;
+}
+
+std::string get_service_bind_address(const std::string& priority_networks) {
+    if (priority_networks.empty()) {
+        return "0.0.0.0";
+    }
+    // Only IPv6 addresses contain ':'.
+    const std::string ip = get_local_ip(priority_networks);
+    return ip.find(':') != std::string::npos ? "[::0]" : "0.0.0.0";
+}
+
+std::string get_host_port(const std::string& host, int port) {
+    std::stringstream ss;
+    if (host.find(':') == std::string::npos) {
+        ss << host << ":" << port;
+    } else {
+        ss << "[" << host << "]"
+           << ":" << port;
+    }
+    return ss.str();
 }
 
 } // namespace doris::cloud
