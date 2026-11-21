@@ -18,6 +18,7 @@
 #pragma once
 
 #include <bvar/latency_recorder.h>
+#include <bvar/reducer.h>
 
 #include <chrono>
 
@@ -47,6 +48,7 @@ extern bvar::LatencyRecorder s3_get_latency;
 extern bvar::LatencyRecorder s3_put_latency;
 extern bvar::LatencyRecorder s3_delete_object_latency;
 extern bvar::LatencyRecorder s3_delete_objects_latency;
+extern bvar::Adder<int64_t> s3_deleted_objects_total;
 extern bvar::LatencyRecorder s3_head_latency;
 extern bvar::LatencyRecorder s3_multi_part_upload_latency;
 extern bvar::LatencyRecorder s3_list_latency;
