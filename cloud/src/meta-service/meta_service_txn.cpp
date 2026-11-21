@@ -4189,7 +4189,15 @@ void MetaServiceImpl::get_txn(::google::protobuf::RpcController* controller,
         // step 2: get txn info from label pb
         TxnLabelPB label_pb;
         if (err == TxnErrorCode::TXN_OK) {
-            if (label_val.size() <= VERSION_STAMP_LEN ||
+            // begin_txn commits the label with only its version stamp before it writes the first
+            // transaction, so a label in that window has no transaction yet, as get_txn_id reports.
+            if (label_val.size() == VERSION_STAMP_LEN) {
+                code = MetaServiceCode::TXN_ID_NOT_FOUND;
+                ss << "Label [" << label << "] has no transaction yet";
+                msg = ss.str();
+                return;
+            }
+            if (label_val.size() < VERSION_STAMP_LEN ||
                 !label_pb.ParseFromArray(label_val.data(), label_val.size() - VERSION_STAMP_LEN)) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                 ss << "label_pb->ParseFromString() failed, txn_id=" << txn_id << " label=" << label;
