@@ -63,10 +63,14 @@ public abstract class ComparisonPredicate extends BinaryOperator {
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         for (Expression c : children) {
-            if (c.getDataType().isComplexType() && !c.getDataType().isArrayType()) {
+            DataType type = c.getDataType();
+            if (type.isComplexType() && !type.isArrayType()) {
                 throw new AnalysisException("comparison predicate could not contains complex type: " + this.toSql());
-            } else if (c.getDataType().isJsonType()) {
+            } else if (type.isJsonType()) {
                 throw new AnalysisException("comparison predicate could not contains json type: " + this.toSql());
+            } else if (type.isSpatialType()
+                    || (type.isArrayType() && type.toCatalogDataType().typeContainsSpatialType())) {
+                throw new AnalysisException("comparison predicate does not support spatial arguments: " + toSql());
             }
         }
         checkScoreComparisonType();

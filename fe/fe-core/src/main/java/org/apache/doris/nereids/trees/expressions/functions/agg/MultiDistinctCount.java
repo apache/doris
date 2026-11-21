@@ -65,6 +65,18 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     }
 
     @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (getArgument(0).getDataType().toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("multi_distinct_count does not support spatial arguments");
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
+    }
+
+    @Override
     public MultiDistinctCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1, "MultiDistinctCount's children size must be 1");
         return new MultiDistinctCount(getFunctionParams(false, children));

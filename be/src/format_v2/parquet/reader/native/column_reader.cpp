@@ -212,8 +212,7 @@ Status validate_physical_annotation(const NativeFieldSchema& field) {
                            "FLOAT16");
         }
         if (logical.__isset.GEOMETRY || logical.__isset.GEOGRAPHY) {
-            // Geospatial WKB has no Doris logical mapping here; keep its BYTE_ARRAY payload raw so
-            // reader validation preserves the physical fallback chosen by native schema inference.
+            // Both typed spatial scans and Hive's raw-byte view use the same physical carrier.
             return require(field.physical_type == tparquet::Type::BYTE_ARRAY, "geospatial");
         }
         if (logical.__isset.UNKNOWN) {

@@ -28,6 +28,7 @@
 #include "core/data_type/data_type.h"
 #include "core/types.h"
 #include "exprs/function/function.h"
+#include "exprs/function/geo/spatial_wkb_validation.h"
 #include "exprs/function_context.h"
 
 namespace doris {
@@ -46,6 +47,8 @@ struct StConstructState {
     std::string encoded_buf;
 };
 
+class GeographyPointPolygonIndex;
+
 // Thread-local state of st_contains, st_within and the other relation functions: the decoded
 // shape of each constant argument, keyed by its encoded value. Decoding a polygon validates it,
 // which builds an index over all its edges, so a constant shape is decoded once per thread
@@ -56,6 +59,7 @@ struct StRelationState {
         std::string encoded;
         // nullptr if `encoded` is not a valid shape
         std::shared_ptr<GeoShape> shape;
+        std::shared_ptr<const GeographyPointPolygonIndex> polygon_index;
     };
     ConstShape args[2];
 };
@@ -69,7 +73,6 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return Impl::NUM_ARGS; }
     bool is_variadic() const override { return false; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<ReturnType>());
     }
@@ -89,6 +92,23 @@ public:
         } else {
             return Impl::execute(block, arguments, result);
         }
+    }
+};
+
+// Spatial WKB columns must remain visible to the implementation so it can validate the
+// serialized value before any file data is consumed.  Do not use this wrapper for legacy
+// geo functions or numeric constructors: their nullable arguments rely on the default
+// null propagation supplied by IFunction.
+template <typename Impl, bool RejectDimensions = true>
+class SpatialWkbGeoFunction : public GeoFunction<Impl> {
+public:
+    static FunctionPtr create() { return std::make_shared<SpatialWkbGeoFunction<Impl>>(); }
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        RETURN_IF_ERROR(validate_spatial_wkb_inputs(block, arguments, RejectDimensions));
+        return GeoFunction<Impl>::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
 

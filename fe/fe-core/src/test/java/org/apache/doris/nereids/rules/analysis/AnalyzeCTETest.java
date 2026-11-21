@@ -434,6 +434,30 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
     }
 
     @Test
+    public void testRecursiveUnionDistinctRejectsSpatialKeys() {
+        String wkb = "'0101000000000000000000F03F0000000000000040'";
+        String geography = "st_geogfromwkb(" + wkb + ")";
+        String recursiveQuery = "with recursive r as (select %s as k "
+                + "union %s select k from r where false) select k from r";
+        for (String key : List.of("st_geometryfromwkbtyped(" + wkb + ")", geography, "array(" + geography + ")")) {
+            String sql = String.format(recursiveQuery, key, "distinct");
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> analyzeRecursiveUnion(sql), sql);
+            Assertions.assertTrue(error.getMessage().contains("GROUP BY and DISTINCT do not support spatial keys"),
+                    error::getMessage);
+            analyzeRecursiveUnion(String.format(recursiveQuery, key, "all"));
+        }
+        analyzeRecursiveUnion(String.format(recursiveQuery, "cast(1 as int)", "distinct"));
+    }
+
+    private void analyzeRecursiveUnion(String sql) {
+        LogicalPlan plan = parser.parseSingle(sql);
+        StatementContext context = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        new NereidsPlanner(context).planWithLock(plan, PhysicalProperties.ANY,
+                ExplainCommand.ExplainLevel.ANALYZED_PLAN);
+    }
+
+    @Test
     public void testRecCteDatatypeException() {
         String sql = new StringBuilder().append("WITH RECURSIVE t1 AS (\n").append("    SELECT 1 AS number\n")
                 .append("UNION ALL\n").append("    SELECT number + 1 FROM t1 WHERE number < 100\n").append(")\n")

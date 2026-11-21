@@ -33,6 +33,7 @@
 #include "exprs/function/cast/cast_to_struct.h"
 #include "exprs/function/cast/cast_wrapper_decls.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2.h"
+#include "exprs/function/geo/spatial_wkb_validation.h"
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
@@ -79,6 +80,21 @@ WrapperType create_varbinary_wrapper(const DataTypePtr& from_type_untyped) {
     }
 
     return CastWrapper::create_unsupport_wrapper("Cast to Varbinary only support from String type");
+}
+
+WrapperType create_spatial_wrapper(const DataTypePtr& from_type) {
+    if (from_type->get_primitive_type() != TYPE_VARBINARY) {
+        return create_unsupport_wrapper("Cast to spatial type only supports raw Varbinary WKB");
+    }
+    return [](RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+              ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+              const NullMap::value_type* parent_null_map) {
+        auto target = target_column.type->create_column();
+        RETURN_IF_ERROR(append_spatial_wkb(source_column.column, *target, target_column.type,
+                                           parent_null_map));
+        target_column.column = std::move(target);
+        return Status::OK();
+    };
 }
 
 WrapperType bind_cast_executor(const CastOptions& options, const DataTypePtr& from_type,
@@ -396,6 +412,9 @@ WrapperType prepare_impl(const CastOptions& options, const DataTypePtr& origin_f
                                             options);
     case PrimitiveType::TYPE_VARBINARY:
         return create_varbinary_wrapper(from_type);
+    case PrimitiveType::TYPE_GEOMETRY:
+    case PrimitiveType::TYPE_GEOGRAPHY:
+        return create_spatial_wrapper(from_type);
     default:
         break;
     }

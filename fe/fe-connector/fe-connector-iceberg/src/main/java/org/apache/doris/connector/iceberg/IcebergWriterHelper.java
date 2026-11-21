@@ -459,7 +459,7 @@ final class IcebergWriterHelper {
         }
     }
 
-    private static String resolveFileFormatName(Table table, Map<String, String> properties) {
+    static String resolveFileFormatName(Table table, Map<String, String> properties) {
         if (properties.containsKey(WRITE_FORMAT)) {
             return properties.get(WRITE_FORMAT);
         }

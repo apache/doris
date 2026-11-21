@@ -108,6 +108,18 @@ public class PluginApiVersionWiringTest {
     }
 
     @Test
+    public void connectorPluginWithoutSpatialContractIsRefused() throws IOException {
+        ApiVersionGate gate = ApiVersionGate.forFamily("connector", ConnectorProvider.class);
+        Assertions.assertEquals(36, gate.getExpectedMajor());
+        ConnectorPluginManager manager = new ConnectorPluginManager();
+
+        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("35.0")));
+
+        Assertions.assertFalse(manager.getRegisteredTypes().contains("version_probe"),
+                "an upstream API-35 plugin without the spatial contract must not load");
+    }
+
+    @Test
     public void connectorPluginWithoutOpenCsvContractIsRefused() throws IOException {
         ConnectorPluginManager manager = new ConnectorPluginManager();
         manager.loadPlugins(Collections.singletonList(connectorPluginRoot("8.0")));

@@ -20,9 +20,12 @@
 #include <gtest/gtest.h>
 
 #include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
@@ -51,6 +54,54 @@ protected:
         }
         context->close();
         return status;
+    }
+
+    void check_spatial_binary_evolution(PrimitiveType primitive, bool nullable) {
+        const std::string wkb(
+                "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@",
+                21);
+        DataTypePtr source = std::make_shared<DataTypeSpatial>(primitive);
+        DataTypePtr target = std::make_shared<DataTypeVarbinary>();
+        if (nullable) {
+            source = make_nullable(source);
+            target = make_nullable(target);
+        }
+        auto column = source->create_column();
+        column->insert_data(wkb.data(), wkb.size());
+        if (nullable) {
+            column->insert_default();
+        }
+        Block block;
+        block.insert({std::move(column), source, "shape"});
+        auto expr = EvolutionCast::create_shared(target);
+        expr->add_child(VSlotRef::create_shared(0, 0, -1, source, "shape"));
+        int result = -1;
+        ASSERT_TRUE(execute(expr, &block, &result).ok());
+        const auto bytes = block.get_by_position(result).column;
+        EXPECT_EQ(bytes->get_data_at(0).to_string(), wkb);
+        if (nullable) {
+            EXPECT_TRUE(bytes->is_null_at(1));
+        }
+        block.clear();
+        EXPECT_EQ(bytes->get_data_at(0).to_string(), wkb);
+
+        auto constant_value = source->create_column();
+        constant_value->insert_data(wkb.data(), wkb.size());
+        Block constant_block;
+        constant_block.insert({ColumnConst::create(std::move(constant_value), 3), source, "shape"});
+        auto constant_expr = EvolutionCast::create_shared(target);
+        constant_expr->add_child(VSlotRef::create_shared(0, 0, -1, source, "shape"));
+        ASSERT_TRUE(execute(constant_expr, &constant_block, &result).ok());
+        EXPECT_EQ(constant_block.get_by_position(result).column->size(), 3);
+        EXPECT_EQ(constant_block.get_by_position(result).column->get_data_at(2).to_string(), wkb);
+
+        Block ordinary;
+        auto native = source->create_column();
+        native->insert_data(wkb.data(), wkb.size());
+        ordinary.insert({std::move(native), source, "shape"});
+        auto ordinary_cast = Cast::create_shared(target);
+        ordinary_cast->add_child(VSlotRef::create_shared(0, 0, -1, source, "shape"));
+        EXPECT_FALSE(execute(ordinary_cast, &ordinary, &result).ok());
     }
 
     DataTypePtr source_type = make_nullable(std::make_shared<DataTypeDateV2>());
@@ -227,6 +278,14 @@ TEST_F(EvolutionCastTest, OrdinaryEvolutionDoesNotEnablePaimonTruncation) {
     EXPECT_FALSE(nullable_column.is_null_at(0));
     const auto& column = assert_cast<const ColumnDateTimeV2&>(nullable_column.get_nested_column());
     EXPECT_EQ(column.get_data()[0].second(), 2);
+}
+
+TEST_F(EvolutionCastTest, SpatialEvolutionPreservesExplicitBinaryBytesAndNulls) {
+    for (auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        for (bool nullable : {false, true}) {
+            check_spatial_binary_evolution(primitive, nullable);
+        }
+    }
 }
 
 } // namespace doris::format

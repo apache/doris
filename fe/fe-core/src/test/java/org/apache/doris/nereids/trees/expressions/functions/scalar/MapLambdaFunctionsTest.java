@@ -73,6 +73,28 @@ public class MapLambdaFunctionsTest extends TestWithFeService {
     }
 
     @Test
+    public void testMapConstructionAndLambdasKeepSpatialValuesButRejectSpatialKeys() {
+        for (String spatialType : List.of("GEOMETRY('EPSG:3857')", "GEOGRAPHY")) {
+            String spatial = "CAST(NULL AS " + spatialType + ")";
+            String map = "map(1, " + spatial + ")";
+            for (String expr : List.of(map, "transform_keys((k, v) -> k + 1, " + map + ")",
+                    "map_apply((k, v) -> struct(k + 1, v), " + map + ")")) {
+                Expression result = analyze(expr);
+                Assertions.assertInstanceOf(MapType.class, result.getDataType(), expr);
+                Assertions.assertEquals(analyze(spatial).getDataType(),
+                        ((MapType) result.getDataType()).getValueType(), expr);
+            }
+            for (String expr : List.of("map(" + spatial + ", 1)",
+                    "transform_keys((k, v) -> v, " + map + ")",
+                    "map_apply((k, v) -> struct(v, k), " + map + ")")) {
+                Exception error = Assertions.assertThrows(Exception.class, () -> analyze(expr), expr);
+                Assertions.assertTrue(error.getMessage().toLowerCase(java.util.Locale.ROOT).contains("map"),
+                        error.getMessage());
+            }
+        }
+    }
+
+    @Test
     public void testMapLambdaWrappersAndTypes() {
         Expression mapApply = analyze("map_apply((k, v) -> struct(k + 1, v * 2), map(1, 10, 2, 20))");
         Assertions.assertTrue(mapApply instanceof MapFromEntries);

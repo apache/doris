@@ -278,7 +278,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visitLiteral(Literal literal, Statistics context) {
-        if (ColumnStatistic.UNSUPPORTED_TYPE.contains(literal.getDataType().toCatalogDataType())) {
+        if (ColumnStatistic.isUnsupportedType(literal.getDataType().toCatalogDataType())) {
             return ColumnStatistic.UNKNOWN;
         }
         double literalVal = literal.getDouble();

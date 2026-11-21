@@ -38,6 +38,8 @@ import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.GeographyType;
+import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.UuidType;
 import org.apache.doris.thrift.TExpr;
@@ -117,5 +119,16 @@ class FoldConstantRuleOnBETest extends ExpressionRewriteTestHelper {
                 constants, serialized, ExprId.createGenerator());
         Assertions.assertEquals(constants.size(), serialized.size());
         return new ArrayList<>(constants.values());
+    }
+
+    @Test
+    void testSkipSpatialCastAndNestedValues() {
+        for (org.apache.doris.nereids.types.DataType type : ImmutableList.of(
+                new GeometryType("OGC:CRS84"), new GeographyType("OGC:CRS84", "spherical"))) {
+            Assertions.assertTrue(collectConstants(new IsNull(new Cast(new NullLiteral(), type))).isEmpty());
+            ArrayLiteral values = new ArrayLiteral(ImmutableList.of(new NullLiteral(type)));
+            Expression nested = new ElementAt(new ArrayLiteral(ImmutableList.of(values)), new IntegerLiteral(1));
+            Assertions.assertTrue(collectConstants(nested).isEmpty());
+        }
     }
 }

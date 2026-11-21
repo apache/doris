@@ -60,6 +60,9 @@ suite("test_varbinary_sql_support") {
     order_qt_nested_bytes """SELECT id, from_binary(a[1]), from_binary(m['key']), from_binary(s.b)
                              FROM binary_sql_nested"""
 
+    order_qt_nested_hex_strings """SELECT id, cast(a as string), cast(m as string), cast(s as string)
+                                   FROM binary_sql_nested"""
+
     // A shuffle join on ARRAY<VARBINARY> keys hashes the elements' bytes in the exchange, and must match the same
     // rows as a broadcast join, which hashes no key in an exchange: ids 5 and 8 hold the same payload. Several
     // instances keep the exchange hashing; with one destination it sends every row there without hashing.

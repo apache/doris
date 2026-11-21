@@ -26,18 +26,22 @@
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_varbinary.h"
+#include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 
 namespace doris {
 
-class DataTypeVarbinarySerDe : public DataTypeSerDe {
-public:
-    DataTypeVarbinarySerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {}
+template <PrimitiveType Kind>
+class ColumnSpatial;
 
-    Status decode_bson_value(IColumn& column, const BsonValueView& value,
-                             const BsonDecodeContext& context) const override;
+// VARBINARY and spatial columns own binary StringViews. Bind the type so row loops
+// retain concrete column access rather than paying for an IColumn virtual call per value.
+template <typename ColumnType>
+class DataTypeVarbinarySerDeBase : public DataTypeSerDe {
+public:
+    DataTypeVarbinarySerDeBase(int nesting_level = 1) : DataTypeSerDe(nesting_level) {}
 
     std::string get_name() const override { return "Varbinary"; }
 
@@ -121,6 +125,19 @@ public:
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
+};
+
+extern template class DataTypeVarbinarySerDeBase<ColumnVarbinary>;
+extern template class DataTypeVarbinarySerDeBase<ColumnSpatial<TYPE_GEOMETRY>>;
+extern template class DataTypeVarbinarySerDeBase<ColumnSpatial<TYPE_GEOGRAPHY>>;
+
+// BSON ObjectId/BinData use VARBINARY; spatial WKB must retain the default BSON rejection.
+class DataTypeVarbinarySerDe : public DataTypeVarbinarySerDeBase<ColumnVarbinary> {
+public:
+    using DataTypeVarbinarySerDeBase<ColumnVarbinary>::DataTypeVarbinarySerDeBase;
+
+    Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                             const BsonDecodeContext& context) const override;
 };
 
 } // namespace doris

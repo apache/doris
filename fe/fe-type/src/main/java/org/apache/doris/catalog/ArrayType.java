@@ -123,8 +123,13 @@ public class ArrayType extends Type {
 
     @Override
     public String toSql(int depth) {
+        return toSql(depth, false);
+    }
+
+    @Override
+    public String toSql(int depth, boolean noBackslashEscapes) {
         // Array elements are always nullable, no "not null" suffix needed
-        return "array<" + itemType.toSql(depth + 1) + ">";
+        return "array<" + itemType.toSql(depth + 1, noBackslashEscapes) + ">";
     }
 
     @Override

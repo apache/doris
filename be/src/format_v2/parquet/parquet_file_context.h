@@ -57,7 +57,8 @@ public:
     ~NativeParquetMetadata();
 
     Status init_schema(bool enable_mapping_varbinary, bool enable_mapping_timestamp_tz,
-                       bool preserve_binary_uuid = false);
+                       bool preserve_binary_uuid = false,
+                       bool spatial_annotations_as_bytes = false);
     const tparquet::FileMetaData& to_thrift() const { return _metadata; }
     const NativeFieldDescriptor& schema() const { return _schema; }
     const std::shared_ptr<const ParquetFileCrypto>& encryption() const { return _crypto; }
@@ -170,7 +171,8 @@ struct ParquetFileContext {
                 bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
                 bool preserve_binary_uuid = false,
                 const TFileEncryptionInfo* encryption_info = nullptr,
-                std::shared_ptr<const FileContext> file_context = nullptr);
+                std::shared_ptr<const FileContext> file_context = nullptr,
+                bool spatial_annotations_as_bytes = false);
     bool can_refine_physical_splits() const;
     Status load_native_offset_indexes(
             int row_group_id, const std::unordered_set<int>& leaf_column_ids,

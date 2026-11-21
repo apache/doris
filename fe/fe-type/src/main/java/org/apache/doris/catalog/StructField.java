@@ -130,9 +130,13 @@ public class StructField {
     }
 
     public String toSql(int depth) {
+        return toSql(depth, false);
+    }
+
+    public String toSql(int depth, boolean noBackslashEscapes) {
         String typeSql;
         if (depth < Type.MAX_NESTING_DEPTH) {
-            typeSql = type.toSql(depth + 1) + (!containsNull ? " not null" : "");
+            typeSql = type.toSql(depth + 1, noBackslashEscapes) + (!containsNull ? " not null" : "");
         } else {
             typeSql = "...";
         }

@@ -4475,7 +4475,7 @@ public class Env {
                 sb.append("  ").append(
                         column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true, true));
             } else {
-                sb.append("  ").append(column.toSql());
+                sb.append("  ").append(column.toSql(false, false, false, SqlModeHelper.hasNoBackSlashEscapes()));
             }
         }
         if (table instanceof OlapTable) {
@@ -4831,7 +4831,7 @@ public class Env {
                 sb.append("  ").append(
                         column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
             } else {
-                sb.append("  ").append(column.toSql());
+                sb.append("  ").append(column.toSql(false, false, false, SqlModeHelper.hasNoBackSlashEscapes()));
             }
         }
         if (table instanceof OlapTable) {

@@ -30,6 +30,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/value/uuid_value.h"
+#include "exprs/function/geo/spatial_wkb_validation.h"
 
 namespace doris::parquet {
 const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();
@@ -212,6 +213,22 @@ static void get_decimal_converter(const FieldSchema* field_schema, DataTypePtr s
 
 namespace {
 
+// V1 decodes an annotated spatial BYTE_ARRAY into ColumnString first. Materialize
+// its raw WKB into ColumnSpatial here; unannotated Iceberg binary fields instead
+// use BinaryToSpatialConverter after the consistent physical conversion.
+class SpatialPhysicalConverter final : public PhysicalToLogicalConverter {
+public:
+    explicit SpatialPhysicalConverter(DataTypePtr spatial_type)
+            : _spatial_type(std::move(spatial_type)) {}
+
+    Status physical_convert(ColumnPtr& source, ColumnPtr& destination) override {
+        return append_spatial_wkb(source, *get_mutable_inner_column(destination), _spatial_type);
+    }
+
+private:
+    DataTypePtr _spatial_type;
+};
+
 class NativeUUIDConverter final : public PhysicalToLogicalConverter {
 public:
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
@@ -259,6 +276,15 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
         src_physical_type = tparquet::Type::INT32;
         src_logical_type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_INT, dst_logical_type->is_nullable());
+    }
+    // Hive BINARY columns retain annotated WKB as opaque bytes. Only this explicit binary
+    // target uses the physical STRING carrier; native spatial targets keep annotation metadata.
+    const auto source_primitive = src_logical_type->get_primitive_type();
+    if (!is_dict_filter && src_physical_type == tparquet::Type::BYTE_ARRAY &&
+        (source_primitive == TYPE_GEOMETRY || source_primitive == TYPE_GEOGRAPHY) &&
+        dst_logical_type->get_primitive_type() == TYPE_VARBINARY) {
+        src_logical_type = DataTypeFactory::instance().create_data_type(
+                TYPE_STRING, src_logical_type->is_nullable());
     }
     PrimitiveType src_logical_primitive = src_logical_type->get_primitive_type();
 
@@ -324,6 +350,13 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
         if (src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
             std::cmp_equal(parquet_schema.type_length, UUIDValue::BINARY_LENGTH)) {
             physical_converter = std::make_unique<NativeUUIDConverter>();
+        } else {
+            physical_converter =
+                    std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
+        }
+    } else if (src_logical_primitive == TYPE_GEOMETRY || src_logical_primitive == TYPE_GEOGRAPHY) {
+        if (src_physical_type == tparquet::Type::BYTE_ARRAY) {
+            physical_converter = std::make_unique<SpatialPhysicalConverter>(src_logical_type);
         } else {
             physical_converter =
                     std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);

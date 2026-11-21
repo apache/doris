@@ -154,6 +154,9 @@ public class DorisArrowTypeMappingTest {
                 // As BE emits them: float64 for TIMEV2 and binary for VARBINARY.
                 row(PrimitiveType.TIMEV2, 18, 0, new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)),
                 row(PrimitiveType.VARBINARY, new ArrowType.Binary()),
+                // Direct spatial Flight results remain unsupported; project through ST_AsBinary.
+                row(PrimitiveType.GEOMETRY, new ArrowType.Null()),
+                row(PrimitiveType.GEOGRAPHY, new ArrowType.Null()),
                 // BE emits binary for AGG_STATE; the schema says Null. Kept as is (#67577).
                 row(PrimitiveType.AGG_STATE, new ArrowType.Null()),
                 // The element types of a complex column live in the field's children, not in its type.

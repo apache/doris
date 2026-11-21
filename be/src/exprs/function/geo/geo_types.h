@@ -56,6 +56,8 @@ public:
 
     static std::unique_ptr<GeoShape> from_wkb(const char* data, size_t size,
                                               GeoParseStatus& status);
+    static std::unique_ptr<GeoShape> from_wkb_bytes(const char* data, size_t size,
+                                                    GeoParseStatus& status);
 
     void encode_to(std::string* buf);
     bool decode_from(const void* data, size_t size);
@@ -146,6 +148,7 @@ class GeoLine : public GeoShape {
 
 public:
     GeoLine();
+    explicit GeoLine(std::unique_ptr<S2Polyline> polyline);
     ~GeoLine() override;
 
     GeoParseStatus from_coords(const GeoCoordinateList& list);
@@ -186,6 +189,9 @@ class GeoPolygon : public GeoShape {
 
 public:
     GeoPolygon();
+    // Typed calculation admission retains input ring depths after S2 reorders loops.
+    GeoPolygon(std::unique_ptr<S2Polygon> polygon, std::vector<int> ring_depths);
+    const std::vector<int>& calculation_ring_depths() const { return _calculation_ring_depths; }
     ~GeoPolygon() override;
 
     GeoParseStatus from_coords(const GeoCoordinateListList& list);
@@ -221,6 +227,7 @@ private:
     bool point_on_edge(const S2Point& point) const;
 
     std::unique_ptr<S2Polygon> _polygon;
+    std::vector<int> _calculation_ring_depths;
     // (lat, lng, 0) in degrees of every loop's vertices, for the point-on-edge check in
     // contains(). Built on first use, so a polygon that is checked against many points converts
     // its vertices only once.

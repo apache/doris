@@ -24,6 +24,7 @@
 #include <arrow/ipc/api.h>
 #include <arrow/util/compression.h>
 #include <gtest/gtest.h>
+#include <parquet/api/writer.h>
 #include <parquet/arrow/writer.h>
 #include <unistd.h>
 
@@ -1643,6 +1644,75 @@ arrow::Status write_push_parquet(const std::string& path, bool numeric) {
     ARROW_RETURN_NOT_OK(
             ::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output, 3));
     return output->Close();
+}
+
+void write_broker_parquet_wkb(const std::string& path, bool annotated, const std::string& wkb) {
+    auto out = arrow::io::FileOutputStream::Open(path).ValueOrDie();
+    auto field = ::parquet::schema::PrimitiveNode::Make(
+            "raw_value", ::parquet::Repetition::OPTIONAL,
+            annotated ? ::parquet::LogicalType::Geometry("OGC:CRS84")
+                      : ::parquet::LogicalType::None(),
+            ::parquet::Type::BYTE_ARRAY);
+    auto schema =
+            ::parquet::schema::GroupNode::Make("schema", ::parquet::Repetition::REQUIRED, {field});
+    auto writer = ::parquet::ParquetFileWriter::Open(
+            out, std::static_pointer_cast<::parquet::schema::GroupNode>(schema));
+    auto* group = writer->AppendRowGroup();
+    auto* column = static_cast<::parquet::ByteArrayWriter*>(group->NextColumn());
+    const int16_t levels[] = {1, 0};
+    const ::parquet::ByteArray value(wkb);
+    ASSERT_EQ(column->WriteBatch(2, levels, nullptr, &value), 1);
+    column->Close();
+    group->Close();
+    writer->Close();
+    ASSERT_TRUE(out->Close().ok());
+}
+
+void expect_broker_parquet_wkb(LoadTableReader& reader, const TupleDescriptor& destination,
+                               const std::string& path, const std::string& wkb) {
+    SplitReadOptions split;
+    split.current_split_format = FileFormat::PARQUET;
+    split.current_range.__set_path(path);
+    split.current_range.__set_start_offset(0);
+    split.current_range.__set_size(std::filesystem::file_size(path));
+    split.current_range.__set_file_size(split.current_range.size);
+    split.current_range.__set_file_type(TFileType::FILE_LOCAL);
+    split.current_range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    Block output(destination.slots(), 0);
+    bool eos = false;
+    const auto status = reader.get_block(&output, &eos);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(output.rows(), 2);
+    const auto& column = *output.get_by_position(0).column;
+    EXPECT_EQ(column.get_data_at(0), StringRef(wkb));
+    EXPECT_TRUE(column.is_null_at(1));
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    EXPECT_TRUE(eos);
+}
+
+TEST_F(LoadReaderTest, BrokerParquetLoadKeepsSpatialAnnotationsAsBytes) {
+    // ISO WKB TRIANGLE ((0 0, 1 0, 0 1, 0 0)) is outside the native spatial subset.
+    const std::string wkb(
+            "\x01\x11\x00\x00\x00\x01\x00\x00\x00\x04\x00\x00\x00"
+            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+            "\x00\x00\x00\x00\x00\x00\xf0\x3f\x00\x00\x00\x00\x00\x00\x00\x00"
+            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\x3f"
+            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+            77);
+    doris::test::ScopedTempDirectory temp("broker_parquet_wkb");
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    params.__set_file_type(TFileType::FILE_LOCAL);
+    LoadTableReader reader(source.get(), destination.get());
+    ASSERT_TRUE(init(reader, FileFormat::PARQUET).ok());
+    for (const bool annotated : {false, true}) {
+        SCOPED_TRACE(annotated);
+        const auto path =
+                (temp.path() / (annotated ? "annotated.parquet" : "raw.parquet")).string();
+        ASSERT_NO_FATAL_FAILURE(write_broker_parquet_wkb(path, annotated, wkb));
+        expect_broker_parquet_wkb(reader, *destination, path, wkb);
+    }
+    EXPECT_TRUE(reader.close().ok());
 }
 
 TEST_F(LoadReaderTest, PushLoadsUseSourceConversionsAcrossParquetRanges) {

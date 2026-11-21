@@ -20,6 +20,7 @@
 #include "common/cast_set.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/define_primitive_type.h"
+#include "exprs/function/geo/spatial_wkb_validation.h"
 
 namespace doris::converter {
 
@@ -358,11 +359,33 @@ static std::unique_ptr<ColumnTypeConverter> _decimal_converter(const DataTypePtr
     }
 }
 
+class BinaryToSpatialConverter final : public ColumnTypeConverter {
+public:
+    explicit BinaryToSpatialConverter(DataTypePtr spatial_type)
+            : _spatial_type(std::move(spatial_type)) {}
+
+    Status convert(ColumnPtr& source, MutableColumnPtr& destination) override {
+        return append_spatial_wkb(source, *get_mutable_inner_col(destination), _spatial_type);
+    }
+
+private:
+    DataTypePtr _spatial_type;
+};
+
 std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(const DataTypePtr& src_type,
                                                                         const DataTypePtr& dst_type,
                                                                         FileFormat file_format) {
     PrimitiveType src_primitive_type = src_type->get_primitive_type();
     PrimitiveType dst_primitive_type = dst_type->get_primitive_type();
+    const bool dst_spatial =
+            dst_primitive_type == TYPE_GEOMETRY || dst_primitive_type == TYPE_GEOGRAPHY;
+    if (src_primitive_type == TYPE_VARBINARY && dst_spatial && file_format == PARQUET) {
+        return std::make_unique<BinaryToSpatialConverter>(dst_type);
+    }
+    if (dst_spatial && src_primitive_type == dst_primitive_type &&
+        !remove_nullable(src_type)->equals(*remove_nullable(dst_type))) {
+        return std::make_unique<UnsupportedConverter>(src_type, dst_type);
+    }
     //todo:  type to varchar/char.
     if (is_string_type(src_primitive_type) && is_string_type(dst_primitive_type)) {
         return std::make_unique<ConsistentConverter>();
