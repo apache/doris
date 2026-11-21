@@ -15,189 +15,114 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_view_query_p0", "p0,external") {
-
-    String enableIcebergTest = context.config.otherConfigs.get("enableIcebergTest")
-    // if (enableIcebergTest == null || !enableIcebergTest.equalsIgnoreCase("true")) {
-    // This is suit can not be run currently because only hive catalog can support view.
-    // but we can only create view in rest catalog
-    // will be fixed later
-    if (true) {
+suite("test_iceberg_view_query_p0", "p0,external,iceberg,external_docker,external_docker_iceberg") {
+    if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enableIcebergTest"))) {
         logger.info("disable iceberg test.")
         return
     }
 
-    try {
-        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-        String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    def config = context.config.otherConfigs
+    String externalEnvIp = config.get("externalEnvIp")
+    String restPort = config.get("iceberg_rest_uri_port")
+    String minioPort = config.get("iceberg_minio_port")
+    // These defaults match the public Iceberg Docker fixture; local credentials stay in configuration.
+    String accessKey = config.get("iceberg_view_access_key") ?: "admin"
+    String secretKey = config.get("iceberg_view_secret_key") ?: "password"
 
-        //create iceberg hms catalog
-        String iceberg_catalog_name = "test_iceberg_view_query_p0"
-        sql """drop catalog if exists ${iceberg_catalog_name}"""
-        sql """create catalog if not exists ${iceberg_catalog_name} properties (
-            'type'='iceberg',
-            'iceberg.catalog.type'='hms',
-            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-            'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
-            'use_meta_cache' = 'true'
-        );"""
+    sql """DROP CATALOG IF EXISTS test_iceberg_view_query_p0"""
+    sql """CREATE CATALOG test_iceberg_view_query_p0 PROPERTIES (
+        'type' = 'iceberg',
+        'iceberg.catalog.type' = 'rest',
+        'uri' = 'http://${externalEnvIp}:${restPort}',
+        's3.access_key' = '${accessKey}',
+        's3.secret_key' = '${secretKey}',
+        's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
+        's3.region' = 'us-east-1'
+    )"""
 
-        //using database and close planner fallback
-        sql """use `${iceberg_catalog_name}`.`test_db`"""
-        sql """set enable_fallback_to_original_planner=false;"""
+    // run14.sql in the Iceberg Docker fixture creates these persistent Spark views.
+    sql """USE test_iceberg_view_query_p0.test_db"""
 
-        // run all suites
-        def q01 = {
-            order_qt_q01 """select * from v_with_partitioned_table order by col1"""
-            order_qt_q02 """select * from v_with_unpartitioned_table order by col1"""
-            order_qt_q03 """select * from v_with_partitioned_column order by col5"""
-        }
+    qt_partitioned """SELECT * FROM v_with_partitioned_table ORDER BY col1"""
+    qt_unpartitioned """SELECT * FROM v_with_unpartitioned_table ORDER BY col1"""
+    qt_partition_column """SELECT * FROM v_with_partitioned_column ORDER BY col5"""
+    qt_join """SELECT * FROM v_with_joint_table ORDER BY sale_date, product_name"""
 
-        def q02 = {
-            order_qt_q01 """select count(*) from v_with_partitioned_table"""
-            order_qt_q02 """select count(*) from v_with_unpartitioned_table"""
-            order_qt_q03 """select count(*) from v_with_partitioned_column"""
-        }
+    qt_count_partitioned """SELECT COUNT(*) FROM v_with_partitioned_table"""
+    qt_count_unpartitioned """SELECT COUNT(*) FROM v_with_unpartitioned_table"""
+    qt_count_partition_column """SELECT COUNT(*) FROM v_with_partitioned_column"""
+    qt_count_join """SELECT COUNT(*) FROM v_with_joint_table"""
 
-        def q03 = {
-            order_qt_q01 """select col1,col2,col3,col4 from v_with_partitioned_table order by col1"""
-            order_qt_q02 """select col5 from v_with_partitioned_table order by col5"""
-        }
+    qt_project_columns """SELECT col1, col2, col3, col4 FROM v_with_partitioned_table ORDER BY col1"""
+    qt_project_partition """SELECT col5 FROM v_with_partitioned_table ORDER BY col5"""
+    qt_filter_partitioned """SELECT col1, col5 FROM v_with_partitioned_table
+        WHERE col5 IN ('Chicago', 'New York') AND col3 >= 25 ORDER BY col1"""
+    qt_filter_unpartitioned """SELECT col1, col3 FROM v_with_unpartitioned_table
+        WHERE col3 BETWEEN 30 AND 50 ORDER BY col1"""
 
-        def q04 = {
-            order_qt_q01 """describe v_with_partitioned_table"""
-            order_qt_q02 """describe v_with_unpartitioned_table"""
-            order_qt_q03 """describe v_with_partitioned_column"""
-        }
+    qt_describe_partitioned """DESC v_with_partitioned_table"""
+    qt_describe_unpartitioned """DESC v_with_unpartitioned_table"""
+    qt_describe_partition_column """DESC v_with_partitioned_column"""
+    qt_describe_join """DESC v_with_joint_table"""
 
-        q01()
-        q02()
-        q03()
-        q04()
+    explain {
+        sql """SELECT * FROM v_with_partitioned_table"""
+        contains "t_partitioned_table"
+    }
+    explain {
+        sql """SELECT * FROM v_with_unpartitioned_table"""
+        contains "t_unpartitioned_table"
+    }
+    explain {
+        sql """SELECT * FROM v_with_partitioned_column"""
+        contains "t_partitioned_table"
+    }
+    explain {
+        sql """SELECT COUNT(*) FROM v_with_partitioned_table"""
+        contains "t_partitioned_table"
+    }
+    explain {
+        sql """SELECT COUNT(*) FROM v_with_unpartitioned_table"""
+        contains "t_unpartitioned_table"
+    }
+    explain {
+        sql """SELECT COUNT(*) FROM v_with_partitioned_column"""
+        contains "t_partitioned_table"
+    }
+    explain {
+        sql """SELECT col1, col2, col3, col4 FROM v_with_partitioned_table"""
+        contains "t_partitioned_table"
+    }
+    explain {
+        sql """SELECT col5 FROM v_with_partitioned_table"""
+        contains "t_partitioned_table"
+    }
 
-        def result1 = sql """explain verbose select * from v_with_partitioned_table"""
-        assertTrue(result1.contains('t_partitioned_table'))
-        def result2 = sql """explain verbose select * from v_with_unpartitioned_table"""
-        assertTrue(result2.contains('v_with_unpartitioned_table'))
-        def result3 = sql """explain verbose select * from v_with_partitioned_column"""
-        assertTrue(result3.contains('t_partitioned_table'))
+    // Spark SQL clients may preserve different whitespace in the saved view text.
+    def normalizeViewDdl = { row -> [row[0], row[1].replaceAll("\\s+", " ").trim()] }
+    quickRunTest("create_table_partitioned", "SHOW CREATE TABLE v_with_partitioned_table", false, normalizeViewDdl)
+    quickRunTest("create_table_unpartitioned", "SHOW CREATE TABLE v_with_unpartitioned_table", false, normalizeViewDdl)
+    quickRunTest("create_table_partition_column", "SHOW CREATE TABLE v_with_partitioned_column", false, normalizeViewDdl)
+    // SHOW CREATE VIEW currently accepts internal views; external views use SHOW CREATE TABLE.
+    for (String view : ["v_with_partitioned_table", "v_with_unpartitioned_table", "v_with_partitioned_column"]) {
+        test {
+            sql """SHOW CREATE VIEW ${view}"""
+            exception "is not VIEW. Use 'SHOW CREATE TABLE"
+        }
+    }
 
-        def result4 = sql """explain verbose select count(*) from v_with_partitioned_table"""
-        assertTrue(result4.contains('t_partitioned_table'))
-        def result5 = sql """explain verbose select count(*) from v_with_unpartitioned_table"""
-        assertTrue(result5.contains('t_unpartitioned_table'))
-        def result6 = sql """explain verbose select count(*) from v_with_partitioned_column"""
-        assertTrue(result6.contains('t_partitioned_table'))
-
-        def result7 = sql """explain verbose select col1,col2,col3,col4 from v_with_partitioned_table"""
-        assertTrue(result7.contains('t_partitioned_table'))
-        def result8 = sql """explain verbose select col5 from v_with_partitioned_table"""
-        assertTrue(result8.contains('t_partitioned_table'))
-
-        def result9 = sql """show create table v_with_partitioned_table"""
-        assertTrue(result9.contains('v_with_partitioned_table'))
-        def result10 = sql """show create table v_with_unpartitioned_table"""
-        assertTrue(result10.contains('v_with_unpartitioned_table'))
-        def result11 = sql """show create table v_with_partitioned_column"""
-        assertTrue(result11.contains('v_with_partitioned_column'))
-
-        def result12 = sql """show create view v_with_partitioned_table"""
-        assertTrue(result12.contains('v_with_partitioned_table'))
-        def result13 = sql """show create view v_with_unpartitioned_table"""
-        assertTrue(result13.contains('v_with_unpartitioned_table'))
-        def result14 = sql """show create view v_with_partitioned_column"""
-        assertTrue(result14.contains('v_with_partitioned_column'))
-
-        try {
-            sql """select * from v_with_partitioned_table FOR TIME AS OF '2025-06-11 20:17:01' order by col1 limit 10"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
+    for (String view : ["v_with_partitioned_table", "v_with_unpartitioned_table",
+                        "v_with_partitioned_column", "v_with_joint_table"]) {
+        for (String selector : ["FOR TIME AS OF '2025-06-11 20:17:01'",
+                                "FOR VERSION AS OF 5497706844625725452"]) {
+            test {
+                sql """SELECT * FROM ${view} ${selector} ORDER BY 1 LIMIT 10"""
+                exception "view not supported with snapshot time/version travel"
+            }
+            test {
+                sql """SELECT COUNT(*) FROM ${view} ${selector}"""
+                exception "view not supported with snapshot time/version travel"
+            }
         }
-        try {
-            sql """select * from v_with_partitioned_table FOR VERSION AS OF 5497706844625725452 order by col1 limit 10"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-        try {
-            sql """select count(*) from v_with_partitioned_table FOR TIME AS OF '2025-06-11 20:17:01'"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-        try {
-            sql """select count(*) from v_with_partitioned_table FOR VERSION AS OF 5497706844625725452"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-
-        try {
-            sql """select * from v_with_unpartitioned_table FOR TIME AS OF '2025-06-11 20:17:01' order by col1 limit 10"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-        try {
-            sql """select * from v_with_unpartitioned_table FOR VERSION AS OF 5497706844625725452 order by col1 limit 10"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-        try {
-            sql """select count(*) from v_with_unpartitioned_table FOR TIME AS OF '2025-06-11 20:17:01'"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-        try {
-            sql """select count(*) from v_with_unpartitioned_table FOR VERSION AS OF 5497706844625725452"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-
-        try {
-            sql """select * from v_with_partitioned_column FOR TIME AS OF '2025-06-11 20:17:01' order by col5 limit 10"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-        try {
-            sql """select * from v_with_partitioned_column FOR VERSION AS OF 5497706844625725452 order by col5 limit 10"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-        try {
-            sql """select count(*) from v_with_partitioned_column FOR TIME AS OF '2025-06-11 20:17:01'"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-        try {
-            sql """select count(*) from v_with_partitioned_column FOR VERSION AS OF 5497706844625725452"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-
-        try {
-            sql """select * from v_with_joint_table FOR TIME AS OF '2025-06-11 20:17:01' order by sale_date limit 10"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-        try {
-            sql """select * from v_with_joint_table FOR VERSION AS OF 5497706844625725452 order by sale_date limit 10"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-        try {
-            sql """select count(*) from v_with_joint_table FOR TIME AS OF '2025-06-11 20:17:01'"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-        try {
-            sql """select count(*) from v_with_joint_table FOR VERSION AS OF 5497706844625725452"""
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("view not supported with snapshot time/version travel"), e.getMessage())
-        }
-
-        sql """drop view v_with_partitioned_table"""
-        sql """drop view v_with_unpartitioned_table"""
-        sql """drop view v_with_partitioned_column"""
-
-        sql """drop catalog if exists ${iceberg_catalog_name}"""
-    } finally {
     }
 }

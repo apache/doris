@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorStatementScopes;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
@@ -104,6 +105,7 @@ import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.view.SQLViewRepresentation;
 import org.apache.iceberg.view.View;
+import org.apache.iceberg.view.ViewRepresentation;
 import org.apache.iceberg.view.ViewVersion;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -112,6 +114,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -386,6 +389,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     @Override
     public ConnectorViewDefinition getViewDefinition(ConnectorSession session, String dbName, String viewName) {
+        return ConnectorStatementScopes.resolveInStatement(session, IcebergStatementScope.VIEW_NAMESPACE,
+                dbName, viewName, () -> loadViewDefinition(dbName, viewName));
+    }
+
+    private ConnectorViewDefinition loadViewDefinition(String dbName, String viewName) {
         // Resolve SQL and columns in one authenticated view load. Column conversion belongs here because
         // it uses this catalog's type-mapping flags. A view has no partition or row-lineage columns.
         try {
@@ -405,14 +413,19 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 // uses Doris as the preference; Iceberg falls back to the first SQL if it has no match.
                 String preferredDialect = engineName == null || engineName.isEmpty()
                         ? "doris" : engineName.toLowerCase(Locale.ROOT);
-                SQLViewRepresentation sqlViewRepresentation = icebergView.sqlFor(preferredDialect);
+                SQLViewRepresentation sqlViewRepresentation = selectViewSql(viewVersion, preferredDialect);
                 if (sqlViewRepresentation == null) {
                     throw new DorisConnectorException(String.format(
                             "Cannot get SQL representation for Iceberg view '%s.%s'", dbName, viewName));
                 }
                 String dialect = sqlViewRepresentation.dialect().toLowerCase(Locale.ROOT);
-                List<ConnectorColumn> columns = parseSchema(icebergView.schema());
-                return new ConnectorViewDefinition(sqlViewRepresentation.sql(), dialect, columns);
+                Schema schema = icebergView.schemas().get(viewVersion.schemaId());
+                if (schema == null) {
+                    throw new DorisConnectorException("Cannot get schema for view '" + dbName + "." + viewName + "'");
+                }
+                List<ConnectorColumn> columns = parseSchema(schema);
+                return new ConnectorViewDefinition(sqlViewRepresentation.sql(), dialect, columns,
+                        viewVersion.defaultCatalog(), Arrays.asList(viewVersion.defaultNamespace().levels()));
             });
         } catch (Exception e) {
             if (ExceptionUtils.getThrowableList(e).stream().anyMatch(NoSuchViewException.class::isInstance)) {
@@ -420,6 +433,22 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             }
             throw new RuntimeException("Failed to load view definition, error message is: " + e.getMessage(), e);
         }
+    }
+
+    private static SQLViewRepresentation selectViewSql(ViewVersion version, String preferredDialect) {
+        SQLViewRepresentation firstSql = null;
+        for (ViewRepresentation representation : version.representations()) {
+            if (representation instanceof SQLViewRepresentation) {
+                SQLViewRepresentation sql = (SQLViewRepresentation) representation;
+                if (sql.dialect().equalsIgnoreCase(preferredDialect)) {
+                    return sql;
+                }
+                if (firstSql == null) {
+                    firstSql = sql;
+                }
+            }
+        }
+        return firstSql;
     }
 
     @Override
