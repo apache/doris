@@ -77,7 +77,10 @@ public class AggStateType extends Type {
     @Override
     public String toSql(int depth) {
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("agg_state<").append(functionName).append("(");
+        // The public unversioned spelling creates v2 states. Keep legacy schemas v1 when SQL is reparsed.
+        String sqlFunctionName = functionName.equalsIgnoreCase("bitmap_intersect")
+                ? "bitmap_intersect_v1" : functionName;
+        stringBuilder.append("agg_state<").append(sqlFunctionName).append("(");
         for (int i = 0; i < subTypes.size(); i++) {
             if (i > 0) {
                 stringBuilder.append(", ");

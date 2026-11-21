@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdafBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -238,6 +239,19 @@ public class FunctionRegistry {
         if (CollectionUtils.isEmpty(functionBuilders) && AggCombinerFunctionBuilder.isAggStateCombinator(name)) {
             String nestedName = AggCombinerFunctionBuilder.getNestedName(name);
             String combinatorSuffix = AggCombinerFunctionBuilder.getCombinatorSuffix(name);
+            // Persisted v1 states use the canonical name, including RANDOM pre-aggregation and MV rollups.
+            // Resolve state consumers from that identity; value aggregates and new states still default to v2.
+            if (nestedName.equalsIgnoreCase("bitmap_intersect")
+                    && (combinatorSuffix.equalsIgnoreCase(AggCombinerFunctionBuilder.MERGE)
+                        || combinatorSuffix.equalsIgnoreCase(AggCombinerFunctionBuilder.UNION)
+                        || combinatorSuffix.equalsIgnoreCase(AggCombinerFunctionBuilder.FINALIZE))
+                    && arguments.size() == 1 && arguments.get(0) instanceof Expression) {
+                DataType argumentType = ((Expression) arguments.get(0)).getDataType();
+                if (argumentType instanceof AggStateType
+                        && ((AggStateType) argumentType).getFunctionName().equals("bitmap_intersect")) {
+                    nestedName = "bitmap_intersect_v1";
+                }
+            }
             functionBuilders = name2BuiltinBuilders.get(nestedName.toLowerCase());
             if (functionBuilders != null) {
                 List<FunctionBuilder> candidateBuilders = Lists.newArrayListWithCapacity(functionBuilders.size());
