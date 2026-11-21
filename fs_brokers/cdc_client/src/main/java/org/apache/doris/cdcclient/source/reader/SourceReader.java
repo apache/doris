@@ -102,6 +102,9 @@ public interface SourceReader {
      */
     default void applySchemaChange(Map<TableId, TableChanges.TableChange> updatedSchemas) {}
 
+    /** Whether this request discovered schemas missing from the FE baseline. */
+    boolean isSchemaReportRequired();
+
     /** Serialize current tableSchemas to JSON for persistence via commitOffset. */
     default String serializeTableSchemas() throws IOException {
         return null;
