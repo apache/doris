@@ -21,12 +21,18 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <memory>
+#include <string>
+#include <utility>
+
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_number.h"
+#include "cpp/sync_point.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/operator/exchange_source_operator.h"
 #include "exec/operator/hashjoin_build_sink.h"
@@ -43,6 +49,8 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/workload_management/query_task_controller.h"
 #include "runtime/workload_management/resource_context.h"
+#include "util/defer_op.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -224,6 +232,56 @@ TEST_F(PipelineTest, ParallelPrepareTaskThreshold) {
     EXPECT_FALSE(context->_should_prepare_tasks_in_parallel());
     context->_params.local_params.clear();
     EXPECT_FALSE(context->_should_prepare_tasks_in_parallel());
+}
+
+TEST_F(PipelineTest, ParallelPrepareWorkerBootstrapFailure) {
+    auto context = _build_fragment_context();
+    context->_runtime_state = std::move(_runtime_state.back());
+    _query_options.__set_parallel_prepare_threshold(32);
+    context->_runtime_state->set_query_options(_query_options);
+    context->_params.local_params.resize(32);
+    context->_pipelines.emplace_back(std::make_shared<Pipeline>(0, 32, 32));
+    context->_pipelines.emplace_back(std::make_shared<Pipeline>(1, 32, 32));
+    ASSERT_TRUE(context->_should_prepare_tasks_in_parallel());
+
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("parallel-prepare-bootstrap-failure")
+                        .set_min_threads(0)
+                        .set_max_threads(1)
+                        .build(&pool)
+                        .ok());
+
+    auto* sync_point = SyncPoint::get_instance();
+    Defer cleanup([&] {
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    });
+    int bootstrap_attempts = 0;
+    sync_point->set_call_back("ThreadPool::create_thread", [&](auto&& args) {
+        if (try_any_cast<ThreadPool*>(args.front()) == pool.get()) {
+            auto* result = try_any_cast<std::pair<Status, bool>*>(args.back());
+            result->first = Status::RuntimeError("injected worker bootstrap failure");
+            result->second = true;
+            ++bootstrap_attempts;
+        }
+    });
+    sync_point->enable_processing();
+
+    const auto status = context->_build_pipeline_tasks(pool.get());
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("injected worker bootstrap failure"), std::string::npos);
+    EXPECT_EQ(bootstrap_attempts, 1);
+    EXPECT_EQ(pool->num_threads(), 0);
+    // do_submit queued the callback before worker creation failed. It must be removed before
+    // the fragment and the preparation's local status/profile vectors can go out of scope.
+    ASSERT_EQ(pool->get_queue_size(), 0);
+    EXPECT_EQ(pool->_tokens.size(), 1); // Only the pool's shared tokenless token remains.
+
+    sync_point->disable_processing();
+    std::atomic<int> recovered_tasks {0};
+    ASSERT_TRUE(pool->submit_func([&] { ++recovered_tasks; }).ok());
+    pool->wait();
+    EXPECT_EQ(recovered_tasks.load(), 1);
 }
 
 TEST_F(PipelineTest, HAPPY_PATH) {
