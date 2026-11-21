@@ -1201,6 +1201,10 @@ DECLARE_mInt32(merged_hdfs_min_io_size);
 DECLARE_mInt32(orc_natural_read_size_mb);
 
 DECLARE_mInt32(runtime_filter_sampling_frequency);
+// The longest time a hash join build sink holds back a probe which short-circuits until it
+// publishes its runtime filters. Caps runtime_filter_wait_time_ms, which is the query timeout in
+// cloud mode by default.
+DECLARE_mInt32(short_circuit_probe_max_hold_ms);
 DECLARE_mInt32(execution_max_rpc_timeout_sec);
 DECLARE_mBool(execution_ignore_eovercrowded);
 

@@ -1124,6 +1124,7 @@ DEFINE_Validator(orc_natural_read_size_mb,
                  [](const int config) -> bool { return config > 0 && config <= 1024; });
 // Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "32");
+DEFINE_mInt32(short_circuit_probe_max_hold_ms, "10000");
 DEFINE_mInt32(execution_max_rpc_timeout_sec, "3600");
 DEFINE_mBool(execution_ignore_eovercrowded, "true");
 // cooldown task configs
