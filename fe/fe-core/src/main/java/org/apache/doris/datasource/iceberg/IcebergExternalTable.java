@@ -281,6 +281,11 @@ public class IcebergExternalTable extends ExternalTable
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
         return withMissingTableRepair(() -> {
             if (isView()) {
+                // View expansion cannot apply relation scan parameters to the base tables.
+                if (scanParams.isPresent()) {
+                    throw new UnsupportedOperationException(
+                            "view not supported with scan params: @" + scanParams.get().getParamType());
+                }
                 return new EmptyMvccSnapshot();
             } else {
                 return new IcebergMvccSnapshot(IcebergUtils.getSnapshotCacheValue(
