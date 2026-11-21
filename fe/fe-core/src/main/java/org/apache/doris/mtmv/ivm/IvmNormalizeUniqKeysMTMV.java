@@ -71,6 +71,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -82,7 +83,6 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -216,14 +216,52 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     private int baseTableRowIdRenameCounter;
 
     /**
+     * Normalizes a unique-key MV statement after {@link IvmNormalizeMTMV} selects its model.
+     * Computes the layout signature for write plans and checks the existing baseline for incremental refresh.
+     */
+    public Plan normalizeRoot(Plan plan, JobContext jobContext) {
+        Plan result = normalize(plan, jobContext);
+        if (result instanceof LogicalResultSink) {
+            return result;
+        }
+        if (!(result instanceof LogicalOlapTableSink)) {
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                    "IVM MOW normalization requires a table or result sink, but found "
+                            + result.getClass().getSimpleName());
+        }
+
+        IvmPlanSignature signature = new IvmPlanSignatureGenerator().generate(result);
+        if (ivmRewriteContext.getMode() == IvmRewriteContext.Mode.INCREMENTAL) {
+            validatePlanSignature(ivmRewriteContext.getMtmv(), signature);
+        }
+        rewriteResult.setPlanSignature(signature);
+        return result;
+    }
+
+    private void validatePlanSignature(MTMV mtmv, IvmPlanSignature currentSignature) {
+        String storedSignature = mtmv.getIvmInfo().getPlanSignature();
+        if (storedSignature == null || storedSignature.equals(currentSignature.getSha256())) {
+            return;
+        }
+        String detail = "IVM layout signature mismatch for mv=" + mtmv.getName()
+                + ", storedSignature=" + storedSignature
+                + ", currentSignature=" + currentSignature.getSha256()
+                + ", currentCanonical=" + currentSignature.getCanonicalString()
+                + ", currentPlan=" + currentSignature.getPlanTree()
+                + ". Run one REFRESH MATERIALIZED VIEW " + mtmv.getName()
+                + " INCREMENTAL FALLBACK or REFRESH MATERIALIZED VIEW " + mtmv.getName()
+                + " COMPLETE to rebuild the IVM layout baseline and publish its matching signature.";
+        throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
+    }
+
+    /**
      * Rewrites {@code plan} into the hidden layout a unique-key IVM MV is maintained through.
      *
      * <p>The table model has already been settled and recorded by {@link IvmNormalizeMTMV}, which is
      * the only production caller: what is left here is the layout itself, which is why this rewriter
-     * knows nothing about any other model. The caller publishes the returned plan as the statement's
-     * normalized plan, as it does for the detail model too; this rewriter publishes the signature that
-     * pins the layout down, which is what its model adds to the plan and no other model has.
+     * knows nothing about any other model.
      */
+    @VisibleForTesting
     public Plan normalize(Plan plan, JobContext jobContext) {
         StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
         ivmRewriteContext = statementContext.getIvmRewriteContext().orElse(null);
@@ -243,36 +281,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         this.useFullKeys = resolveUseFullKeys();
         Plan result = plan.accept(this, NormalizeContext.ROOT);
         validateAggStateColumnsPersisted(result);
-        // The plan is not published here: the caller publishes it, and does so for both table models.
-        // What this model adds to a normalized plan is the layout its refresh reads, which is published
-        // as the signature that pins the layout down.
-        IvmPlanSignature planSignature = new IvmPlanSignatureGenerator().generate(result);
-        rewriteResult.setPlanSignature(planSignature);
-        IvmRewriteContext.Mode mode = ivmRewriteContext.getMode();
-        if (mode == IvmRewriteContext.Mode.INCREMENTAL) {
-            // Incremental refresh relies on the stored IVM layout: a drift in the normalized
-            // plan (row-id generation path) would produce an unmatchable delta. Check the
-            // signature as soon as normalization completes so every incremental path fails
-            // fast instead of attempting a delta rewrite against a stale layout baseline.
-            validatePlanSignature(ivmRewriteContext.getMtmv(), planSignature, result);
-        }
         return result;
-    }
-
-    private void validatePlanSignature(MTMV mtmv, IvmPlanSignature currentSignature, Plan currentPlan) {
-        String storedSignature = mtmv.getIvmInfo().getPlanSignature();
-        if (Objects.equals(storedSignature, currentSignature.getSha256())) {
-            return;
-        }
-        String detail = "IVM layout signature mismatch for mv=" + mtmv.getName()
-                + ", storedSignature=" + storedSignature
-                + ", currentSignature=" + currentSignature.getSha256()
-                + ", currentCanonical=" + currentSignature.getCanonicalString()
-                + ", currentPlan=" + currentPlan.treeString()
-                + ". Run one REFRESH MATERIALIZED VIEW " + mtmv.getName()
-                + " INCREMENTAL FALLBACK or REFRESH MATERIALIZED VIEW " + mtmv.getName()
-                + " COMPLETE to rebuild the IVM layout baseline and publish its matching signature.";
-        throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
     }
 
     /**
