@@ -161,6 +161,23 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
                     );
                 }
 
+                // A statement that reads no column of a table. Under the built-in model a holder of one
+                // column may run it (SelectWithoutColumnsPrivilegeTest). A source of its own is asked what
+                // it was asked before and decides: here the question is the column the planner keeps,
+                // `name`, and on test_tbl2 this user holds `id`.
+                {
+                    AnalysisException keptColumn = Assertions.assertThrows(AnalysisException.class, () ->
+                            query("select count(*) from custom_catalog.test_db.test_tbl2")
+                    );
+                    Assertions.assertTrue(keptColumn.getMessage().contains("Permission denied"),
+                            keptColumn.getMessage());
+
+                    // no privilege at all
+                    Assertions.assertThrows(AnalysisException.class, () ->
+                            query("select count(*) from custom_catalog.test_db.test_tbl3")
+                    );
+                }
+
                 // test CTE with JOIN privilege checking
                 // Verifies that column-level privileges are enforced when CTE is
                 // referenced multiple times via JOIN (CTE won't be inlined due to

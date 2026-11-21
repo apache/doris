@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -35,6 +36,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -67,9 +70,7 @@ public class UserAuthentication {
 
         // Special handling: cluster snapshot related tables in information_schema
         // require privilege based on configuration
-        if (dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)
-                && (tableName.equalsIgnoreCase("cluster_snapshots")
-                    || tableName.equalsIgnoreCase("cluster_snapshot_properties"))) {
+        if (isClusterSnapshotTable(dbName, tableName)) {
             if ("admin".equalsIgnoreCase(Config.cluster_snapshot_min_privilege)) {
                 // When configured as admin, check ADMIN privilege
                 if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(connectContext, PrivPredicate.ADMIN)) {
@@ -102,5 +103,43 @@ public class UserAuthentication {
             accessManager.checkColumnsPriv(connectContext, ctlName, dbName, tableName, authColumns,
                     PrivPredicate.SELECT);
         }
+    }
+
+    /**
+     * A visible column {@code table} has now that the user holds SELECT on by a grant on the column itself,
+     * if there is one.
+     *
+     * <p>This is what lets a statement that reads rows of a table and none of its columns run for a user
+     * who was granted some of the columns and not the table, as it does in MySQL and PostgreSQL; see
+     * {@code CheckPrivileges}. It tells that user nothing new: whoever is found a column here can already
+     * read every row of the table through it, and a row policy on the table filters the rows either way.
+     *
+     * <p>Answered from the built-in privilege model alone; for a table governed by any other authorization
+     * source there is never a column, see {@code AccessControllerManager#findColumnWithPriv}. Neither is
+     * there for a table whose check is not about its own grants: a sys table, authorized through its source
+     * table, and the cluster snapshot tables, which take a privilege on the instance.
+     */
+    public static Optional<String> findSelectableColumn(TableIf table, ConnectContext connectContext) {
+        if (table == null || table instanceof PluginDrivenSysExternalTable) {
+            return Optional.empty();
+        }
+        DatabaseIf db = table.getDatabase();
+        if (db == null || db.getCatalog() == null || isClusterSnapshotTable(db.getFullName(), table.getName())) {
+            return Optional.empty();
+        }
+        Set<String> visibleColumns = new LinkedHashSet<>();
+        for (Column column : table.getBaseSchemaOrEmpty()) {
+            if (column.isVisible()) {
+                visibleColumns.add(column.getName());
+            }
+        }
+        return connectContext.getEnv().getAccessManager().findColumnWithPriv(connectContext,
+                db.getCatalog().getName(), db.getFullName(), table.getName(), visibleColumns, PrivPredicate.SELECT);
+    }
+
+    private static boolean isClusterSnapshotTable(String dbName, String tableName) {
+        return dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)
+                && (tableName.equalsIgnoreCase("cluster_snapshots")
+                    || tableName.equalsIgnoreCase("cluster_snapshot_properties"));
     }
 }

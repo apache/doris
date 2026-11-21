@@ -1234,6 +1234,36 @@ public class AccessControllerManager {
         }
     }
 
+    /**
+     * The first of {@code cols} the user holds {@code wanted} on by a grant on the column itself, if any.
+     *
+     * <p>Asked for a statement that reads rows of a table and none of its columns - {@code COUNT(*)},
+     * {@code SELECT 1 FROM t} - once the check the planner made has refused it. MySQL and PostgreSQL both let
+     * such a statement run for an account that holds one column of the table, and it tells that account
+     * nothing new: it can already read every row through the column it holds.
+     *
+     * <p>Only the built-in privilege model is asked. The plugin contract has no question of this shape, and
+     * the per-column question it does have cannot stand in for it - a source would have to be asked about
+     * every column of the table, and one that audits its decisions would record a refusal for each column
+     * the statement never read. So a catalog governed by any other source keeps the answer its own check
+     * gave, and nothing is decided here on a source's behalf: the built-in model is the source bound to the
+     * catalog, and it is its own grants that answer.
+     *
+     * @param cols the columns the table has now; a grant on a column no longer among them does not count
+     */
+    public Optional<String> findColumnWithPriv(ConnectContext ctx, String ctl, String qualifiedDb, String tbl,
+            Set<String> cols, PrivPredicate wanted) {
+        if (!(getAccessControllerOrDefault(ctl) instanceof InternalAuthorizationPlugin)) {
+            return Optional.empty();
+        }
+        // The identity the built-in model is handed by a routed check on this connection: the account, with
+        // the roles the connection authenticated. This question has to see the same roles as that check.
+        UserIdentity currentUser = ctx.getCurrentUserIdentity();
+        UserIdentity identity = AccessTranslation.userIdentityOf(AccessTranslation.subjectOf(currentUser),
+                UserIdentityAccessContext.of(currentUser, ConnectionAccessContext.of(ctx)));
+        return auth.findColWithPriv(identity, ctl, qualifiedDb, tbl, cols, wanted);
+    }
+
     // ==== Resource ====
     public boolean checkResourcePriv(ConnectContext ctx, String resourceName, PrivPredicate wanted) {
         return decide(ctx.getCurrentUserIdentity(), AuthorizedResource.resource(resourceName),
