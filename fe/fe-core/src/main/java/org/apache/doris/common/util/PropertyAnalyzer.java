@@ -2295,7 +2295,7 @@ public class PropertyAnalyzer {
             }
             if (column.getVariantEnableNestedGroup()) {
                 throw new AnalysisException("Escaped tables do not support NestedGroup; set "
-                        + "variant_enable_nested_group=false or turn off default_variant_enable_nested_group");
+                        + "variant_enable_nested_group=false");
             }
             if (column.getChildren() != null) {
                 for (Column child : column.getChildren()) {

@@ -599,7 +599,7 @@ public class PropertyAnalyzerTest {
 
     @Test
     public void testCheckDefaultVariantMaxSparseColumnStatisticsSize() {
-        // The default_variant_* variables can only be set with debug points enabled.
+        // The debug_variant_* variables can only be set with debug points enabled.
         boolean originalEnableDebugPoints = Config.enable_debug_points;
         try {
             Config.enable_debug_points = true;

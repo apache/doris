@@ -18,7 +18,7 @@
 suite("variant_predefine_with_mow") {
     boolean enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
     def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     sql "DROP TABLE IF EXISTS var_mow"
     sql """
         CREATE TABLE `var_mow` (

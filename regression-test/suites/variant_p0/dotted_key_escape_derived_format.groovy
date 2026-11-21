@@ -18,7 +18,7 @@
 suite("dotted_key_escape_derived_format", "p0,nonConcurrent") {
     setFeConfigTemporary([enable_variant_v2: true, enable_variant_escape_dots_in_keys: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
-    sql "set default_variant_enable_nested_group=false"
+    sql "set debug_variant_enable_nested_group=false"
     sql "DROP TABLE IF EXISTS dotted_key_escape_derived_source"
     sql """CREATE TABLE dotted_key_escape_derived_source(k INT, v VARIANT)
         DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
