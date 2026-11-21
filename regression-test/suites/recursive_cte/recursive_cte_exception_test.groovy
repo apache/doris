@@ -212,5 +212,19 @@ suite("exception_test", "rec_cte") {
         exception "does not exist"
     }
 
-
+    test {
+        sql """WITH RECURSIVE
+                u AS (SELECT uuid() AS v),
+                r(n) AS (
+                    SELECT CAST(1 AS INT)
+                    UNION ALL
+                    SELECT CAST(n + 1 AS INT)
+                    FROM r
+                    JOIN u u1 ON TRUE
+                    JOIN u u2 ON TRUE
+                    WHERE n < 2 AND u1.v = u2.v
+                )
+                SELECT n FROM r ORDER BY n;"""
+        exception "inline is blocked"
+    }
 }
