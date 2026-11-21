@@ -50,6 +50,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
@@ -662,18 +663,13 @@ public class Memo {
         if (source.equals(destination)) {
             return;
         }
-        List<GroupExpression> needReplaceChild = Lists.newArrayList();
-        for (GroupExpression dstParent : destination.getParentGroupExpressions()) {
-            if (dstParent.getOwnerGroup().equals(source)) {
-                // cycle, we should not merge
-                return;
-            }
+        // Merging an ancestor with a descendant closes a cycle, even when they are not direct parent and child.
+        // For example, merging Project(k, Project(k, 1, G)) with G makes statistics derivation revisit G forever.
+        if (isReachable(source, destination) || isReachable(destination, source)) {
+            return;
         }
+        List<GroupExpression> needReplaceChild = Lists.newArrayList();
         for (GroupExpression srcParent : source.getParentGroupExpressions()) {
-            if (srcParent.getOwnerGroup().equals(destination)) {
-                // cycle, we should not merge
-                return;
-            }
             Group parentOwnerGroup = srcParent.getOwnerGroup();
             if (parentOwnerGroup.getEnforcers().containsKey(srcParent)) {
                 continue;
@@ -681,6 +677,10 @@ public class Memo {
             needReplaceChild.add(srcParent);
         }
         for (GroupExpression reinsertGroupExpr : needReplaceChild) {
+            // An earlier recursive merge can retire another parent in this snapshot.
+            if (reinsertGroupExpr.isUnused()) {
+                continue;
+            }
             // After change GroupExpression children, hashcode will change, so need to reinsert into map.
             groupExpressions.remove(reinsertGroupExpr);
             reinsertGroupExpr.replaceChild(source, destination);
@@ -688,19 +688,26 @@ public class Memo {
             GroupExpression existGroupExpr = groupExpressions.get(reinsertGroupExpr);
             if (existGroupExpr != null) {
                 Preconditions.checkState(existGroupExpr.getOwnerGroup() != null);
-                // remove reinsertGroupExpr from its owner group to avoid adding it to existGroupExpr.getOwnerGroup()
-                // existGroupExpr.getOwnerGroup() already has this reinsertGroupExpr.
-                reinsertGroupExpr.setUnused(true);
                 if (existGroupExpr.getOwnerGroup().equals(reinsertGroupExpr.getOwnerGroup())) {
                     // reinsertGroupExpr & existGroupExpr are in same Group, so merge them.
-                    if (reinsertGroupExpr.getPlan() instanceof PhysicalPlan) {
-                        reinsertGroupExpr.getOwnerGroup().replaceBestPlanGroupExpr(reinsertGroupExpr, existGroupExpr);
-                    }
-                    // existingGroupExpression merge the state of reinsertGroupExpr
-                    reinsertGroupExpr.mergeTo(existGroupExpr);
+                    mergeDuplicateExpression(reinsertGroupExpr, existGroupExpr);
                 } else {
                     // reinsertGroupExpr & existGroupExpr aren't in same group, need to merge their OwnerGroup.
                     mergeGroup(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup(), planTable);
+                    if (!reinsertGroupExpr.isUnused()) {
+                        // A refused owner-group merge can retain equal alternatives in this group,
+                        // even though the global canonical expression belongs to another group.
+                        Group owner = reinsertGroupExpr.getOwnerGroup();
+                        List<GroupExpression> alternatives = reinsertGroupExpr.getPlan() instanceof LogicalPlan
+                                ? owner.getLogicalExpressions() : owner.getPhysicalExpressions();
+                        GroupExpression duplicate = alternatives.stream()
+                                .filter(expression -> expression != reinsertGroupExpr
+                                        && expression.equals(reinsertGroupExpr))
+                                .findFirst().orElse(null);
+                        if (duplicate != null) {
+                            mergeDuplicateExpression(reinsertGroupExpr, duplicate);
+                        }
+                    }
                 }
             } else {
                 groupExpressions.put(reinsertGroupExpr, reinsertGroupExpr);
@@ -720,6 +727,36 @@ public class Memo {
             root = destination;
         }
         groups.remove(source.getGroupId());
+    }
+
+    private static void mergeDuplicateExpression(GroupExpression source, GroupExpression target) {
+        if (source.getPlan() instanceof PhysicalPlan) {
+            source.getOwnerGroup().replaceBestPlanGroupExpr(source, target);
+        }
+        source.mergeTo(target);
+    }
+
+    private static boolean isReachable(Group from, Group target) {
+        Set<Group> visited = new HashSet<>();
+        ArrayDeque<Group> pending = new ArrayDeque<>();
+        pending.add(from);
+        while (!pending.isEmpty()) {
+            Group group = pending.removeLast();
+            if (group.equals(target)) {
+                return true;
+            }
+            if (!visited.add(group)) {
+                continue;
+            }
+            for (GroupExpression expression : group.getLogicalExpressions()) {
+                pending.addAll(expression.children());
+            }
+            for (GroupExpression expression : group.getPhysicalExpressions()) {
+                pending.addAll(expression.children());
+            }
+            // Enforcers deliberately reference their own group and are not dependencies between groups.
+        }
+        return false;
     }
 
     private CopyInResult rewriteByExistedPlan(Group targetGroup, Plan existedPlan) {
