@@ -280,6 +280,7 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
         if (sessionVariables == null) {
             sessionVariables = Maps.newHashMap();
         }
+        refreshMaxColUniqueId();
         initColumnNameMap();
     }
 
@@ -350,7 +351,7 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
     }
 
     public int getMaxColUniqueId() {
-        return this.maxColUniqueId;
+        return Math.max(maxColUniqueId, getSchemaMaxColUniqueId());
     }
 
     public void setMaxColUniqueId(int maxColUniqueId) {
@@ -366,6 +367,18 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
                         indexId, column, column.getUniqueId());
             }
         });
+    }
+
+    private void refreshMaxColUniqueId() {
+        maxColUniqueId = getMaxColUniqueId();
+    }
+
+    private int getSchemaMaxColUniqueId() {
+        int schemaMaxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
+        for (Column column : schema) {
+            schemaMaxColUniqueId = Math.max(schemaMaxColUniqueId, column.getUniqueId());
+        }
+        return schemaMaxColUniqueId;
     }
 
     public void initColumnNameMap() {
