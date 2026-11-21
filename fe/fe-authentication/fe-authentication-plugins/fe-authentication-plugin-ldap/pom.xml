@@ -52,6 +52,12 @@ under the License.
             <artifactId>spring-ldap-core</artifactId>
         </dependency>
 
+        <!-- Connection Pool (for searching) for LDAP client -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
+        </dependency>
+
         <!-- Logging -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
