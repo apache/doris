@@ -18,13 +18,24 @@
 package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DNSCache;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.util.concurrent.ListenableFuture;
+import io.grpc.CallOptions;
+import io.grpc.Channel;
+import io.grpc.ClientCall;
+import io.grpc.ClientInterceptor;
+import io.grpc.ClientInterceptors;
 import io.grpc.ConnectivityState;
+import io.grpc.ForwardingClientCall;
+import io.grpc.ForwardingClientCallListener;
 import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
+import io.grpc.MethodDescriptor;
+import io.grpc.Status;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -37,16 +48,27 @@ public class BackendServiceClient {
     private static final BackendServiceClientChannelProvider CHANNEL_PROVIDER =
             BackendServiceClientChannelProviderFactory.create();
     private final TNetworkAddress address;
+    private final String resolvedIp;
+    private final DNSCache dnsCache;
     private final PBackendServiceGrpc.PBackendServiceFutureStub stub;
     private final PBackendServiceGrpc.PBackendServiceBlockingStub blockingStub;
     private final ManagedChannel channel;
     private final long execPlanTimeout;
 
     public BackendServiceClient(TNetworkAddress address, String resolvedIp, Executor executor) {
+        this(address, resolvedIp, executor, null);
+    }
+
+    // dnsCache is the cache resolvedIp came from, or null. An RPC that ends with UNAVAILABLE marks
+    // the hostname there for a new lookup.
+    public BackendServiceClient(TNetworkAddress address, String resolvedIp, Executor executor, DNSCache dnsCache) {
         this.address = address;
+        this.resolvedIp = resolvedIp;
+        this.dnsCache = dnsCache;
         channel = CHANNEL_PROVIDER.createChannel(address, resolvedIp, executor);
-        stub = PBackendServiceGrpc.newFutureStub(channel);
-        blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
+        Channel interceptedChannel = ClientInterceptors.intercept(channel, new UnreachableInterceptor());
+        stub = PBackendServiceGrpc.newFutureStub(interceptedChannel);
+        blockingStub = PBackendServiceGrpc.newBlockingStub(interceptedChannel);
         // execPlanTimeout should be greater than future.get timeout, otherwise future will throw ExecutionException
         execPlanTimeout = Config.remote_fragment_exec_timeout_ms + 5000;
     }
@@ -216,6 +238,59 @@ public class BackendServiceClient {
     public Future<InternalService.PRequestCdcClientResult> requestCdcClient(
             InternalService.PRequestCdcClientRequest request, int timeoutSec) {
         return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).requestCdcClient(request);
+    }
+
+    /**
+     * Called when an RPC on this channel could not reach the backend. The backend may have restarted
+     * at a new address, so the hostname is resolved again on its next use; BackendServiceProxy
+     * rebuilds the channel if the address changed or the channel is not in a normal state.
+     */
+    private void onUnreachable() {
+        if (dnsCache == null || resolvedIp == null || resolvedIp.isEmpty() || channel.isShutdown()) {
+            return;
+        }
+        dnsCache.invalidateAfterRpcFailure(address.getHostname(), resolvedIp);
+    }
+
+    // UNAVAILABLE: the connection was refused or reset. DEADLINE_EXCEEDED on a channel that is not
+    // READY: the call timed out while still connecting, as it does when the old address drops
+    // packets. A deadline on a READY channel is a slow call to a reachable backend and is ignored.
+    private boolean isUnreachable(Status status) {
+        Status.Code code = status.getCode();
+        return code == Status.Code.UNAVAILABLE
+                || (code == Status.Code.DEADLINE_EXCEEDED && channel.getState(false) != ConnectivityState.READY);
+    }
+
+    private class UnreachableInterceptor implements ClientInterceptor {
+        @Override
+        public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(MethodDescriptor<ReqT, RespT> method,
+                CallOptions callOptions, Channel next) {
+            return new ForwardingClientCall.SimpleForwardingClientCall<ReqT, RespT>(
+                    next.newCall(method, callOptions)) {
+                @Override
+                public void start(Listener<RespT> responseListener, Metadata headers) {
+                    super.start(new ForwardingClientCallListener.SimpleForwardingClientCallListener<RespT>(
+                            responseListener) {
+                        @Override
+                        public void onClose(Status status, Metadata trailers) {
+                            if (isUnreachable(status)) {
+                                onUnreachable();
+                            }
+                            super.onClose(status, trailers);
+                        }
+                    }, headers);
+                }
+            };
+        }
+    }
+
+    /**
+     * Stops new calls without waiting: outstanding calls run to their own deadlines. Safe to call
+     * from the heartbeat or edit log replay thread.
+     */
+    public void shutdownGracefully() {
+        LOG.info("shut down backend service client: {} ({}) without waiting", address, resolvedIp);
+        channel.shutdown();
     }
 
     public void shutdown() {

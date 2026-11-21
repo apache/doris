@@ -25,6 +25,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.net.DatagramSocket;
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -34,6 +35,8 @@ import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 public class NetUtils {
     private static final Logger LOG = LogManager.getLogger(NetUtils.class);
@@ -80,6 +83,45 @@ public class NetUtils {
             hostName = "unknown";
         }
         return hostName;
+    }
+
+    private static class JvmDnsCacheHolder {
+        // InetAddress's own lookup cache, which keeps an answer for networkaddress.cache.ttl seconds.
+        // Reachable only with --add-opens=java.base/java.net, which start_fe.sh adds.
+        private static final Map<?, ?> CACHE = find();
+
+        private static Map<?, ?> find() {
+            try {
+                Field field = InetAddress.class.getDeclaredField("cache");
+                field.setAccessible(true);
+                Object cache = field.get(null);
+                if (cache instanceof Map) {
+                    return (Map<?, ?>) cache;
+                }
+                LOG.warn("InetAddress.cache is not a map, cannot evict JVM DNS cache entries");
+            } catch (ReflectiveOperationException | RuntimeException t) {
+                // InaccessibleObjectException without --add-opens=java.base/java.net, or a JDK
+                // without this field.
+                LOG.warn("cannot access InetAddress.cache, JVM DNS cache entries will expire by TTL only", t);
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Drops host from the JVM's InetAddress cache, so the next lookup of host asks the system resolver
+     * instead of returning an answer up to networkaddress.cache.ttl seconds old.
+     *
+     * @return false if the JVM does not expose its cache; the cached answer then expires by its TTL.
+     */
+    public static boolean evictJvmDnsCache(String host) {
+        Map<?, ?> cache = JvmDnsCacheHolder.CACHE;
+        if (cache == null) {
+            return false;
+        }
+        cache.remove(host);
+        cache.remove(host.toLowerCase(Locale.ROOT));
+        return true;
     }
 
     public static String getIpByHost(String host, int retryTimes) throws UnknownHostException {

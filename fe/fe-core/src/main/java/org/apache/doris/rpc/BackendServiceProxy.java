@@ -19,6 +19,7 @@ package org.apache.doris.rpc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DNSCache;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.scan.FileScanEncryptionGuard;
@@ -92,6 +93,25 @@ public class BackendServiceProxy {
         return Holder.get();
     }
 
+    /**
+     * Drops the cached channel to address from every proxy instance, so the next RPC resolves the
+     * hostname and dials the result. Does not wait for outstanding calls on the dropped channels.
+     */
+    public static void invalidateForAll(TNetworkAddress address) {
+        for (BackendServiceProxy proxy : Holder.proxies) {
+            BackendServiceClientExtIp removed;
+            proxy.lock.lock();
+            try {
+                removed = proxy.serviceMap.remove(address);
+            } finally {
+                proxy.lock.unlock();
+            }
+            if (removed != null) {
+                removed.client.shutdownGracefully();
+            }
+        }
+    }
+
     private class BackendServiceClientExtIp {
         private String realIp;
         private BackendServiceClient client;
@@ -119,17 +139,30 @@ public class BackendServiceProxy {
     }
 
     private BackendServiceClient getProxy(TNetworkAddress address) throws UnknownHostException {
-        String realIp = Env.getCurrentEnv().getDnsCache().get(address.hostname);
+        DNSCache dnsCache = Env.getCurrentEnv().getDnsCache();
+        String realIp = dnsCache.get(address.hostname);
+
+        BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
+        if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)
+                && !serviceClientExtIp.client.isNormalState()) {
+            // The channel is failing; the backend may have restarted at a new address. Resolve
+            // again before the channel is rebuilt below, so it is not rebuilt to the old address.
+            // Read the cache even when the throttle drops this claim: a failed RPC may have just
+            // marked the host, and get() then performs that lookup.
+            dnsCache.invalidateAfterRpcFailure(address.hostname, realIp);
+            realIp = dnsCache.get(address.hostname);
+        }
 
         // Check if DNS resolution failed (returns empty string)
         if (realIp.isEmpty() && Config.enable_fqdn_mode) {
+            // Do not keep the failed result until the periodic refresh: resolve again on the next RPC.
+            dnsCache.invalidateAfterRpcFailure(address.hostname, realIp);
             String errorMsg = String.format("Failed to resolve hostname: %s. DNS cache returned empty IP address.",
                     address.hostname);
             LOG.warn(errorMsg);
             throw new UnknownHostException(errorMsg);
         }
 
-        BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
         if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)
                 && serviceClientExtIp.client.isNormalState()) {
             return serviceClientExtIp.client;
@@ -156,7 +189,7 @@ public class BackendServiceProxy {
             }
             if (serviceClientExtIp == null) {
                 // Pass resolved IP to BackendServiceClient to avoid DNS resolution at gRPC layer
-                BackendServiceClient client = new BackendServiceClient(address, realIp, grpcThreadPool);
+                BackendServiceClient client = new BackendServiceClient(address, realIp, grpcThreadPool, dnsCache);
                 serviceMap.put(address, new BackendServiceClientExtIp(realIp, client));
             }
             return serviceMap.get(address).client;
