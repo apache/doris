@@ -31,6 +31,11 @@ import java.io.Closeable;
  */
 public interface ConnectorTransaction extends Closeable {
 
+    /** Connector-owned transaction details to append to the query profile after commit or rollback. */
+    default java.util.Map<String, String> getProfileInfo() {
+        return java.util.Collections.emptyMap();
+    }
+
     /** Stable transaction ID assigned by the connector. */
     long getTransactionId();
 

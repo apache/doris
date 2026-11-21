@@ -61,12 +61,14 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 /**
  * Commit-state handling of {@link PaimonConnectorTransaction}, ported from the branch-4.x
@@ -140,7 +142,7 @@ public class PaimonConnectorTransactionTest {
     }
 
     @Test
-    public void preCommitFailureRemainsAbortable() throws Exception {
+    public void preCommitFailureCleansUpWithoutEngineRollback() throws Exception {
         ScriptedTable target = new ScriptedTable(table);
         target.newCommitFailures = 1;
         PaimonConnectorTransaction transaction = boundTransaction(target);
@@ -149,9 +151,73 @@ public class PaimonConnectorTransactionTest {
         Assertions.assertThrows(DorisConnectorException.class, transaction::commit);
 
         Assertions.assertEquals(0, target.commitAttempts, "a failed committer open must not be retried");
+        Assertions.assertEquals(1, target.aborts,
+                "commit must clean up before the engine closes and deregisters the transaction");
+        Assertions.assertEquals(1, target.abortedMessages.size());
+        Assertions.assertEquals("ABORTED", transaction.getProfileInfo().get("PaimonTransactionState"));
         transaction.rollback();
+        Assertions.assertEquals(1, target.aborts, "later rollback must not clean up twice");
+    }
+
+    @Test
+    public void preCommitFailureDeletesPreparedFiles() throws Exception {
+        ScriptedTable target = new ScriptedTable(table);
+        target.newCommitFailures = 1;
+        target.abortPreparedFiles = true;
+        PaimonConnectorTransaction transaction = boundTransaction(target);
+        transaction.addCommitData(preparedDataFragment());
+        Assertions.assertTrue(dataFileCount() > 0);
+
+        Assertions.assertThrows(DorisConnectorException.class, transaction::commit);
+
+        Assertions.assertEquals(0, dataFileCount(), "unpublished files must be removed without engine rollback");
+        Assertions.assertNull(table.snapshotManager().latestSnapshot());
+    }
+
+    @Test
+    public void unknownCommitOutcomePreservesPreparedFiles() throws Exception {
+        ScriptedTable target = new ScriptedTable(table);
+        target.failingAttempts = 2;
+        target.abortPreparedFiles = true;
+        PaimonConnectorTransaction transaction = boundTransaction(target);
+        transaction.addCommitData(preparedDataFragment());
+        long preparedFiles = dataFileCount();
+        Assertions.assertTrue(preparedFiles > 0);
+
+        Assertions.assertThrows(DorisConnectorException.class, transaction::commit);
+
+        Assertions.assertEquals(preparedFiles, dataFileCount(), "an uncertain publication must keep its files");
+        Assertions.assertEquals(0, target.aborts);
+        Assertions.assertEquals("OUTCOME_UNKNOWN", transaction.getProfileInfo().get("PaimonTransactionState"));
+    }
+
+    private byte[] preparedDataFragment() throws Exception {
+        try (BatchTableWrite write = table.newBatchWriteBuilder().newWrite()) {
+            write.write(GenericRow.of(1));
+            return commitFragment(commitPayload(write.prepareCommit()));
+        }
+    }
+
+    private long dataFileCount() throws Exception {
+        try (Stream<Path> files = Files.walk(warehouse)) {
+            return files.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".parquet")).count();
+        }
+    }
+
+    @Test
+    public void reportAfterRollbackAbortsFilesWithoutReopeningTransaction() throws Exception {
+        ScriptedTable target = new ScriptedTable(table);
+        PaimonConnectorTransaction transaction = boundTransaction(target);
+        transaction.rollback();
+
+        transaction.addCommitData(commitFragment(commitPayload(0)));
+
         Assertions.assertEquals(1, target.aborts);
         Assertions.assertEquals(1, target.abortedMessages.size());
+        Assertions.assertEquals("ABORTED", transaction.getProfileInfo().get("PaimonTransactionState"));
+        Assertions.assertThrows(IllegalStateException.class, transaction::commit);
+        Assertions.assertEquals(0, target.commitAttempts);
     }
 
     @Test
@@ -346,9 +412,13 @@ public class PaimonConnectorTransactionTest {
     private static byte[] commitPayload(int bucket) throws Exception {
         CommitMessage message = new CommitMessageImpl(BinaryRow.EMPTY_ROW, bucket, 2,
                 DataIncrement.emptyIncrement(), CompactIncrement.emptyIncrement());
+        return commitPayload(Collections.singletonList(message));
+    }
+
+    private static byte[] commitPayload(List<CommitMessage> messages) throws Exception {
         CommitMessageSerializer serializer = new CommitMessageSerializer();
         ByteArrayOutputStream output = new ByteArrayOutputStream();
-        serializer.serializeList(Collections.singletonList(message), new DataOutputViewStreamWrapper(output));
+        serializer.serializeList(messages, new DataOutputViewStreamWrapper(output));
         byte[] serialized = output.toByteArray();
         ByteBuffer framed = ByteBuffer.allocate(12 + serialized.length);
         framed.put(new byte[] {'D', 'P', 'C', 'M'});
@@ -384,6 +454,7 @@ public class PaimonConnectorTransactionTest {
         transient int newCommitCalls;
         transient int commitAttempts;
         transient int aborts;
+        transient boolean abortPreparedFiles;
         transient List<CommitMessage> abortedMessages = new ArrayList<>();
         transient List<CommitMessage> committedMessages = new ArrayList<>();
 
@@ -464,6 +535,13 @@ public class PaimonConnectorTransactionTest {
         public void abort(List<CommitMessage> commitMessages) {
             target.aborts++;
             target.abortedMessages.addAll(commitMessages);
+            if (target.abortPreparedFiles) {
+                try (TableCommitImpl committer = target.wrapped().newCommit(commitUser)) {
+                    committer.abort(commitMessages);
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            }
         }
 
         @Override

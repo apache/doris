@@ -47,6 +47,7 @@ import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.sink.CommitMessageSerializer;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypeRoot;
 
@@ -63,11 +64,16 @@ import java.util.TreeMap;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-/** Builds the JNI-backed Paimon sink and binds it to the active connector transaction. */
+/** Selects the Paimon write backend and binds the sink to the active connector transaction. */
 public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
     // Keep in sync with Config.PAIMON_WRITE_MIN_BE_EXEC_VERSION. Connector modules cannot depend
     // on fe-common, so the wire-protocol boundary is repeated at the provider admission gate.
     static final int MIN_BE_EXEC_VERSION = 16;
+
+    private static final String LEGACY_BE_REJECTION_MARKER = "Paimon table descriptor required: upgrade the BE";
+    static final String ENABLE_RUST_WRITER = "enable_paimon_rust_writer";
+    // Must match paimon-rust's upstream CommitMessage serializer.
+    static final int RUST_COMMIT_VERSION = 14;
 
     static final String ROW_KIND_COLUMN = "__DORIS_PAIMON_ROW_KIND__";
     static final byte INSERT_OPERATION = 0;
@@ -159,17 +165,45 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         transaction.bind(binding);
 
         TPaimonTableSink sink = new TPaimonTableSink();
-        sink.setSerializedTable(binding.getSerializedTable());
+        List<String> columns = outputColumnNames(handle);
+        Map<String, String> storageOptions = new LinkedHashMap<>(binding.getHadoopConfig());
+        for (StorageProperties storage : context.getStorageContext().getStorageProperties()) {
+            storage.toBackendProperties().ifPresent(properties -> storageOptions.putAll(properties.toMap()));
+        }
+        storageOptions.putAll(table.options());
+        TPaimonWriteMode mode = writeMode(handle);
+        Optional<String> fallbackReason = rustWriterFallbackReason(session, table, columns, storageOptions, mode);
+        boolean rust = fallbackReason.isEmpty();
+        sink.setSerializedTable(LEGACY_BE_REJECTION_MARKER);
+        sink.setTableDesc(binding.getTableDescriptor(storageOptions, rust));
+        sink.setCommitMessageVersion(rust ? RUST_COMMIT_VERSION : new CommitMessageSerializer().getVersion());
+        sink.setBackendSelectionReason(fallbackReason.orElse(
+                mode == TPaimonWriteMode.OVERWRITE ? "supported_overwrite" : "supported_append"));
         sink.setHadoopConfig(binding.getHadoopConfig());
-        sink.setColumnNames(outputColumnNames(handle));
-        sink.setBackendType(TPaimonWriteBackendType.JNI);
-        sink.setWriteMode(writeMode(handle));
+        sink.setColumnNames(columns);
+        sink.setBackendType(rust ? TPaimonWriteBackendType.FFI : TPaimonWriteBackendType.JNI);
+        sink.setWriteMode(mode);
         sink.setTransactionId(transaction.getTransactionId());
         sink.setCommitUser(transaction.getCommitUser());
 
         TDataSink dataSink = new TDataSink(TDataSinkType.PAIMON_TABLE_SINK);
         dataSink.setPaimonTableSink(sink);
         return new ConnectorSinkPlan(dataSink);
+    }
+
+    static Optional<String> rustWriterFallbackReason(ConnectorSession session, FileStoreTable table,
+            List<String> columns, Map<String, String> storageOptions, TPaimonWriteMode mode) {
+        if (Boolean.FALSE.equals(session.getProperty(ENABLE_RUST_WRITER, Boolean.class))) {
+            return Optional.of("rust_writer_disabled");
+        }
+        if (mode == TPaimonWriteMode.CHANGELOG) {
+            return Optional.of("changelog_write");
+        }
+        if (charPaddingEnabled(session) && table.schema().fields().stream()
+                .anyMatch(field -> field.type().getTypeRoot() == DataTypeRoot.CHAR)) {
+            return Optional.of("char_padding");
+        }
+        return PaimonRustWriteSupport.unsupportedReason(table, columns, storageOptions);
     }
 
     /**

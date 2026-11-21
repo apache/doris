@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
+import org.apache.doris.thrift.TPaimonWriteMode;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.fs.Path;
@@ -44,9 +45,34 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class PaimonWritePlanProviderTest {
+
+    @Test
+    public void rustSelectionSupportsInsertAndOverwriteButNotChangelog() {
+        FileStoreTable table = FileStoreTableFactory.create(LocalFileIO.create(),
+                new Path("file:/tmp/rust-write-selection"), new TableSchema(0,
+                        Collections.singletonList(DataTypes.FIELD(0, "id", DataTypes.INT().notNull())),
+                        0, Collections.emptyList(), Collections.singletonList("id"),
+                        Collections.singletonMap("bucket", "2"), ""));
+        ConnectorSession enabled = new PropertySession(Collections.emptyMap());
+        List<String> columns = Collections.singletonList("id");
+        for (TPaimonWriteMode mode : Arrays.asList(TPaimonWriteMode.APPEND, TPaimonWriteMode.OVERWRITE)) {
+            Assertions.assertTrue(PaimonWritePlanProvider.rustWriterFallbackReason(
+                    enabled, table, columns, Collections.emptyMap(), mode).isEmpty());
+        }
+        Assertions.assertEquals(Optional.of("changelog_write"), PaimonWritePlanProvider.rustWriterFallbackReason(
+                enabled, table, columns, Collections.emptyMap(), TPaimonWriteMode.CHANGELOG));
+        Assertions.assertEquals(Optional.of("rust_writer_disabled"), PaimonWritePlanProvider.rustWriterFallbackReason(
+                new PropertySession(Collections.singletonMap("enable_paimon_rust_writer", "false")),
+                table, columns, Collections.emptyMap(), TPaimonWriteMode.OVERWRITE));
+        table.options().put("merge-engine", "first-row");
+        Assertions.assertEquals(Optional.of("first_row_requires_compaction"),
+                PaimonWritePlanProvider.rustWriterFallbackReason(
+                        enabled, table, columns, Collections.emptyMap(), TPaimonWriteMode.APPEND));
+    }
 
     @Test
     public void charPaddingFollowsTheSessionVariableAndDefaultsToOn() {

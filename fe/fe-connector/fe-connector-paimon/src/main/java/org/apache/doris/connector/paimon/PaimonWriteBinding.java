@@ -19,17 +19,17 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+import org.apache.doris.thrift.TPaimonTableDesc;
 
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.VarBinaryType;
-import org.apache.paimon.utils.InstantiationUtil;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
@@ -38,7 +38,6 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HexFormat;
@@ -59,21 +58,24 @@ final class PaimonWriteBinding {
     static final String DORIS_WRITE_CHAR_PADDING = "doris.write.char-padding";
 
     private final String tableName;
+    private final String databaseName;
+    private final String simpleTableName;
     private final FileStoreTable table;
-    private final String serializedTable;
+    private final FileStoreTable backendTable;
     private final Map<String, String> hadoopConfig;
     private final boolean overwrite;
     private final Map<String, String> staticPartition;
 
-    private PaimonWriteBinding(String tableName, FileStoreTable table,
+    private PaimonWriteBinding(String databaseName, String simpleTableName, FileStoreTable table,
             Map<String, String> hadoopConfig, boolean overwrite,
             Map<String, String> staticPartition, boolean charPadding) {
-        this.tableName = tableName;
+        this.tableName = databaseName + "." + simpleTableName;
+        this.databaseName = databaseName;
+        this.simpleTableName = simpleTableName;
         this.table = table;
         // The FE committer keeps the catalog-aware table, but the BE writer must not deserialize
         // an HMS/DLF catalog loader whose metastore classes are absent from the BE plugin.
-        this.serializedTable = serialize(withCharPadding(PaimonScanPlanProvider.dropCatalogLoader(table),
-                charPadding));
+        this.backendTable = withCharPadding(PaimonScanPlanProvider.dropCatalogLoader(table), charPadding);
         this.hadoopConfig = Collections.unmodifiableMap(new LinkedHashMap<>(hadoopConfig));
         this.overwrite = overwrite;
         this.staticPartition = Collections.unmodifiableMap(new LinkedHashMap<>(staticPartition));
@@ -93,7 +95,8 @@ final class PaimonWriteBinding {
         Map<String, String> staticPartition = overwrite
                 ? resolveStaticPartition(table, writeHandle, charPadding) : Collections.emptyMap();
         FileStoreTable writeTable = configureTableForWrite(table, overwrite, staticPartition);
-        return new PaimonWriteBinding(tableName, writeTable, hadoopConfig, overwrite, staticPartition, charPadding);
+        return new PaimonWriteBinding(handle.getDatabaseName(), handle.getTableName(), writeTable,
+                hadoopConfig, overwrite, staticPartition, charPadding);
     }
 
     /**
@@ -275,14 +278,6 @@ final class PaimonWriteBinding {
         return padLength > 0 ? value + " ".repeat(padLength) : value;
     }
 
-    private static String serialize(FileStoreTable table) {
-        try {
-            return Base64.getEncoder().encodeToString(InstantiationUtil.serializeObject(table));
-        } catch (IOException e) {
-            throw new DorisConnectorException("Failed to serialize Paimon write table", e);
-        }
-    }
-
     String tableName() {
         return tableName;
     }
@@ -291,8 +286,33 @@ final class PaimonWriteBinding {
         return table;
     }
 
-    String getSerializedTable() {
-        return serializedTable;
+    TPaimonTableDesc getTableDescriptor(Map<String, String> storageOptions,
+            boolean rust) {
+        Map<String, String> options = new HashMap<>(backendTable.schema().options());
+        if (rust) {
+            options.put("write.parquet-buffer-size", "8 mb");
+            if (!backendTable.primaryKeys().isEmpty()) {
+                // The SDK's default 256 MiB key-value buffer cannot reach its flush
+                // threshold under the default 64 MiB writer budget. Retain smaller
+                // table settings and flush larger buffers before exhausting that budget.
+                long writeBufferSize = Math.min(CoreOptions.fromMap(options).writeBufferSize(), 8L * 1024 * 1024);
+                options.put(CoreOptions.WRITE_BUFFER_SIZE.key(), writeBufferSize + " b");
+            }
+        }
+        boolean restDataToken = PaimonTableDescriptor.usesRestDataToken(table);
+        TPaimonTableDesc descriptor = PaimonTableDescriptor.describe(restDataToken ? table : backendTable,
+                backendTable.schema().copy(options), databaseName, simpleTableName, storageOptions, false);
+        if (restDataToken) {
+            // The catalog-less table loses the REST endpoint/auth options needed to refresh tokens.
+            // Keep that context and remote identity, without restoring BE catalog metadata lookups.
+            Map<String, String> catalogOptions = new HashMap<>(descriptor.getCatalogContext().getOptions());
+            catalogOptions.put(RESTTokenFileIO.DATA_TOKEN_ENABLED.key(), "true");
+            descriptor.getCatalogContext().setOptions(catalogOptions);
+            descriptor.getCatalogContext().setCatalogLoaderEnabled(false);
+            descriptor.getCatalogContext().setSupportsVersionManagement(
+                    backendTable.catalogEnvironment().supportsVersionManagement());
+        }
+        return descriptor;
     }
 
     Map<String, String> getHadoopConfig() {
