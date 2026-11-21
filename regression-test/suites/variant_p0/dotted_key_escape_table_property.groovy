@@ -16,7 +16,7 @@
 // under the License.
 
 suite("dotted_key_escape_table_property", "p0") {
-    sql "set default_variant_enable_nested_group=false"
+    sql "set debug_variant_enable_nested_group=false"
     sql "DROP TABLE IF EXISTS dotted_key_escape_table_true"
     sql "DROP TABLE IF EXISTS dotted_key_escape_table_false"
     sql """CREATE TABLE dotted_key_escape_table_true(k INT,padding INT DEFAULT '0',v VARIANT)
@@ -49,7 +49,7 @@ suite("dotted_key_escape_table_property", "p0") {
             PROPERTIES('replication_num'='1','variant_escape_dots_in_keys'='true')"""
         exception "Escaped tables do not support NestedGroup"
     }
-    sql "set default_variant_enable_nested_group=true"
+    sql "set debug_variant_enable_nested_group=true"
     test {
         sql """CREATE TABLE dotted_key_escape_nested_default(k INT,v VARIANT<PROPERTIES('variant_max_subcolumns_count'='1')>)
             DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -60,7 +60,7 @@ suite("dotted_key_escape_table_property", "p0") {
         sql "ALTER TABLE dotted_key_escape_table_true ADD COLUMN bad VARIANT<PROPERTIES('variant_max_subcolumns_count'='1')>"
         exception "Escaped tables do not support NestedGroup"
     }
-    sql "set default_variant_enable_nested_group=false"
+    sql "set debug_variant_enable_nested_group=false"
     sql """INSERT INTO dotted_key_escape_table_true(k,v) VALUES (1,parse_to_variant('{"a.b":101,"a":{"b":102}}'))"""
     sql "ALTER TABLE dotted_key_escape_table_true ADD ROLLUP dotted_key_escape_rollup(k,v)"
     waitForSchemaChangeDone {

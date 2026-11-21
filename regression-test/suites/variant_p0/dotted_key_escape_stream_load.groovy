@@ -16,7 +16,7 @@
 // under the License.
 
 suite("dotted_key_escape_stream_load", "p0,nonConcurrent") {
-    sql "set default_variant_enable_doc_mode=false"
+    sql "set debug_variant_enable_doc_mode=false"
     sql "drop table if exists dotted_key_escape_stream_load"
     sql """create table dotted_key_escape_stream_load(id int,v variant<properties(
         "variant_enable_nested_group"="false",

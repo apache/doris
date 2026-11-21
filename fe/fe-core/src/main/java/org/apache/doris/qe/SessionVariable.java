@@ -1035,23 +1035,23 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ANN_INDEX_CANDIDATE_ROWS_PERCENT_THRESHOLD =
             "ann_index_candidate_rows_percent_threshold";
 
-    public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
+    public static final String DEBUG_VARIANT_MAX_SUBCOLUMNS_COUNT = "debug_variant_max_subcolumns_count";
 
-    public static final String DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
-                                                            "default_variant_enable_typed_paths_to_sparse";
+    public static final String DEBUG_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
+                                                            "debug_variant_enable_typed_paths_to_sparse";
 
-    public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
-                                                            "default_variant_max_sparse_column_statistics_size";
-    public static final String DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT = "default_variant_sparse_hash_shard_count";
+    public static final String DEBUG_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
+                                                            "debug_variant_max_sparse_column_statistics_size";
+    public static final String DEBUG_VARIANT_SPARSE_HASH_SHARD_COUNT = "debug_variant_sparse_hash_shard_count";
 
-    public static final String DEFAULT_VARIANT_ENABLE_DOC_MODE = "default_variant_enable_doc_mode";
+    public static final String DEBUG_VARIANT_ENABLE_DOC_MODE = "debug_variant_enable_doc_mode";
 
-    public static final String DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
-            "default_variant_doc_materialization_min_rows";
+    public static final String DEBUG_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
+            "debug_variant_doc_materialization_min_rows";
 
-    public static final String DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT = "default_variant_doc_hash_shard_count";
+    public static final String DEBUG_VARIANT_DOC_HASH_SHARD_COUNT = "debug_variant_doc_hash_shard_count";
 
-    public static final String DEFAULT_VARIANT_ENABLE_NESTED_GROUP = "default_variant_enable_nested_group";
+    public static final String DEBUG_VARIANT_ENABLE_NESTED_GROUP = "debug_variant_enable_nested_group";
 
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
@@ -3753,7 +3753,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
+            name = DEBUG_VARIANT_MAX_SUBCOLUMNS_COUNT,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantMaxSubcolumnsCount",
@@ -3762,7 +3762,7 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantMaxSubcolumnsCount = 2048;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+            name = DEBUG_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3771,7 +3771,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean defaultEnableTypedPathsToSparse = false;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
+            name = DEBUG_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantMaxSparseColumnStatisticsSize",
@@ -3788,7 +3788,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableHyperscanFallback = true;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
+            name = DEBUG_VARIANT_SPARSE_HASH_SHARD_COUNT,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3802,7 +3802,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean cloudPartitionsTableUseCachedVisibleVersion = true;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_ENABLE_DOC_MODE,
+            name = DEBUG_VARIANT_ENABLE_DOC_MODE,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3811,7 +3811,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean defaultVariantEnableDocMode = false;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
+            name = DEBUG_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3820,7 +3820,7 @@ public class SessionVariable implements Serializable, Writable {
     public long defaultVariantDocMaterializationMinRows = 0L;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT,
+            name = DEBUG_VARIANT_DOC_HASH_SHARD_COUNT,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3829,7 +3829,7 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantDocHashShardCount = 64;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_ENABLE_NESTED_GROUP,
+            name = DEBUG_VARIANT_ENABLE_NESTED_GROUP,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -6940,11 +6940,11 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    // The default_variant_* variables only drive the tests, which run with debug points enabled. Users state VARIANT
+    // The debug_variant_* variables only drive the tests, which run with debug points enabled. Users state VARIANT
     // properties in the column definition, so a DDL text creates the same column in every session.
     public void checkDefaultVariantSettable(String value) {
         if (!Config.enable_debug_points) {
-            throw new UnsupportedOperationException("default_variant_* session variables are only for testing, "
+            throw new UnsupportedOperationException("debug_variant_* session variables are only for testing, "
                     + "set the property in the VARIANT column definition");
         }
     }

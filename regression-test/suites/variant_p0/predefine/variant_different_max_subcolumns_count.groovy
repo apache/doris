@@ -20,7 +20,7 @@ suite("variant_different_max_subcolumns_count", "p0") {
 
     def variantV2Function = "parse_to_variant"
     def table_name = "variant_different_max_subcolumns_count"
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
