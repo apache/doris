@@ -367,16 +367,17 @@ public class LocalTablet extends Tablet {
             return true;
         }
 
-        boolean allBeAliveOrDecommissioned = true;
+        // A shutting-down backend can still be alive; do not bypass the repair delay for it.
+        boolean allBeAvailableOrDecommissioned = true;
         for (Replica replica : replicas) { // single volatile read; iteration on the snapshot
             Backend backend = infoService.getBackend(replica.getBackendIdWithoutException());
-            if (backend == null || (!backend.isAlive() && !backend.isDecommissioned())) {
-                allBeAliveOrDecommissioned = false;
+            if (backend == null || (!backend.isScheduleAvailable() && !backend.isDecommissioned())) {
+                allBeAvailableOrDecommissioned = false;
                 break;
             }
         }
 
-        if (allBeAliveOrDecommissioned) {
+        if (allBeAvailableOrDecommissioned) {
             return true;
         }
 
