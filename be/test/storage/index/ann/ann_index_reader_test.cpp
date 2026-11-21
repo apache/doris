@@ -30,6 +30,7 @@
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/ann/vector_search_utils.h"
+#include "storage/segment/column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 
 using namespace doris::vector_search_utils;
@@ -152,16 +153,22 @@ TEST_F(AnnIndexReaderTest, TestLoadIndexSuccess) {
 }
 
 TEST_F(AnnIndexReaderTest, TestLoadIndexFailureInit) {
-    auto reader = std::make_unique<segment_v2::AnnIndexReader>(_tablet_index.get(),
+    auto column_reader = std::make_shared<segment_v2::ColumnReader>();
+    auto reader = std::make_shared<segment_v2::AnnIndexReader>(_tablet_index.get(),
                                                                _mock_index_file_reader);
+    column_reader->_index_readers.emplace(_tablet_index->index_id(), reader);
 
-    // Mock failed init
     EXPECT_CALL(*_mock_index_file_reader, init(testing::_, testing::_))
             .WillOnce(testing::Return(Status::IOError("Init failed")));
 
     io::IOContext io_ctx;
-    Status status = reader->load_index(&io_ctx);
-    EXPECT_FALSE(status.ok());
+    EXPECT_FALSE(reader->load_index(&io_ctx).ok());
+    // Even when the caller handles this error with brute-force fallback, the
+    // ColumnReader must be evicted so a later query can retry loading ANN.
+    EXPECT_FALSE(reader->healthy_status().ok());
+    EXPECT_FALSE(column_reader->healthy_status().ok());
+    EXPECT_TRUE(column_reader->_healthy_status.status().ok());
+    EXPECT_FALSE(reader->load_index(&io_ctx).ok());
 }
 
 TEST_F(AnnIndexReaderTest, TestLoadIndexFailureOpen) {

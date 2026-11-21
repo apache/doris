@@ -559,6 +559,23 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
 
 ColumnReader::~ColumnReader() = default;
 
+Status ColumnReader::healthy_status() const {
+    RETURN_IF_ERROR(_healthy_status.status());
+    // Child ownership is fixed before publication. Array/Map metadata can have
+    // an unused nullable-helper slot, so only inspect populated child slots.
+    for (const auto& reader : _sub_readers) {
+        if (reader != nullptr) {
+            RETURN_IF_ERROR(reader->healthy_status());
+        }
+    }
+    // Index readers, unlike column children, are added lazily under this lock.
+    std::shared_lock lock(_load_index_lock);
+    for (const auto& [id, reader] : _index_readers) {
+        RETURN_IF_ERROR(reader->healthy_status());
+    }
+    return Status::OK();
+}
+
 int64_t ColumnReader::get_metadata_size() const {
     return sizeof(ColumnReader) + (_segment_zone_map ? _segment_zone_map->ByteSizeLong() : 0);
 }
@@ -888,14 +905,19 @@ Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memor
     if (!_ordinal_index) {
         return Status::InternalError("ordinal_index not inited");
     }
-    return _ordinal_index->load(use_page_cache, kept_in_memory, iter_opts.stats, &iter_opts.io_ctx);
+    return _load_with_health_check([&] {
+        return _ordinal_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
+                                    &iter_opts.io_ctx);
+    });
 }
 
 Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memory,
                                           const ColumnIteratorOptions& iter_opts) {
     if (_zone_map_index != nullptr) {
-        return _zone_map_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
-                                     &iter_opts.io_ctx);
+        return _load_with_health_check([&] {
+            return _zone_map_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
+                                         &iter_opts.io_ctx);
+        });
     }
     return Status::OK();
 }
@@ -1038,8 +1060,10 @@ bool ColumnReader::has_bloom_filter_index(bool ngram) const {
 Status ColumnReader::_load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                               const ColumnIteratorOptions& iter_opts) {
     if (_bloom_filter_index != nullptr) {
-        return _bloom_filter_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
-                                         &iter_opts.io_ctx);
+        return _load_with_health_check([&] {
+            return _bloom_filter_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
+                                             &iter_opts.io_ctx);
+        });
     }
     return Status::OK();
 }
@@ -1058,8 +1082,9 @@ Status ColumnReader::get_ordinal_index_reader(OrdinalIndexReader*& reader,
                                               OlapReaderStatistics* index_load_stats) {
     CHECK(_ordinal_index) << fmt::format("ordinal index is null for column reader of type {}",
                                          std::to_string(int(_meta_type)));
-    RETURN_IF_ERROR(
-            _ordinal_index->load(_use_index_page_cache, _opts.kept_in_memory, index_load_stats));
+    RETURN_IF_ERROR(_load_with_health_check([&] {
+        return _ordinal_index->load(_use_index_page_cache, _opts.kept_in_memory, index_load_stats);
+    }));
     reader = _ordinal_index.get();
     return Status::OK();
 }
