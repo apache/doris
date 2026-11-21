@@ -381,6 +381,71 @@ TEST(HashFunctionTest, xxhash_64_test) {
     };
 }
 
+TEST(HashFunctionTest, xxhash_128_test) {
+    std::string func_name = "xxhash_128";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {
+                {{Null()}, Null()},
+                {{std::string("hello")}, pack_murmur_hash3_128_for_test(0xc779cfaa5e523818ULL, 0xb5e9c1ad071b3e7fULL)}};
+
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));        
+    };
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {
+                {{std::string("hello"), std::string("world")}, pack_murmur_hash3_128_for_test(0xfad86fdc7b94209eULL, 0xf8d8c298671f374aULL)},
+                {{std::string("hello"), Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    };
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {{{std::string("hello"), std::string("world"), std::string("!")},
+                             pack_murmur_hash3_128_for_test(0x6ad2986d0444bd84ULL, 0x9409bdfc60ac231cULL)},
+                            {{std::string("hello"), std::string("world"), Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    };
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
+
+        DataSet data_set = {{{Null()}, Null()},
+                            {{VARBINARY("hello")}, pack_murmur_hash3_128_for_test(0xc779cfaa5e523818ULL, 0xb5e9c1ad071b3e7fULL)}};
+
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    };
+    
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY};
+
+        DataSet data_set = {
+                {{VARBINARY("hello"), VARBINARY("world")}, pack_murmur_hash3_128_for_test(0xfad86fdc7b94209eULL, 0xf8d8c298671f374aULL)},
+                {{VARBINARY("hello"), Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    };
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY,
+                                    PrimitiveType::TYPE_VARBINARY};
+
+        DataSet data_set = {{{VARBINARY("hello"), VARBINARY("world"), VARBINARY("!")},
+                             pack_murmur_hash3_128_for_test(0x6ad2986d0444bd84ULL, 0x9409bdfc60ac231cULL)},
+                            {{VARBINARY("hello"), VARBINARY("world"), Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    };
+}
+
 TEST(HashFunctionTest, murmur_hash3_helper_functions_test) {
     {
         std::string input = "hello world";
