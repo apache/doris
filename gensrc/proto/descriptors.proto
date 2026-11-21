@@ -105,6 +105,7 @@ message POlapTableIndexSchema {
     repeated TabletIndexPB indexes_desc = 5;
     // ATTN(changelog-rename): formerly "row_binlog_id"
     optional int64 changelog_index_id = 6;
+    optional PChangelogWriteColumnMappings changelog_column_mappings = 7;
 };
 
 message POlapTableSchemaParam {

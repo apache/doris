@@ -52,7 +52,6 @@ import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
-import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
@@ -309,12 +308,7 @@ public class StreamLoadHandler {
                 if (txnState == null) {
                     throw new UserException("txn does not exist: " + request.getTxnId());
                 }
-                txnState.addTableIndexes(table);
-                TUniqueKeyUpdateMode uniqueKeyUpdateMode = request.getUniqueKeyUpdateMode();
-                if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
-                        || uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
-                    txnState.setSchemaForPartialUpdate(table);
-                }
+                txnState.registerWriteSchema(request.getTxnId(), planner.getWriteSchemaSnapshot());
             }
         } finally {
             table.readUnlock();

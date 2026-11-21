@@ -71,6 +71,7 @@ import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.transaction.TxnWriteSchemaSnapshot;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -819,6 +820,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
     }
 
     protected void addTableIndexes(TransactionState state) {
-        state.addTableIndexes(targetTbl);
+        state.registerWriteSchema(transactionId,
+                TxnWriteSchemaSnapshot.capture(targetTbl, false));
     }
 }

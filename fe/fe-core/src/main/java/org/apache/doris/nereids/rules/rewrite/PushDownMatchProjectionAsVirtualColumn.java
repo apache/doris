@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -52,24 +51,17 @@ import java.util.function.Function;
  */
 public class PushDownMatchProjectionAsVirtualColumn implements RewriteRuleFactory {
 
-    private boolean canPushDown(LogicalOlapScan scan) {
-        boolean dupTblOrMOW = scan.getTable().getKeysType() == KeysType.DUP_KEYS
-                || (scan.getTable().getTableProperty() != null
-                    && scan.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite());
-        return dupTblOrMOW;
-    }
-
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 // Pattern 1: Project -> OlapScan
-                logicalProject(logicalOlapScan().when(this::canPushDown))
+                logicalProject(logicalOlapScan().when(LogicalOlapScan::canPushDownVirtualColumns))
                         .then(project -> {
                             LogicalOlapScan scan = project.child();
                             return pushDown(project, scan, newScan -> newScan);
                         }).toRule(RuleType.PUSH_DOWN_MATCH_PROJECTION_AS_VIRTUAL_COLUMN),
                 // Pattern 2: Project -> Filter -> OlapScan
-                logicalProject(logicalFilter(logicalOlapScan().when(this::canPushDown)))
+                logicalProject(logicalFilter(logicalOlapScan().when(LogicalOlapScan::canPushDownVirtualColumns)))
                         .then(project -> {
                             LogicalFilter<LogicalOlapScan> filter = project.child();
                             LogicalOlapScan scan = filter.child();

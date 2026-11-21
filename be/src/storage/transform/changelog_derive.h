@@ -22,6 +22,9 @@
 
 namespace doris {
 struct RowsetWriterContext;
+namespace changelog {
+struct ResolvedChangelogLayout;
+}
 
 namespace segment_v2 {
 
@@ -35,26 +38,16 @@ namespace segment_v2 {
 // a requested BEFORE image. Decided per flush.
 bool changelog_needs_historical_lookup(const RowsetWriterContext& context);
 
-// Context for each flush that the base stage works out once and passes to
-// derive(): the changelog/source schemas, the consumed LSN range, row count, and
-// column layout [keys..., AFTER..., (BEFORE...), TSO, LSN, OP].
+// Per-flush state passed to derive(). The writer owns the immutable layout;
+// flexible partial updates may replace only the LSN range and row count.
 struct ChangelogDeriveContext {
-    TabletSchemaSPtr changelog_schema;
-    TabletSchemaSPtr source_schema;
+    const changelog::ResolvedChangelogLayout* layout = nullptr;
     ConstAllocatedLsnVectorSharedPtr lsn_ids;
     size_t num_rows = 0;
-    uint32_t changelog_tso_cid = 0;
-    uint32_t changelog_lsn_cid = 0;
-    uint32_t changelog_op_cid = 0;
-    uint32_t normal_col_start = 0;
-    uint32_t before_col_start = 0;
-    std::vector<uint32_t> normal_source_cids;
-    std::vector<uint32_t> value_source_cids;
-    bool write_before = false;
 };
 
-// Base for the derive stages: apply() runs the setup steps (schema layout + LSN
-// hand-off), then calls derive().
+// Base for the derive stages: apply() borrows the prepared layout and consumes
+// the segment LSN range, then calls derive().
 class ChangelogDeriveStage : public BlockTransform {
 public:
     Status apply(TransformExecContext& ctx, Block* block) const final;

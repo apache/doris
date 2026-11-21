@@ -26,12 +26,16 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
@@ -53,10 +57,19 @@ import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FrontendServiceImpl;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.thrift.TChangelogWriteColumnMapping;
+import org.apache.doris.thrift.TChangelogWriteColumnMappings;
+import org.apache.doris.thrift.TCommitRemoteTxnRequest;
 import org.apache.doris.thrift.TPartitionVersionInfo;
+import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgrTest.SubTransactionInfo;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -265,6 +278,42 @@ public class DatabaseTransactionMgrTest {
         TransactionState transactionState2 = masterDbTransMgr.getTransactionState(txnId2);
         Assertions.assertEquals(txnId2.longValue(), transactionState2.getTransactionId());
         Assertions.assertEquals(TransactionStatus.PREPARE, transactionState2.getTransactionStatus());
+    }
+
+    @Test
+    public void testRemoteCommitChecksRollupCreatedAfterSourceReadSchema() throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+        Partition partition = table.getPartition(CatalogTestUtil.testPartitionId1);
+        // The sender plans against the base index and never receives the new rollup's tablets.
+        List<TTabletCommitInfo> baseCommits = new ArrayList<>();
+        for (long backend : allBackends) {
+            baseCommits.add(new TTabletCommitInfo(CatalogTestUtil.testTabletId1, backend));
+        }
+        MaterializedIndex rollup = new MaterializedIndex(8123L, MaterializedIndex.IndexState.NORMAL);
+        LocalTablet rollupTablet = new LocalTablet(8124L);
+        rollup.addTablet(rollupTablet, new TabletMeta(db.getId(), table.getId(), partition.getId(),
+                rollup.getId(), CatalogTestUtil.testSchemaHash1, TStorageMedium.HDD, false));
+        for (long backend : allBackends) {
+            rollupTablet.addReplica(new LocalReplica(8200 + backend, backend, Replica.ReplicaState.NORMAL,
+                    partition.getVisibleVersion(), CatalogTestUtil.testSchemaHash1));
+        }
+        partition.createRollupIndex(rollup);
+        long txnId = masterTransMgr.beginTransaction(db.getId(), List.of(table.getId()), "remote_stale_rollup",
+                transactionSource, LoadJobSourceType.BACKEND_STREAMING, Config.stream_load_default_timeout_second);
+        TCommitRemoteTxnRequest request = new TCommitRemoteTxnRequest().setDb(db.getFullName())
+                .setTbl(table.getName()).setTxnId(txnId)
+                .setCommitInfos(baseCommits).setInsertVisibleTimeoutMs(1000);
+        Method commit = FrontendServiceImpl.class.getDeclaredMethod(
+                "commitRemoteTxnImpl", TCommitRemoteTxnRequest.class);
+        commit.setAccessible(true);
+        InvocationTargetException error = Assertions.assertThrows(InvocationTargetException.class,
+                () -> commit.invoke(new FrontendServiceImpl(Mockito.mock(ExecuteEnv.class)), request));
+        Assertions.assertTrue(error.getCause().getMessage().contains("tablet 8124 succ replica num 0"),
+                () -> error.getCause().toString());
+        Assertions.assertEquals(TransactionStatus.PREPARE,
+                masterTransMgr.getTransactionState(db.getId(), txnId).getTransactionStatus());
     }
 
     @Test
@@ -910,7 +959,7 @@ public class DatabaseTransactionMgrTest {
         long subTransactionId3 = transactionState6.getSubTxnIds().get(2);
         TransactionState subTransactionState = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1,
                 subTransactionId3);
-        Assertions.assertEquals(null, subTransactionState); // finished txn will remove sub txn map
+        Assertions.assertNull(subTransactionState); // Ordinary finished transactions remove sub transaction aliases.
         // test show transaction state command
         /*List<List<String>> singleTranInfos = masterDbTransMgr.getSingleTranInfo(CatalogTestUtil.testDbId1,
                 subTransactionId3);
@@ -964,6 +1013,73 @@ public class DatabaseTransactionMgrTest {
         Assertions.assertEquals(1 + 1, masterDbTransMgr.getFinishedTxnNums());
         Assertions.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel6));
         Assertions.assertNull(masterDbTransMgr.getTransactionState(subTransactionId3));
+    }
+
+    @Test
+    public void testValuesBeginInstallsSnapshotBeforeReturningAndChecksRetries() throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+        TxnWriteSchemaSnapshot snapshot = TxnWriteSchemaSnapshot.capture(table, false);
+        DatabaseTransactionMgr manager = masterTransMgr.getDatabaseTransactionMgr(db.getId());
+        TUniqueId requestId = new TUniqueId(91, 92);
+        long id = manager.beginTransaction(Collections.singletonList(table.getId()), "values_schema_begin",
+                requestId, transactionSource, LoadJobSourceType.BACKEND_STREAMING, -1, 60, snapshot);
+        TransactionState state = manager.getTransactionState(id);
+        Assertions.assertEquals(snapshot, state.getWriteSchema(id, table.getId()));
+        Assertions.assertEquals(snapshot.getIndexIds(), state.getLoadedTblIndexes().get(table.getId()));
+        Assertions.assertThrows(org.apache.doris.common.DuplicatedRequestException.class,
+                () -> manager.beginTransaction(Collections.singletonList(table.getId()), "values_schema_begin",
+                        requestId, transactionSource, LoadJobSourceType.BACKEND_STREAMING, -1, 60, snapshot));
+        Map<Long, Integer> changed = new HashMap<>(snapshot.getIndexSchemaVersions());
+        changed.replaceAll((index, version) -> version + 1);
+        Assertions.assertThrows(BeginTransactionException.class,
+                () -> manager.beginTransaction(Collections.singletonList(table.getId()), "values_schema_begin",
+                        requestId, transactionSource, LoadJobSourceType.BACKEND_STREAMING, -1, 60,
+                        new TxnWriteSchemaSnapshot(table.getId(), changed, Collections.emptyMap(), false)));
+        Assertions.assertEquals(snapshot, state.getWriteSchema(id, table.getId()));
+    }
+
+    @Test
+    public void testValuesBeginRejectsSchemaMismatchWithoutCreatingTransaction() throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+        DatabaseTransactionMgr manager = masterTransMgr.getDatabaseTransactionMgr(db.getId());
+        int before = manager.getTransactionNum();
+        Assertions.assertThrows(UserException.class, () -> masterTransMgr.beginTransactionForValues(
+                db.getId(), table.getId(), "values_bad_schema", new TUniqueId(93, 94), transactionSource,
+                LoadJobSourceType.BACKEND_STREAMING, 60, Collections.emptyMap()));
+        Assertions.assertEquals(before, manager.getTransactionNum());
+    }
+
+    @Test
+    public void testMappedVisibleChildAliasSurvivesReplayUntilEviction() throws Exception {
+        DatabaseTransactionMgr dbMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        TransactionState state = new TransactionState(CatalogTestUtil.testDbId1, Collections.emptyList(),
+                987650, "mapped_visible", null, LoadJobSourceType.FRONTEND, transactionSource, -1, 1000);
+        state.setSubTxnIds(List.of(987650L, 987651L));
+        ChangelogWriteMapping mapping = ChangelogWriteMapping.fromThrift(new TChangelogWriteColumnMappings()
+                .setNeedHistoricalValue(true).setEntries(Collections.singletonList(
+                        new TChangelogWriteColumnMapping().setSourceColumnUniqueId(1).setCurrentColumnUniqueId(2))));
+        state.registerWriteSchema(987651, new TxnWriteSchemaSnapshot(1, Collections.singletonMap(5L, 1),
+                Collections.singletonMap(5L, mapping), false));
+        state.setTransactionStatus(TransactionStatus.VISIBLE);
+        TransactionState replay = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(state), TransactionState.class);
+        dbMgr.unprotectUpsertTransactionState(replay, true);
+        Assertions.assertSame(replay, dbMgr.getTransactionState(987651L));
+        Assertions.assertEquals(mapping, dbMgr.getTransactionState(987651L).getChangelogWriteMappings(987651).get(5L));
+        // A tablet report can observe this exact point between parent eviction and alias cleanup.
+        Map<Long, TransactionState> finished = Deencapsulation.getField(dbMgr, "idToFinalStatusTransactionState");
+        finished.remove(987650L);
+        Assertions.assertNull(dbMgr.getTransactionState(987650L));
+        Assertions.assertNull(dbMgr.getTransactionState(987651L));
+        finished.put(987650L, replay);
+        // Replay the current batch-eviction record, which also removes older retained transactions.
+        dbMgr.replayBatchRemoveTransaction(new BatchRemoveTransactionsOperationV2(
+                CatalogTestUtil.testDbId1, -1, replay.getTransactionId()));
+        Assertions.assertNull(dbMgr.getTransactionState(987650L));
+        Assertions.assertNull(dbMgr.getTransactionState(987651L));
     }
 
     @Test
@@ -1226,6 +1342,49 @@ public class DatabaseTransactionMgrTest {
             if (jobLock.isWriteLockedByCurrentThread()) {
                 jobLock.writeLock().unlock();
             }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testPrecommitChangelogSnapshotSurvivesReplay(boolean logOutsideLock) throws Exception {
+        boolean previous = Config.enable_txn_log_outside_lock;
+        try {
+            Config.enable_txn_log_outside_lock = logOutsideLock;
+            FakeEnv.setEnv(masterEnv);
+            Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+            OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+            long txnId = masterTransMgr.beginTransaction(db.getId(), Lists.newArrayList(table.getId()),
+                    "precommit_changelog_snapshot", transactionSource, LoadJobSourceType.FRONTEND,
+                    Config.stream_load_default_timeout_second);
+            ChangelogWriteMapping mapping = ChangelogWriteMapping.fromThrift(new TChangelogWriteColumnMappings()
+                    .setNeedHistoricalValue(true).setEntries(Collections.singletonList(
+                            new TChangelogWriteColumnMapping().setSourceColumnUniqueId(1).setCurrentColumnUniqueId(2))));
+            Map<Long, ChangelogWriteMapping> snapshots = Collections.singletonMap(table.getBaseIndexId(), mapping);
+            TxnWriteSchemaSnapshot snapshot = new TxnWriteSchemaSnapshot(table.getId(),
+                    TxnWriteSchemaSnapshot.schemaVersions(table), snapshots, false);
+            masterTransMgr.registerWriteSchema(db.getId(), txnId, snapshot);
+            masterTransMgr.preCommitTransaction2PC(db, Lists.newArrayList(table), txnId,
+                    GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1, allBackends),
+                    1000, null);
+            TransactionState persisted = fakeEditLog.getTransaction(txnId);
+            Assertions.assertEquals(TransactionStatus.PRECOMMITTED, persisted.getTransactionStatus());
+            TransactionState replay = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(persisted), TransactionState.class);
+            Assertions.assertEquals(snapshots, replay.getChangelogWriteMappings(txnId));
+            replay.registerWriteSchema(txnId, snapshot);
+            Assertions.assertThrows(IllegalStateException.class, () -> replay.registerWriteSchema(txnId,
+                    new TxnWriteSchemaSnapshot(table.getId(),
+                            Collections.singletonMap(table.getBaseIndexId() + 100, 1),
+                            Collections.singletonMap(table.getBaseIndexId() + 100, mapping), false)));
+            FakeEnv.setEnv(slaveEnv);
+            slaveTransMgr.replayUpsertTransactionState(replay);
+            Database replayDb = slaveEnv.getInternalCatalog().getDbOrMetaException(db.getId());
+            Table replayTable = replayDb.getTableOrMetaException(table.getId());
+            slaveTransMgr.commitTransaction2PC(replayDb, Lists.newArrayList(replayTable), txnId, 1000);
+            Assertions.assertEquals(TransactionStatus.COMMITTED, replay.getTransactionStatus());
+            Assertions.assertEquals(snapshots, replay.getChangelogWriteMappings(txnId));
+        } finally {
+            Config.enable_txn_log_outside_lock = previous;
         }
     }
 

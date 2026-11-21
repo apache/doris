@@ -397,10 +397,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 if (txnState == null) {
                     throw new UserException("txn does not exist: " + transactionId);
                 }
-                txnState.addTableIndexes(table);
-                if (isPartialUpdate()) {
-                    txnState.setSchemaForPartialUpdate(table);
-                }
+                txnState.registerWriteSchema(transactionId, task.getWriteSchemaSnapshot());
             }
         } finally {
             MetaLockUtils.readUnlockTables(tableList);

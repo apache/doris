@@ -188,11 +188,13 @@ TEST_F(ValidateStageTest, CompositionChangelogTransientPartialUpdateStaysPlain) 
     EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"PlainChangelogDerive"}));
 
     // the same write with a BEFORE image still needs the probe
-    rwc.write_changelog_opt().write_changelog_config().write_before = true;
+    auto layout = std::make_shared<changelog::ResolvedChangelogLayout>();
+    layout->need_historical_value = true;
+    rwc.write_changelog_opt().write_changelog_config().layout = layout;
     EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowChangelogDerive"}));
 
     // and a non-transient write of the same partial update does probe
-    rwc.write_changelog_opt().write_changelog_config().write_before = false;
+    rwc.write_changelog_opt().write_changelog_config().layout.reset();
     rwc.write_changelog_opt().write_changelog_config().source.is_transient_rowset_writer = false;
     EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowChangelogDerive"}));
 }
@@ -204,7 +206,9 @@ TEST_F(ValidateStageTest, CompositionChangelogBeforeImagePicksMowDerive) {
     auto schema = create_mow_schema(/*has_seq=*/false);
     RowsetWriterContext rwc = direct_rwc(schema);
     rwc.write_changelog_opt().enable = true;
-    rwc.write_changelog_opt().write_changelog_config().write_before = true;
+    auto layout = std::make_shared<changelog::ResolvedChangelogLayout>();
+    layout->need_historical_value = true;
+    rwc.write_changelog_opt().write_changelog_config().layout = layout;
 
     EXPECT_EQ(build_transform_chain(rwc).stage_names(), (V {"MowChangelogDerive"}));
 }

@@ -553,6 +553,9 @@ public class InsertIntoTableCommand extends Command
                                 + " when catalog use_arrow_flight is false");
                     }
                     olapTable = ((RemoteDorisExternalTable) targetTableIf).getOlapTable();
+                    if (olapTable.hasChangelog()) {
+                        throw new AnalysisException(RemoteOlapTable.CHANGELOG_WRITE_ERROR);
+                    }
                 } else {
                     olapTable = (OlapTable) targetTableIf;
                 }

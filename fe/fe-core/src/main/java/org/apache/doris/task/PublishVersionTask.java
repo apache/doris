@@ -20,7 +20,9 @@ package org.apache.doris.task;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TPublishVersionRequest;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.ChangelogWriteMapping;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import lombok.Getter;
@@ -28,6 +30,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -35,6 +38,32 @@ import java.util.Set;
 public class PublishVersionTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(PublishVersionTask.class);
 
+    /** Partitions reported by one backend for one actual write transaction (including a child). */
+    public static final class RepublishInfo {
+        private final Set<TPartitionVersionInfo> partitions = new LinkedHashSet<>();
+        private final Map<Long, ChangelogWriteMapping> mappings;
+
+        public RepublishInfo(Map<Long, ChangelogWriteMapping> mappings) {
+            this.mappings = ImmutableMap.copyOf(mappings);
+        }
+
+        public void addPartition(TPartitionVersionInfo partition) {
+            partitions.add(partition);
+        }
+
+        public int partitionCount() {
+            return partitions.size();
+        }
+
+        public PublishVersionTask createTask(long backendId, long txnId, long dbId, long createTime) {
+            PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId, new ArrayList<>(partitions),
+                    createTime);
+            task.setChangelogWriteMappings(mappings);
+            return task;
+        }
+    }
+
+    private Map<Long, ChangelogWriteMapping> changelogWriteMappings = ImmutableMap.of();
     private long transactionId;
     @Getter
     private List<TPartitionVersionInfo> partitionVersionInfos;
@@ -69,7 +98,12 @@ public class PublishVersionTask extends AgentTask {
         TPublishVersionRequest publishVersionRequest = new TPublishVersionRequest(transactionId,
                 partitionVersionInfos);
         publishVersionRequest.setBaseTabletIds(baseTabletsIds);
+        publishVersionRequest.setChangelogColumnMappings(ChangelogWriteMapping.toThrift(changelogWriteMappings));
         return publishVersionRequest;
+    }
+
+    public void setChangelogWriteMappings(Map<Long, ChangelogWriteMapping> mappings) {
+        changelogWriteMappings = ImmutableMap.copyOf(mappings);
     }
 
     public void setBaseTabletsIds(Set<Long> rollupTabletIds) {
