@@ -58,7 +58,7 @@ SpillS3FileWriter::~SpillS3FileWriter() {
 }
 
 void SpillS3FileWriter::_on_part_opened() {
-    // S3FileSystem creates an S3FileWriter for every part. Only spill registers its progress;
+    // ObjStorageFileSystem creates an ObjStorageFileWriter for every part. Only spill registers its progress;
     // unrelated writers using the same upload pool do not enter the BE spill budget.
     _spill_manager->register_s3_writer(*assert_cast<io::ObjStorageFileWriter*>(_file_writer.get()));
 }

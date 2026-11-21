@@ -34,7 +34,7 @@
 
 namespace doris {
 namespace io {
-class S3FileWriter;
+class ObjStorageFileWriter;
 class ObjStorageUploadProgress;
 } // namespace io
 class RuntimeProfile;

@@ -77,7 +77,9 @@ public:
 
     // Observers can aggregate progress safely even during synchronous writer destruction.
     // The view contains no writer, filesystem or callback ownership.
-    std::weak_ptr<const ObjStorageUploadProgress> upload_progress() const { return _upload_progress; }
+    std::weak_ptr<const ObjStorageUploadProgress> upload_progress() const {
+        return _upload_progress;
+    }
 
 private:
     Status _close_impl();
@@ -104,7 +106,8 @@ private:
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};
 
-    const std::shared_ptr<ObjStorageUploadProgress> _upload_progress = std::make_shared<ObjStorageUploadProgress>();
+    const std::shared_ptr<ObjStorageUploadProgress> _upload_progress =
+            std::make_shared<ObjStorageUploadProgress>();
     std::atomic_bool _failed = false;
 
     Status _st;
