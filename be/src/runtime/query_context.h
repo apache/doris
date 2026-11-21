@@ -340,6 +340,11 @@ public:
     Status reset_global_rf(const google::protobuf::RepeatedField<int32_t>& filter_ids);
 
 private:
+    friend class PipelineFragmentContext;
+    // Only the PFC that inserted the first snapshot may replace it before destruction.
+    void _refresh_fragment_profile(
+            int fragment_id, std::vector<std::shared_ptr<TRuntimeProfileTree>> pipeline_profiles);
+
     // Task-level progress counters for current query.
     friend class QueryTaskController;
 
@@ -437,7 +442,7 @@ private:
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
-    void add_fragment_profile(
+    bool add_fragment_profile(
             int fragment_id,
             const std::vector<std::shared_ptr<TRuntimeProfileTree>>& pipeline_profile,
             std::shared_ptr<TRuntimeProfileTree> load_channel_profile);

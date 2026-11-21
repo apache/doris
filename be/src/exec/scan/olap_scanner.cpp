@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <exception>
 #include <ostream>
 #include <set>
 
@@ -34,6 +35,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/consts.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "core/block/block.h"
@@ -41,6 +43,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exec/common/variant_util.h"
 #include "exec/operator/olap_scan_operator.h"
+#include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/scan/scan_node.h"
 #include "exprs/function/search/search_predicate_collector.h"
 #include "exprs/vexpr.h"
@@ -116,36 +119,6 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                           _state->skip_delete_bitmap());
     _has_prepared = false;
     _vector_search_params = params.state->get_vector_search_params();
-}
-
-static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
-    return stats.num_local_io_total != 0 || stats.num_remote_io_total != 0 ||
-           stats.num_peer_io_total != 0 || stats.local_io_timer != 0 ||
-           stats.bytes_read_from_local != 0 || stats.bytes_read_from_remote != 0 ||
-           stats.bytes_read_from_peer != 0 || stats.remote_io_timer != 0 ||
-           stats.peer_io_timer != 0 || stats.remote_wait_timer != 0 ||
-           stats.write_cache_io_timer != 0 || stats.bytes_write_into_cache != 0 ||
-           stats.num_skip_cache_io_total != 0 || stats.read_cache_file_directly_timer != 0 ||
-           stats.cache_get_or_set_timer != 0 || stats.lock_wait_timer != 0 ||
-           stats.get_timer != 0 || stats.set_timer != 0 || stats.async_cache_write_submitted != 0 ||
-           stats.async_cache_write_rejected != 0 ||
-           stats.async_cache_write_buffer_alloc_fail != 0 ||
-           stats.async_cache_write_drop_stale_epoch != 0 || stats.async_copy_to_user_timer != 0 ||
-           stats.async_submit_write_timer != 0 || stats.inflight_write_buffer_index_hit != 0 ||
-           stats.inflight_write_buffer_index_miss != 0 || stats.probe_downloaded_hit != 0 ||
-           stats.probe_downloading_hit != 0 || stats.probe_miss != 0 ||
-           stats.block_wait_success != 0 || stats.block_wait_timeout != 0 ||
-           stats.inverted_index_num_local_io_total != 0 ||
-           stats.inverted_index_num_remote_io_total != 0 ||
-           stats.inverted_index_num_peer_io_total != 0 ||
-           stats.inverted_index_bytes_read_from_local != 0 ||
-           stats.inverted_index_bytes_read_from_remote != 0 ||
-           stats.inverted_index_bytes_read_from_peer != 0 ||
-           stats.inverted_index_local_io_timer != 0 || stats.inverted_index_remote_io_timer != 0 ||
-           stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0 ||
-           stats.inverted_index_request_bytes != 0 || stats.inverted_index_read_bytes != 0 ||
-           stats.inverted_index_range_read_count != 0 ||
-           stats.inverted_index_serial_read_rounds != 0;
 }
 
 io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, ReaderType reader_type,
@@ -340,6 +313,7 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
         return res;
     }
     _tablet_reader->mutable_stats()->file_cache_stats.merge_from(_initial_file_cache_stats);
+    _tablet_reader_initialized = true;
 
     // Do not hold rs_splits any more to release memory.
     _tablet_reader_params.rs_splits.clear();
@@ -741,8 +715,15 @@ Status OlapScanner::close(RuntimeState* state) {
     if (!_try_close()) {
         return Status::OK();
     }
+    Status flush_status;
+    try {
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(_flush_file_cache_profile_once(), flush_status);
+    } catch (const std::exception& e) {
+        flush_status = Status::InternalError("Failed to finalize FileCache profile: {}", e.what());
+    }
+    // Finalization may allocate counters/strings, but must never skip base cleanup on failure.
     RETURN_IF_ERROR(Scanner::close(state));
-    return Status::OK();
+    return flush_status;
 }
 
 void OlapScanner::update_realtime_counters() {
@@ -756,54 +737,71 @@ void OlapScanner::update_realtime_counters() {
     if (stats.read_ahead_stats != nullptr) {
         stats.read_ahead_stats->update_profile(local_state->_segment_profile.get());
     }
+    _report_scan_io_deltas(*_tablet_reader->mutable_stats());
+}
+
+void OlapScanner::_report_scan_io_deltas(OlapReaderStatistics& stats) {
+    auto* local_state = static_cast<OlapScanLocalState*>(_local_state);
+    const auto& cache = stats.file_cache_stats;
+    const int64_t local_bytes = cache.bytes_read_from_local - _reported_local_bytes;
+    const int64_t remote_bytes = cache.bytes_read_from_remote - _reported_remote_bytes;
+    const int64_t write_bytes = cache.bytes_write_into_cache - _reported_cache_write_bytes;
+    DCHECK_GE(local_bytes, 0);
+    DCHECK_GE(remote_bytes, 0);
+    DCHECK_GE(write_bytes, 0);
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
     COUNTER_UPDATE(local_state->_read_uncompressed_counter, stats.uncompressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_bytes, stats.uncompressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_rows, stats.raw_rows_read);
 
-    // Make sure the scan bytes and scan rows counter in audit log is the same as the counter in
-    // doris metrics.
-    // ScanBytes is the uncompressed bytes read from local + remote
-    // bytes_read_from_local is the compressed bytes read from local
-    // bytes_read_from_remote is the compressed bytes read from remote
-    // scan bytes > bytes_read_from_local + bytes_read_from_remote
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_rows(stats.raw_rows_read);
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(
-            stats.uncompressed_bytes_read);
-
-    // In case of no cache, we still need to update the IO stats. uncompressed bytes read == local + remote
-    if (stats.file_cache_stats.bytes_read_from_local == 0 &&
-        stats.file_cache_stats.bytes_read_from_remote == 0) {
-        _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-                stats.compressed_bytes_read);
-        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                stats.compressed_bytes_read);
-    } else {
-        _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-                stats.file_cache_stats.bytes_read_from_local);
-        _state->get_query_ctx()
-                ->resource_ctx()
-                ->io_context()
-                ->update_scan_bytes_from_remote_storage(
-                        stats.file_cache_stats.bytes_read_from_remote);
-
-        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                stats.file_cache_stats.bytes_read_from_local);
-        DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
-                stats.file_cache_stats.bytes_read_from_remote);
+    auto* io_context = _state->get_query_ctx()->resource_ctx()->io_context();
+    io_context->update_scan_rows(stats.raw_rows_read);
+    io_context->update_scan_bytes(stats.uncompressed_bytes_read);
+    // Test this batch's deltas, not lifetime totals: a cache batch followed by a local
+    // page-cache batch must still account for the latter's compressed bytes.
+    const int64_t local_scan_bytes =
+            local_bytes == 0 && remote_bytes == 0 ? stats.compressed_bytes_read : local_bytes;
+    io_context->update_scan_bytes_from_local_storage(local_scan_bytes);
+    DorisMetrics::instance()->query_scan_bytes_from_local->increment(local_scan_bytes);
+    // Ordinary local-storage batches need no zero-valued remote atomic updates.
+    if (remote_bytes != 0) {
+        io_context->update_scan_bytes_from_remote_storage(remote_bytes);
+        DorisMetrics::instance()->query_scan_bytes_from_remote->increment(remote_bytes);
     }
 
-    if (has_file_cache_statistics(stats.file_cache_stats)) {
-        io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
-        cache_profile.update(&stats.file_cache_stats);
-        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
-                stats.file_cache_stats.bytes_write_into_cache);
+    if (local_bytes != 0 || remote_bytes != 0 || write_bytes != 0) {
+        local_state->_update_file_cache_bytes(local_bytes, remote_bytes, write_bytes);
+        io_context->update_bytes_write_into_cache(write_bytes);
     }
+    _reported_local_bytes = cache.bytes_read_from_local;
+    _reported_remote_bytes = cache.bytes_read_from_remote;
+    _reported_cache_write_bytes = cache.bytes_write_into_cache;
+    stats.compressed_bytes_read = 0;
+    stats.uncompressed_bytes_read = 0;
+    stats.raw_rows_read = 0;
+}
 
-    _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
-    _tablet_reader->mutable_stats()->uncompressed_bytes_read = 0;
-    _tablet_reader->mutable_stats()->raw_rows_read = 0;
-    _tablet_reader->mutable_stats()->file_cache_stats = {};
+void OlapScanner::_flush_file_cache_profile_once() {
+    // RF pruning can release an unopened reader. A prepared but failed init still has
+    // valid I/O stats, but cannot run the full reader profile collection.
+    if (_file_cache_profile_flushed || !_has_prepared) {
+        return;
+    }
+    _file_cache_profile_flushed = true;
+    auto& stats = *_tablet_reader->mutable_stats();
+    _report_scan_io_deltas(stats);
+    if (stats.file_cache_stats == io::FileCacheStatistics {}) {
+        return;
+    }
+    static_cast<OlapScanLocalState*>(_local_state)
+            ->_update_file_cache_details(stats.file_cache_stats);
+    // A running scanner retains the execution context until its delegate is destroyed.
+    // Notify after publication so a snapshot taken during the flush is refreshed as well.
+    if (_state->enable_profile() && _state->task_execution_context_inited()) {
+        if (auto ctx = _state->get_task_execution_context().lock()) {
+            static_cast<PipelineFragmentContext*>(ctx.get())->notify_olap_file_cache_profile();
+        }
+    }
 }
 
 void OlapScanner::_collect_profile_before_close() {
@@ -812,6 +810,10 @@ void OlapScanner::_collect_profile_before_close() {
         return;
     }
     _has_updated_counter = true;
+    _flush_file_cache_profile_once();
+    if (!_tablet_reader_initialized) {
+        return;
+    }
     _tablet_reader->update_profile(_profile);
 
     Scanner::_collect_profile_before_close();
@@ -956,12 +958,6 @@ void OlapScanner::_collect_profile_before_close() {
         stats.read_ahead_stats->update_profile(local_state->_segment_profile.get());
     }
 
-    if (has_file_cache_statistics(stats.file_cache_stats)) {
-        io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
-        cache_profile.update(&stats.file_cache_stats);
-        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
-                stats.file_cache_stats.bytes_write_into_cache);
-    }
     COUNTER_UPDATE(local_state->_output_index_result_column_timer,
                    stats.output_index_result_column_timer);
     COUNTER_UPDATE(local_state->_filtered_segment_counter, stats.filtered_segment_number);

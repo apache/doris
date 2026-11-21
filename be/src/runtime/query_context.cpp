@@ -479,7 +479,7 @@ Status QueryContext::set_workload_group(WorkloadGroupPtr& wg) {
     return Status::OK();
 }
 
-void QueryContext::add_fragment_profile(
+bool QueryContext::add_fragment_profile(
         int fragment_id, const std::vector<std::shared_ptr<TRuntimeProfileTree>>& pipeline_profiles,
         std::shared_ptr<TRuntimeProfileTree> load_channel_profile) {
     if (pipeline_profiles.empty()) {
@@ -487,7 +487,7 @@ void QueryContext::add_fragment_profile(
                                       print_id(this->_query_id), fragment_id);
         LOG_ERROR(msg);
         DCHECK(false) << msg;
-        return;
+        return false;
     }
 
 #ifndef NDEBUG
@@ -502,11 +502,22 @@ void QueryContext::add_fragment_profile(
             "Query add fragment profile, query {}, fragment {}, pipeline profile count {} ",
             print_id(this->_query_id), fragment_id, pipeline_profiles.size());
 
-    _profile_map.insert(std::make_pair(fragment_id, pipeline_profiles));
+    const bool inserted =
+            _profile_map.insert(std::make_pair(fragment_id, pipeline_profiles)).second;
 
     if (load_channel_profile != nullptr) {
         _load_channel_profile_map.insert(std::make_pair(fragment_id, load_channel_profile));
     }
+    return inserted;
+}
+
+void QueryContext::_refresh_fragment_profile(
+        int fragment_id, std::vector<std::shared_ptr<TRuntimeProfileTree>> pipeline_profiles) {
+    std::lock_guard lock(_profile_mutex);
+    auto it = _profile_map.find(fragment_id);
+    DORIS_CHECK(it != _profile_map.end());
+    DORIS_CHECK(!pipeline_profiles.empty());
+    it->second = std::move(pipeline_profiles);
 }
 
 void QueryContext::_report_query_profile() {
