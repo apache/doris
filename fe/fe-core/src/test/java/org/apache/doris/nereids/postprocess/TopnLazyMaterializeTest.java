@@ -290,6 +290,53 @@ public class TopnLazyMaterializeTest extends SSBTestBase {
         }
     }
 
+    @Test
+    public void testSlotsOnlyIndexPredicatesReadStayLazyByDefault() throws Exception {
+        this.createTable("create table lazy_materialize_search_tbl("
+                + "k int, body string, other int, "
+                + "index idx_body(body) using inverted properties('parser' = 'english')) "
+                + "duplicate key(k) distributed by hash(k) buckets 1 "
+                + "properties('replication_num' = '1')");
+        boolean feDebug = connectContext.getSessionVariable().feDebug;
+        connectContext.getSessionVariable().feDebug = false;
+        try {
+            // Only search() or MATCH reads body, and the inverted index answers those: the scan keeps body for
+            // the predicate without reading it, and only the rows that survive the TopN fetch it.
+            for (String predicate : ImmutableList.of("search('body:error')", "body match_any 'error'",
+                    "(body match_all 'disk node' or body match_any 'error')")) {
+                PhysicalPlan plan = postProcess("select k, body, other from lazy_materialize_search_tbl where "
+                        + predicate + " order by k limit 10");
+                Assertions.assertEquals(ImmutableList.of(1, 2), lazyColumnIndexes(plan), plan.treeString());
+            }
+            PhysicalPlan plan = postProcess("select k, body as b, other from lazy_materialize_search_tbl "
+                    + "where search('body:error') order by k limit 10");
+            Assertions.assertEquals(ImmutableList.of(1, 2), lazyColumnIndexes(plan), plan.treeString());
+
+            // Another conjunct reads body row by row, so the scan reads it anyway and keeps it materialized.
+            plan = postProcess("select k, body, other from lazy_materialize_search_tbl "
+                    + "where search('body:error') and body like '%x%' order by k limit 10");
+            Assertions.assertEquals(ImmutableList.of(2), lazyColumnIndexes(plan), plan.treeString());
+
+            // The TopN sorts by an alias of body, so body is materialized for the sort.
+            plan = postProcess("select body as x, body as y from lazy_materialize_search_tbl "
+                    + "where search('body:error') order by x limit 1");
+            Assertions.assertEquals(ImmutableList.of(), lazyColumnIndexes(plan), plan.treeString());
+        } finally {
+            connectContext.getSessionVariable().feDebug = feDebug;
+        }
+    }
+
+    // The base column indexes the plan fetches lazily, sorted.
+    private static List<Integer> lazyColumnIndexes(PhysicalPlan plan) {
+        List<PhysicalLazyMaterialize<? extends Plan>> materializeNodes = plan.collectToList(
+                node -> node instanceof PhysicalLazyMaterialize);
+        Assertions.assertTrue(materializeNodes.size() <= 1, plan.treeString());
+        List<Integer> lazyColumnIndexes = Lists.newArrayList();
+        materializeNodes.forEach(node -> node.getLazyBaseColumnIndices().forEach(lazyColumnIndexes::addAll));
+        lazyColumnIndexes.sort(Integer::compareTo);
+        return lazyColumnIndexes;
+    }
+
     private PhysicalPlan postProcess(String sql) {
         PlanChecker checker = PlanChecker.from(connectContext)
                 .analyze(sql)
