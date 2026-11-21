@@ -36,6 +36,14 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.transforms.Transform;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.view.BaseView;
+import org.apache.iceberg.view.ImmutableSQLViewRepresentation;
+import org.apache.iceberg.view.ImmutableViewVersion;
+import org.apache.iceberg.view.SQLViewRepresentation;
+import org.apache.iceberg.view.View;
+import org.apache.iceberg.view.ViewMetadata;
+import org.apache.iceberg.view.ViewOperations;
+import org.apache.iceberg.view.ViewVersion;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +53,8 @@ import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -71,6 +81,126 @@ public class IcebergExternalTableTest {
         field = Mockito.mock(PartitionField.class);
         schema = Mockito.mock(Schema.class);
         mockCatalog = Mockito.mock(IcebergExternalCatalog.class);
+    }
+
+    @Test
+    public void testViewSqlDoesNotRequireEngineName() {
+        for (String engineName : Arrays.asList(null, "", "Polaris")) {
+            IcebergExternalTable table = tableWithView(viewWithMetadata(
+                    viewVersionWith(engineName, sqlRepresentation("SpArK", "SELECT 1"))));
+            assertViewSql(table, "SELECT 1", "spark");
+        }
+    }
+
+    @Test
+    public void testViewSqlPrefersDorisWithoutEngineName() {
+        for (String engineName : Arrays.asList(null, "")) {
+            IcebergExternalTable table = tableWithView(viewWithMetadata(viewVersionWith(engineName,
+                    sqlRepresentation("spark", "SELECT 1 AS spark_value"),
+                    sqlRepresentation("DoRiS", "SELECT 1 AS doris_value"))));
+            assertViewSql(table, "SELECT 1 AS doris_value", "doris");
+        }
+    }
+
+    @Test
+    public void testViewSqlKeepsEngineDialectWithDorisAvailable() {
+        IcebergExternalTable table = tableWithView(viewWithMetadata(viewVersionWith("Spark",
+                sqlRepresentation("spark", "SELECT 1 AS spark_value"),
+                sqlRepresentation("doris", "SELECT 1 AS doris_value"))));
+        assertViewSql(table, "SELECT 1 AS spark_value", "spark");
+    }
+
+    @Test
+    public void testViewSqlKeepsEngineDialectWithoutDoris() {
+        IcebergExternalTable table = tableWithView(viewWithMetadata(viewVersionWith("Trino",
+                sqlRepresentation("spark", "SELECT 1 AS spark_value"),
+                sqlRepresentation("TrInO", "SELECT 1 AS trino_value"))));
+        assertViewSql(table, "SELECT 1 AS trino_value", "trino");
+    }
+
+    @Test
+    public void testViewSqlFallsBackToFirstWithoutEngineNameOrDoris() {
+        for (String engineName : Arrays.asList(null, "")) {
+            IcebergExternalTable table = tableWithView(viewWithMetadata(viewVersionWith(engineName,
+                    sqlRepresentation("spark", "SELECT 1 AS spark_value"),
+                    sqlRepresentation("trino", "SELECT 1 AS trino_value"))));
+            assertViewSql(table, "SELECT 1 AS spark_value", "spark");
+        }
+    }
+
+    @Test
+    public void testViewSqlUsesSelectedDialectForUnknownEngine() {
+        IcebergExternalTable table = tableWithView(viewWithMetadata(viewVersionWith("Polaris",
+                sqlRepresentation("SpArK", "SELECT 1 AS spark_value"),
+                sqlRepresentation("doris", "SELECT 1 AS doris_value"))));
+        assertViewSql(table, "SELECT 1 AS spark_value", "spark");
+    }
+
+    @Test
+    public void testViewSqlRejectsMissingRepresentation() {
+        View view = Mockito.mock(View.class);
+        ViewVersion version = Mockito.mock(ViewVersion.class);
+        Mockito.when(view.currentVersion()).thenReturn(version);
+        Mockito.when(version.summary()).thenReturn(Collections.emptyMap());
+        IcebergExternalTable table = tableWithView(view);
+        for (Function<IcebergExternalTable, String> read : Arrays.<Function<IcebergExternalTable, String>>asList(
+                IcebergExternalTable::getViewText, IcebergExternalTable::getSqlDialect)) {
+            RuntimeException failure = Assertions.assertThrows(RuntimeException.class, () -> read.apply(table));
+            Assertions.assertTrue(failure.getMessage().contains("Cannot get SQL representation for Iceberg view"));
+        }
+    }
+
+    private IcebergExternalTable tableWithView(View view) {
+        IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
+        IcebergExternalTable table = Mockito.spy(
+                new IcebergExternalTable(10L, "view", "view", mockCatalog, database));
+        Mockito.when(mockCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+        Mockito.doReturn(view).when(table).getIcebergView();
+        return table;
+    }
+
+    private static void assertViewSql(IcebergExternalTable table, String sql, String dialect) {
+        Assertions.assertEquals(sql, table.getViewText());
+        Assertions.assertEquals(dialect, table.getSqlDialect());
+    }
+
+    private static SQLViewRepresentation sqlRepresentation(String dialect, String sql) {
+        return ImmutableSQLViewRepresentation.builder().dialect(dialect).sql(sql).build();
+    }
+
+    private static ViewVersion viewVersionWith(String engineName, SQLViewRepresentation... representations) {
+        ImmutableViewVersion.Builder builder = ImmutableViewVersion.builder()
+                .versionId(1).timestampMillis(1).schemaId(0)
+                .defaultNamespace(org.apache.iceberg.catalog.Namespace.of("db"))
+                .addRepresentations(representations);
+        if (engineName != null) {
+            builder.putSummary("engine-name", engineName);
+        }
+        return builder.build();
+    }
+
+    private static View viewWithMetadata(ViewVersion version) {
+        Schema viewSchema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        ViewMetadata metadata = ViewMetadata.builder()
+                .setLocation("s3://warehouse/db/view")
+                .setCurrentVersion(version, viewSchema)
+                .build();
+        return new BaseView(new ViewOperations() {
+            @Override
+            public ViewMetadata current() {
+                return metadata;
+            }
+
+            @Override
+            public ViewMetadata refresh() {
+                return metadata;
+            }
+
+            @Override
+            public void commit(ViewMetadata base, ViewMetadata updated) {
+                throw new UnsupportedOperationException();
+            }
+        }, "db.view");
     }
 
     @Test
