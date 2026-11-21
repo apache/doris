@@ -24,12 +24,14 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <ostream>
 #include <string>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/exception.h"
@@ -40,9 +42,14 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "storage/changelog.h"
+#include "storage/iterator/agg_key_block_iterator.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
+#include "storage/iterator/heap_merge_iterator.h"
+#include "storage/iterator/topn_block_iterator.h"
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -62,11 +69,21 @@ using namespace ErrorCode;
 
 static constexpr int32_t BLOCK_SIZE_CHECK_INTERVAL_ROWS = 64;
 
+BlockReader::BlockReader() = default;
+
 BlockReader::~BlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
         _agg_functions[i]->destroy(_agg_places[i]);
         delete[] _agg_places[i];
     }
+}
+
+void BlockReader::update_profile(RuntimeProfile* profile) {
+    if (_agg_key_iter != nullptr) {
+        _agg_key_iter->update_profile(profile);
+        return;
+    }
+    _vcollect_iter.update_profile(profile);
 }
 
 Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
@@ -562,6 +579,133 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     return Status::OK();
 }
 
+Status BlockReader::_init_agg_key_iter(const ReaderParams& read_params) {
+    auto res = _capture_rs_readers(read_params);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
+                     << ", tablet_id:" << read_params.tablet->tablet_id()
+                     << ", schema_hash:" << read_params.tablet->schema_hash()
+                     << ", reader_type:" << int(read_params.reader_type)
+                     << ", version:" << read_params.version;
+        return res;
+    }
+    // Only duplicate and merge-on-write tables have a changelog, and the scanner pushes a LIMIT or
+    // a key TopN down only into the reads that do not merge: the rows are merged by the whole key.
+    DORIS_CHECK(!_reader_context.read_changelog);
+    DORIS_CHECK(!read_params.read_orderby_key);
+    DORIS_CHECK(_reader_context.general_read_limit <= 0);
+
+    // The children of the merge, in (rowset version, segment) order.
+    std::vector<RowwiseIteratorUPtr> children;
+    RuntimeState* runtime_state = read_params.runtime_state;
+    {
+        SCOPED_RAW_TIMER(&_stats.block_reader_rs_readers_init_timer_ns);
+        int64_t previous_start_version = -1;
+        for (const auto& rs_split : read_params.rs_splits) {
+            if (runtime_state != nullptr && runtime_state->is_cancelled()) {
+                return runtime_state->cancel_reason();
+            }
+            const RowsetReaderSharedPtr& rs_reader = rs_split.rs_reader;
+            RETURN_IF_ERROR(rs_reader->init(&_reader_context, rs_split));
+            // The merge puts the rows of one key in the order of its children, the newer first,
+            // so the rowsets must come in version order.
+            DORIS_CHECK_GE(rs_reader->rowset()->start_version(), previous_start_version);
+            previous_start_version = rs_reader->rowset()->start_version();
+            RETURN_IF_ERROR(rs_reader->get_key_ordered_iterators(&_reader_context, &children));
+            _rs_readers.push_back(rs_reader);
+        }
+    }
+
+    // The key columns lead the read Blocks: the merge orders the rows by them, and the fold
+    // groups the rows by them.
+    for (uint32_t ordinal = 0; ordinal < _read_schema->num_key_columns(); ++ordinal) {
+        DORIS_CHECK(_read_schema->column(ordinal)->is_key());
+    }
+    RowwiseIteratorUPtr merge_iter;
+    RETURN_IF_ERROR(_init_agg_key_merge(std::move(children), runtime_state, &merge_iter));
+    _agg_key_iter = std::make_unique<AggKeyBlockIterator>(
+            std::move(merge_iter), batch_max_rows(), preferred_block_size_bytes(), _read_schema,
+            read_params.get_be_exec_version(), &_merged_rows);
+    Status st = _agg_key_iter->init();
+    if (!st.ok()) {
+        st.prepend(fmt::format(
+                "Failed to init reader when init agg state: tablet_id: {}, schema_hash: {}, "
+                "reader_type: {}, version: {}: ",
+                read_params.tablet->tablet_id(), read_params.tablet->schema_hash(),
+                int(read_params.reader_type), read_params.version.to_string()));
+    }
+    return st;
+}
+
+Status BlockReader::_init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
+                                        RuntimeState* runtime_state,
+                                        RowwiseIteratorUPtr* merge_iter) {
+    SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
+    // By the key, the rows of a key newest first: the fold takes the REPLACE value of a key's
+    // first row.
+    *merge_iter = std::make_unique<VHeapMergeIterator>(std::move(children), _read_schema);
+    StorageReadOptions opts(_stats);
+    opts.block_row_max = cast_set<uint32_t>(batch_max_rows());
+    opts.preferred_block_size_bytes = preferred_block_size_bytes();
+    opts.runtime_state = runtime_state;
+    return (*merge_iter)->init(opts);
+}
+
+Status BlockReader::_init_topn_iter(const ReaderParams& read_params) {
+    auto res = _capture_rs_readers(read_params);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
+                     << ", tablet_id:" << read_params.tablet->tablet_id()
+                     << ", schema_hash:" << read_params.tablet->schema_hash()
+                     << ", reader_type:" << int(read_params.reader_type)
+                     << ", version:" << read_params.version;
+        return res;
+    }
+    // The scanner pushes a TopN down only without a LIMIT, and TabletReader sets up its ORDER BY
+    // columns.
+    DORIS_CHECK(_reader_context.general_read_limit <= 0);
+    DORIS_CHECK(_reader_context.read_orderby_key_columns != nullptr);
+    const size_t limit = _reader_context.read_orderby_key_limit;
+    std::vector<TopNBlockIterator::RowsetOpener> rowsets;
+    for (const auto& rs_split : read_params.rs_splits) {
+        // A segment gives `limit` rows at most: its later rows cannot be among the first `limit`.
+        rs_split.rs_reader->set_topn_limit(limit);
+        rowsets.emplace_back([this, rs_split](std::vector<RowwiseIteratorUPtr>* streams) {
+            return _open_topn_rowset(rs_split, streams);
+        });
+    }
+    // Newer rowsets tend to hold larger keys, so a descending read starts from the newest.
+    if (_reader_context.read_orderby_key_reverse) {
+        std::reverse(rowsets.begin(), rowsets.end());
+    }
+    std::map<uint32_t, DataTypePtr> virtual_column_types;
+    for (const auto& [position, expr_ctx] : _reader_context.virtual_column_exprs) {
+        virtual_column_types.emplace(position, expr_ctx->root()->data_type());
+    }
+    TopNBlockIterator::FilterUpdater update_filter;
+    if (!_reader_context.topn_filter_source_node_ids.empty()) {
+        update_filter = [this](const Field& value) {
+            auto* query_ctx = _reader_context.runtime_state->get_query_ctx();
+            for (int id : _reader_context.topn_filter_source_node_ids) {
+                RETURN_IF_ERROR(query_ctx->get_runtime_predicate(id).update(value));
+            }
+            return Status::OK();
+        };
+    }
+    _topn_iter = std::make_unique<TopNBlockIterator>(
+            std::move(rowsets), limit, *_reader_context.read_orderby_key_columns,
+            _reader_context.read_orderby_key_reverse, std::move(virtual_column_types),
+            std::move(update_filter));
+    return Status::OK();
+}
+
+Status BlockReader::_open_topn_rowset(const RowSetSplits& rs_split,
+                                      std::vector<RowwiseIteratorUPtr>* streams) {
+    RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
+    // Each stream gives its rows in key order, which the ORDER BY columns lead.
+    return rs_split.rs_reader->get_key_ordered_iterators(&_reader_context, streams);
+}
+
 Status BlockReader::init(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
     RETURN_IF_ERROR(TabletReader::init(read_params));
@@ -598,12 +742,32 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
     }
 
-    auto status = _init_collect_iter(read_params);
+    // With enable_new_block_iterator, the AGG_KEYS reads that fold the rows of a key use
+    // AggKeyBlockIterator, and the storage TopN reads use TopNBlockIterator; the other reads go
+    // through VCollectIterator. It is read once, as it can change while the reader is set up.
+    const bool new_block_iterator = config::enable_new_block_iterator;
+    const bool use_agg_key_iter = new_block_iterator && !_direct_mode &&
+                                  _tablet_schema->keys_type() == KeysType::AGG_KEYS;
+    // From read_params: _reader_context gets the limit only in _capture_rs_readers().
+    const bool use_topn_iter = new_block_iterator && read_params.read_orderby_key_limit > 0;
+    Status status;
+    if (use_agg_key_iter) {
+        status = _init_agg_key_iter(read_params);
+    } else if (use_topn_iter) {
+        status = _init_topn_iter(read_params);
+    } else {
+        status = _init_collect_iter(read_params);
+    }
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
         }
         return status;
+    }
+
+    if (use_topn_iter) {
+        _next_block_func = &BlockReader::_topn_iter_next_block;
+        return Status::OK();
     }
 
     // MIN_DELTA: collapse consecutive same-key changes to the minimum equivalent change set
@@ -638,8 +802,12 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
         break;
     case KeysType::AGG_KEYS:
-        _next_block_func = &BlockReader::_agg_key_next_block;
-        RETURN_IF_ERROR(_init_agg_state(read_params));
+        if (use_agg_key_iter) {
+            _next_block_func = &BlockReader::_agg_key_iter_next_block;
+        } else {
+            _next_block_func = &BlockReader::_agg_key_next_block;
+            RETURN_IF_ERROR(_init_agg_state(read_params));
+        }
         break;
     default:
         DCHECK(false) << "No next row function for type:" << _tablet_schema->keys_type();
@@ -795,6 +963,14 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
 
     _merged_rows += merged_row;
     return Status::OK();
+}
+
+Status BlockReader::_agg_key_iter_next_block(Block* block, bool* eof) {
+    return _agg_key_iter->next_block(block, eof);
+}
+
+Status BlockReader::_topn_iter_next_block(Block* block, bool* eof) {
+    return _topn_iter->next_block(block, eof);
 }
 
 Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {

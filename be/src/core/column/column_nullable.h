@@ -245,6 +245,8 @@ public:
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
 
+    void update_equal_flags(EqualFlags& flags, const uint8_t* __restrict null_map) const override;
+
     ColumnPtr convert_column_if_overflow() override {
         _nested_column = _nested_column->convert_column_if_overflow();
         return get_ptr();
