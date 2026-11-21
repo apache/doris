@@ -175,6 +175,17 @@ public class IvmIncrRefreshManagerTest {
     }
 
     @Test
+    public void testNegativeAggregateCountRequiresCompleteRefresh() throws Exception {
+        IvmFailureReason reason = IvmFailureReason.NEGATIVE_AGGREGATE_COUNT;
+        for (String detail : List.of("negative group count", "negative hidden count for sum_score",
+                "negative count for score_count")) {
+            assertKnownExecutionFailureFallback(reason,
+                    "(Invalid argument) " + IvmFailureClassifier.NEGATIVE_AGGREGATE_COUNT_MSG_PREFIX + detail);
+        }
+        Assertions.assertTrue(reason.requiresCompleteRefresh());
+    }
+
+    @Test
     public void testManagerReturnsChangelogBrokenFallbackForExpiredStreamOffset() throws Exception {
         // What planning a MIN_DELTA read throws once changelog.ttl_seconds has expired the stream offset.
         AnalysisException expired = Assertions.assertThrows(AnalysisException.class,
