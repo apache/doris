@@ -99,8 +99,8 @@ suite("test_match_keyword_score", "p0") {
         // index, so CAST(v['n'] AS STRING) MATCH collects statistics for n; the BKD segment adds
         // none instead of failing, and its rows match without the index with score 0. p exists
         // only in the first insert: the other segment has no index for it and adds nothing.
-        sql "set default_variant_enable_typed_paths_to_sparse = false"
-        sql "set default_variant_enable_doc_mode = false"
+        sql "set debug_variant_enable_typed_paths_to_sparse = false"
+        sql "set debug_variant_enable_doc_mode = false"
         sql "DROP TABLE IF EXISTS test_match_keyword_score_variant"
         sql """
             CREATE TABLE test_match_keyword_score_variant (

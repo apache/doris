@@ -20,7 +20,7 @@ suite("sparse_key_byte_order", "p0,nonConcurrent") {
     setFeConfigTemporary([enable_variant_v2: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
         // The parser rejects an explicit doc-mode property beside sparse properties.
-        sql "SET default_variant_enable_doc_mode = false"
+        sql "SET debug_variant_enable_doc_mode = false"
         for (def keyModel : ["DUPLICATE", "UNIQUE"]) {
             for (def shardCount : [1, 3]) {
                 for (def docMode : [false, true]) {

@@ -17,7 +17,7 @@
 
 suite("test_variant_typed_path_bloom_filter", "nonConcurrent") {
     sql """DROP TABLE IF EXISTS test_variant_typed_path_bloom_filter"""
-    sql "set default_variant_enable_doc_mode = false"
+    sql "set debug_variant_enable_doc_mode = false"
     sql "set enable_common_expr_pushdown = true"
     sql """
         CREATE TABLE test_variant_typed_path_bloom_filter (

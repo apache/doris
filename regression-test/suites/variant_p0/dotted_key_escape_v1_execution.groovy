@@ -16,7 +16,7 @@
 // under the License.
 
 suite("dotted_key_escape_v1_execution", "p0,nonConcurrent") {
-    sql "set default_variant_enable_nested_group=false"
+    sql "set debug_variant_enable_nested_group=false"
     sql "set group_commit='off_mode'"
     sql "set enable_sql_cache=false"
     sql "set enable_query_cache=false"

@@ -21,8 +21,8 @@ suite("test_predefine_schema_change", "p0"){
     def normalizedVariant = "regexp_replace(cast(var as string), " +
             "'([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})[.]000000', '\\\\1')"
     def tableName = "test_predefine_schema_change"
-    sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """CREATE TABLE ${tableName} (
         `id` bigint NULL,

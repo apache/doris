@@ -17,8 +17,8 @@
 
 // Force multiple CLucene partitions while keeping query bitmaps in the segment document domain.
 suite("test_search_segment_document_ids", "p0,nonConcurrent") {
-    sql "SET default_variant_enable_doc_mode = false"
-    sql "SET default_variant_doc_materialization_min_rows = 0"
+    sql "SET debug_variant_enable_doc_mode = false"
+    sql "SET debug_variant_doc_materialization_min_rows = 0"
     setBeConfigTemporary([inverted_index_max_buffered_docs: "2"]) {
         for (String format : ["V2", "SNII"]) {
             sql "DROP TABLE IF EXISTS test_search_segment_document_ids"
