@@ -231,11 +231,11 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
         }
     }
 
-    public void compatible(CatalogMgr catalogMgr) throws Exception {
+    public boolean compatible(CatalogMgr catalogMgr) throws Exception {
         if (relatedTable == null) {
-            return;
+            return false;
         }
-        relatedTable.compatible(catalogMgr);
+        return relatedTable.compatible(catalogMgr);
     }
 
     @Override
