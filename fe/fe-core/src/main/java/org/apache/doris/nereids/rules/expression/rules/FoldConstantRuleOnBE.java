@@ -287,6 +287,12 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             return true;
         }
 
+        // FE cannot represent every VARBINARY string cast losslessly. Keep the cast and any
+        // enclosing constant expression for normal BE evaluation instead of recreating a FE string.
+        if (expr instanceof Cast && ((Cast) expr).child().getDataType().isVarBinaryType()) {
+            return true;
+        }
+
         // This kind of function is often used to change the attributes of columns.
         // Folding will make it impossible to construct columns such as nullable(1).
         if (expr instanceof Nullable || expr instanceof NonNullable) {
