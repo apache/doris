@@ -28,6 +28,7 @@
 #include <optional>
 #include <string>
 
+#include "testutil/scoped_temp_dir.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -37,11 +38,12 @@ namespace bp = boost::process;
 
 class PythonUDFRuntimeTest : public ::testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"python_udf_runtime_test"};
+
     std::string test_dir_;
 
     void SetUp() override {
-        test_dir_ = fs::temp_directory_path().string() + "/python_runtime_test_" +
-                    std::to_string(getpid()) + "_" + std::to_string(rand());
+        test_dir_ = (scoped_temp_dir_.path() / "runtime").string();
         fs::create_directories(test_dir_);
     }
 
@@ -268,11 +270,11 @@ TEST_F(PythonUDFRuntimeTest, RemoveUnixSocketExistingFile) {
     bp::ipstream output;
     bp::child child("/bin/sleep", "60", bp::std_out > output);
 
-    pid_t child_pid = child.id();
     PythonUDFProcess process(std::move(child), std::move(output));
+    process._unix_socket_file_path = (scoped_temp_dir_.path() / "process.sock").string();
 
-    // Create a socket file at the expected path
-    std::string socket_path = get_unix_socket_file_path(child_pid);
+    // Exercise socket removal inside this fixture's owned directory.
+    const std::string socket_path = process.get_socket_file_path();
     ASSERT_TRUE(create_unix_socket(socket_path));
     ASSERT_TRUE(fs::exists(socket_path));
 
@@ -290,8 +292,8 @@ TEST_F(PythonUDFRuntimeTest, ShutdownPreservesUnexpectedSocketDirectory) {
     ASSERT_TRUE(child.running());
 
     PythonUDFProcess process(std::move(child), std::move(output));
+    process._unix_socket_file_path = (scoped_temp_dir_.path() / "unexpected.sock").string();
     const std::string socket_path = process.get_socket_file_path();
-    fs::remove_all(socket_path);
     ASSERT_TRUE(fs::create_directory(socket_path));
     Defer cleanup {[&]() { fs::remove_all(socket_path); }};
 

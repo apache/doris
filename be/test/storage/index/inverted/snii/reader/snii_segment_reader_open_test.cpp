@@ -45,6 +45,7 @@
 #include "storage/index/inverted/snii/reader/snii_segment_reader.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using namespace doris::snii::format;
@@ -96,9 +97,10 @@ MetadataDirectory ReadDirectory(const std::vector<uint8_t>& bytes, const TailFie
 }
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("snii_segment_reader_open_test");
     static int counter = 0;
-    return "/tmp/snii_seg_open_test_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
-           ".idx";
+    return (temp_dir.path() / "snii_seg_open_test_").string() + std::to_string(getpid()) + "_" +
+           std::to_string(counter++) + ".idx";
 }
 
 // An in-memory FileReader over an owned byte buffer that RECORDS every read

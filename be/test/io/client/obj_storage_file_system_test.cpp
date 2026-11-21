@@ -40,6 +40,7 @@
 #include "io/object_storage/be_obj_storage_config_parser.h"
 #include "io/object_storage/obj_storage_rate_limiter_manager.h"
 #include "runtime/exec_env.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/defer_op.h"
 #include "util/s3_uri.h"
 #include "util/threadpool.h"
@@ -283,6 +284,8 @@ private:
 
 class S3FileSystemTest : public ::testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"s3_file_system"};
+
     void SetUp() override {
         config_ = std::make_shared<S3TestConfig>();
 
@@ -625,7 +628,7 @@ TEST_F(S3FileSystemTest, UploadDownloadTest) {
     ASSERT_NE(s3_fs_, nullptr);
 
     // Create a temporary local file
-    std::string local_file = "/tmp/test_upload_file.txt";
+    std::string local_file = (scoped_temp_dir_.path() / "test_upload_file.txt").string();
     std::string test_content = "This is test content for upload/download test.\nLine 2\nLine 3";
 
     std::ofstream ofs(local_file);
@@ -649,7 +652,7 @@ TEST_F(S3FileSystemTest, UploadDownloadTest) {
     EXPECT_TRUE(exists) << "Uploaded file should exist";
 
     // Download file from S3
-    std::string download_file = "/tmp/test_download_file.txt";
+    std::string download_file = (scoped_temp_dir_.path() / "test_download_file.txt").string();
     std::string need_download_file =
             "s3://" + config_->get_bucket() + "/" + config_->get_prefix() + "/" + remote_file;
     status = s3_fs_->download(need_download_file, download_file);
@@ -1032,7 +1035,8 @@ TEST_F(S3FileSystemTest, RateLimiterGetDownloadTest) {
     // First two download operations should succeed
     Status status;
     for (int i = 0; i < 2; ++i) {
-        std::string local_file = "/tmp/rate_limit_download_" + std::to_string(i) + ".txt";
+        std::string local_file = (scoped_temp_dir_.path() / "rate_limit_download_").string() +
+                                 std::to_string(i) + ".txt";
         std::string need_download_file =
                 "s3://" + config_->get_bucket() + "/" + config_->get_prefix() + "/" + test_files[i];
         status = s3_fs_->download(need_download_file, local_file);
@@ -1043,7 +1047,8 @@ TEST_F(S3FileSystemTest, RateLimiterGetDownloadTest) {
     }
 
     // Third download operation should fail due to rate limit
-    std::string local_file_fail = "/tmp/rate_limit_download_fail.txt";
+    std::string local_file_fail =
+            (scoped_temp_dir_.path() / "rate_limit_download_fail.txt").string();
     std::string need_download_file_fail =
             "s3://" + config_->get_bucket() + "/" + config_->get_prefix() + "/" + test_files[2];
     status = s3_fs_->download(need_download_file_fail, local_file_fail);
@@ -1157,7 +1162,8 @@ TEST_F(S3FileSystemTest, RateLimiterPutUploadTest) {
     std::vector<std::string> remote_files;
 
     for (int i = 0; i < 3; ++i) {
-        std::string local_file = "/tmp/rate_limit_upload_" + std::to_string(i) + ".txt";
+        std::string local_file = (scoped_temp_dir_.path() / "rate_limit_upload_").string() +
+                                 std::to_string(i) + ".txt";
         local_files.push_back(local_file);
 
         std::ofstream ofs(local_file);

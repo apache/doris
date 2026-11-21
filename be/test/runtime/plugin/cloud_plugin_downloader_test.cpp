@@ -26,11 +26,14 @@
 #include "cloud/cloud_storage_engine.h"
 #include "runtime/exec_env.h"
 #include "storage/storage_engine.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris {
 
 class CloudPluginDownloaderTest : public ::testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"cloud_plugin_downloader"};
+
     void SetUp() override { downloader = std::make_unique<CloudPluginDownloader>(); }
 
     void TearDown() override {
@@ -180,13 +183,13 @@ TEST_F(CloudPluginDownloaderTest, TestDownloadFromCloudCloudStorageEngine) {
 // ============== File System Tests ==============
 
 TEST_F(CloudPluginDownloaderTest, TestPrepareLocalPathSuccess) {
-    std::string test_path = "/tmp/test_new_file.jar";
+    std::string test_path = (scoped_temp_dir_.path() / "test_new_file.jar").string();
     Status status = downloader->_prepare_local_path(test_path);
     EXPECT_TRUE(status.ok());
 }
 
 TEST_F(CloudPluginDownloaderTest, TestPrepareLocalPathWithExistingFile) {
-    std::string existing_file = "/tmp/existing_file.jar";
+    std::string existing_file = (scoped_temp_dir_.path() / "existing_file.jar").string();
     std::ofstream file(existing_file);
     file << "existing content";
     file.close();
@@ -198,11 +201,11 @@ TEST_F(CloudPluginDownloaderTest, TestPrepareLocalPathWithExistingFile) {
 }
 
 TEST_F(CloudPluginDownloaderTest, TestPrepareLocalPathWithNestedDirectory) {
-    std::string nested_path = "/tmp/test_dir/nested/test.jar";
+    std::string nested_path = (scoped_temp_dir_.path() / "test_dir/nested/test.jar").string();
     Status status = downloader->_prepare_local_path(nested_path);
     EXPECT_TRUE(status.ok());
-    EXPECT_TRUE(std::filesystem::exists("/tmp/test_dir/nested"));
-    std::filesystem::remove_all("/tmp/test_dir");
+    EXPECT_TRUE(std::filesystem::exists((scoped_temp_dir_.path() / "test_dir/nested").string()));
+    std::filesystem::remove_all((scoped_temp_dir_.path() / "test_dir").string());
 }
 
 TEST_F(CloudPluginDownloaderTest, TestPrepareLocalPathRootDirectory) {

@@ -46,6 +46,7 @@
 #include "runtime/runtime_profile.h"
 #include "testutil/desc_tbl_builder.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::format::text {
 namespace {
@@ -299,9 +300,12 @@ VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
 }
 
 class TextV2ReaderTest : public testing::Test {
+protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"text_reader_test"};
+
 public:
     void SetUp() override {
-        _test_dir = std::filesystem::temp_directory_path() / "doris_format_v2_text_reader_test";
+        _test_dir = scoped_temp_dir_.path() / "doris_format_v2_text_reader_test";
         std::filesystem::remove_all(_test_dir);
         std::filesystem::create_directories(_test_dir);
         _file_path = (_test_dir / "reader.text").string();

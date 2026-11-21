@@ -26,7 +26,13 @@ namespace doris {
 
 static const char* UNIX_SOCKET_PREFIX = "grpc+unix://";
 // Use /tmp directory for Unix socket to avoid path length limit (max 107 chars)
+#ifdef BE_TEST
+// Tests must redirect both the child arguments and the readiness checks to their owned
+// directory. A TU-local override would leave python_server.cpp using the shared /tmp path.
+inline const char* BASE_UNIX_SOCKET_PATH_TEMPLATE = "/tmp/doris_python_udf";
+#else
 static const char* BASE_UNIX_SOCKET_PATH_TEMPLATE = "/tmp/doris_python_udf";
+#endif
 static const char* UNIX_SOCKET_PATH_TEMPLATE = "{}_{}.sock";
 static const char* FLIGHT_SERVER_PATH_TEMPLATE = "{}/plugins/python_udf/{}";
 static const char* FLIGHT_SERVER_FILENAME = "python_server.py";

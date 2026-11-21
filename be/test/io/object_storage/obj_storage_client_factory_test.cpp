@@ -100,6 +100,7 @@
 #include <azure/core/http/curl_transport.hpp>
 
 #include "cpp/obj-storage/client/azure_obj_storage_client.h"
+#include "testutil/scoped_temp_dir.h"
 #endif
 
 namespace doris {
@@ -1178,8 +1179,8 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
 
 TEST_F(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider) {
     CaBundleCache cache;
-    auto ca_cert_file_path = std::filesystem::temp_directory_path() /
-                             ("doris_s3_client_factory_ca_" + std::to_string(getpid()) + ".pem");
+    const doris::test::ScopedTempDirectory temp_dir("s3_client_factory_ca");
+    auto ca_cert_file_path = temp_dir.path() / "ca.pem";
     std::filesystem::remove(ca_cert_file_path);
     const auto ca_path = ca_cert_file_path.string();
 
