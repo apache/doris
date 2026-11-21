@@ -17,17 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -74,10 +76,6 @@ class ShowCharsetCommandTest extends TestWithFeService {
         Assertions.assertTrue(execute("SHOW CHARSET LIKE ''").getResultRows().isEmpty());
     }
 
-    // The WHERE filter runs as an internal query over a one-row relation. A FE unit test has no
-    // backend to execute that plan because branch-4.x cannot compute one-row relations in the
-    // frontend, so only the regression suite test_show_charset_command verifies the row results.
-    @Disabled("Needs a backend to execute the internal one-row-relation query; see regression test")
     @Test
     void testWhere() throws Exception {
         Assertions.assertEquals(EXPECTED_ROWS,
@@ -94,10 +92,6 @@ class ShowCharsetCommandTest extends TestWithFeService {
                 execute("SHOW CHARSET WHERE upper(Charset) = 'UTF8MB4' AND Maxlen + 1 = 5").getResultRows());
     }
 
-    // The WHERE filter runs as an internal query over a one-row relation. A FE unit test has no
-    // backend to execute that plan because branch-4.x cannot compute one-row relations in the
-    // frontend, so only the regression suite test_show_charset_command verifies the row results.
-    @Disabled("Needs a backend to execute the internal one-row-relation query; see regression test")
     @Test
     void testNullAndConstantPredicates() throws Exception {
         Assertions.assertEquals(EXPECTED_ROWS, execute("SHOW CHARSET WHERE TRUE").getResultRows());
@@ -106,6 +100,20 @@ class ShowCharsetCommandTest extends TestWithFeService {
         Assertions.assertTrue(execute("SHOW CHARSET WHERE Charset = NULL").getResultRows().isEmpty());
         Assertions.assertEquals(EXPECTED_ROWS,
                 execute("SHOW CHARSET WHERE Charset IS NOT NULL").getResultRows());
+    }
+
+    @Test
+    void testCancelledBeforeFilterStarts() {
+        String sql = "SHOW CHARSET WHERE TRUE";
+        StmtExecutor executor = new StmtExecutor(connectContext, sql);
+        ShowCharsetCommand command = (ShowCharsetCommand) new NereidsParser().parseSingle(sql);
+        Status reason = new Status(TStatusCode.CANCELLED, "cancelled before SHOW filter starts");
+        executor.cancel(reason, false);
+
+        UserException exception = Assertions.assertThrows(UserException.class,
+                () -> command.doRun(connectContext, executor));
+        Assertions.assertEquals(reason.getErrorMsg(), exception.getDetailMessage());
+        Assertions.assertSame(connectContext, ConnectContext.get());
     }
 
     @Test
@@ -122,12 +130,16 @@ class ShowCharsetCommandTest extends TestWithFeService {
         String originalCollation = connectContext.getSessionVariable().collationConnection;
         try {
             connectContext.getSessionVariable().setEnableSqlCache(true);
+            Assertions.assertEquals(EXPECTED_ROWS, execute("SHOW CHARSET WHERE TRUE").getResultRows());
             connectContext.getSessionVariable().charsetServer = "test_charset";
             connectContext.getSessionVariable().collationConnection = "test_collation";
             List<List<String>> expected = execute("SHOW CHARSET").getResultRows();
             Assertions.assertEquals(expected, execute("SHOW CHARSET LIKE 'test_%'").getResultRows());
+            Assertions.assertEquals(expected, execute("SHOW CHARSET WHERE TRUE").getResultRows());
             Assertions.assertTrue(connectContext.getSessionVariable().isEnableSqlCache());
-            Assertions.assertTrue(execute("SHOW CHARSET LIKE 'utf8%'").getResultRows().isEmpty());
+            Assertions.assertEquals(expected, execute("SHOW CHARSET WHERE Charset = 'test_charset' "
+                    + "AND `Default collation` = 'test_collation'").getResultRows());
+            Assertions.assertTrue(execute("SHOW CHARSET WHERE Charset = 'utf8mb4'").getResultRows().isEmpty());
         } finally {
             connectContext.getSessionVariable().setEnableSqlCache(originalEnableSqlCache);
             connectContext.getSessionVariable().charsetServer = originalCharset;
@@ -135,15 +147,21 @@ class ShowCharsetCommandTest extends TestWithFeService {
         }
     }
 
-    @Disabled("Needs a backend to execute the internal one-row-relation query; see regression test")
     @Test
-    void testWhereSessionValues() throws Exception {
-        connectContext.getSessionVariable().charsetServer = "test_charset";
-        connectContext.getSessionVariable().collationConnection = "test_collation";
-        List<List<String>> expected = execute("SHOW CHARSET").getResultRows();
-        Assertions.assertEquals(expected, execute("SHOW CHARSET WHERE TRUE").getResultRows());
-        Assertions.assertEquals(expected, execute("SHOW CHARSET WHERE Charset = 'test_charset' "
-                + "AND `Default collation` = 'test_collation'").getResultRows());
-        Assertions.assertTrue(execute("SHOW CHARSET WHERE Charset = 'utf8mb4'").getResultRows().isEmpty());
+    void testWherePreservesDatabaseAndCatalogNamespace() throws Exception {
+        String originalCatalog = connectContext.getDefaultCatalog();
+        String originalDb = connectContext.getDatabase();
+        try {
+            connectContext.changeDefaultCatalog("internal");
+            connectContext.setDatabase("test_namespace_db");
+            Assertions.assertEquals(EXPECTED_ROWS,
+                    execute("SHOW CHARSET WHERE DATABASE() = 'test_namespace_db' AND CURRENT_CATALOG() = 'internal'")
+                            .getResultRows());
+            Assertions.assertTrue(
+                    execute("SHOW CHARSET WHERE DATABASE() = 'other_db'").getResultRows().isEmpty());
+        } finally {
+            connectContext.changeDefaultCatalog(originalCatalog);
+            connectContext.setDatabase(originalDb);
+        }
     }
 }

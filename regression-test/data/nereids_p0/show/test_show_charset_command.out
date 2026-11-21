@@ -75,6 +75,9 @@ utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
 
 -- !select_limit_still_applies --
 
+-- !where_database --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
 -- !prepared_match --
 utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
 
