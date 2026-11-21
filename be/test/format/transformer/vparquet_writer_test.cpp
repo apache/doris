@@ -363,7 +363,6 @@ TEST_F(VParquetWriterTest, HiveAndIcebergParquetPageIndexOptions) {
     const std::string json =
             R"({"type":"struct","fields":[{"id":1,"name":"id","required":true,"type":"int"},{"id":2,"name":"value","required":false,"type":"int"},{"id":3,"name":"all_null","required":false,"type":"int"}]})";
     auto schema = iceberg::SchemaParser::from_json(json);
-    const std::map<std::string, std::string> hadoop_conf;
     for (const bool iceberg_writer : {false, true}) {
         for (const bool enabled : {false, true}) {
             TQueryOptions query_options;
@@ -377,26 +376,19 @@ TEST_F(VParquetWriterTest, HiveAndIcebergParquetPageIndexOptions) {
             _file_path = "./" + name + "-0.parquet";
             TDataSink sink;
             if (iceberg_writer) {
-                VIcebergPartitionWriter writer(sink, {}, exprs, *schema, &json,
-                                               {"id", "value", "all_null"},
-                                               {.location = IcebergOutputLocation(".", "."),
-                                                .file_type = TFileType::FILE_LOCAL,
-                                                .broker_addresses = {}},
-                                               name, 0, TFileFormatType::FORMAT_PARQUET,
-                                               TFileCompressType::PLAIN, hadoop_conf);
+                VIcebergPartitionWriter writer(
+                        sink, {}, exprs, *schema, &json, {"id", "value", "all_null"},
+                        IcebergOutputLocation(".", "."), name, 0, TFileFormatType::FORMAT_PARQUET,
+                        TFileCompressType::PLAIN, io::FSPropertiesRef(TFileType::FILE_LOCAL));
                 ASSERT_TRUE(writer.open(&state, nullptr, nullptr).ok());
                 ASSERT_TRUE(writer.write(block).ok());
                 ASSERT_TRUE(writer.close(Status::OK()).ok());
             } else {
-                VHivePartitionWriter writer(sink, "", TUpdateMode::APPEND, exprs,
-                                            {"id", "value", "all_null"},
-                                            {.write_path = ".",
-                                             .original_write_path = ".",
-                                             .target_path = ".",
-                                             .file_type = TFileType::FILE_LOCAL,
-                                             .broker_addresses = {}},
-                                            name, 0, TFileFormatType::FORMAT_PARQUET,
-                                            TFileCompressType::PLAIN, nullptr, hadoop_conf);
+                VHivePartitionWriter writer(
+                        sink, "", TUpdateMode::APPEND, exprs, {"id", "value", "all_null"},
+                        {.write_path = ".", .original_write_path = ".", .target_path = "."}, name,
+                        0, TFileFormatType::FORMAT_PARQUET, TFileCompressType::PLAIN, nullptr,
+                        io::FSPropertiesRef(TFileType::FILE_LOCAL));
                 ASSERT_TRUE(writer.open(&state, nullptr).ok());
                 ASSERT_TRUE(writer.write(block).ok());
                 ASSERT_TRUE(writer.close(Status::OK()).ok());
@@ -746,7 +738,6 @@ TEST_F(VParquetWriterTest, WritesInt96DatetimeUsingWriterTimezone) {
 TEST_F(VParquetWriterTest, HiveInt96HonorsCatalogTimezoneContract) {
     auto datetime_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
     VExprContextSPtrs output_exprs = MockSlotRef::create_mock_contexts(DataTypes {datetime_type});
-    const std::map<std::string, std::string> hadoop_conf;
     // The insert session must not override either a named catalog zone or explicit wall-clock mode.
     for (const auto& [catalog_zone, expected_micros] :
          std::vector<std::pair<std::optional<std::string>, int64_t>> {
@@ -763,14 +754,11 @@ TEST_F(VParquetWriterTest, HiveInt96HonorsCatalogTimezoneContract) {
         RuntimeState state;
         state.set_timezone("Asia/Shanghai");
         const std::string file_name = "hive_int96_" + UniqueId::gen_uid().to_string();
-        VHivePartitionWriter writer(sink, "", TUpdateMode::APPEND, output_exprs, {"local_time"},
-                                    {.write_path = ".",
-                                     .original_write_path = ".",
-                                     .target_path = ".",
-                                     .file_type = TFileType::FILE_LOCAL,
-                                     .broker_addresses = {}},
-                                    file_name, 0, TFileFormatType::FORMAT_PARQUET,
-                                    TFileCompressType::PLAIN, nullptr, hadoop_conf);
+        VHivePartitionWriter writer(
+                sink, "", TUpdateMode::APPEND, output_exprs, {"local_time"},
+                {.write_path = ".", .original_write_path = ".", .target_path = "."}, file_name, 0,
+                TFileFormatType::FORMAT_PARQUET, TFileCompressType::PLAIN, nullptr,
+                io::FSPropertiesRef(TFileType::FILE_LOCAL));
         _file_path = "./" + file_name + "-0.parquet";
         ASSERT_TRUE(writer.open(&state, nullptr).ok());
         DateV2Value<DateTimeV2ValueType> datetime;
@@ -811,18 +799,15 @@ TEST_F(VParquetWriterTest, IcebergNanosecondsRoundTripWithoutCoercion) {
     const std::string json =
             R"({"type":"struct","fields":[{"id":1,"name":"ts","required":false,"type":"timestamp_ns"}]})";
     auto schema = iceberg::SchemaParser::from_json(json);
-    const std::map<std::string, std::string> hadoop_conf;
     TDataSink sink;
     RuntimeState state;
     state.set_timezone("Asia/Shanghai");
     const auto name = "iceberg_ns_" + UniqueId::gen_uid().to_string();
     _file_path = "./" + name + "-0.parquet";
     VIcebergPartitionWriter writer(sink, {}, exprs, *schema, &json, {"ts"},
-                                   {.location = IcebergOutputLocation(".", "."),
-                                    .file_type = TFileType::FILE_LOCAL,
-                                    .broker_addresses = {}},
-                                   name, 0, TFileFormatType::FORMAT_PARQUET,
-                                   TFileCompressType::PLAIN, hadoop_conf);
+                                   IcebergOutputLocation(".", "."), name, 0,
+                                   TFileFormatType::FORMAT_PARQUET, TFileCompressType::PLAIN,
+                                   io::FSPropertiesRef(TFileType::FILE_LOCAL));
     ASSERT_TRUE(writer.open(&state, nullptr, nullptr).ok());
     const std::vector<int64_t> nanos = {std::numeric_limits<int64_t>::min(), -1, 0, 1, 123456789,
                                         std::numeric_limits<int64_t>::max()};

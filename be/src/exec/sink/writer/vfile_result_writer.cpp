@@ -53,7 +53,6 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
-#include "io/hdfs_builder.h"
 #include "runtime/descriptors.h"
 #include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
@@ -120,16 +119,9 @@ Status VFileResultWriter::_create_next_file_writer() {
 }
 
 Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
-    auto file_type = DORIS_TRY(FileFactory::convert_storage_type(_storage_type));
     _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
-            file_type, _state->exec_env(), _file_opts->broker_addresses,
-            _file_opts->broker_properties, file_name,
-            {
-                    .write_file_cache = false,
-                    .sync_file_data = false,
-            },
-            _file_opts->azure_client_config.has_value() ? &*_file_opts->azure_client_config
-                                                        : nullptr));
+            _file_opts->fs_properties, _state->exec_env(), file_name,
+            {.write_file_cache = false, .sync_file_data = false}));
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _vfile_writer.reset(new VCSVTransformer(
@@ -432,24 +424,21 @@ Status VFileResultWriter::_delete_dir() {
     case TStorageBackendType::LOCAL:
         return io::global_local_filesystem()->delete_directory(dir);
     case TStorageBackendType::BROKER: {
-        auto fs = DORIS_TRY(io::BrokerFileSystem::create(_file_opts->broker_addresses[0],
-                                                         _file_opts->broker_properties,
-                                                         io::FileSystem::TMP_FS_ID));
+        auto fs = DORIS_TRY(io::BrokerFileSystem::create(
+                _file_opts->fs_properties.broker_addresses[0], _file_opts->fs_properties.properties,
+                io::FileSystem::TMP_FS_ID));
         return fs->delete_directory(dir);
     }
     case TStorageBackendType::HDFS: {
-        THdfsParams hdfs_params = parse_properties(_file_opts->broker_properties);
+        const auto& hdfs_params = _file_opts->fs_properties.hdfs_params;
         auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,
                                                        io::FileSystem::TMP_FS_ID));
         return fs->delete_directory(dir);
     }
     case TStorageBackendType::AZURE:
     case TStorageBackendType::S3: {
-        io::FSPropertiesRef properties(TFileType::FILE_S3);
-        properties.properties = &_file_opts->broker_properties;
-        properties.azure_client_config =
-                _file_opts->azure_client_config ? &*_file_opts->azure_client_config : nullptr;
-        auto fs = DORIS_TRY(FileFactory::create_fs(properties, {.path = dir, .fs_name {}}));
+        auto fs = DORIS_TRY(
+                FileFactory::create_fs(_file_opts->fs_properties, {.path = dir, .fs_name {}}));
         return fs->delete_directory(dir);
     }
     default:

@@ -92,16 +92,9 @@ Status VTVFTableWriter::_create_file_writer(const std::string& file_name) {
 
     if (!use_jni) {
         // Native path: create file writer via FileFactory
-        TFileType::type file_type = _tvf_sink.file_type;
-        std::map<std::string, std::string> properties;
-        if (_tvf_sink.__isset.properties) {
-            properties = _tvf_sink.properties;
-        }
-
         _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
-                file_type, _state->exec_env(), {}, properties, file_name,
-                {.write_file_cache = false, .sync_file_data = false},
-                _tvf_sink.__isset.azure_client_config ? &_tvf_sink.azure_client_config : nullptr));
+                io::FSPropertiesRef::from(_tvf_sink), _state->exec_env(), file_name,
+                {.write_file_cache = false, .sync_file_data = false}));
     }
 
     // Factory creates either JNI or native transformer

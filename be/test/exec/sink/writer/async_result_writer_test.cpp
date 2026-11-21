@@ -25,6 +25,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exec/operator/result_sink_operator.h"
 #include "exec/pipeline/dependency.h"
+#include "io/file_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/global_memory_arbitrator.h"
@@ -197,10 +198,17 @@ TEST(ResultFileOptionsTest, KeepsTypedAzureAccess) {
     azure.__set_credential(credential);
     t_opt.__set_azure_client_config(azure);
 
-    ResultFileOptions options(t_opt);
+    const auto type = FileFactory::convert_storage_type(TStorageBackendType::AZURE);
+    ASSERT_TRUE(type.has_value());
+    ResultFileOptions options(t_opt, *type);
+    // The success-marker RPC borrows the same Thrift fields for its synchronous factory call.
+    auto marker = io::FSPropertiesRef::from(t_opt, *type);
+    EXPECT_EQ(TFileType::FILE_S3, marker.type);
+    EXPECT_EQ(&t_opt.azure_client_config, marker.azure_client_config);
+    t_opt.__set_azure_client_config(TAzureClientConfig {});
 
-    ASSERT_TRUE(options.azure_client_config.has_value());
-    EXPECT_EQ(azure, *options.azure_client_config);
+    ASSERT_TRUE(options.fs_properties.azure_client_config.has_value());
+    EXPECT_EQ(azure, *options.fs_properties.azure_client_config);
 }
 
 TEST(ResultFileOptionsTest, LeavesAzureAccessUnsetForOtherStorage) {
@@ -208,9 +216,9 @@ TEST(ResultFileOptionsTest, LeavesAzureAccessUnsetForOtherStorage) {
     t_opt.__set_file_path("s3://bucket/out/");
     t_opt.__set_file_format(TFileFormatType::FORMAT_CSV_PLAIN);
 
-    ResultFileOptions options(t_opt);
+    ResultFileOptions options(t_opt, TFileType::FILE_S3);
 
-    EXPECT_FALSE(options.azure_client_config.has_value());
+    EXPECT_FALSE(options.fs_properties.azure_client_config.has_value());
 }
 
 } // namespace doris

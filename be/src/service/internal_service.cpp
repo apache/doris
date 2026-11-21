@@ -770,7 +770,7 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
             }
         }
 
-        TResultFileSinkOptions file_options = result_file_sink.file_options;
+        const auto& file_options = result_file_sink.file_options;
         std::stringstream ss;
         ss << file_options.file_path << file_options.success_file_name;
         std::string file_name = ss.str();
@@ -808,14 +808,9 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
         }
 
         auto&& res = FileFactory::create_file_writer(
-                file_type_res.value(), ExecEnv::GetInstance(), file_options.broker_addresses,
-                file_options.broker_properties, file_name,
-                {
-                        .write_file_cache = false,
-                        .sync_file_data = false,
-                },
-                file_options.__isset.azure_client_config ? &file_options.azure_client_config
-                                                         : nullptr);
+                io::FSPropertiesRef::from(file_options, file_type_res.value()),
+                ExecEnv::GetInstance(), file_name,
+                {.write_file_cache = false, .sync_file_data = false});
         using T = std::decay_t<decltype(res)>;
         if (!res.has_value()) [[unlikely]] {
             st = std::forward<T>(res).error();

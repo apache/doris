@@ -42,7 +42,6 @@
 #include "format/table/parquet_utils.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader.h"
-#include "io/hdfs_builder.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
@@ -563,14 +562,10 @@ private:
 
 class ParquetBloomProbeModeHandler final : public ParquetMetadataReader::ModeHandler {
 public:
-    ParquetBloomProbeModeHandler(RuntimeState* state, TFileType::type file_type,
-                                 std::map<std::string, std::string> properties,
-                                 std::optional<TAzureClientConfig> azure_client_config,
+    ParquetBloomProbeModeHandler(RuntimeState* state, const io::FileSystemProperties& fs_properties,
                                  std::string column, std::string literal)
             : ModeHandler(state),
-              _file_type(file_type),
-              _properties(std::move(properties)),
-              _azure_client_config(std::move(azure_client_config)),
+              _fs_properties(fs_properties),
               _column(std::move(column)),
               _literal(std::move(literal)) {}
 
@@ -598,14 +593,10 @@ public:
         RETURN_IF_ERROR(
                 _encode_literal(schema->physical_type, primitive_type, _literal, &encoded_literal));
 
-        io::FileSystemProperties system_properties;
-        system_properties.system_type = _file_type;
-        system_properties.properties = _properties;
-        system_properties.azure_client_config = _azure_client_config;
         io::FileDescription file_desc;
         file_desc.path = path;
         io::FileReaderSPtr file_reader = DORIS_TRY(FileFactory::create_file_reader(
-                system_properties, file_desc, io::FileReaderOptions::DEFAULT, nullptr));
+                _fs_properties, file_desc, io::FileReaderOptions::DEFAULT, nullptr));
         io::IOContext io_ctx;
 
         const tparquet::FileMetaData& thrift_meta = metadata->to_thrift();
@@ -639,9 +630,7 @@ public:
 
 private:
     std::array<int, BLOOM_COLUMN_COUNT> _slot_pos {};
-    TFileType::type _file_type;
-    std::map<std::string, std::string> _properties;
-    std::optional<TAzureClientConfig> _azure_client_config;
+    const io::FileSystemProperties& _fs_properties;
     std::string _column;
     std::string _literal;
 
@@ -731,8 +720,7 @@ Status ParquetMetadataReader::init_reader() {
         _mode_handler = std::make_unique<ParquetKeyValueModeHandler>(_state);
     } else if (_mode_type == Mode::BLOOM_PROBE) {
         _mode_handler = std::make_unique<ParquetBloomProbeModeHandler>(
-                _state, _file_type, _properties, _azure_client_config, _bloom_column,
-                _bloom_literal);
+                _state, _fs_properties, _bloom_column, _bloom_literal);
     } else {
         _mode_handler = std::make_unique<ParquetMetadataModeHandler>(_state);
     }
@@ -763,17 +751,10 @@ Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_r
         _mode = MODE_METADATA; // default
     }
 
-    if (params.__isset.file_type) {
-        _file_type = params.file_type;
-    } else {
+    if (!params.__isset.file_type) {
         return Status::InvalidArgument("Property 'file_type' must be set for parquet_metadata");
     }
-    if (params.__isset.properties) {
-        _properties = params.properties;
-    }
-    if (params.__isset.azure_client_config) {
-        _azure_client_config = params.azure_client_config;
-    }
+    _fs_properties = io::FSPropertiesRef::from(params).to_owned();
     if (params.__isset.bloom_column) {
         _bloom_column = params.bloom_column;
     }
@@ -858,17 +839,10 @@ Status ParquetMetadataReader::_build_rows(std::vector<MutableColumnPtr>& columns
 // Open a single Parquet file, read its footer, and dispatch to schema/metadata handlers.
 Status ParquetMetadataReader::_append_file_rows(const std::string& path,
                                                 std::vector<MutableColumnPtr>& columns) {
-    io::FileSystemProperties system_properties;
-    system_properties.system_type = _file_type;
-    system_properties.properties = _properties;
-    system_properties.azure_client_config = _azure_client_config;
-    if (_file_type == TFileType::FILE_HDFS) {
-        system_properties.hdfs_params = ::doris::parse_properties(system_properties.properties);
-    }
     io::FileDescription file_desc;
     file_desc.path = path;
     io::FileReaderSPtr file_reader = DORIS_TRY(FileFactory::create_file_reader(
-            system_properties, file_desc, io::FileReaderOptions::DEFAULT, nullptr));
+            _fs_properties, file_desc, io::FileReaderOptions::DEFAULT, nullptr));
 
     std::unique_ptr<FileMetaData> file_metadata;
     size_t meta_size = 0;

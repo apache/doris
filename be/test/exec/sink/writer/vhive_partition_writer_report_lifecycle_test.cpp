@@ -118,14 +118,11 @@ std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
     sink.__set_hive_table_sink(hive_sink);
     VHivePartitionWriter::WriteInfo write_info {.write_path = "s3://bucket/staging",
                                                 .original_write_path = "s3://bucket/table",
-                                                .target_path = "s3://bucket/table",
-                                                .file_type = TFileType::FILE_S3,
-                                                .broker_addresses = {}};
-    static const std::map<std::string, std::string> hadoop_conf;
+                                                .target_path = "s3://bucket/table"};
     auto writer = std::make_unique<VHivePartitionWriter>(
             sink, "", TUpdateMode::APPEND, output_exprs, std::vector<std::string> {},
             std::move(write_info), "part", 0, TFileFormatType::FORMAT_PARQUET,
-            TFileCompressType::PLAIN, nullptr, hadoop_conf);
+            TFileCompressType::PLAIN, nullptr, io::FSPropertiesRef(TFileType::FILE_S3));
 
     auto holder = std::make_shared<io::ObjStorageClientHolder>(std::move(config));
     holder->_client = client;

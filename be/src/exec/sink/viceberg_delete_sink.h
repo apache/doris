@@ -34,6 +34,7 @@
 #include "exec/sink/writer/iceberg/iceberg_output_location.h"
 #include "exec/sink/writer/iceberg/viceberg_delete_file_writer.h"
 #include "exprs/vexpr_fwd.h"
+#include "io/file_system_properties.h"
 #include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 
@@ -155,8 +156,7 @@ private:
     std::map<std::string, IcebergFileDeletion> _file_deletions;
     std::map<std::string, std::vector<TIcebergDeleteFileDesc>> _rewritable_delete_files;
 
-    // Hadoop configuration
-    std::map<std::string, std::string> _hadoop_conf;
+    io::FileSystemProperties _fs_properties;
 
     // File format settings
     TFileFormatType::type _file_format_type = TFileFormatType::FORMAT_PARQUET;
@@ -164,11 +164,6 @@ private:
 
     // The data location delete files are written to and committed under, set by init_properties().
     std::optional<IcebergOutputLocation> _output_location;
-
-    TFileType::type _file_type = TFileType::FILE_HDFS;
-    std::vector<TNetworkAddress> _broker_addresses;
-    // Typed Azure access; output_path then keeps its native Azure form.
-    std::optional<TAzureClientConfig> _azure_client_config;
 
     // Partition information
     int32_t _partition_spec_id = 0;

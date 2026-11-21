@@ -21,9 +21,7 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <map>
 #include <string>
-#include <vector>
 
 #include "common/status.h"
 #include "format/table/deletion_vector.h"
@@ -62,10 +60,6 @@ public:
     virtual ~IcebergPositionDeleteVisitor() = default;
     virtual Status visit(const std::string& file_path, int64_t pos) = 0;
 };
-
-TFileScanRangeParams build_iceberg_delete_scan_range_params(
-        const std::map<std::string, std::string>& hadoop_conf, TFileType::type file_type,
-        const std::vector<TNetworkAddress>& broker_addresses);
 
 TFileRangeDesc build_iceberg_delete_file_range(const std::string& path, int64_t file_size);
 

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gtest/gtest.h>
 
@@ -77,6 +78,53 @@ TEST(AzureTypedAccessTest, ScanParametersCarryTypedAccessIntoFileSystemPropertie
     EXPECT_EQ(ref.azure_client_config, &*properties.azure_client_config);
     properties.azure_client_config.reset();
     EXPECT_EQ(FSPropertiesRef(properties).azure_client_config, nullptr);
+}
+
+TEST(AzureTypedAccessTest, DeleteScanOwnsTheVendedAccessAndBrokerAddresses) {
+    TIcebergDeleteSink sink;
+    sink.__set_file_type(TFileType::FILE_S3);
+    sink.__set_hadoop_config({{"provider", "azure"}});
+    TNetworkAddress address;
+    address.__set_hostname("broker");
+    sink.__set_broker_addresses({address});
+    auto azure = typed_access_shared_key_config();
+    TAzureSas sas;
+    sas.__set_token("sig=fixture");
+    sas.__set_expires_at_ms(1893456000000);
+    TAzureCredential credential;
+    credential.__set_sas(sas);
+    azure.__set_credential(credential);
+    sink.__set_azure_client_config(azure);
+    auto owned = FSPropertiesRef::from(sink).to_owned();
+    sink.__set_azure_client_config(TAzureClientConfig {});
+    sink.hadoop_config.clear();
+    sink.broker_addresses.clear();
+
+    auto scan = owned.to_scan_range_params();
+    EXPECT_EQ(TFileType::FILE_S3, scan.file_type);
+    EXPECT_EQ("azure", scan.properties.at("provider"));
+    ASSERT_TRUE(scan.__isset.broker_addresses);
+    ASSERT_EQ(1, scan.broker_addresses.size());
+    EXPECT_EQ(address, scan.broker_addresses.front());
+    ASSERT_TRUE(scan.__isset.azure_client_config);
+    EXPECT_EQ(azure, scan.azure_client_config);
+}
+
+TEST(AzureTypedAccessTest, LegacyDeleteAndMetadataReadsKeepHdfsProperties) {
+    TIcebergDeleteSink legacy;
+    legacy.__set_hadoop_config({{"fs.defaultFS", "hdfs://warehouse"}});
+    // Older delete sinks omit the file type. Unset optional credentials have no effect.
+    legacy.azure_client_config = typed_access_shared_key_config();
+    auto scan = FSPropertiesRef::from(legacy).to_owned().to_scan_range_params();
+    EXPECT_EQ(TFileType::FILE_HDFS, scan.file_type);
+    ASSERT_TRUE(scan.__isset.hdfs_params);
+    EXPECT_EQ("hdfs://warehouse", scan.hdfs_params.fs_name);
+    EXPECT_FALSE(scan.__isset.azure_client_config);
+
+    TParquetMetadataParams metadata;
+    metadata.__set_file_type(TFileType::FILE_HDFS);
+    metadata.__set_properties(legacy.hadoop_config);
+    EXPECT_EQ(scan.hdfs_params, FSPropertiesRef::from(metadata).to_owned().hdfs_params);
 }
 
 TEST(AzureTypedAccessTest, CreateFsTakesContainerAndKeysFromNativeLocations) {
@@ -239,15 +287,16 @@ TEST(AzureTypedAccessTest, HttpBlobNamesAreUnescapedOnceAfterResolvingTheContain
 }
 
 TEST(AzureTypedAccessTest, CreateFileWriterUsesTheNativeLocation) {
-    auto config = typed_access_shared_key_config();
-    std::map<std::string, std::string> properties;
+    TTVFTableSink sink;
+    sink.__set_file_type(TFileType::FILE_S3);
+    sink.__set_azure_client_config(typed_access_shared_key_config());
     FileWriterOptions options;
     // The writer consults the file cache when it is enabled; another test may have left it on.
     bool saved_enable_file_cache = config::enable_file_cache;
     config::enable_file_cache = false;
     auto writer = FileFactory::create_file_writer(
-            TFileType::FILE_S3, nullptr, {}, properties,
-            "abfss://c1@acct.dfs.core.windows.net/db/t/f.parquet", options, &config);
+            FSPropertiesRef::from(sink), nullptr,
+            "abfss://c1@acct.dfs.core.windows.net/db/t/f.parquet", options);
     config::enable_file_cache = saved_enable_file_cache;
 #ifdef USE_AZURE
     ASSERT_TRUE(writer.has_value()) << writer.error();

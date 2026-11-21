@@ -130,7 +130,7 @@ io::FileReaderOptions FileFactory::get_reader_options(const TQueryOptions& optio
     return opts;
 }
 
-int32_t get_broker_index(const std::vector<TNetworkAddress>& brokers, const std::string& path) {
+int32_t get_broker_index(std::span<const TNetworkAddress> brokers, const std::string& path) {
     if (brokers.empty()) {
         return -1;
     }
@@ -155,13 +155,13 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
     case TFileType::FILE_LOCAL:
         return io::global_local_filesystem();
     case TFileType::FILE_BROKER: {
-        auto index = get_broker_index(*fs_properties.broker_addresses, file_description.path);
+        auto index = get_broker_index(fs_properties.broker_addresses, file_description.path);
         if (index < 0) {
             return ResultError(Status::InternalError("empty broker_addresses"));
         }
-        LOG_INFO("select broker: {} for file {}", (*fs_properties.broker_addresses)[index].hostname,
+        LOG_INFO("select broker: {} for file {}", fs_properties.broker_addresses[index].hostname,
                  file_description.path);
-        return io::BrokerFileSystem::create((*fs_properties.broker_addresses)[index],
+        return io::BrokerFileSystem::create(fs_properties.broker_addresses[index],
                                             *fs_properties.properties, io::FileSystem::TMP_FS_ID);
     }
     case TFileType::FILE_S3: {
@@ -212,26 +212,28 @@ std::string FileFactory::_get_fs_name(const io::FileDescription& file_descriptio
     return fs_name;
 }
 
-Result<io::FileWriterPtr> FileFactory::create_file_writer(
-        TFileType::type type, ExecEnv* env, const std::vector<TNetworkAddress>& broker_addresses,
-        const std::map<std::string, std::string>& properties, const std::string& path,
-        const io::FileWriterOptions& options, const TAzureClientConfig* azure_client_config) {
+Result<io::FileWriterPtr> FileFactory::create_file_writer(const io::FSPropertiesRef& fs_properties,
+                                                          ExecEnv* env, const std::string& path,
+                                                          const io::FileWriterOptions& options) {
     io::FileWriterPtr file_writer;
-    switch (type) {
+    switch (fs_properties.type) {
     case TFileType::FILE_LOCAL: {
         RETURN_IF_ERROR_RESULT(io::global_local_filesystem()->create_file(path, &file_writer));
         return file_writer;
     }
     case TFileType::FILE_BROKER: {
-        auto index = get_broker_index(broker_addresses, path);
+        auto index = get_broker_index(fs_properties.broker_addresses, path);
         if (index < 0) {
             return ResultError(Status::InternalError("empty broker_addresses"));
         }
-        LOG_INFO("select broker: {} for file {}", broker_addresses[index].hostname, path);
-        return io::BrokerFileWriter::create(env, broker_addresses[index], properties, path);
+        LOG_INFO("select broker: {} for file {}", fs_properties.broker_addresses[index].hostname,
+                 path);
+        return io::BrokerFileWriter::create(env, fs_properties.broker_addresses[index],
+                                            *fs_properties.properties, path);
     }
     case TFileType::FILE_S3: {
-        auto file = resolve_object_file(&properties, azure_client_config, path);
+        auto file = resolve_object_file(fs_properties.properties, fs_properties.azure_client_config,
+                                        path);
         if (!file.has_value()) {
             return unexpected(std::move(file).error());
         }
@@ -246,15 +248,15 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
                 resource.sse_enabled);
     }
     case TFileType::FILE_HDFS: {
-        THdfsParams hdfs_params = parse_properties(properties);
+        THdfsParams hdfs_params = parse_properties(*fs_properties.properties);
         std::shared_ptr<io::HdfsHandler> handler;
         RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
                 hdfs_params, hdfs_params.fs_name, &handler));
         return io::HdfsFileWriter::create(path, handler, hdfs_params.fs_name, &options);
     }
     default:
-        return ResultError(
-                Status::InternalError("unsupported file writer type: {}", std::to_string(type)));
+        return ResultError(Status::InternalError("unsupported file writer type: {}",
+                                                 std::to_string(fs_properties.type)));
     }
 }
 

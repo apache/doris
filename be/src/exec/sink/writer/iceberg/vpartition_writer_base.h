@@ -20,7 +20,6 @@
 #include <string>
 
 #include "common/status.h"
-#include "exec/sink/writer/iceberg/iceberg_output_location.h"
 #include "runtime/descriptors.h"
 namespace doris {
 
@@ -34,14 +33,6 @@ class RuntimeProfile;
 //             └── wraps VIcebergPartitionWriter
 class IPartitionWriterBase {
 public:
-    struct WriteInfo {
-        // The directory of the partition this writer writes, in the form BE writes the file in
-        // and the form the commit records it in.
-        IcebergOutputLocation location;
-        TFileType::type file_type;
-        std::vector<TNetworkAddress> broker_addresses;
-    };
-
     IPartitionWriterBase() = default;
 
     virtual ~IPartitionWriterBase() = default;

@@ -19,15 +19,14 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 
-#include <map>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "format/generic_reader.h"
+#include "io/file_system_properties.h"
 #include "runtime/descriptors.h"
 
 namespace doris {
@@ -69,11 +68,7 @@ private:
     std::vector<SlotDescriptor*> _slots;
     TMetaScanRange _scan_range;
     std::vector<std::string> _paths;
-    // File system type and properties for remote Parquet access.
-    TFileType::type _file_type = TFileType::FILE_LOCAL;
-    std::map<std::string, std::string> _properties;
-    // Typed native Azure access for FILE_S3; see TParquetMetadataParams.azure_client_config.
-    std::optional<TAzureClientConfig> _azure_client_config;
+    io::FileSystemProperties _fs_properties;
     std::string _mode;
     Mode _mode_type = Mode::METADATA;
     std::string _bloom_column;

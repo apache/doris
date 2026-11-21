@@ -22,6 +22,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
+#include "exec/sink/writer/vhive_partition_writer.h"
 #include "exec/sink/writer/vhive_table_writer.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
@@ -66,6 +67,47 @@ protected:
 private:
     int32_t _original_limit = 0;
 };
+
+TEST(ExternalTableWriterStorageTest, HiveAppendSelectsTheExistingPartitionsFileType) {
+    THiveColumn column;
+    column.__set_name("p");
+    column.__set_column_type(THiveColumnType::PARTITION_KEY);
+    THiveLocationParams table_location;
+    table_location.__set_file_type(TFileType::FILE_S3);
+    table_location.__set_write_path("s3://blue/staging");
+    table_location.__set_original_write_path("s3://blue/staging");
+    table_location.__set_target_path("s3://blue/data");
+    THiveLocationParams partition_location;
+    partition_location.__set_file_type(TFileType::FILE_HDFS);
+    partition_location.__set_target_path("hdfs://old/table/p=1");
+    THivePartition existing;
+    existing.__set_values({"1"});
+    existing.__set_location(partition_location);
+    THiveTableSink hive;
+    hive.__set_columns({column});
+    hive.__set_location(table_location);
+    hive.__set_partitions({existing});
+    TDataSink sink;
+    sink.__set_hive_table_sink(hive);
+    auto type = std::make_shared<DataTypeInt32>();
+    VExprContextSPtrs exprs = {
+            VExprContext::create_shared(VSlotRef::create_shared(0, 0, -1, type, "p"))};
+    VHiveTableWriter table(sink, exprs, nullptr, nullptr);
+    table._partition_columns_input_index = {0};
+    table._non_write_columns_indices.insert(0);
+    auto values = ColumnInt32::create();
+    values->get_data().push_back(1);
+    values->get_data().push_back(2);
+    Block block({ColumnWithTypeAndName(std::move(values), type, "p")});
+    std::string file = "part";
+    auto old_partition = table._create_partition_writer(block, 0, &file, 0);
+    auto new_partition = table._create_partition_writer(block, 1, &file, 0);
+    EXPECT_EQ(TFileType::FILE_HDFS, old_partition->_fs_properties.type);
+    EXPECT_EQ(TFileType::FILE_S3, new_partition->_fs_properties.type);
+    EXPECT_EQ("hdfs://old/table/p=1", old_partition->_write_info.target_path);
+    EXPECT_EQ(&table._t_sink.hive_table_sink.hadoop_config,
+              new_partition->_fs_properties.properties);
+}
 
 TEST_P(ExternalTableWriterPartitionLimitTest, HiveRejectsNextPartitionBeforeOpeningAFile) {
     THiveColumn partition_column;
