@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <vector>
 
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -32,6 +33,7 @@
 #include "exec/pipeline/pipeline.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
+#include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_slot_ref.h"
 
 namespace doris {
@@ -119,6 +121,65 @@ std::shared_ptr<AggSinkOperatorX> create_agg_sink_op(OperatorContext& ctx, bool 
     op->_pool = &ctx.pool;
     EXPECT_TRUE(op->prepare(&ctx.state).ok());
     return op;
+}
+
+TEST(AggOperatorRequiredDistributionTest, retain_distribute_key_for_bucket_child) {
+    OperatorContext ctx;
+    TQueryOptions query_options;
+    query_options.__set_enable_local_exchange_before_agg(true);
+    ctx.state.set_query_options(query_options);
+    auto slot_expr = [](int slot_id) {
+        TExpr expr;
+        auto& node = expr.nodes.emplace_back();
+        node.node_type = TExprNodeType::SLOT_REF;
+        node.slot_ref.__set_slot_id(slot_id);
+        node.slot_ref.__set_tuple_id(0);
+        return expr;
+    };
+    const auto k1 = slot_expr(1);
+    const auto k2 = slot_expr(2);
+    MockDescriptorTbl descs {{std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()},
+                             &ctx.pool};
+    TPlanNode plan;
+    plan.row_tuples = {0};
+    plan.nullable_tuples = {false};
+    plan.agg_node.__set_is_colocate(true);
+    plan.agg_node.need_finalize = true;
+    plan.agg_node.grouping_exprs = {k1, k2};
+    plan.__set_distribute_expr_lists({{k1}});
+
+    auto check = [&](auto& candidate, bool followed, bool bucket, ExchangeType type,
+                     const std::vector<int>& slots) {
+        candidate.update_operator(plan, followed, bucket);
+        const auto distribution = candidate.required_data_distribution(&ctx.state);
+        EXPECT_EQ(type, distribution.distribution_type);
+        ASSERT_EQ(slots.size(), distribution.partition_exprs.size());
+        for (size_t i = 0; i < slots.size(); ++i) {
+            ASSERT_EQ(1, distribution.partition_exprs[i].nodes.size());
+            EXPECT_EQ(TExprNodeType::SLOT_REF, distribution.partition_exprs[i].nodes[0].node_type);
+            EXPECT_EQ(slots[i], distribution.partition_exprs[i].nodes[0].slot_ref.slot_id);
+        }
+        ASSERT_EQ(2, plan.agg_node.grouping_exprs.size());
+        EXPECT_EQ(1, plan.agg_node.grouping_exprs[0].nodes[0].slot_ref.slot_id);
+        EXPECT_EQ(2, plan.agg_node.grouping_exprs[1].nodes[0].slot_ref.slot_id);
+    };
+    AggSinkOperatorX child(&ctx.pool, 2, 2, plan, descs);
+    check(child, false, true, ExchangeType::BUCKET_HASH_SHUFFLE, {1});
+    check(child, false, false, ExchangeType::HASH_SHUFFLE, {1, 2});
+    check(child, true, false, ExchangeType::HASH_SHUFFLE, {1});
+
+    plan.__isset.distribute_expr_lists = false;
+    check(child, false, true, ExchangeType::BUCKET_HASH_SHUFFLE, {1, 2});
+    plan.__set_distribute_expr_lists({});
+    check(child, false, true, ExchangeType::BUCKET_HASH_SHUFFLE, {1, 2});
+    plan.__set_distribute_expr_lists({{}});
+    check(child, false, true, ExchangeType::BUCKET_HASH_SHUFFLE, {1, 2});
+
+    plan.__set_distribute_expr_lists({{k1}});
+    plan.agg_node.__set_is_colocate(false);
+    AggSinkOperatorX non_colocate(&ctx.pool, 3, 3, plan, descs);
+    check(non_colocate, false, true, ExchangeType::HASH_SHUFFLE, {1, 2});
+    check(non_colocate, true, true, ExchangeType::HASH_SHUFFLE, {1});
 }
 
 TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_child_exchange) {

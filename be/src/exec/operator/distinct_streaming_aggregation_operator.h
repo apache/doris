@@ -105,9 +105,16 @@ public:
                          bool require_bucket_distribution) override {
         _followed_by_shuffled_operator = followed_by_shuffled_operator;
         _require_bucket_distribution = require_bucket_distribution;
-        _partition_exprs = tnode.__isset.distribute_expr_lists && _followed_by_shuffled_operator
-                                   ? tnode.distribute_expr_lists[0]
-                                   : tnode.agg_node.grouping_exprs;
+        const bool has_fe_distribute_expr_list =
+                tnode.__isset.distribute_expr_lists && !tnode.distribute_expr_lists.empty();
+        // A bucket keyed by k1 must not be rehashed by the wider grouping keys (k1, k2).
+        const bool use_bucket_key = _is_colocate && _require_bucket_distribution &&
+                                    has_fe_distribute_expr_list &&
+                                    !tnode.distribute_expr_lists.front().empty();
+        _partition_exprs =
+                has_fe_distribute_expr_list && (_followed_by_shuffled_operator || use_bucket_key)
+                        ? tnode.distribute_expr_lists.front()
+                        : tnode.agg_node.grouping_exprs;
     }
     Status prepare(RuntimeState* state) override;
     Status pull(RuntimeState* state, Block* block, bool* eos) const override;
