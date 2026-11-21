@@ -1346,8 +1346,8 @@ public class MTMVTask extends AbstractTask {
                     partitionPlan.partitions);
             return true;
         } catch (JobException e) {
-            if (IvmFailureClassifier.classifyExecutionFailure(Util.getRootCauseMessage(e)).orElse(null)
-                    != IvmFailureReason.PLAN_SIGNATURE_MISMATCH) {
+            if (IvmFailureClassifier.classifyExecutionFailure(Util.getRootCauseMessage(e))
+                    .filter(reason -> reason == IvmFailureReason.PLAN_SIGNATURE_MISMATCH).isEmpty()) {
                 throw e;
             }
             if (!request.allowFallback) {
@@ -1399,9 +1399,8 @@ public class MTMVTask extends AbstractTask {
         boolean refreshAllPartitions = Sets.newHashSet(partitions).equals(mtmv.getPartitionNames());
         // A whole-MV COMPLETE resets the stream baselines as it rebuilds the rows. Publish the
         // matching layout signature with that successful baseline, including a capacity change.
-        boolean usesLayoutSignature = useIvmFallbackStreams && !mtmv.isIvmAppendOnlyDupTable();
-        boolean replacePlanSignature = refreshMode == RefreshMode.COMPLETE && usesLayoutSignature;
-        boolean checkPartitionSignature = refreshMode == RefreshMode.PARTITIONS && usesLayoutSignature;
+        boolean replacePlanSignature = refreshMode == RefreshMode.COMPLETE && useIvmFallbackStreams
+                && !mtmv.isIvmAppendOnlyDupTable();
         IvmPlanSignature refreshedPlanSignature = null;
         for (int i = 0; i < execNum; i++) {
             int start = i * refreshPartitionNum;
@@ -1414,9 +1413,9 @@ public class MTMVTask extends AbstractTask {
             if (useIvmFallbackStreams) {
                 StreamReadMode nonPctReadMode = i == 0 && refreshAllPartitions
                         ? StreamReadMode.RESET : StreamReadMode.SNAPSHOT;
-                rewriteContext = Optional.of(checkPartitionSignature
+                rewriteContext = Optional.of(refreshMode == RefreshMode.PARTITIONS
                         ? IvmRewriteContext.partitions(mtmv, batchResetPartitionIds, nonPctReadMode)
-                        : IvmRewriteContext.full(mtmv, batchResetPartitionIds, nonPctReadMode));
+                        : IvmRewriteContext.complete(mtmv, batchResetPartitionIds, nonPctReadMode));
             }
             // The requirement this batch is read under, captured before the read below and recorded once
             // the read's data has committed, next to its snapshots. Capturing it per batch keeps an
@@ -1544,7 +1543,7 @@ public class MTMVTask extends AbstractTask {
             pctTableInfos.add(pctInfo.getTableInfo());
         }
         // Every table of the plan that is not a PCT table is read through its stream: the partition
-        // refresh gives those tables a read mode (IvmRewriteContext.full).
+        // refresh gives those tables a read mode (IvmRewriteContext.partitions).
         for (BaseTableInfo baseTableInfo : relation.getBaseTablesOneLevelAndFromView()) {
             if (pctTableInfos.contains(baseTableInfo)) {
                 continue;

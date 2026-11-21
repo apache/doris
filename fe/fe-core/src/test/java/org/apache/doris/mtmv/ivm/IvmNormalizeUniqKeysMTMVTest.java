@@ -184,7 +184,7 @@ class IvmNormalizeUniqKeysMTMVTest {
                 .getPlanSignature());
 
         JobContext complete = newJobContextForRoot(sink, true, Collections.emptySet(),
-                Optional.of(IvmRewriteContext.full(mtmv)));
+                Optional.of(IvmRewriteContext.complete(mtmv)));
         new IvmNormalizeUniqKeysMTMV().normalizeRoot(sink, complete);
         Assertions.assertNotNull(complete.getCascadesContext().getIvmRewriteResult().orElseThrow()
                 .getPlanSignature());

@@ -1332,11 +1332,10 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         // The layout is only defined where the view is created or where an incremental refresh reads the
         // old state, and those are the two places this check runs: at CREATE it reports early that the
         // layout being defined cannot be maintained incrementally, and on an incremental refresh it
-        // reports the state a merge would read. NORMALIZE and FULL only re-analyze the layout of an
+        // reports the state a merge would read. NORMALIZE and partition rebuilds re-analyze the layout of an
         // existing view, where a state column can be absent for reasons this check cannot judge -- the
         // view then still completes a full refresh, which is how such a layout is rebuilt.
-        IvmRewriteContext.Mode mode = ivmRewriteContext.getMode();
-        if (mode != IvmRewriteContext.Mode.CREATE && mode != IvmRewriteContext.Mode.INCREMENTAL) {
+        if (!ivmRewriteContext.isCreate() && !ivmRewriteContext.isIncrementalRefresh()) {
             return;
         }
         Set<String> persistedColumns = normalizedPlan.getOutput().stream()

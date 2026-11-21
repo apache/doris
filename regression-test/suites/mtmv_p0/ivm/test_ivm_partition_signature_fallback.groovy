@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_ivm_partition_signature_fallback", "nonConcurrent") {
+    sql "SET enable_materialized_view_rewrite=false"
+    sql "SET enable_dml_materialized_view_rewrite=false"
+
     def mvName = "ivm_part_sig_mv"
     def signatureSaltDebugPoint = "IvmPlanSignatureGenerator.generate.signature_salt"
 

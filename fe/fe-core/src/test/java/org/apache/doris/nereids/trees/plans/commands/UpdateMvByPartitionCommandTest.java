@@ -170,7 +170,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
     @Test
     void testAnalyzeRefreshCommandBindsSinkAfterRowIdNormalization() throws Exception {
         MTMV mtmv = getMtmv("ivm_mv");
-        connectContext.getStatementContext().setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        connectContext.getStatementContext().setIvmRewriteContext(Optional.of(IvmRewriteContext.complete(mtmv)));
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
         LogicalOlapTableSink<?> sink = (LogicalOlapTableSink<?>) PlanChecker.from(connectContext,
                 command.getLogicalQuery()).analyze(command.getLogicalQuery()).getPlan();
@@ -186,7 +186,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
     @Test
     void testAnalyzeRefreshCommandBindsDetailMvSinkWithoutRowId() throws Exception {
         MTMV mtmv = getMtmv("ivm_mv_detail");
-        connectContext.getStatementContext().setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        connectContext.getStatementContext().setIvmRewriteContext(Optional.of(IvmRewriteContext.complete(mtmv)));
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
         LogicalOlapTableSink<?> sink = (LogicalOlapTableSink<?>) PlanChecker.from(connectContext,
                 command.getLogicalQuery()).analyze(command.getLogicalQuery()).getPlan();
@@ -206,7 +206,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         MTMV mtmv = getMtmv("ivm_mv_uniq");
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv_uniq");
-        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.complete(mtmv)));
         TestNereidsPlanner planner = new TestNereidsPlanner(statementContext);
         PhysicalPlan physicalPlan = planner.planWithLock(command.getLogicalQuery(), PhysicalProperties.ANY);
         PlanTranslatorContext translatorContext = new PlanTranslatorContext(planner.getCascadesContext());
@@ -238,7 +238,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         MTMV mtmv = getMtmv("ivm_mv");
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
-        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.complete(mtmv)));
         TestNereidsPlanner planner = new TestNereidsPlanner(statementContext);
         PhysicalPlan physicalPlan = planner.planWithLock(command.getLogicalQuery(), PhysicalProperties.ANY);
         PlanTranslatorContext translatorContext = new PlanTranslatorContext(planner.getCascadesContext());
@@ -268,7 +268,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         MTMV mtmv = getMtmv("ivm_mv");
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
         OriginStatement originStatement = statementContext.getOriginStatement();
-        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.complete(mtmv)));
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
         AtomicReference<StmtExecutor> executorRef = new AtomicReference<>();
         MTMVPlanUtil.executeCommand(
@@ -283,7 +283,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         Assertions.assertNotNull(executor);
         Assertions.assertFalse(executor.getContext().getSessionVariable().isEnableMaterializedViewRewrite());
         Assertions.assertFalse(executor.getContext().getSessionVariable().isEnableDmlMaterializedViewRewrite());
-        Assertions.assertEquals(IvmRewriteContext.Mode.FULL,
+        Assertions.assertEquals(IvmRewriteContext.Mode.COMPLETE,
                 executor.getContext().getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
         Assertions.assertSame(executor.getContext(), statementContext.getConnectContext());
         Assertions.assertSame(statementContext, executor.getContext().getStatementContext());
@@ -296,7 +296,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         MTMV mtmv = getMtmv("ivm_mv");
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
         OriginStatement originStatement = statementContext.getOriginStatement();
-        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.complete(mtmv)));
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand.from(
                 mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
         AtomicReference<StmtExecutor> executorRef = new AtomicReference<>();
@@ -362,7 +362,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
 
     private UpdateMvByPartitionCommand newRefreshCommand(MTMV mtmv) throws Exception {
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
-        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.complete(mtmv)));
         return UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
     }
 

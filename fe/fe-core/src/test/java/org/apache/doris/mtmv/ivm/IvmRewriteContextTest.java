@@ -66,12 +66,12 @@ class IvmRewriteContextTest {
     }
 
     @Test
-    void testFullModeAlwaysDisablesIncludeUpToDateStreams() {
+    void testCompleteModeAlwaysDisablesIncludeUpToDateStreams() {
         MTMV mtmv = Mockito.mock(MTMV.class);
 
-        IvmRewriteContext context = IvmRewriteContext.full(mtmv);
+        IvmRewriteContext context = IvmRewriteContext.complete(mtmv);
 
-        Assertions.assertEquals(IvmRewriteContext.Mode.FULL, context.getMode());
+        Assertions.assertEquals(IvmRewriteContext.Mode.COMPLETE, context.getMode());
         Assertions.assertSame(mtmv, context.getMtmv());
         Assertions.assertFalse(context.isIncludeExhaustedStreams());
         Assertions.assertFalse(context.hasFullRefreshStreamScans());
@@ -86,7 +86,7 @@ class IvmRewriteContextTest {
         Map<BaseTableInfo, Set<Long>> resetScopes = new HashMap<>();
         resetScopes.put(resetTable, resetPartitionIds);
 
-        IvmRewriteContext context = IvmRewriteContext.full(mtmv,
+        IvmRewriteContext context = IvmRewriteContext.complete(mtmv,
                 resetScopes, StreamReadMode.SNAPSHOT);
         resetPartitionIds.add(2L);
 

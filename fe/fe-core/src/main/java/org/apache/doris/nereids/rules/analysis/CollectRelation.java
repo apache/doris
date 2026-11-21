@@ -29,7 +29,6 @@ import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -364,7 +363,7 @@ public class CollectRelation implements AnalysisRuleFactory {
             // IVM creates stream scans during analysis, after the collector has visited ordinary base scans.
             // Full refresh can also reconstruct a non-PCT table at its stream snapshot using changelog.
             boolean ivmReadsChangelog = statementContext.getIvmRewriteContext()
-                    .map(context -> context.getMode() == IvmRewriteContext.Mode.INCREMENTAL
+                    .map(context -> context.isIncrementalRefresh()
                             || context.isPartitionBasedRefresh()
                             && context.getFullRefreshNonPctReadMode().orElse(null) == StreamReadMode.SNAPSHOT)
                     .orElse(false);
