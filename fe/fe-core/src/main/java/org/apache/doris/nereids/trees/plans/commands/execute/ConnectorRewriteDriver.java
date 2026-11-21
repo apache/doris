@@ -64,11 +64,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * (AFTER the groups began the transaction so the table + OCC snapshot are loaded); (4) commit once; (5) read
  * the added-files count post-commit and ask the connector to render the result row.</p>
  *
- * <p><b>R6 scope.</b> No-WHERE rewrite only (WHERE lowering is a later step). Output file SIZING — the
- * per-group {@code target-file-size}/parallelism that the legacy task threaded via an iceberg session var —
- * is deferred (see the rewrite-output-sizing follow-up): every group GATHERs to a single writer via the
- * rewrite sink flag, which is correct but not size-tuned. This only affects real BE writes (exercised at the
- * flip rehearsal), not the dormant pre-flip / mock path.</p>
+ * <p>The connector supplies each group's resolved write settings as private-session overrides. Every group
+ * GATHERs via the rewrite sink flag; sizing-based parallelism tuning is independent of those settings.</p>
  */
 public class ConnectorRewriteDriver {
     private static final Logger LOG = LogManager.getLogger(ConnectorRewriteDriver.class);
