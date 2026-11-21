@@ -18,7 +18,11 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <limits>
+
 #include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -79,4 +83,63 @@ TEST(BlockCheckType, CheckNoColumnString64) {
     st = block.check_no_column_string64();
     EXPECT_FALSE(st.ok());
 }
+
+#ifndef NDEBUG
+TEST(BlockCheckType, InjectDebugNullablePayload) {
+    auto original = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2, 3, 4}, {1, 1, 0, 0});
+    Block block {{original, make_nullable(std::make_shared<DataTypeInt32>()), "nullable_int"}};
+
+    ASSERT_TRUE(block.check_type_and_column().ok());
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& values = assert_cast<const ColumnInt32&>(nullable.get_nested_column()).get_data();
+    EXPECT_EQ(values[0], std::numeric_limits<int32_t>::lowest());
+    EXPECT_EQ(values[1], std::numeric_limits<int32_t>::max());
+    EXPECT_EQ(values[2], 3);
+    EXPECT_EQ(values[3], 4);
+
+    const auto& original_nullable = assert_cast<const ColumnNullable&>(*original);
+    const auto& original_values =
+            assert_cast<const ColumnInt32&>(original_nullable.get_nested_column()).get_data();
+    EXPECT_EQ(original_values[0], 1);
+    EXPECT_EQ(original_values[1], 2);
+}
+
+TEST(BlockCheckType, InjectDebugNullableBooleanAndFloatPayload) {
+    Block block {{ColumnHelper::create_nullable_column<DataTypeUInt8>({0, 1}, {1, 0}),
+                  make_nullable(std::make_shared<DataTypeUInt8>()), "nullable_bool"},
+                 {ColumnHelper::create_nullable_column<DataTypeFloat64>({0.0, 1.0}, {1, 0}),
+                  make_nullable(std::make_shared<DataTypeFloat64>()), "nullable_double"}};
+
+    ASSERT_TRUE(block.check_type_and_column().ok());
+
+    const auto& nullable_bool =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& bool_values =
+            assert_cast<const ColumnUInt8&>(nullable_bool.get_nested_column()).get_data();
+    EXPECT_EQ(bool_values[0], 0xA5);
+    EXPECT_EQ(bool_values[1], 1);
+
+    const auto& nullable_double =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    const auto& double_values =
+            assert_cast<const ColumnFloat64&>(nullable_double.get_nested_column()).get_data();
+    EXPECT_TRUE(std::isnan(double_values[0]));
+    EXPECT_EQ(double_values[1], 1.0);
+}
+
+TEST(BlockCheckType, InjectDebugNullablePayloadThroughConstColumn) {
+    auto nullable = ColumnHelper::create_nullable_column<DataTypeInt32>({0}, {1});
+    Block block {{ColumnConst::create(std::move(nullable), 3),
+                  make_nullable(std::make_shared<DataTypeInt32>()), "const_null"}};
+
+    ASSERT_TRUE(block.check_type_and_column().ok());
+
+    const auto& column_const = assert_cast<const ColumnConst&>(*block.get_by_position(0).column);
+    const auto& nullable_data = assert_cast<const ColumnNullable&>(column_const.get_data_column());
+    const auto& values =
+            assert_cast<const ColumnInt32&>(nullable_data.get_nested_column()).get_data();
+    EXPECT_EQ(values[0], std::numeric_limits<int32_t>::lowest());
+}
+#endif
 } // namespace doris
