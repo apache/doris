@@ -33,13 +33,20 @@ FROM ${BASE_IMAGE}
 ARG TARGETARCH
 
 ARG DORIS_VERSION="x.x.x"
+ARG DORIS_UID=10001
+ARG DORIS_GID=10001
+
+RUN groupadd --gid "${DORIS_GID}" doris && \
+    useradd --uid "${DORIS_UID}" --gid "${DORIS_GID}" --create-home --shell /bin/bash doris
+
+ENV HOME=/home/doris
 
 
 # set environment variables
 ENV JAVA_HOME=/usr/lib/jvm/java
 ENV PATH=$PATH:$JAVA_HOME/bin:/opt/apache-doris/be/bin
 
-COPY resource/${TARGETARCH:-amd64}/apache-doris-${DORIS_VERSION}-bin-*/be /opt/apache-doris/be
+COPY --chown=${DORIS_UID}:${DORIS_GID} resource/${TARGETARCH:-amd64}/apache-doris-${DORIS_VERSION}-bin-*/be /opt/apache-doris/be
 
 COPY resource/be_*.sh /opt/apache-doris/
 
@@ -48,6 +55,13 @@ COPY resource/entry_point.sh /usr/local/bin/
 COPY resource/init_be.sh /usr/local/bin/
 
 #RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+
+# Create writable runtime directories before dropping privileges.
+RUN mkdir -p /opt/apache-doris/be/log /opt/apache-doris/be/storage && \
+    chown "${DORIS_UID}:${DORIS_GID}" /opt/apache-doris /opt/apache-doris/be/log /opt/apache-doris/be/storage && \
+    ln -sf /opt/apache-doris/be/conf/krb5.conf /etc/krb5.conf
+
+USER ${DORIS_UID}:${DORIS_GID}
 
 WORKDIR /opt/apache-doris
 

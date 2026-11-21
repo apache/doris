@@ -148,13 +148,16 @@ class RuntimeBuildTest(BuildFixture, unittest.TestCase):
             with self.subTest(script=script):
                 self.calls.unlink(missing_ok=True)
                 result = self.build(archive, digest, script=str(runtime / script),
-                                    DORIS_BASE_IMAGE="", DORIS_IMAGE_WORK_DIR="")
+                                    DORIS_BASE_IMAGE="", DORIS_IMAGE_WORK_DIR="",
+                                    DORIS_UID="20001", DORIS_GID="20002")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 builds = [call["args"] for call in self.read_calls() if call["args"][0] == "build"]
                 base = f"apache/doris:base-8.0-{variant}-jdk17"
                 self.assertIn(base, builds[0])
                 self.assertIn(f"RUNTIME_DISTRO={distro}", builds[0])
                 for role, args in zip(["fe", "be", "ms"], builds[1:]):
+                    self.assertIn("DORIS_UID=20001", args)
+                    self.assertIn("DORIS_GID=20002", args)
                     self.assertIn(f"BASE_IMAGE={base}", args)
                     self.assertIn(f"runtime-test.{role}:4.1.5{suffix}", args)
                     record = checkout / "output/runtime-images" / variant / f"{role}-4.1.5-arm64.image.json"

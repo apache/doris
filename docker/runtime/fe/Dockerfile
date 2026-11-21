@@ -40,11 +40,19 @@ RUN rm -rf /artifacts/fe/arthas /artifacts/fe/mysql_ssl_default_certificate
 
 FROM ${BASE_IMAGE} AS runtime
 
+ARG DORIS_UID=10001
+ARG DORIS_GID=10001
+
+RUN groupadd --gid "${DORIS_GID}" doris && \
+    useradd --uid "${DORIS_UID}" --gid "${DORIS_GID}" --create-home --shell /bin/bash doris
+
+ENV HOME=/home/doris
+
 # set environment variables
 ENV JAVA_HOME=/usr/lib/jvm/java
 ENV PATH=$PATH:$JAVA_HOME/bin:/opt/apache-doris/fe/bin
 
-COPY --from=artifacts /artifacts/fe /opt/apache-doris/fe
+COPY --from=artifacts --chown=${DORIS_UID}:${DORIS_GID} /artifacts/fe /opt/apache-doris/fe
 
 COPY resource/init_fe.sh /usr/local/bin/
 
@@ -52,6 +60,13 @@ COPY resource/fe_*.sh /opt/apache-doris/
 
 # when you use beijing zone, please enable the set.
 # RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+
+# Create writable runtime directories before dropping privileges.
+RUN mkdir -p /opt/apache-doris/fe/log /opt/apache-doris/fe/doris-meta && \
+    chown "${DORIS_UID}:${DORIS_GID}" /opt/apache-doris /opt/apache-doris/fe/log /opt/apache-doris/fe/doris-meta && \
+    ln -sf /opt/apache-doris/fe/conf/krb5.conf /etc/krb5.conf
+
+USER ${DORIS_UID}:${DORIS_GID}
 
 WORKDIR /opt/apache-doris
 

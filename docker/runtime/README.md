@@ -145,6 +145,77 @@ Do not use `--pull` on a component build that consumes a locally built base.
   the pinned doris-operator source with the updated Go toolchain, x/net and edwards25519;
   Operator debug mode and compute-group discovery retain their commands.
 
+## Running FE, BE and Meta Service without root
+
+The standalone FE, BE and MS images run as `doris` (`10001:10001`) by default.
+The MS image also runs Recycler under this identity. Build arguments
+`DORIS_UID` and `DORIS_GID` customize these IDs. Image-owned configuration,
+logs, metadata and storage directories are writable by this user. The SQL
+administrator account is independent of the operating-system user. The image
+provides `/etc/krb5.conf` as a link into the writable Doris configuration
+directory, so Operator-mounted Kerberos configuration does not require writes
+to `/etc` at startup.
+
+Both `docker-build.sh` and `docker-build-ubi9.sh` forward `DORIS_UID` and `DORIS_GID` environment
+variables to all three image builds. Use the same IDs in the image and the
+Kubernetes configuration, and keep them stable across releases.
+
+For Kubernetes, configure each component's Pod security context, for example:
+
+```yaml
+runAsNonRoot: true
+runAsUser: 10001
+runAsGroup: 10001
+fsGroup: 10001
+seccompProfile:
+  type: RuntimeDefault
+```
+
+Use the container security context to set `privileged: false`,
+`allowPrivilegeEscalation: false` and drop all capabilities. With Doris Operator,
+set BE `enableWorkloadGroup`
+to `false` and `skipDefaultSystemInit` to `true` to avoid privileged cgroup
+setup and the default system init container. Check the generated Pod to
+confirm these settings; custom init containers must also be omitted.
+
+With Operator 26.0.1, these settings are available without changing the
+Operator. For a `DorisCluster`, set `feSpec.securityContext` and
+`beSpec.securityContext`, and the corresponding `containerSecurityContext`
+fields. For a `DorisDisaggregatedCluster`, configure `metaService`, `feSpec`
+and every `computeGroups` entry. Set `skipDefaultSystemInit: true` and
+`enableWorkloadGroup: false` on each BE/compute group. The Operator switch
+controls cgroup setup; it does not disable query admission or memory controls.
+
+For MS, `doris_cloud.conf` from a ConfigMap is copied into a writable file
+before applying `FDB_ENDPOINT`. Without that environment variable, the
+configured `fdb_cluster` is preserved. The same entrypoint supports the
+packaged default (Meta Service and Recycler) or explicit `--meta-service`
+and `--recycler` arguments. FoundationDB and object storage are external
+dependencies with their own container-user and storage requirements.
+
+New volumes still need to be writable: image ownership does not override a
+mounted volume's permissions. Validate the actual StorageClass with a fresh
+PVC. A successful deployment with local-path storage is not proof that every
+CSI driver supports the same permissions. The non-root configuration can be
+validated in a namespace enforcing the Kubernetes `restricted` Pod Security
+Standard; a storage provisioner's infrastructure is managed separately.
+
+Skipping system initialization does not tune the host. Doris recommends
+`vm.max_map_count >= 2000000`, disabled swap and a sufficient file-descriptor
+limit. A non-root image cannot change these host settings. Operator versions
+that set `SKIP_CHECK_ULIMIT=true` bypass startup checks, but this does not
+remove the underlying kernel limits or their effects under load. Persistent
+volumes must be writable by the configured UID/GID; `fsGroup` requires volume
+driver support. Existing root-owned data needs its permissions prepared
+separately. Custom log, cache, Kerberos and keytab paths must also be readable
+or writable as required by Doris. A read-only container root filesystem is
+not implied by running without root.
+
+Without a writable, delegated CPU cgroup, Workload Group CPU weights and CPU
+hard limits are unavailable. Leave `doris_cgroup_cpu_path` unset in this mode.
+Other Workload Group controls, including query admission and memory limits,
+remain available; Kubernetes container CPU limits continue to apply.
+
 ## MySQL TLS certificates
 
 FE images no longer contain `fe/mysql_ssl_default_certificate/`. This removes
