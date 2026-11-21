@@ -18,6 +18,7 @@
 #include "storage/index/inverted/snii/reader/logical_index_reader.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <future>
 #include <limits>
@@ -38,6 +39,7 @@
 #include "storage/index/inverted/snii/encoding/zstd_codec.h"
 #include "storage/index/inverted/snii/format/dict_block.h"
 #include "storage/index/inverted/snii/format/dict_block_directory.h"
+#include "storage/index/inverted/snii/format/dict_gram_summary.h"
 #include "storage/index/inverted/snii/format/metadata_blob.h"
 #include "storage/index/inverted/snii/format/norms_pod.h"
 #include "storage/index/inverted/snii/format/null_bitmap.h"
@@ -97,6 +99,13 @@ constexpr size_t kTermLookupMaxInlineBytes = 256;
 constexpr size_t kTermLookupEntryCharge =
         sizeof(std::pair<std::string, LogicalIndexReader::BatchLookupResult>) + 2 * sizeof(void*) +
         64 + 2 * (kTermLookupMaxTermBytes + 1) + kTermLookupMaxInlineBytes + 6 * 16;
+
+// Blocks opened by prefix walks, for tests only (see prefix_walk_block_count). Relaxed atomic:
+// never a sync point.
+std::atomic<uint64_t>& prefix_walk_block_atomic() {
+    static std::atomic<uint64_t> counter {0};
+    return counter;
+}
 
 // L0/L1 tiering threshold (bytes). Defaults to kBsbfResidentMaxBytes; the env
 // SNII_BSBF_RESIDENT_MAX overrides it for tuning and for exercising the
@@ -1100,7 +1109,8 @@ Status LogicalIndexReader::dict_block_scan_memory(uint32_t ordinal,
 
 Status LogicalIndexReader::visit_prefix_terms(
         std::string_view prefix, const PrefixHitVisitor& visitor, DictBlockCache* cache,
-        const std::function<bool(std::string_view term)>& accept_key) const {
+        const std::function<bool(std::string_view term)>& accept_key,
+        std::string_view required_text) const {
     if (!visitor) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "logical_index: null prefix visitor");
@@ -1122,7 +1132,25 @@ Status LogicalIndexReader::visit_prefix_terms(
         }
     }
 
+    // The gram summary names the blocks that can hold the required text; the walk opens no
+    // other block. Empty when the index has no summary (or one of a version this reader does not
+    // know) or the text is shorter than a gram.
+    std::vector<uint64_t> candidates;
+    if (required_text.size() >= format::kDictGramBytes &&
+        section_refs().dict_gram_summary.length != 0) {
+        bool known = false;
+        bool any = false;
+        RETURN_IF_ERROR(dict_gram_candidates(required_text, &candidates, &known, &any));
+        if (known && !any) {
+            return Status::OK();
+        }
+    }
+
     for (uint32_t ord = start; ord < dbd_.n_blocks(); ++ord) {
+        if (!candidates.empty() && (candidates[ord / 64] & (uint64_t {1} << (ord % 64))) == 0) {
+            continue;
+        }
+        prefix_walk_block_atomic().fetch_add(1, std::memory_order_relaxed);
         const DictBlockReader* br = nullptr;
         std::shared_ptr<const DecodedDictBlock> pin;
         RETURN_IF_ERROR(dict_block_reader_for_ordinal(ord, cache, &pin, &br));
@@ -1152,6 +1180,38 @@ Status LogicalIndexReader::visit_prefix_terms(
         }
     }
     return Status::OK();
+}
+
+Status LogicalIndexReader::dict_gram_candidates(std::string_view text,
+                                                std::vector<uint64_t>* blocks, bool* known,
+                                                bool* any) const {
+    const RegionRef& ref = section_refs().dict_gram_summary;
+    size_t length = 0;
+    RETURN_IF_ERROR(checked_size(ref.length, "dict gram summary: length out of range", &length));
+    std::vector<uint8_t> section;
+    RETURN_IF_ERROR(reader_->read_at(ref.offset, length, &section));
+    if (section.size() != length) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict gram summary: short read");
+    }
+    // A later version of the section is not an error for this reader: it walks every block.
+    *known = !section.empty() && section[0] == format::kDictGramSummaryVersion;
+    if (!*known) {
+        blocks->clear();
+        *any = false;
+        return Status::OK();
+    }
+    format::DictGramSummaryReader summary;
+    RETURN_IF_ERROR(format::DictGramSummaryReader::open(std::move(section), &summary));
+    if (summary.n_blocks() != dbd_.n_blocks()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict gram summary: block count differs from the block directory");
+    }
+    return summary.candidate_blocks(text, blocks, any);
+}
+
+uint64_t prefix_walk_block_count() {
+    return prefix_walk_block_atomic().load(std::memory_order_relaxed);
 }
 
 Status LogicalIndexReader::visit_term_range(std::string_view lower_inclusive,

@@ -142,6 +142,7 @@ public:
     // Persistent vocabulary and the input posting arena use ordinary reservations.
     Reservation make_postings_reservation() { return Reservation(this, true); }
     uint64_t postings_cap_bytes() const { return postings_cap_bytes_; }
+    CapPolicy cap_policy() const { return cap_policy_; }
     uint64_t postings_available_bytes() const {
         const uint64_t used = postings_current_bytes();
         uint64_t available = used < postings_cap_bytes_ ? postings_cap_bytes_ - used : 0;

@@ -208,6 +208,8 @@ private:
         uint64_t null_len = 0;
         uint64_t bsbf_off = 0;
         uint64_t bsbf_len = 0;
+        uint64_t gram_summary_off = 0;
+        uint64_t gram_summary_len = 0;
     };
 
     // One logical index carried over from a source container: its raw

@@ -116,6 +116,16 @@ Status decode_region_ref(const doris::snii::SniiRegionRefPB& input, RegionRef* o
     return Status::OK();
 }
 
+// A region an index may lack (norms, the gram summary): absent decodes to the empty region.
+Status decode_optional_region_ref(bool present, const doris::snii::SniiRegionRefPB& input,
+                                  RegionRef* out) {
+    if (!present) {
+        *out = {};
+        return Status::OK();
+    }
+    return decode_region_ref(input, out);
+}
+
 Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata* out) {
     if (!input.has_index_config() || !input.has_stats() || !input.has_section_refs()) {
         return corrupted("core metadata: missing required field");
@@ -142,13 +152,13 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
     }
     RETURN_IF_ERROR(decode_region_ref(refs.dict_region(), &out->section_refs.dict_region));
     RETURN_IF_ERROR(decode_region_ref(refs.posting_region(), &out->section_refs.posting_region));
-    if (refs.has_norms()) {
-        RETURN_IF_ERROR(decode_region_ref(refs.norms(), &out->section_refs.norms));
-    } else {
-        out->section_refs.norms = {};
-    }
+    RETURN_IF_ERROR(
+            decode_optional_region_ref(refs.has_norms(), refs.norms(), &out->section_refs.norms));
     RETURN_IF_ERROR(decode_region_ref(refs.null_bitmap(), &out->section_refs.null_bitmap));
     RETURN_IF_ERROR(decode_region_ref(refs.bsbf(), &out->section_refs.bsbf));
+    RETURN_IF_ERROR(decode_optional_region_ref(refs.has_dict_gram_summary(),
+                                               refs.dict_gram_summary(),
+                                               &out->section_refs.dict_gram_summary));
 
     // Tombstones for the removed CommonGrams feature. Fields 4/5 identify segments written with
     // a CommonGrams analyzer (gram terms, escaped keys, or mixed posting policies). Their term
@@ -217,6 +227,11 @@ Status encode_core_metadata(const CoreMetadata& metadata, ByteSink* out) {
     }
     encode_region_ref(metadata.section_refs.null_bitmap, refs->mutable_null_bitmap());
     encode_region_ref(metadata.section_refs.bsbf, refs->mutable_bsbf());
+    // Field 6 is omitted when there is no gram summary, so an index without one keeps its bytes.
+    if (metadata.section_refs.dict_gram_summary.length != 0) {
+        encode_region_ref(metadata.section_refs.dict_gram_summary,
+                          refs->mutable_dict_gram_summary());
+    }
     if (metadata.gram_scheme.has_value()) {
         core_metadata_detail::encode_gram_scheme(*metadata.gram_scheme, core.mutable_gram_scheme());
     }

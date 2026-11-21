@@ -31,6 +31,7 @@
 #include "storage/index/inverted/snii/format/dict_block.h"
 #include "storage/index/inverted/snii/format/dict_block_directory.h"
 #include "storage/index/inverted/snii/format/dict_entry.h"
+#include "storage/index/inverted/snii/format/dict_gram_summary.h"
 #include "storage/index/inverted/snii/format/format_constants.h"
 #include "storage/index/inverted/snii/format/metadata_blob.h"
 #include "storage/index/inverted/snii/format/prx_pod.h"
@@ -94,6 +95,9 @@ struct SniiIndexInput {
     // this. 0 uses kDefaultTargetDictBlockBytes. Smaller values yield more blocks
     // (and a finer-grained sampled-term index).
     uint32_t target_dict_block_bytes = 0;
+    // Whether to write the DICT gram summary (format/dict_gram_summary.h), which lets a
+    // wildcard or regexp expansion skip the blocks without the literal it needs.
+    bool dict_gram_summary = true;
     // Maximum resident capacity of the staged DICT region before it spills.
     // Ordinary builds keep the default unlimited local cap and use their shared
     // spill-threshold reporter. Streamed compaction sets a bounded watermark so
@@ -257,6 +261,10 @@ public:
     const std::vector<uint8_t>& bsbf_bytes() const { return bsbf_bytes_; }
     bool has_bsbf() const { return bsbf_built_; }
     void release_bsbf_bytes();
+    // DICT gram summary section; absent when disabled or when it could not skip blocks.
+    const std::vector<uint8_t>& dict_gram_summary_bytes() const { return gram_summary_bytes_; }
+    bool has_dict_gram_summary() const { return gram_summary_built_; }
+    void release_dict_gram_summary_bytes();
     void release_null_bitmap_bytes();
     void release_norms_bytes();
     bool has_null_bitmap() const { return !null_bitmap_section_.empty(); }
@@ -325,6 +333,13 @@ private:
     // file, and records a compact directory entry (no block bytes retained).
     Status flush_block(format::DictBlockBuilder* block, std::string first_term);
     Status flush_streamed_block(BlockState* state);
+    Status flush_streamed_block_bytes(BlockState* state);
+    // Collects the grams of a key of the block being built (dict_gram_summary.h).
+    Status collect_term_grams(std::string_view term, BlockState* state);
+    // Folds the grams of the block just flushed into the gram summary.
+    Status fold_block_grams(BlockState* state);
+    // Drops the summary for this index (the gram limit, or memory it cannot get).
+    void abandon_gram_summary(BlockState* state);
     Status build_streamed_dictionary(BlockState* state, PostingByteBuffer* plain);
 
     uint64_t index_id_;
@@ -396,6 +411,17 @@ private:
     format::StatsBlock stats_;
     std::vector<uint8_t> bsbf_bytes_; // serialized block-split bloom XFilter section
     bool bsbf_built_ = false;
+    // DICT gram summary: the builder lives through the build pass, the serialized section
+    // from finalize_build until the compound writer has placed it.
+    bool dict_gram_summary_enabled_ = true;
+    // The most the summary may hold: unlimited under a spill-threshold reporter, a share of the
+    // cap under a hard limit (dict_gram_summary_budget_bytes).
+    uint64_t gram_summary_budget_bytes_ = std::numeric_limits<uint64_t>::max();
+    format::DictGramSummaryBuilder gram_summary_;
+    MemoryReporter::Reservation gram_summary_reservation_;
+    MemoryReporter::Reservation gram_summary_bytes_reservation_;
+    std::vector<uint8_t> gram_summary_bytes_;
+    bool gram_summary_built_ = false;
 
     // Streamed-session state (T2.1). kIdle until build()/begin_streamed claims
     // the writer; build() jumps straight to kFinished on completion so the two
