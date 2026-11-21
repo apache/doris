@@ -974,7 +974,7 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
     if (index_file_reader->get_storage_format() == InvertedIndexStorageFormatPB::SNII) {
         // Mirrors the writer-side split in IndexColumnWriter::create: text is
         // served by the SPIMI reader, numerics by the SNII-native BKD.
-        if (is_string_type(type)) {
+        if (is_string_type(type) || index_meta->is_variant_values_index()) {
             auto reader_type = should_analyzer ? InvertedIndexReaderType::FULLTEXT
                                                : InvertedIndexReaderType::STRING_TYPE;
             index_reader = SniiIndexReader::create_shared(
@@ -987,6 +987,11 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
                     "SNII inverted index storage format does not support index type {}", type);
         }
         _index_readers[index_meta->index_id()] = index_reader;
+        return Status::OK();
+    }
+
+    // Only SNII segments store values indexes.
+    if (index_meta->is_variant_values_index()) {
         return Status::OK();
     }
 

@@ -17,16 +17,12 @@
 
 #include "storage/segment/variant/binary_column_reader.h"
 
-#include <algorithm>
-#include <tuple>
-
 #include "core/assert_cast.h"
-#include "core/column/column_array.h"
 #include "core/column/column_map.h"
-#include "core/column/column_string.h"
 #include "core/string_ref.h"
 #include "exec/common/variant_util.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/variant/v2/variant_assembler.h"
 
 namespace doris::segment_v2 {
 
@@ -231,47 +227,13 @@ ordinal_t CombineMultipleBinaryColumnIterator::get_current_ordinal() const {
 
 void CombineMultipleBinaryColumnIterator::_collect_sparse_data_from_buckets(
         IColumn& binary_data_column) {
-    // Get path, value, offset from all buckets.
-    auto& column_map = assert_cast<ColumnMap&>(binary_data_column);
-    auto& dst_paths = assert_cast<ColumnString&>(column_map.get_keys());
-    auto& dst_values = assert_cast<ColumnString&>(column_map.get_values());
-    auto& dst_offsets = column_map.get_offsets();
-
-    std::vector<const ColumnString*> src_paths(_binary_column_data.size());
-    std::vector<const ColumnString*> src_values(_binary_column_data.size());
-    std::vector<const ColumnArray::Offsets64*> src_offsets(_binary_column_data.size());
-    for (size_t i = 0; i != _binary_column_data.size(); ++i) {
-        const auto& src_map = assert_cast<const ColumnMap&>(*_binary_column_data[i]);
-        src_paths[i] = assert_cast<const ColumnString*>(&src_map.get_keys());
-        src_values[i] = assert_cast<const ColumnString*>(&src_map.get_values());
-        src_offsets[i] = &src_map.get_offsets();
+    std::vector<const ColumnMap*> buckets;
+    buckets.reserve(_binary_column_data.size());
+    for (const auto& column : _binary_column_data) {
+        buckets.push_back(assert_cast<const ColumnMap*>(column.get()));
     }
-
-    size_t num_rows = _binary_column_data[0]->size();
-    for (size_t i = 0; i != num_rows; ++i) {
-        // Sparse data contains paths in sorted order in each row.
-        // Collect all paths from all buckets in this row and sort them.
-        // Save each path bucket and index to be able find corresponding value later.
-        std::vector<std::tuple<std::string_view, size_t, size_t>> all_paths;
-        for (size_t bucket = 0; bucket != _binary_column_data.size(); ++bucket) {
-            size_t offset_start = (*src_offsets[bucket])[ssize_t(i) - 1];
-            size_t offset_end = (*src_offsets[bucket])[ssize_t(i)];
-
-            // collect all paths.
-            for (size_t j = offset_start; j != offset_end; ++j) {
-                auto path = src_paths[bucket]->get_data_at(j).to_string_view();
-                all_paths.emplace_back(path, bucket, j);
-            }
-        }
-
-        std::sort(all_paths.begin(), all_paths.end());
-        for (const auto& [path, bucket, offset] : all_paths) {
-            dst_paths.insert_data(path.data(), path.size());
-            dst_values.insert_from(*src_values[bucket], offset);
-        }
-
-        dst_offsets.push_back(dst_paths.size());
-    }
+    variant_v2::append_variant_binary_bucket_range(buckets, 0, buckets.front()->size(),
+                                                   assert_cast<ColumnMap&>(binary_data_column));
 }
 
 } // namespace doris::segment_v2
