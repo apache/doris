@@ -65,6 +65,7 @@ import org.apache.logging.log4j.Logger;
  * defined in {@link AbstractInsertExecutor}.
  */
 public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
+
     private static final Logger LOG = LogManager.getLogger(RemoteOlapInsertExecutor.class);
 
     public RemoteOlapInsertExecutor(ConnectContext ctx, RemoteOlapTable table,
@@ -76,14 +77,12 @@ public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
 
     @Override
     public void beginTransaction() {
-        RemoteOlapTable target = (RemoteOlapTable) table;
-        RemoteDorisExternalCatalog remoteCatalog = target.getCatalog();
+        RemoteDorisExternalCatalog remoteCatalog = ((RemoteOlapTable) table).getCatalog();
         FeServiceClient client = remoteCatalog.getFeServiceClient();
         String remoteDbName = database.getFullName();
         String remoteTableName = table.getName();
 
         TBeginRemoteTxnRequest request = new TBeginRemoteTxnRequest();
-        request.setExpectedTableId(target.getRemoteTableId());
         request.setCatalog(database.getCatalog().getName());
         request.setDb(remoteDbName);
         request.setTbl(remoteTableName);
@@ -196,7 +195,6 @@ public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
 
         TCommitRemoteTxnRequest request = new TCommitRemoteTxnRequest();
         request.setTxnId(txnId);
-        request.setExpectedTableId(((RemoteOlapTable) table).getRemoteTableId());
         request.setCatalog(database.getCatalog().getName());
         request.setDb(database.getFullName());
         request.setTbl(table.getName());

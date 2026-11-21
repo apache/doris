@@ -299,7 +299,7 @@ public class DatabaseTransactionMgrTest {
         long txnId = masterTransMgr.beginTransaction(db.getId(), List.of(table.getId()), "remote_stale_rollup",
                 transactionSource, LoadJobSourceType.BACKEND_STREAMING, Config.stream_load_default_timeout_second);
         TCommitRemoteTxnRequest request = new TCommitRemoteTxnRequest().setDb(db.getFullName())
-                .setTbl(table.getName()).setExpectedTableId(table.getId()).setTxnId(txnId)
+                .setTbl(table.getName()).setTxnId(txnId)
                 .setCommitInfos(baseCommits).setInsertVisibleTimeoutMs(1000);
         Method commit = FrontendServiceImpl.class.getDeclaredMethod(
                 "commitRemoteTxnImpl", TCommitRemoteTxnRequest.class);

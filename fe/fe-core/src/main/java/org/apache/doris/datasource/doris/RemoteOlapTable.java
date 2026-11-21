@@ -42,18 +42,8 @@ public class RemoteOlapTable extends OlapTable {
     public static final String CHANGELOG_WRITE_ERROR = "Writing to a changelog-enabled table through a Doris catalog"
             + " is not supported";
 
-    // getId() is rewritten to a local catalog ID; commits must retain the destination identity.
-    private final long remoteTableId;
     private RemoteDorisExternalCatalog catalog;
     private RemoteDorisExternalDatabase database;
-
-    private RemoteOlapTable(long remoteTableId) {
-        this.remoteTableId = remoteTableId;
-    }
-
-    public long getRemoteTableId() {
-        return remoteTableId;
-    }
 
     public RemoteDorisExternalCatalog getCatalog() {
         return catalog;
@@ -74,7 +64,7 @@ public class RemoteOlapTable extends OlapTable {
 
     public static RemoteOlapTable fromOlapTable(OlapTable olapTable) {
         try {
-            RemoteOlapTable externalOlapTable = new RemoteOlapTable(olapTable.getId());
+            RemoteOlapTable externalOlapTable = new RemoteOlapTable();
             Class<?> currentClass = olapTable.getClass();
             while (currentClass != null) {
                 for (Field field : currentClass.getDeclaredFields()) {

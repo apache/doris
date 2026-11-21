@@ -2409,18 +2409,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private OlapTable getRemoteWriteTarget(Database db, String name, boolean hasExpectedId, long expectedId)
-            throws UserException {
+    private OlapTable getRemoteWriteTarget(Database db, String name) throws UserException {
         if (StringUtils.isEmpty(name)) {
             throw new AnalysisException("table name is empty");
         }
         OlapTable target = (OlapTable) db.getTableOrMetaException(name, TableType.OLAP);
         if (target.hasChangelog()) {
             throw new AnalysisException(RemoteOlapTable.CHANGELOG_WRITE_ERROR);
-        }
-        if (hasExpectedId && target.getId() != expectedId) {
-            throw new AnalysisException("Remote write target changed: expected table ID " + expectedId
-                    + ", actual " + target.getId());
         }
         return target;
     }
@@ -2433,8 +2428,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db == null) {
             throw new MetaNotFoundException("unknown database, database=" + fullDbName);
         }
-        OlapTable table = getRemoteWriteTarget(db, request.getTbl(), request.isSetExpectedTableId(),
-                request.getExpectedTableId());
+        OlapTable table = getRemoteWriteTarget(db, request.getTbl());
 
         long timeoutMs = request.getTimeoutMs();
         long timeoutSecond = timeoutMs > 0 ? TimeUnit.MILLISECONDS.toSeconds(timeoutMs)
@@ -2491,16 +2485,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db == null) {
             throw new MetaNotFoundException("unknown database, database=" + dbName);
         }
-        OlapTable table = getRemoteWriteTarget(db, request.getTbl(), request.isSetExpectedTableId(),
-                request.getExpectedTableId());
-        if (request.isSetExpectedTableId() && !Config.isCloudMode()) {
-            TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(),
-                    request.getTxnId());
-            if (state == null || !state.getTableIdList().contains(table.getId())) {
-                throw new UserException("Remote transaction " + request.getTxnId()
-                        + " does not include the target table " + table.getId());
-            }
-        }
+        OlapTable table = getRemoteWriteTarget(db, request.getTbl());
         // The destination checks every local index. A sender's cached metadata can predate a completed rollup.
         return Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                 db, Lists.newArrayList(table),

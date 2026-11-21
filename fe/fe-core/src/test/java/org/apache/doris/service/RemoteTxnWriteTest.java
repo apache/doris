@@ -21,18 +21,17 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.thrift.TBeginRemoteTxnRequest;
 import org.apache.doris.thrift.TCommitRemoteTxnRequest;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
-import org.apache.doris.transaction.TransactionState;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -42,22 +41,10 @@ import java.util.Collections;
 
 class RemoteTxnWriteTest {
     @ParameterizedTest
-    @CsvSource({"true, true", "true, false", "false, true", "false, false"})
-    void destinationRejectsChangelogBeforeBeginAndCommit(boolean begin, boolean hasExpectedId) throws Exception {
-        checkRejected(begin, hasExpectedId, true, RemoteOlapTable.CHANGELOG_WRITE_ERROR);
-    }
-
-    @ParameterizedTest
-    @CsvSource({"true", "false"})
-    void destinationRejectsRecreatedTable(boolean begin) throws Exception {
-        checkRejected(begin, true, false, "Remote write target changed");
-    }
-
-    private void checkRejected(boolean begin, boolean hasExpectedId, boolean changelog, String expected)
-            throws Exception {
+    @ValueSource(booleans = {true, false})
+    void destinationRejectsChangelogBeforeBeginAndCommit(boolean begin) throws Exception {
         OlapTable table = Mockito.mock(OlapTable.class);
-        Mockito.when(table.getId()).thenReturn(2L);
-        Mockito.when(table.hasChangelog()).thenReturn(changelog);
+        Mockito.when(table.hasChangelog()).thenReturn(true);
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         Database db = Mockito.mock(Database.class);
         Mockito.when(catalog.getDbNullable("db")).thenReturn(db);
@@ -65,11 +52,6 @@ class RemoteTxnWriteTest {
         GlobalTransactionMgrIface transactions = Mockito.mock(GlobalTransactionMgrIface.class);
         TBeginRemoteTxnRequest beginRequest = new TBeginRemoteTxnRequest().setDb("db").setTbl("tbl");
         TCommitRemoteTxnRequest commitRequest = new TCommitRemoteTxnRequest().setDb("db").setTbl("tbl").setTxnId(7L);
-        if (hasExpectedId) {
-            long expectedId = changelog ? 2L : 1L;
-            beginRequest.setExpectedTableId(expectedId);
-            commitRequest.setExpectedTableId(expectedId);
-        }
         try (MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
             env.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
             env.when(Env::getCurrentGlobalTransactionMgr).thenReturn(transactions);
@@ -77,32 +59,23 @@ class RemoteTxnWriteTest {
                     () -> invoke(begin ? "beginRemoteTxnImpl" : "commitRemoteTxnImpl",
                             begin ? beginRequest : commitRequest));
             Assertions.assertInstanceOf(UserException.class, error.getCause());
-            Assertions.assertTrue(error.getCause().getMessage().contains(expected), error.getCause().getMessage());
+            Assertions.assertTrue(error.getCause().getMessage().contains(RemoteOlapTable.CHANGELOG_WRITE_ERROR),
+                    error.getCause().getMessage());
             Mockito.verifyNoInteractions(transactions);
         }
     }
 
-    @ParameterizedTest
-    @CsvSource({"true", "false"})
-    void ordinaryCommitLeavesQuorumSelectionToDestination(boolean hasExpectedId) throws Exception {
+    @Test
+    void ordinaryCommitLeavesQuorumSelectionToDestination() throws Exception {
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         Database db = Mockito.mock(Database.class);
         OlapTable table = Mockito.mock(OlapTable.class);
-        Mockito.when(table.getId()).thenReturn(2L);
         Mockito.when(catalog.getDbNullable("db")).thenReturn(db);
         Mockito.doReturn(table).when(db).getTableOrMetaException("tbl", TableType.OLAP);
         GlobalTransactionMgrIface transactions = Mockito.mock(GlobalTransactionMgrIface.class);
         TCommitRemoteTxnRequest request = new TCommitRemoteTxnRequest().setDb("db").setTbl("tbl").setTxnId(7L)
                 .setCommitInfos(Collections.emptyList()).setInsertVisibleTimeoutMs(1000L);
-        if (hasExpectedId) {
-            request.setExpectedTableId(2L);
-        }
-        TransactionState state = Mockito.mock(TransactionState.class);
-        Mockito.when(state.getTableIdList()).thenReturn(Collections.singletonList(2L));
-        Mockito.when(transactions.getTransactionState(0L, 7L)).thenReturn(state);
-        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class);
-                MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
-            config.when(Config::isCloudMode).thenReturn(false);
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
             env.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
             env.when(Env::getCurrentGlobalTransactionMgr).thenReturn(transactions);
             Mockito.when(transactions.commitAndPublishTransaction(db, Collections.singletonList(table), 7L,
@@ -110,11 +83,6 @@ class RemoteTxnWriteTest {
             Assertions.assertEquals(Boolean.TRUE, invoke("commitRemoteTxnImpl", request));
             Mockito.verify(transactions).commitAndPublishTransaction(db, Collections.singletonList(table), 7L,
                     Collections.emptyList(), 1000L, null);
-            if (hasExpectedId) {
-                Mockito.verify(transactions).getTransactionState(0L, 7L);
-                Mockito.verify(state).getTableIdList();
-            }
-            Mockito.verifyNoMoreInteractions(state);
             Mockito.verifyNoMoreInteractions(transactions);
         }
     }

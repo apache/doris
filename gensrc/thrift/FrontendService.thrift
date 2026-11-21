@@ -1834,7 +1834,6 @@ struct TBeginRemoteTxnRequest {
     6: optional string tbl
     7: optional string label
     8: optional i64 timeout_ms
-    9: optional i64 expected_table_id
 }
 
 struct TBeginRemoteTxnResult {
@@ -1853,8 +1852,6 @@ struct TCommitRemoteTxnRequest {
     7: optional i64 txn_id
     8: optional list<Types.TTabletCommitInfo> commit_infos
     9: optional i64 insert_visible_timeout_ms
-    // 10 was used by write_schemas. Keep the field ID reserved.
-    11: optional i64 expected_table_id
 }
 
 struct TCommitRemoteTxnResult {
