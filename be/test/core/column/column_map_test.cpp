@@ -50,6 +50,26 @@ protected:
     void TearDown() override {}
 };
 
+TEST_F(ColumnMapTest, ConvertToFullColumnIfConstPreservesStorage) {
+    auto keys = ColumnInt32::create();
+    auto values = ColumnInt32::create();
+    auto offsets = ColumnMap::COffsets::create();
+    keys->insert_value(7);
+    values->insert_value(9);
+    offsets->insert_value(1);
+    auto map = ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
+    ColumnPtr column = std::move(map);
+    EXPECT_EQ(column->convert_to_full_column_if_const().get(), column.get());
+
+    auto constant = ColumnConst::create(column, 3);
+    auto full = constant->convert_to_full_column_if_const();
+    EXPECT_FALSE(is_column_const(*full));
+    ASSERT_EQ(full->size(), 3);
+    for (size_t row = 0; row < full->size(); ++row) {
+        EXPECT_EQ(full->compare_at(row, 0, *column, 1), 0);
+    }
+}
+
 TEST_F(ColumnMapTest, MapTypeTesterase) {
     DataTypePtr key_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
     DataTypePtr value_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
