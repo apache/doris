@@ -42,6 +42,7 @@
 namespace doris {
 
 class PTabletWriterCancelRequest;
+class EosCompletion;
 class PTabletWriterOpenRequest;
 class Thread;
 
@@ -56,8 +57,11 @@ public:
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
 
+    // For hang_wait EOS, return a barrier handle to the service, which transfers
+    // the RPC completion after finishing synchronous response writes.
     Status add_batch(const PTabletWriterAddBlockRequest& request,
-                     PTabletWriterAddBlockResult* response);
+                     PTabletWriterAddBlockResult* response,
+                     std::shared_ptr<EosCompletion>* eos_completion);
 
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
