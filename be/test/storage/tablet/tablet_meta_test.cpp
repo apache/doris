@@ -34,6 +34,35 @@
 
 namespace doris {
 
+TEST(TabletMetaTest, ActiveAndStaleVersionCountsFollowCompactionLifecycle) {
+    TabletMeta tablet_meta;
+    EXPECT_EQ(0, tablet_meta.version_count());
+    EXPECT_EQ(0, tablet_meta.stale_version_count());
+
+    auto first = std::make_shared<RowsetMeta>();
+    auto second = std::make_shared<RowsetMeta>();
+    auto merged = std::make_shared<RowsetMeta>();
+    first->set_version(Version(1, 1));
+    second->set_version(Version(2, 2));
+    merged->set_version(Version(1, 2));
+    ASSERT_TRUE(tablet_meta.add_rs_meta(first).ok());
+    ASSERT_TRUE(tablet_meta.add_rs_meta(second).ok());
+    EXPECT_EQ(2, tablet_meta.version_count());
+    EXPECT_EQ(0, tablet_meta.stale_version_count());
+
+    tablet_meta.modify_rs_metas({merged}, {first, second});
+    EXPECT_EQ(1, tablet_meta.version_count());
+    EXPECT_EQ(2, tablet_meta.stale_version_count());
+
+    tablet_meta.delete_stale_rs_meta_by_version(Version(1, 1));
+    EXPECT_EQ(1, tablet_meta.version_count());
+    EXPECT_EQ(1, tablet_meta.stale_version_count());
+
+    tablet_meta.delete_stale_rs_meta_by_version(Version(2, 2));
+    EXPECT_EQ(1, tablet_meta.version_count());
+    EXPECT_EQ(0, tablet_meta.stale_version_count());
+}
+
 TEST(TabletMetaTest, SaveAndParse) {
     std::string meta_path = "./be/test/storage/test_data/tablet_meta_test.hdr";
 

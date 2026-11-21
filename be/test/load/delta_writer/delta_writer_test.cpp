@@ -29,6 +29,7 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 
@@ -53,6 +54,7 @@
 #include "storage/olap_define.h"
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/rowset_writer.h"
 #include "storage/rowset_builder.h"
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
@@ -62,6 +64,7 @@
 #include "storage/tablet_info.h"
 #include "storage/task/engine_publish_version_task.h"
 #include "storage/txn/txn_manager.h"
+#include "util/defer_op.h"
 
 namespace doris {
 class OlapMeta;
@@ -540,6 +543,58 @@ TEST_F(TestDeltaWriter, open) {
 
     res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
+}
+
+TEST_F(TestDeltaWriter, metadata_size_limit_without_stale_rowsets) {
+    RuntimeProfile profile("MetadataSizeLimit");
+    TCreateTabletReq request;
+    create_tablet_request(10007, 270068378, &request);
+    ASSERT_TRUE(engine_ref->create_tablet(request, &profile).ok());
+    auto tablet = engine_ref->tablet_manager()->get_tablet(request.tablet_id);
+    ASSERT_NE(nullptr, tablet);
+    ASSERT_FALSE(tablet->enable_unique_key_merge_on_write());
+
+    std::string serialized_meta;
+    {
+        std::unique_lock lock(tablet->get_header_lock());
+        tablet->tablet_meta()->serialize(&serialized_meta);
+    }
+    ASSERT_EQ(1, tablet->version_count());
+    ASSERT_GT(tablet->avg_rs_meta_serialize_size(), 0);
+
+    const auto original_limit = config::tablet_meta_serialize_size_limit;
+    Defer restore_limit(
+            [original_limit] { config::tablet_meta_serialize_size_limit = original_limit; });
+
+    WriteRequest write_req;
+    write_req.tablet_id = request.tablet_id;
+    write_req.schema_hash = request.tablet_schema.schema_hash;
+    write_req.partition_id = request.partition_id;
+    write_req.txn_id = 20007;
+    write_req.table_schema_param = std::make_shared<OlapTableSchemaParam>();
+
+    // A single active rowset must be counted once: reject below its size and allow equality.
+    config::tablet_meta_serialize_size_limit = tablet->avg_rs_meta_serialize_size() - 1;
+    {
+        RowsetBuilder builder(*engine_ref, write_req, &profile);
+        auto status = builder.init();
+        ASSERT_TRUE(status.is<ErrorCode::TOO_MANY_VERSION>()) << status;
+        ASSERT_NE(std::string::npos, status.to_string().find("meta serialize size")) << status;
+    }
+
+    config::tablet_meta_serialize_size_limit = tablet->avg_rs_meta_serialize_size();
+    {
+        RowsetBuilder builder(*engine_ref, write_req, &profile);
+        auto status = builder.init();
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_TRUE(builder.rowset_writer()->flush().ok());
+        ASSERT_TRUE(builder.build_rowset().ok());
+        ASSERT_TRUE(builder.commit_txn().ok());
+    }
+
+    ASSERT_TRUE(engine_ref->tablet_manager()
+                        ->drop_tablet(request.tablet_id, request.replica_id, false)
+                        .ok());
 }
 
 TEST_F(TestDeltaWriter, vec_write) {
