@@ -1132,6 +1132,18 @@ message TableStatsPB {
     optional int64 table_version = 3;
 }
 
+// Physical changelog rows written by this transaction, separate from base table statistics.
+message ChangelogStatsPB {
+    optional int64 table_id = 1;
+    optional int64 partition_id = 2;
+    optional int64 index_id = 3;
+    optional int64 updated_row_count = 4;
+    // Preserve tablet identity so a late response cannot update replacement data.
+    repeated int64 tablet_ids = 5;
+    // Final partition version, including all subtransactions in this commit.
+    optional int64 version = 6;
+}
+
 message CommitTxnResponse {
     optional MetaServiceResponseStatus status = 1;
     optional TxnInfoPB txn_info = 2;
@@ -1148,6 +1160,8 @@ message CommitTxnResponse {
     optional bool is_lazy_commit_incomplete = 9;
     // The current master fence when commit_tso is rejected as stale.
     optional int64 tso_fence = 10;
+    // Absent on retries of visible transactions and before lazy visibility completes.
+    repeated ChangelogStatsPB changelog_stats = 11;
 }
 
 message AbortTxnRequest {
