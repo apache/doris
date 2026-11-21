@@ -555,15 +555,20 @@ Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
         _current++;
     } else {
         _ref.row_pos++;
-        if (_is_merge_iterator && _ref.row_pos < _block->rows()) {
-            _ref.is_same = _row_is_same[_ref.row_pos];
-        }
     }
 
     RETURN_IF_ERROR(refresh_current_row());
 
     if (_get_data_by_ref) {
         _ref = _block_view[_current];
+    } else if (_is_merge_iterator) {
+        // Take the same-key bit only after refresh_current_row(): when the previous row was the
+        // last one of its Block, the refresh read the next Block, reset row_pos to 0 and cleared
+        // is_same, so a bit taken before it was lost. Example: the segment merge yields 1 1 2 in
+        // Blocks of one row; the second 1 starts a Block, and without its bit the AGG_KEYS reader
+        // returned key 1 twice, each row folding half of the group.
+        DCHECK_LT(static_cast<size_t>(_ref.row_pos), _row_is_same.size());
+        _ref.is_same = _row_is_same[_ref.row_pos];
     }
 
     *ref = _ref;
