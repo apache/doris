@@ -217,7 +217,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
 
     /**
      * Normalizes a unique-key MV statement after {@link IvmNormalizeMTMV} selects its model.
-     * Computes the layout signature for write plans and checks the existing baseline for incremental refresh.
+     * Computes the write plan's signature and checks the existing baseline for incremental and partition refresh.
      */
     public Plan normalizeRoot(Plan plan, JobContext jobContext) {
         Plan result = normalize(plan, jobContext);
@@ -231,7 +231,8 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         }
 
         IvmPlanSignature signature = new IvmPlanSignatureGenerator().generate(result);
-        if (ivmRewriteContext.getMode() == IvmRewriteContext.Mode.INCREMENTAL) {
+        IvmRewriteContext.Mode mode = ivmRewriteContext.getMode();
+        if (mode == IvmRewriteContext.Mode.INCREMENTAL || mode == IvmRewriteContext.Mode.PARTITIONS) {
             validatePlanSignature(ivmRewriteContext.getMtmv(), signature);
         }
         rewriteResult.setPlanSignature(signature);
@@ -243,13 +244,12 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         if (storedSignature == null || storedSignature.equals(currentSignature.getSha256())) {
             return;
         }
-        String detail = "IVM layout signature mismatch for mv=" + mtmv.getName()
+        String detail = IvmFailureClassifier.PLAN_SIGNATURE_MISMATCH_MSG_PREFIX + mtmv.getName()
                 + ", storedSignature=" + storedSignature
                 + ", currentSignature=" + currentSignature.getSha256()
                 + ", currentCanonical=" + currentSignature.getCanonicalString()
                 + ", currentPlan=" + currentSignature.getPlanTree()
-                + ". Run one REFRESH MATERIALIZED VIEW " + mtmv.getName()
-                + " INCREMENTAL FALLBACK or REFRESH MATERIALIZED VIEW " + mtmv.getName()
+                + ". Run REFRESH MATERIALIZED VIEW " + mtmv.getName()
                 + " COMPLETE to rebuild the IVM layout baseline and publish its matching signature.";
         throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
     }
