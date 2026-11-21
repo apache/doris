@@ -444,6 +444,16 @@ if [[ "${HELPER}" != "" ]]; then
     HELPER_ARGS=("-helper" "${HELPER}")
 fi
 
+# Bound glibc malloc arenas for the multi-threaded FE JVM.
+# On 64-bit systems glibc ptmalloc creates up to (8 x nproc) arenas, and each
+# arena is backed by a 64MB-aligned mmap segment that is not returned to the
+# OS after free(). On many-core hosts (e.g. 128 cores -> 1024 arenas) the
+# unreturned segments can inflate FE process RSS far beyond -Xmx, and none of
+# it is visible to JVM statistics. Java object allocation itself is unaffected
+# (TLAB does not use glibc malloc). Users can override by exporting
+# MALLOC_ARENA_MAX before running this script (Hadoop sets the same default,
+# see HADOOP-7154).
+export MALLOC_ARENA_MAX=${MALLOC_ARENA_MAX:-4}
 if [[ "${OPT_VERSION}" != "" ]]; then
     export DORIS_LOG_TO_STDERR=1
     ${LIMIT:+${LIMIT}} "${JAVA}" org.apache.doris.DorisFE "${LOCAL_RESOURCE_GROUP_ARGS[@]}" --version
