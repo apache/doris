@@ -94,13 +94,13 @@
 #include "io/object_storage/obj_storage_client_holder.h"
 #include "io/object_storage/obj_storage_rate_limiter_manager.h"
 #include "testutil/container_credentials_endpoint.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/s3_uri.h"
 
 #ifdef USE_AZURE
 #include <azure/core/http/curl_transport.hpp>
 
 #include "cpp/obj-storage/client/azure_obj_storage_client.h"
-#include "testutil/scoped_temp_dir.h"
 #endif
 
 namespace doris {
