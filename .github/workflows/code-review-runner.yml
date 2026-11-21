@@ -39,8 +39,29 @@ permissions:
 env:
   REVIEW_TIMEOUT_MINUTES: 120
 
+# The outer PR queue retains duplicate-review protection while the inner job
+# holds an auth slot. Non-review comments and canaries use their own run key.
+concurrency:
+  group: >-
+    ${{ inputs.runtime_canary != true &&
+        (inputs.pr_number != '' ||
+         (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+          startsWith(github.event.comment.body, '/review') &&
+          (github.event.comment.author_association == 'MEMBER' ||
+           github.event.comment.author_association == 'OWNER' ||
+           github.event.comment.author_association == 'COLLABORATOR'))) &&
+        format('code-review-pr-{0}', github.event.issue.number || inputs.pr_number) ||
+        format('code-review-event-{0}', github.run_id) }}
+  cancel-in-progress: false
+  queue: max
+
 jobs:
   runtime-canary:
+    # Canary refreshes the same auth as production, so it shares the slot lock.
+    concurrency:
+      group: code-review-auth-auth.json.4
+      cancel-in-progress: false
+      queue: max
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.runtime_canary == true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -200,12 +221,66 @@ jobs:
             cp -f "$CODEX_HOME/auth.json" "$CANARY_AUTH_OBJECT" >/dev/null
           echo "Synced refreshed canary auth."
 
-  code-review:
+  select-auth:
     runs-on: ubuntu-24.04
-    # Serialize actual reviews of a PR, including comment and dispatch triggers.
-    # Keep every pending request rather than replacing the previous queued job.
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    outputs:
+      auth_object: ${{ steps.select_auth.outputs.auth_object }}
+      auth_name: ${{ steps.select_auth.outputs.auth_name }}
+    if: >-
+      inputs.runtime_canary != true &&
+      (
+        inputs.pr_number != '' ||
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request &&
+          startsWith(github.event.comment.body, '/review') &&
+          (
+            github.event.comment.author_association == 'MEMBER' ||
+            github.event.comment.author_association == 'OWNER' ||
+            github.event.comment.author_association == 'COLLABORATOR'
+          )
+        )
+      )
+    steps:
+      - name: Checkout trusted auth selector
+        timeout-minutes: 2
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha || github.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts/configure_review_auth.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Install ossutil
+        timeout-minutes: 5
+        run: |
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          curl -fsSL -o "$tmp_dir/ossutil.zip" https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil-v1.7.19-linux-amd64.zip
+          unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
+          sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
+
+      - name: Select Codex auth
+        id: select_auth
+        timeout-minutes: 5
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          CODEX_AUTH_SELECT_ONLY: 'true'
+        run: |
+          bash .github/scripts/configure_review_auth.sh
+
+  code-review:
+    needs: select-auth
+    runs-on: ubuntu-24.04
+    # Keep the selected auth exclusive through review, retries and auth sync.
+    # Each slot queues up to 100 requests without canceling pending reviews.
     concurrency:
-      group: code-review-pr-${{ github.event.issue.number || inputs.pr_number || github.run_id }}
+      group: code-review-auth-${{ needs.select-auth.outputs.auth_name }}
       cancel-in-progress: false
       queue: max
     outputs:
@@ -241,13 +316,16 @@ jobs:
           ref: ${{ github.workflow_sha || github.sha }}
           persist-credentials: false
           path: .review-api-source
-          sparse-checkout: .github/scripts/review_github_api.py
+          sparse-checkout: |
+            .github/scripts/review_github_api.py
+            .github/scripts/configure_review_auth.sh
           sparse-checkout-cone-mode: false
 
       - name: Install GitHub API diagnostics
         timeout-minutes: 1
         run: |
           install -m 700 .review-api-source/.github/scripts/review_github_api.py "$RUNNER_TEMP/review_github_api.py"
+          install -m 700 .review-api-source/.github/scripts/configure_review_auth.sh "$RUNNER_TEMP/configure_review_auth.sh"
           gh --version
           printf 'REVIEW_GH_VERSION=%s\n' "$(gh --version | sed -n '1p')" >> "$GITHUB_ENV"
           printf 'REVIEW_GH_HELPER=%s\n' "$RUNNER_TEMP/review_github_api.py" >> "$GITHUB_ENV"
@@ -395,138 +473,13 @@ jobs:
         id: auth
         timeout-minutes: 5
         run: |
-          set -o pipefail
-
-          install -m 700 -d "$RUNNER_TEMP/codex-home"
-          printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
-
-          auth_prefix='oss://doris-community-ci/codex/auth.json.'
-          auth_listing="$(mktemp "$RUNNER_TEMP/codex-auth-objects.XXXXXX")"
-          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" ls "$auth_prefix" -s > "$auth_listing"; then
-            auth_failure_reason="Failed to list Codex review auth objects from OSS."
-            echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
-            echo "::error::$auth_failure_reason"
-            exit 1
-          fi
-
-          auth_candidates="$(mktemp "$RUNNER_TEMP/codex-auth-candidates.XXXXXX")"
-          awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/auth\.json\.[0-9]+$/ { print }' \
-            "$auth_listing" > "$auth_candidates"
-          if [ ! -s "$auth_candidates" ]; then
-            auth_failure_reason="No numbered Codex review auth objects were found in OSS."
-            echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
-            echo "::error::$auth_failure_reason"
-            exit 1
-          fi
-
-          auth_object=""
-          earliest_retry_after_epoch=""
-          now_epoch="$(date +%s)"
-          while IFS= read -r candidate; do
-            context_file="$(mktemp "$RUNNER_TEMP/codex-auth-context.XXXXXX")"
-            if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-              cp -f "${candidate}.context" "$context_file" >/dev/null 2>&1; then
-              if raw_retry_after_epoch="$(jq -ser '
-                select(length == 1)
-                | .[0]
-                | select(type == "object"
-                    and .version == 1
-                    and .state == "usage_limited"
-                    and (.retry_after_epoch | type == "number" and floor == .))
-                | .retry_after_epoch
-              ' "$context_file" 2>/dev/null)" && \
-                 retry_after_epoch="$(date -u -d "@$raw_retry_after_epoch" +%s 2>/dev/null)"; then
-                if [ "$retry_after_epoch" -gt "$now_epoch" ]; then
-                  retry_at="$(date -u -d "@$retry_after_epoch" +%Y-%m-%dT%H:%M:%SZ)"
-                  echo "Skipping usage-limited Codex auth ${candidate##*/} until $retry_at."
-                  if [ -z "$earliest_retry_after_epoch" ] || \
-                     [ "$retry_after_epoch" -lt "$earliest_retry_after_epoch" ]; then
-                    earliest_retry_after_epoch="$retry_after_epoch"
-                  fi
-                  continue
-                fi
-              else
-                echo "::warning::Ignoring unusable Codex auth context for ${candidate##*/}; the account remains eligible."
-              fi
-            fi
-
-            candidate_auth="$(mktemp "$RUNNER_TEMP/codex-home/candidate-auth.XXXXXX")"
-            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$candidate" "$candidate_auth"
-            jq -e '
-              .auth_mode == "chatgpt"
-              and (.tokens.access_token | type == "string" and length > 0)
-              and (.tokens.refresh_token | type == "string" and length > 0)
-            ' "$candidate_auth" >/dev/null
-            refresh_token_hash="$(jq -rj '.tokens.refresh_token' "$candidate_auth" | sha256sum | awk '{print $1}')"
-
-            # Quarantine the refresh token, not the slot or the entire auth file:
-            # replacing the token restores eligibility; changing metadata does not.
-            invalid_object="${candidate}.invalid.${refresh_token_hash}"
-            invalid_listing="$(mktemp "$RUNNER_TEMP/codex-auth-invalid.XXXXXX")"
-            if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-              ls "$invalid_object" -s > "$invalid_listing"; then
-              auth_failure_reason="Failed to check invalid-token marker for ${candidate##*/}."
-              echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
-              echo "::error::$auth_failure_reason"
-              exit 1
-            fi
-            if grep -Fxq "$invalid_object" "$invalid_listing"; then
-              echo "Skipping Codex auth ${candidate##*/}: refresh token is marked invalid."
-              rm -f "$candidate_auth"
-              continue
-            fi
-
-            auth_object="$candidate"
-            # Use the checked snapshot; downloading it again could select a different token.
-            mv "$candidate_auth" "$RUNNER_TEMP/codex-home/auth.json"
-            printf '%s\n' "$refresh_token_hash" > "$RUNNER_TEMP/codex-auth-refresh-token.sha256"
-            break
-          done < <(shuf "$auth_candidates")
-
-          if [ -z "$auth_object" ]; then
-            auth_failure_reason="No eligible Codex review credentials: all are usage-limited or have an invalid refresh token."
-            if [ -n "$earliest_retry_after_epoch" ]; then
-              retry_at="$(date -u -d "@$earliest_retry_after_epoch" +%Y-%m-%dT%H:%M:%SZ)"
-              auth_failure_reason="$auth_failure_reason Earliest usage-limit retry is $retry_at."
-            fi
-            auth_failure_reason="$auth_failure_reason Credentials with invalid refresh tokens must be replaced."
-            echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
-            echo "::error::$auth_failure_reason"
-            exit 1
-          fi
-
-          printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$auth_object" >> "$GITHUB_ENV"
-          echo "Selected Codex auth object: ${auth_object##*/}"
-          chmod 600 "$RUNNER_TEMP/codex-home/auth.json"
-          sha256sum "$RUNNER_TEMP/codex-home/auth.json" \
-            | awk '{print $1}' \
-            > "$RUNNER_TEMP/codex-auth-original.sha256"
-
-          cat > "$RUNNER_TEMP/codex-home/config.toml" <<EOF
-          cli_auth_credentials_store = "file"
-          approval_policy = "never"
-
-          [features]
-          memories = true
-
-          [memories]
-          use_memories = true
-          generate_memories = true
-
-          [shell_environment_policy]
-          inherit = "all"
-
-          [otel]
-          environment = "github-actions"
-          exporter = "none"
-          metrics_exporter = "none"
-          trace_exporter = "none"
-          EOF
-          chmod 600 "$RUNNER_TEMP/codex-home/config.toml"
+          : "${CODEX_AUTH_CANDIDATE:?Missing queued Codex auth assignment}"
+          bash "$RUNNER_TEMP/configure_review_auth.sh"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          CODEX_AUTH_CANDIDATE: ${{ needs.select-auth.outputs.auth_object }}
 
       - name: Sync Codex memories from OSS
         timeout-minutes: 5
