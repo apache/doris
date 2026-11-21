@@ -94,7 +94,7 @@ struct GcpHmacObjStorageAuth {
     bool operator==(const GcpHmacObjStorageAuth&) const = default;
 };
 
-enum class GcpCredentialSource { Default, ComputeEngine };
+enum class GcpCredentialSource { Default, ComputeEngine, AccessToken };
 // Legacy GCS HMAC credentials may come from the AWS SDK environment/profile chain.
 struct GcpDefaultHmacObjStorageAuth {
     AwsCredentialImplementation implementation = AwsCredentialImplementation::V2;
@@ -103,6 +103,8 @@ struct GcpDefaultHmacObjStorageAuth {
 // Describes how to obtain credentials; the token provider owns OAuth token refresh.
 struct GcpNativeObjStorageAuth {
     GcpCredentialSource source = GcpCredentialSource::Default;
+    std::string access_token;
+    int64_t expires_at_ms = 0;
     std::optional<std::string> impersonation_service_account;
     bool operator==(const GcpNativeObjStorageAuth&) const = default;
 };

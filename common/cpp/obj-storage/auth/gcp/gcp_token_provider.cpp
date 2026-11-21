@@ -97,6 +97,9 @@ std::shared_ptr<google::cloud::oauth2_internal::Credentials> make_credentials(
 
     std::shared_ptr<google::cloud::Credentials> credentials;
     switch (credential.provider_type) {
+    case GcpCredentialProviderType::AccessToken:
+        // A catalog-issued token must never resolve the process ADC identity.
+        return nullptr;
     case GcpCredentialProviderType::Default:
         // A direct service-account ADC token goes to GCS. Impersonation sources
         // instead authenticate to IAM, which accepts the SDK's self-signed JWTs.
@@ -123,7 +126,8 @@ std::shared_ptr<google::cloud::oauth2_internal::Credentials> make_credentials(
 
 GcpTokenProvider::GcpTokenProvider(const GcpCredentialConfig& credential,
                                    const std::string& ca_cert_path, GcpTokenScope token_scope)
-        : GcpTokenProvider(make_credentials(credential, ca_cert_path, token_scope)) {}
+        : _credential(credential),
+          _credentials(make_credentials(credential, ca_cert_path, token_scope)) {}
 
 GcpTokenProvider::GcpTokenProvider(
         std::shared_ptr<google::cloud::oauth2_internal::Credentials> credentials)
@@ -132,6 +136,12 @@ GcpTokenProvider::GcpTokenProvider(
 GcpTokenProvider::~GcpTokenProvider() = default;
 
 std::optional<std::string> GcpTokenProvider::get_token() const {
+    if (_credential.provider_type == GcpCredentialProviderType::AccessToken) {
+        // BE holds a query snapshot; an expired token cannot switch to ambient credentials.
+        return validate_gcp_credential(_credential)
+                       ? std::nullopt
+                       : std::optional<std::string>(_credential.access_token);
+    }
     // GcpOAuthS3Client and presign callers may share one provider across request
     // threads. Serialize access even if the underlying implementation changes
     // its thread-safety guarantees in a future google-cloud-cpp release.
@@ -146,6 +156,10 @@ std::optional<std::string> GcpTokenProvider::get_token() const {
 }
 
 std::string GcpTokenProvider::get_service_account_email() const {
+    if (_credential.provider_type == GcpCredentialProviderType::AccessToken) {
+        // A bearer token contains no service-account identity for IAM signing.
+        return {};
+    }
     std::lock_guard lock(_credentials_mutex);
     return _credentials->AccountEmail();
 }

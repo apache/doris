@@ -38,11 +38,14 @@ ObjStorageClientBuildResult GcpObjStorageClient::create(const GcpObjStorageConfi
     ObjStorageEndpointInfo endpoint {.endpoint = config.connection.endpoint};
     if (auto* native = std::get_if<GcpNativeObjStorageAuth>(&config.auth)) {
         GcpCredentialConfig credential {
-                .provider_type = native->source == GcpCredentialSource::ComputeEngine
+                .provider_type = native->source == GcpCredentialSource::AccessToken
+                                         ? GcpCredentialProviderType::AccessToken
+                                 : native->source == GcpCredentialSource::ComputeEngine
                                          ? GcpCredentialProviderType::ComputeEngine
                                          : GcpCredentialProviderType::Default,
-                .impersonation_service_account =
-                        native->impersonation_service_account.value_or("")};
+                .impersonation_service_account = native->impersonation_service_account.value_or(""),
+                .access_token = native->access_token,
+                .expires_at_ms = native->expires_at_ms};
         auto ca_file = config.connection.ca_cert_file.value_or("");
         auto sdk = std::make_shared<GcpOAuthS3Client>(
                 credential, ca_file, options,

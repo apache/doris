@@ -112,11 +112,15 @@ Error validate_auth(const GcpDefaultHmacObjStorageAuth&) {
     return {};
 }
 Error validate_auth(const GcpNativeObjStorageAuth& auth) {
-    if (auth.impersonation_service_account &&
-        !is_valid_gcp_service_account_email(*auth.impersonation_service_account)) {
-        return "Invalid GCP service account email";
-    }
-    return {};
+    return validate_gcp_credential(GcpCredentialConfig {
+            .provider_type = auth.source == GcpCredentialSource::AccessToken
+                                     ? GcpCredentialProviderType::AccessToken
+                             : auth.source == GcpCredentialSource::ComputeEngine
+                                     ? GcpCredentialProviderType::ComputeEngine
+                                     : GcpCredentialProviderType::Default,
+            .impersonation_service_account = auth.impersonation_service_account.value_or(""),
+            .access_token = auth.access_token,
+            .expires_at_ms = auth.expires_at_ms});
 }
 template <class... T>
 Error validate_auth(const std::variant<T...>& auth) {
@@ -189,7 +193,8 @@ size_t auth_hash(const AzureObjStorageAuthConfig& auth) {
     return seed;
 }
 size_t auth_hash(const GcpNativeObjStorageAuth& auth) {
-    return fields(auth.source, auth.impersonation_service_account);
+    return fields(auth.source, auth.impersonation_service_account, auth.access_token,
+                  auth.expires_at_ms);
 }
 size_t role_hash(const std::optional<AwsAssumeRole>& role) {
     return role ? fields(role->role_arn, role->external_id, role->request_timeout) : 0;

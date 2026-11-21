@@ -20,6 +20,7 @@ package org.apache.doris.filesystem.gcs;
 import org.apache.doris.filesystem.gcs.auth.GcpCredential;
 import org.apache.doris.filesystem.gcs.auth.GcsEndpoint;
 
+import com.google.auth.oauth2.AccessToken;
 import com.google.auth.oauth2.ComputeEngineCredentials;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.auth.oauth2.ImpersonatedCredentials;
@@ -44,6 +45,7 @@ import java.io.UncheckedIOException;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
@@ -58,23 +60,32 @@ public final class GcpAuth {
     }
 
     public static S3Client createS3Client(GcsFileSystemProperties properties) throws IOException {
+        return createS3Client(properties, createCredentials(properties.getAuth().getNativeCredential().orElseThrow()));
+    }
+
+    public static S3Client createS3Client(GcsFileSystemProperties properties, GoogleCredentials credentials) {
         return S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
                         .connectionTimeout(Duration.ofSeconds(30)).build())
                 .endpointOverride(endpoint(properties))
                 .credentialsProvider(AnonymousCredentialsProvider.create())
                 .region(Region.of(properties.getRegion()))
-                .overrideConfiguration(clientConfiguration(properties))
+                .overrideConfiguration(clientConfiguration(credentials))
                 .serviceConfiguration(serviceConfiguration(properties))
                 .build();
     }
 
     public static S3AsyncClient createS3AsyncClient(GcsFileSystemProperties properties) throws IOException {
+        return createS3AsyncClient(properties,
+                createCredentials(properties.getAuth().getNativeCredential().orElseThrow()));
+    }
+
+    public static S3AsyncClient createS3AsyncClient(GcsFileSystemProperties properties, GoogleCredentials credentials) {
         return S3AsyncClient.builder()
                 .endpointOverride(endpoint(properties))
                 .credentialsProvider(AnonymousCredentialsProvider.create())
                 .region(Region.of(properties.getRegion()))
-                .overrideConfiguration(clientConfiguration(properties))
+                .overrideConfiguration(clientConfiguration(credentials))
                 .serviceConfiguration(serviceConfiguration(properties))
                 .build();
     }
@@ -92,22 +103,34 @@ public final class GcpAuth {
                 .pathStyleAccessEnabled(properties.isUsePathStyle()).build();
     }
 
-    private static ClientOverrideConfiguration clientConfiguration(GcsFileSystemProperties properties)
-            throws IOException {
+    private static ClientOverrideConfiguration clientConfiguration(GoogleCredentials credentials) {
         return ClientOverrideConfiguration.builder()
                 .retryPolicy(RetryPolicy.builder().numRetries(3)
                         .backoffStrategy(EqualJitterBackoffStrategy.builder()
                                 .baseDelay(Duration.ofSeconds(1))
                                 .maxBackoffTime(Duration.ofMinutes(1)).build()).build())
                 .putAdvancedOption(SdkAdvancedClientOption.SIGNER, new NoOpSigner())
-                .addExecutionInterceptor(bearerTokenInterceptor(createCredentials(
-                        properties.getAuth().getNativeCredential().orElseThrow())))
+                .addExecutionInterceptor(bearerTokenInterceptor(credentials))
                 .build();
     }
 
     public static GoogleCredentials createCredentials(GcpCredential credential) throws IOException {
         GoogleCredentials source;
         switch (credential.getCredentialProviderType()) {
+            case ACCESS_TOKEN:
+                return new GoogleCredentials(new AccessToken(credential.getAccessToken(),
+                        credential.getExpiresAtMillis() == 0 ? null : new Date(credential.getExpiresAtMillis()))) {
+                    @Override
+                    public AccessToken refreshAccessToken() throws IOException {
+                        // The auth library refreshes before expiry. A catalog token has no refresh
+                        // credential, but remains usable until its actual expiration.
+                        if (credential.getExpiresAtMillis() > 0
+                                && credential.getExpiresAtMillis() <= System.currentTimeMillis()) {
+                            throw new IOException("GCS access token has expired; reload catalog credentials");
+                        }
+                        return getAccessToken();
+                    }
+                };
             case DEFAULT:
                 source = GoogleCredentials.getApplicationDefault();
                 break;

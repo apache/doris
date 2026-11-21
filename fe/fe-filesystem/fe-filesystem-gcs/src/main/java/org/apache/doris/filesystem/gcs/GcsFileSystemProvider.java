@@ -98,6 +98,11 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
                 return ObjectStorageAuthentication.hmac("GCP");
             }
             GcpCredential nativeCredential = auth.getNativeCredential().orElseThrow();
+            if (nativeCredential.getCredentialProviderType()
+                    == org.apache.doris.filesystem.gcs.auth.GcpCredentialProviderType.ACCESS_TOKEN) {
+                throw new IllegalArgumentException(
+                        "GCS access tokens cannot be persisted as resource or vault credentials");
+            }
             GcpCredentialSpec.ProviderType type = GcpCredentialSpec.ProviderType.valueOf(
                     nativeCredential.getCredentialProviderType().name());
             String principal = nativeCredential.getImpersonationServiceAccount();

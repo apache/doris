@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.cache.ScopePath;
+import org.apache.doris.connector.iceberg.auth.IcebergRestVendedAuthManager;
 import org.apache.doris.connector.iceberg.dlf.DLFCatalog;
 import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
@@ -1218,10 +1219,28 @@ public class IcebergConnector implements Connector {
                 .uri(config.get(CatalogProperties.URI))
                 .withHeaders(RESTUtil.configHeaders(config))
                 .withObjectMapper(IcebergRestSchemaCompatibility.objectMapper())
-                .build(), IcebergConnector::restCatalogFileIO);
+                .build(), restProperties.isVendedCredentialsEnabled()
+                        ? (session, ioProperties) -> CatalogUtil.loadFileIO(ioProperties.getOrDefault(
+                                CatalogProperties.FILE_IO_IMPL, "org.apache.iceberg.io.ResolvingFileIO"),
+                                IcebergRestVendedAuthManager.withSession(ioProperties, session), conf)
+                        : null,
+                IcebergConnector::restCatalogFileIO);
         CatalogUtil.configureHadoopConf(sessionCatalog, conf);
-        sessionCatalog.initialize(catalogName, props);
-        return sessionCatalog;
+        Map<String, String> configured = new HashMap<>(props);
+        if (restProperties.isVendedCredentialsEnabled()) {
+            IcebergRestVendedAuthManager.configure(configured);
+        }
+        try {
+            sessionCatalog.initialize(catalogName, configured);
+            return sessionCatalog;
+        } catch (RuntimeException failure) {
+            try {
+                sessionCatalog.close();
+            } catch (IOException closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            throw failure;
+        }
     }
 
     /**

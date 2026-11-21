@@ -267,19 +267,10 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
 
     @Override
     public Map<String, String> vendStorageCredentials(Map<String, String> rawVendedCredentials) {
-        // Map the per-table vended token to the BE-facing AWS_* properties. Fail-soft (empty) on any
-        // error, matching the legacy provider, so a malformed token degrades gracefully rather than
-        // killing the scan. The outer try also covers getBackendPropertiesFromStorageMap so the
-        // fail-soft boundary is byte-identical to the pre-refactor method; buildVendedStorageMap shares
-        // the typed-map build with normalizeStorageUri (single source of truth — no drift).
-        try {
-            Map<StorageTypeId, StorageAdapter> map = buildVendedStorageMap(rawVendedCredentials);
-            return map == null ? Collections.emptyMap()
-                    : CredentialUtils.getBackendPropertiesFromStorageMap(map);
-        } catch (Exception e) {
-            LOG.warn("Failed to normalize vended credentials", e);
-            return Collections.emptyMap();
-        }
+        // Only absent credentials may fall back to the catalog's storage identity.
+        Map<StorageTypeId, StorageAdapter> map = buildVendedStorageMap(rawVendedCredentials);
+        return map == null ? Collections.emptyMap()
+                : CredentialUtils.getBackendPropertiesFromStorageMap(map);
     }
 
     /**
@@ -289,8 +280,8 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
      * legacy vended-credentials normalization tail exactly, so the BE-credential overlay
      * ({@link #vendStorageCredentials}) and the URI normalization ({@link #normalizeStorageUri(String,
      * Map)}) derive the SAME credentials from the SAME token — no drift. Returns {@code null} when the
-     * token is null/empty, yields no cloud-storage props, or normalization throws — replicating the
-     * legacy "return null → fall back to the base/static map" contract.
+     * token is null/empty or yields no cloud-storage props. Invalid credentials propagate to the caller
+     * instead of selecting the catalog identity.
      */
     private Map<StorageTypeId, StorageAdapter> buildVendedStorageMap(
             Map<String, String> rawVendedCredentials) {
@@ -306,8 +297,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
             return vended.stream()
                     .collect(Collectors.toMap(StorageAdapter::getType, Function.identity()));
         } catch (Exception e) {
-            LOG.warn("Failed to normalize vended credentials", e);
-            return null;
+            throw new IllegalArgumentException("Failed to normalize vended credentials", e);
         }
     }
 

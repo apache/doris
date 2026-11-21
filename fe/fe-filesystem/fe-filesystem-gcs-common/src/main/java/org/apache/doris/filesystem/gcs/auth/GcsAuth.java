@@ -22,7 +22,7 @@ import java.util.Optional;
 /** Immutable authentication choice shared by GCS clients, cache identity and protocol builders. */
 public final class GcsAuth {
     public enum Mode {
-        HMAC, ADC, COMPUTE_ENGINE, ANONYMOUS
+        HMAC, ADC, COMPUTE_ENGINE, ANONYMOUS, ACCESS_TOKEN
     }
 
     private final Mode mode;
@@ -34,6 +34,11 @@ public final class GcsAuth {
                 ? new GcpCredential(mode == Mode.ADC ? GcpCredentialProviderType.DEFAULT
                         : GcpCredentialProviderType.COMPUTE_ENGINE, impersonationServiceAccount)
                 : null;
+    }
+
+    GcsAuth(GcpCredential credential) {
+        this.mode = Mode.ACCESS_TOKEN;
+        this.nativeCredential = credential;
     }
 
     public Mode getMode() {

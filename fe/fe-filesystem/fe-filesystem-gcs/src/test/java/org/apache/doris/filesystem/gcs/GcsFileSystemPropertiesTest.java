@@ -401,4 +401,18 @@ class GcsFileSystemPropertiesTest {
         Assertions.assertEquals(implicit.matchedProperties(), explicit.matchedProperties());
         Assertions.assertEquals(implicit.toMap(), explicit.toMap());
     }
+
+    @org.junit.jupiter.api.Test
+    public void testVendedTokenBackendSnapshotAndCacheIdentity() {
+        GcsFileSystemProperties first = GcsFileSystemProperties.of(java.util.Map.of(
+                "gcs.oauth2.token", "first-token", "gcs.oauth2.token-expires-at", "4102444800000"));
+        GcsFileSystemProperties second = GcsFileSystemProperties.of(java.util.Map.of(
+                "gcs.oauth2.token", "second-token", "gcs.oauth2.token-expires-at", "4102444800000"));
+        org.junit.jupiter.api.Assertions.assertEquals("ACCESS_TOKEN", first.toMap().get("gs.credential_provider_type"));
+        org.junit.jupiter.api.Assertions.assertEquals("first-token", first.toMap().get("gs.oauth2.token"));
+        org.junit.jupiter.api.Assertions.assertNotEquals(first.matchedProperties(), second.matchedProperties());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new GcsFileSystemProvider().resolveAuthentication(java.util.Map.of("gcs.oauth2.token", "token")));
+    }
+
 }

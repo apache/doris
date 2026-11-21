@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
@@ -32,14 +33,21 @@ inline constexpr std::string_view GCP_CREDENTIAL_PROVIDER_TYPE = "gs.credential_
 inline constexpr std::string_view GCP_IMPERSONATION_SERVICE_ACCOUNT =
         "gs.impersonation_service_account";
 
+inline constexpr std::string_view GCP_OAUTH2_TOKEN = "gs.oauth2.token";
+inline constexpr std::string_view GCP_OAUTH2_TOKEN_EXPIRES_AT = "gs.oauth2.token-expires-at";
+
 enum class GcpCredentialProviderType {
     Default,
     ComputeEngine,
+    AccessToken,
 };
 
 struct GcpCredentialConfig {
     GcpCredentialProviderType provider_type = GcpCredentialProviderType::Default;
     std::string impersonation_service_account {};
+    std::string access_token {};
+    // Zero means the issuer did not supply an expiration; GCS still enforces token validity.
+    int64_t expires_at_ms = 0;
 
     bool operator==(const GcpCredentialConfig&) const = default;
 };

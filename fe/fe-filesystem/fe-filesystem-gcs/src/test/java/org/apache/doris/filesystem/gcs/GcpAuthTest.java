@@ -128,4 +128,27 @@ public class GcpAuthTest {
         }
         Mockito.verifyNoInteractions(credentials);
     }
+
+    @Test
+    public void testExpiredVendedTokenFailsWithoutRefreshingFromGoogle() throws Exception {
+        GoogleCredentials credentials = GcpAuth.createCredentials(new GcpCredential(
+                GcpCredentialProviderType.ACCESS_TOKEN, "", "expired-token", 1));
+        Assertions.assertThrows(java.io.IOException.class, credentials::getRequestMetadata);
+    }
+
+    @Test
+    public void testHadoopVendedTokenProviderKeepsCatalogIdentity() throws Exception {
+        org.apache.hadoop.conf.Configuration conf = new org.apache.hadoop.conf.Configuration(false);
+        conf.set(GcpCredential.OAUTH2_TOKEN, "hadoop-token");
+        conf.setLong(GcpCredential.OAUTH2_TOKEN_EXPIRES_AT, 4102444800000L);
+        GcsVendedAccessTokenProvider provider = new GcsVendedAccessTokenProvider();
+        provider.setConf(conf);
+        provider.refresh();
+        Assertions.assertEquals("hadoop-token", provider.getAccessToken().getToken());
+        Assertions.assertEquals(java.time.Instant.ofEpochMilli(4102444800000L),
+                provider.getAccessToken().getExpirationTime());
+        conf.setLong(GcpCredential.OAUTH2_TOKEN_EXPIRES_AT, 1);
+        Assertions.assertThrows(java.io.IOException.class, provider::refresh);
+    }
+
 }

@@ -560,7 +560,11 @@ public final class StorageAdapter {
             // supplied by the filesystem plugin when no static or native credentials are present.
             aligned.remove("AWS_ROLE_ARN");
             aligned.remove("AWS_EXTERNAL_ID");
-            if (s3.hasStaticCredentials()
+            // The provider already validated this BE credential snapshot. Persistent identity resolution
+            // rejects temporary OAuth tokens because they cannot be encoded in a vault/resource credential.
+            boolean nativeGcpSnapshot = "GCP".equals(aligned.get("provider"))
+                    && "ACCESS_TOKEN".equals(aligned.get("gs.credential_provider_type"));
+            if (s3.hasStaticCredentials() || nativeGcpSnapshot
                     || resolveAuthentication(aligned).map(ObjectStorageAuthentication::isNative).orElse(false)) {
                 aligned.remove("AWS_CREDENTIALS_PROVIDER_TYPE");
             } else {
