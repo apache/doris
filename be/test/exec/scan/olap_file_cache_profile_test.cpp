@@ -311,8 +311,8 @@ TEST_F(OlapFileCacheProfileTest, ConcurrentLazyInitializationAndIsolatedState) {
     EXPECT_EQ(value("BytesScannedFromRemote"), 36);
     EXPECT_EQ(value("BytesWriteIntoCache"), 16);
     EXPECT_EQ(value("NumPeerIOTotal"), n);
-    EXPECT_EQ(local->_file_cache_bytes->bytes_scanned_from_remote,
-              local->_file_cache_details->bytes_scanned_from_remote);
+    EXPECT_EQ(local->_file_cache_profile->bytes_scanned_from_remote,
+              local->_segment_profile->get_counter("BytesScannedFromRemote"));
     expect_thrift_value(local->_segment_profile.get(), "RemoteOnlyOnMissTriggered", 1);
     expect_thrift_value(local->_segment_profile.get(), "RemoteOnlyOnMissThresholdBytes", 8192);
     auto zero = make_scanner();
@@ -324,8 +324,8 @@ TEST_F(OlapFileCacheProfileTest, ConcurrentLazyInitializationAndIsolatedState) {
     auto isolated = make_scanner(true, other.get());
     isolated->_tablet_reader->mutable_stats()->file_cache_stats.bytes_read_from_remote = 99;
     isolated->_flush_file_cache_profile_once();
-    EXPECT_NE(other->_file_cache_bytes->bytes_scanned_from_remote,
-              local->_file_cache_bytes->bytes_scanned_from_remote);
+    EXPECT_NE(other->_file_cache_profile->bytes_scanned_from_remote,
+              local->_file_cache_profile->bytes_scanned_from_remote);
     EXPECT_EQ(value("BytesScannedFromRemote"), 36);
 }
 

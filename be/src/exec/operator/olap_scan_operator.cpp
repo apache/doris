@@ -130,28 +130,29 @@ OlapScanLocalState::OlapScanLocalState(RuntimeState* state, OperatorXBase* paren
 
 OlapScanLocalState::~OlapScanLocalState() = default;
 
+io::FileCacheProfileReporter& OlapScanLocalState::_get_file_cache_profile() {
+    std::call_once(_file_cache_profile_once, [this] {
+        _file_cache_profile =
+                std::make_unique<io::FileCacheProfileReporter>(_segment_profile.get());
+    });
+    return *_file_cache_profile;
+}
+
 void OlapScanLocalState::_update_file_cache_bytes(int64_t local_bytes, int64_t remote_bytes,
                                                   int64_t write_bytes) {
-    std::call_once(_file_cache_bytes_once, [this] {
-        _file_cache_bytes =
-                std::make_unique<io::FileCacheRealtimeProfileCounters>(_segment_profile.get());
-    });
-    _file_cache_bytes->update(local_bytes, remote_bytes, write_bytes);
+    _get_file_cache_profile().update_realtime(local_bytes, remote_bytes, write_bytes);
 }
 
 void OlapScanLocalState::_update_file_cache_details(const io::FileCacheStatistics& stats) {
-    std::call_once(_file_cache_details_once, [this] {
-        _file_cache_details =
-                std::make_unique<io::FileCacheProfileReporter>(_segment_profile.get());
-    });
-    _file_cache_details->update_details(&stats);
+    auto& reporter = _get_file_cache_profile();
+    reporter.update_details(&stats);
     // Thrift serializes HWM current, not its peak. A later scanner with zero/smaller values
     // must not erase an earlier trigger/threshold (e.g. thresholds 1024, 512 -> 1024).
     if (stats.remote_only_on_miss_triggered != 0 ||
         stats.remote_only_on_miss_threshold_bytes != 0) {
         std::lock_guard lock(_file_cache_high_water_mutex);
-        auto* triggered = _file_cache_details->remote_only_on_miss_triggered;
-        auto* threshold = _file_cache_details->remote_only_on_miss_threshold_bytes;
+        auto* triggered = reporter.remote_only_on_miss_triggered;
+        auto* threshold = reporter.remote_only_on_miss_threshold_bytes;
         triggered->set(std::max(triggered->value(), stats.remote_only_on_miss_triggered));
         threshold->set(std::max(threshold->value(), stats.remote_only_on_miss_threshold_bytes));
     }

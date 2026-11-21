@@ -284,6 +284,11 @@ TEST_F(ScannerContextTest, inverted_index_profile_collection_is_additive_and_ide
     scanner2->_tablet_reader_params.tablet = tablet;
     scanner1->_tablet_reader = std::make_unique<TabletReader>();
     scanner2->_tablet_reader = std::make_unique<TabletReader>();
+    // The injected readers model successful preparation and initialization before collection.
+    scanner1->_has_prepared = true;
+    scanner2->_has_prepared = true;
+    scanner1->_tablet_reader_initialized = true;
+    scanner2->_tablet_reader_initialized = true;
     auto* stats1 = scanner1->_tablet_reader->mutable_stats();
     stats1->snii_stats.prx_raw_frames = 1;
     stats1->snii_stats.prx_plaintext_bytes = 10;

@@ -172,8 +172,9 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     return diff;
 }
 
-FileCacheRealtimeProfileCounters::FileCacheRealtimeProfileCounters(
-        RuntimeProfile* profile, const std::string& parent_counter) {
+FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
+                                                   const std::string& parent_counter)
+        : _profile(profile) {
     static const char* cache_profile = "FileCache";
     total_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, cache_profile, parent_counter, 2);
     bytes_scanned_from_cache = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BytesScannedFromCache",
@@ -184,16 +185,15 @@ FileCacheRealtimeProfileCounters::FileCacheRealtimeProfileCounters(
                                                           TUnit::BYTES, cache_profile, 1);
 }
 
-void FileCacheRealtimeProfileCounters::update(int64_t local_bytes, int64_t remote_bytes,
-                                              int64_t write_bytes) const {
+void FileCacheProfileReporter::update_realtime(int64_t local_bytes, int64_t remote_bytes,
+                                               int64_t write_bytes) const {
     COUNTER_UPDATE(bytes_scanned_from_cache, local_bytes);
     COUNTER_UPDATE(bytes_scanned_from_remote, remote_bytes);
     COUNTER_UPDATE(bytes_write_into_cache, write_bytes);
 }
 
-FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
-                                                   const std::string& parent_counter)
-        : FileCacheRealtimeProfileCounters(profile, parent_counter), _profile(profile) {
+void FileCacheProfileReporter::_init_details() {
+    auto* profile = _profile;
     static const char* cache_profile = "FileCache";
     num_local_io_total =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
@@ -219,6 +219,14 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
     lock_wait_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LockWaitTimer", cache_profile, 1);
     get_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "GetTimer", cache_profile, 1);
     set_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "SetTimer", cache_profile, 1);
+    _init_io_adaptor_details();
+    _init_index_details();
+    _init_peer_details();
+}
+
+void FileCacheProfileReporter::_init_io_adaptor_details() {
+    auto* profile = _profile;
+    static const char* cache_profile = "FileCache";
     io_adaptor_lookup_count = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorLookupCount",
                                                            TUnit::UNIT, cache_profile, 1);
     io_adaptor_lookup_time_ns = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "IOAdaptorLookupTime",
@@ -273,7 +281,11 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
                                                                      TUnit::UNIT, cache_profile, 1);
     remote_only_on_miss_threshold_bytes = profile->AddHighWaterMarkCounter(
             "RemoteOnlyOnMissThresholdBytes", TUnit::BYTES, cache_profile, 1);
+}
 
+void FileCacheProfileReporter::_init_index_details() {
+    auto* profile = _profile;
+    static const char* cache_profile = "FileCache";
     inverted_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "InvertedIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
     inverted_index_num_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -331,7 +343,11 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
             profile, "SegmentFooterIndexWriteCacheIOUseTimer", cache_profile, 1);
     segment_footer_index_bytes_write_into_cache = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "SegmentFooterIndexBytesWriteIntoCache", TUnit::BYTES, cache_profile, 1);
+}
 
+void FileCacheProfileReporter::_init_peer_details() {
+    auto* profile = _profile;
+    static const char* cache_profile = "FileCache";
     num_cross_cg_peer_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "CrossCGPeerIOTotal",
                                                               TUnit::UNIT, cache_profile, 1);
     bytes_scanned_from_cross_cg_peer = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "CrossCGPeerBytesRead",
@@ -354,16 +370,16 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "PeerLazyFetchTime", cache_profile, 1);
 }
 
-void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) const {
-    FileCacheRealtimeProfileCounters::update(statistics->bytes_read_from_local,
-                                             statistics->bytes_read_from_remote,
-                                             statistics->bytes_write_into_cache);
+void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) {
+    update_realtime(statistics->bytes_read_from_local, statistics->bytes_read_from_remote,
+                    statistics->bytes_write_into_cache);
     update_details(statistics);
     remote_only_on_miss_triggered->set(statistics->remote_only_on_miss_triggered);
     remote_only_on_miss_threshold_bytes->set(statistics->remote_only_on_miss_threshold_bytes);
 }
 
-void FileCacheProfileReporter::update_details(const FileCacheStatistics* statistics) const {
+void FileCacheProfileReporter::update_details(const FileCacheStatistics* statistics) {
+    std::call_once(_details_once, [this] { _init_details(); });
     _update_io_details(statistics);
     _update_index_details(statistics);
     _update_peer_details(statistics);
