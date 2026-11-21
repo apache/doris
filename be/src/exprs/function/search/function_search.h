@@ -115,6 +115,15 @@ public:
     static std::string dsl_cache_signature(const TSearchParam& search_param,
                                            const IndexQueryContext* context);
 
+#ifdef BE_TEST
+    using SingleFlightObserver = void (*)(void*) noexcept;
+    // Called when an evaluation leads a shared SEARCH run, before it computes, and when one joins
+    // a run another evaluation leads. They are process-wide: a function carries no member data.
+    static void set_single_flight_observers_for_test(SingleFlightObserver leader_before_compute,
+                                                     SingleFlightObserver follower_joined,
+                                                     void* opaque);
+#endif
+
 private:
     Status _evaluate_search_param(
             const TSearchParam& search_param,

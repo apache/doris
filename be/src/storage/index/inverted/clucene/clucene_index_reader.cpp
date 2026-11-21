@@ -785,9 +785,16 @@ Status BkdIndexReader::query(const IndexQueryContextPtr& context, const std::str
             return Status::OK();
         }
 
-        RETURN_IF_ERROR(invoke_bkd_query(context, query_value, query_type, r, bit_map));
-        bit_map->runOptimize();
-        cache->insert(cache_key, bit_map, &cache_handler);
+        // Every scanner of a split segment asks for the whole segment at once, so they share one
+        // run, as text queries do.
+        RETURN_IF_ERROR(run_query_single_flight(
+                cache_key.encode(), &bit_map, [&](std::shared_ptr<roaring::Roaring>* result) {
+                    *result = std::make_shared<roaring::Roaring>();
+                    RETURN_IF_ERROR(invoke_bkd_query(context, query_value, query_type, r, *result));
+                    (*result)->runOptimize();
+                    cache->insert(cache_key, *result, &cache_handler);
+                    return Status::OK();
+                }));
 
         VLOG_DEBUG << "BKD index search column: " << column_name
                    << " result: " << bit_map->cardinality();
