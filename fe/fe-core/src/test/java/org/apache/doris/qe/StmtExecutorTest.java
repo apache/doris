@@ -904,6 +904,46 @@ public class StmtExecutorTest extends TestWithFeService {
         }
     }
 
+    @Test
+    @ResourceLock("global")
+    public void testAutomaticReplanRestoresOriginalSpmStatement() throws Exception {
+        ConnectContext context = new ConnectContext();
+        TUniqueId queryId = new TUniqueId(0x230L, 1L);
+        context.setQueryId(queryId);
+        StmtExecutor executor = Mockito.spy(new StmtExecutor(context, "SELECT * FROM t"));
+        StatementContext statement = context.getStatementContext();
+        LogicalPlanAdapter original = new LogicalPlanAdapter(
+                new NereidsParser().parseSingle("SELECT * FROM t"), statement);
+        LogicalPlanAdapter replay = new LogicalPlanAdapter(
+                new NereidsParser().parseSingle("SELECT k FROM t"), statement);
+        executor.setParsedStmt(original);
+        AtomicInteger attempts = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            if (attempts.incrementAndGet() == 1) {
+                Deencapsulation.setField(executor, "parsedStmtBeforeSpm", original);
+                executor.setParsedStmt(replay);
+                statement.setSpmBaselineApplied(true);
+                statement.setSpmUsedBaselineId(7);
+                statement.setPrivChecked(true);
+                throw new UserException("E-230");
+            }
+            Assertions.assertSame(original, executor.getParsedStmt());
+            Assertions.assertFalse(statement.isSpmBaselineApplied());
+            Assertions.assertEquals(-1, statement.getSpmUsedBaselineId());
+            return null;
+        }).when(executor).execute(Mockito.any(TUniqueId.class));
+        int oldRetryTime = Config.max_query_retry_time;
+        try {
+            Config.max_query_retry_time = 1;
+            Method execute = StmtExecutor.class.getDeclaredMethod("executeWithReplanRetries", TUniqueId.class);
+            execute.setAccessible(true);
+            execute.invoke(executor, queryId);
+            Assertions.assertEquals(2, attempts.get());
+        } finally {
+            Config.max_query_retry_time = oldRetryTime;
+        }
+    }
+
     private interface CoordinatorConfigurer {
         void configure(Coordinator coordinator) throws Exception;
     }

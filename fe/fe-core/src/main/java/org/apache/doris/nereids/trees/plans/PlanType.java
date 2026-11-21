@@ -490,5 +490,10 @@ public enum PlanType {
     DROP_STREAM_COMMAND,
     SHOW_CREATE_STREAM_COMMAND,
     SHOW_STREAMS,
+    // ==================== SPM (SQL Plan Management) 命令（Phase 1） ====================
+    CREATE_BASELINE_PLAN_COMMAND,
+    ALTER_BASELINE_PLAN_COMMAND,
+    DROP_BASELINE_PLAN_COMMAND,
+    SHOW_BASELINE_PLANS_COMMAND,
     EMPTY_COMMAND
 }

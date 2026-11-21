@@ -46,6 +46,13 @@ import java.util.Set;
  * Abstract class for all plan node.
  */
 public interface Plan extends TreeNode<Plan> {
+    /**
+     * Whether the CURRENT thread is rendering an SPM digest (see #toSpmDigest): toggled
+     * by the digest entry around the toDigest() walk and consulted by every node that
+     * renders an SPM-specific identity inside its own toDigest().
+     */
+    ThreadLocal<Boolean> SPM_DIGEST_MODE = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
     PlanType getType();
 
     // cache GroupExpression for fast exit from Memo.copyIn.
@@ -193,6 +200,49 @@ public interface Plan extends TreeNode<Plan> {
     }
 
     String treeString(boolean printStates, Object specialPlan);
+
+    /**
+     * SPM-specific full-query digest (design doc 6.1 / 6.14): the parameterized full
+     * SQL of this plan with literal values normalized to "?" (value-independent),
+     * including table names. Used for the SPM Level 2 exact digest matching and shown in
+     * SHOW BASELINE PLANS as bind_sql_digest.
+     *
+     * This is a dedicated entry point for SPM, decoupled from toDigest()
+     * (Doris's query fingerprint used by audit / blocking rules); toDigest() is
+     * intentionally left unmodified and toSpmDigest() may evolve independently.
+     *
+     * The entry toggles {@link #SPM_DIGEST_MODE} around the toDigest() walk: every node
+     * that renders an SPM-specific identity (a hint list, the WITH recursion flag, the
+     * positional alias list, an unnest mode flag, the VALUES shape) adds it INSIDE its own
+     * toDigest() while the mode is on. Without the mode a node whose toDigest() renders
+     * its child through child().toDigest() - or asks an intermediate default node to do so -
+     * silently DROPPED every nested SPM identity, so two variants of a statement that
+     * differ only in a hint inside a SUBQUERY block shared one digest and the second
+     * GLOBAL CREATE was confirmed as a duplicate of the first
+     * (see SPMPlanner#assembleBaseline).
+     */
+    default String toSpmDigest() {
+        if (SPM_DIGEST_MODE.get()) {
+            // nested entry (a node reached through an explicit toSpmDigest() forwarding):
+            // the whole tree is already being rendered in SPM mode
+            return toDigest();
+        }
+        SPM_DIGEST_MODE.set(true);
+        try {
+            return toDigest();
+        } finally {
+            SPM_DIGEST_MODE.set(false);
+        }
+    }
+
+    /**
+     * Whether the CURRENT thread is rendering an SPM digest (see #toSpmDigest).
+     *
+     * @return true while the digest entry walks the tree in SPM mode
+     */
+    static boolean spmDigestMode() {
+        return SPM_DIGEST_MODE.get();
+    }
 
     Plan withGroupExpression(Optional<GroupExpression> groupExpression);
 

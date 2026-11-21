@@ -122,7 +122,13 @@ public class UnboundAlias extends NamedExpression implements UnaryExpression, Un
     @Override
     public UnboundAlias withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new UnboundAlias(children, alias);
+        // Keep the alias PROVENANCE: a nameFromChild alias (the parser's fallback from the
+        // expression text) must not turn into an explicitly named one when a child is
+        // rewritten - the SPM match treats an explicit alias as part of the result
+        // contract and a derived one as not, so losing the flag would let a derived alias
+        // on one side pair with an explicit alias on the other and replay the captured
+        // result header.
+        return new UnboundAlias(children, alias, nameFromChild);
     }
 
     public Optional<String> getAlias() {

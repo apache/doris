@@ -38,10 +38,13 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.primitives.Ints;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Recognizer;
@@ -50,12 +53,14 @@ import org.antlr.v4.runtime.TokenSource;
 import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.Interval;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
+import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.TerminalNode;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Method;
+import java.util.ArrayDeque;
 import java.util.BitSet;
 import java.util.Iterator;
 import java.util.List;
@@ -74,6 +79,18 @@ public class NereidsParser {
     private static final ParseErrorListener PARSE_ERROR_LISTENER = new ParseErrorListener();
 
     private static final BitSet EXPLAIN_TOKENS = new BitSet();
+
+    private static final Cache<StoredSyntaxKey, StoredSyntax> STORED_SYNTAX = Caffeine.newBuilder()
+            .maximumWeight(16L * 1024 * 1024)
+            .weigher((StoredSyntaxKey key, StoredSyntax syntax) -> syntax.weight())
+            .build();
+
+    private record StoredSyntaxKey(String sql, long sqlMode, boolean ansiSyntax) {
+    }
+
+    /** A read-only syntax template; logical plans and their ids are never shared. */
+    private record StoredSyntax(ParserRuleContext tree, Map<Integer, ParserRuleContext> hints, int weight) {
+    }
 
     private static final Set<String> NON_RESERVED_KEYWORDS;
     private static final Map<String, Integer> LITERAL_TOKENS;
@@ -277,6 +294,47 @@ public class NereidsParser {
         return parse(sql, logicalPlanBuilder, DorisParser::singleStatement);
     }
 
+    /**
+     * Reuses bounded stored-text syntax while building fresh plans in the current statement context.
+     * The caller supplies the stored SQL's parser mode and suppresses parse-time SET_VAR side effects.
+     */
+    public LogicalPlan parseSingleCached(String sql) {
+        return parseSingleCached(sql, false);
+    }
+
+    /** Parses stored syntax with the logical builder for the given SQL source. */
+    public LogicalPlan parseSingleCached(String sql, boolean preserveTypedCharacterLiterals) {
+        StoredSyntaxKey key = new StoredSyntaxKey(sql, SqlModeHelper.currentMode(),
+                GlobalVariable.enable_ansi_query_organization_behavior);
+        return SqlModeHelper.withSqlMode(key.sqlMode(), () -> {
+            StoredSyntax syntax = STORED_SYNTAX.get(key, NereidsParser::storedSyntax);
+            return (LogicalPlan) new LogicalPlanBuilder(syntax.hints(), preserveTypedCharacterLiterals)
+                    .visit(syntax.tree());
+        });
+    }
+
+    private static StoredSyntax storedSyntax(StoredSyntaxKey key) {
+        CommonTokenStream tokens = parseLeanTokens(key.sql());
+        ParserRuleContext tree = toAst(tokens, DorisParser::singleStatement, key.ansiSyntax());
+        Map<Integer, ParserRuleContext> hints = ImmutableMap.copyOf(
+                getHintMap(tokens, DorisParser::selectHint));
+        long nodes = 0;
+        ArrayDeque<ParseTree> pending = new ArrayDeque<>();
+        pending.push(tree);
+        for (ParserRuleContext hint : hints.values()) {
+            pending.push(hint);
+        }
+        while (!pending.isEmpty()) {
+            ParseTree node = pending.pop();
+            nodes++;
+            for (int i = 0; i < node.getChildCount(); i++) {
+                pending.push(node.getChild(i));
+            }
+        }
+        int weight = Ints.saturatedCast(128L * nodes + 96L * tokens.size() + 8L * key.sql().length() + 128L);
+        return new StoredSyntax(tree, hints, weight);
+    }
+
     public LogicalPlan parseQuery(String sql) {
         return parse(sql, DorisParser::query);
     }
@@ -349,20 +407,28 @@ public class NereidsParser {
 
     private <T> T parse(String sql, @Nullable LogicalPlanBuilder logicalPlanBuilder,
                         Function<DorisParser, ParserRuleContext> parseFunction) {
-        CommonTokenStream tokenStream = parseLeanTokens(sql);
-        ParserRuleContext tree = toAst(tokenStream, parseFunction);
-        LogicalPlanBuilder realLogicalPlanBuilder = logicalPlanBuilder == null
-                    ? new LogicalPlanBuilder(getHintMap(tokenStream, DorisParser::selectHint))
-                    : logicalPlanBuilder;
-        return (T) realLogicalPlanBuilder.visit(tree);
+        // A nested block's SET_VAR can write the session before an outer expression is visited.
+        // Keep the lexer and every expression builder on the mode in force when parsing started.
+        // The hint still updates the real session for planning; statement cleanup restores that value.
+        return SqlModeHelper.withSqlMode(SqlModeHelper.currentMode(), () -> {
+            CommonTokenStream tokenStream = parseLeanTokens(sql);
+            ParserRuleContext tree = toAst(tokenStream, parseFunction);
+            LogicalPlanBuilder realLogicalPlanBuilder = logicalPlanBuilder == null
+                        ? new LogicalPlanBuilder(getHintMap(tokenStream, DorisParser::selectHint))
+                        : logicalPlanBuilder;
+            return (T) realLogicalPlanBuilder.visit(tree);
+        });
     }
 
+    /** Parses view SQL and records source positions under one parser mode for all query blocks. */
     public LogicalPlan parseForCreateView(String sql) {
-        CommonTokenStream tokenStream = parseLeanTokens(sql);
-        ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
-        LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView(
-                getHintMap(tokenStream, DorisParser::selectHint));
-        return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
+        return SqlModeHelper.withSqlMode(SqlModeHelper.currentMode(), () -> {
+            CommonTokenStream tokenStream = parseLeanTokens(sql);
+            ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
+            LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView(
+                    getHintMap(tokenStream, DorisParser::selectHint));
+            return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
+        });
     }
 
     /** Parse SQL for masking without applying execution hints to the session. */
@@ -378,19 +444,22 @@ public class NereidsParser {
 
     /** parseForSyncMv */
     public Optional<String> parseForSyncMv(String sql) {
-        CommonTokenStream tokenStream = parseLeanTokens(sql);
-        ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
-        LogicalPlanBuilderForSyncMv logicalPlanBuilderForSyncMv = new LogicalPlanBuilderForSyncMv(
-                getHintMap(tokenStream, DorisParser::selectHint));
-        logicalPlanBuilderForSyncMv.visit(tree);
-        return logicalPlanBuilderForSyncMv.getQuerySql();
+        return SqlModeHelper.withSqlMode(SqlModeHelper.currentMode(), () -> {
+            CommonTokenStream tokenStream = parseLeanTokens(sql);
+            ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
+            LogicalPlanBuilderForSyncMv logicalPlanBuilderForSyncMv = new LogicalPlanBuilderForSyncMv(
+                    getHintMap(tokenStream, DorisParser::selectHint));
+            logicalPlanBuilderForSyncMv.visit(tree);
+            return logicalPlanBuilderForSyncMv.getQuerySql();
+        });
     }
 
     /** get hint map */
     public static Map<Integer, ParserRuleContext> getHintMap(CommonTokenStream hintTokenStream,
                                                              Function<DorisParser, ParserRuleContext> parseFunction) {
         // parse hint first round
-        Map<Integer, ParserRuleContext> selectHintMap = Maps.newHashMap();
+        // Repeated assignments in one query block must be applied in SQL text order.
+        Map<Integer, ParserRuleContext> selectHintMap = Maps.newTreeMap();
 
         Iterator<Token> tokenIterator = hintTokenStream.getTokens().iterator();
         Token hintToken = tokenIterator.hasNext() ? tokenIterator.next() : null;
@@ -418,8 +487,13 @@ public class NereidsParser {
     /** toAst */
     public static ParserRuleContext toAst(
             CommonTokenStream tokenStream, Function<DorisParser, ParserRuleContext> parseFunction) {
+        return toAst(tokenStream, parseFunction, GlobalVariable.enable_ansi_query_organization_behavior);
+    }
+
+    private static ParserRuleContext toAst(CommonTokenStream tokenStream,
+            Function<DorisParser, ParserRuleContext> parseFunction, boolean ansiSyntax) {
         DorisParser parser = new DorisParser(tokenStream);
-        parser.ansiSQLSyntax = GlobalVariable.enable_ansi_query_organization_behavior;
+        parser.ansiSQLSyntax = ansiSyntax;
         parser.removeErrorListeners();
         parser.addErrorListener(PARSE_ERROR_LISTENER);
 

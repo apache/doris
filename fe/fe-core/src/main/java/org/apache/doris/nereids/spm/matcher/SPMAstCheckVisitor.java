@@ -1,0 +1,415 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.spm.matcher;
+
+import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
+import org.apache.doris.nereids.spm.placeholder.SpmConstList;
+import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.Exists;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.Match;
+import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * Compares bind and user expressions and records user expressions under scalar or IN-list marker ids. Concrete
+ * expression classes and operator metadata are checked before recursively comparing children. SlotReference uses
+ * its name; UnboundSlot uses its digest, which preserves qualification. Unordered predicate matching restores
+ * captured values after a failed tentative pairing.
+ */
+public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVisitor.CheckContext> {
+
+    /**
+     * Match context: carries the user-side expression and the placeholder value
+     * extraction result.
+     */
+    public static class CheckContext {
+        /** The user-side expression corresponding to the current bind-side node. */
+        private final Expression userExpr;
+        /** Placeholder id -> actual value (extraction result). */
+        private final Map<Long, Expression> placeholderValues;
+
+        public CheckContext(Expression userExpr, Map<Long, Expression> placeholderValues) {
+            this.userExpr = userExpr;
+            this.placeholderValues = PlaceholderBindings.track(placeholderValues);
+        }
+    }
+
+    /**
+     * Match entry point.
+     *
+     * Parameter bindExpr: the bindSql-side expression
+     * Parameter userExpr: the user-query-side expression
+     * Parameter placeholderValues: the placeholder value extraction result (filled in here)
+     * Returns: whether the structures match
+     */
+    public boolean checkExpression(Expression bindExpr, Expression userExpr,
+            Map<Long, Expression> placeholderValues) {
+        return bindExpr.accept(this, new CheckContext(userExpr, placeholderValues));
+    }
+
+    /** Cheap necessary conditions only; keeps the existing unordered search order intact. */
+    public static boolean mayMatch(Expression bind, Expression user) {
+        if (bind instanceof SpmConstVar) {
+            return true;
+        }
+        if (bind instanceof InPredicate ? !(user instanceof InPredicate) : bind.getClass() != user.getClass()) {
+            return false;
+        }
+        if (bind instanceof UnboundFunction) {
+            UnboundFunction left = (UnboundFunction) bind;
+            UnboundFunction right = (UnboundFunction) user;
+            if (!left.getName().equalsIgnoreCase(right.getName())
+                    || left.isDistinct() != right.isDistinct()
+                    || !Objects.equals(left.getDbName(), right.getDbName())) {
+                return false;
+            }
+        }
+        if (bind instanceof SlotReference || bind instanceof UnboundSlot) {
+            return sameSlotName(bind, user);
+        }
+        if ((bind instanceof BinaryOperator && !(bind instanceof CompoundPredicate)
+                || bind instanceof InPredicate) && !bind.children().isEmpty() && !user.children().isEmpty()) {
+            Expression first = bind.child(0);
+            if (first instanceof SlotReference || first instanceof UnboundSlot) {
+                Expression other = user.child(0);
+                return first.getClass() == other.getClass()
+                        && sameSlotName(first, other);
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public Boolean visit(Expression bindExpr, CheckContext context) {
+        Expression userExpr = context.userExpr;
+
+        // placeholder: extract the value (do not compare inner children).
+        if (bindExpr instanceof SpmConstVar) {
+            SpmConstVar placeholder = (SpmConstVar) bindExpr;
+            return recordPlaceholderValue(placeholder.getId(), userExpr, context);
+        }
+
+        // Type mismatch -> no match
+        if (bindExpr.getClass() != userExpr.getClass()) {
+            return false;
+        }
+
+        // Identity fields that live OUTSIDE children must be compared explicitly:
+        // UnboundStar: the REPLACE payload (a leaf with no children - a baseline
+        //   captured with "* REPLACE(k + 1 AS k)" must not replay its captured
+        //   expression for a query using "* REPLACE(k + 2 AS k)")
+        // UnboundFunction: the name / DISTINCT flag / database qualifier (abs(k) must not
+        //   match sqrt(k), count(k) must not match count(distinct k), db1.f must not
+        //   match db2.f)
+        // WindowExpression: the frame (ROWS 1 PRECEDING must not replay as 2 PRECEDING;
+        //   WindowFrame is not an expression child, so neither the placeholder
+        //   construction nor the generic child comparison sees its bound offsets)
+        if (bindExpr instanceof UnboundStar) {
+            // The REPLACE / EXCEPT payloads are kept OUTSIDE children. Compare them
+            // STRUCTURALLY rather than by toSql text: the payload may own a SUBQUERY
+            // whose relations are namespace-qualified on the user side while the stored
+            // bind tree stays the raw parse (relation NAMES are deliberately not part of
+            // Level 3 - the digest pre-filter owns the namespace), so text equality
+            // rejected a valid baseline whose own text contains
+            // "* REPLACE((SELECT max(v) FROM u) AS k)" (the namespace rebuild qualified
+            // the user's payload to internal.db.u). Everything else stays EXACT: the
+            // qualifier, and the payload literals (they are NOT parameterized inside a
+            // star, so accepting a value variant would replay the captured one).
+            UnboundStar bindStar = (UnboundStar) bindExpr;
+            UnboundStar userStar = (UnboundStar) userExpr;
+            if (!Objects.equals(bindStar.getQualifier(), userStar.getQualifier())) {
+                return false;
+            }
+            if (!samePayloadExpressions(bindStar.getExceptedSlots(), userStar.getExceptedSlots(),
+                    context)) {
+                return false;
+            }
+            return samePayloadExpressions(bindStar.getReplacedAlias(),
+                    userStar.getReplacedAlias(), context);
+        }
+        if (bindExpr instanceof UnboundFunction) {
+            UnboundFunction bindFunction = (UnboundFunction) bindExpr;
+            UnboundFunction userFunction = (UnboundFunction) userExpr;
+            // the NAME is compared case-insensitively: the digest upper-cases it, so a
+            // case-only spelling difference is the SAME function and must stay
+            // matchable; a genuinely different name (or DISTINCT flag) must never match,
+            // or the replay would evaluate another function
+            if (!bindFunction.getName().equalsIgnoreCase(userFunction.getName())
+                    || bindFunction.isDistinct() != userFunction.isDistinct()
+                    || !Objects.equals(bindFunction.getDbName(), userFunction.getDbName())) {
+                return false;
+            }
+        }
+        if (bindExpr instanceof WindowExpression) {
+            WindowFrame bindFrame = ((WindowExpression) bindExpr).getWindowFrame().orElse(null);
+            WindowFrame userFrame = ((WindowExpression) userExpr).getWindowFrame().orElse(null);
+            if ((bindFrame == null) != (userFrame == null)) {
+                return false;
+            }
+            if (bindFrame != null
+                    && !Objects.equals(bindFrame.computeToSql(), userFrame.computeToSql())) {
+                return false;
+            }
+        }
+        // Match: the analyzer (the tokenizer named in "USING ANALYZER...") decides how the
+        // pattern is read and is stored outside children; BinaryOperator.toDigest
+        // omits it as well. Two MATCH variants with different analyzers must not match:
+        // the replay keeps the baseline analyzer and can return different matches.
+        if (bindExpr instanceof Match
+                && !Objects.equals(((Match) bindExpr).getAnalyzer(),
+                        ((Match) userExpr).getAnalyzer())) {
+            return false;
+        }
+
+        // A WHERE clause is collected into ONE n-ary AND (OR) node, whose operands are an
+        // UNORDERED multiset: the bind side renders placeholders while the user side
+        // carries the literal text, so a positional comparison rejects a valid baseline
+        // whenever the literal values reverse the textual order. Match the operands
+        // transactionally: a tentative pairing rolls its extractions back on failure.
+        if (bindExpr instanceof CompoundPredicate) {
+            List<Expression> bindChildren = bindExpr.children();
+            List<Expression> userChildren = userExpr.children();
+            if (bindChildren.size() != userChildren.size()) {
+                return false;
+            }
+            List<Expression> remaining = new ArrayList<>(userChildren);
+            for (Expression bindChild : bindChildren) {
+                int matched = -1;
+                // the operand pairing is an UNORDERED search: a greedy pairing can
+                // succeed here and still break a LATER use of the same placeholder id
+                // (a filter constraining the same id differently) - the retry driver
+                // re-runs the check with a different starting point (see MatchAttempt)
+                int offset = MatchAttempt.offset(remaining.size());
+                for (int i = 0; i < remaining.size(); i++) {
+                    int candidate = (offset + i) % remaining.size();
+                    if (!mayMatch(bindChild, remaining.get(candidate))) {
+                        continue;
+                    }
+                    PlaceholderBindings bindings = (PlaceholderBindings) context.placeholderValues;
+                    int checkpoint = bindings.checkpoint();
+                    if (checkExpression(bindChild, remaining.get(candidate),
+                            context.placeholderValues)) {
+                        matched = candidate;
+                        break;
+                    }
+                    bindings.rollback(checkpoint);
+                }
+                if (matched < 0) {
+                    return false;
+                }
+                remaining.remove(matched);
+            }
+            return true;
+        }
+
+        // Column references are compared by name (a = 100 must not match b = 42)
+        if (bindExpr instanceof SlotReference || bindExpr instanceof UnboundSlot) {
+            return sameSlotName(bindExpr, userExpr);
+        }
+
+        // An unparameterized bind literal, such as a LIKE escape character or a star replacement value, must
+        // equal the user literal. Otherwise replay would retain a captured value from a position the builder
+        // intentionally leaves concrete.
+        if (bindExpr instanceof Literal && userExpr instanceof Literal) {
+            return bindExpr.getDataType().equals(userExpr.getDataType()) && bindExpr.equals(userExpr);
+        }
+
+        // Child count mismatch -> no match
+        if (bindExpr.children().size() != userExpr.children().size()) {
+            return false;
+        }
+        // Compare children recursively
+        for (int i = 0; i < bindExpr.children().size(); i++) {
+            Expression bindChild = bindExpr.children().get(i);
+            Expression userChild = userExpr.children().get(i);
+            if (!bindChild.accept(this, new CheckContext(userChild, context.placeholderValues))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean sameSlotName(Expression left, Expression right) {
+        if (left.getClass() == UnboundSlot.class && right.getClass() == UnboundSlot.class) {
+            List<String> leftParts = ((UnboundSlot) left).getNameParts();
+            List<String> rightParts = ((UnboundSlot) right).getNameParts();
+            if (leftParts.size() == 1 && rightParts.size() == 1) {
+                // Escaping one component is injective; avoid rendering it for each tentative pairing.
+                return leftParts.get(0).equals(rightParts.get(0));
+            }
+        }
+        return Objects.equals(slotName(left), slotName(right));
+    }
+
+    /**
+     * Returns a bound slot name or an unbound slot digest. The digest preserves the distinction between one quoted
+     * dotted component and separate qualifier and column components.
+     */
+    private static String slotName(Expression expr) {
+        if (expr instanceof SlotReference) {
+            return ((SlotReference) expr).getName();
+        }
+        if (expr instanceof UnboundSlot) {
+            // Boundary-preserving rendering (see UnboundSlot.toDigest): joining the raw
+            // name parts with dots made a.b (ONE dotted component) equal to a.b
+            // (qualifier a + column b), so a replay could return the captured a.b
+            // value for a query that selected column b.
+            return expr.toDigest();
+        }
+        return expr.toSql();
+    }
+
+    // IN predicate special handling.
+
+    @Override
+    public Boolean visitInPredicate(InPredicate bindIn, CheckContext context) {
+        if (!(context.userExpr instanceof InPredicate)) {
+            return false;
+        }
+        InPredicate userIn = (InPredicate) context.userExpr;
+
+        // The compareExpr must match
+        if (!bindIn.getCompareExpr().accept(this,
+                new CheckContext(userIn.getCompareExpr(), context.placeholderValues))) {
+            return false;
+        }
+
+        // bind side has a single SpmConstList option -> the whole user IN list is the
+        // value of that id
+        if (bindIn.getOptions().size() == 1 && bindIn.getOptions().get(0) instanceof SpmConstList) {
+            SpmConstList list = (SpmConstList) bindIn.getOptions().get(0);
+            return recordPlaceholderValue(list.getId(), userIn, context);
+        }
+
+        // Regular IN: compare the options one by one
+        if (bindIn.getOptions().size() != userIn.getOptions().size()) {
+            return false;
+        }
+        for (int i = 0; i < bindIn.getOptions().size(); i++) {
+            if (!bindIn.getOptions().get(i).accept(this,
+                    new CheckContext(userIn.getOptions().get(i), context.placeholderValues))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Records a placeholder value: records on first occurrence and validates
+     * consistency on later occurrences.
+     *
+     * Parameter id: the placeholder id
+     * Parameter userExpr: the actual user-side value
+     * Parameter context: the match context
+     * Returns: whether it passes
+     */
+    private boolean recordPlaceholderValue(long id, Expression userExpr, CheckContext context) {
+        if (!context.placeholderValues.containsKey(id)) {
+            context.placeholderValues.put(id, userExpr);
+            return true;
+        }
+        return Objects.equals(context.placeholderValues.get(id), userExpr);
+    }
+
+    // subquery matching.
+
+    /**
+     * Compares payload expressions positionally using the plan-tree payload matcher, which also checks alias
+     * metadata.
+     */
+    private boolean samePayloadExpressions(List<? extends Expression> bind,
+            List<? extends Expression> user, CheckContext context) {
+        if (bind.size() != user.size()) {
+            return false;
+        }
+        for (int i = 0; i < bind.size(); i++) {
+            // route through the SPM entry point: it enforces the explicit-alias name and
+            // derived-alias parity BEFORE delegating to this visitor, so
+            // "* REPLACE(k + 1 AS k)" never matches "* REPLACE(k + 1 AS j)"
+            Expression userItem = user.get(i);
+            if (!SPMPlanTreeSupport.checkPayloadExpression(bind.get(i), userItem,
+                    context.placeholderValues)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Checks subquery kind, IN or EXISTS negation, the IN compare expression and the nested plan structure. Marker
+     * values are collected through the same context. Nested LIMIT and OFFSET values remain exact structural
+     * constraints.
+     */
+    @Override
+    public Boolean visitSubqueryExpr(SubqueryExpr bindSubquery, CheckContext context) {
+        Expression userExpr = context.userExpr;
+        if (bindSubquery.getClass() != userExpr.getClass()) {
+            return false;
+        }
+        SubqueryExpr userSubquery = (SubqueryExpr) userExpr;
+
+        if (bindSubquery instanceof InSubquery) {
+            InSubquery bindIn = (InSubquery) bindSubquery;
+            InSubquery userIn = (InSubquery) userSubquery;
+            if (bindIn.isNot() != userIn.isNot()) {
+                return false;
+            }
+            if (!bindIn.getCompareExpr().accept(this,
+                    new CheckContext(userIn.getCompareExpr(), context.placeholderValues))) {
+                return false;
+            }
+        } else if (bindSubquery instanceof Exists) {
+            if (((Exists) bindSubquery).isNot() != ((Exists) userSubquery).isNot()) {
+                return false;
+            }
+        } else if (bindSubquery instanceof ScalarSubquery) {
+            // A ScalarSubquery has no compare expression and no NOT flag, so there is
+            // nothing extra to check here - its inner subquery predicates are compared
+            // below. It is routed to this method through
+            // ExpressionVisitor.visitScalarSubquery (default -> visitSubqueryExpr), so a
+            // scalar subquery in the SELECT list or in a filter expression takes part in
+            // the structural comparison and value extraction like any other subquery.
+        }
+
+        // compare the subquery's whole plan tree against the user side (every node's
+        // expressions pairwise); this extracts the user values for placeholders anywhere
+        // inside the subquery (filters, having, projections, nested subqueries,...),
+        // while LIMIT / OFFSET of the subquery plan are compared exactly (they cannot be
+        // merged from the user query afterwards)
+        return SPMPlanTreeSupport.checkSubqueryPlan(bindSubquery.getQueryPlan(),
+                userSubquery.getQueryPlan(), context.placeholderValues);
+    }
+}
