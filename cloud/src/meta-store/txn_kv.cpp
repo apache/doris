@@ -1040,136 +1040,38 @@ TxnErrorCode Transaction::get_versionstamp(Versionstamp* versionstamp) {
     return TxnErrorCode::TXN_OK;
 }
 
+static TxnErrorCode get_conflict_range(Transaction* txn, std::string_view prefix,
+                                       std::vector<std::pair<std::string, std::string>>* values) {
+    std::string end(prefix);
+    end.push_back('\xff');
+    FullRangeGetOptions opts;
+    opts.batch_limit = 0;
+    TEST_SYNC_POINT_CALLBACK("transaction:get_conflict_range:batch_limit", &opts.batch_limit);
+
+    // The iterator uses the full last key to read the next page in the same transaction.
+    auto iter = txn->full_range_get(prefix, end, opts);
+    for (auto kv = iter->next(); kv.has_value(); kv = iter->next()) {
+        auto [key, value] = *kv;
+        // Drop the prefix only from the key copied to the result.
+        key.remove_prefix(prefix.size());
+        values->emplace_back(key, value);
+    }
+    return iter->error_code();
+}
+
 TxnErrorCode Transaction::get_conflicting_range(
         std::vector<std::pair<std::string, std::string>>* values) {
-    constexpr std::string_view start = "\xff\xff/transaction/conflicting_keys/";
-    constexpr std::string_view end = "\xff\xff/transaction/conflicting_keys/\xff";
-
-    int limit = 0;
-    int target_bytes = 0;
-    FDBStreamingMode mode = FDB_STREAMING_MODE_WANT_ALL;
-    int iteration = 0;
-    fdb_bool_t snapshot = 0;
-    fdb_bool_t reverse = 0;
-    FDBFuture* future = fdb_transaction_get_range(
-            txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)start.data(), start.size()),
-            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end.data(), end.size()), limit,
-            target_bytes, mode, iteration, snapshot, reverse);
-
-    DORIS_CLOUD_DEFER {
-        fdb_future_destroy(future);
-    };
-
-    RETURN_IF_ERROR(await_future(future));
-
-    FDBKeyValue const* out_kvs;
-    int out_kvs_count;
-    fdb_bool_t out_more = false;
-    do {
-        fdb_error_t err =
-                fdb_future_get_keyvalue_array(future, &out_kvs, &out_kvs_count, &out_more);
-        if (err) {
-            LOG(WARNING) << "get_conflicting_range get keyvalue array error: "
-                         << fdb_get_error(err);
-            return cast_as_txn_code(err);
-        }
-        for (int i = 0; i < out_kvs_count; i++) {
-            std::string_view key((char*)out_kvs[i].key, out_kvs[i].key_length);
-            std::string_view value((char*)out_kvs[i].value, out_kvs[i].value_length);
-            key.remove_prefix(start.size());
-            values->emplace_back(key, value);
-        }
-    } while (out_more);
-
-    return TxnErrorCode::TXN_OK;
+    return get_conflict_range(this, "\xff\xff/transaction/conflicting_keys/", values);
 }
 
 TxnErrorCode Transaction::get_read_conflict_range(
         std::vector<std::pair<std::string, std::string>>* values) {
-    constexpr std::string_view start = "\xff\xff/transaction/read_conflict_range/";
-    constexpr std::string_view end = "\xff\xff/transaction/read_conflict_range/\xff";
-
-    int limit = 0;
-    int target_bytes = 0;
-    FDBStreamingMode mode = FDB_STREAMING_MODE_WANT_ALL;
-    int iteration = 0;
-    fdb_bool_t snapshot = 0;
-    fdb_bool_t reverse = 0;
-    FDBFuture* future = fdb_transaction_get_range(
-            txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)start.data(), start.size()),
-            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end.data(), end.size()), limit,
-            target_bytes, mode, iteration, snapshot, reverse);
-
-    DORIS_CLOUD_DEFER {
-        fdb_future_destroy(future);
-    };
-
-    RETURN_IF_ERROR(await_future(future));
-
-    FDBKeyValue const* out_kvs;
-    int out_kvs_count;
-    fdb_bool_t out_more;
-    do {
-        fdb_error_t err =
-                fdb_future_get_keyvalue_array(future, &out_kvs, &out_kvs_count, &out_more);
-        if (err) {
-            LOG(WARNING) << "get_conflicting_range get keyvalue array error: "
-                         << fdb_get_error(err);
-            return cast_as_txn_code(err);
-        }
-        for (int i = 0; i < out_kvs_count; i++) {
-            std::string_view key((char*)out_kvs[i].key, out_kvs[i].key_length);
-            std::string_view value((char*)out_kvs[i].value, out_kvs[i].value_length);
-            key.remove_prefix(start.size());
-            values->emplace_back(key, value);
-        }
-    } while (out_more);
-
-    return TxnErrorCode::TXN_OK;
+    return get_conflict_range(this, "\xff\xff/transaction/read_conflict_range/", values);
 }
 
 TxnErrorCode Transaction::get_write_conflict_range(
         std::vector<std::pair<std::string, std::string>>* values) {
-    constexpr std::string_view start = "\xff\xff/transaction/write_conflict_range/";
-    constexpr std::string_view end = "\xff\xff/transaction/write_conflict_range/\xff";
-
-    int limit = 0;
-    int target_bytes = 0;
-    FDBStreamingMode mode = FDB_STREAMING_MODE_WANT_ALL;
-    int iteration = 0;
-    fdb_bool_t snapshot = 0;
-    fdb_bool_t reverse = 0;
-    FDBFuture* future = fdb_transaction_get_range(
-            txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)start.data(), start.size()),
-            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end.data(), end.size()), limit,
-            target_bytes, mode, iteration, snapshot, reverse);
-
-    DORIS_CLOUD_DEFER {
-        fdb_future_destroy(future);
-    };
-
-    RETURN_IF_ERROR(await_future(future));
-
-    FDBKeyValue const* out_kvs;
-    int out_kvs_count;
-    fdb_bool_t out_more;
-    do {
-        fdb_error_t err =
-                fdb_future_get_keyvalue_array(future, &out_kvs, &out_kvs_count, &out_more);
-        if (err) {
-            LOG(WARNING) << "get_conflicting_range get keyvalue array error: "
-                         << fdb_get_error(err);
-            return cast_as_txn_code(err);
-        }
-        for (int i = 0; i < out_kvs_count; i++) {
-            std::string_view key((char*)out_kvs[i].key, out_kvs[i].key_length);
-            std::string_view value((char*)out_kvs[i].value, out_kvs[i].value_length);
-            key.remove_prefix(start.size());
-            values->emplace_back(key, value);
-        }
-    } while (out_more);
-
-    return TxnErrorCode::TXN_OK;
+    return get_conflict_range(this, "\xff\xff/transaction/write_conflict_range/", values);
 }
 
 TxnErrorCode Transaction::report_conflicting_range() {

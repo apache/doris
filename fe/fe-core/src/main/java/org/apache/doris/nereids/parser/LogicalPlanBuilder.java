@@ -1162,7 +1162,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private static String DEFAULT_NESTED_COLUMN_NAME = "unnest";
     private static String DEFAULT_ORDINALITY_COLUMN_NAME = "ordinality";
-    // The built-in values of the default_variant_* session variables.
+    // The built-in values of the debug_variant_* session variables.
     private static final SessionVariable BUILT_IN_SESSION_VARIABLE = new SessionVariable();
 
     private static class ColumnDefinitionWithPath {
@@ -5443,10 +5443,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + "use CREATE TABLE PROPERTIES(\"variant_escape_dots_in_keys\"=\"true\")");
         }
 
-        // The default_variant_* session variables only drive the tests, which run with debug points enabled.
+        // The debug_variant_* session variables only drive the tests, which run with debug points enabled.
         // Elsewhere, and without a session, the properties a DDL leaves out take the built-in values, whatever the
-        // session holds (a global value set before the variables became test-only still loads from an image), so a
-        // DDL text, such as the one CREATE TABLE LIKE prints and parses, creates the same column in every session.
+        // session holds (a fuzzed session, or a global value set while debug points were enabled), so a DDL text,
+        // such as the one CREATE TABLE LIKE prints and parses, creates the same column in every session.
         SessionVariable variantDefaults = BUILT_IN_SESSION_VARIABLE;
         if (Config.enable_debug_points && ConnectContext.get() != null) {
             variantDefaults = ConnectContext.get().getSessionVariable();
@@ -5894,7 +5894,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             userIdentity = visitUserIdentify(ctx.userIdentify());
         }
         passwordText = stripQuotes(ctx.STRING_LITERAL().getText());
-        return new SetPassVarOp(userIdentity, new PassVar(passwordText, ctx.isPlain != null));
+        return new SetPassVarOp(userIdentity, new PassVar(passwordText, ctx.isPlain != null),
+                ctx.retainCurrent != null);
     }
 
     @Override
@@ -7167,7 +7168,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowCharset(ShowCharsetContext ctx) {
-        return new ShowCharsetCommand();
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                return new ShowCharsetCommand(
+                        SqlLiteralUtils.parseStringLiteral(ctx.wildWhere().STRING_LITERAL().getText()), null);
+            }
+            return new ShowCharsetCommand(null, getExpression(ctx.wildWhere().expression()));
+        }
+        return new ShowCharsetCommand(null, null);
     }
 
     @Override
@@ -8789,7 +8797,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         PasswordOptions passwordOptions = visitPasswordOption(ctx.passwordOption());
         String comment = ctx.commentSpec() == null ? null : visitCommentSpec(ctx.commentSpec());
         TlsOptions tlsOptions = visitRequireClause(ctx.requireClause());
-        AlterUserInfo alterUserInfo = new AlterUserInfo(ifExist, userDesc, passwordOptions, comment, tlsOptions);
+        boolean retainCurrentPassword = ctx.retainCurrent != null;
+        boolean discardOldPassword = ctx.discardOld != null;
+        AlterUserInfo alterUserInfo = new AlterUserInfo(ifExist, userDesc, passwordOptions, comment, tlsOptions,
+                retainCurrentPassword, discardOldPassword);
         return new AlterUserCommand(alterUserInfo);
     }
 

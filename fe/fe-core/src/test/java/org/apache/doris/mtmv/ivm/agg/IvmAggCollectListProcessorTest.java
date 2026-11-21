@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv.ivm.agg;
 
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
@@ -44,7 +45,8 @@ class IvmAggCollectListProcessorTest extends IvmAggProcessorTestBase {
         Assertions.assertFalse(processor.supportsOriginalFunction(
                 new CollectList(value, new IntegerLiteral(10))));
         Assertions.assertEquals(IvmAggFunctionKind.COLLECT_LIST, processor.handledFunctionKind());
-        Assertions.assertTrue(processor.hiddenStateKeys(new CollectList(value)).isEmpty());
+        Assertions.assertTrue(
+                processor.hiddenStateKeys(new CollectList(value), IvmUtil.DEFAULT_MINMAX_TOP_K).isEmpty());
 
         IvmAggTarget target = target(0, IvmAggFunctionKind.COLLECT_LIST, "arr",
                 ArrayType.of(IntegerType.INSTANCE), ImmutableMap.of(), valueArg());

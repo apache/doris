@@ -23,9 +23,13 @@ import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -143,6 +147,28 @@ class ProjectJoinReorderHelperTest {
         LogicalProject<LogicalJoin<LogicalPlan, LogicalPlan>> fullOuterProject
                 = new LogicalProject<>(ImmutableList.of(leftAlias, rightAlias), fullOuter);
         Assertions.assertTrue(ProjectJoinReorderHelper.normalize(fullOuterProject).isEmpty());
+    }
+
+    @Test
+    void preserveLambdaArgumentsAcrossOuterJoin() {
+        ArrayItemReference item = new ArrayItemReference("x",
+                new ArrayLiteral(ImmutableList.of(new IntegerLiteral(0))));
+        Lambda lambda = new Lambda(ImmutableList.of("x"),
+                new Add(item.toSlot(), left.getOutput().get(1)), ImmutableList.of(item));
+        Alias alias = new Alias(new ArrayMap(lambda), "mapped");
+
+        LogicalJoin<LogicalPlan, LogicalPlan> leftOuter = join(JoinType.LEFT_OUTER_JOIN);
+        LogicalProject<LogicalJoin<LogicalPlan, LogicalPlan>> project
+                = new LogicalProject<>(ImmutableList.of(alias), leftOuter);
+        LogicalProject<LogicalJoin<Plan, Plan>> normalized
+                = ProjectJoinReorderHelper.normalize(project).orElseThrow();
+        assertInputProject(normalized.child().left(), alias, left.getOutput().get(0));
+        Assertions.assertEquals(outputSignature(project), outputSignature(normalized));
+
+        LogicalJoin<LogicalPlan, LogicalPlan> rightOuter = join(JoinType.RIGHT_OUTER_JOIN);
+        LogicalProject<LogicalJoin<LogicalPlan, LogicalPlan>> nullableProject
+                = new LogicalProject<>(ImmutableList.of(alias), rightOuter);
+        Assertions.assertTrue(ProjectJoinReorderHelper.normalize(nullableProject).isEmpty());
     }
 
     @Test

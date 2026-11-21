@@ -63,9 +63,11 @@ public final class GcsFileSystemProperties extends AbstractDelegatingS3Propertie
     // still has to exist because the S3-compatible API needs a region for request signing.
     private final String region = DEFAULT_REGION;
 
+    // Access-key aliases must not escape through typed diagnostic rendering.
     @ConnectorProperty(names = {ACCESS_KEY, "s3.access_key", "AWS_ACCESS_KEY", "access_key",
             "ACCESS_KEY"},
             required = false,
+            sensitive = true,
             description = "The HMAC access key of GCS.")
     private String accessKey = "";
 

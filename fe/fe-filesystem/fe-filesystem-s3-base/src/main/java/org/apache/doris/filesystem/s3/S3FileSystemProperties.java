@@ -100,11 +100,13 @@ public final class S3FileSystemProperties
     private String region = "";
 
     @Getter
+    // Access-key aliases must not escape through typed diagnostic rendering.
     @ConnectorProperty(names = {ACCESS_KEY, "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY",
             "glue.access_key", "aws.glue.access-key",
             "client.credentials-provider.glue.access_key", "iceberg.rest.access-key-id",
             "s3.access-key-id"},
             required = false,
+            sensitive = true,
             description = "The access key of S3.")
     private String accessKey = "";
 

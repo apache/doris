@@ -16,7 +16,7 @@
 // under the License.
 
 suite("dotted_key_escape_complex_rewrite", "p0,nonConcurrent") {
-    sql "set default_variant_enable_doc_mode=false"
+    sql "set debug_variant_enable_doc_mode=false"
     sql "set describe_extend_variant_column=true"
     sql "drop table if exists dotted_key_escape_complex"
     // One shard deliberately puts all special paths in the same sorted sparse map.

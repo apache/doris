@@ -19,26 +19,22 @@
 #include <gtest/gtest.h>
 #include <sys/resource.h>
 
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/storage_policy.h"
 
 namespace doris {
 
 TEST(StorageResourceTest, RemotePath) {
-    S3Conf s3_conf {.bucket = "bucket",
-                    .prefix = "prefix",
-                    .client_conf = {
-                            .endpoint = "endpoint",
-                            .region = "region",
-                            .ak = "ak",
-                            .sk = "sk",
-                            .token = "",
-                            .bucket = "",
-                            .role_arn = "",
-                            .external_id = "",
-                    }};
-    auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
+    ObjStorageResourceConfig s3_conf {
+            .bucket = "bucket",
+            .prefix = "prefix",
+            .client = AwsObjStorageConfig {
+                    .connection = {.endpoint = "endpoint"},
+                    .auth = {.source = AccessKeyObjStorageAuth {.access_key = "ak",
+                                                                .secret_key = "sk"}},
+                    .region = "region"}};
+    auto res = io::ObjStorageFileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
     ASSERT_TRUE(res.has_value()) << res.error();
 
     StorageResource storage_resource(res.value()); // path v0

@@ -496,7 +496,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         Assertions.assertTrue(mtmv.isIvm());
         Assertions.assertFalse(mtmv.isIvmAppendOnlyDupTable());
         Assertions.assertNotNull(mtmv.getColumn(Column.SEQUENCE_COL));
-        Assertions.assertNotNull(mtmv.getIvmInfo().getPlanSignature());
+        Assertions.assertNull(mtmv.getIvmInfo().getPlanSignature());
     }
 
     @Test

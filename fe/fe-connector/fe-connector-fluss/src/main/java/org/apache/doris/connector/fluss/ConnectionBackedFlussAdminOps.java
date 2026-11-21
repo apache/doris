@@ -59,11 +59,25 @@ public class ConnectionBackedFlussAdminOps implements FlussAdminOps {
     private final Connection connection;
     private final String catalogName;
     private final String bootstrapServers;
+    private final FlussTableInfoCache tableInfos;
+    private final FlussPartitionListCache partitionLists;
 
     public ConnectionBackedFlussAdminOps(Connection connection, String catalogName, String bootstrapServers) {
+        this(connection, catalogName, bootstrapServers, new FlussTableInfoCache(0));
+    }
+
+    ConnectionBackedFlussAdminOps(Connection connection, String catalogName, String bootstrapServers,
+            FlussTableInfoCache tableInfos) {
+        this(connection, catalogName, bootstrapServers, tableInfos, new FlussPartitionListCache(0));
+    }
+
+    ConnectionBackedFlussAdminOps(Connection connection, String catalogName, String bootstrapServers,
+            FlussTableInfoCache tableInfos, FlussPartitionListCache partitionLists) {
         this.connection = connection;
         this.catalogName = catalogName;
         this.bootstrapServers = bootstrapServers;
+        this.tableInfos = tableInfos;
+        this.partitionLists = partitionLists;
     }
 
     @Override
@@ -88,12 +102,18 @@ public class ConnectionBackedFlussAdminOps implements FlussAdminOps {
 
     @Override
     public TableInfo getTableInfo(TablePath tablePath) {
-        return await(admin().getTableInfo(tablePath), "getTableInfo(" + tablePath + ")");
+        return tableInfos.get(tablePath,
+                () -> await(admin().getTableInfo(tablePath), "getTableInfo(" + tablePath + ")"));
     }
 
     @Override
     public List<PartitionInfo> listPartitionInfos(TablePath tablePath) {
         return await(admin().listPartitionInfos(tablePath), "listPartitionInfos(" + tablePath + ")");
+    }
+
+    @Override
+    public List<PartitionInfo> listPartitionInfosForPruning(TablePath tablePath) {
+        return partitionLists.get(tablePath, () -> listPartitionInfos(tablePath));
     }
 
     @Override

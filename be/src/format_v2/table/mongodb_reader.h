@@ -34,6 +34,8 @@ class SlotDescriptor;
 
 namespace doris::format::mongodb {
 
+// Synchronous pull interface for one logical MongoDB scan. Its implementation owns the driver
+// client lease, session and cursor; MongoFileReader/SerDes own conversion into Doris columns.
 // A cursor owns the borrowed BSON document until next() or close(). No cursor crosses a split boundary.
 class MongoCursorStream {
 public:
@@ -47,7 +49,8 @@ public:
     // Idempotently destroy the cursor before returning its client lease to the pool.
     virtual void close() = 0;
 };
-// Production libmongoc transport; a factory can inject a deterministic stream into reader tests.
+// Production libmongoc transport. MongoFileReader owns the returned stream through unique_ptr;
+// a factory lets reader tests inject BSON documents, EOF and failures without opening a network cursor.
 std::unique_ptr<MongoCursorStream> make_native_mongo_stream();
 using MongoStreamFactory = std::function<std::unique_ptr<MongoCursorStream>()>;
 // Validate the typed single-cursor contract and resource bounds before creating driver objects.
@@ -56,6 +59,9 @@ Status validate_mongodb_range(const TFileRangeDesc& range);
 // source collation; collection candidates use simple collation. No network or client ownership.
 Status build_mongodb_find_options(const TMongoScanDesc& descriptor, _bson_t* filter,
                                   _bson_t* options);
+// Validate that current public source metadata still identifies the statement-pinned cluster.
+Status validate_mongodb_snapshot_source(const TMongoSnapshot& snapshot, const _bson_t& hello,
+                                        const _bson_t& identity);
 // Apply the effective catalog mode while preserving URI tag sets and max staleness on the collection.
 Status configure_mongodb_read_preference(_mongoc_collection_t* collection,
                                          const std::string& preference);

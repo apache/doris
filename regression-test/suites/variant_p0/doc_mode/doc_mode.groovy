@@ -18,7 +18,7 @@
 suite("regression_test_variant_doc_mode", "p0"){
     def variantV2Function = "parse_to_variant"
     def enableVariantV2 = true
-    sql """ set default_variant_enable_doc_mode = true """
+    sql """ set debug_variant_enable_doc_mode = true """
 
 
     def table_min0 = "doc_mode_min0"
@@ -236,7 +236,7 @@ suite("regression_test_variant_doc_mode", "p0"){
     // Case E: session default min_rows != column properties (override)
     // Covers: column properties override session variable
     // ----------------------------
-    sql """ set default_variant_doc_materialization_min_rows = 10000000 """
+    sql """ set debug_variant_doc_materialization_min_rows = 10000000 """
     def table_override = "doc_mode_override_min0"
     sql """ DROP TABLE IF EXISTS ${table_override} """
     // column explicitly sets min_rows=0, should override session default
@@ -294,5 +294,5 @@ suite("regression_test_variant_doc_mode", "p0"){
     assertEquals(before_min0, before_override)
 
     // best-effort reset
-    sql """ set default_variant_doc_materialization_min_rows = 0 """
+    sql """ set debug_variant_doc_materialization_min_rows = 0 """
 }

@@ -189,19 +189,12 @@ public:
 
     // Reuse the segment returned by lookup_row_key. The caller must keep the segment and
     // its acquired rowset alive until this method returns.
-    Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
-                           const segment_v2::SegmentSharedPtr& segment, RowsetSharedPtr rowset,
-                           OlapReaderStatistics& stats, std::string& values,
-                           bool write_to_cache = false, const io::IOContext* io_ctx = nullptr);
-
-    // Read from the resolved segment with query-scoped range read-ahead admission. The caller
-    // keeps the segment and its acquired rowset alive as with lookup_row_data above.
-    Status lookup_row_data_with_read_ahead(
+    Status lookup_row_data(
             const Slice& encoded_key, const RowLocation& row_location,
             const segment_v2::SegmentSharedPtr& segment, RowsetSharedPtr rowset,
-            OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
-            const io::IOContext* io_ctx,
-            const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context);
+            OlapReaderStatistics& stats, std::string& values, bool write_to_cache = false,
+            const io::IOContext* io_ctx = nullptr,
+            const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context = {});
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
@@ -306,7 +299,7 @@ public:
                                       int64_t lock_id = -1, int64_t next_visible_version = -1) = 0;
     virtual CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() = 0;
 
-    void calc_compaction_output_rowset_delete_bitmap(
+    Status calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
             std::set<RowLocation>* missed_rows,
@@ -392,10 +385,12 @@ public:
                                                                const CaptureRowsetOps& options);
 
 protected:
-    Status _lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
-                            const segment_v2::SegmentSharedPtr* segment, RowsetSharedPtr rowset,
-                            OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
-                            const io::IOContext* io_ctx) const;
+    Status _lookup_row_data(
+            const Slice& encoded_key, const RowLocation& row_location,
+            const segment_v2::SegmentSharedPtr* segment, RowsetSharedPtr rowset,
+            OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
+            const io::IOContext* io_ctx,
+            const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context) const;
 
     // Protected by the tablet header lock; discovery resumes after this version.
     Version _changelog_ttl_scan_cursor {-1, -1};

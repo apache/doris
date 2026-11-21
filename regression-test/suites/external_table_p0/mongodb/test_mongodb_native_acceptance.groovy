@@ -42,10 +42,15 @@ suite("test_mongodb_native_acceptance", "p0,external") {
     }
     sql "ALTER CATALOG mongodb_native_auth_recovery SET PROPERTIES ('mongodb.password'=${quote(password)})"
     sql "REFRESH CATALOG mongodb_native_auth_recovery"
+    test {
+        sql """SELECT /*+ SET_VAR(mongodb_read_concern='snapshot') */ count(*)
+            FROM mongodb_native_auth_recovery.doris_mongodb_native.large_records"""
+        exception "require a replica set or mongos"
+    }
     qt_auth_recovery """SELECT count(*), sum(seq)
         FROM mongodb_native_auth_recovery.doris_mongodb_native.large_records"""
 
-    for (Map unsupported : [["mongodb.read_concern": "snapshot"], ["mongodb.split_strategy": "range"]]) {
+    for (Map unsupported : [["mongodb.read_concern": "linearizable"], ["mongodb.split_strategy": "range"]]) {
         test {
             sql """CREATE CATALOG mongodb_native_unsupported PROPERTIES (
                 'type'='mongodb', 'mongodb.uri'='mongodb://${host}:${port}',

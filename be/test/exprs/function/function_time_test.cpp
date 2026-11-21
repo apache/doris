@@ -31,6 +31,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/types.h"
 #include "core/value/time_value.h"
 #include "core/value/timestamptz_value.h"
@@ -38,11 +39,74 @@
 #include "exprs/function/date_time_transforms.h"
 #include "exprs/function/function_date_or_datetime_computation.h"
 #include "exprs/function/function_test_util.h"
+#include "testutil/datetime_ut_util.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
 using namespace ut_type;
+
+TEST(VTimestampFunctionsTest, timestamptz_calendar_day_dispatch) {
+    MockRuntimeState state;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &state._timezone_obj));
+    FunctionContext context;
+    context._state = &state;
+    const auto spring = make_timestamptz(2024, 3, 9, 17, 0, 0, 123456);
+    const auto autumn = make_timestamptz(2024, 11, 2, 16, 0, 0, 123456);
+    using TimestampColumn = ColumnVector<TYPE_TIMESTAMPTZ>;
+    FunctionDateOrDateTimeComputation<AddDaysImpl<TYPE_TIMESTAMPTZ>> function;
+    // Exercise vector/vector, vector/constant and constant/vector with nullable inputs.
+    for (const bool left_const : {false, true}) {
+        for (const bool right_const : {false, true}) {
+            // The default IFunction wrapper materializes the constant/constant case.
+            if (left_const && right_const) {
+                continue;
+            }
+            auto timestamps = TimestampColumn::create();
+            timestamps->insert_value(spring);
+            timestamps->insert_value(autumn);
+            // An invalid nested timestamp must never be evaluated for a NULL row.
+            timestamps->insert_value(TimestampTzValue(0));
+            auto null_map = ColumnBool::create(3, 0);
+            null_map->get_data()[2] = 1;
+            ColumnPtr left = ColumnNullable::create(std::move(timestamps), std::move(null_map));
+            auto deltas = ColumnInt32::create();
+            deltas->insert_value(1);
+            deltas->insert_value(-1);
+            deltas->insert_value(1);
+            ColumnPtr right = deltas->get_ptr();
+            if (left_const) {
+                left = ColumnConst::create(left->clone_resized(1), 3);
+            }
+            if (right_const) {
+                right = ColumnConst::create(right->clone_resized(1), 3);
+            }
+            const auto type = make_nullable(std::make_shared<DataTypeTimeStampTz>(6));
+            Block block {{left, type, "ts"},
+                         {right, std::make_shared<DataTypeInt32>(), "days"},
+                         {nullptr, type, "result"}};
+            ASSERT_TRUE(function.execute_impl(&context, block, {0, 1}, 2, 3).ok());
+            const auto& result =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+            const auto& values = assert_cast<const TimestampColumn&>(result.get_nested_column());
+            for (size_t row = 0; row < 3; ++row) {
+                if (!left_const && row == 2) {
+                    EXPECT_TRUE(result.is_null_at(row));
+                    continue;
+                }
+                auto expected = left_const || row == 0 ? spring : autumn;
+                ASSERT_TRUE(expected.date_add_days(right_const || row != 1 ? 1 : -1,
+                                                   state._timezone_obj));
+                EXPECT_EQ(values.get_data()[row], expected);
+            }
+        }
+    }
+    EXPECT_EQ(AddHoursImpl<TYPE_TIMESTAMPTZ>::execute(spring, 24, state._timezone_obj),
+              make_timestamptz(2024, 3, 10, 17, 0, 0, 123456));
+    EXPECT_EQ(SubtractDaysImpl<TYPE_TIMESTAMPTZ>::execute(
+                      make_timestamptz(2024, 3, 10, 16, 0, 0, 123456), 1, state._timezone_obj),
+              spring);
+}
 
 TEST(VTimestampFunctionsTest, iso8601_preserves_negative_subhour_offset) {
     MockRuntimeState state;
@@ -66,6 +130,125 @@ TEST(VTimestampFunctionsTest, iso8601_preserves_negative_subhour_offset) {
     ToIso8601Impl<TYPE_TIMESTAMPTZ>::execute(value, chars, offset, nullptr, &context);
     EXPECT_EQ(std::string(reinterpret_cast<const char*>(chars.data()), offset),
               "2024-01-01T08:05:43.000000+08:05:43");
+}
+
+TEST(VTimestampFunctionsTest, timestamptz_years_use_local_date) {
+    MockRuntimeState state;
+    state._timezone_obj = cctz::fixed_time_zone(cctz::seconds(8 * 3600));
+    FunctionContext context;
+    context._state = &state;
+    using Add = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
+                           AddYearsImpl<TYPE_TIMESTAMPTZ>>;
+    using Sub = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
+                           SubtractYearsImpl<TYPE_TIMESTAMPTZ>>;
+
+    // One input is enough to expose the bug. Its local date is February 29,
+    // but its UTC date is February 28. Keep a fraction to detect precision loss.
+    DateV2Value<DateTimeV2ValueType> local;
+    local.unchecked_set_time(2024, 2, 29, 0, 0, 0, 123456);
+    TimestampTzValue input;
+    ASSERT_TRUE(input.from_datetime(local, state._timezone_obj, 6, 6));
+    const struct {
+        int delta;
+        int year;
+        int day;
+    } cases[] = {{1, 2025, 28}, {-1, 2023, 28}, {4, 2028, 29},    {-4, 2020, 29},
+                 {0, 2024, 29}, {76, 2100, 28}, {-124, 1900, 28}, {-24, 2000, 29}};
+    for (const auto& test : cases) {
+        SCOPED_TRACE(test.delta);
+        local.unchecked_set_time(test.year, 2, test.day, 0, 0, 0, 123456);
+        TimestampTzValue expected;
+        ASSERT_TRUE(expected.from_datetime(local, state._timezone_obj, 6, 6));
+        EXPECT_EQ(Add::execute(input, test.delta, &context), expected);
+        EXPECT_EQ(Sub::execute(input, -test.delta, &context), expected);
+    }
+}
+
+TEST(VTimestampFunctionsTest, timestamptz_years_check_date_range) {
+    MockRuntimeState state;
+    state._timezone_obj = cctz::fixed_time_zone(cctz::seconds(8 * 3600));
+    FunctionContext context;
+    context._state = &state;
+    using Add = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
+                           AddYearsImpl<TYPE_TIMESTAMPTZ>>;
+
+    // Local year 0 is valid, but its first eight hours fall in UTC year -1.
+    DateV2Value<DateTimeV2ValueType> utc;
+    utc.unchecked_set_time(0, 12, 31, 16, 0, 0, 0);
+    EXPECT_THROW(Add::execute(TimestampTzValue(utc), -1, &context), Exception);
+
+    // This UTC input is valid, but its local date is in year 10000.
+    // Do not allow a year change to hide an invalid local input date.
+    utc.unchecked_set_time(9999, 12, 31, 20, 0, 0, 0);
+    EXPECT_THROW(Add::execute(TimestampTzValue(utc), -1, &context), Exception);
+}
+
+TEST(VTimestampFunctionsTest, timestamptz_years_reject_invalid_utc_source) {
+    MockRuntimeState state;
+    state._timezone_obj = cctz::fixed_time_zone(cctz::seconds(-8 * 3600));
+    FunctionContext context;
+    context._state = &state;
+    using Add = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
+                           AddYearsImpl<TYPE_TIMESTAMPTZ>>;
+    using Sub = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
+                           SubtractYearsImpl<TYPE_TIMESTAMPTZ>>;
+
+    // The string parser can produce this invalid UTC date from local
+    // 0000-02-28 20:00 in -08:00. A year change must not hide the invalid source.
+    DateV2Value<DateTimeV2ValueType> utc;
+    utc.unchecked_set_time(0, 2, 29, 4, 0, 0, 123456);
+    TimestampTzValue input(utc);
+    ASSERT_FALSE(input.is_valid_date());
+    for (int years : {0, 1}) {
+        SCOPED_TRACE(years);
+        EXPECT_THROW(Add::execute(input, years, &context), Exception);
+        EXPECT_THROW(Sub::execute(input, -years, &context), Exception);
+    }
+
+    // A valid UTC date in year zero still supports both directions and keeps its fraction.
+    utc.unchecked_set_time(0, 2, 28, 4, 0, 0, 123456);
+    input = TimestampTzValue(utc);
+    utc.unchecked_set_time(1, 2, 28, 4, 0, 0, 123456);
+    EXPECT_EQ(Add::execute(input, 1, &context), TimestampTzValue(utc));
+    EXPECT_EQ(Sub::execute(input, -1, &context), TimestampTzValue(utc));
+}
+
+TEST(VTimestampFunctionsTest, timestamptz_years_keep_dst_policy) {
+    MockRuntimeState state;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &state._timezone_obj));
+    FunctionContext context;
+    context._state = &state;
+    using Add = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
+                           AddYearsImpl<TYPE_TIMESTAMPTZ>>;
+    using Sub = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
+                           SubtractYearsImpl<TYPE_TIMESTAMPTZ>>;
+
+    // Both occurrences of local 01:30 must retain their input offset for a zero interval.
+    DateV2Value<DateTimeV2ValueType> utc;
+    for (int hour : {5, 6}) {
+        utc.unchecked_set_time(2024, 11, 3, hour, 30, 0, 123456);
+        const TimestampTzValue input(utc);
+        EXPECT_EQ(Add::execute(input, 0, &context), input);
+        EXPECT_EQ(Sub::execute(input, 0, &context), input);
+    }
+
+    // Adding from 2023 retains -04:00; subtracting from 2025 retains -05:00.
+    utc.unchecked_set_time(2023, 11, 3, 5, 30, 0, 123456);
+    TimestampTzValue input(utc);
+    utc.unchecked_set_time(2024, 11, 3, 5, 30, 0, 123456);
+    EXPECT_EQ(Add::execute(input, 1, &context), TimestampTzValue(utc));
+    utc.unchecked_set_time(2025, 11, 3, 6, 30, 0, 123456);
+    input = TimestampTzValue(utc);
+    utc.unchecked_set_time(2024, 11, 3, 6, 30, 0, 123456);
+    EXPECT_EQ(Sub::execute(input, 1, &context), TimestampTzValue(utc));
+
+    // The target 2024-03-10 02:30 does not exist in New York. Move forward by
+    // the one-hour gap to 03:30 and keep the fraction, which is 07:30 UTC.
+    utc.unchecked_set_time(2023, 3, 10, 7, 30, 0, 123456);
+    input = TimestampTzValue(utc);
+    utc.unchecked_set_time(2024, 3, 10, 7, 30, 0, 123456);
+    EXPECT_EQ(Add::execute(input, 1, &context), TimestampTzValue(utc));
+    EXPECT_EQ(Sub::execute(input, -1, &context), TimestampTzValue(utc));
 }
 
 template <typename Transform>

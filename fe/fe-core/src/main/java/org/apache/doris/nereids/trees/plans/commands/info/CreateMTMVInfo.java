@@ -109,7 +109,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
      * distribution and table-information passes lay the MV out differently per table model.
      */
     private boolean ivmAppendOnlyDupModel;
-    private String ivmPlanSignature;
 
     /**
      * constructor for create MTMV
@@ -373,14 +372,10 @@ public class CreateMTMVInfo extends CreateTableInfo {
                 && mtmvAnalyzeQueryInfo.getIvmRewriteResult().isAppendOnlyDupTable();
         if (isEnableIvm() && !ivmAppendOnlyDupModel) {
             // The unique-key model orders what its delta writes against what the MV already holds, so its
-            // sequence column type is part of the MV's properties, and the layout it reads is pinned down by
-            // a signature. An append-only detail MV has neither.
+            // sequence column type is part of the MV's properties.
             sequenceDataType = calculateSequenceDataType(mtmvAnalyzeQueryInfo.getIvmNormalizedPlan());
             this.properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
                     + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE, sequenceDataType.toCatalogDataType().toSql());
-            this.ivmPlanSignature = mtmvAnalyzeQueryInfo.getIvmRewriteResult().getPlanSignature().getSha256();
-        } else {
-            this.ivmPlanSignature = null;
         }
     }
 
@@ -576,10 +571,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
         return mvPartitionInfo;
     }
 
-    public String getIvmPlanSignature() {
-        return ivmPlanSignature;
-    }
-
     public Map<String, String> getSessionVariables() {
         return sessionVariables;
     }
@@ -596,7 +587,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
         private final MTMVPartitionType mvPartitionType;
         private final Expression mvPartitionExpression;
         private final boolean enableIvm;
-        private final String ivmPlanSignature;
 
         private AnalyzeQueryState(CreateMTMVInfo info) {
             this.properties = info.properties == null ? null : Maps.newHashMap(info.properties);
@@ -610,7 +600,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
             this.mvPartitionType = info.mvPartitionDefinition.getPartitionType();
             this.mvPartitionExpression = info.mvPartitionDefinition.getFunctionCallExpression();
             this.enableIvm = info.enableIvm;
-            this.ivmPlanSignature = info.ivmPlanSignature;
         }
 
         private static AnalyzeQueryState capture(CreateMTMVInfo info) {
@@ -629,7 +618,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
             info.mvPartitionDefinition.setPartitionType(mvPartitionType);
             info.mvPartitionDefinition.setFunctionCallExpression(mvPartitionExpression);
             info.enableIvm = enableIvm;
-            info.ivmPlanSignature = ivmPlanSignature;
         }
     }
 }

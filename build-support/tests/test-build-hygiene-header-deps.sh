@@ -47,8 +47,9 @@ TARGETS=(
     "be/src/storage/index/inverted/query/spi/index_source.h"
     "be/src/storage/index/inverted/query/engine/intersection.cpp"
     "be/src/storage/index/inverted/common/query_info.h"
-    "be/src/storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h"
-    "be/src/storage/index/inverted/analysis/analyzer/analyzer.h"
+    "be/src/storage/index/inverted/snii/snii_index_reader.cpp"
+    "be/src/storage/index/ann/ann_index_writer.h"
+    "be/src/storage/index/ann/ann_index_storage.h"
 )
 # Files the CLucene cases create; restore() removes them.
 PROBE_INNER="be/src/util/zz_clucene_probe_inner.h"
@@ -135,15 +136,23 @@ cp "${BACKUP}/be/src/storage/index/inverted/query/engine/intersection.cpp" \
     "${ROOT}/be/src/storage/index/inverted/query/engine/intersection.cpp"
 
 # An exception that no longer breaks the rule fails the gate.
-sed -i '/#include <CLucene/d' \
-    "${ROOT}/be/src/storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h"
+sed -i '/#include <CLucene/d' "${ROOT}/be/src/storage/index/inverted/snii/snii_index_reader.cpp"
 OUT="$(run_gate)"; EC=$?
 [ "${EC}" -eq 1 ] || fail "stale CLucene include exception expected exit 1, got ${EC}"
 echo "${OUT}" | grep -q \
-    "CLUCENE_INCLUDING_FILES lists storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h" \
+    "CLUCENE_INCLUDING_FILES lists storage/index/inverted/snii/snii_index_reader.cpp" \
     || fail "stale CLucene include exception not reported"
-cp "${BACKUP}/be/src/storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h" \
-    "${ROOT}/be/src/storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h"
+cp "${BACKUP}/be/src/storage/index/inverted/snii/snii_index_reader.cpp" \
+    "${ROOT}/be/src/storage/index/inverted/snii/snii_index_reader.cpp"
+
+# The ANN index is CLucene-free and has no exception: a CLucene include in one of its headers fails.
+printf '\n#include <CLucene.h>\n' >> "${ROOT}/be/src/storage/index/ann/ann_index_writer.h"
+OUT="$(run_gate)"; EC=$?
+[ "${EC}" -eq 1 ] || fail "CLucene include in an ANN header expected exit 1, got ${EC}"
+echo "${OUT}" | grep -q "storage/index/ann/ann_index_writer.h includes <CLucene.h>" \
+    || fail "CLucene include in an ANN header not reported"
+cp "${BACKUP}/be/src/storage/index/ann/ann_index_writer.h" \
+    "${ROOT}/be/src/storage/index/ann/ann_index_writer.h"
 
 # CLucene words in comments and string literals are no dependency; a symbol in code is.
 printf '\n// lucene::analysis::Token in a comment\ninline const char* clucene_gate_probe = "CLuceneError lucene::Token";\n' \
@@ -160,15 +169,25 @@ cp "${BACKUP}/be/src/storage/index/inverted/common/query_info.h" \
     "${ROOT}/be/src/storage/index/inverted/common/query_info.h"
 
 # A symbol exception that no longer breaks the rule fails the gate.
-sed -i 's/lucene::/clucene_gate_probe::/g' \
-    "${ROOT}/be/src/storage/index/inverted/analysis/analyzer/analyzer.h"
+sed -i 's/StringUtil/clucene_gate_probe_util/g' \
+    "${ROOT}/be/src/storage/index/inverted/snii/snii_index_reader.cpp"
 OUT="$(run_gate)"; EC=$?
 [ "${EC}" -eq 1 ] || fail "stale CLucene symbol exception expected exit 1, got ${EC}"
 echo "${OUT}" | grep -q \
-    "CLUCENE_SYMBOL_FILES lists storage/index/inverted/analysis/analyzer/analyzer.h" \
+    "CLUCENE_SYMBOL_FILES lists storage/index/inverted/snii/snii_index_reader.cpp" \
     || fail "stale CLucene symbol exception not reported"
-cp "${BACKUP}/be/src/storage/index/inverted/analysis/analyzer/analyzer.h" \
-    "${ROOT}/be/src/storage/index/inverted/analysis/analyzer/analyzer.h"
+cp "${BACKUP}/be/src/storage/index/inverted/snii/snii_index_reader.cpp" \
+    "${ROOT}/be/src/storage/index/inverted/snii/snii_index_reader.cpp"
+
+# A CLucene symbol in ANN code fails the gate as well.
+printf '\ninline lucene::store::Directory* clucene_gate_ann_symbol = nullptr;\n' \
+    >> "${ROOT}/be/src/storage/index/ann/ann_index_storage.h"
+OUT="$(run_gate)"; EC=$?
+[ "${EC}" -eq 1 ] || fail "CLucene symbol in ANN code expected exit 1, got ${EC}"
+echo "${OUT}" | grep -q "storage/index/ann/ann_index_storage.h:[0-9]* names the CLucene symbol lucene::" \
+    || fail "CLucene symbol in ANN code not reported"
+cp "${BACKUP}/be/src/storage/index/ann/ann_index_storage.h" \
+    "${ROOT}/be/src/storage/index/ann/ann_index_storage.h"
 
 printf '#include <fmt/format.h>\n' >> "${ROOT}/be/src/core/uint24.h"
 OUT="$(run_gate)"; EC=$?
@@ -223,7 +242,7 @@ OUT="$("${PYTHON}" "${GATE}" --closure common/status.h 2>&1)"; EC=$?
 [ "${EC}" -eq 0 ] || fail "--closure expected exit 0, got ${EC}"
 echo "${OUT}" | grep -q "common/status.h: .* project header(s)" \
     || fail "--closure output missing summary line"
-OUT="$("${PYTHON}" "${GATE}" --reach io/fs/s3_file_system.h 2>&1)"; EC=$?
+OUT="$("${PYTHON}" "${GATE}" --reach io/fs/obj_storage_file_system.h 2>&1)"; EC=$?
 [ "${EC}" -eq 0 ] || fail "--reach expected exit 0, got ${EC}"
 echo "${OUT}" | grep -q "via this edge alone" \
     || fail "--reach output missing edge ranking"

@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.metastore.iceberg.jdbc;
 
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +30,22 @@ import java.util.Map;
  * warehouse check): verbatim §4 messages, in fire order uri → catalog_name → warehouse.
  */
 public class IcebergJdbcMetaStorePropertiesTest {
+
+    @Test
+    public void uriDiagnosticsMaskEveryAliasWithoutChangingConnectionValues() {
+        String uri = "jdbc:fixture://db.example.com/metadata?password=fixture-uri-secret";
+        for (String key : new String[] {"uri", "iceberg.jdbc.uri"}) {
+            Map<String, String> raw = Map.of(key, uri, "warehouse", "s3://bucket.example.com/warehouse");
+            IcebergJdbcMetaStoreProperties properties = IcebergJdbcMetaStoreProperties.of(raw);
+            Assertions.assertEquals(uri, properties.getUri());
+            Assertions.assertEquals(uri, raw.get(key));
+            String rendered = ConnectorPropertiesUtils.toMaskedString(properties);
+            Assertions.assertFalse(rendered.contains("fixture-uri-secret"), rendered);
+            Assertions.assertTrue(rendered.contains("uri=***"), rendered);
+        }
+        Assertions.assertFalse(ConnectorPropertiesUtils.getSensitiveKeys(IcebergJdbcMetaStoreProperties.class)
+                .contains("uri"), "The shared URI alias must retain value-aware catalog masking");
+    }
 
     private static Map<String, String> raw(String... kv) {
         Map<String, String> m = new HashMap<>();

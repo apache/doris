@@ -116,7 +116,7 @@ public class PhysicalRecursiveUnionAnchor<CHILD_TYPE extends Plan> extends Physi
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalRecursiveUnionAnchor<>(cteId, groupExpression,
-                logicalProperties.get(), child()));
+                logicalProperties.get(), children.get(0)));
     }
 
     @Override

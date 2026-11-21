@@ -75,6 +75,7 @@ Options:
       --push            Push instead of loading into the local image store.
   -i, --image <name>    Image name without tag    (default: apache/doris)
       --no-cache        Pass --no-cache to docker build.
+                        Use for security rebuilds to refresh OS packages.
   -t, --test            Run resource/smoke-test.sh against each image built.
                         Requires a single --platform that runs on this host.
   -h, --help            This message.
@@ -224,10 +225,18 @@ for flavor in ${FLAVORS}; do
     tag="${IMAGE}:all-in-one-${VERSION}${suffix}"
 
     args=(
+        --pull
         --build-arg "DORIS_VERSION=${VERSION}"
         --build-arg "FLAVOR=${flavor}"
         --build-arg "STRIP_MODE=${STRIP_MODE}"
     )
+    # Accept immutable component references and approved mirrors without
+    # changing the Dockerfile. Local/tarball payloads use named contexts below.
+    for arg in BASE_IMAGE FE_IMAGE BE_IMAGE MS_IMAGE; do
+        if [[ -n "${!arg:-}" ]]; then
+            args+=(--build-arg "${arg}=${!arg}")
+        fi
+    done
     if [[ -n "${ARTIFACT_DIR}" ]]; then
         args+=(--build-arg "ARTIFACT_SOURCE=dir"
                --build-context "doris-fe=${ARTIFACT_DIR}/fe"

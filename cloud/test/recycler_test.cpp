@@ -46,6 +46,8 @@
 #include "common/logging.h"
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
+#include "cpp/obj-storage/client/obj_storage_client_factory.h"
+#include "cpp/obj-storage/client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-store/blob_message.h"
@@ -5205,6 +5207,321 @@ TEST(CheckerTest, normal_inverted_check) {
     ASSERT_EQ(checker.do_inverted_check(), 0);
 }
 
+// A checker of an instance whose storage vaults are the mock vaults added by each test
+class InvertedCheckTest : public testing::Test {
+protected:
+    void SetUp() override {
+        ASSERT_EQ(txn_kv->init(), 0);
+        InstanceInfoPB instance;
+        instance.set_instance_id(instance_id);
+        ASSERT_EQ(checker.init(instance), 0);
+    }
+
+    std::shared_ptr<MockAccessor> add_vault(const std::string& id,
+                                            std::optional<StorageRoot> root = std::nullopt) {
+        auto vault = root ? std::make_shared<MockAccessor>("mock://" + id, *root)
+                          : std::make_shared<MockAccessor>("mock://" + id);
+        checker.TEST_add_accessor(id, vault);
+        return vault;
+    }
+
+    int64_t num_scanned() {
+        return read_status_bvar_value("checker", "num_inverted_scanned", instance_id);
+    }
+    int64_t num_leaks() {
+        return read_status_bvar_value("checker", "num_inverted_check_failed", instance_id);
+    }
+
+    std::shared_ptr<MemTxnKv> txn_kv = std::make_shared<MemTxnKv>();
+    InstanceChecker checker {txn_kv, instance_id};
+};
+
+// Puts the data objects of `from` into `to`, as storage seen by both vaults
+static void copy_data_objects(StorageVaultAccessor* from, StorageVaultAccessor* to) {
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(from->list_directory("data", &list_iter), 0);
+    for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+        ASSERT_EQ(to->put_file(file->path, ""), 0);
+    }
+}
+
+TEST_F(InvertedCheckTest, multi_vault) {
+    auto vault1 = add_vault("vault1");
+    auto vault2 = add_vault("vault2");
+    for (int t = 10001; t <= 10010; ++t) {
+        for (int v = 0; v < 3; ++v) {
+            create_committed_rowset(txn_kv.get(), vault1.get(), "vault1", t, v, t * 2, 1, 0);
+        }
+    }
+    for (int t = 10011; t <= 10020; ++t) {
+        for (int v = 0; v < 3; ++v) {
+            create_committed_rowset(txn_kv.get(), vault2.get(), "vault2", t, v, t * 2, 1, 0);
+        }
+    }
+    // Objects of both vaults are checked
+    ASSERT_EQ(checker.do_inverted_check(), 0);
+    ASSERT_EQ(num_scanned(), 60);
+    ASSERT_EQ(num_leaks(), 0);
+
+    // A leaked segment in each vault: one of a tablet without rowsets, one listed after the live
+    // rowsets of its tablet ("zzz" sorts after the numeric test rowset ids)
+    ASSERT_EQ(vault1->put_file(segment_path(10030, next_rowset_id(), 0), ""), 0);
+    ASSERT_EQ(vault2->put_file(segment_path(10015, "zzz", 0), ""), 0);
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(num_scanned(), 62);
+    ASSERT_EQ(num_leaks(), 2);
+}
+
+TEST_F(InvertedCheckTest, same_location_once) {
+    // Two resources backed by the same storage location
+    auto accessor = add_vault("vault1");
+    checker.TEST_add_accessor("vault2", accessor);
+    for (int t = 10001; t <= 10010; ++t) {
+        create_committed_rowset(txn_kv.get(), accessor.get(), "vault1", t, 0, t * 2, 1, 0);
+    }
+    ASSERT_EQ(accessor->put_file(segment_path(10030, next_rowset_id(), 0), ""), 0);
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(num_scanned(), 11);
+    ASSERT_EQ(num_leaks(), 1);
+}
+
+TEST_F(InvertedCheckTest, segment_in_another_vault_is_leak) {
+    auto vault1 = add_vault("vault1");
+    auto vault2 = add_vault("vault2");
+    // Vaults 3 and 4 address the same paths with different credentials, so both are listed
+    StorageRoot root {.container = "bucket", .prefix = "p"};
+    auto vault3 = add_vault("vault3", root);
+    auto vault4 = add_vault("vault4", root);
+    create_committed_rowset(txn_kv.get(), vault1.get(), "vault1", 10001, 0, 20002, 1, 0);
+    create_committed_rowset(txn_kv.get(), vault3.get(), "vault3", 10002, 0, 20004, 1, 0);
+    // A copy of a vault1 segment in vault2 is not covered by its rowset
+    copy_data_objects(vault1.get(), vault2.get());
+    // A vault3 segment listed through vault4 is in the storage of its rowset
+    copy_data_objects(vault3.get(), vault4.get());
+
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(num_scanned(), 4);
+    ASSERT_EQ(num_leaks(), 1);
+}
+
+TEST_F(InvertedCheckTest, list_error_does_not_stop_other_vaults) {
+    auto vault1 = add_vault("vault1");
+    auto vault2 = add_vault("vault2");
+    create_committed_rowset(txn_kv.get(), vault2.get(), "vault2", 10001, 0, 20002, 1, 0);
+    ASSERT_EQ(vault2->put_file(segment_path(10030, next_rowset_id(), 0), ""), 0);
+
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "MockAccessor::list_directory",
+            [&](auto&& args) {
+                if (try_any_cast<MockAccessor*>(args[0]) == vault1.get()) {
+                    *try_any_cast_ret<int>(args) = {-1, true};
+                }
+            },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // vault2 is checked whichever vault is listed first, its leak is the result
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(num_scanned(), 2);
+    ASSERT_EQ(num_leaks(), 1);
+}
+
+TEST_F(InvertedCheckTest, orphans_in_both_listing_orders) {
+    auto accessor = add_vault("1");
+    // Tablet 10001: a live rowset listed before two orphans ("zzz*" sort after the numeric test
+    // rowset ids), the orphans are checked against the cached rowsets of the tablet
+    create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, 0, 20002, 1, 0);
+    ASSERT_EQ(accessor->put_file(segment_path(10001, "zzz1", 0), ""), 0);
+    ASSERT_EQ(accessor->put_file(segment_path(10001, "zzz2", 0), ""), 0);
+    // Tablet 10002: an orphan listed before the live rowset ("0000" sorts first), the orphan loads
+    // the rowsets of the tablet and the live rowset is checked against the cache
+    create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10002, 0, 20004, 1, 0);
+    ASSERT_EQ(accessor->put_file(segment_path(10002, "0000", 0), ""), 0);
+
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(num_scanned(), 5);
+    ASSERT_EQ(num_leaks(), 3);
+}
+
+TEST_F(InvertedCheckTest, rowset_meta_read_error_is_not_leak) {
+    auto accessor = add_vault("1");
+    for (int v = 0; v < 2; ++v) {
+        create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, v, 20002, 1, 0);
+    }
+
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check.get_rowsets_err",
+            [](auto&& args) { *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_CONFLICT; },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // Failing to read the rowsets of the tablet is an error for each of its objects, never a leak
+    ASSERT_EQ(checker.do_inverted_check(), -1);
+    ASSERT_EQ(num_scanned(), 2);
+    ASSERT_EQ(num_leaks(), 0);
+}
+
+TEST_F(InvertedCheckTest, rowset_committed_during_scan_is_not_leak) {
+    auto accessor = add_vault("1");
+    create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, 0, 20002, 1, 0);
+    // The segment of rowset "zzz" is uploaded, and its meta commits after the checker loaded the
+    // rowsets of the tablet for the first object ("zzz" sorts after the numeric rowset ids)
+    ASSERT_EQ(accessor->put_file(segment_path(10001, "zzz", 0), ""), 0);
+
+    int rowset_reads = 0;
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check.get_rowsets_err",
+            [&](auto&& args) {
+                if (++rowset_reads != 1) {
+                    return;
+                }
+                doris::RowsetMetaCloudPB rowset;
+                rowset.set_rowset_id(0);
+                rowset.set_rowset_id_v2("zzz");
+                rowset.set_tablet_id(10001);
+                rowset.set_num_segments(1);
+                rowset.set_resource_id("1");
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+                txn->put(meta_rowset_key({instance_id, 10001, 1}), rowset.SerializeAsString());
+                ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+            },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // The rowset missing from the cache is read again and found, so it is not a leak
+    ASSERT_EQ(checker.do_inverted_check(), 0);
+    ASSERT_EQ(rowset_reads, 2);
+    ASSERT_EQ(num_scanned(), 2);
+    ASSERT_EQ(num_leaks(), 0);
+}
+
+TEST_F(InvertedCheckTest, stops_when_stopped) {
+    auto accessor = add_vault("1");
+    for (int v = 0; v < 3; ++v) {
+        create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, v, 20002, 1, 0);
+    }
+
+    // The checker is stopped while the rowsets of the first object's tablet are being read
+    int rowset_reads = 0;
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check.get_rowsets_err",
+            [&](auto&& args) {
+                ++rowset_reads;
+                checker.stop();
+            },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // No more objects are checked, so no more rowset reads are started
+    ASSERT_EQ(checker.do_inverted_check(), -1);
+    ASSERT_EQ(rowset_reads, 1);
+    ASSERT_EQ(num_scanned(), 1);
+    ASSERT_EQ(num_leaks(), 0);
+}
+
+#ifdef ENABLE_HDFS_STORAGE_VAULT
+TEST(HdfsAccessorLocationTest, location) {
+    auto make_info = [](const std::string& fs_name, const std::string& prefix) {
+        HdfsVaultInfo info;
+        info.set_prefix(prefix);
+        info.mutable_build_conf()->set_fs_name(fs_name);
+        return info;
+    };
+    // No init and no HDFS needed: the location only depends on the configuration. It lives here
+    // because hdfs_accessor_test skips everything without a test HDFS.
+    auto info1 = make_info("hdfs://nn1:8020", "p1");
+    auto info1_again = make_info("hdfs://nn1:8020", "p1");
+    auto info2 = make_info("hdfs://nn1:8020", "p2");
+    auto info3 = make_info("hdfs://nn2:8020", "p1");
+    HdfsAccessor accessor1(info1);
+    HdfsAccessor accessor1_again(info1_again);
+    HdfsAccessor accessor2(info2);
+    HdfsAccessor accessor3(info3);
+
+    EXPECT_EQ(accessor1.uri(), "hdfs://nn1:8020/p1");
+    EXPECT_EQ(accessor1.location(), "hdfs://nn1:8020\n/p1");
+    EXPECT_EQ(accessor1.location(), accessor1_again.location());
+    EXPECT_NE(accessor1.location(), accessor2.location());
+    EXPECT_NE(accessor1.location(), accessor3.location());
+
+    // HA: the same logical nameservice and prefix resolve through each vault's hdfs_confs
+    auto make_ha_info = [&](std::vector<std::pair<std::string, std::string>> confs) {
+        auto info = make_info("hdfs://ns", "/warehouse");
+        for (auto& [key, value] : confs) {
+            auto* conf = info.mutable_build_conf()->add_hdfs_confs();
+            conf->set_key(key);
+            conf->set_value(value);
+        }
+        return info;
+    };
+    auto cluster_a = make_ha_info({{"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                   {"dfs.namenode.rpc-address.ns.nn1", "a1:8020"},
+                                   {"dfs.namenode.rpc-address.ns.nn2", "a2:8020"}});
+    auto cluster_a_reordered = make_ha_info({{"dfs.namenode.rpc-address.ns.nn2", "a2:8020"},
+                                             {"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                             {"dfs.namenode.rpc-address.ns.nn1", "a1:8020"}});
+    auto cluster_b = make_ha_info({{"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                   {"dfs.namenode.rpc-address.ns.nn1", "b1:8020"},
+                                   {"dfs.namenode.rpc-address.ns.nn2", "b2:8020"}});
+    HdfsAccessor accessor_a(cluster_a);
+    HdfsAccessor accessor_a_reordered(cluster_a_reordered);
+    HdfsAccessor accessor_b(cluster_b);
+    EXPECT_EQ(accessor_a.uri(), accessor_b.uri());
+    EXPECT_NE(accessor_a.location(), accessor_b.location());
+    // The confs are kept in order, a different order may resolve differently and is listed again
+    EXPECT_NE(accessor_a.location(), accessor_a_reordered.location());
+    // The root ignores the confs and fs_name, which has aliases (host, FQDN, IP, nameservice)
+    EXPECT_EQ(accessor_a.root(), accessor_b.root());
+    EXPECT_EQ(accessor_a.root(), (StorageRoot {.container = "", .prefix = "warehouse"}));
+    EXPECT_EQ(accessor1.root(), accessor3.root());
+    EXPECT_NE(accessor1.root(), accessor2.root());
+
+    // fs_name and prefix do not merge: same uri, different directories
+    auto info_split_1 = make_info("hdfs://ns/a", "b");
+    auto info_split_2 = make_info("hdfs://ns", "a/b");
+    HdfsAccessor accessor_split_1(info_split_1);
+    HdfsAccessor accessor_split_2(info_split_2);
+    EXPECT_EQ(accessor_split_1.uri(), accessor_split_2.uri());
+    EXPECT_NE(accessor_split_1.location(), accessor_split_2.location());
+
+    // A repeated key is kept with all its values in order: which one takes effect depends on the
+    // HDFS client, so neither value is dropped
+    auto repeated = make_ha_info({{"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                  {"dfs.namenode.rpc-address.ns.nn1", "a1:8020"},
+                                  {"dfs.namenode.rpc-address.ns.nn2", "a2:8020"},
+                                  {"dfs.namenode.rpc-address.ns.nn1", "b1:8020"}});
+    auto repeated_reversed = make_ha_info({{"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                           {"dfs.namenode.rpc-address.ns.nn1", "b1:8020"},
+                                           {"dfs.namenode.rpc-address.ns.nn2", "a2:8020"},
+                                           {"dfs.namenode.rpc-address.ns.nn1", "a1:8020"}});
+    HdfsAccessor accessor_repeated(repeated);
+    HdfsAccessor accessor_repeated_reversed(repeated_reversed);
+    EXPECT_NE(accessor_repeated.location(), accessor_a.location());
+    EXPECT_NE(accessor_repeated.location(), accessor_repeated_reversed.location());
+}
+#endif
+
 // TODO(Xiaocc): We need one mocked accessor which provides one async stream like list function
 // to do the following test
 TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
@@ -8665,12 +8982,43 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
 }
 
 TEST(RecyclerTest, init_vault_accessor_failed_test) {
+    class FailingObjStorageClient final : public S3ObjStorageClient {
+    public:
+        FailingObjStorageClient() : S3ObjStorageClient(nullptr) {}
+
+        ObjStorageHeadResult head_object(const ObjStoragePath&) override {
+            return {.resp = {.status = {ObjStorageStatus::IO_ERROR, "injected head failure"},
+                             .http_code = 0}};
+        }
+
+        std::atomic<int> list_calls {0};
+
+    protected:
+        ObjStorageListPageResult list_objects_page(const ObjStoragePath&,
+                                                   std::string_view) override {
+            ++list_calls;
+            return {.resp = {.status = {ObjStorageStatus::IO_ERROR, "injected list failure"},
+                             .http_code = 0}};
+        }
+    };
+
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
+        ObjStorageClientFactory::instance().clear_client_creator_for_test();
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
     };
+
+    // Keep configuration validation and accessor initialization, but fail object I/O
+    // deterministically instead of relying on an incomplete vault or a network error.
+    auto failing_client = std::make_shared<FailingObjStorageClient>();
+    ObjStorageClientFactory::instance().set_client_creator_for_test(
+            [failing_client](const ObjStorageClientConfig&) { return failing_client; });
+    // Exercise both vaults even if the injected failure completes before the other task starts.
+    // Otherwise SyncExecutor may cancel the successful vault before it can delete its objects.
+    sp->set_call_back("SyncExecutor::Task::bypass_cancel",
+                      [](auto&& args) { *try_any_cast<bool*>(args[0]) = true; });
 
     auto txn_kv = std::make_shared<MemTxnKv>();
     EXPECT_EQ(txn_kv->init(), 0);
@@ -8683,7 +9031,7 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
     instance_key(key_info, &key);
     InstanceInfoPB instance;
     instance.set_instance_id("GetObjStoreInfoTestInstance");
-    // failed to init because S3Conf::from_obj_store_info() fails
+    // failed to init because parse_recycler_storage_config() fails
     {
         ObjectStoreInfoPB obj_info;
         StorageVaultPB vault;
@@ -8698,7 +9046,7 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
         txn->put(storage_vault_key({instance.instance_id(), "1"}), vault.SerializeAsString());
     }
 
-    // succeed to init but unuseful
+    // Valid configuration initializes successfully; the client above fails object operations.
     {
         ObjectStoreInfoPB obj_info;
         StorageVaultPB vault;
@@ -8706,6 +9054,9 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
         obj_info.set_ak("ak");
         obj_info.set_sk("sk");
         obj_info.set_provider(ObjectStoreInfoPB_Provider_COS);
+        obj_info.set_bucket("test-bucket");
+        obj_info.set_endpoint("https://cos.example.com");
+        obj_info.set_region("ap-beijing");
         vault.mutable_obj_info()->MergeFrom(obj_info);
         vault.set_name("test_failed_s3_vault_2");
         vault.set_id("failed_s3_2");
@@ -8789,17 +9140,19 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
 
     InstanceRecycler recycler(txn_kv, instance, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));
-    EXPECT_EQ(recycler.init(), 0);
-    EXPECT_EQ(recycler.accessor_map_.size(), 2);
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_EQ(recycler.accessor_map_.size(), 2);
+    ASSERT_TRUE(recycler.accessor_map_.contains("failed_s3_2"));
+    ASSERT_TRUE(recycler.accessor_map_.contains("success_vault"));
 
-    // unuseful obj accessor
+    // Object I/O fails even though the accessor initialized successfully.
     EXPECT_EQ(recycler.accessor_map_.at("failed_s3_2")->exists("data/0/rowset_id_test.csv"), -1);
     // useful mock accessor
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/rowset_id_test.csv"), 0);
 
-    // recycle tablet will fail because unuseful obj accessor can not connectted
+    // The failed vault must not prevent the other vault from recycling its objects.
     EXPECT_EQ(recycler.recycle_tablet(0, ctx), -1);
-    // however, useful mock accessor can recycle tablet
+    EXPECT_EQ(failing_client->list_calls.load(), 1);
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/rowset_id_test.csv"), 1);
 }
 
@@ -9057,7 +9410,7 @@ TEST(RecyclerTest, init_all_vault_accessors_failed_test) {
     instance_key(key_info, &key);
     InstanceInfoPB instance;
     instance.set_instance_id("GetObjStoreInfoTestInstance");
-    // failed to init because S3Conf::from_obj_store_info() fails
+    // failed to init because parse_recycler_storage_config() fails
     {
         ObjectStoreInfoPB obj_info;
         StorageVaultPB vault;

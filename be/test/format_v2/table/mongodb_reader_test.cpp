@@ -25,7 +25,13 @@
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_jsonb.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/bson_value_view.h"
 #include "format_v2/column_mapper.h"
 #include "runtime/runtime_state.h"
@@ -119,6 +125,36 @@ TFileRangeDesc range() {
     result.__set_table_format_params(table);
     return result;
 }
+TMongoScanDesc snapshot_descriptor() {
+    auto descriptor = range().table_format_params.mongodb_params;
+    descriptor.__set_read_concern("snapshot");
+    descriptor.__set_collection_uuid("00000000000000000000000000000001");
+    TMongoSnapshot snapshot;
+    snapshot.__set_timestamp_seconds(1700000000);
+    snapshot.__set_timestamp_increment(7);
+    snapshot.__set_source_kind("replica_set");
+    snapshot.__set_source_id("000000000000000000000001");
+    snapshot.__set_topology_version(1);
+    snapshot.__set_max_wire_version(25);
+    descriptor.__set_snapshot(snapshot);
+    return descriptor;
+}
+
+void check_snapshot_source(const TMongoSnapshot& snapshot, const std::string& hello_json,
+                           const std::string& identity_json, bool expected) {
+    using Bson = std::unique_ptr<bson_t, decltype(&bson_destroy)>;
+    Bson hello(bson_new_from_json(reinterpret_cast<const uint8_t*>(hello_json.data()),
+                                  hello_json.size(), nullptr),
+               bson_destroy);
+    Bson identity(bson_new_from_json(reinterpret_cast<const uint8_t*>(identity_json.data()),
+                                     identity_json.size(), nullptr),
+                  bson_destroy);
+    ASSERT_NE(hello, nullptr);
+    ASSERT_NE(identity, nullptr);
+    auto status = validate_mongodb_snapshot_source(snapshot, *hello, *identity);
+    EXPECT_EQ(status.ok(), expected) << status.to_string();
+}
+
 class MongoReaderTest : public testing::Test {
 protected:
     void SetUp() override {
@@ -156,6 +192,18 @@ protected:
             columns[position.value()] = {column.type->create_column(), column.type, column.name};
         }
         return {columns};
+    }
+    void check_owned_containers(const Block& output, const FileScanRequest& projection) {
+        auto value = [&](int id) {
+            return output.get_by_position(projection.local_positions.at(LocalColumnId(id)).value());
+        };
+        const auto json = value(2);
+        EXPECT_NE(json.type->to_string(*json.column, 0).find("9007199254740993"),
+                  std::string::npos);
+        const auto tags = value(3);
+        EXPECT_EQ(tags.type->to_string(*tags.column, 0), "[\"alpha\", null]");
+        const auto nested = value(4);
+        EXPECT_NE(nested.type->to_string(*nested.column, 0).find("first"), std::string::npos);
     }
     ObjectPool _pool;
     RuntimeState _state;
@@ -245,6 +293,65 @@ TEST_F(MongoReaderTest, RowConversionErrorRollsBackPreviouslyWrittenColumns) {
         EXPECT_EQ(output.get_by_position(i).column->size(), 0);
     }
     EXPECT_EQ(_responses->closes, 1);
+}
+
+TEST_F(MongoReaderTest, VariableWidthPayloadsSurviveCursorAdvanceAndClose) {
+    auto text = std::make_shared<DataTypeString>();
+    auto strings = std::make_shared<DataTypeArray>(make_nullable(text));
+    auto structure =
+            std::make_shared<DataTypeStruct>(DataTypes {make_nullable(text)}, Strings {"label"});
+    const DataTypes types {text, std::make_shared<DataTypeVarbinary>(),
+                           std::make_shared<DataTypeJsonb>(), strings, structure};
+    const Strings names {"text", "bytes", "json", "tags", "nested"};
+    _slots.clear();
+    for (size_t i = 0; i < types.size(); ++i) {
+        TSlotDescriptor descriptor;
+        descriptor.__set_id(i);
+        descriptor.__set_parent(0);
+        descriptor.__set_slotType(types[i]->to_thrift());
+        descriptor.__set_nullIndicatorBit(0);
+        descriptor.__set_colName(names[i]);
+        descriptor.__set_isMaterialized(true);
+        _slots.push_back(_pool.add(new SlotDescriptor(descriptor)));
+    }
+    _range.table_format_params.mongodb_params.__set_bindings_json(R"({"version":1,"columns":[
+        {"name":"text","path":["text"],"bson_types":[2],"children":[]},
+        {"name":"bytes","path":["bytes"],"bson_types":[5],"subtype":0,"children":[]},
+        {"name":"json","path":["json"],"bson_types":[3],"children":[]},
+        {"name":"tags","path":["tags"],"bson_types":[4],"children":[
+            {"name":"element","path":["element"],"bson_types":[2],"children":[]}]},
+        {"name":"nested","path":["nested"],"bson_types":[3],"children":[
+            {"name":"label","path":["label"],"bson_types":[2],"children":[]}]}]})");
+    const std::string payload(8192, 'x');
+    _responses->documents = {
+            R"({"text":")" + payload + R"(","bytes":{"$binary":{"base64":"YQBi","subType":"00"}},
+                "json":{"n":{"$numberLong":"9007199254740993"}},"tags":["alpha",null],
+                "nested":{"label":"first"}})",
+            R"({"text":"second","bytes":{"$binary":{"base64":"eHl6","subType":"00"}},
+                "json":{"n":2},"tags":[],"nested":{"label":"second"}})"};
+    auto scan = reader();
+    scan->set_batch_size(1);
+    auto projection = request({4, 2, 0, 3, 1});
+    ASSERT_TRUE(scan->open(projection).ok());
+    auto first = block(*scan, *projection);
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = scan->get_block(&first, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(rows, 1);
+    auto second = block(*scan, *projection);
+    ASSERT_TRUE(scan->get_block(&second, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    // Advance destroys the first BSON buffer; close destroys the last one before assertions.
+    ASSERT_TRUE(scan->close().ok());
+    auto value = [&](const Block& output, int id) {
+        return output.get_by_position(projection->local_positions.at(LocalColumnId(id)).value());
+    };
+    EXPECT_EQ(value(first, 0).column->get_data_at(0).to_string(), payload);
+    EXPECT_EQ(value(first, 1).column->get_data_at(0).to_string(), std::string("a\0b", 3));
+    check_owned_containers(first, *projection);
+    EXPECT_EQ(value(second, 0).column->get_data_at(0).to_string(), "second");
+    EXPECT_EQ(value(second, 1).column->get_data_at(0).to_string(), "xyz");
 }
 TEST_F(MongoReaderTest, NullMismatchPolicyPreservesRowAndOtherFields) {
     _range.table_format_params.mongodb_params.__set_type_mismatch_as_null(true);
@@ -377,6 +484,138 @@ TEST(MongoNativeStreamTest, CatalogModeAppliesWhenUriHasNoRoutingCriteria) {
         EXPECT_EQ(mongoc_read_prefs_get_mode(mongoc_collection_get_read_prefs(collection.get())),
                   mode);
     }
+}
+
+TEST(MongoNativeStreamTest, SnapshotDescriptorRequiresACompleteSharedPin) {
+    auto scan = range();
+    auto& descriptor = scan.table_format_params.mongodb_params;
+    descriptor.__set_read_concern("snapshot");
+    TMongoSnapshot snapshot;
+    snapshot.__set_timestamp_seconds(1700000000);
+    snapshot.__set_timestamp_increment(7);
+    snapshot.__set_source_kind("replica_set");
+    snapshot.__set_source_id("000000000000000000000001");
+    snapshot.__set_topology_version(1);
+    snapshot.__set_max_wire_version(25);
+    descriptor.__set_snapshot(snapshot);
+    descriptor.__set_collection_uuid("00000000000000000000000000000001");
+    EXPECT_TRUE(validate_mongodb_range(scan).ok());
+    descriptor.snapshot.__set_timestamp_seconds(0);
+    EXPECT_FALSE(validate_mongodb_range(scan).ok());
+    descriptor.snapshot.__set_timestamp_seconds(1700000000);
+    descriptor.__set_object_kind("view");
+    EXPECT_FALSE(validate_mongodb_range(scan).ok());
+}
+
+TEST(MongoNativeStreamTest, SnapshotFindOptionsRetainTheExactBsonTimestamp) {
+    auto descriptor = range().table_format_params.mongodb_params;
+    descriptor.__set_read_concern("snapshot");
+    TMongoSnapshot snapshot;
+    snapshot.__set_timestamp_seconds(4294967295LL);
+    snapshot.__set_timestamp_increment(4294967295LL);
+    snapshot.__set_source_kind("replica_set");
+    snapshot.__set_source_id("000000000000000000000001");
+    snapshot.__set_topology_version(1);
+    snapshot.__set_max_wire_version(25);
+    descriptor.__set_snapshot(snapshot);
+    descriptor.__set_collection_uuid("00000000000000000000000000000001");
+    bson_t filter = BSON_INITIALIZER;
+    bson_t options = BSON_INITIALIZER;
+    ASSERT_TRUE(build_mongodb_find_options(descriptor, &filter, &options).ok());
+    auto root = BsonValueView::document(options);
+    const auto timestamp = root.at_path({"readConcern", "atClusterTime"});
+    bson_destroy(&options);
+    bson_destroy(&filter);
+    ASSERT_FALSE(timestamp.missing);
+    ASSERT_EQ(timestamp.value.value_type, BSON_TYPE_TIMESTAMP);
+    EXPECT_EQ(timestamp.value.value.v_timestamp.timestamp, UINT32_MAX);
+    EXPECT_EQ(timestamp.value.value.v_timestamp.increment, UINT32_MAX);
+}
+
+TEST(MongoNativeStreamTest, SnapshotRejectsIncompleteOrInconsistentContracts) {
+    const std::vector<std::function<void(TMongoScanDesc&)>> invalid = {
+            [](auto& d) { d.__set_read_concern("majority"); },
+            [](auto& d) { d.__isset.snapshot = false; },
+            [](auto& d) { d.snapshot.__isset.timestamp_seconds = false; },
+            [](auto& d) { d.snapshot.__isset.timestamp_increment = false; },
+            [](auto& d) { d.snapshot.__isset.source_kind = false; },
+            [](auto& d) { d.snapshot.__isset.source_id = false; },
+            [](auto& d) { d.snapshot.__isset.topology_version = false; },
+            [](auto& d) { d.snapshot.__isset.max_wire_version = false; },
+            [](auto& d) { d.snapshot.__set_timestamp_seconds(-1); },
+            [](auto& d) { d.snapshot.__set_timestamp_seconds(4294967296LL); },
+            [](auto& d) { d.snapshot.__set_timestamp_increment(-1); },
+            [](auto& d) { d.snapshot.__set_timestamp_increment(4294967296LL); },
+            [](auto& d) { d.snapshot.__set_source_kind("standalone"); },
+            [](auto& d) { d.snapshot.__set_source_id("missing"); },
+            [](auto& d) { d.snapshot.__set_topology_version(0); },
+            [](auto& d) { d.snapshot.__set_max_wire_version(26); },
+            [](auto& d) { d.__set_collection_uuid(""); },
+            [](auto& d) { d.__set_object_kind("view"); },
+            [](auto& d) { d.snapshot.__set_timeseries_options_json("{}"); }};
+    for (size_t i = 0; i < invalid.size(); ++i) {
+        SCOPED_TRACE(i);
+        auto scan = range();
+        scan.table_format_params.__set_mongodb_params(snapshot_descriptor());
+        invalid[i](scan.table_format_params.mongodb_params);
+        EXPECT_FALSE(validate_mongodb_range(scan).ok());
+    }
+}
+
+TEST(MongoNativeStreamTest, SnapshotTimeSeriesRequiresPublicDefinitionMetadata) {
+    auto scan = range();
+    scan.table_format_params.__set_mongodb_params(snapshot_descriptor());
+    auto& descriptor = scan.table_format_params.mongodb_params;
+    descriptor.__set_object_kind("timeseries");
+    descriptor.__set_collection_uuid("");
+    EXPECT_FALSE(validate_mongodb_range(scan).ok());
+    descriptor.snapshot.__set_timeseries_options_json(R"({"timeseries":{"timeField":"observed"}})");
+    EXPECT_TRUE(validate_mongodb_range(scan).ok());
+    for (const auto& definition : {std::string("invalid"), std::string("{}"),
+                                   std::string(R"({"timeseries":1})"), std::string(16385, 'x')}) {
+        descriptor.snapshot.__set_timeseries_options_json(definition);
+        EXPECT_FALSE(validate_mongodb_range(scan).ok());
+    }
+}
+
+TEST(MongoNativeStreamTest, SnapshotReplicaIdentityAndTopologyMustStillMatch) {
+    const auto snapshot = snapshot_descriptor().snapshot;
+    const std::string hello = R"({"setName":"fixture_rs","maxWireVersion":25})";
+    const std::string identity = R"({"config":{"version":1,"settings":{
+        "replicaSetId":{"$oid":"000000000000000000000001"}}}})";
+    check_snapshot_source(snapshot, hello, identity, true);
+    check_snapshot_source(snapshot, R"({"setName":"fixture_rs","maxWireVersion":21})", identity,
+                          false);
+    check_snapshot_source(snapshot, R"({"maxWireVersion":25})", identity, false);
+    check_snapshot_source(snapshot, R"({"msg":"isdbgrid","maxWireVersion":25})", identity, false);
+    check_snapshot_source(snapshot, hello, R"({"config":{"version":2,"settings":{
+        "replicaSetId":{"$oid":"000000000000000000000001"}}}})",
+                          false);
+    check_snapshot_source(snapshot, hello, R"({"config":{"version":1,"settings":{
+        "replicaSetId":{"$oid":"000000000000000000000002"}}}})",
+                          false);
+    check_snapshot_source(snapshot, hello, R"({"config":{"version":1,"settings":{}}})", false);
+}
+
+TEST(MongoNativeStreamTest, SnapshotMongosIdentitySurvivesRouterChangesOnlyWithinOneCluster) {
+    auto snapshot = snapshot_descriptor().snapshot;
+    snapshot.__set_source_kind("mongos");
+    snapshot.__set_topology_version(0);
+    const std::string hello = R"({"msg":"isdbgrid","maxWireVersion":25})";
+    check_snapshot_source(snapshot, hello, R"({"clusterId":{"$oid":"000000000000000000000001"}})",
+                          true);
+    check_snapshot_source(snapshot, hello, R"({"clusterId":{"$oid":"000000000000000000000002"}})",
+                          false);
+    check_snapshot_source(snapshot, hello, R"({"clusterId":"not-an-object-id"})", false);
+}
+
+TEST(MongoNativeStreamTest, SnapshotInvalidPinFailsBeforeConnecting) {
+    auto descriptor = snapshot_descriptor();
+    descriptor.__set_uri("mongodb://127.0.0.1:1");
+    descriptor.snapshot.__set_timestamp_seconds(0);
+    auto stream = make_native_mongo_stream();
+    EXPECT_EQ(stream->open(descriptor, [] { return false; }).code(), ErrorCode::INVALID_ARGUMENT);
+    stream->close();
 }
 
 TEST(MongoNativeStreamTest, CancellationBeforeOpenDoesNotConnect) {
