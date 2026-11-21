@@ -26,7 +26,10 @@
 #include "exprs/aggregate/aggregate_function_min_max.h"
 #include "load/delta_writer/delta_writer_context.h"
 #include "load/memtable/memtable.h"
+#include "load/memtable/memtable_aggregating.h"
+#include "load/memtable/memtable_dup_keys.h"
 #include "load/memtable/memtable_flush_executor.h"
+#include "load/memtable/memtable_unique_keys.h"
 #include "load/memtable/memtable_writer.h"
 #include "runtime/workload_management/resource_context.h"
 #include "testutil/creators.h"
@@ -34,6 +37,21 @@
 #include "util/defer_op.h"
 
 namespace doris {
+
+// The fixture only builds UNIQUE_KEYS memtables, which share the aggregating row storage.
+static AggregatingMemTable& aggregating_memtable(MemTable& memtable) {
+    return static_cast<AggregatingMemTable&>(memtable);
+}
+
+// Cluster key re-sorting is a UNIQUE_KEYS rule, so it lives on the unique model.
+static UniqueKeysMemTable& unique_keys_memtable(MemTable& memtable) {
+    return static_cast<UniqueKeysMemTable&>(memtable);
+}
+
+// DUP_KEYS keeps only the compact row permutation, so its failure state is inspected there.
+static DupKeysMemTable& dup_keys_memtable(MemTable& memtable) {
+    return static_cast<DupKeysMemTable&>(memtable);
+}
 
 class MemTableMemoryTrackingTest : public testing::TestWithParam<bool> {
 protected:
@@ -64,8 +82,8 @@ protected:
         DescriptorTbl* desc_tbl = nullptr;
         ASSERT_TRUE(DescriptorTbl::create(&_pool, tdesc, &desc_tbl).ok());
         auto* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-        _memtable = std::make_unique<MemTable>(1, schema, &tuple_desc->slots(), tuple_desc, true,
-                                               nullptr, resource_ctx, GetParam());
+        _memtable = MemTable::create(1, schema, &tuple_desc->slots(), tuple_desc, true, nullptr,
+                                     resource_ctx, GetParam());
         for (const auto* slot : tuple_desc->slots()) {
             _input.insert(ColumnWithTypeAndName(slot->get_empty_mutable_column(), slot->type(),
                                                 slot->col_name()));
@@ -116,7 +134,7 @@ protected:
     ObjectPool _pool;
     Block _input;
     TabletAddRowsPayload _rows;
-    std::unique_ptr<MemTable> _memtable;
+    std::shared_ptr<MemTable> _memtable;
 };
 
 TEST_P(MemTableMemoryTrackingTest, BatchedAllocationDiagnostics) {
@@ -137,11 +155,12 @@ TEST_P(MemTableMemoryTrackingTest, BatchedAllocationDiagnostics) {
 TEST_P(MemTableMemoryTrackingTest, InsertAndReleaseRows) {
     ASSERT_TRUE(_memtable->insert(&_input, _rows).ok());
     ASSERT_TRUE(_memtable->insert(&_input, _rows).ok());
-    const auto num_rows = _memtable->_row_in_blocks->size();
+    const auto num_rows = aggregating_memtable(*_memtable)._row_in_blocks->size();
     ASSERT_EQ(num_rows, 2 * NUM_ROWS);
     const auto column_and_reference_bytes =
             _memtable->_input_mutable_block.allocated_bytes() +
-            _memtable->_row_in_blocks->capacity() * sizeof(std::shared_ptr<RowInBlock>);
+            aggregating_memtable(*_memtable)._row_in_blocks->capacity() *
+                    sizeof(std::shared_ptr<RowInBlock>);
     // Do not assume a standard library's control block layout or allocator size class.
     EXPECT_GT(_memtable->memory_usage(),
               column_and_reference_bytes + num_rows * sizeof(RowInBlock));
@@ -159,10 +178,10 @@ TEST_P(MemTableMemoryTrackingTest, InsertAndReleaseRows) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             _memtable->resource_ctx()->memory_context()->mem_tracker()->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_memtable->mem_tracker());
-    auto retained_row = _memtable->_row_in_blocks->front();
+    auto retained_row = aggregating_memtable(*_memtable)._row_in_blocks->front();
     std::weak_ptr<RowInBlock> weak_row = retained_row;
     const auto before_clear = _memtable->memory_usage();
-    _memtable->_row_in_blocks->clear();
+    aggregating_memtable(*_memtable)._row_in_blocks->clear();
     const auto after_clear = _memtable->memory_usage();
     // The retained row keeps the first batch alive; the second batch is released.
     EXPECT_GT(before_clear - after_clear, NUM_ROWS * sizeof(RowInBlock));
@@ -189,7 +208,7 @@ TEST_P(MemTableMemoryTrackingTest, ClusterKeySortMemory) {
     auto sort_tracker = std::make_shared<MemTracker>();
     {
         SCOPED_CONSUME_MEM_TRACKER(sort_tracker);
-        ASSERT_TRUE(_memtable->_sort_by_cluster_keys().ok());
+        ASSERT_TRUE(unique_keys_memtable(*_memtable)._sort_by_cluster_keys().ok());
     }
     // All row objects coexist during sorting, in addition to the reference array.
     EXPECT_GT(sort_tracker->peak_consumption(),
@@ -202,7 +221,7 @@ TEST_P(MemTableMemoryTrackingTest, ClusterKeySortMemory) {
     // still be released, together with the block that could not be sorted.
     const auto output_bytes = _memtable->_output_mutable_block.allocated_bytes();
     _memtable->_tablet_schema->_cluster_key_uids = {999};
-    auto status = _memtable->_sort_by_cluster_keys();
+    auto status = unique_keys_memtable(*_memtable)._sort_by_cluster_keys();
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(_memtable->memory_usage(), before_sort - output_bytes);
 }
@@ -222,11 +241,13 @@ TEST_P(MemTableMemoryTrackingTest, AggregateAndFlush) {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                 _memtable->resource_ctx()->memory_context()->mem_tracker()->write_tracker());
         SCOPED_CONSUME_MEM_TRACKER(_memtable->mem_tracker());
-        std::weak_ptr<RowInBlock> previous_batch = _memtable->_row_in_blocks->front();
+        std::weak_ptr<RowInBlock> previous_batch =
+                aggregating_memtable(*_memtable)._row_in_blocks->front();
         ASSERT_TRUE(_memtable->insert(&_input, _rows).ok());
-        std::weak_ptr<RowInBlock> inserted_batch = _memtable->_row_in_blocks->back();
+        std::weak_ptr<RowInBlock> inserted_batch =
+                aggregating_memtable(*_memtable)._row_in_blocks->back();
         _memtable->shrink_memtable_by_agg();
-        EXPECT_EQ(_memtable->_row_in_blocks->size(), NUM_ROWS);
+        EXPECT_EQ(aggregating_memtable(*_memtable)._row_in_blocks->size(), NUM_ROWS);
         // Surviving rows must not pin batches containing merged-away rows.
         EXPECT_TRUE(previous_batch.expired());
         EXPECT_TRUE(inserted_batch.expired());
@@ -256,7 +277,7 @@ TEST_P(MemTableMemoryTrackingTest, SingleRowBatches) {
     ASSERT_TRUE(_memtable->insert(&_input, _rows).ok());
     ASSERT_TRUE(_memtable->insert(&_input, _rows).ok());
     _memtable->shrink_memtable_by_agg();
-    ASSERT_EQ(_memtable->_row_in_blocks->size(), 1);
+    ASSERT_EQ(aggregating_memtable(*_memtable)._row_in_blocks->size(), 1);
 
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             _memtable->resource_ctx()->memory_context()->mem_tracker()->write_tracker());
@@ -403,16 +424,19 @@ protected:
 
     void check_insert_failure_state(MemTable* memtable, size_t column_bytes, size_t row_capacity) {
         EXPECT_EQ(memtable->_input_mutable_block.rows(), 4);
-        // The appended columns and reference vector both fit their existing capacity.
+        // Columns fit their existing capacity, but insert reserves room for the fourth row
+        // before the batch allocation fails. No reference to that row has been appended yet.
         EXPECT_EQ(memtable->_input_mutable_block.allocated_bytes(), column_bytes);
-        EXPECT_EQ(memtable->_row_in_blocks->size(), 3);
-        EXPECT_EQ(memtable->_row_in_blocks->capacity(), row_capacity);
+        EXPECT_EQ(aggregating_memtable(*memtable)._row_in_blocks->size(), 3);
+        // The reservation for the fourth row grew the row storage before the batch allocation
+        // failed, and a failed batch never shrinks it again.
+        EXPECT_GT(aggregating_memtable(*memtable)._row_in_blocks->capacity(), row_capacity);
     }
 
     void check_repack_failure_state(MemTable* memtable) {
         EXPECT_EQ(memtable->_input_mutable_block.rows(), 2);
-        EXPECT_EQ(memtable->_row_in_blocks->size(), 4);
-        EXPECT_TRUE(memtable->_row_in_blocks->front()->has_init_agg());
+        EXPECT_EQ(aggregating_memtable(*memtable)._row_in_blocks->size(), 4);
+        EXPECT_TRUE(aggregating_memtable(*memtable)._row_in_blocks->front()->has_init_agg());
     }
 
     void check_pressure_flush() {
@@ -451,10 +475,10 @@ protected:
         Data::reset_counts();
         auto function = std::make_shared<AggregateFunctionsSingleValue<Data>>(
                 DataTypes {_input.get_by_position(cid).type});
-        const auto& original = _writer->_mem_table->_agg_functions[cid];
+        const auto& original = aggregating_memtable(*_writer->_mem_table)._agg_functions[cid];
         ASSERT_EQ(function->size_of_data(), original->size_of_data());
         ASSERT_EQ(function->align_of_data(), original->align_of_data());
-        _writer->_mem_table->_agg_functions[cid] = std::move(function);
+        aggregating_memtable(*_writer->_mem_table)._agg_functions[cid] = std::move(function);
     }
 
     void check_aggregate_failure() {
@@ -477,7 +501,8 @@ protected:
         std::weak_ptr<MemTable> failed_memtable = _writer->_mem_table;
         auto tracker = _writer->_mem_table->mem_tracker();
         const auto column_bytes = _writer->_mem_table->_input_mutable_block.allocated_bytes();
-        const auto row_capacity = _writer->_mem_table->_row_in_blocks->capacity();
+        const auto row_capacity =
+                aggregating_memtable(*_writer->_mem_table)._row_in_blocks->capacity();
         bool reached_allocation = false;
         std::function<void(MemTable*)> fail_allocation = [&](MemTable* memtable) {
             reached_allocation = true;
@@ -517,7 +542,9 @@ class MemTableWriterAllocationFailureTest : public MemTableWriterFailureTest,
                                             public testing::WithParamInterface<int> {};
 
 TEST_P(MemTableWriterAllocationFailureTest, InsertFailureDiscardsMemTableBeforePressureFlush) {
-    init_writer(DUP_KEYS);
+    // DUP_KEYS uses compact row positions and no longer allocates RowInBlock batches.
+    // Shrinking is disabled by the fixture, so AGG_KEYS exercises only the insert failure.
+    init_writer(AGG_KEYS);
     ASSERT_TRUE(_writer->write(&_input, _rows).ok());
     check_failed_write("MemTable.insert.row_batch_allocation", true, GetParam());
 }
@@ -528,6 +555,63 @@ TEST_P(MemTableWriterAllocationFailureTest, RepackFailureDiscardsMemTableBeforeP
     config::enable_shrink_memory = true;
     config::write_buffer_size_for_agg = 0;
     check_failed_write("MemTable.aggregate.row_batch_allocation", false, GetParam());
+}
+
+// DUP_KEYS reserves its compact permutation before the batch columns are appended, so a failed
+// reservation must leave the block and the permutation exactly as the previous batches left them.
+// The fault injection makes the next allocation fail, so the failure is raised by the reservation
+// itself rather than by a debug point placed in front of it.
+TEST_F(MemTableWriterFailureTest, DupKeysFailedReservationKeepsBlockAndPermutation) {
+    init_writer(DUP_KEYS);
+    ASSERT_TRUE(_writer->write(&_input, _rows).ok());
+    auto memtable = _writer->_mem_table;
+    const auto block_rows = memtable->_input_mutable_block.rows();
+    const auto& row_positions = dup_keys_memtable(*memtable)._row_positions;
+    const auto permutation_size = row_positions.size();
+    const auto permutation_capacity = row_positions.capacity();
+    // The first batch reserved exactly its own size, so the single extra row below has to grow the
+    // permutation and therefore has to allocate.
+    ASSERT_EQ(permutation_capacity, permutation_size);
+
+    const auto old_fault_probability = config::mem_alloc_fault_probability;
+    Defer restore_fault_probability {
+            [&]() { config::mem_alloc_fault_probability = old_fault_probability; }};
+    config::mem_alloc_fault_probability = 1.0;
+
+    Status status;
+    ASSERT_NO_THROW(status = memtable->insert(&_input, TabletAddRowsPayload {.row_idxs = {0}}));
+    EXPECT_EQ(status.code(), ErrorCode::MEM_LIMIT_EXCEEDED);
+    EXPECT_EQ(memtable->_input_mutable_block.rows(), block_rows);
+    EXPECT_EQ(row_positions.size(), permutation_size);
+    EXPECT_EQ(row_positions.capacity(), permutation_capacity);
+}
+
+// A memtable whose reservation failed must be discarded instead of reaching a pressure flush.
+TEST_F(MemTableWriterFailureTest, DupKeysReserveFailureDiscardsMemTableBeforePressureFlush) {
+    init_writer(DUP_KEYS);
+    ASSERT_TRUE(_writer->write(&_input, _rows).ok());
+    std::weak_ptr<MemTable> failed_memtable = _writer->_mem_table;
+    auto tracker = _writer->_mem_table->mem_tracker();
+    const auto& row_positions = dup_keys_memtable(*_writer->_mem_table)._row_positions;
+    ASSERT_EQ(row_positions.capacity(), row_positions.size());
+
+    const auto old_fault_probability = config::mem_alloc_fault_probability;
+    Defer restore_fault_probability {
+            [&]() { config::mem_alloc_fault_probability = old_fault_probability; }};
+    config::mem_alloc_fault_probability = 1.0;
+
+    _rows.row_idxs.resize(1);
+    Status status;
+    ASSERT_NO_THROW(status = _writer->write(&_input, _rows));
+    EXPECT_EQ(status.code(), ErrorCode::MEM_LIMIT_EXCEEDED);
+    // The replacement memtable is built inside write() while faults are still injected. It only
+    // uses global new, which the Allocator fault injection does not cover, so it cannot fail
+    // there. Restore before the assertions below so the pressure-flush check is not affected.
+    config::mem_alloc_fault_probability = old_fault_probability;
+
+    ASSERT_TRUE(failed_memtable.expired());
+    EXPECT_EQ(tracker->consumption(), 0);
+    check_pressure_flush();
 }
 
 INSTANTIATE_TEST_SUITE_P(MemoryAndOtherErrors, MemTableWriterAllocationFailureTest,

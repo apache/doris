@@ -40,6 +40,7 @@
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_hybrid_set.hpp"
 #include "benchmark_json_extract.hpp"
+#include "benchmark_memtable.hpp"
 #include "benchmark_relative_day.hpp"
 #include "benchmark_rowid_conversion.hpp"
 #include "benchmark_timestamptz_round.hpp"
