@@ -32,12 +32,16 @@ public final class IvmFailureClassifier {
     public static final String NON_DETERMINISTIC_ROW_ID_MSG_PREFIX =
             "IVM fallback: delete on non-deterministic row_id";
     public static final String MV_PARTITION_NOT_FOUND_MSG = "no partition for this tuple";
+    public static final String PLAN_SIGNATURE_MISMATCH_MSG_PREFIX = "IVM layout signature mismatch for mv=";
 
     private IvmFailureClassifier() {
     }
 
     public static Optional<IvmFailureReason> classifyExecutionFailure(String detail) {
         Objects.requireNonNull(detail, "detail can not be null");
+        if (detail.contains(PLAN_SIGNATURE_MISMATCH_MSG_PREFIX)) {
+            return Optional.of(IvmFailureReason.PLAN_SIGNATURE_MISMATCH);
+        }
         if (detail.contains(MIN_MAX_BOUNDARY_MSG_PREFIX)) {
             return Optional.of(IvmFailureReason.MIN_MAX_BOUNDARY_HIT);
         }

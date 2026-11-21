@@ -49,6 +49,8 @@ public class IvmRewriteContext {
         NORMALIZE,
         /** Rewrite the normalized query into an incremental refresh delta plan. */
         INCREMENTAL,
+        /** Rebuild selected partitions using the MV's existing layout. */
+        PARTITIONS,
         /** Rewrite a complete refresh plan with the IVM full-refresh stream semantics. */
         FULL
     }
@@ -192,7 +194,17 @@ public class IvmRewriteContext {
     public static IvmRewriteContext full(MTMV mtmv,
             Map<BaseTableInfo, Set<Long>> resetPartitionIds,
             StreamReadMode nonPctReadMode) {
-        return new IvmRewriteContext(Mode.FULL, mtmv, null, false, ExecutionKind.EXECUTE, Optional.empty(),
+        return partitionBased(Mode.FULL, mtmv, resetPartitionIds, nonPctReadMode);
+    }
+
+    public static IvmRewriteContext partitions(MTMV mtmv, Map<BaseTableInfo, Set<Long>> resetPartitionIds,
+            StreamReadMode nonPctReadMode) {
+        return partitionBased(Mode.PARTITIONS, mtmv, resetPartitionIds, nonPctReadMode);
+    }
+
+    private static IvmRewriteContext partitionBased(Mode mode, MTMV mtmv,
+            Map<BaseTableInfo, Set<Long>> resetPartitionIds, StreamReadMode nonPctReadMode) {
+        return new IvmRewriteContext(mode, mtmv, null, false, ExecutionKind.EXECUTE, Optional.empty(),
                 resetPartitionIds,
                 Optional.of(Objects.requireNonNull(nonPctReadMode, "nonPctReadMode can not be null")),
                 Collections.emptyMap());
@@ -204,6 +216,10 @@ public class IvmRewriteContext {
 
     public boolean isCreate() {
         return mode == Mode.CREATE;
+    }
+
+    public boolean isPartitionBasedRefresh() {
+        return mode == Mode.FULL || mode == Mode.PARTITIONS;
     }
 
     public MTMV getMtmv() {

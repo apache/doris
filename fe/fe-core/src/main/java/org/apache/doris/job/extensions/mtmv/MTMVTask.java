@@ -907,11 +907,8 @@ public class MTMVTask extends AbstractTask {
             try {
                 executePartitionBasedRefresh(refreshContext, RefreshMode.PARTITIONS, ctx, toRebuild);
             } catch (JobException e) {
-                // The rebuild reads the tables the MV does not partition by through their streams at the
-                // offsets, so an offset changelog.ttl_seconds has expired stops it the way it stops the delta
-                // below. Only a failure whose one repair is COMPLETE becomes a fallback here: the rebuild already
-                // is the partition refresh, and the sync-and-retry the delta has for a missing MV partition does
-                // not exist on this path. Any other failure still fails the attempt.
+                // The partition rebuild can encounter an expired stream offset or an incompatible layout.
+                // Both require a whole-MV rebuild. Other failures still fail the attempt.
                 String detail = Util.getRootCauseMessage(e);
                 Optional<IvmFailureReason> reason = IvmFailureClassifier.classifyExecutionFailure(detail)
                         .filter(IvmFailureReason::requiresCompleteRefresh);
@@ -1344,9 +1341,25 @@ public class MTMVTask extends AbstractTask {
         if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
             return true;
         }
-        executePartitionBasedRefresh(partitionPlan.context, RefreshMode.PARTITIONS, ctx,
-                partitionPlan.partitions);
-        return true;
+        try {
+            executePartitionBasedRefresh(partitionPlan.context, RefreshMode.PARTITIONS, ctx,
+                    partitionPlan.partitions);
+            return true;
+        } catch (JobException e) {
+            if (IvmFailureClassifier.classifyExecutionFailure(Util.getRootCauseMessage(e)).orElse(null)
+                    != IvmFailureReason.PLAN_SIGNATURE_MISMATCH) {
+                throw e;
+            }
+            if (!request.allowFallback) {
+                failureStage = IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name();
+                throw e;
+            }
+            ivmFallbackReason = IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name();
+            fallingBack = true;
+            LOG.warn("IVM partition refresh signature mismatch for mv={}, taskId={}. Continuing with COMPLETE refresh.",
+                    mtmv.getName(), getTaskId());
+            return false;
+        }
     }
 
     private void executePartitionBasedRefresh(MTMVRefreshContext context, RefreshMode refreshMode,
@@ -1386,8 +1399,9 @@ public class MTMVTask extends AbstractTask {
         boolean refreshAllPartitions = Sets.newHashSet(partitions).equals(mtmv.getPartitionNames());
         // A whole-MV COMPLETE resets the stream baselines as it rebuilds the rows. Publish the
         // matching layout signature with that successful baseline, including a capacity change.
-        boolean replacePlanSignature = refreshMode == RefreshMode.COMPLETE && mtmv.isIvm()
-                && !mtmv.isIvmAppendOnlyDupTable();
+        boolean usesLayoutSignature = useIvmFallbackStreams && !mtmv.isIvmAppendOnlyDupTable();
+        boolean replacePlanSignature = refreshMode == RefreshMode.COMPLETE && usesLayoutSignature;
+        boolean checkPartitionSignature = refreshMode == RefreshMode.PARTITIONS && usesLayoutSignature;
         IvmPlanSignature refreshedPlanSignature = null;
         for (int i = 0; i < execNum; i++) {
             int start = i * refreshPartitionNum;
@@ -1400,8 +1414,9 @@ public class MTMVTask extends AbstractTask {
             if (useIvmFallbackStreams) {
                 StreamReadMode nonPctReadMode = i == 0 && refreshAllPartitions
                         ? StreamReadMode.RESET : StreamReadMode.SNAPSHOT;
-                rewriteContext = Optional.of(
-                        IvmRewriteContext.full(mtmv, batchResetPartitionIds, nonPctReadMode));
+                rewriteContext = Optional.of(checkPartitionSignature
+                        ? IvmRewriteContext.partitions(mtmv, batchResetPartitionIds, nonPctReadMode)
+                        : IvmRewriteContext.full(mtmv, batchResetPartitionIds, nonPctReadMode));
             }
             // The requirement this batch is read under, captured before the read below and recorded once
             // the read's data has committed, next to its snapshots. Capturing it per batch keeps an

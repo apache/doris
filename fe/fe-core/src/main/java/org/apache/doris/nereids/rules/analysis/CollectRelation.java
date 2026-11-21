@@ -365,7 +365,7 @@ public class CollectRelation implements AnalysisRuleFactory {
             // Full refresh can also reconstruct a non-PCT table at its stream snapshot using changelog.
             boolean ivmReadsChangelog = statementContext.getIvmRewriteContext()
                     .map(context -> context.getMode() == IvmRewriteContext.Mode.INCREMENTAL
-                            || context.getMode() == IvmRewriteContext.Mode.FULL
+                            || context.isPartitionBasedRefresh()
                             && context.getFullRefreshNonPctReadMode().orElse(null) == StreamReadMode.SNAPSHOT)
                     .orElse(false);
             if (((OlapTable) table).hasChangelogTtl()
