@@ -32,6 +32,7 @@
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
+#include "cpp/sync_point.h"
 #include "util/debug_points.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
@@ -687,6 +688,7 @@ void ThreadPool::dispatch_thread() {
 }
 
 Status ThreadPool::create_thread() {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("ThreadPool::create_thread", Status::OK(), this);
     return Thread::create("thread pool", absl::Substitute("$0 [worker]", _name),
                           &ThreadPool::dispatch_thread, this, nullptr);
 }
