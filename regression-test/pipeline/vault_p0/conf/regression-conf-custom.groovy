@@ -36,6 +36,7 @@ extHiveServerPort= 7001
 extHiveHmsUser = "root"
 
 // for case test_minio_storage_vault.groovy
+enableExternalMinioTest = true
 extMinioHost = "127.0.0.1"
 extMinioPort = 19000
 extMinioDomain = "myminio.com"
