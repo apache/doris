@@ -58,6 +58,7 @@
 #include "runtime/runtime_state.h"
 #include "testutil/adbc_sqlite_driver.h"
 #include "testutil/desc_tbl_builder.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/adbc_driver_registry.h"
 
 namespace doris::format::adbc {
@@ -995,10 +996,11 @@ TEST(AdbcReaderTest, RejectsARangeThatSaysBothOrNeitherKindOfWork) {
 
 class AdbcSqliteReaderTest : public ::testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"adbc_reader_test"};
+
     void SetUp() override {
         SKIP_WITHOUT_SQLITE_DRIVER();
-        _db_path = std::filesystem::temp_directory_path() /
-                   ("doris_adbc_reader_test_" + std::to_string(::getpid()) + ".db");
+        _db_path = scoped_temp_dir_.path() / "reader.db";
         std::filesystem::remove(_db_path);
         const std::string uri = "file:" + _db_path.string();
         ASSERT_TRUE(run_sqlite_ddl(
