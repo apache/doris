@@ -3738,10 +3738,10 @@ public:
 // `schema.name-mapping.default` is added or removed without touching the data file, so those
 // splits must stay out of the condition cache entirely (neither read nor written).
 TEST(IcebergV2ReaderTest, PositionalIdFallbackSplitsDisableConditionCache) {
-    const doris::test::ScopedTempDirectory scoped_run_case("iceberg_reader_test");
     const auto run_case = [](bool idless_file, int32_t table_field_id) {
+        const doris::test::ScopedTempDirectory scoped_test_dir("iceberg_reader_test");
         const auto test_dir =
-                scoped_run_case.path() / (idless_file ? "doris_iceberg_cache_fallback_test"
+                scoped_test_dir.path() / (idless_file ? "doris_iceberg_cache_fallback_test"
                                                       : "doris_iceberg_cache_field_id_test");
         std::filesystem::remove_all(test_dir);
         std::filesystem::create_directories(test_dir);
