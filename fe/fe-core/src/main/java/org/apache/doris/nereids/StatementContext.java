@@ -39,6 +39,7 @@ import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.write.ConnectorWriteTarget;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.connector.converter.NereidsToConnectorExpressionConverter;
@@ -332,6 +333,7 @@ public class StatementContext implements Closeable {
     // intentionally separate from the cached table schema used by DESCRIBE/SHOW CREATE, and cleared together
     // with the connector statement scope when a prepared StatementContext starts its next execution.
     private final Map<Long, List<Column>> connectorWriteSchemas = new HashMap<>();
+    private final Map<Long, ConnectorWriteTarget> connectorWriteTargets = new HashMap<>();
     // The identity is captured by the same provider call chain as connectorWriteSchemas. Keeping it alongside
     // the columns prevents bind-time expressions and the later sink fence from naming different generations.
     private final Map<Long, String> connectorWriteMetadataIdentities = new HashMap<>();
@@ -908,6 +910,14 @@ public class StatementContext implements Closeable {
         return insertTargetSchema;
     }
 
+    public void setConnectorWriteTarget(long tableId, ConnectorWriteTarget target) {
+        connectorWriteTargets.put(tableId, target);
+    }
+
+    public Optional<ConnectorWriteTarget> getConnectorWriteTarget(long tableId) {
+        return Optional.ofNullable(connectorWriteTargets.get(tableId));
+    }
+
     public void setConnectorWriteSchema(long tableId, List<Column> columns) {
         connectorWriteSchemas.put(tableId, ImmutableList.copyOf(columns));
     }
@@ -1272,6 +1282,7 @@ public class StatementContext implements Closeable {
         this.connectorSessionProperties = null;
         this.connectorSessionPropertySource = null;
         this.connectorWriteSchemas.clear();
+        this.connectorWriteTargets.clear();
         this.connectorWriteMetadataIdentities.clear();
         this.connectorDeleteTargets.clear();
         changelogReferenceTsoRequired = false;

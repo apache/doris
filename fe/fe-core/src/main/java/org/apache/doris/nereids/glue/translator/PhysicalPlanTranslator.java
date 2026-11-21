@@ -734,7 +734,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TSortInfo here (the connector's planWrite has no bound exprs). Empty for connectors with no
         // write sort (jdbc/maxcompute) -> null, byte-identical unsorted sink.
         TSortInfo writeSortInfo = buildConnectorWriteSortInfo(
-                writePlanProvider.getWriteSortColumns(connSession, providerTableHandle, boundOutputColumns),
+                writePlanContext.getWriteTarget().isPresent()
+                        ? writePlanProvider.getWriteSortColumns(connSession,
+                                writePlanContext.getWriteTarget().get(), boundOutputColumns)
+                        : writePlanProvider.getWriteSortColumns(connSession, providerTableHandle, boundOutputColumns),
                 connectorTableSink, context);
 
         // The write list can omit explicit/static-partition columns, but schema-drift validation must
@@ -742,7 +745,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
                 writePlanProvider, connSession, providerTableHandle, connectorColumns,
                 boundTargetColumns, writeSortInfo, writeOperation, true, false,
-                boundWriteMetadataIdentity, metadata, context.getBeExecVersion());
+                boundWriteMetadataIdentity, metadata, context.getBeExecVersion(),
+                writePlanContext.getWriteTarget().orElse(null));
         rootFragment.setSink(providerSink);
         return rootFragment;
     }

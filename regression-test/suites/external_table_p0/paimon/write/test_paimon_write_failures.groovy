@@ -131,7 +131,7 @@ suite("test_paimon_write_failures", "p0,external,paimon") {
         test {
             sql """INSERT OVERWRITE TABLE t_atomic_append
                 PARTITION (payload = 'not_a_partition') VALUES (5, 'p5')"""
-            exception "is not a partition column of Paimon table"
+            exception "is not a partition column of the write target"
         }
         assertAtomicAppendState(1L, 1L)
 

@@ -224,7 +224,8 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         PlanTranslatorContext context = new PlanTranslatorContext();
         PlanFragment childFragment = Mockito.mock(PlanFragment.class);
         ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
-        Mockito.when(provider.getWriteSortColumns(Mockito.any(), Mockito.any(), Mockito.anyList()))
+        Mockito.when(provider.getWriteSortColumns(
+                Mockito.any(), Mockito.<ConnectorTableHandle>any(), Mockito.anyList()))
                 .thenAnswer(invocation -> {
                     List<ConnectorColumn> columns = invocation.getArgument(2);
                     for (int i = 0; i < columns.size(); i++) {

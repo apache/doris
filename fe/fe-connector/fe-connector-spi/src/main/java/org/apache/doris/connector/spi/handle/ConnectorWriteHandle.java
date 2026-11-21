@@ -18,6 +18,7 @@
 package org.apache.doris.connector.spi.handle;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.write.ConnectorWriteTarget;
 import org.apache.doris.thrift.TSortInfo;
 
 import java.util.Collections;
@@ -37,6 +38,11 @@ import java.util.Set;
  * its Thrift data sink.</p>
  */
 public interface ConnectorWriteHandle {
+
+    /** Complete metadata captured before write binding; absent for providers on the legacy path. */
+    default Optional<ConnectorWriteTarget> getWriteTarget() {
+        return Optional.empty();
+    }
 
     /** The target table handle (the connector's own opaque table handle). */
     ConnectorTableHandle getTableHandle();
