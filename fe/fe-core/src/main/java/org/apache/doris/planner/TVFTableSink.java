@@ -24,7 +24,9 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
+import org.apache.doris.datasource.storage.StatementStorageProperties;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -114,6 +116,7 @@ public class TVFTableSink extends DataSink {
         tSink.setFileType(fileType);
 
         // --- 2. Parse storage/connection properties (reuse read-side storage adapter) ---
+        String filePath = properties.get("file_path");
         Map<String, String> backendConnectProps;
         if (tvfName.equals("local")) {
             // Local TVF: pass properties as-is (same as the local backend config map)
@@ -122,14 +125,17 @@ public class TVFTableSink extends DataSink {
             // S3/HDFS: use the storage adapter to normalize connection property keys
             // (e.g. "s3.endpoint" -> "AWS_ENDPOINT", "hadoop.username" -> hadoop config)
             try {
-                StorageAdapter storageAdapter = StorageAdapter.of(propsCopy);
+                propsCopy.remove("file_path");
+                StorageAdapter storageAdapter = bindRemoteStorage(tvfName, propsCopy, filePath);
+                if (fileType == TFileType.FILE_HDFS) {
+                    filePath = storageAdapter.validateAndNormalizeUri(filePath);
+                }
                 backendConnectProps = storageAdapter.getBackendConfigProperties();
             } catch (Exception e) {
                 throw new AnalysisException("Failed to parse storage properties: " + e.getMessage(), e);
             }
         }
 
-        String filePath = properties.get("file_path");
         tSink.setFilePath(filePath);
 
         // Set normalized properties for BE
@@ -202,6 +208,15 @@ public class TVFTableSink extends DataSink {
 
         tDataSink = new TDataSink(TDataSinkType.TVF_TABLE_SINK);
         tDataSink.setTvfTableSink(tSink);
+    }
+
+    public static StorageAdapter bindRemoteStorage(String tvfName, Map<String, String> properties, String filePath) {
+        if ("hdfs".equals(tvfName) && StatementStorageProperties.isRemoteHadoopUri(filePath)) {
+            properties.put("uri", filePath);
+        }
+        StorageAdapter adapter = StorageAdapter.of(properties);
+        adapter.checkStorageKind("hdfs".equals(tvfName) ? StorageKind.HDFS_COMPATIBLE : StorageKind.OBJECT_STORAGE);
+        return adapter;
     }
 
     private TFileType getFileType(String tvfName) throws AnalysisException {

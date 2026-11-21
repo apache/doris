@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.planner.TVFTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -183,7 +184,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         fsCopyProps.remove("compression_type");
         fsCopyProps.remove("compress_type");
 
-        StorageAdapter storageAdapter = StorageAdapter.of(fsCopyProps);
+        StorageAdapter storageAdapter = TVFTableSink.bindRemoteStorage(tvfName, fsCopyProps, props.get("file_path"));
         // Concrete filesystems only accept their native schemes; normalize legacy compatibility
         // schemes (e.g. cos:// with s3.* properties) before crossing the plugin boundary.
         String filePath = storageAdapter.validateAndNormalizeUri(props.get("file_path"));

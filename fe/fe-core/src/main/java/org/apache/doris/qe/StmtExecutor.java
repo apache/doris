@@ -66,6 +66,7 @@ import org.apache.doris.common.util.UniqueIdUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.scan.FileScanNode;
 import org.apache.doris.datasource.split.SplitAssignment;
+import org.apache.doris.datasource.storage.StatementStorageProperties;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.filesystem.Location;
@@ -982,6 +983,11 @@ public class StmtExecutor {
         parseByNereids();
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
+        // Prepared and multi-statement requests can execute a previously parsed plan under different privileges.
+        String adminStorageProperty = ((LogicalPlanAdapter) parsedStmt).getStatementContext().getAdminStorageProperty();
+        if (adminStorageProperty != null) {
+            StatementStorageProperties.checkAdmin(context, adminStorageProperty);
+        }
         context.getState().setNereids(true);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         checkSqlBlocked(logicalPlan.getClass());

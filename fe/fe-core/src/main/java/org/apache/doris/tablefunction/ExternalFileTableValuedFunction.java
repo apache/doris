@@ -47,6 +47,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
+import org.apache.doris.datasource.storage.StatementStorageProperties;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileEntry;
@@ -216,6 +217,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     // The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
+        StatementStorageProperties.check(properties);
         Map<String, String> mergedProperties = Maps.newHashMap();
         if (properties.containsKey("resource")) {
             Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(properties.get("resource"));
@@ -223,6 +225,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 throw new AnalysisException("Can not find resource: " + properties.get("resource"));
             }
             this.resourceName = Optional.of(properties.get("resource"));
+            checkAuth(ConnectContext.get());
             mergedProperties = resource.getCopiedProperties();
         }
         mergedProperties.putAll(properties);

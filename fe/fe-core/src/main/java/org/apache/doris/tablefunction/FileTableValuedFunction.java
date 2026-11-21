@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.storage.StatementStorageProperties;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
@@ -43,8 +44,8 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
     private ExternalFileTableValuedFunction delegateTvf;
 
     public FileTableValuedFunction(Map<String, String> properties) throws AnalysisException {
-        // We don't need to parseCommonProperties because the corresponding Storage will do it
-        // Map<String, String> props = super.parseCommonProperties(properties);
+        // Validate the statement properties before choosing the concrete TVF.
+        StatementStorageProperties.check(properties);
         try {
             this.storageAdapter = StorageAdapter.of(properties);
             switch (storageAdapter.getType()) {
