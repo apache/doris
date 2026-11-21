@@ -127,14 +127,13 @@ import java.util.stream.Collectors;
 /**
  * Scan plan provider for Paimon tables.
  *
- * <p>Three split paths:
+ * <p>Split routing, in priority order:
  * <ol>
- *   <li><b>JNI reader</b> (default): Serializes the entire Paimon {@code Split} object.
- *       BE calls back into Paimon Java code via JNI.</li>
- *   <li><b>Native reader</b>: When {@code DataSplit.convertToRawFiles()} succeeds and
- *       all files are ORC/Parquet. BE reads files natively.</li>
- *   <li><b>COUNT pushdown</b>: When the query is COUNT(*) and the split has
- *       pre-computed merged row count.</li>
+ *   <li><b>COUNT pushdown</b>: Answer COUNT(*) from a precomputed merged row count.</li>
+ *   <li><b>Native reader</b>: Read raw ORC/Parquet files after all compatibility checks.</li>
+ *   <li><b>Rust reader</b>: Read supported logical splits when explicitly enabled and
+ *       supported by every backend.</li>
+ *   <li><b>JNI reader</b>: Read the remaining logical splits through Paimon Java.</li>
  * </ol>
  *
  * <p><b>Partition pruning (P5-T09): pure predicate pushdown.</b> Only the 4-arg
@@ -554,7 +553,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (session == null || !session.isExternalScanTaskReuseEnabled()) {
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
                     request.getFilter(), request.getLimit(), request.isCountPushdown(),
-                    request.isAggregatePushdown(),
                     request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY),
                     request.getCoarseSplitSize());
         }
@@ -563,7 +561,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             // (authorized file enumeration); never reuse their planned ranges.
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
                     request.getFilter(), request.getLimit(), request.isCountPushdown(),
-                    request.isAggregatePushdown(),
                     request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY),
                     request.getCoarseSplitSize());
         }
@@ -586,7 +583,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return scanReuse.computeIfAbsent(reuseKey,
                 key -> Collections.unmodifiableList(planScanInternal(session,
                         request.getTableHandle(), request.getColumns(), request.getFilter(),
-                        request.getLimit(), request.isCountPushdown(), request.isAggregatePushdown(),
+                        request.getLimit(), request.isCountPushdown(),
                         request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY),
                         request.getCoarseSplitSize(), table)));
     }
@@ -770,10 +767,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             long limit,
             boolean countPushdown,
-            boolean aggregatePushdown,
             boolean backendsSupportRust, long coarseSplitSize) {
         return planScanInternal(session, handle, columns, filter, limit, countPushdown,
-                aggregatePushdown, backendsSupportRust, coarseSplitSize,
+                backendsSupportRust, coarseSplitSize,
                 resolveScanTable((PaimonTableHandle) handle));
     }
 
@@ -784,7 +780,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             long limit,
             boolean countPushdown,
-            boolean aggregatePushdown,
             boolean backendsSupportRust,
             long coarseSplitSize, Table table) {
 
@@ -1014,9 +1009,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
             boolean nativeEligible = shouldUseNativeReader(paimonHandle.isForceJni() || needsNanosecondReader,
                     isForceJniScannerEnabled(session), hasVariantProjection, physicalVariantSchemaIds, optRawFiles);
-            boolean rustEligible = rustReaderSelector != null && rustReaderSelector.canRead(dataSplit);
             boolean legacyOrcTimestamp = false;
-            if (nativeEligible && containsTimestampType(rowType) && (!rustEligible || aggregatePushdown)) {
+            if (nativeEligible && containsTimestampType(rowType)) {
                 FileStoreTable splitTable = legacyOrcSplitTable((FileStoreTable) legacyOrcSchemaTable.get(), dataSplit);
                 Set<Integer> splitReadFieldIds = branchReadFieldIds(rowType, splitTable.rowType(), readFieldIds);
                 legacyOrcTimestamp = withSchemaHistoryAuthentication(() ->
@@ -1025,20 +1019,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                         || requiresOrcTimestampReader(splitTable, optRawFiles, splitReadFieldIds,
                                 legacyOrcTimestampSchemas.computeIfAbsent(splitTable, ignored -> new HashMap<>())));
             }
-            // Only the native reader can answer COUNT(column) and MIN/MAX from file footers.
-            // Keep ordinary compatible scans on Rust, but preserve native aggregate pushdown.
-            if (rustEligible && !(aggregatePushdown && nativeEligible && !legacyOrcTimestamp)) {
-                // Rust consumes logical splits, so IGNORE_JNI applies just as on branch-4.1.
-                if (ignoreJni) {
-                    continue;
-                }
-                if (rustScanMetadata == null) {
-                    rustScanMetadata = RustScanMetadata.from((FileStoreTable) table);
-                }
-                ranges.add(buildRustScanRange(dataSplit, rustScanMetadata, paimonHandle,
-                        defaultFileFormat, partitionValues, weightDenominator));
-                continue;
-            }
+            // Keep raw-file scans and footer aggregates on Native. Rust is the logical reader
+            // fallback, after all native compatibility checks (including historical schemas).
             if (nativeEligible && !legacyOrcTimestamp) {
                 if (ignoreNative) {
                     if (requiresMetadataColumns) {
@@ -1078,6 +1060,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                             partitionValues, vendedToken, effectiveSplitSize, nativeWeightTarget,
                             dataSplit.bucket()));
                 }
+            } else if (rustReaderSelector != null && rustReaderSelector.canRead(dataSplit)) {
+                // Diagnostic split suppression must not reroute a logical split to another reader.
+                if (ignoreJni) {
+                    continue;
+                }
+                if (rustScanMetadata == null) {
+                    rustScanMetadata = RustScanMetadata.from((FileStoreTable) table);
+                }
+                ranges.add(buildRustScanRange(dataSplit, rustScanMetadata, paimonHandle,
+                        defaultFileFormat, partitionValues, weightDenominator));
             } else {
                 // Logical fallback after Rust/native eligibility checks.
                 if (ignoreJni) {
