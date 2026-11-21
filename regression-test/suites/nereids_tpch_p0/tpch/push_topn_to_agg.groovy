@@ -20,6 +20,7 @@
 suite("push_topn_to_agg") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
+    sql "set enable_bucketed_hash_agg = false;"
     sql "set topn_opt_limit_threshold=1024"
     // limit -> agg
         // verify switch

@@ -193,6 +193,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.RowStoreFetchChecker;
@@ -202,6 +203,7 @@ import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.AssertNumRowsNode;
 import org.apache.doris.planner.BackendPartitionedSchemaScanNode;
 import org.apache.doris.planner.BlackholeSink;
+import org.apache.doris.planner.BucketedAggregationNode;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataStreamSink;
@@ -245,6 +247,7 @@ import org.apache.doris.planner.UnionNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
 import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
@@ -282,7 +285,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -363,7 +365,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute,
             PlanTranslatorContext context) {
         Plan upstream = distribute.child(); // now they're in one fragment but will be split by ExchangeNode.
-        PlanFragment upstreamFragment = upstream.accept(this, context);
+        // The exchange keeps the upstream fragment apart from any fragment-merging ancestor,
+        // so an aggregate fused into BucketedAggregationNode below it is safe.
+        int fragmentMergeChildDepth = context.enterExchangeBoundary();
+        PlanFragment upstreamFragment;
+        try {
+            upstreamFragment = upstream.accept(this, context);
+        } finally {
+            context.exitExchangeBoundary(fragmentMergeChildDepth);
+        }
         List<List<Expr>> upstreamDistributeExprs = getDistributeExprs(upstream);
 
         DistributionSpec targetDistribution = distribute.getDistributionSpec();
@@ -1101,6 +1111,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // create scan range
+        if (context.getBucketedFusionBackendId() != -1) {
+            // Below a bucketed aggregation: only the backend the single-BE gate saw may scan.
+            olapScanNode.setPinnedBackendId(context.getBucketedFusionBackendId());
+        }
         Utils.execWithUncheckedException(olapScanNode::init);
         context.addScanNode(olapScanNode, olapScan);
 
@@ -1300,6 +1314,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PhysicalHashAggregate<? extends Plan> aggregate,
             PlanTranslatorContext context) {
 
+        // Bucketed fusion path: fuse one-phase GLOBAL aggregate + distribute
+        // into BucketedAggregationNode when applicable (single-BE, no exchange needed).
+        if (shouldUseBucketedFusion(aggregate, context)) {
+            // Read the single alive backend again right before the fused fragment is built
+            // and pin its scan to that backend. If the alive backends changed since the
+            // eligibility gate ran, keep the regular aggregate and its exchange instead.
+            Backend backend = AggregateUtils.getBucketedHashAggBackend(ConnectContext.get());
+            if (backend != null) {
+                return visitBucketedFusion(aggregate, context, backend.getId());
+            }
+        }
+
         PlanFragment inputPlanFragment = aggregate.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(aggregate.child(0));
 
@@ -1308,75 +1334,23 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // 1. generate slot reference for each group expression
         List<SlotReference> groupSlots = collectGroupBySlots(groupByExpressions, outputExpressions);
-        ArrayList<Expr> execGroupingExpressions = Lists.newArrayListWithCapacity(groupByExpressions.size());
-        for (Expression e : groupByExpressions) {
-            Expr result = ExpressionTranslator.translate(e, context);
-            if (result == null) {
-                throw new RuntimeException("translate " + e + " failed");
-            }
-            execGroupingExpressions.add(result);
-        }
+        ArrayList<Expr> execGroupingExpressions = translateGroupByExprs(groupByExpressions, context);
         // 2. collect agg expressions and generate agg function to slot reference map
-        List<Slot> aggFunctionOutput = Lists.newArrayList();
-        ArrayList<FunctionCallExpr> execAggregateFunctions = Lists.newArrayListWithCapacity(outputExpressions.size());
-        AtomicBoolean hasPartialInAggFunc = new AtomicBoolean(false);
-        Set<AggregateExpression> processedAggregateExpressions = Sets.newIdentityHashSet();
-        for (NamedExpression o : outputExpressions) {
-            if (o.containsType(AggregateExpression.class)) {
-                aggFunctionOutput.add(o.toSlot());
-
-                o.foreach(c -> {
-                    if (c instanceof SessionVarGuardExpr) {
-                        SessionVarGuardExpr guardExpr = (SessionVarGuardExpr) c;
-                        if (guardExpr.child() instanceof AggregateExpression) {
-                            AggregateExpression aggregateExpression = (AggregateExpression) guardExpr.child();
-                            if (processedAggregateExpressions.add(aggregateExpression)) {
-                                execAggregateFunctions.add(
-                                        (FunctionCallExpr) ExpressionTranslator.translate(guardExpr, context)
-                                );
-                                hasPartialInAggFunc.set(
-                                        aggregateExpression.getAggregateParam().aggMode.productAggregateBuffer);
-                            }
-                        }
-                        // no need to traverse children, because AggregateExpression
-                        // should not have a AggregateExpression child
-                        return true;
-                    }
-                    if (c instanceof AggregateExpression) {
-                        AggregateExpression aggregateExpression = (AggregateExpression) c;
-                        if (processedAggregateExpressions.add(aggregateExpression)) {
-                            execAggregateFunctions.add(
-                                    (FunctionCallExpr) ExpressionTranslator.translate(aggregateExpression, context)
-                            );
-                            hasPartialInAggFunc.set(
-                                    aggregateExpression.getAggregateParam().aggMode.productAggregateBuffer);
-                        }
-                        return true;
-                    }
-                    return false;
-                });
-            }
-        }
+        boolean[] hasPartialInAggFunc = new boolean[1];
+        Pair<List<Slot>, ArrayList<FunctionCallExpr>> aggResult =
+                collectAggFunctions(outputExpressions, hasPartialInAggFunc, context);
+        List<Slot> aggFunctionOutput = aggResult.first;
+        ArrayList<FunctionCallExpr> execAggregateFunctions = aggResult.second;
         // An agg may have different functions, some product buffer, some product result.
         // The criterion for passing it to the be stage is: as long as there is a product buffer function in agg,
         // it must be isPartial
-        boolean isPartial = hasPartialInAggFunc.get();
+        boolean isPartial = hasPartialInAggFunc[0];
 
         // 3. generate output tuple
-        List<Slot> slotList = Lists.newArrayList();
-        TupleDescriptor outputTupleDesc;
-        slotList.addAll(groupSlots);
-        slotList.addAll(aggFunctionOutput);
-        outputTupleDesc = generateTupleDesc(slotList, null, context);
-
-        List<Integer> aggFunOutputIds = ImmutableList.of();
-        if (!aggFunctionOutput.isEmpty()) {
-            aggFunOutputIds = Lists.newArrayListWithCapacity(outputTupleDesc.getSlots().size() - groupSlots.size());
-            ArrayList<SlotDescriptor> slots = outputTupleDesc.getSlots();
-            for (int i = groupSlots.size(); i < slots.size(); i++) {
-                aggFunOutputIds.add(slots.get(i).getId().asInt());
-            }
-        }
+        Pair<TupleDescriptor, List<Integer>> tupleAndIds =
+                buildAggOutputTuple(groupSlots, aggFunctionOutput, context);
+        TupleDescriptor outputTupleDesc = tupleAndIds.first;
+        List<Integer> aggFunOutputIds = tupleAndIds.second;
         AggregateInfo aggInfo = AggregateInfo.create(execGroupingExpressions, execAggregateFunctions,
                 aggFunOutputIds, isPartial, outputTupleDesc, aggregate.getAggPhase().toExec());
         AggregationNode aggregationNode = new AggregationNode(context.nextPlanNodeId(),
@@ -1757,9 +1731,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PhysicalHashJoin<PhysicalPlan, PhysicalPlan> physicalHashJoin
                 = (PhysicalHashJoin<PhysicalPlan, PhysicalPlan>) hashJoin;
         // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
-        PlanFragment rightFragment = hashJoin.child(1).accept(this, context);
-        PlanFragment leftFragment = hashJoin.child(0).accept(this, context);
-        List<List<Expr>> distributeExprLists = getDistributeExprs(physicalHashJoin.left(), physicalHashJoin.right());
+        context.enterFragmentMergeChild();
+        PlanFragment rightFragment;
+        PlanFragment leftFragment;
+        try {
+            rightFragment = hashJoin.child(1).accept(this, context);
+            leftFragment = hashJoin.child(0).accept(this, context);
+        } finally {
+            context.exitFragmentMergeChild();
+        }
+        List<List<Expr>> distributeExprLists
+                = getDistributeExprs(physicalHashJoin.left(), physicalHashJoin.right());
 
         if (JoinUtils.shouldNestedLoopJoin(hashJoin)) {
             throw new RuntimeException("Physical hash join could not execute without equal join condition.");
@@ -2047,9 +2029,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: we should add a helper method to wrap this logic.
         //   Maybe something like private List<PlanFragment> postOrderVisitChildren(
         //       PhysicalPlan plan, PlanVisitor visitor, Context context).
-        PlanFragment rightFragment = nestedLoopJoin.child(1).accept(this, context);
-        PlanFragment leftFragment = nestedLoopJoin.child(0).accept(this, context);
-        List<List<Expr>> distributeExprLists = getDistributeExprs(nestedLoopJoin.child(0), nestedLoopJoin.child(1));
+        context.enterFragmentMergeChild();
+        PlanFragment rightFragment;
+        PlanFragment leftFragment;
+        try {
+            rightFragment = nestedLoopJoin.child(1).accept(this, context);
+            leftFragment = nestedLoopJoin.child(0).accept(this, context);
+        } finally {
+            context.exitFragmentMergeChild();
+        }
+        List<List<Expr>> distributeExprLists
+                = getDistributeExprs(nestedLoopJoin.child(0), nestedLoopJoin.child(1));
         PlanNode leftFragmentPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
 
@@ -2468,8 +2458,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalRecursiveUnion(PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveCte,
             PlanTranslatorContext context) {
         List<PlanFragment> childrenFragments = new ArrayList<>();
-        for (Plan plan : recursiveCte.children()) {
-            childrenFragments.add(plan.accept(this, context));
+        // Like a join or a set operation, a recursive union consumes its children's fragments
+        // without an exchange boundary, so bucketed fusion must not delete the exchange that
+        // keeps an olap scan in a fragment of its own.
+        context.enterFragmentMergeChild();
+        try {
+            for (Plan plan : recursiveCte.children()) {
+                childrenFragments.add(plan.accept(this, context));
+            }
+        } finally {
+            context.exitFragmentMergeChild();
         }
         List<List<Expr>> distributeExprLists = getDistributeExprs(recursiveCte.children().toArray(new Plan[0]));
         TupleDescriptor setTuple = generateTupleDesc(recursiveCte.getOutput(), null, context);
@@ -2541,8 +2539,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalSetOperation(
             PhysicalSetOperation setOperation, PlanTranslatorContext context) {
         List<PlanFragment> childrenFragments = new ArrayList<>();
-        for (Plan plan : setOperation.children()) {
-            childrenFragments.add(plan.accept(this, context));
+        context.enterFragmentMergeChild();
+        try {
+            for (Plan plan : setOperation.children()) {
+                childrenFragments.add(plan.accept(this, context));
+            }
+        } finally {
+            context.exitFragmentMergeChild();
         }
         List<List<Expr>> distributeExprLists = getDistributeExprs(setOperation.children().toArray(new Plan[0]));
         TupleDescriptor setTuple = generateTupleDesc(setOperation.getOutput(), null, context);
@@ -3214,6 +3217,260 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             leftFragment.addChild(rightChild);
         }
         return leftFragment;
+    }
+
+    /**
+     * Check whether the one-phase GLOBAL hash aggregate can be fused with its
+     * distribute child into a BucketedAggregationNode. This eliminates exchange
+     * overhead on single-BE deployments by using in-memory per-bucket merging.
+     */
+    private boolean shouldUseBucketedFusion(PhysicalHashAggregate<? extends Plan> aggregate,
+            PlanTranslatorContext context) {
+        // Child must be PhysicalDistribute with hash distribution matching group keys
+        Plan child = aggregate.child(0);
+        if (!(child instanceof PhysicalDistribute)) {
+            return false;
+        }
+        // Shared eligibility (also used by the regulator, the cost model and the
+        // output property deriver):
+        // session var, single-BE, GROUP BY, spill / query cache off, smooth upgrade,
+        // no UDAF, one-phase GLOBAL INPUT_TO_RESULT, no partial (buffer-producing)
+        // function, two-phase capable functions, no pushed TopN, child hash-distributed
+        // by exactly the GROUP BY keys. A distribute on a strict subset of them
+        // (agg_shuffle_use_parent_key) must be kept: the parent consumes the aggregate
+        // without an exchange and relies on that distribution.
+        if (!AggregateUtils.isBucketedHashAggFusible(aggregate,
+                ((PhysicalDistribute<?>) child).getDistributionSpec())) {
+            return false;
+        }
+        // Bucketed fusion bypasses the distribute/exchange and builds directly on the
+        // child fragment. When the child subtree contains a CTE consumer (materialized
+        // multicast CTE), the child fragment is the MultiCastPlanFragment; a parent
+        // distribute would then treat the aggregate output slots as consumer slots and
+        // fail with "Required producer slot ... doesn't exist". Fall back to the
+        // regular one-phase path (which keeps the exchange) for such plans.
+        if (containsCTEConsumer(child)) {
+            return false;
+        }
+        // The distribute's child subtree must be a unary pipeline over exactly one
+        // olap scan. Fusing an aggregate whose input contains a join / set-op / CTE
+        // subtree would leave multiple olap scans in a single fragment (rejected by
+        // UnassignedJobBuilder: "Not supported multiple scan multiple OlapTable but
+        // not contains colocate join or bucket shuffle join"), and fusing over a
+        // nested aggregate would break the bucket alignment between stages.
+        if (!AggregateUtils.isSingleOlapScanPipeline(aggregate.child(0).child(0))) {
+            return false;
+        }
+        // The parent is a fragment-merging node (join / set-op / recursive union) that
+        // consumes this fragment without an exchange boundary: fusing removes the
+        // exchange that keeps the scan in its own fragment, so multiple scans would end
+        // up in the same fragment and the scan-assignment would fail. A distribute
+        // between the merging node and this aggregate clears the context (see
+        // visitPhysicalDistribute), because its exchange keeps the fused fragment apart.
+        return !context.isInFragmentMergeChild();
+    }
+
+    /** Returns true if the plan subtree contains a physical CTE consumer. */
+    private boolean containsCTEConsumer(Plan plan) {
+        if (plan instanceof PhysicalCTEConsumer) {
+            return true;
+        }
+        for (Plan child : plan.children()) {
+            if (containsCTEConsumer(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Fuse a one-phase GLOBAL hash aggregate and its PhysicalDistribute child
+     * into a BucketedAggregationNode, skipping the exchange node entirely.
+     * Visits the distribute's child directly to keep everything in one fragment.
+     * The olap scan below the aggregate is pinned to {@code backendId}, the only
+     * alive backend seen by the single-BE gate.
+     */
+    private PlanFragment visitBucketedFusion(
+            PhysicalHashAggregate<? extends Plan> aggregate,
+            PlanTranslatorContext context, long backendId) {
+        // Visit the distribute's direct child, bypassing the distribute entirely.
+        // This avoids creating an ExchangeNode that bucketed agg does not need.
+        Plan distributeChild = aggregate.child(0).child(0);
+        int scanNodesBefore = context.getScanNodes().size();
+        PlanFragment inputPlanFragment;
+        context.setBucketedFusionBackendId(backendId);
+        try {
+            inputPlanFragment = distributeChild.accept(this, context);
+        } finally {
+            context.setBucketedFusionBackendId(-1);
+        }
+        checkBucketedFusionScanPinned(context, scanNodesBefore, backendId);
+
+        List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
+        List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
+
+        // 1. generate slot reference for each group expression
+        List<SlotReference> groupSlots = collectGroupBySlots(groupByExpressions, outputExpressions);
+        ArrayList<Expr> execGroupingExpressions = translateGroupByExprs(groupByExpressions, context);
+
+        // 2. collect agg expressions and generate agg function to slot reference map.
+        //    Reuse the shared helper from visitPhysicalHashAggregate; the bucketed
+        //    path passes null for hasPartialOut (never partial, always needsFinalize).
+        Pair<List<Slot>, ArrayList<FunctionCallExpr>> aggResult =
+                collectAggFunctions(outputExpressions, null, context);
+        List<Slot> aggFunctionOutput = aggResult.first;
+        ArrayList<FunctionCallExpr> execAggregateFunctions = aggResult.second;
+
+        // 3. generate output tuple
+        Pair<TupleDescriptor, List<Integer>> tupleAndIds =
+                buildAggOutputTuple(groupSlots, aggFunctionOutput, context);
+        TupleDescriptor outputTupleDesc = tupleAndIds.first;
+        List<Integer> aggFunOutputIds = tupleAndIds.second;
+
+        // Bucketed agg uses AggPhase.FIRST (update semantics): raw input -> final result.
+        // Not partial — always needsFinalize.
+        AggregateInfo aggInfo = AggregateInfo.create(execGroupingExpressions, execAggregateFunctions,
+                aggFunOutputIds, false /* isPartial */, outputTupleDesc,
+                AggregateInfo.AggPhase.FIRST);
+
+        BucketedAggregationNode bucketedAggNode = new BucketedAggregationNode(
+                context.nextPlanNodeId(), inputPlanFragment.getPlanRoot(), aggInfo, true);
+
+        bucketedAggNode.setNereidsId(aggregate.getId());
+        context.getNereidsIdToPlanNodeIdMap().put(aggregate.getId(), bucketedAggNode.getId());
+
+        // Do NOT set hasColocatePlanNode — bucketed agg uses its own hash-based
+        // bucket assignment, not colocate semantics. This allows the fragment to
+        // route through UnassignedScanSingleOlapTableJob, which respects
+        // parallel_pipeline_task_num as an upper bound on parallelism.
+        setPlanRoot(inputPlanFragment, bucketedAggNode, aggregate);
+        if (aggregate.getStats() != null) {
+            bucketedAggNode.setCardinality((long) aggregate.getStats().getRowCount());
+        }
+        updateLegacyPlanIdToPhysicalPlan(inputPlanFragment.getPlanRoot(), aggregate);
+        return inputPlanFragment;
+    }
+
+    /**
+     * Bucketed aggregation merges the groups of its fragment in memory, so every tablet
+     * of the fused fragment has to be scanned on the backend the single-BE gate saw.
+     * OlapScanNode#init builds the scan range locations while the scan is translated,
+     * and the scan worker selection later picks any alive backend among them: a backend
+     * that became alive after the gate would receive part of the tablets and emit its own
+     * partial groups. visitPhysicalOlapScan therefore pins the scan (dropping the replicas
+     * of every other backend) while the fused subtree is translated; this verifies that
+     * exactly that one olap scan was translated and pinned.
+     */
+    private void checkBucketedFusionScanPinned(PlanTranslatorContext context, int scanNodesBefore,
+            long backendId) {
+        List<ScanNode> scanNodes = context.getScanNodes();
+        // isSingleOlapScanPipeline accepted the subtree, so it registers exactly one olap scan.
+        Preconditions.checkState(scanNodes.size() == scanNodesBefore + 1
+                        && scanNodes.get(scanNodesBefore) instanceof OlapScanNode
+                        && ((OlapScanNode) scanNodes.get(scanNodesBefore)).getPinnedBackendId() == backendId,
+                "bucketed aggregation fusion expects exactly one olap scan below the aggregate,"
+                        + " pinned to backend " + backendId);
+    }
+
+    /**
+     * Collect aggregate function outputs and translate them to legacy FunctionCallExpr.
+     * Shared by visitPhysicalHashAggregate and visitBucketedFusion.
+     *
+     * @param hasPartialOut if non-null and length >= 1, hasPartialOut[0] is set to
+     *        true when any aggregate function produces a buffer (i.e. is partial).
+     *        The bucketed path passes null.
+     */
+    private Pair<List<Slot>, ArrayList<FunctionCallExpr>> collectAggFunctions(
+            List<NamedExpression> outputExpressions,
+            boolean[] hasPartialOut,
+            PlanTranslatorContext context) {
+        List<Slot> aggFunctionOutput = Lists.newArrayList();
+        ArrayList<FunctionCallExpr> execAggregateFunctions =
+                Lists.newArrayListWithCapacity(outputExpressions.size());
+        Set<AggregateExpression> processed = Sets.newIdentityHashSet();
+        for (NamedExpression o : outputExpressions) {
+            if (o.containsType(AggregateExpression.class)) {
+                aggFunctionOutput.add(o.toSlot());
+                collectAggInTree(o, processed, execAggregateFunctions, hasPartialOut, context);
+            }
+        }
+        return Pair.of(aggFunctionOutput, execAggregateFunctions);
+    }
+
+    /** Walk the expression tree to find and translate AggregateExpression nodes. */
+    private void collectAggInTree(Expression expr,
+            Set<AggregateExpression> processed,
+            ArrayList<FunctionCallExpr> out,
+            boolean[] hasPartialOut,
+            PlanTranslatorContext context) {
+        if (expr instanceof SessionVarGuardExpr) {
+            SessionVarGuardExpr guard = (SessionVarGuardExpr) expr;
+            if (guard.child() instanceof AggregateExpression) {
+                AggregateExpression ae = (AggregateExpression) guard.child();
+                if (processed.add(ae)) {
+                    out.add((FunctionCallExpr) ExpressionTranslator.translate(guard, context));
+                    if (hasPartialOut != null) {
+                        hasPartialOut[0] |= ae.getAggregateParam().aggMode.productAggregateBuffer;
+                    }
+                }
+            }
+            return;
+        }
+        if (expr instanceof AggregateExpression) {
+            AggregateExpression ae = (AggregateExpression) expr;
+            if (processed.add(ae)) {
+                out.add((FunctionCallExpr) ExpressionTranslator.translate(ae, context));
+                if (hasPartialOut != null) {
+                    hasPartialOut[0] |= ae.getAggregateParam().aggMode.productAggregateBuffer;
+                }
+            }
+            return;
+        }
+        for (Expression child : expr.children()) {
+            collectAggInTree(child, processed, out, hasPartialOut, context);
+        }
+    }
+
+    /**
+     * Translate group-by expressions from Nereids Expression to legacy Expr.
+     * Shared by visitPhysicalHashAggregate.
+     */
+    private ArrayList<Expr> translateGroupByExprs(List<Expression> groupByExpressions,
+            PlanTranslatorContext context) {
+        ArrayList<Expr> execGroupingExpressions = Lists.newArrayListWithCapacity(groupByExpressions.size());
+        for (Expression e : groupByExpressions) {
+            Expr result = ExpressionTranslator.translate(e, context);
+            if (result == null) {
+                throw new RuntimeException("translate " + e + " failed");
+            }
+            execGroupingExpressions.add(result);
+        }
+        return execGroupingExpressions;
+    }
+
+    /**
+     * Build output tuple descriptor and aggregate function output slot IDs.
+     * Returns Pair(outputTupleDesc, aggFunOutputIds).
+     * Shared by visitPhysicalHashAggregate.
+     */
+    private Pair<TupleDescriptor, List<Integer>> buildAggOutputTuple(
+            List<SlotReference> groupSlots, List<Slot> aggFunctionOutput,
+            PlanTranslatorContext context) {
+        List<Slot> slotList = Lists.newArrayList();
+        slotList.addAll(groupSlots);
+        slotList.addAll(aggFunctionOutput);
+        TupleDescriptor outputTupleDesc = generateTupleDesc(slotList, null, context);
+
+        List<Integer> aggFunOutputIds = ImmutableList.of();
+        if (!aggFunctionOutput.isEmpty()) {
+            aggFunOutputIds = Lists.newArrayListWithCapacity(
+                    outputTupleDesc.getSlots().size() - groupSlots.size());
+            ArrayList<SlotDescriptor> slots = outputTupleDesc.getSlots();
+            for (int i = groupSlots.size(); i < slots.size(); i++) {
+                aggFunOutputIds.add(slots.get(i).getId().asInt());
+            }
+        }
+        return Pair.of(outputTupleDesc, aggFunOutputIds);
     }
 
     private List<SlotReference> collectGroupBySlots(List<Expression> groupByExpressions,

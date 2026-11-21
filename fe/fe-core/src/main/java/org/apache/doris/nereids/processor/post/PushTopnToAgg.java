@@ -21,13 +21,13 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate.TopnPushInfo;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.qe.ConnectContext;
 
 /**
@@ -89,16 +89,6 @@ public class PushTopnToAgg extends PlanPostProcessor {
 
     private boolean isGroupKeyIdenticalToOrderKey(PhysicalTopN<? extends Plan> topN,
                                                                 PhysicalHashAggregate<? extends Plan> agg) {
-        if (topN.getOrderKeys().size() != agg.getGroupByExpressions().size()) {
-            return false;
-        }
-        for (int i = 0; i < agg.getGroupByExpressions().size(); i++) {
-            Expression groupByKey = agg.getGroupByExpressions().get(i);
-            Expression orderKey = topN.getOrderKeys().get(i).getExpr();
-            if (!groupByKey.equals(orderKey)) {
-                return false;
-            }
-        }
-        return true;
+        return AggregateUtils.isOrderKeysMatchGroupKeys(topN.getOrderKeys(), agg.getGroupByExpressions());
     }
 }

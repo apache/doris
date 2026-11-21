@@ -22,6 +22,8 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -42,6 +44,12 @@ public class CostCalculator {
         if (childrenProperties.size() >= 2
                 && childrenProperties.get(1).getDistributionSpec() instanceof DistributionSpecReplicated) {
             planContext.setBroadcastJoin();
+        }
+        // The children of an aggregate are optimized before its final cost is computed
+        // (see CostAndEnforcerJob), so the memo tells whether the translator fuses it.
+        if (groupExpression.getPlan() instanceof PhysicalHashAggregate && childrenProperties.size() == 1
+                && AggregateUtils.isBucketedHashAggFusible(groupExpression, childrenProperties.get(0))) {
+            planContext.setBucketedAggFusion();
         }
 
         CostModel costModelV1 = new CostModel(connectContext);
