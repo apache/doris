@@ -54,6 +54,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 /**
  * Establishes a closed upper fence before planning a time-based incremental read.
@@ -155,9 +156,10 @@ public class TimeBasedChangeVisibleWaiter {
                 && context.getEnv().getReplayedJournalId() < fence.getMaxJournalId()) {
             long remainingMs = deadlineMs - System.currentTimeMillis();
             if (remainingMs <= 0) {
-                throw new UserException(String.format(
-                        "timeout waiting follower journal replay for time-based read, maxJournalId=%d",
-                        fence.getMaxJournalId()));
+                throw new IncrWindowNotReadyException(ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT,
+                        String.format("FOLLOWER_JOURNAL_REPLAY_TIMEOUT maxJournalId=%d", fence.getMaxJournalId()),
+                        changeReadInfo.getMaxEndTimestampMs() == null ? 0 : changeReadInfo.getMaxEndTimestampMs(),
+                        fence.getCurrentTso(), fence.getCommittedTso(), 0, timeoutMs);
             }
             context.getEnv().getJournalObservable().waitOn(
                     fence.getMaxJournalId(), (int) Math.min(Integer.MAX_VALUE, remainingMs));
@@ -204,9 +206,14 @@ public class TimeBasedChangeVisibleWaiter {
             } catch (UserException e) {
                 throw new UserException("get transaction id watermark failed for time-based read", e);
             }
-            waitForPreviousTransactions(txnMgr, txnIdWatermark, dbToTableIds, deadlineMs);
+            // Report a visibility-wait timeout with the same error code as the bounded cloud path.
+            Function<String, IncrWindowNotReadyException> timeoutError = reason -> new IncrWindowNotReadyException(
+                    ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT, reason,
+                    maxEndTimestampMs == null ? 0 : maxEndTimestampMs, currentTso,
+                    tsoSnapshot.getCommittedTso(), 0, timeoutMs);
+            waitForPreviousTransactions(txnMgr, txnIdWatermark, dbToTableIds, deadlineMs, timeoutError);
             if (!Config.isCloudMode()) {
-                synchronizeClassicPublishers(dbToTableIds, deadlineMs);
+                synchronizeClassicPublishers(dbToTableIds, deadlineMs, timeoutError);
             }
         }
         return new ChangeReadFence(currentTso, env.getMaxJournalId());
@@ -272,16 +279,16 @@ public class TimeBasedChangeVisibleWaiter {
     }
 
     private static void waitForPreviousTransactions(GlobalTransactionMgrIface txnMgr, long txnIdWatermark,
-            Map<Long, List<Long>> dbToTableIds, long deadlineMs) throws UserException {
+            Map<Long, List<Long>> dbToTableIds, long deadlineMs,
+            Function<String, IncrWindowNotReadyException> timeoutError) throws UserException {
         for (Map.Entry<Long, List<Long>> dbEntry : dbToTableIds.entrySet()) {
             long dbId = dbEntry.getKey();
             List<Long> tableIds = dbEntry.getValue();
             while (!isPreviousTransactionsFinished(txnMgr, txnIdWatermark, dbId, tableIds)) {
                 long remainingMs = deadlineMs - System.currentTimeMillis();
                 if (remainingMs <= 0) {
-                    throw new UserException(String.format(
-                            "timeout waiting previous transactions finish for time-based read, "
-                                    + "txnIdWatermark=%d dbId=%d tableIds=%s",
+                    throw timeoutError.apply(String.format(
+                            "PREVIOUS_TRANSACTIONS_NOT_FINISHED txnIdWatermark=%d dbId=%d tableIds=%s",
                             txnIdWatermark, dbId, tableIds));
                 }
                 try {
@@ -314,8 +321,8 @@ public class TimeBasedChangeVisibleWaiter {
      * locks. Taking the corresponding read locks after the transaction drain guarantees that the
      * visible journal and partition metadata updates have completed before maxJournalId is read.
      */
-    private static void synchronizeClassicPublishers(Map<Long, List<Long>> dbToTableIds, long deadlineMs)
-            throws UserException {
+    private static void synchronizeClassicPublishers(Map<Long, List<Long>> dbToTableIds, long deadlineMs,
+            Function<String, IncrWindowNotReadyException> timeoutError) throws UserException {
         for (Map.Entry<Long, List<Long>> dbEntry : dbToTableIds.entrySet()) {
             Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbEntry.getKey());
             List<Table> tables = db.getTablesOnIdOrderIfExist(dbEntry.getValue());
@@ -324,9 +331,8 @@ public class TimeBasedChangeVisibleWaiter {
                 for (Table table : tables) {
                     long remainingMs = deadlineMs - System.currentTimeMillis();
                     if (remainingMs <= 0 || !table.tryReadLock(remainingMs, TimeUnit.MILLISECONDS)) {
-                        throw new UserException(String.format(
-                                "timeout synchronizing visible versions for time-based read, dbId=%d tableId=%d",
-                                dbEntry.getKey(), table.getId()));
+                        throw timeoutError.apply(String.format(
+                                "PUBLISHER_LOCK_TIMEOUT dbId=%d tableId=%d", dbEntry.getKey(), table.getId()));
                     }
                     lockedTables.add(table);
                 }
@@ -351,8 +357,8 @@ public class TimeBasedChangeVisibleWaiter {
         TNetworkAddress masterAddress = new TNetworkAddress(
                 context.getEnv().getMasterHost(), context.getEnv().getMasterRpcPort());
         int thriftTimeoutMs = (int) Math.min(Integer.MAX_VALUE, Math.max(1L, timeoutMs));
-        if (Config.isCloudMode() && waitForTransactions && changeReadInfo.isAllEndsExplicit()) {
-            // Let the master's typed wait-timeout response arrive before the socket times out.
+        if (waitForTransactions) {
+            // Let the master's typed visibility-wait timeout response arrive before the socket times out.
             thriftTimeoutMs = (int) Math.min(Integer.MAX_VALUE, (long) thriftTimeoutMs + 1000);
         }
         FrontendService.Client client;
