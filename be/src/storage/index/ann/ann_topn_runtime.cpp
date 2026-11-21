@@ -61,10 +61,10 @@ Result<ColumnFloat32::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr)
     // Nullable(ColumnArray(Nullable(ColumnFloat32))) with exactly 1 row (one array literal)
     const IColumn* top_col = col_ptr.get();
     const IColumn* array_holder_col = top_col;
-    // Handle outer Nullable and remember result nullability preference
+    // NULL and [] both denote a missing query vector. Callers must use scalar evaluation.
     if (auto* nullable_col = check_and_get_column<ColumnNullable>(*top_col)) {
         if (nullable_col->has_null()) {
-            return ResultError(Status::InvalidArgument("Ann query vector cannot be NULL"));
+            return ColumnFloat32::Ptr {ColumnFloat32::create()};
         }
         array_holder_col = &nullable_col->get_nested_column();
     }
@@ -83,7 +83,7 @@ Result<ColumnFloat32::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr)
     size_t value_count = array_col->get_offsets()[0];
 
     if (value_count == 0) {
-        return ResultError(Status::InvalidArgument("Ann topn query vector cannot be empty"));
+        return ColumnFloat32::Ptr {ColumnFloat32::create()};
     }
 
     if (auto* value_nullable_col = check_and_get_column<ColumnNullable>(nested_data_any)) {
@@ -182,6 +182,16 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
     return Status::OK();
 }
 
+Status AnnTopNRuntime::validate_query_dimension(size_t index_dimension) const {
+    const auto query_dimension = _query_array->size();
+    if (query_dimension != index_dimension) {
+        return Status::InvalidArgument(
+                "Ann topn query vector dimension {} does not match index dimension {}",
+                query_dimension, index_dimension);
+    }
+    return Status::OK();
+}
+
 Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::AnnIndexIterator* ann_index_iterator,
                                                   roaring::Roaring* roaring, size_t rows_of_segment,
                                                   bool enable_result_cache,
@@ -201,11 +211,7 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::AnnIndexIterator* 
     auto index_reader = ann_index_iterator->get_reader(AnnIndexReaderType::ANN);
     auto ann_index_reader = std::dynamic_pointer_cast<AnnIndexReader>(index_reader);
     DCHECK(ann_index_reader != nullptr);
-    if (ann_index_reader->get_dimension() != query_array_size) {
-        return Status::InvalidArgument(
-                "Ann topn query vector dimension {} does not match index dimension {}",
-                query_array_size, ann_index_reader->get_dimension());
-    }
+    RETURN_IF_ERROR(validate_query_dimension(ann_index_reader->get_dimension()));
     segment_v2::AnnTopNParam ann_query_params {
             .query_value = _query_array->get_data().data(),
             .query_value_size = query_array_size,
@@ -228,7 +234,9 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::AnnIndexIterator* 
     for (size_t i = 0; i < num_results; ++i) {
         result_column_float->get_data()[i] = ann_query_params.distance[i];
     }
-    result_column = std::move(result_column_float);
+    // Approximate distances are nullable; indexed rows all have non-empty vectors.
+    result_column = ColumnNullable::create(std::move(result_column_float),
+                                           ColumnUInt8::create(num_results, 0));
     row_ids = ann_query_params.row_ids;
     ann_index_stats = *ann_query_params.stats;
     return Status::OK();

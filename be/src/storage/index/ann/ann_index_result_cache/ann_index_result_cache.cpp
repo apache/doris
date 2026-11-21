@@ -105,6 +105,7 @@ static std::string make_key_from_range_param(const std::string& rowset_id, uint3
     HashUtil::hash_combine(seed, static_cast<uint64_t>(rows_of_segment));
     HashUtil::hash_combine(seed, param.radius);
     HashUtil::hash_combine(seed, param.is_le_or_lt);
+    HashUtil::hash_combine(seed, param.include_boundary);
     HashUtil::hash_combine(seed, user_params.hnsw_ef_search);
     HashUtil::hash_combine(seed, user_params.hnsw_check_relative_distance);
     HashUtil::hash_combine(seed, user_params.hnsw_bounded_queue);

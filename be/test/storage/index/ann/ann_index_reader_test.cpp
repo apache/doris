@@ -64,6 +64,54 @@ protected:
     std::shared_ptr<MockIndexFileReader> _mock_index_file_reader;
 };
 
+TEST_F(AnnIndexReaderTest, AllEmptyRangeResultsRespectDistanceContract) {
+    using namespace segment_v2;
+    for (auto type : {FaissBuildParameter::IndexType::HNSW, FaissBuildParameter::IndexType::IVF,
+                      FaissBuildParameter::IndexType::IVF_ON_DISK}) {
+        for (auto metric :
+             {FaissBuildParameter::MetricType::L2, FaissBuildParameter::MetricType::IP}) {
+            FaissBuildParameter build;
+            build.dim = 2;
+            build.ivf_nlist = 1;
+            build.index_type = type;
+            build.metric_type = metric;
+            auto index = std::make_unique<FaissVectorIndex>();
+            index->build(build);
+            ASSERT_TRUE(index->add_with_ids(0, nullptr, nullptr).ok());
+            AnnIndexReader reader(_tablet_index.get(), _mock_index_file_reader);
+            reader._vector_index = std::move(index);
+            reader._rows_of_segment = 3;
+            reader._index_type = type == FaissBuildParameter::IndexType::HNSW ? AnnIndexType::HNSW
+                                 : type == FaissBuildParameter::IndexType::IVF
+                                         ? AnnIndexType::IVF
+                                         : AnnIndexType::IVF_ON_DISK;
+            reader._metric_type = metric == FaissBuildParameter::MetricType::L2
+                                          ? AnnIndexMetric::L2
+                                          : AnnIndexMetric::IP;
+            roaring::Roaring candidates;
+            candidates.addRange(0, 3);
+            const float query[] = {0, 0};
+            AnnRangeSearchParams params;
+            params.query_value = query;
+            params.radius = 1;
+            params.roaring = &candidates;
+            params.enable_result_cache = false;
+            for (bool less : {false, true}) {
+                params.is_le_or_lt = less;
+                AnnRangeSearchResult result;
+                AnnIndexStats stats;
+                ASSERT_TRUE(reader.range_search(params, VectorSearchUserParams {}, &result, &stats)
+                                    .ok());
+                ASSERT_NE(result.roaring, nullptr);
+                EXPECT_TRUE(result.roaring->isEmpty());
+                const bool complement = (metric == FaissBuildParameter::MetricType::L2) != less;
+                EXPECT_EQ(result.distance == nullptr, complement);
+                EXPECT_EQ(result.row_ids == nullptr, complement);
+            }
+        }
+    }
+}
+
 TEST_F(AnnIndexReaderTest, TestConstructor) {
     auto reader = std::make_unique<segment_v2::AnnIndexReader>(_tablet_index.get(),
                                                                _mock_index_file_reader);

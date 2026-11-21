@@ -27,6 +27,7 @@
 // clang-format on
 #include <gen_cpp/olap_file.pb.h>
 
+#include <mutex>
 #include <string>
 
 #include "common/status.h"
@@ -210,6 +211,10 @@ public:
      */
     doris::Status add(Int64 n, const float* vec) override;
 
+    doris::Status add_with_ids(Int64 n, const float* vec, const Int64* rowids) override;
+
+    Int64 get_num_rows_in_index() const override;
+
     /**
      * @brief Returns the minimum number of rows required for training the index.
      *
@@ -297,6 +302,11 @@ public:
     }
 
 private:
+    Status _init_indexed_rows();
+
+    // Built lazily for range-search complements. Never serialized: FAISS owns the labels.
+    std::mutex _indexed_rows_mutex;
+    std::unique_ptr<roaring::Roaring> _indexed_rows;
     std::unique_ptr<faiss::Index> _index = nullptr; ///< Underlying FAISS index instance
     std::unique_ptr<faiss::Index> _quantizer = nullptr;
     FaissBuildParameter _params;           ///< Build parameters for the index

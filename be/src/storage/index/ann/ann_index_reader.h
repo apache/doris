@@ -67,6 +67,8 @@ public:
 
     size_t get_dimension() const;
 
+    Int64 get_num_rows_in_index() const;
+
 private:
     TabletIndex _index_meta;
     std::shared_ptr<IndexFileReader> _index_file_reader;

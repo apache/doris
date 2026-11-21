@@ -52,7 +52,7 @@ struct AnnRangeSearchRuntime {
      * 
      * Initializes the structure with:
      * - Range search disabled by default
-     * - Less-than-or-equal comparison mode
+     * - Strict less-than comparison mode
      * - Zero radius and invalid metric type
      * - Null query vector pointer
      */
@@ -80,6 +80,7 @@ struct AnnRangeSearchRuntime {
     AnnRangeSearchRuntime(const AnnRangeSearchRuntime& other)
             : is_ann_range_search(other.is_ann_range_search),
               is_le_or_lt(other.is_le_or_lt),
+              include_boundary(other.include_boundary),
               src_col_idx(other.src_col_idx),
               dim(other.dim),
               dst_col_idx(other.dst_col_idx),
@@ -100,6 +101,7 @@ struct AnnRangeSearchRuntime {
     AnnRangeSearchRuntime& operator=(const AnnRangeSearchRuntime& other) {
         is_ann_range_search = other.is_ann_range_search;
         is_le_or_lt = other.is_le_or_lt;
+        include_boundary = other.include_boundary;
         src_col_idx = other.src_col_idx;
         dst_col_idx = other.dst_col_idx;
         radius = other.radius;
@@ -125,7 +127,8 @@ struct AnnRangeSearchRuntime {
 
     // Core search configuration
     bool is_ann_range_search = false;          ///< Flag indicating if ANN range search is enabled
-    bool is_le_or_lt = true;                   ///< Comparison mode: true for <=, false for <
+    bool is_le_or_lt = true;                   ///< true for LE/LT, false for GE/GT
+    bool include_boundary = false;             ///< true for LE/GE, false for LT/GT
     size_t src_col_idx = 0;                    ///< Source read-schema ordinal
     size_t dim = 0;                            ///< Dimensionality of the vector space
     int64_t dst_col_idx = -1;                  ///< Destination read-schema ordinal, or -1

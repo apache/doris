@@ -104,14 +104,13 @@ suite("ann_const_expr_vector") {
     }
 
     // =========================================================================
-    // Test 6: Error case - empty array via array_repeat
+    // Test 6: An empty query vector via array_repeat produces a NULL distance.
+    // Select only the distance because all rows tie on NULL in the TopN result.
     // =========================================================================
-    test {
-        sql """
-            SELECT id FROM ${tableName}
-            ORDER BY l2_distance_approximate(embedding, array_repeat(CAST(0.01 AS FLOAT), 0))
-            LIMIT 1;
-        """
-        exception "Ann topn query vector cannot be empty"
-    }
+    qt_array_repeat_empty """
+        SELECT l2_distance_approximate(embedding, array_repeat(CAST(0.01 AS FLOAT), 0)) AS score
+        FROM ${tableName}
+        ORDER BY score
+        LIMIT 1;
+    """
 }

@@ -98,6 +98,12 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch) {
     doris::segment_v2::AnnRangeSearchParams ann_range_search_runtime =
             range_search_ctx->_ann_range_search_runtime.to_range_search_params();
     EXPECT_EQ(ann_range_search_runtime.radius, 10.0f);
+    EXPECT_TRUE(ann_range_search_runtime.include_boundary);
+    const auto copied = range_search_ctx->_ann_range_search_runtime;
+    EXPECT_TRUE(copied.include_boundary);
+    segment_v2::AnnRangeSearchRuntime assigned;
+    assigned = copied;
+    EXPECT_TRUE(assigned.to_range_search_params().include_boundary);
     std::vector<int> query_array_groud_truth = {1, 2, 3, 4, 5, 6, 7, 20};
     std::vector<int> query_array_f32;
     const auto& query_value = range_search_ctx->_ann_range_search_runtime.query_value;
@@ -288,11 +294,13 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
             dynamic_cast<doris::segment_v2::VirtualColumnIterator*>(column_iterators[3].get());
 
     IColumn::Ptr column = virtual_column_iter->get_materialized_column();
-    const ColumnFloat32* nullable_column = check_and_get_column<const ColumnFloat32>(column.get());
+    const auto* nullable_column = check_and_get_column<ColumnNullable>(column.get());
     const ColumnNothing* nothing_column = check_and_get_column<const ColumnNothing>(column.get());
     ASSERT_NE(nullable_column, nullptr);
     ASSERT_EQ(nothing_column, nullptr);
     EXPECT_EQ(nullable_column->size(), 10);
+    ASSERT_NE(check_and_get_column<ColumnFloat32>(nullable_column->get_nested_column()), nullptr);
+    EXPECT_EQ(nullable_column->get_null_map_data(), NullMap(10, 0));
     EXPECT_EQ(row_bitmap.cardinality(), 10);
 
     const auto& get_row_id_to_idx = virtual_column_iter->get_row_id_to_idx();
