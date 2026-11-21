@@ -76,8 +76,8 @@ public final class IcebergCatalogProperties {
 
     /**
      * The catalog level of a 3-level REST namespace ({@code <catalog>.<db>.<table>}), mirroring legacy
-     * {@code IcebergExternalCatalog.EXTERNAL_CATALOG_NAME}: when present it is appended to every namespace
-     * and roots database listing. Despite reading like a REST-only knob it is honored for EVERY flavor
+     * {@code IcebergExternalCatalog.EXTERNAL_CATALOG_NAME}: when present it roots database discovery and
+     * lookup. Despite reading like a REST-only knob it is honored for EVERY flavor
      * ({@code IcebergCatalogOps} applies it without a flavor gate), which is why it lives here rather than
      * on the REST backend properties.
      */
