@@ -936,6 +936,26 @@ suite("test_bitmap_function") {
     """
     qt_sql_bitmap_base64_not_null0 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(id))) s from test_bitmap_base64_not_null order by s; """
 
+    /////////////////////////////
+    // test bitmap binary: raw serialized bytes carried through a VARBINARY value,
+    // the byte-level counterpart of the base64 cases above.
+    qt_sql_bitmap_binary_nereids0 """ select bitmap_to_string(bitmap_from_binary(bitmap_to_binary(null))); """
+    qt_sql_bitmap_binary_nereids1 """ select bitmap_to_string(bitmap_from_binary(bitmap_to_binary(bitmap_from_string("")))); """
+    qt_sql_bitmap_binary_nereids2 """ select bitmap_to_string(bitmap_from_binary(bitmap_to_binary(bitmap_from_string("1")))); """
+    qt_sql_bitmap_binary_nereids3 """ select bitmap_to_string(bitmap_from_binary(bitmap_to_binary(bitmap_from_string("0, 1, 2, 3")))); """
+    qt_sql_bitmap_binary_nereids4 """ select bitmap_to_string(bitmap_from_binary(bitmap_to_binary(bitmap_from_string("0, 1, 2, 3, 4294967296")))); """
+    qt_sql_bitmap_binary_nereids5 """ select bitmap_count(bitmap_from_binary(bitmap_to_binary(bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32")))); """
+    qt_sql_bitmap_binary_nereids6 """ select bitmap_to_string(bitmap_from_binary(bitmap_to_binary(to_bitmap(1)))); """
+    // invalid user-controlled bytes decode to NULL instead of crashing
+    qt_sql_bitmap_binary_invalid_empty """ select bitmap_from_binary(to_binary("")); """
+    qt_sql_bitmap_binary_invalid_code """ select bitmap_from_binary(to_binary("zz")); """
+    // a SINGLE32 payload (5 bytes) cut to its first 3 bytes: truncated user data must be NULL
+    qt_sql_bitmap_binary_truncated """ select bitmap_to_string(bitmap_from_binary(sub_binary(bitmap_to_binary(to_bitmap(1)), 1, 3))); """
+
+    // binary round-trip over a bitmap table column
+    qt_sql_bitmap_binary_table0 """ select bitmap_to_string(bitmap_from_binary(bitmap_to_binary(id))) s from test_bitmap_base64 order by s; """
+    qt_sql_bitmap_binary_table1 """ select bitmap_to_string(bitmap_from_binary(bitmap_to_binary(id))) s from test_bitmap_base64_not_null order by s; """
+
     ///////////////////
     // test bitmap_remove
     qt_sql_bitmap_remove_nereids0 """
