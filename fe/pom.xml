@@ -394,6 +394,9 @@ under the License.
         <postgresql.version>42.7.13</postgresql.version>
         <hadoop.version>3.4.2</hadoop.version>
         <gcs-connector.version>3.1.18</gcs-connector.version>
+        <!-- Google SDK bundled with iceberg-gcp by the FE iceberg connector plugin and the BE
+             iceberg-metadata-scanner; one property so both sides of a catalog run the same client. -->
+        <google-cloud-storage.version>2.67.0</google-cloud-storage.version>
         <re2j.version>1.8</re2j.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
         <hadoop.thirdparty.protobuf_3_25.version>1.5.0</hadoop.thirdparty.protobuf_3_25.version>
