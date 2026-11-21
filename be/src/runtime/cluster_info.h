@@ -19,6 +19,7 @@
 
 #include <gen_cpp/Types_types.h>
 
+#include <atomic>
 #include <string>
 
 namespace doris {
@@ -28,6 +29,14 @@ namespace doris {
 // These info are usually in heartbeat from Master FE.
 class ClusterInfo {
 public:
+    bool in_graceful_shutdown() const {
+        return _in_graceful_shutdown.load(std::memory_order_relaxed);
+    }
+
+    void set_in_graceful_shutdown(bool enabled) {
+        _in_graceful_shutdown.store(enabled, std::memory_order_relaxed);
+    }
+
     // Unique cluster id
     int32_t cluster_id = 0;
     // Master FE addr: ip:rpc_port
@@ -43,6 +52,9 @@ public:
     // Save the last 2 tokens to avoid token invalid during token update
     std::string curr_auth_token = "";
     std::string last_auth_token = "";
+
+private:
+    std::atomic<bool> _in_graceful_shutdown {false};
 };
 
 } // namespace doris

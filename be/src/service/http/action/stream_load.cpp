@@ -789,13 +789,14 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
 
 #ifndef BE_TEST
     // plan this load
-    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     int64_t stream_load_put_start_time = MonotonicNanos();
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc_fe_with_master_refresh(
+            [this]() { return _exec_env->cluster_info()->master_fe_addr; },
             [&request, ctx](FrontendServiceConnection& client) {
+                ctx->put_result = {};
                 client->streamLoadPut(ctx->put_result, request);
-            }));
+            },
+            [ctx]() { return ctx->put_result.status; }));
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
 #else
     ctx->put_result = k_stream_load_put_result;
