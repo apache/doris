@@ -29,6 +29,32 @@ import org.mockito.Mockito;
 public class AnalysisTaskWrapperTest {
 
     @Test
+    public void testTimeoutCancellationTerminatesTheJob() {
+        BaseAnalysisTask task = Mockito.mock(BaseAnalysisTask.class);
+        AnalysisJob job = Mockito.mock(AnalysisJob.class);
+        task.job = job;
+        AnalysisTaskWrapper wrapper = new AnalysisTaskWrapper(Mockito.mock(AnalysisTaskExecutor.class), task);
+        wrapper.cancel("analysis task timed out");
+        Mockito.verify(job).fail("analysis task timed out");
+        Mockito.verify(task, Mockito.never()).cancel();
+    }
+
+    @Test
+    public void testFailureCleanupIsNotSuppressedByKilledFlag() throws Exception {
+        AnalysisJob job = Mockito.mock(AnalysisJob.class);
+        BaseAnalysisTask task = Mockito.mock(BaseAnalysisTask.class);
+        task.info = new AnalysisInfoBuilder().setScheduleType(ScheduleType.ONCE).build();
+        task.job = job;
+        Mockito.doAnswer(call -> {
+            task.killed = true;
+            throw new RuntimeException("write failed after cancellation");
+        }).when(task).execute();
+        AnalysisTaskWrapper wrapper = new AnalysisTaskWrapper(Mockito.mock(AnalysisTaskExecutor.class), task);
+        wrapper.run();
+        Mockito.verify(job).fail(Mockito.contains("write failed after cancellation"));
+    }
+
+    @Test
     public void testOOMErrorMessageReplacement() throws Exception {
         AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setJobId(1).setTaskId(2)
                 .setScheduleType(ScheduleType.ONCE).build();
@@ -72,7 +98,7 @@ public class AnalysisTaskWrapperTest {
         }
 
         ArgumentCaptor<String> msgCaptor = ArgumentCaptor.forClass(String.class);
-        Mockito.verify(mockJob).taskFailed(Mockito.eq(task), msgCaptor.capture());
+        Mockito.verify(mockJob).fail(msgCaptor.capture());
         String errorMsg = msgCaptor.getValue();
         Mockito.verifyNoMoreInteractions(mockJob);
         org.junit.jupiter.api.Assertions.assertTrue(errorMsg.contains("can `set exec_mem_limit` to change limit"));

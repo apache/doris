@@ -31,12 +31,9 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
-import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.StatisticConstants;
-import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.repository.ColStatsData;
 import org.apache.doris.statistics.util.DBObjects;
@@ -282,7 +279,7 @@ public abstract class BaseAnalysisTask {
 
     protected Column col;
 
-    protected StmtExecutor stmtExecutor;
+    protected volatile StmtExecutor stmtExecutor;
 
     protected volatile boolean killed;
 
@@ -319,6 +316,9 @@ public abstract class BaseAnalysisTask {
     }
 
     public void execute() throws Exception {
+        if (killed) {
+            return;
+        }
         prepareExecution();
         try {
             doExecute();
@@ -359,19 +359,7 @@ public abstract class BaseAnalysisTask {
         String skipMsg = e.getMessage();
         LOG.info("Analyze task skip column [{}] in table [{}]. Reason: {}",
                 info.colName, tbl == null ? "?" : tbl.getName(), skipMsg);
-        // Stash the skip message on info.message. The job-level flushBuffer path
-        // (AnalysisJob.updateTaskState -> AnalysisManager.updateTaskStatus) will
-        // pick it up as the single FINISHED transition for this task, so we
-        // avoid a redundant updateTaskStatus call here. Doing the state update
-        // twice used to overwrite AnalysisInfo.timeCostInMs with the near-zero
-        // delta between the two FINISHED calls.
-        info.message = skipMsg;
-        // Route through taskDoneWithoutData: adds this task to queryFinished
-        // and triggers flushBuffer, which will call updateTaskState(FINISHED,
-        // "") exactly once per task. AnalysisJob.updateTaskState substitutes
-        // the task's own info.message when the outer msg is empty, so skipMsg
-        // reaches job.message for SHOW ANALYZE visibility.
-        job.taskDoneWithoutData(this);
+        job.taskDoneWithoutData(this, skipMsg);
     }
 
     private String buildSkipMessage() {
@@ -397,12 +385,10 @@ public abstract class BaseAnalysisTask {
 
     public void cancel() {
         killed = true;
-        if (stmtExecutor != null) {
-            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "analysis task cancelled"));
+        StmtExecutor executor = stmtExecutor;
+        if (executor != null) {
+            executor.cancel(new Status(TStatusCode.CANCELLED, "analysis task cancelled"));
         }
-        Env.getCurrentEnv().getAnalysisManager()
-                .updateTaskStatus(info, AnalysisState.FAILED,
-                        String.format("Job has been cancelled: %s", info.message), System.currentTimeMillis());
     }
 
     public long getJobId() {
@@ -497,14 +483,8 @@ public abstract class BaseAnalysisTask {
     protected void doPartitionTable() throws Exception {
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = analysisManager.findTableStatsStatus(tbl.getId());
-        // Find jobInfo for this task.
-        AnalysisInfo jobInfo = analysisManager.findJobInfo(job.getJobInfo().jobId);
-        // For sync job, get jobInfo from job.jobInfo.
-        boolean isSync = jobInfo == null;
-        jobInfo = isSync ? job.jobInfo : jobInfo;
-
         // 1. Remove not exist partition stats
-        deleteNotExistPartitionStats(jobInfo);
+        deleteNotExistPartitionStats(job.getJobInfo());
 
         // 2. Get stats of each partition
         Map<String, String> params = buildSqlParams();
@@ -530,22 +510,14 @@ public abstract class BaseAnalysisTask {
                 if (partitionRowCount > hugePartitionThreshold && AnalysisInfo.JobType.SYSTEM.equals(info.jobType)) {
                     hasHughPartition = true;
                     // -1 means it's skipped because this partition is too large.
-                    // Skip the write when the task is cancelled: the job may already be in a
-                    // terminal state and have cleared the shared map, so a late write would
-                    // re-populate it and keep the memory alive.
-                    if (!killed) {
-                        jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), -1L);
-                    }
+                    job.putPartitionUpdateRowsIfAbsent(partition.getId(), -1L);
                     LOG.info("Partition {} in table {} is too large, skip it.", part, tbl.getName());
                     continue;
                 }
                 batchRowCount += partitionRowCount;
                 // For cluster upgrade compatible (older version metadata doesn't have partition update rows map)
                 // and insert before first analyze, set partition update rows to 0.
-                // Skip the write when the task is cancelled: see the comment above.
-                if (!killed) {
-                    jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
-                }
+                job.putPartitionUpdateRowsIfAbsent(partition.getId(), 0L);
             }
             params.put("partId", partition == null ? "-1" : String.valueOf(partition.getId()));
             // Skip partitions that not changed after last analyze.
@@ -592,12 +564,7 @@ public abstract class BaseAnalysisTask {
         // 4. Skip large partition and fallback to sample analyze if large partition exists.
         if (hasHughPartition) {
             tableSample = new TableSample(false, StatisticsUtil.getHugeTableSampleRows());
-            if (!isSync) {
-                long startTime = jobInfo.startTime;
-                jobInfo = new AnalysisInfoBuilder(jobInfo).setAnalysisMethod(AnalysisMethod.SAMPLE).build();
-                jobInfo.markStartTime(startTime);
-                analysisManager.replayCreateAnalysisJob(jobInfo);
-            }
+            job.markSampleFallback();
             if (tableStatsStatus == null || columnStatsMeta == null
                     || tableStatsStatus.updatedRows.get() > columnStatsMeta.updatedRows) {
                 doSample();
@@ -675,10 +642,14 @@ public abstract class BaseAnalysisTask {
     protected void runQuery(String sql) {
         long startTime = System.currentTimeMillis();
         String queryId = "";
+        ColStatsData colStatsData;
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext(false)) {
             a.connectContext.getState().setPlanWithUnKnownColumnStats(true);
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
-            ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
+            if (killed) {
+                return;
+            }
+            colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
             if (!colStatsData.isValid()) {
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STATISTICS_INVALID_STATS.increase(1L);
@@ -692,15 +663,11 @@ public abstract class BaseAnalysisTask {
             }
             // Update index row count after analyze.
             if (this instanceof OlapAnalysisTask) {
-                AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(job.getJobInfo().jobId);
-                // For sync job, get jobInfo from job.jobInfo.
-                jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
                 long indexId = info.indexId == -1 ? ((OlapTable) tbl).getBaseIndexId() : info.indexId;
-                jobInfo.addIndexRowCount(indexId, colStatsData.count);
+                job.recordIndexRowCount(indexId, colStatsData.count);
             }
             Env.getCurrentEnv().getStatisticsCache().syncColStats(colStatsData);
             queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());
-            job.appendBuf(this, Collections.singletonList(colStatsData));
         } catch (Exception e) {
             LOG.warn("Failed to execute sql {}", sql);
             if (containsSkipMarker(e)) {
@@ -715,23 +682,18 @@ public abstract class BaseAnalysisTask {
             // Release the reference to stmtExecutor, reduce memory usage.
             stmtExecutor = null;
         }
+        job.appendBuf(this, Collections.singletonList(colStatsData));
     }
 
     protected void runInsert(String sql) throws Exception {
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
-            stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            try {
-                stmtExecutor.execute();
-                QueryState queryState = stmtExecutor.getContext().getState();
-                if (queryState.getStateType().equals(QueryState.MysqlStateType.ERR)) {
-                    throw new RuntimeException(
-                        "Failed to insert : " + stmtExecutor.getOriginStmt().originStmt + "Error msg: "
-                            + queryState.getErrorMessage());
-                }
-            } finally {
-                AuditLogHelper.logAuditLog(stmtExecutor.getContext(), stmtExecutor.getOriginStmt().toString(),
-                        stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(), true);
+        try (AutoCloseConnectContext context = StatisticsUtil.buildConnectContext(false)) {
+            StmtExecutor executor = new StmtExecutor(context.connectContext, sql);
+            stmtExecutor = executor;
+            if (!killed) {
+                StatisticsUtil.executeAnalyzeInsert(executor);
             }
+        } finally {
+            stmtExecutor = null;
         }
     }
 }

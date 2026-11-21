@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
@@ -58,6 +59,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -173,6 +176,7 @@ public class AnalysisManagerTest {
         task2.info = taskInfo2;
         tasks.put(2L, task1);
         tasks.put(3L, task2);
+        manager.constructJob(job, tasks.values());
         manager.addToJobIdTasksMap(1, tasks);
 
         Assertions.assertEquals(job.state, AnalysisState.PENDING);
@@ -180,9 +184,9 @@ public class AnalysisManagerTest {
         Assertions.assertEquals(job.state, AnalysisState.RUNNING);
         manager.updateTaskStatus(taskInfo2, AnalysisState.RUNNING, "", 0);
         Assertions.assertEquals(job.state, AnalysisState.RUNNING);
-        manager.updateTaskStatus(taskInfo1, AnalysisState.FINISHED, "", 0);
+        task1.job.taskDoneWithoutData(task1);
         Assertions.assertEquals(job.state, AnalysisState.RUNNING);
-        manager.updateTaskStatus(taskInfo2, AnalysisState.FINISHED, "", 0);
+        task2.job.taskDoneWithoutData(task2);
         Assertions.assertEquals(job.state, AnalysisState.FINISHED);
     }
 
@@ -210,6 +214,7 @@ public class AnalysisManagerTest {
         task1.info = taskInfo;
         Map<Long, BaseAnalysisTask> tasks = new HashMap<>();
         tasks.put(11L, task1);
+        manager.constructJob(job, tasks.values());
         manager.addToJobIdTasksMap(10, tasks);
 
         String skipMsg = "Column [big_str] has row(s) whose byte length exceeds 1024"
@@ -258,6 +263,7 @@ public class AnalysisManagerTest {
         Map<Long, BaseAnalysisTask> tasks = new HashMap<>();
         tasks.put(21L, task1);
         tasks.put(22L, task2);
+        manager.constructJob(job, tasks.values());
         manager.addToJobIdTasksMap(20, tasks);
 
         String skip1 = "Column [s1] has row(s) whose byte length exceeds 1024 ...";
@@ -315,6 +321,7 @@ public class AnalysisManagerTest {
         Map<Long, BaseAnalysisTask> tasks = new HashMap<>();
         tasks.put(2L, task1);
         tasks.put(3L, task2);
+        manager.constructJob(job, tasks.values());
         manager.addToJobIdTasksMap(1, tasks);
 
         // Job still running (task2 pending): the shared map must survive.
@@ -322,7 +329,7 @@ public class AnalysisManagerTest {
         Assertions.assertFalse(job.partitionUpdateRows.isEmpty());
         // Job reached terminal (FAILED) state: the shared map is cleared exactly once,
         // releasing the memory held by the job and all its task records at once.
-        manager.updateTaskStatus(taskInfo2, AnalysisState.FAILED, "err2", 0);
+        task2.job.fail("err2");
         Assertions.assertEquals(AnalysisState.FAILED, job.state);
         Assertions.assertTrue(job.partitionUpdateRows.isEmpty());
     }
@@ -412,12 +419,65 @@ public class AnalysisManagerTest {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             suStatic.when(() -> StatisticsUtil.convertIdToObjects(10001L, 20001L, 30001L))
                     .thenReturn(dbObjects);
+            manager.constructJob(job, tasks.values());
             manager.handleKillAnalyzeJob(new KillAnalyzeJobCommand(1));
         }
         MoreFieldsThread.removeConnectContext();
         Assertions.assertEquals(AnalysisState.FAILED, job.state);
         Assertions.assertTrue(partitionRows.isEmpty(),
                 "shared map must be cleared when a running job is killed");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testDropRunningJobDoesNotRestoreHistoryAtCompletion(boolean sampleBeforeDrop) throws DdlException {
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        Mockito.doNothing().when(manager).updateTableStats(Mockito.any());
+        AnalysisInfo jobInfo = new AnalysisInfoBuilder().setJobId(1)
+                .setCatalogId(10001L).setDBId(20001L).setTblId(30001L)
+                .setState(AnalysisState.RUNNING).setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL).build();
+        BaseAnalysisTask task = Mockito.mock(BaseAnalysisTask.class);
+        task.info = new AnalysisInfoBuilder(jobInfo).setTaskId(2).build();
+        manager.constructJob(jobInfo, List.of(task));
+        manager.registerSysJob(jobInfo, Map.of(2L, task));
+        manager.replayCreateAnalysisTask(task.info);
+        task.job.recordIndexRowCount(9L, 10L);
+        if (sampleBeforeDrop) {
+            task.job.markSampleFallback();
+        }
+
+        MoreFieldsThread.setConnectContext(new ConnectContext());
+        Env env = Mockito.mock(Env.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(accessManager.checkTblPriv(Mockito.any(ConnectContext.class), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any())).thenReturn(true);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        DBObjects dbObjects = new DBObjects(Mockito.mock(CatalogIf.class), Mockito.mock(DatabaseIf.class),
+                Mockito.mock(TableIf.class));
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<StatisticsUtil> stats = Mockito.mockStatic(StatisticsUtil.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            stats.when(() -> StatisticsUtil.convertIdToObjects(10001L, 20001L, 30001L)).thenReturn(dbObjects);
+            manager.dropAnalyzeJob(new DropAnalyzeJobCommand(1));
+            if (!sampleBeforeDrop) {
+                task.job.markSampleFallback();
+            }
+            task.job.taskDoneWithoutData(task);
+        } finally {
+            MoreFieldsThread.removeConnectContext();
+        }
+
+        AnalysisInfo sample = task.job.getJobInfo();
+        Mockito.verify(manager).updateTableStats(sample);
+        Assertions.assertEquals(AnalysisMethod.SAMPLE, sample.analysisMethod);
+        Assertions.assertEquals(10L, sample.indexesRowCount.get(9L));
+        Assertions.assertEquals(AnalysisState.FINISHED, task.info.state);
+        Assertions.assertNull(manager.findJobInfo(1));
+        Assertions.assertTrue(manager.findTasks(1).isEmpty());
+        Assertions.assertNull(manager.findRunningJob(1));
+        Assertions.assertFalse(manager.analysisJobIdToTaskMap.containsKey(1L));
     }
 
     @Test
@@ -456,6 +516,7 @@ public class AnalysisManagerTest {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             suStatic.when(() -> StatisticsUtil.convertIdToObjects(10001L, 20001L, 30001L))
                     .thenReturn(dbObjects);
+            manager.constructJob(job, tasks.values());
             manager.handleKillAnalyzeJob(new KillAnalyzeJobCommand(1));
         }
         MoreFieldsThread.removeConnectContext();

@@ -193,7 +193,7 @@ public class AnalysisInfo implements Writable {
      * Number of updated rows per partition. This map is shared between a job and all
      * of its tasks: each task's AnalysisInfo holds the same reference as the job's,
      * instead of a deep copy, so that a single clear at the job terminal state (see
-     * AnalysisManager#updateTaskStatus) releases the memory retained by every task
+     * AnalysisJob) releases the memory retained by every task
      * record at once. It is null when the job is recovered from the image because the
      * field is not persisted.
      */

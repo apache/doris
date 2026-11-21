@@ -27,11 +27,14 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Comparator;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class AnalysisTaskExecutor {
 
@@ -81,8 +84,10 @@ public class AnalysisTaskExecutor {
                 long timeout = TimeUnit.SECONDS.toMillis(StatisticsUtil.getAnalyzeTimeout())
                         - (System.currentTimeMillis() - taskWrapper.getStartTime());
                 taskWrapper.get(timeout < 0 ? 0 : timeout, TimeUnit.MILLISECONDS);
-            } catch (Exception e) {
-                taskWrapper.cancel(e.getMessage());
+            } catch (TimeoutException e) {
+                taskWrapper.cancel("analysis task timed out");
+            } catch (ExecutionException | CancellationException e) {
+                // The worker/explicit cancellation path owns job termination.
             }
         } catch (Throwable throwable) {
             LOG.warn("cancel analysis task failed", throwable);
