@@ -2600,6 +2600,8 @@ void InstanceRecycler::submit_recycle_prepare_rowsets_job(
                 continue;
             }
             num_recycled->fetch_add(1, std::memory_order_relaxed);
+            g_bvar_recycler_instance_recycle_kv_remove_total.put(
+                    {instance_id_, "recycle_rowset_key"}, 1);
         }
     });
     if (ret != 0) {
@@ -5863,6 +5865,8 @@ int InstanceRecycler::recycle_rowsets() {
                                      << instance_id_;
                     } else {
                         num_recycled.fetch_add(keys.size(), std::memory_order_relaxed);
+                        g_bvar_recycler_instance_recycle_kv_remove_total.put(
+                                {instance_id_, "recycle_rowset_key"}, keys.size());
                         check_recycle_task(instance_id_, "recycle_rowsets", num_scanned,
                                            num_recycled, start_time);
                     }
@@ -6042,6 +6046,8 @@ int InstanceRecycler::recycle_rowsets() {
                 return;
             }
             num_recycled.fetch_add(rowset_keys_to_delete.size(), std::memory_order_relaxed);
+            g_bvar_recycler_instance_recycle_kv_remove_total.put(
+                    {instance_id_, "recycle_rowset_key"}, rowset_keys_to_delete.size());
         });
         return 0;
     };
@@ -6061,6 +6067,8 @@ int InstanceRecycler::recycle_rowsets() {
             return -1;
         } else {
             num_recycled.fetch_add(async_recycled_rowset_keys.size(), std::memory_order_relaxed);
+            g_bvar_recycler_instance_recycle_kv_remove_total.put(
+                    {instance_id_, "recycle_rowset_key"}, async_recycled_rowset_keys.size());
         }
     }
 

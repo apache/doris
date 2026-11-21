@@ -744,6 +744,9 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_failures;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_bytes_object_deleted;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_rowset_scanned_num;
 
+extern mBvarInt64Adder g_bvar_recycler_instance_recycle_kv_put_total;
+extern mBvarInt64Adder g_bvar_recycler_instance_recycle_kv_remove_total;
+
 // Operation Log Recycler BVars
 // Note: generic metrics (last_round_to_recycle_num/bytes, last_round_recycled_num/bytes, etc.)
 // are reported by RecyclerMetricsContext with operation_type = "recycle_operation_logs".
