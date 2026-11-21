@@ -61,6 +61,8 @@ suite("test_show_charset_command", "query,charset") {
     order_qt_select_limit_still_applies "SELECT 1"
     sql "SET sql_select_limit = DEFAULT"
 
+    order_qt_where_database "SHOW CHARSET WHERE DATABASE() = '${context.dbName}' AND CURRENT_CATALOG() = 'internal'"
+
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, context.dbName, false) +
             "&emulateUnsupportedPstmts=false"
     connect(context.config.jdbcUser, context.config.jdbcPassword, url) {

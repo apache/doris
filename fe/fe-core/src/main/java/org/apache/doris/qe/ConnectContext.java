@@ -577,6 +577,9 @@ public class ConnectContext {
         lastQueryId = parent.lastQueryId;
         computeGroup = parent.computeGroup;
         cloudCluster = parent.cloudCluster;
+        defaultCatalog = parent.defaultCatalog;
+        currentDb = parent.currentDb;
+        currentDbId = parent.currentDbId;
         // Borrow the caller's temporary-table namespace without registering a new session.
         sessionId = parent.sessionId;
     }
