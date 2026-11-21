@@ -563,18 +563,21 @@ public class JdbcResource extends Resource {
     }
 
     /**
-     * Check jdbcUrl param, if the param is set, do thing.
-     * If the param is not set, set it to expected value.
+     * Check jdbcUrl param, if the param is already present (with any value), keep it as is.
+     * If the param is not set, append the expected value.
      *
      * @param jdbcUrl
      * @param params
+     * @param expectedVal
      * @return
      */
     private static String checkAndSetJdbcParam(String dbType, String jdbcUrl, String params, String expectedVal) {
         String delimiter = getDelimiter(jdbcUrl, dbType);
         String expectedParams = params + "=" + expectedVal;
 
-        if (jdbcUrl.contains(expectedParams)) {
+        if (jdbcUrl.contains(params + "=")) {
+            // The user explicitly provided this parameter; respect the value they chose.
+            // Only append the default when the parameter is absent.
             return jdbcUrl;
         } else {
             if (!jdbcUrl.endsWith(delimiter)) {

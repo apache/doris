@@ -173,6 +173,35 @@ public class JdbcResourceTest {
     }
 
     @Test
+    public void testHandleJdbcUrlForMySqlWithoutCharacterEncoding() throws DdlException {
+        String resultUrl = JdbcResource.handleJdbcUrl("jdbc:mysql://127.0.0.1:3306/test");
+        // The default is appended exactly once when the user did not set the parameter.
+        Assertions.assertEquals(1, countOccurrences(resultUrl, "characterEncoding=utf-8"));
+    }
+
+    @Test
+    public void testHandleJdbcUrlForMySqlWithCharacterEncoding() throws DdlException {
+        // A user-specified value must be kept and must not be duplicated by the utf-8 default.
+        String resultUrl = JdbcResource.handleJdbcUrl(
+                "jdbc:mysql://127.0.0.1:3306/test?characterEncoding=latin1");
+        Assertions.assertEquals(1, countOccurrences(resultUrl, "characterEncoding=latin1"));
+        Assertions.assertEquals(0, countOccurrences(resultUrl, "characterEncoding=utf-8"));
+
+        // Same for the "expected" value: it must not be appended again.
+        String resultUrl2 = JdbcResource.handleJdbcUrl(
+                "jdbc:mysql://127.0.0.1:3306/test?characterEncoding=utf-8");
+        Assertions.assertEquals(1, countOccurrences(resultUrl2, "characterEncoding=utf-8"));
+    }
+
+    private static int countOccurrences(String text, String needle) {
+        int count = 0;
+        for (int idx = text.indexOf(needle); idx >= 0; idx = text.indexOf(needle, idx + 1)) {
+            count++;
+        }
+        return count;
+    }
+
+    @Test
     public void testHandleJdbcUrlForSqlServerWithoutParams() throws DdlException {
         String inputUrl = "jdbc:sqlserver://127.0.0.1:1433;databaseName=doris_test";
         String resultUrl = JdbcResource.handleJdbcUrl(inputUrl);
