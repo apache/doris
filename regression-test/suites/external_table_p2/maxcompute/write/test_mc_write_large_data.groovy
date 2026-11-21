@@ -74,7 +74,7 @@ suite("test_mc_write_large_data", "p2,external,maxcompute,external_remote,extern
     String db = "mc_large_data_${uuid}"
     sql """drop database if exists ${db}"""
     sql """create database ${db}"""
-    sql """use ${db}"""
+    retry(10, 1000) { sql """use ${db}""" }
 
     try {
         // Non-partition table
