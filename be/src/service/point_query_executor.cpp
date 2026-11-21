@@ -42,6 +42,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
+#include "exprs/virtual_slot_ref.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/fs/read_ahead_metrics.h"
@@ -134,6 +135,24 @@ static void extract_slot_ref(const VExprSPtr& expr, TupleDescriptor* tuple_desc,
         int column_id = static_cast<const VSlotRef*>(expr.get())->column_id();
         auto* slot_desc = tuple_desc->slots()[column_id];
         slots.push_back(slot_desc);
+    } else if (node_type == TExprNodeType::VIRTUAL_SLOT_REF) {
+        // Virtual-column definitions retain their physical input references in
+        // the slot descriptor. Collect those inputs as well so every referenced
+        // physical column is available when the expression is evaluated.
+        const auto* virtual_slot = assert_cast<const VirtualSlotRef*>(expr.get());
+        const auto& virtual_expr = virtual_slot->get_virtual_column_expr();
+        if (virtual_expr != nullptr) {
+            extract_slot_ref(virtual_expr, tuple_desc, slots);
+        }
+    }
+}
+
+static void collect_virtual_slot_refs(const VExprSPtr& expr, std::vector<int>& slots) {
+    if (expr->is_virtual_slot_ref()) {
+        slots.push_back(assert_cast<const VirtualSlotRef*>(expr.get())->column_id());
+    }
+    for (const auto& child : expr->children()) {
+        collect_virtual_slot_refs(child, slots);
     }
 }
 
@@ -167,6 +186,22 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VExpr::prepare(_output_exprs_ctxs, _runtime_state.get(), row_desc));
     RETURN_IF_ERROR(VExpr::open(_output_exprs_ctxs, _runtime_state.get()));
+
+    // Prepare virtual-column expressions independently. They are evaluated after
+    // the physical row data has been loaded and before the output expressions run.
+    for (int pos = 0; pos < tuple_desc()->slots().size(); ++pos) {
+        auto* slot = tuple_desc()->slots()[pos];
+        const auto& virtual_expr = slot->get_virtual_column_expr();
+        if (virtual_expr == nullptr) {
+            continue;
+        }
+        VExprContextSPtr expr_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(*virtual_expr, expr_ctx));
+        RETURN_IF_ERROR(expr_ctx->prepare(_runtime_state.get(), row_desc));
+        RETURN_IF_ERROR(expr_ctx->open(_runtime_state.get()));
+        _virtual_column_exprs.emplace(pos, std::move(expr_ctx));
+    }
+
     _create_timestamp = butil::gettimeofday_ms();
     _data_type_serdes = create_data_type_serdes(tuple_desc()->slots());
     _col_default_values.resize(tuple_desc()->slots().size());
@@ -185,6 +220,11 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     for (const auto& expr : _output_exprs_ctxs) {
         extract_slot_ref(expr->root(), tuple_desc(), output_slot_descs);
     }
+    // Virtual columns are materialized for every point-query block, including
+    // columns used only as dependencies of another virtual column.
+    for (const auto& entry : _virtual_column_exprs) {
+        extract_slot_ref(entry.second->root(), tuple_desc(), output_slot_descs);
+    }
 
     // get the delete sign idx in block
     if (has_delete_sign) {
@@ -198,6 +238,52 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     get_missing_and_include_cids(schema, output_slot_descs, _row_store_column_ids,
                                  _missing_col_uids, _include_col_uids);
 
+    return Status::OK();
+}
+
+Status Reusable::materialize_virtual_columns(Block* block) const {
+    if (block->rows() == 0) {
+        return Status::OK();
+    }
+
+    std::unordered_set<int> materialized;
+    std::unordered_set<int> visiting;
+    for (const auto& entry : _virtual_column_exprs) {
+        RETURN_IF_ERROR(materialize_virtual_column(entry.first, block, materialized, visiting));
+    }
+    return Status::OK();
+}
+
+Status Reusable::materialize_virtual_column(int pos, Block* block,
+                                             std::unordered_set<int>& materialized,
+                                             std::unordered_set<int>& visiting) const {
+    if (materialized.contains(pos)) {
+        return Status::OK();
+    }
+
+    const auto expr_it = _virtual_column_exprs.find(pos);
+    if (expr_it == _virtual_column_exprs.end()) {
+        return Status::OK();
+    }
+
+    // A virtual-column expression may depend on another virtual-column expression.
+    // Resolve each dependency before evaluating its parent so the complete
+    // expression is evaluated against the loaded row.
+    CHECK(!visiting.contains(pos));
+    visiting.insert(pos);
+    std::vector<int> dependencies;
+    collect_virtual_slot_refs(expr_it->second->root(), dependencies);
+    for (int dependency : dependencies) {
+        RETURN_IF_ERROR(materialize_virtual_column(dependency, block, materialized, visiting));
+    }
+
+    ColumnPtr result_column;
+    RETURN_IF_ERROR(expr_it->second->execute(block, result_column));
+    auto& target = block->get_by_position(pos);
+    target.column = std::move(result_column);
+    target.type = tuple_desc()->slots()[pos]->type();
+    visiting.erase(pos);
+    materialized.insert(pos);
     return Status::OK();
 }
 
@@ -669,6 +755,11 @@ Status PointQueryExecutor::_lookup_row_data() {
             }
         }
     }
+
+    // Virtual columns do not exist in the row store. Decode physical columns
+    // first, then materialize virtual expressions before output expressions run.
+    RETURN_IF_ERROR(_reusable->materialize_virtual_columns(_result_block.get()));
+
     // filter rows by delete sign
     if (_row_hits > 0 && _reusable->delete_sign_idx() != -1) {
         size_t filtered = 0;

@@ -321,8 +321,11 @@ private:
 
     Status _process_columns(const std::vector<ColumnId>& ordinals, Block* block);
 
-    // Initialize virtual columns in the block, set all virtual columns in the block to ColumnNothing
+    // Initialize virtual columns in the block for internal expression evaluation.
+    // ColumnNothing is allowed only during SegmentIterator::next_batch().
     void _init_virtual_columns(Block* block);
+    // Restore the typed-column boundary contract on exceptional exits.
+    void _restore_virtual_columns(Block* block);
     // Fallback logic for virtual column materialization, materializing all unmaterialized virtual columns through expressions
     Status _materialization_of_virtual_column(Block* block);
     void _prepare_score_column_materialization();

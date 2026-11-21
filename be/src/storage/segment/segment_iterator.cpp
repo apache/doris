@@ -3057,8 +3057,25 @@ Status SegmentIterator::_read_lazy_pruned_columns(Block* block) {
 }
 
 Status SegmentIterator::next_batch(Block* block) {
-    // Replace virtual columns with ColumnNothing at the begining of each next_batch call.
+    // ColumnNothing is an internal marker used while evaluating virtual-column
+    // expressions. It must never escape the SegmentIterator boundary, including
+    // when the batch fails before normal materialization completes.
     _init_virtual_columns(block);
+    Defer restore_virtual_columns([&]() {
+        bool has_unmaterialized_column = false;
+        for (const auto& [cid, expr_ctx] : _virtual_column_exprs) {
+            const auto& column = block->get_by_position(cid).column;
+            if (!column || check_and_get_column<ColumnNothing>(column.get())) {
+                has_unmaterialized_column = true;
+                break;
+            }
+        }
+        if (has_unmaterialized_column) {
+            block->clear_column_data();
+            _restore_virtual_columns(block);
+        }
+    });
+
     auto status = [&]() {
         RETURN_IF_CATCH_EXCEPTION({
             // Adaptive batch size: predict how many rows this batch should read.
@@ -3883,12 +3900,22 @@ bool SegmentIterator::_can_opt_limit_reads() {
     return all_true;
 }
 
-// Before get next batch. make sure all virtual columns in block has type ColumnNothing.
+// Before get next batch, virtual columns are changed to ColumnNothing so
+// VirtualSlotRef can request expression evaluation inside the iterator.
 void SegmentIterator::_init_virtual_columns(Block* block) {
     for (const auto& [cid, expr_ctx] : _virtual_column_exprs) {
         DCHECK_LT(cid, _schema->num_block_columns());
         auto& col_with_type_and_name = block->get_by_position(cid);
         col_with_type_and_name.column = ColumnNothing::create(0);
+        col_with_type_and_name.type = expr_ctx->root()->data_type();
+    }
+}
+
+void SegmentIterator::_restore_virtual_columns(Block* block) {
+    for (const auto& [cid, expr_ctx] : _virtual_column_exprs) {
+        DCHECK_LT(cid, _schema->num_block_columns());
+        auto& col_with_type_and_name = block->get_by_position(cid);
+        col_with_type_and_name.column = expr_ctx->root()->data_type()->create_column();
         col_with_type_and_name.type = expr_ctx->root()->data_type();
     }
 }
