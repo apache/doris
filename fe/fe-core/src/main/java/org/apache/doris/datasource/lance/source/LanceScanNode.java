@@ -142,7 +142,7 @@ public class LanceScanNode extends FileQueryScanNode {
         }
         super.doInitialize();
         checkAdditionalTypeBackendCompatibility(
-                projectsCurrentReaderType(), backendPolicy.getBackends());
+                projectsCurrentReaderType(), false, backendPolicy.getBackends());
         ExternalUtil.initSchemaInfo(params, -1L, sourceColumns);
 
         if (searchKind.isExternalSearch()) {
@@ -176,17 +176,26 @@ public class LanceScanNode extends FileQueryScanNode {
         return false;
     }
 
-    /** Rejects old smooth-upgrade source BEs for additional Lance type projections. */
+    /**
+     * Rejects old smooth-upgrade source BEs for Lance plans needing the current (upgraded) reader.
+     * It distinguishes the two independent reasons - an additional projection type, or a
+     * multi-dataset read - so the error tells the user exactly which capability the old backend
+     * lacks. Both are absent on the pre-upgrade reader, so any such plan must not be scheduled to a
+     * smooth-upgrade-source backend.
+     */
     @VisibleForTesting
     public static void checkAdditionalTypeBackendCompatibility(
-            boolean requiresCurrentReader, Iterable<Backend> backends) throws UserException {
-        if (!requiresCurrentReader) {
+            boolean requiresCurrentReader, boolean requiresMultiDatasetReader,
+            Iterable<Backend> backends) throws UserException {
+        if (!requiresCurrentReader && !requiresMultiDatasetReader) {
             return;
         }
         for (Backend backend : backends) {
             if (backend.isSmoothUpgradeSrc()) {
                 throw new UserException(
-                        "Additional Lance types are unavailable while backend "
+                        (requiresMultiDatasetReader
+                                ? "Multi-dataset Lance TVF reads are unavailable while backend "
+                                : "Additional Lance types are unavailable while backend ")
                                 + backend.getId() + " is a smooth upgrade source");
             }
         }

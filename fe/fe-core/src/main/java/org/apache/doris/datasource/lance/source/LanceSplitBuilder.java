@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.lance.source;
 
 import org.apache.doris.datasource.lance.metadata.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.metadata.LancePlannedDataset;
 import org.apache.doris.spi.Split;
 
 import java.util.ArrayList;
@@ -45,6 +46,30 @@ public final class LanceSplitBuilder {
         LanceSplitBuilder builder = new LanceSplitBuilder(datasetUri, version, 0);
         builder.addUncoveredFragments(fragments, fragmentsPerSplit);
         return builder.buildSplits();
+    }
+
+    /**
+     * Builds one plan's splits over several datasets, each at the version pinned for it.
+     *
+     * <p>Every split carries the URI and version of the dataset it reads, so the splits of several
+     * datasets coexist without the plan having to remember which is which. A dataset with no
+     * fragments contributes no splits, which is how an empty dataset reads as no rows.
+     *
+     * <p>Scheduling weights are normalized against the largest split in the plan, so they are all
+     * built before any is normalized. Normalizing once per dataset would put every dataset's largest
+     * split at full weight, leaving the scheduler to balance on numbers that say nothing about how
+     * the datasets compare.
+     */
+    public static List<Split> buildFragmentSplits(List<LancePlannedDataset> datasets,
+            int fragmentsPerSplit) {
+        List<LanceSplit> splits = new ArrayList<>();
+        for (LancePlannedDataset dataset : datasets) {
+            LanceSplitBuilder builder = new LanceSplitBuilder(
+                    dataset.getUri(), dataset.getVersion(), 0);
+            builder.addUncoveredFragments(dataset.getFragments(), fragmentsPerSplit);
+            splits.addAll(builder.rawSplits());
+        }
+        return normalize(splits);
     }
 
     boolean isEmpty() {
@@ -107,6 +132,15 @@ public final class LanceSplitBuilder {
     }
 
     List<Split> buildSplits() {
+        return normalize(splits);
+    }
+
+    /** The splits as built, before scheduling weights are normalized against the largest one. */
+    List<LanceSplit> rawSplits() {
+        return splits;
+    }
+
+    private static List<Split> normalize(List<LanceSplit> splits) {
         // Keep scheduling weights proportional to the largest split in this plan.
         long maxPhysicalRows = splits.stream().mapToLong(LanceSplit::getSelfSplitWeight).max().orElse(1);
         for (LanceSplit split : splits) {

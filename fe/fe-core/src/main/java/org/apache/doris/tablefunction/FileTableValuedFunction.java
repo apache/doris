@@ -22,7 +22,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.lance.metadata.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.metadata.LancePlannedDataset;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
@@ -108,13 +108,8 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
     }
 
     @Override
-    public long getLanceDatasetVersion() {
-        return delegateTvf.getLanceDatasetVersion();
-    }
-
-    @Override
-    public List<LanceFragmentInfo> getLanceFragments() {
-        return delegateTvf.getLanceFragments();
+    public List<LancePlannedDataset> getLancePlannedDatasets() {
+        return delegateTvf.getLancePlannedDatasets();
     }
 
     @Override

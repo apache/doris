@@ -60,17 +60,28 @@ public final class LanceMetadataLoader {
         WITH_INDEXES
     }
 
-    /** Standalone S3 TVFs own their allocator and do not participate in catalog Session sharing. */
+    /**
+     * Opens one dataset and reads its planning metadata, bounding each native open at
+     * {@code openTimeoutSeconds}. Opens independently with its own allocator and does not use a
+     * shared catalog Session. {@code 0} means no explicit bound.
+     */
     public static LanceTableMetadata loadLatestForTvf(
-            String datasetUri, List<StorageProperties> storageProperties) throws Exception {
+            String datasetUri, List<StorageProperties> storageProperties, long openTimeoutSeconds)
+            throws Exception {
         LanceTableAccess access = new LanceTableAccess(datasetUri,
-                LanceStorageOptions.fromDorisStorageProperties(datasetUri, storageProperties));
+                LanceStorageOptions.fromDorisStorageProperties(datasetUri, storageProperties, openTimeoutSeconds));
         try (BufferAllocator allocator = new RootAllocator(READ_ALLOCATOR_LIMIT);
                 Dataset dataset = Dataset.open().allocator(allocator).uri(datasetUri)
                         .readOptions(LanceReadOptions.forIndependentRead(
                                 access.getStorageOptions(), OptionalLong.empty())).build()) {
             return read(dataset, access, MetadataScope.BASIC);
         }
+    }
+
+    /** Opens a dataset with no explicit open timeout; delegates to the form above with {@code 0}. */
+    public static LanceTableMetadata loadLatestForTvf(
+            String datasetUri, List<StorageProperties> storageProperties) throws Exception {
+        return loadLatestForTvf(datasetUri, storageProperties, 0);
     }
 
     /** Reads planning metadata from the caller's fixed snapshot; never opens or closes a Dataset. */

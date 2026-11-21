@@ -65,7 +65,23 @@ public class S3PropertyUtils {
         if (!uriOptional.isPresent()) {
             return null;
         }
-        String uri = uriOptional.get();
+        return constructEndpointFromUrl(uriOptional.get(), stringUsePathStyle, stringForceParsingByStandardUri);
+    }
+
+    /**
+     * Constructs the S3 endpoint from a single URI string. This is the actual parsing entry point:
+     * {@link #constructEndpointFromUrl(Map, String, String)} reads the single 'uri' key and then
+     * delegates here. Taking the URI string directly also lets the first element of a multi-dataset
+     * "uris" list reuse the same extraction logic.
+     *
+     * @param uri                             the URI string to parse
+     * @param stringUsePathStyle              whether to use path-style access ("true"/"false")
+     * @param stringForceParsingByStandardUri whether to force parsing using the standard URI format ("true"/"false")
+     * @return the extracted S3 endpoint, or {@code null} if the URI is blank
+     */
+    public static String constructEndpointFromUrl(String uri,
+                                                  String stringUsePathStyle,
+                                                  String stringForceParsingByStandardUri) {
         if (StringUtils.isBlank(uri)) {
             return null;
         }

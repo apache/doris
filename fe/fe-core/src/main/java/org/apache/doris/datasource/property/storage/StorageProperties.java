@@ -380,16 +380,142 @@ public abstract class StorageProperties extends ConnectionProperties {
     public abstract String validateAndNormalizeUri(String url) throws UserException;
 
     /**
-     * Extracts the URI string from the provided properties map, validates it, and returns the normalized URI.
-     * <p>
-     * This method checks that the 'uri' key exists in the property map, retrieves the value,
-     * and then delegates to {@link #validateAndNormalizeUri(String)} for further validation and normalization.
+     * Ensures the single-location key of this storage and {@code uris} are not both present.
      *
-     * @param loadProps the map containing load-related properties, including the URI under the key 'uri'
-     * @return a normalized and validated URI string
-     * @throws UserException if the 'uri' property is missing, empty, or invalid
+     * @param loadProps the properties map
+     * @throws UserException if the single-location key and {@code uris} are both present
      */
-    public abstract String validateAndGetUri(Map<String, String> loadProps) throws UserException;
+    protected abstract void requireMutuallyExclusive(Map<String, String> loadProps) throws UserException;
+
+    /**
+     * Ensures {@code locationKey} and {@code uris} are not both present.
+     *
+     * @param loadProps the properties map
+     * @param locationKey the single-location key of the storage
+     * @throws UserException if {@code locationKey} and {@code uris} are both present
+     */
+    protected static void requireMutuallyExclusive(Map<String, String> loadProps, String locationKey)
+            throws UserException {
+        boolean hasLocation = loadProps.keySet().stream()
+                .anyMatch(key -> key.equalsIgnoreCase(locationKey));
+        boolean hasUris = loadProps.keySet().stream()
+                .anyMatch(key -> key.equalsIgnoreCase(Uris.KEY));
+        if (hasLocation && hasUris) {
+            throw new UserException("'" + locationKey + "' and '" + Uris.KEY
+                    + "' are mutually exclusive: '" + locationKey + "' names one location and '"
+                    + Uris.KEY + "' names several, so supply one or the other");
+        }
+    }
+
+    /**
+     * Validates and normalizes the single location this storage names.
+     *
+     * @param loadProps the properties map
+     * @return the normalized and validated location string
+     * @throws UserException if the single-location key and {@code uris} are both present, or the
+     *         location is missing, empty, or invalid
+     */
+    public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
+        requireMutuallyExclusive(loadProps);
+        return validateAndGetLocation(loadProps);
+    }
+
+    /**
+     * Reads and validates the one location this storage names.
+     *
+     * @param loadProps the properties map
+     * @return the normalized location string
+     * @throws UserException if the location is missing, empty, or invalid
+     */
+    protected abstract String validateAndGetLocation(Map<String, String> loadProps)
+            throws UserException;
+
+    /**
+     * Parses the {@code uris} property into a list of location strings.
+     *
+     * @param loadProps the properties map containing the {@code uris} key
+     * @return the parsed URIs
+     * @throws UserException if {@code uris} is missing, or its JSON cannot be parsed
+     */
+    protected static List<String> parseUris(Map<String, String> loadProps) throws UserException {
+        String rawUris = loadProps.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase(Uris.KEY))
+                .map(Map.Entry::getValue)
+                .findFirst().orElse(null);
+        if (rawUris == null) {
+            throw new UserException("'" + Uris.KEY + "' is required to name several "
+                    + "locations");
+        }
+        return Uris.parse(rawUris);
+    }
+
+    /**
+     * Returns the first URI from the {@code uris} property, or {@code null} if {@code uris} is absent
+     * or empty. A malformed {@code uris} value throws {@link StoragePropertiesException}.
+     *
+     * @param origProps the raw property map
+     * @return the first URI, or {@code null} if {@code uris} is absent or empty
+     * @throws StoragePropertiesException if {@code uris} is present but malformed
+     */
+    protected static String getFirstUri(Map<String, String> origProps) {
+        if (origProps.entrySet().stream().noneMatch(e -> e.getKey().equalsIgnoreCase(Uris.KEY))) {
+            return null;
+        }
+        try {
+            List<String> uris = parseUris(origProps);
+            return uris.isEmpty() ? null : uris.get(0);
+        } catch (UserException e) {
+            throw new StoragePropertiesException(e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Decides whether the properties use the single-location ('uri') form or the multi-location
+     * ('uris') form, enforcing their mutual exclusion along the way.
+     *
+     * @param origProps the raw property map
+     * @param locationKey the single-location key of the storage (e.g. {@link #URI_KEY} for S3)
+     * @return {@code true} if the single 'uri' form is used, {@code false} if the 'uris' form is used;
+     *         if neither is present, {@code false} is returned (callers treat the location as absent)
+     * @throws IllegalArgumentException if both 'uri' and 'uris' are present (mutually exclusive)
+     */
+    protected static boolean isSingleLocationForm(Map<String, String> origProps, String locationKey) {
+        try {
+            requireMutuallyExclusive(origProps, locationKey);
+        } catch (UserException e) {
+            throw new IllegalArgumentException(e.getMessage(), e);
+        }
+        return origProps.keySet().stream().anyMatch(key -> key.equalsIgnoreCase(locationKey));
+    }
+
+    /**
+     * Extracts the primary location string to inspect, based on the form decided by
+     * {@link #isSingleLocationForm(Map, String)}.
+     *
+     * @param singleLocationForm {@code true} for the single 'uri' form, {@code false} for 'uris'
+     * @param origProps the raw property map
+     * @return the single 'uri' value, or the first element of 'uris' (may be {@code null} if absent/empty)
+     */
+    protected static String getPrimaryLocation(boolean singleLocationForm, Map<String, String> origProps) {
+        if (singleLocationForm) {
+            return origProps.entrySet().stream()
+                    .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                    .map(Map.Entry::getValue)
+                    .findFirst()
+                    .orElse(null);
+        }
+        return getFirstUri(origProps);
+    }
+
+    public List<String> validateAndNormalizeUris(Map<String, String> loadProps) throws UserException {
+        requireMutuallyExclusive(loadProps);
+        List<String> uris = parseUris(loadProps);
+        List<String> normalized = new ArrayList<>(uris.size());
+        for (String uri : uris) {
+            normalized.add(validateAndNormalizeUri(uri));
+        }
+        return normalized;
+    }
 
     public abstract String getStorageName();
 

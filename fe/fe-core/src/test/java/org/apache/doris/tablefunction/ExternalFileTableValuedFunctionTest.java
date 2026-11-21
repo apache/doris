@@ -23,6 +23,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.datasource.lance.metadata.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.metadata.LancePlannedDataset;
 import org.apache.doris.datasource.lance.metadata.LanceTableAccess;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
@@ -40,6 +42,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -241,13 +244,67 @@ public class ExternalFileTableValuedFunctionTest {
         java.lang.reflect.Field csvSchema = ExternalFileTableValuedFunction.class.getDeclaredField("csvSchema");
         csvSchema.setAccessible(true);
         csvSchema.set(tvf, Collections.emptyList());
-        tvf.setLanceTableMetadata(metadata);
+        tvf.setLancePlannedDatasets(
+                Collections.singletonList(new LancePlannedDataset(
+                        metadata.getDatasetUri(), metadata.getVersion(), metadata.getFragments())),
+                metadata.getSchema());
 
         Assert.assertTrue(tvf.requiresCurrentLanceReader("JSON_VALUE"));
         Assert.assertTrue(tvf.requiresCurrentLanceReader("null_value"));
         Assert.assertTrue(tvf.requiresCurrentLanceReader("DURATION_VALUE"));
         Assert.assertFalse(tvf.requiresCurrentLanceReader("ordinary"));
     }
+
+    @Test
+    public void testOneDatasetIsHeldAsAListOfOne() throws Exception {
+        ExternalFileTableValuedFunction tvf =
+                Mockito.mock(ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        tvf.setLancePlannedDatasets(
+                Collections.singletonList(plannedDataset("s3://bucket/only", 5, 3L)), ROW_ID_SCHEMA);
+        Assert.assertEquals(1, tvf.getLancePlannedDatasets().size());
+        Assert.assertEquals(5L, tvf.getLancePlannedDatasets().get(0).getVersion());
+        Assert.assertEquals(1, tvf.getLancePlannedDatasets().get(0).getFragments().size());
+        Assert.assertEquals("s3://bucket/only", tvf.getLancePlannedDatasets().get(0).getUri());
+    }
+
+    @Test
+    public void testSeveralDatasetsKeepTheirOwnVersions() throws Exception {
+        ExternalFileTableValuedFunction tvf =
+                Mockito.mock(ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        tvf.setLancePlannedDatasets(Arrays.asList(
+                plannedDataset("s3://bucket/a", 1, 0L), plannedDataset("s3://bucket/b", 2, 0L)),
+                ROW_ID_SCHEMA);
+
+        Assert.assertEquals(2, tvf.getLancePlannedDatasets().size());
+        Assert.assertEquals(1L, tvf.getLancePlannedDatasets().get(0).getVersion());
+        Assert.assertEquals(2L, tvf.getLancePlannedDatasets().get(1).getVersion());
+        Assert.assertEquals("s3://bucket/a", tvf.getLancePlannedDatasets().get(0).getUri());
+    }
+
+    @Test
+    public void testDuplicateFragmentIdsAreRejected() {
+        ExternalFileTableValuedFunction tvf =
+                Mockito.mock(ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        try {
+            tvf.setLancePlannedDatasets(
+                    Collections.singletonList(plannedDataset("s3://bucket/a", 1, 0L, 0L)), ROW_ID_SCHEMA);
+            Assert.fail("a repeated fragment id must be rejected");
+        } catch (AnalysisException expected) {
+            Assert.assertTrue(expected.getMessage().contains("duplicate fragment id"));
+        }
+    }
+
+    private static LancePlannedDataset plannedDataset(String uri, long version, long... fragmentIds) {
+        List<LanceFragmentInfo> fragments = new ArrayList<>();
+        for (long id : fragmentIds) {
+            fragments.add(new LanceFragmentInfo(id, 10, 100));
+        }
+        return new LancePlannedDataset(uri, version, fragments);
+    }
+
+    private static final Schema ROW_ID_SCHEMA = new Schema(Collections.singletonList(
+            new Field("row_id", new FieldType(false, new ArrowType.Int(64, true), null),
+                    Collections.emptyList())));
 
     // Sets a private long field without invoking the table function's environment-dependent constructor.
     private static void setLongField(Object target, String fieldName, long value) throws Exception {
