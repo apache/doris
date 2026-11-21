@@ -278,7 +278,7 @@ TEST_F(InvertedIndexFileReaderTest, TestEmptyIndexSegmentError) {
 
     Status status = reader.init(4096);
     EXPECT_FALSE(status.ok());
-    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_BYPASS);
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
 }
 
 // Test case for unknown inverted index format error
