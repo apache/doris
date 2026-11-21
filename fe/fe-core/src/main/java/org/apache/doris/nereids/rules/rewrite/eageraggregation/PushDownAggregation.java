@@ -119,6 +119,12 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         boolean hasDecomposedAggIf = false;
         boolean containsNullToNonNull = false;
         Map<NamedExpression, List<AggregateFunction>> aggFunctionsForOutputExpressions = Maps.newHashMap();
+        // A decomposed Sum/Max/Min(If(cond, a, b)) is rebuilt at the top as func(If(cond, pushedA, pushedB)).
+        // The rebuild must target the two VALUE positions only: a literal that also appears inside `cond`
+        // (sum(if(flag > 0, 1, 0)) -> the 0) must never be swapped for the pushed BIGINT slot.
+        Map<AggregateFunction, If> decomposedIfBodies = Maps.newHashMap();
+        Map<AggregateFunction, AggregateFunction> decomposedTrueParts = Maps.newHashMap();
+        Map<AggregateFunction, AggregateFunction> decomposedFalseParts = Maps.newHashMap();
         Set<AggregateFunction> allAggFunctions = agg.getAggregateFunctions();
         boolean hasDistinctAgg = allAggFunctions.stream().anyMatch(AggregateFunction::isDistinct);
         if (hasDistinctAgg) {
@@ -171,11 +177,14 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                         AggregateFunction aggTrue = (AggregateFunction) aggFunction.withChildren(body.getTrueValue());
                         aggFunctions.add(aggTrue);
                         funcs.add(aggTrue);
+                        decomposedIfBodies.put(aggFunction, body);
+                        decomposedTrueParts.put(aggFunction, aggTrue);
                         if (!(body.getFalseValue() instanceof NullLiteral)) {
                             AggregateFunction aggFalse =
                                     (AggregateFunction) aggFunction.withChildren(body.getFalseValue());
                             aggFunctions.add(aggFalse);
                             funcs.add(aggFalse);
+                            decomposedFalseParts.put(aggFunction, aggFalse);
                         }
                         groupKeys.addAll(body.getCondition().getInputSlots()
                                 .stream().map(slot -> (SlotReference) slot).collect(Collectors.toList()));
@@ -241,19 +250,36 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                             // for min(A), replaceMap: A->minA
                             // for sum(A), replaceMap: A->sumA
                             // for count(A), replaceMap: count(A)->sum(countA), because count needs rollup to sum
+                            // Keys are whole aggregate functions: ExpressionUtils.replace walks top-down and
+                            // short-circuits at a match, so nothing inside an If condition (or beside the
+                            // function) is ever substituted. Keying on func.child(0) replaced EVERY equal
+                            // expression in the output - for sum(if(flag > 0, 1, 0)) the condition's 0 became
+                            // the pushed BIGINT sum slot: a BE type error on TINYINT/BOOLEAN columns.
                             Map<Expression, Expression> replaceMap = new HashMap<>();
-                            List<AggregateFunction> relatedAggFunc = aggFunctionsForOutputExpressions.get(ne);
-                            for (AggregateFunction func : relatedAggFunc) {
-                                Alias pushedAlias = pushDownContext.getAliasMap().get(func);
-                                ExprId pushId = pushedAlias.getExprId();
-                                if (!state.hasAggFuncOutput(pushId)) {
+                            for (Object obj : ne.collect(AggregateFunction.class::isInstance)) {
+                                AggregateFunction func = (AggregateFunction) obj;
+                                If body = decomposedIfBodies.get(func);
+                                if (body != null) {
+                                    Expression trueValue = pushedSlotOf(
+                                            decomposedTrueParts.get(func), pushDownContext, state);
+                                    AggregateFunction falsePart = decomposedFalseParts.get(func);
+                                    Expression falseValue = falsePart == null ? body.getFalseValue()
+                                            : pushedSlotOf(falsePart, pushDownContext, state);
+                                    if (trueValue == null || falseValue == null) {
+                                        return agg;
+                                    }
+                                    replaceMap.put(func, func.withChildren(
+                                            new If(body.getCondition(), trueValue, falseValue)));
                                     continue;
                                 }
-                                Expression value = state.getPushedAggFuncSlot(pushId);
+                                Expression value = pushedSlotOf(func, pushDownContext, state);
+                                if (value == null) {
+                                    continue;
+                                }
                                 if (func instanceof Count) {
                                     replaceMap.put(func, new Sum0(value));
                                 } else if (func.arity() > 0) {
-                                    replaceMap.put(func.child(0), value);
+                                    replaceMap.put(func, func.withChildren(value));
                                 }
                             }
                             NamedExpression replaceAliasExpr =
@@ -273,6 +299,17 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             SessionVariable.throwAnalysisExceptionWhenFeDebug(msg);
         }
         return agg;
+    }
+
+    /** The slot the pushed-down copy of {@code func} produces below the join, or null when it has none. */
+    private static Expression pushedSlotOf(AggregateFunction func, PushDownAggContext pushDownContext,
+            BilateralState state) {
+        Alias pushedAlias = func == null ? null : pushDownContext.getAliasMap().get(func);
+        if (pushedAlias == null) {
+            return null;
+        }
+        ExprId pushId = pushedAlias.getExprId();
+        return state.hasAggFuncOutput(pushId) ? state.getPushedAggFuncSlot(pushId) : null;
     }
 
     private Optional<Set<SlotReference>> getCommonDistinctKeys(Set<AggregateFunction> aggFunctions) {
