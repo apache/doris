@@ -47,10 +47,8 @@ public class ResultFileSink extends DataSink {
     private ResultFileSink(PlanNodeId exchNodeId, OutFileClause outFileClause) {
         this.exchNodeId = exchNodeId;
         this.fileSinkOptions = outFileClause.toSinkOptions();
-        this.brokerName = outFileClause.getBrokerDesc() == null ? null :
-                outFileClause.getBrokerDesc().getName();
-        this.storageType = outFileClause.getBrokerDesc() == null ? StorageBackend.StorageType.LOCAL :
-                outFileClause.getBrokerDesc().getStorageType();
+        this.brokerName = outFileClause.getBrokerDesc().getName();
+        this.storageType = outFileClause.getBrokerDesc().getStorageType();
     }
 
     //gen header names

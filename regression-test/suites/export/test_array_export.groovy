@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.apache.doris.regression.util.ExportTestHelper
 import org.apache.doris.regression.util.Hdfs
 
 import java.nio.charset.StandardCharsets
@@ -36,50 +36,10 @@ suite("test_array_export", "export,external") {
         return hdfs.downLoad(label_path)
     }
 
-    // check whether the FE config 'enable_outfile_to_local' is true
-    StringBuilder strBuilder = new StringBuilder()
-    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
-    } else {
-        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-    }
-    String command = strBuilder.toString()
-    def process = command.toString().execute()
-    def code = process.waitFor()
-    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-    def out = process.getText()
-    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
-    def response = parseJson(out.trim())
-    assertEquals(response.code, 0)
-    assertEquals(response.msg, "success")
-    def configJson = response.data.rows
-    boolean enableOutfileToLocal = false
-    for (Object conf: configJson) {
-        assert conf instanceof Map
-        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
-            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
-        }
-    }
-    if (!enableOutfileToLocal) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
-        return
-    }
-
     // define the table and out file path
     def tableName = "array_outfile_test"
-    def outFilePath = """${context.file.parent}/test_array_export"""
-    List<List<Object>> backends =  sql """ show backends """
-    assertTrue(backends.size() > 0)
-    def outFile = outFilePath
-    if (backends.size() > 1) {
-        outFile = "/tmp"
-    }
-    def urlHost = ""
-    def csvFiles = ""
-    logger.warn("test_array_export the outFile=" + outFile)
+    def storage = new ExportTestHelper(delegate)
+    String prefix = "regression/test_array_export/${UUID.randomUUID()}/"
 
     def create_test_table = {testTablex ->
         sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -132,7 +92,7 @@ suite("test_array_export", "export,external") {
                 WITH HDFS (
                     "username"="${HdfsUserName}",
                     "password"="${HdfsPasswd}",
-                    "fs.defaultFS"="context.config.otherConfigs.get('hdfsFs')"
+                    "fs.defaultFS"="${context.config.otherConfigs.get('hdfsFs')}"
                 )
             """
     }
@@ -188,29 +148,14 @@ suite("test_array_export", "export,external") {
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY k1; """
 
         // check outfile
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
-        def result = sql """
-            SELECT * FROM ${tableName} t ORDER BY k1 INTO OUTFILE "file://${outFile}/";
-        """
-        def url = result[0][3]
-        urlHost = url.substring(8, url.indexOf("${outFile}"))
-        if (backends.size() > 1) {
-            // custer will scp files
-            def filePrifix = url.split("${outFile}")[1]
-            csvFiles = "${outFile}${filePrifix}*.csv"
-            scpFiles ("root", urlHost, csvFiles, outFilePath)
-        }
-
-        // path is from outputfilepath
-        File[] files = path.listFiles()
-        assert files.length == 1
+        sql """SELECT * FROM ${tableName} ORDER BY k1
+               INTO OUTFILE "${storage.uri(prefix)}" FORMAT AS CSV
+               PROPERTIES (${storage.storageProperties()})"""
+        List<File> files = storage.downloadFiles(prefix, localDataDir)
+        assertEquals(1, files.size())
         List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
         List<String> baseLines = Files.readAllLines(Paths.get("""${context.config.dataPath}/export/test_array_export.out"""), StandardCharsets.UTF_8)
+        assertEquals(2, outLines.size())
         for (int j = 0; j < outLines.size(); j ++) {
             String[] outLine = outLines.get(j).split("\t")
             String[] baseLine = baseLines.get(j + 2).split("\t")
@@ -218,17 +163,7 @@ suite("test_array_export", "export,external") {
         }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
-        if (csvFiles != "") {
-            def cmd = "rm -rf ${csvFiles}"
-            sshExec("root", urlHost, cmd)
-        }
+        storage.deleteFiles(prefix)
     }
     
     

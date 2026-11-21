@@ -22,7 +22,6 @@ import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -119,11 +118,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
                 Objects.requireNonNull(fileProperties, "fileProperties should not be null"),
                 String.CASE_INSENSITIVE_ORDER);
         this.expr = expr;
-        if (!brokerDesc.isPresent()) {
-            this.brokerDesc = Optional.of(new BrokerDesc("local", StorageBackend.StorageType.LOCAL, null));
-        } else {
-            this.brokerDesc = brokerDesc;
-        }
+        this.brokerDesc = brokerDesc;
     }
 
     @Override
@@ -143,8 +138,8 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
                     tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
         }
 
-        if (!Config.enable_outfile_to_local && path.startsWith(OutFileClause.LOCAL_FILE_PREFIX)) {
-            throw new AnalysisException("`enable_outfile_to_local` = false, exporting file to local fs is disabled.");
+        if (!brokerDesc.isPresent()) {
+            throw new AnalysisException("EXPORT requires a remote storage destination");
         }
 
         // check phases
@@ -344,13 +339,6 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
             throw new AnalysisException(("Deleting existing files is not allowed."
                     + " To enable this feature, you need to add `enable_delete_existing_files=true`"
                     + " in fe.conf"));
-        }
-
-        if (exportJob.getDeleteExistingFiles().equalsIgnoreCase("true")
-                && (exportJob.getBrokerDesc() == null
-                || exportJob.getBrokerDesc().storageType() == StorageType.LOCAL)) {
-            throw new org.apache.doris.common.AnalysisException(
-                    "Local file system does not support delete existing files");
         }
 
         // set sessions

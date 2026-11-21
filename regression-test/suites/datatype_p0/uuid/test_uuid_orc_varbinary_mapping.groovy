@@ -15,21 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.nio.file.Files
-import java.nio.file.Paths
+import org.apache.doris.regression.util.ExportTestHelper
 
 suite("test_uuid_orc_varbinary_mapping") {
-    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
-    return
-
-    if (!getFeConfig("enable_outfile_to_local").equalsIgnoreCase("true")) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_uuid_orc_varbinary_mapping")
-        return
-    }
-    def backend = sql_return_maparray("SHOW BACKENDS").find { it.Alive == "true" }
-    String securePath = sql_return_maparray(
-            "SHOW BACKEND CONFIG LIKE 'user_files_secure_path' FROM ${backend.BackendId}")[0].Value
-    def outputDirectory = Files.createTempDirectory(Paths.get(securePath), "test_uuid_orc_varbinary_")
+    def storage = new ExportTestHelper(delegate)
+    String prefix = "regression/test_uuid_orc_varbinary_mapping/${UUID.randomUUID()}/"
+    String root = storage.uri(prefix)
     try {
         sql "DROP TABLE IF EXISTS uuid_orc_varbinary_mapping"
         sql """CREATE TABLE uuid_orc_varbinary_mapping (
@@ -52,12 +43,12 @@ suite("test_uuid_orc_varbinary_mapping") {
                (5, NULL, NULL, NULL, NULL, NULL)"""
         sql """SELECT id, u, a, m, s, CAST(b AS VARBINARY) AS b
                FROM uuid_orc_varbinary_mapping ORDER BY id
-               INTO OUTFILE "file://${outputDirectory}/orc_" FORMAT AS ORC"""
+               INTO OUTFILE "${root}orc_" FORMAT AS ORC PROPERTIES (${storage.storageProperties()})"""
         for (boolean scannerV2 : [false, true]) {
             sql "SET enable_file_scanner_v2 = ${scannerV2}"
             for (boolean binaryMapping : [false, true]) {
-                String source = """local("file_path"="${outputDirectory.fileName}/orc_*",
-                        "format"="orc", "backend_id"="${backend.BackendId}",
+                String source = """S3("uri"="${root}orc_*",
+                        "format"="orc", ${storage.storageProperties()},
                         "enable_mapping_varbinary"="${binaryMapping}")"""
                 "order_qt_schema_${scannerV2}_${binaryMapping}" "DESC FUNCTION ${source}"
                 // UUID annotations override physical binary mapping, including nested leaves.
@@ -75,6 +66,6 @@ suite("test_uuid_orc_varbinary_mapping") {
             }
         }
     } finally {
-        assertTrue(outputDirectory.toFile().deleteDir())
+        storage.deleteFiles(prefix)
     }
 }

@@ -15,11 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.Paths
+import org.apache.doris.regression.util.ExportTestHelper
 
 suite("test_export_basic", "p0") {
     // open nereids
@@ -28,45 +24,11 @@ suite("test_export_basic", "p0") {
 
     def db = "regression_test_export_p0"
     
-    // check whether the FE config 'enable_outfile_to_local' is true
-    StringBuilder strBuilder = new StringBuilder()
-    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
+    def helper = new ExportTestHelper(delegate)
 
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
-    } else {
-        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-    }
-
-    String command = strBuilder.toString()
-    def process = command.toString().execute()
-    def code = process.waitFor()
-    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-    def out = process.getText()
-    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
-    def response = parseJson(out.trim())
-    assertEquals(response.code, 0)
-    assertEquals(response.msg, "success")
-    def configJson = response.data.rows
-    boolean enableOutfileToLocal = false
-    for (Object conf: configJson) {
-        assert conf instanceof Map
-        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
-            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
-        }
-    }
-    if (!enableOutfileToLocal) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
-        return
-    }
-
-    
     def table_export_name = "test_export_basic"
     def table_load_name = "test_load_basic"
-    def outfile_path_prefix = """/tmp/test_export_basic"""
-    def local_tvf_prefix = "tmp/test_export_basic"
+    def outfile_path_prefix = "regression/test_export_basic"
 
     // create table and insert
     sql """ DROP TABLE IF EXISTS ${table_export_name} """
@@ -102,16 +64,6 @@ suite("test_export_basic", "p0") {
     logger.info("insert result: " + insert_res.toString())
     qt_select_export """ SELECT * FROM ${table_export_name} t ORDER BY id; """
 
-
-    def machine_user_name = "root"
-    def check_path_exists = { dir_path ->
-        mkdirRemotePathOnAllBE(machine_user_name, dir_path)
-    }
-
-    def delete_files = { dir_path ->
-        deleteRemotePathOnAllBE(machine_user_name, dir_path)
-    }
-
     def waiting_export = { the_db, export_label ->
         while (true) {
             def res = sql """ show export from ${the_db} where label = "${export_label}" """
@@ -146,27 +98,19 @@ suite("test_export_basic", "p0") {
     def outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
     def label = "label_${uuid}"
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
         // exec export
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
+            EXPORT TABLE ${table_export_name} TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
                 "data_consistency" = "none"
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export.call(db, label)
-
-        // LOCAL TVF readback is disabled; export completion is checked above.
-
-    
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
-        delete_files.call("${outFilePath}")
+        helper.deleteFiles("${outFilePath}/")
     }
 
     // 2. test partition1
@@ -174,28 +118,20 @@ suite("test_export_basic", "p0") {
     outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
     label = "label_${uuid}"
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
         // exec export
         sql """
             EXPORT TABLE ${table_export_name} PARTITION (less_than_20)
-            TO "file://${outFilePath}/"
+            TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
                 "data_consistency" = "none"
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export.call(db, label)
-
-        // LOCAL TVF readback is disabled; export completion is checked above.
-
-    
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
-        delete_files.call("${outFilePath}")
+        helper.deleteFiles("${outFilePath}/")
     }
 
     // 3. test partition2
@@ -203,28 +139,20 @@ suite("test_export_basic", "p0") {
     outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
     label = "label_${uuid}"
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
         // exec export
         sql """
             EXPORT TABLE ${table_export_name} PARTITION (between_20_70)
-            TO "file://${outFilePath}/"
+            TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
                 "data_consistency" = "none"
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export.call(db, label)
-
-        // LOCAL TVF readback is disabled; export completion is checked above.
-
-    
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
-        delete_files.call("${outFilePath}")
+        helper.deleteFiles("${outFilePath}/")
     }
 
     // 4. test partition3 and where clause
@@ -232,28 +160,20 @@ suite("test_export_basic", "p0") {
     outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
     label = "label_${uuid}"
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
         // exec export
         sql """
             EXPORT TABLE ${table_export_name} PARTITION (more_than_70) where id >100
-            TO "file://${outFilePath}/"
+            TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
                 "data_consistency" = "none"
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export.call(db, label)
-
-        // LOCAL TVF readback is disabled; export completion is checked above.
-
-    
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
-        delete_files.call("${outFilePath}")
+        helper.deleteFiles("${outFilePath}/")
     }
 
     // 5. test order by and limit clause
@@ -263,29 +183,26 @@ suite("test_export_basic", "p0") {
     def uuid2 = UUID.randomUUID().toString()
     def label2 = "label_${uuid2}"
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
         // exec export
         sql """
             EXPORT TABLE ${table_export_name} PARTITION (less_than_20)
-            TO "file://${outFilePath}/"
+            TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label1}",
                 "format" = "csv",
                 "column_separator"=",",
                 "data_consistency" = "none"
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         sql """
             EXPORT TABLE ${table_export_name} PARTITION (between_20_70)
-            TO "file://${outFilePath}/"
+            TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label2}",
                 "format" = "csv",
                 "column_separator"=",",
                 "data_consistency" = "none"
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export.call(db, label1)
         waiting_export.call(db, label2)
@@ -295,38 +212,29 @@ suite("test_export_basic", "p0") {
         assertTrue(res[0][0] > res[1][0])
 
     } finally {
-        delete_files.call("${outFilePath}")
+        helper.deleteFiles("${outFilePath}/")
     }
-
 
     // 6. test columns property
     uuid = UUID.randomUUID().toString()
     outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
     label = "label_${uuid}"
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
         // exec export
         sql """
             EXPORT TABLE ${table_export_name} PARTITION (more_than_70) where age >100
-            TO "file://${outFilePath}/"
+            TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
                 "columns" = "id, Name",
                 "data_consistency" = "none"
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export.call(db, label)
-
-        // LOCAL TVF readback is disabled; export completion is checked above.
-
-    
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
-        delete_files.call("${outFilePath}")
+        helper.deleteFiles("${outFilePath}/")
     }
 
     // 7. test columns property 2
@@ -334,25 +242,19 @@ suite("test_export_basic", "p0") {
     outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
     label = "label_${uuid}"
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
         // exec export
         sql """
             EXPORT TABLE ${table_export_name} PARTITION (more_than_70) where age >100
-            TO "file://${outFilePath}/"
+            TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
                 "columns" = "id",
                 "data_consistency" = "none"
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export.call(db, label)
-
-        // LOCAL TVF readback is disabled; export completion is checked above.
-
 
         // test label
         def label_db = "export_p0_test_label"
@@ -368,21 +270,18 @@ suite("test_export_basic", "p0") {
 
         // 1. first export
         uuid = UUID.randomUUID().toString()
-        outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
         label = "label_${uuid}"
-        // check export path
-        check_path_exists.call("${outFilePath}")
 
         // exec export
         sql """
             EXPORT TABLE ${label_db}.${table_load_name}
-            TO "file://${outFilePath}/"
+            TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
                 "data_consistency" = "none"
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export.call(label_db, label)
 
@@ -390,13 +289,13 @@ suite("test_export_basic", "p0") {
         test {
             sql """
                 EXPORT TABLE ${label_db}.${table_load_name}
-                TO "file://${outFilePath}/"
+                TO "${helper.uri(outFilePath)}/"
                 PROPERTIES(
                     "label" = "${label}",
                     "format" = "csv",
                     "column_separator"=",",
                     "data_consistency" = "none"
-                );
+                ) WITH S3 (${helper.storageProperties()});
             """
             exception "has already been used"
         }
@@ -415,13 +314,13 @@ suite("test_export_basic", "p0") {
         // 4. exec export using same label
         sql """
             EXPORT TABLE ${label_db}.${table_load_name}
-            TO "file://${outFilePath}/"
+            TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
                 "data_consistency" = "none"
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export.call(label_db, label)
 
@@ -431,18 +330,17 @@ suite("test_export_basic", "p0") {
 
         sql """
             EXPORT TABLE ${label_db}.${table_load_name}
-            TO "file://${outFilePath}/"
+            TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "columns" = "col1",
                 "format" = "csv",
                 "column_separator"=",",
                 "data_consistency" = "none"
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export_with_exception(label_db, label, "Unknown column");
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
-        delete_files.call("${outFilePath}")
+        helper.deleteFiles("${outFilePath}/")
     }
 }

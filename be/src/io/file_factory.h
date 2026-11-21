@@ -116,10 +116,11 @@ public:
     static Status create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader,
                                      RuntimeState* runtime_state, bool need_schema);
 
-    static Result<TFileType::type> convert_storage_type(TStorageBackendType::type type) {
+    static Result<TFileType::type> outfile_file_type(TStorageBackendType::type type) {
         switch (type) {
         case TStorageBackendType::LOCAL:
-            return TFileType::FILE_LOCAL;
+            return ResultError(Status::NotSupported(
+                    "Writing query results to local storage is not supported"));
         case TStorageBackendType::S3:
             return TFileType::FILE_S3;
         case TStorageBackendType::AZURE:

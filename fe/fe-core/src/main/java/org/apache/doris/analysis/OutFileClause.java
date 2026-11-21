@@ -107,7 +107,6 @@ public class OutFileClause {
         ORC_DATA_TYPE.add("tinyint");
     }
 
-    public static final String LOCAL_FILE_PREFIX = "file:///";
     private static final String HDFS_FILE_PREFIX = "hdfs://";
     private static final String BROKER_PROP_PREFIX = "broker.";
     public static final String PROP_BROKER_NAME = "broker.name";
@@ -137,9 +136,6 @@ public class OutFileClause {
     private boolean withBom = false;
     private int fileNamePadding = 0;
     private BrokerDesc brokerDesc = null;
-    // True if result is written to local disk.
-    // If set to true, the brokerDesc must be null.
-    private boolean isLocalOutput = false;
     private String successFileName = "";
 
     private List<TParquetSchema> parquetSchemas = new ArrayList<>();
@@ -199,8 +195,7 @@ public class OutFileClause {
     public void analyze(List<Expr> resultExprs, List<String> colLabels, boolean needFormat) throws UserException {
         if (isAnalyzed) {
             // If the query stmt is rewritten, the whole stmt will be analyzed again.
-            // But some of fields in this OutfileClause has been changed,
-            // such as `filePath`'s schema header has been removed.
+            // Some fields in this OutFileClause have already been normalized.
             // So OutfileClause does not support to be analyzed again.
             return;
         }
@@ -208,11 +203,6 @@ public class OutFileClause {
 
         analyzeProperties();
 
-        if (brokerDesc != null && isLocalOutput) {
-            throw new AnalysisException("No need to specify BROKER properties in OUTFILE clause for local file output");
-        } else if (brokerDesc == null && !isLocalOutput) {
-            throw new AnalysisException("Please specify BROKER properties or check your local file path.");
-        }
         isAnalyzed = true;
 
         // This analyze() method will be called twice:
@@ -480,17 +470,6 @@ public class OutFileClause {
             throw new AnalysisException("Must specify file in OUTFILE clause");
         }
 
-        if (filePath.startsWith(LOCAL_FILE_PREFIX)) {
-            if (!Config.enable_outfile_to_local) {
-                throw new AnalysisException("Exporting results to local disk is not allowed."
-                        + " To enable this feature, you need to add `enable_outfile_to_local=true`"
-                        + " in fe.conf and restart FE");
-            }
-            isLocalOutput = true;
-            filePath = filePath.substring(LOCAL_FILE_PREFIX.length() - 1); // leave last '/'
-        } else {
-            isLocalOutput = false;
-        }
         if (properties != null) {
             String namePrefix = properties.containsKey(PROP_BROKER_NAME)
                     ? BROKER_PROP_PREFIX + HdfsResource.DSF_NAMESERVICES : HdfsResource.DSF_NAMESERVICES;
@@ -512,7 +491,7 @@ public class OutFileClause {
 
     private void analyzeProperties() throws UserException {
         if (properties == null || properties.isEmpty()) {
-            return;
+            throw new AnalysisException("OUTFILE requires remote storage properties");
         }
         // Copy the properties, because we will remove the key from properties.
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
@@ -541,9 +520,6 @@ public class OutFileClause {
                 throw new AnalysisException("Deleting existing files is not allowed."
                         + " To enable this feature, you need to add `enable_delete_existing_files=true`"
                         + " in fe.conf");
-            }
-            if (deleteExistingFiles && isLocalOutput) {
-                throw new AnalysisException("Local file system does not support delete existing files");
             }
             copiedProps.remove(PROP_DELETE_EXISTING_FILES);
         }
@@ -593,14 +569,6 @@ public class OutFileClause {
      * 2. s3: with s3 pattern path, without broker name
      */
     private void analyzeBrokerDesc(Map<String, String> copiedProps) throws UserException {
-        /**
-         * If the output is intended to be written to the local file system, skip BrokerDesc analysis.
-         * This is because Broker properties are not required when writing files locally,
-         * and the upper layer logic ensures that brokerDesc must be null in this case.
-         */
-        if (isLocalOutput) {
-            return;
-        }
         String brokerName = copiedProps.get(PROP_BROKER_NAME);
         brokerDesc = new BrokerDesc(brokerName, copiedProps);
         try {
@@ -651,8 +619,9 @@ public class OutFileClause {
 
     /**
      * example:
-     * SELECT citycode FROM table1 INTO OUTFILE "file:///root/doris/"
-     * FORMAT AS PARQUET PROPERTIES ("schema"="required,int32,siteid;", "parquet.compression"="snappy");
+     * SELECT citycode FROM table1 INTO OUTFILE "hdfs://namenode/results/"
+     * FORMAT AS PARQUET PROPERTIES ("hadoop.username"="doris",
+     * "schema"="required,int32,siteid;", "parquet.compression"="snappy");
      * <p>
      * schema: it defined the schema of parquet file, it consists of 3 field: competition type, data type, column name
      * multiple columns is split by `;`
@@ -784,11 +753,8 @@ public class OutFileClause {
         sinkOptions.setWithBom(withBom);
         sinkOptions.setFileNamePadding(fileNamePadding);
 
-        if (brokerDesc != null) {
-            sinkOptions.setBrokerProperties(brokerDesc.getBackendConfigProperties());
-            // broker_addresses of sinkOptions will be set in Coordinator.
-            // Because we need to choose the nearest broker with the result sink node.
-        }
+        // Coordinator chooses a broker near the result sink node.
+        sinkOptions.setBrokerProperties(brokerDesc.getBackendConfigProperties());
         if (!Strings.isNullOrEmpty(successFileName)) {
             sinkOptions.setSuccessFileName(successFileName);
         }

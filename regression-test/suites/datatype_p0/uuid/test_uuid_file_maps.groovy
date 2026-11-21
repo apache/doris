@@ -15,22 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.nio.file.Files
-import java.nio.file.Paths
+import org.apache.doris.regression.util.ExportTestHelper
 
 // Checklist: G08 G09 G10 G13 H02 H08.
 suite("test_uuid_file_maps") {
-    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
-    return
-
-    if (!getFeConfig("enable_outfile_to_local").equalsIgnoreCase("true")) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_uuid_file_maps")
-        return
-    }
-    def backend = sql_return_maparray("SHOW BACKENDS").find { it.Alive == "true" }
-    String securePath = sql_return_maparray(
-            "SHOW BACKEND CONFIG LIKE 'user_files_secure_path' FROM ${backend.BackendId}")[0].Value
-    def outputDirectory = Files.createTempDirectory(Paths.get(securePath), "test_uuid_file_maps_")
+    def storage = new ExportTestHelper(delegate)
+    String prefix = "regression/test_uuid_file_maps/${UUID.randomUUID()}/"
+    String root = storage.uri(prefix)
     try {
         sql "DROP TABLE IF EXISTS uuid_file_maps"
         sql """CREATE TABLE uuid_file_maps (id INT,m MAP<UUID,ARRAY<UUID>>,v MAP<STRING,UUID>)
@@ -43,18 +34,18 @@ suite("test_uuid_file_maps") {
         qt_source "SELECT * FROM uuid_file_maps ORDER BY id"
         for (String format : ['parquet', 'orc']) {
             sql """SELECT * FROM uuid_file_maps ORDER BY id
-                   INTO OUTFILE 'file://${outputDirectory}/${format}_' FORMAT AS ${format}"""
-            String path = "${outputDirectory.fileName}/${format}_*"
+                   INTO OUTFILE '${root}${format}_' FORMAT AS ${format} PROPERTIES (${storage.storageProperties()})"""
+            String path = "${root}${format}_*"
             sql "DROP TABLE IF EXISTS uuid_file_maps_reload"
             sql "CREATE TABLE uuid_file_maps_reload LIKE uuid_file_maps"
             sql """INSERT INTO uuid_file_maps_reload
-                   SELECT * FROM local('file_path'='${path}', 'format'='${format}',
-                                       'backend_id'='${backend.BackendId}')"""
+                   SELECT * FROM S3('uri'='${path}', 'format'='${format}',
+                                       ${storage.storageProperties()})"""
             qt_roundtrip "SELECT * FROM uuid_file_maps_reload ORDER BY id"
             qt_keys_values """SELECT id,MAP_KEYS(m),MAP_VALUES(m),v['u'],v['n'],v['zero']
                              FROM uuid_file_maps_reload ORDER BY id"""
         }
     } finally {
-        assertTrue(outputDirectory.toFile().deleteDir())
+        storage.deleteFiles(prefix)
     }
 }

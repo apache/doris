@@ -1574,11 +1574,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_access_file_without_broker = false;
 
-    /**
-     * Whether to allow the outfile function to export the results to the local disk.
-     * If set to true, there's risk to run out of FE disk capacity.
-     */
-    @ConfField
+    @Deprecated
+    @ConfField(description = "Deprecated and ignored. OUTFILE and EXPORT require remote storage.")
     public static boolean enable_outfile_to_local = false;
 
     /**

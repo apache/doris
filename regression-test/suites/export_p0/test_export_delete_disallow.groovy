@@ -15,48 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.Paths
-
 suite("test_export_delete_disallow", "p0") {
-    def db = "regression_test_export_p0"
-    
-    // check whether the FE config 'enable_outfile_to_local' is true
-    StringBuilder strBuilder = new StringBuilder()
-    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
-    } else {
-        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-    }
-
-    String command = strBuilder.toString()
-    def process = command.toString().execute()
-    def code = process.waitFor()
-    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-    def out = process.getText()
-    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
-    def response = parseJson(out.trim())
-    assertEquals(response.code, 0)
-    assertEquals(response.msg, "success")
-    def configJson = response.data.rows
-    boolean enableOutfileToLocal = false
-    for (Object conf: configJson) {
-        assert conf instanceof Map
-        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
-            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
-        }
-    }
-    if (!enableOutfileToLocal) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
-        return
-    }
-    
     // create table and insert
     sql """ DROP TABLE IF EXISTS test_export_delete_disallow_tbl"""
     sql """
@@ -69,12 +28,24 @@ suite("test_export_delete_disallow", "p0") {
     sql """insert into test_export_delete_disallow_tbl values(1, "abc");"""
     
     test {
-         sql """select * from test_export_delete_disallow_tbl limit 10 INTO OUTFILE "file:///tmp/" properties("delete_existing_files" = "true");"""
-         exception """Deleting existing files is not allowed"""
+        sql """EXPLAIN SELECT 1 INTO OUTFILE 'file:///tmp/doris_export_fixture/'"""
+        exception "requires remote storage properties"
     }
 
     test {
-        sql """EXPORT TABLE test_export_delete_disallow_tbl TO "file:///tmp" PROPERTIES ("delete_existing_files" = "true");"""
+        sql """EXPORT TABLE test_export_delete_disallow_tbl TO 'file:///tmp/doris_export_fixture/'"""
+        exception "requires a remote storage destination"
+    }
+
+    test {
+        sql """select * from test_export_delete_disallow_tbl limit 10 INTO OUTFILE "hdfs://nn/fixture/"
+               properties("hadoop.username"="doris", "delete_existing_files"="true")"""
+        exception """Deleting existing files is not allowed"""
+    }
+
+    test {
+        sql """EXPORT TABLE test_export_delete_disallow_tbl TO "hdfs://nn/fixture/"
+               PROPERTIES ("delete_existing_files"="true") WITH HDFS ("hadoop.username"="doris")"""
         exception """Deleting existing files is not allowe"""
     }
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.apache.doris.regression.util.ExportTestHelper
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -25,41 +25,11 @@ suite("test_outfile_csv_with_names_and_types") {
     def dbName = "test_outfile_csv_with_names_and_types"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "USE $dbName"
-    StringBuilder strBuilder = new StringBuilder()
-    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
-    } else {
-        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-    }
-
-    String command = strBuilder.toString()
-    def process = command.toString().execute()
-    def code = process.waitFor()
-    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-    def out = process.getText()
-    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
-    def response = parseJson(out.trim())
-    assertEquals(response.code, 0)
-    assertEquals(response.msg, "success")
-    def configJson = response.data.rows
-    boolean enableOutfileToLocal = false
-    for (Object conf: configJson) {
-        assert conf instanceof Map
-        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
-            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
-        }
-    }
-    if (!enableOutfileToLocal) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
-        return
-    }
     def tableName = "outfil_csv_with_names_and_types_test"
     def tableName2 = "outfil_csv_with_names_and_types_test2"
-    def uuid = UUID.randomUUID().toString()
-    def outFilePath = """/tmp/test_outfile_with_names_types_${uuid}"""
+    def helper = new ExportTestHelper(delegate)
+    def prefix = "regression/test_outfile_csv_with_names_and_types/${UUID.randomUUID()}/"
+    def downloadDir = new File(System.getProperty("java.io.tmpdir"), "doris-outfile-${UUID.randomUUID()}")
 
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -104,19 +74,13 @@ suite("test_outfile_csv_with_names_and_types") {
         order_qt_select_default1 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
         // check outfile
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
         sql """
-            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFilePath}/" FORMAT AS csv_with_names_and_types
-            PROPERTIES("column_separator" = ",");
+            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "${helper.uri(prefix)}" FORMAT AS csv_with_names_and_types
+            PROPERTIES (${helper.storageProperties()}, "column_separator" = ",");
         """
 
-        File[] files = path.listFiles()
-        assert files.length == 1
+        def files = helper.downloadFiles(prefix, downloadDir)
+        assert files.size() == 1
 
         // check column names
         String columnNames = """user_id,date,datetime,date_1,datetime_1,datetime_2,datetime_3,city,age,sex,bool_col,int_col,bigint_col,largeint_col,float_col,double_col,char_col,decimal_col,ipv4_col,ipv6_col"""
@@ -161,26 +125,18 @@ suite("test_outfile_csv_with_names_and_types") {
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
 
-        StringBuilder commandBuilder = new StringBuilder()
-        commandBuilder.append("""curl -v --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}""")
-        commandBuilder.append(""" -H format:csv_with_names_and_types -H column_separator:, -T """ + files[0].getAbsolutePath() + """ http://${context.config.feHttpAddress}/api/""" + dbName + "/" + tableName2 + "/_stream_load")
-        command = commandBuilder.toString()
-        process = command.execute()
-        code = process.waitFor()
-        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-        out = process.getText()
-        logger.info("Run command: command=" + command + ",code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
+        streamLoad {
+            db dbName
+            table tableName2
+            set "format", "csv_with_names_and_types"
+            set "column_separator", ","
+            file files[0].absolutePath
+        }
         order_qt_select_default2 """ SELECT * FROM ${tableName2} t ORDER BY user_id; """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
         try_sql("DROP TABLE IF EXISTS ${tableName2}")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
+        downloadDir.deleteDir()
+        helper.deleteFiles(prefix)
     }
 }

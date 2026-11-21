@@ -15,58 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.apache.doris.regression.util.ExportTestHelper
 
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
-import java.nio.file.Paths
 
 suite("test_outfile_parquet") {
     // open nereids
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
 
-
     def dbName = "test_outfile_parquet"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "USE $dbName"
-    StringBuilder strBuilder = new StringBuilder()
-    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
-    } else {
-        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-    }
-
-    String command = strBuilder.toString()
-    def process = command.toString().execute()
-    def code = process.waitFor()
-    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-    def out = process.getText()
-    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
-    def response = parseJson(out.trim())
-    assertEquals(response.code, 0)
-    assertEquals(response.msg, "success")
-    def configJson = response.data.rows
-    boolean enableOutfileToLocal = false
-    for (Object conf: configJson) {
-        assert conf instanceof Map
-        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
-            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
-        }
-    }
-    if (!enableOutfileToLocal) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
-        return
-    }
     def tableName = "outfile_parquet_test"
     def tableName2 = "outfile_parquet_test2"
-    def uuid = UUID.randomUUID().toString()
-    def outFilePath = """/tmp/test_outfile_parquet_${uuid}"""
-    def negativeTimestampOutFilePath = """/tmp/test_outfile_parquet_negative_timestamp_${uuid}"""
+    def helper = new ExportTestHelper(delegate)
+    def prefix = "regression/test_outfile_parquet/${UUID.randomUUID()}/"
+    def downloadDir = new File(System.getProperty("java.io.tmpdir"), "doris-outfile-${UUID.randomUUID()}")
+    def negativePrefix = "${prefix}negative_timestamp/"
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -108,20 +74,15 @@ suite("test_outfile_parquet") {
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
         // check outfile
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
         sql """
             SELECT * FROM ${tableName} t ORDER BY user_id
-            INTO OUTFILE "file://${outFilePath}/"
-            FORMAT AS PARQUET;
+            INTO OUTFILE "${helper.uri(prefix)}"
+            FORMAT AS PARQUET
+            PROPERTIES (${helper.storageProperties()});
         """
 
-        File[] files = path.listFiles()
-        assert files.length == 1
+        def files = helper.downloadFiles(prefix, downloadDir)
+        assert files.size() == 1
 
         sql """ DROP TABLE IF EXISTS ${tableName2} """
         sql """
@@ -148,16 +109,12 @@ suite("test_outfile_parquet") {
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
 
-        StringBuilder commandBuilder = new StringBuilder()
-        commandBuilder.append("""curl -v --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}""")
-        commandBuilder.append(""" -H format:parquet -T """ + files[0].getAbsolutePath() + """ http://${context.config.feHttpAddress}/api/""" + dbName + "/" + tableName2 + "/_stream_load")
-        command = commandBuilder.toString()
-        process = command.execute()
-        code = process.waitFor()
-        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-        out = process.getText()
-        logger.info("Run command: command=" + command + ",code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
+        streamLoad {
+            db dbName
+            table tableName2
+            set "format", "parquet"
+            file files[0].absolutePath
+        }
         qt_select_default """ SELECT * FROM ${tableName2} t ORDER BY user_id; """
 
         sql """ DROP TABLE IF EXISTS outfile_parquet_negative_timestamp """
@@ -174,8 +131,6 @@ suite("test_outfile_parquet") {
             PROPERTIES("replication_num" = "1")
         """
 
-        File negativeTimestampPath = new File(negativeTimestampOutFilePath)
-        assert negativeTimestampPath.mkdirs()
         sql """
             SELECT id, ts
             FROM (
@@ -190,28 +145,29 @@ suite("test_outfile_parquet") {
                 SELECT 5 AS id, CAST('1969-12-31 23:59:59.999999' AS DATETIMEV2(6)) AS ts
             ) t
             ORDER BY id
-            INTO OUTFILE "file://${negativeTimestampOutFilePath}/"
+            INTO OUTFILE "${helper.uri(negativePrefix)}"
             FORMAT AS PARQUET
-            PROPERTIES("enable_int96_timestamps" = "false")
+            PROPERTIES (${helper.storageProperties()}, "enable_int96_timestamps" = "false")
         """
 
-        File[] negativeTimestampFiles = negativeTimestampPath.listFiles()
-        assert negativeTimestampFiles.length == 1
-        commandBuilder = new StringBuilder()
-        commandBuilder.append("""curl -v --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}""")
-        commandBuilder.append(""" -H format:parquet -T """ + negativeTimestampFiles[0].getAbsolutePath() + """ http://${context.config.feHttpAddress}/api/""" + dbName + "/outfile_parquet_negative_timestamp/_stream_load")
-        command = commandBuilder.toString()
-        process = command.execute()
-        code = process.waitFor()
-        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-        out = process.getText()
-        logger.info("Run negative timestamp stream load: command=" + command + ",code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def loadResponse = parseJson(out.trim())
-        assertEquals("Success", loadResponse.Status)
-        assertEquals(5, loadResponse.NumberTotalRows)
-        assertEquals(5, loadResponse.NumberLoadedRows)
-        assertEquals(0, loadResponse.NumberFilteredRows)
+        def negativeTimestampFiles = helper.downloadFiles(negativePrefix, downloadDir)
+        assert negativeTimestampFiles.size() == 1
+        streamLoad {
+            db dbName
+            table "outfile_parquet_negative_timestamp"
+            set "format", "parquet"
+            file negativeTimestampFiles[0].absolutePath
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                def loadResponse = parseJson(result)
+                assertEquals("Success", loadResponse.Status)
+                assertEquals(5, loadResponse.NumberTotalRows)
+                assertEquals(5, loadResponse.NumberLoadedRows)
+                assertEquals(0, loadResponse.NumberFilteredRows)
+            }
+        }
         order_qt_negative_timestamp """
             SELECT id, ts
             FROM outfile_parquet_negative_timestamp
@@ -220,19 +176,7 @@ suite("test_outfile_parquet") {
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
         try_sql("DROP TABLE IF EXISTS ${tableName2}")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
-        File negativeTimestampPath = new File(negativeTimestampOutFilePath)
-        if (negativeTimestampPath.exists()) {
-            for (File f: negativeTimestampPath.listFiles()) {
-                f.delete();
-            }
-            negativeTimestampPath.delete();
-        }
+        downloadDir.deleteDir()
+        helper.deleteFiles(prefix)
     }
 }

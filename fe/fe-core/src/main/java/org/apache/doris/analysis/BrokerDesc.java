@@ -18,10 +18,12 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.StorageBackend.StorageType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TFileType;
@@ -34,6 +36,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Map;
 
 // Broker descriptor
@@ -125,14 +128,35 @@ public class BrokerDesc extends StorageDesc implements Writable {
      * Normalize EXPORT and OUTFILE destinations for the BE writer.
      */
     public String getFileLocationForExport(String location) throws UserException {
+        StorageType type = getStorageType();
+        if (type == StorageType.LOCAL || StringUtils.startsWithIgnoreCase(location, "file:")) {
+            throw new AnalysisException("Exporting results to local disk is not supported");
+        }
+        if (type == StorageType.HDFS || type == StorageType.JFS) {
+            if (!StringUtils.startsWithAny(location.toLowerCase(Locale.ROOT),
+                    "hdfs:/", "viewfs:/", "jfs:/", "oss:/")) {
+                throw new AnalysisException("HDFS export destinations require a remote Hadoop filesystem URI");
+            }
+            checkExportStorageKind(StorageKind.HDFS_COMPATIBLE);
+        } else if (type == StorageType.S3) {
+            checkExportStorageKind(StorageKind.OBJECT_STORAGE);
+        }
         // BE parses HTTP(S) paths as path-style, while FE defaults to virtual-hosted parsing.
-        // Preserve these paths and the existing path handling for non-S3 backends.
-        if (StorageType.S3.equals(getStorageType())
+        // Preserve the path spelling expected by each writer.
+        if (type == StorageType.S3
                 && !StringUtils.startsWithIgnoreCase(location, "http://")
                 && !StringUtils.startsWithIgnoreCase(location, "https://")) {
             return getFileLocation(location);
         }
         return location;
+    }
+
+    private void checkExportStorageKind(StorageKind expected) throws AnalysisException {
+        StorageAdapter adapter = getStorageAdapter();
+        if (adapter != null && adapter.getSpiProperties().kind() != expected) {
+            throw new AnalysisException("Export storage properties must match the " + getStorageType().name()
+                    + " destination");
+        }
     }
 
     public static BrokerDesc createForStreamLoad() {

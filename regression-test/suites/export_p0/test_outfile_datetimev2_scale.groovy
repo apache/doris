@@ -15,48 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.apache.doris.regression.util.ExportTestHelper
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_outfile_datetimev2_scale") {
-    StringBuilder strBuilder = new StringBuilder()
-    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
-    } else {
-        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-    }
-
-    String command = strBuilder.toString()
-    def process = command.execute()
-    def code = process.waitFor()
-    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-    def out = process.getText()
-    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
-    def response = parseJson(out.trim())
-    assertEquals(response.code, 0)
-    assertEquals(response.msg, "success")
-    def configJson = response.data.rows
-    boolean enableOutfileToLocal = false
-    for (Object conf: configJson) {
-        assert conf instanceof Map
-        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
-            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
-        }
-    }
-    if (!enableOutfileToLocal) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_outfile_datetimev2_scale")
-        return
-    }
 
     def tableName = "test_outfile_datetimev2_scale"
-    def uuid = UUID.randomUUID().toString()
-    def outFilePath = """/tmp/test_outfile_datetimev2_scale_${uuid}"""
+    def helper = new ExportTestHelper(delegate)
+    def prefix = "regression/test_outfile_datetimev2_scale/${UUID.randomUUID()}/"
+    def downloadDir = new File(System.getProperty("java.io.tmpdir"), "doris-outfile-${UUID.randomUUID()}")
 
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -76,22 +46,15 @@ suite("test_outfile_datetimev2_scale") {
             (1, '2026-06-06 15:54:51', '2026-06-06 15:54:51.442', '2026-06-06 15:54:51.442000');
         """
 
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
-
         sql """
             SELECT * FROM ${tableName} ORDER BY id
-            INTO OUTFILE "file://${outFilePath}/"
+            INTO OUTFILE "${helper.uri(prefix)}"
             FORMAT AS CSV
-            PROPERTIES("column_separator" = ",");
+            PROPERTIES (${helper.storageProperties()}, "column_separator" = ",");
         """
 
-        File[] files = path.listFiles().findAll { it.isFile() && it.getName().endsWith(".csv") } as File[]
-        assertEquals(1, files.length)
+        def files = helper.downloadFiles(prefix, downloadDir).findAll { it.isFile() && it.getName().endsWith(".csv") }
+        assertEquals(1, files.size())
 
         List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8)
         assertEquals(1, outLines.size())
@@ -99,12 +62,7 @@ suite("test_outfile_datetimev2_scale") {
         assertFalse(outLines.get(0).contains("2026-06-06 15:54:51.442000,2026-06-06 15:54:51.442000"))
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete()
-            }
-            path.delete()
-        }
+        downloadDir.deleteDir()
+        helper.deleteFiles(prefix)
     }
 }

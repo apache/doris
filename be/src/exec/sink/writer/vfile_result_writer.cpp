@@ -52,14 +52,12 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_system.h"
-#include "io/fs/local_file_system.h"
 #include "io/fs/obj_storage_file_system.h"
 #include "io/hdfs_builder.h"
 #include "io/object_storage/be_obj_storage_config_parser.h"
 #include "runtime/descriptors.h"
 #include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
-#include "service/backend_options.h"
 #include "util/mysql_row_buffer.h"
 #include "util/s3_uri.h"
 #include "util/uid_util.h"
@@ -117,13 +115,11 @@ void VFileResultWriter::_init_profile(RuntimeProfile* parent_profile) {
 }
 
 Status VFileResultWriter::_create_next_file_writer() {
-    std::string file_name;
-    RETURN_IF_ERROR(_get_next_file_name(&file_name));
-    return _create_file_writer(file_name);
+    return _create_file_writer(_get_next_file_name());
 }
 
 Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
-    auto file_type = DORIS_TRY(FileFactory::convert_storage_type(_storage_type));
+    auto file_type = DORIS_TRY(FileFactory::outfile_file_type(_storage_type));
     _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
             file_type, _state->exec_env(), _file_opts->broker_addresses,
             _file_opts->broker_properties, file_name,
@@ -161,43 +157,17 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
 }
 
 // file name format as: my_prefix_{fragment_instance_id}_0.csv
-Status VFileResultWriter::_get_next_file_name(std::string* file_name) {
+std::string VFileResultWriter::_get_next_file_name() {
     std::string suffix =
             _file_opts->file_suffix.empty() ? _file_format_to_name() : _file_opts->file_suffix;
     // Padding is a minimum width: larger indices must retain every digit.
     const int padding = _file_opts->file_name_padding;
-    *file_name =
-            fmt::format("{}{}_{:0{}}.{}", _file_opts->file_path, print_id(_fragment_instance_id),
-                        _file_idx++, padding < 0 ? 0 : padding, suffix);
-    if (_storage_type == TStorageBackendType::LOCAL) {
-        // For local file writer, the file_path is a local dir.
-        // Here we do a simple security verification by checking whether the file exists.
-        // Because the file path is currently arbitrarily specified by the user,
-        // Doris is not responsible for ensuring the correctness of the path.
-        // This is just to prevent overwriting the existing file.
-        bool exists = true;
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(*file_name, &exists));
-        if (exists) {
-            return Status::InternalError("File already exists: {}", *file_name);
-        }
-    }
-
-    return Status::OK();
+    return fmt::format("{}{}_{:0{}}.{}", _file_opts->file_path, print_id(_fragment_instance_id),
+                       _file_idx++, padding < 0 ? 0 : padding, suffix);
 }
 
-// file url format as:
-// LOCAL: file:///localhost_address/{file_path}{fragment_instance_id}_
-// S3: {file_path}{fragment_instance_id}_
-// BROKER: {file_path}{fragment_instance_id}_
-
 void VFileResultWriter::_get_file_url(std::string* file_url) {
-    std::stringstream ss;
-    if (_storage_type == TStorageBackendType::LOCAL) {
-        ss << "file:///" << BackendOptions::get_localhost();
-    }
-    ss << _file_opts->file_path;
-    ss << print_id(_fragment_instance_id) << "_";
-    *file_url = ss.str();
+    *file_url = fmt::format("{}{}_", _file_opts->file_path, print_id(_fragment_instance_id));
 }
 
 std::string VFileResultWriter::_file_format_to_name() {
@@ -430,8 +400,6 @@ Status VFileResultWriter::_delete_dir() {
     // get dir of file_path
     std::string dir = _file_opts->file_path.substr(0, _file_opts->file_path.find_last_of('/') + 1);
     switch (_storage_type) {
-    case TStorageBackendType::LOCAL:
-        return io::global_local_filesystem()->delete_directory(dir);
     case TStorageBackendType::BROKER: {
         auto fs = DORIS_TRY(io::BrokerFileSystem::create(_file_opts->broker_addresses[0],
                                                          _file_opts->broker_properties,

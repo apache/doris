@@ -31,20 +31,13 @@
 // with plain Java and compared against the source table, so the answer does
 // not pass through the engine twice.
 //
-// Two conditions skip parts of the suite rather than failing it:
-//   * enable_outfile_to_local must be on. It is an FE config, off by default
-//     in some deployments, and nothing about ADBC is being tested without it.
-//   * on a multi-backend cluster the files land on whichever backends ran the
-//     scan, so a suite running on the FE host cannot read them all. The export
-//     still runs and its reported row count is still checked; only the
-//     file-content half is skipped, with a log saying so.
-//
 // Setup is otherwise the same as test_adbc_catalog_scan -- see its header.
 // ############################################################################
 
+import org.apache.doris.regression.util.ExportTestHelper
+
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
-import java.nio.file.Paths
 
 suite("test_adbc_outfile", "p0,external") {
     String repoRoot = new File(context.config.suitePath).getParentFile().getParentFile()
@@ -66,61 +59,14 @@ suite("test_adbc_outfile", "p0,external") {
         return
     }
 
-    // ---- is a local export allowed at all ----
-
-    StringBuilder configUrl = new StringBuilder()
-    configUrl.append("curl --location-trusted -u " + context.config.jdbcUser + ":"
-            + context.config.jdbcPassword)
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-        configUrl.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-        configUrl.append(" --cert " + context.config.otherConfigs.get("trustCert")
-                + " --cacert " + context.config.otherConfigs.get("trustCACert")
-                + " --key " + context.config.otherConfigs.get("trustCAKey"))
-    } else {
-        configUrl.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-    }
-    def configProcess = configUrl.toString().execute()
-    int configCode = configProcess.waitFor()
-    String configOut = configProcess.getText()
-    boolean enableOutfileToLocal = false
-    if (configCode == 0) {
-        def response = parseJson(configOut.trim())
-        if (response.code == 0) {
-            for (Object conf : response.data.rows) {
-                if (conf instanceof Map
-                        && ((Map<String, String>) conf).get("Name").toLowerCase()
-                            == "enable_outfile_to_local") {
-                    enableOutfileToLocal =
-                            ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
-                }
-            }
-        }
-    }
-    if (!enableOutfileToLocal) {
-        logger.info("SKIPPED test_adbc_outfile: the FE config enable_outfile_to_local is not true, so a "
-                + "local export cannot run. Set it to true to cover this. "
-                + "EXPORTING AN ADBC TABLE IS NOT BEING TESTED.")
-        return
-    }
-
-    def backends = sql_return_maparray "show backends"
-    int aliveBackends = backends.count { it.Alive.toString().equalsIgnoreCase("true") }
-    // On several backends the exported files are spread across their local disks, and this suite runs
-    // where the FE is. The exports still run; only reading the files back is skipped.
-    boolean canReadFilesBack = aliveBackends == 1
-    if (!canReadFilesBack) {
-        logger.info("test_adbc_outfile: ${aliveBackends} alive backends, so exported files land on hosts "
-                + "this suite cannot read. The exports and their reported row counts are still checked; "
-                + "THE FILE CONTENTS ARE NOT.")
-    }
-
     def frontends = sql "show frontends"
     String arrowPort = frontends[0][6]
 
     String catalogName = "test_adbc_outfile_catalog"
     String dbName = "test_adbc_outfile_db"
-    String uuid = UUID.randomUUID().toString()
-    String exportRoot = "/tmp/test_adbc_outfile_${uuid}"
+    def storage = new ExportTestHelper(delegate)
+    String prefix = "regression/test_adbc_outfile/${UUID.randomUUID()}/"
+    String exportRoot = storage.uri(prefix)
 
     sql """DROP CATALOG IF EXISTS ${catalogName}"""
     sql """DROP DATABASE IF EXISTS internal.${dbName} FORCE"""
@@ -168,104 +114,87 @@ suite("test_adbc_outfile", "p0,external") {
         )
     """
 
-    File exportDir = new File(exportRoot)
+    File downloads = Files.createTempDirectory("adbc-outfile-").toFile()
     try {
         // Not named "table": streamLoad's configuration block below takes a `table "name"` call, and a
         // local of that name shadows it inside the closure -- the load then fails with
         // "No signature of method: java.lang.String.call()" rather than with anything about loading.
         String adbcTable = "${catalogName}.${dbName}.exported"
 
-        // The reported row count is the assertion that works everywhere, including on a cluster whose
-        // files this suite cannot reach. Doris answers an OUTFILE with one row describing the export.
         def exportRowCount = { def result ->
             assertEquals(1, result.size(), "an OUTFILE statement did not report exactly one summary row")
             // FileNumber, TotalRows, FileSize, URL -- TotalRows is the second column.
             return result[0][1] as long
         }
 
-        def newExportDir = { String name ->
-            File dir = new File("${exportRoot}/${name}")
-            assertTrue(dir.mkdirs(), "could not create the export directory ${dir}")
-            return dir
-        }
-
         // ---- a whole table ----
 
-        File allDir = newExportDir("all")
         def allResult = sql """
             SELECT id, name, amount, d, ts FROM ${adbcTable}
-            INTO OUTFILE "file://${allDir.absolutePath}/"
+            INTO OUTFILE "${exportRoot}all/"
             FORMAT AS CSV
-            PROPERTIES ("column_separator" = ",")
+            PROPERTIES ("column_separator" = ",", ${storage.storageProperties()})
         """
         assertEquals(4L, exportRowCount(allResult),
                 "exporting a four-row ADBC table did not report four rows")
 
-        if (canReadFilesBack) {
-            File[] allFiles = allDir.listFiles()
-            assertNotNull(allFiles, "the export directory ${allDir} does not exist after the export")
-            assertTrue(allFiles.length >= 1, "the export produced no file in ${allDir}")
-            List<String> lines = new ArrayList<String>()
-            for (File f : allFiles) {
-                lines.addAll(Files.readAllLines(Paths.get(f.getAbsolutePath()), StandardCharsets.UTF_8))
-            }
-            lines.removeAll { it == null || it.trim().isEmpty() }
-            assertEquals(4, lines.size(),
-                    "the exported file holds ${lines.size()} rows instead of four: ${lines}")
-            // Compared against the source rather than against a hand-written expectation: the file is
-            // read outside Doris, so this is the one check here that does not pass through the engine at
-            // all. Sorted because the writer's row order is not part of the contract.
-            List<String> sorted = new ArrayList<String>(lines)
-            Collections.sort(sorted)
-            logger.info("exported CSV rows: ${sorted}")
-            assertTrue(sorted[0].startsWith("1,alice,10.25,2024-01-01,"),
-                    "the first exported row is not the first source row: ${sorted[0]}")
-            assertTrue(sorted.any { it.startsWith("3,\\N,30.75") || it.startsWith("3,,30.75") },
-                    "the row with a NULL name did not survive the export: ${sorted}")
+        List<File> allFiles = storage.downloadFiles(prefix + "all/", downloads)
+        assertFalse(allFiles.isEmpty(), "the export produced no CSV files")
+        List<String> allLines = new ArrayList<String>()
+        for (File f : allFiles) {
+            allLines.addAll(Files.readAllLines(f.toPath(), StandardCharsets.UTF_8))
         }
+        allLines.removeAll { it == null || it.trim().isEmpty() }
+        assertEquals(4, allLines.size(),
+                "the exported file holds ${allLines.size()} rows instead of four: ${allLines}")
+        // Compared against the source rather than against a hand-written expectation: the file is
+        // read outside Doris, so this is the one check here that does not pass through the engine at
+        // all. Sorted because the writer's row order is not part of the contract.
+        List<String> sorted = new ArrayList<String>(allLines)
+        Collections.sort(sorted)
+        logger.info("exported CSV rows: ${sorted}")
+        assertTrue(sorted[0].startsWith("1,alice,10.25,2024-01-01,"),
+                "the first exported row is not the first source row: ${sorted[0]}")
+        assertTrue(sorted.any { it.startsWith("3,\\N,30.75") || it.startsWith("3,,30.75") },
+                "the row with a NULL name did not survive the export: ${sorted}")
 
         // ---- a projection and a predicate ----
         //
         // The export path and the pushdown path meet here: the scan under the sink is the same scan, so a
         // predicate is still pushed and a column not asked for is still not read.
 
-        File filteredDir = newExportDir("filtered")
         def filteredResult = sql """
             SELECT id, amount FROM ${adbcTable} WHERE id >= 2
-            INTO OUTFILE "file://${filteredDir.absolutePath}/"
-            FORMAT AS CSV
+            INTO OUTFILE "${exportRoot}filtered/"
+            FORMAT AS CSV PROPERTIES (${storage.storageProperties()})
         """
         assertEquals(3L, exportRowCount(filteredResult),
                 "a filtered export did not report the three matching rows")
 
-        if (canReadFilesBack) {
-            List<String> lines = new ArrayList<String>()
-            for (File f : filteredDir.listFiles()) {
-                lines.addAll(Files.readAllLines(Paths.get(f.getAbsolutePath()), StandardCharsets.UTF_8))
-            }
-            lines.removeAll { it == null || it.trim().isEmpty() }
-            assertEquals(3, lines.size(), "the filtered export holds ${lines.size()} rows: ${lines}")
+        List<String> filteredLines = new ArrayList<String>()
+        for (File f : storage.downloadFiles(prefix + "filtered/", downloads)) {
+            filteredLines.addAll(Files.readAllLines(f.toPath(), StandardCharsets.UTF_8))
         }
+        filteredLines.removeAll { it == null || it.trim().isEmpty() }
+        assertEquals(3, filteredLines.size(), "the filtered export holds ${filteredLines.size()} rows: ${filteredLines}")
 
         // ---- a join between an ADBC table and an internal one ----
 
-        File joinDir = newExportDir("join")
         def joinResult = sql """
             SELECT e.id, e.name, l.label
             FROM ${adbcTable} e JOIN internal.${dbName}.lookup l ON e.id = l.id
-            INTO OUTFILE "file://${joinDir.absolutePath}/"
-            FORMAT AS CSV
+            INTO OUTFILE "${exportRoot}join/"
+            FORMAT AS CSV PROPERTIES (${storage.storageProperties()})
         """
         assertEquals(3L, exportRowCount(joinResult),
                 "exporting a join between an ADBC table and an internal one lost or added rows")
 
         // ---- an aggregate ----
 
-        File aggDir = newExportDir("agg")
         def aggResult = sql """
             SELECT count(*), sum(amount), min(d), max(d) FROM ${adbcTable}
-            INTO OUTFILE "file://${aggDir.absolutePath}/"
-            FORMAT AS CSV
+            INTO OUTFILE "${exportRoot}agg/"
+            FORMAT AS CSV PROPERTIES (${storage.storageProperties()})
         """
         assertEquals(1L, exportRowCount(aggResult), "an aggregate export did not report one row")
 
@@ -274,11 +203,10 @@ suite("test_adbc_outfile", "p0,external") {
         // Zero rows through a file sink: the export must succeed and report zero, not fail and not report
         // the unfiltered count.
 
-        File emptyDir = newExportDir("empty")
         def emptyResult = sql """
             SELECT id, name FROM ${adbcTable} WHERE id > 1000
-            INTO OUTFILE "file://${emptyDir.absolutePath}/"
-            FORMAT AS CSV
+            INTO OUTFILE "${exportRoot}empty/"
+            FORMAT AS CSV PROPERTIES (${storage.storageProperties()})
         """
         assertEquals(0L, exportRowCount(emptyResult),
                 "exporting an empty result did not report zero rows")
@@ -288,63 +216,56 @@ suite("test_adbc_outfile", "p0,external") {
         // These need a WRITE schema for every column, which CSV does not: a type the ADBC reader
         // materialises but that has no Parquet or ORC form fails here and only here.
 
-        File parquetDir = newExportDir("parquet")
         def parquetResult = sql """
             SELECT id, name, amount, d, ts FROM ${adbcTable}
-            INTO OUTFILE "file://${parquetDir.absolutePath}/"
-            FORMAT AS PARQUET
+            INTO OUTFILE "${exportRoot}parquet/"
+            FORMAT AS PARQUET PROPERTIES (${storage.storageProperties()})
         """
         assertEquals(4L, exportRowCount(parquetResult), "the PARQUET export did not report four rows")
-        if (canReadFilesBack) {
-            assertTrue(parquetDir.listFiles().length >= 1, "the PARQUET export produced no file")
-        }
+        assertFalse(storage.keys(prefix + "parquet/").isEmpty(), "the PARQUET export produced no file")
 
-        File orcDir = newExportDir("orc")
         def orcResult = sql """
             SELECT id, name, amount, d, ts FROM ${adbcTable}
-            INTO OUTFILE "file://${orcDir.absolutePath}/"
-            FORMAT AS ORC
+            INTO OUTFILE "${exportRoot}orc/"
+            FORMAT AS ORC PROPERTIES (${storage.storageProperties()})
         """
         assertEquals(4L, exportRowCount(orcResult), "the ORC export did not report four rows")
-        if (canReadFilesBack) {
-            assertTrue(orcDir.listFiles().length >= 1, "the ORC export produced no file")
-        }
+        assertFalse(storage.keys(prefix + "orc/").isEmpty(), "the ORC export produced no file")
 
         // ---- the exported data, read back through Doris ----
         //
-        // Only where the files are reachable: loading the CSV back into a table and comparing it with the
+        // Loading the CSV back into a table and comparing it with the
         // source closes the loop without trusting the line-by-line parse above.
 
-        if (canReadFilesBack) {
-            sql """DROP TABLE IF EXISTS internal.${dbName}.reloaded"""
-            sql """
-                CREATE TABLE internal.${dbName}.reloaded (
-                  `id` int NOT NULL,
-                  `name` varchar(64) NULL,
-                  `amount` decimalv3(10, 2) NULL,
-                  `d` date NULL,
-                  `ts` datetime(3) NULL
-                ) DISTRIBUTED BY HASH(`id`) BUCKETS 1
-                PROPERTIES ("replication_num" = "1")
-            """
-            File[] csvFiles = allDir.listFiles()
+        sql """DROP TABLE IF EXISTS internal.${dbName}.reloaded"""
+        sql """
+            CREATE TABLE internal.${dbName}.reloaded (
+              `id` int NOT NULL,
+              `name` varchar(64) NULL,
+              `amount` decimalv3(10, 2) NULL,
+              `d` date NULL,
+              `ts` datetime(3) NULL
+            ) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        for (File csv : allFiles) {
             streamLoad {
                 db "${dbName}"
                 table "reloaded"
                 set 'column_separator', ','
-                file csvFiles[0].getAbsolutePath()
+                file csv.absolutePath
                 time 20000
             }
-            qt_reloaded """
-                SELECT id, name, amount, d, ts FROM internal.${dbName}.reloaded ORDER BY id
-            """
-            assertEquals(
-                    sql("""SELECT id, name, amount, d, ts FROM internal.${dbName}.exported
-                           ORDER BY id""").toString(),
-                    sql("""SELECT id, name, amount, d, ts FROM internal.${dbName}.reloaded
-                           ORDER BY id""").toString(),
-                    "the data exported from the ADBC catalog and loaded back does not match the source")
         }
+        qt_reloaded """
+            SELECT id, name, amount, d, ts FROM internal.${dbName}.reloaded ORDER BY id
+        """
+        assertEquals(
+                sql("""SELECT id, name, amount, d, ts FROM internal.${dbName}.exported
+                       ORDER BY id""").toString(),
+                sql("""SELECT id, name, amount, d, ts FROM internal.${dbName}.reloaded
+                       ORDER BY id""").toString(),
+                "the data exported from the ADBC catalog and loaded back does not match the source")
 
         // The source DATETIME is timezone-free, just like the reloaded column checked above.
         qt_source_for_export """
@@ -353,6 +274,7 @@ suite("test_adbc_outfile", "p0,external") {
     } finally {
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
         sql """DROP DATABASE IF EXISTS internal.${dbName} FORCE"""
-        exportDir.deleteDir()
+        downloads.deleteDir()
+        storage.deleteFiles(prefix)
     }
 }

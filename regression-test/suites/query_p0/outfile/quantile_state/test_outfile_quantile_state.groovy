@@ -15,21 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.apache.doris.regression.util.ExportTestHelper
 
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.Paths
-
 suite("test_outfile_quantile_state") {
-    def hosts = []
-    List<List<Object>> backends = sql("show backends");
-    for (def b : backends) {
-        hosts.add(b[1])
-    }
-    ExportTestHelper testHelper = new ExportTestHelper(hosts)
-
     sql "set enable_agg_state=true"
     sql "set return_object_data_as_binary=true"
 
@@ -50,9 +38,6 @@ suite("test_outfile_quantile_state") {
 
     qt_test "select k1,quantile_percent(quantile_union(k2),0.5) from q_table group by k1 order by k1;"
 
-    sql """select k1, quantile_union_state(k2) as k2 from q_table into outfile "file://${testHelper.remoteDir}/tmp_" FORMAT AS PARQUET;"""
-    testHelper.collect()
-
     sql "DROP TABLE IF EXISTS q_table2"
     sql """
     create table q_table2(
@@ -64,12 +49,13 @@ suite("test_outfile_quantile_state") {
     properties("replication_num" = "1");
     """
 
-    def filePath=testHelper.localDir+"/tmp_*"
-    cmd """
-    curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "format:PARQUET" -H "Expect:100-continue" -T ${filePath} ${getDorisHttpScheme()}://${context.config.feHttpAddress}/api/regression_test_query_p0_outfile_quantile_state/q_table2/_stream_load${getDorisCurlTlsOptions()}
-    """
-    Thread.sleep(10000)
+    ExportTestHelper.withParquetOutfile(delegate, "select k1, quantile_union_state(k2) as k2 from q_table") { filePath ->
+        streamLoad {
+            table "q_table2"
+            set "format", "parquet"
+            file filePath
+        }
+    }
     qt_test "select k1,quantile_percent(quantile_union_merge(k2),0.5) from q_table2 group by k1 order by k1;"
 
-    testHelper.close()
 }
