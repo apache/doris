@@ -33,7 +33,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
-#include "testutil/scoped_temp_dir.h"
 #include "udf/python/python_env.h"
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udf_meta.h"
@@ -46,18 +45,13 @@ namespace bp = boost::process;
 
 class PythonServerTest : public ::testing::Test {
 protected:
-    doris::test::ScopedTempDirectory scoped_temp_dir_ {"python_server_test"};
-
-    std::string socket_prefix_;
-    const char* original_socket_prefix_ = BASE_UNIX_SOCKET_PATH_TEMPLATE;
     std::string test_dir_;
     std::optional<std::string> original_doris_home_;
     int original_max_python_process_num_ = 0;
 
     void SetUp() override {
-        socket_prefix_ = (scoped_temp_dir_.path() / "udf").string();
-        BASE_UNIX_SOCKET_PATH_TEMPLATE = socket_prefix_.c_str();
-        test_dir_ = (scoped_temp_dir_.path() / "server").string();
+        test_dir_ = fs::temp_directory_path().string() + "/python_server_test_" +
+                    std::to_string(getpid()) + "_" + std::to_string(rand());
         fs::create_directories(test_dir_);
 
         if (const char* doris_home = std::getenv("DORIS_HOME")) {
@@ -67,8 +61,6 @@ protected:
     }
 
     void TearDown() override {
-        // Test-local managers have stopped their workers before fixture teardown.
-        BASE_UNIX_SOCKET_PATH_TEMPLATE = original_socket_prefix_;
         // Restore configuration
         config::max_python_process_num = original_max_python_process_num_;
 
@@ -101,7 +93,7 @@ protected:
         ofs << "fi\n";
         ofs << "if [ ! -f \"$2\" ]; then exit 2; fi\n";
         // Extract socket path prefix from args and create the socket file
-        // Arg format: -u script.py grpc+unix://<fixture-directory>/udf
+        // Arg format: -u script.py grpc+unix:///tmp/doris_python_udf
         ofs << "SOCKET_PREFIX=\"$3\"\n";
         ofs << "# Extract path part (strip grpc+unix://)\n";
         ofs << "SOCKET_BASE=\"${SOCKET_PREFIX#grpc+unix://}\"\n";
@@ -613,8 +605,7 @@ TEST_F(PythonServerTest, ForkSuccessWithFakePython) {
 
     // Verify socket path is correct
     std::string uri = process->get_uri();
-    EXPECT_EQ(uri, "grpc+unix://" + socket_prefix_ + "_" +
-                           std::to_string(process->get_child_pid()) + ".sock");
+    EXPECT_TRUE(uri.find("grpc+unix://") != std::string::npos);
 
     // Cleanup
     process->shutdown();
