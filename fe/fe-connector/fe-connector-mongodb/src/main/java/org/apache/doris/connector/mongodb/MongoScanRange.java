@@ -40,7 +40,8 @@ final class MongoScanRange implements ConnectorScanRange {
 
     @Override
     public String getSplitIdentity() {
-        return descriptor.getDatabase() + "." + descriptor.getCollection() + ":" + descriptor.getSchemaVersion();
+        return descriptor.getDatabase() + "." + descriptor.getCollection() + ":" + descriptor.getSchemaVersion()
+                + (descriptor.isSetSplit() ? ":" + descriptor.getSplit().getIndex() : "");
     }
 
     @Override

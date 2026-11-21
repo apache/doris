@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -206,6 +207,60 @@ class MongoSnapshotTest {
                     }));
         } finally {
             Thread.interrupted();
+        }
+    }
+
+    @Test
+    void assertionErrorCompletesTheSharedSnapshotForEveryWaiter() throws Exception {
+        assertFatalSnapshotFailure(new AssertionError("controlled snapshot failure"));
+    }
+
+    @Test
+    void outOfMemoryErrorCompletesTheSharedSnapshotForEveryWaiter() throws Exception {
+        assertFatalSnapshotFailure(new OutOfMemoryError("controlled snapshot failure"));
+    }
+
+    private static void assertFatalSnapshotFailure(Error fatal) throws Exception {
+        var state = new MongoSnapshot.State(30000);
+        var identity = source("replica_set", "000000000000000000000001", 1);
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var waiting = new CountDownLatch(1);
+        var loads = new AtomicInteger();
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var owner = executor.submit(() -> state.pin(identity, () -> {
+                loads.incrementAndGet();
+                entered.countDown();
+                try {
+                    Assertions.assertTrue(release.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new CancellationException();
+                }
+                throw fatal;
+            }));
+            Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+            var waiter = executor.submit(() -> {
+                waiting.countDown();
+                return state.pin(identity, () -> {
+                    loads.incrementAndGet();
+                    return new BsonTimestamp(1700000000, 2);
+                });
+            });
+            Assertions.assertTrue(waiting.await(5, TimeUnit.SECONDS));
+            release.countDown();
+            Assertions.assertSame(fatal, Assertions.assertThrows(ExecutionException.class,
+                    () -> owner.get(10, TimeUnit.SECONDS)).getCause());
+            Assertions.assertSame(fatal, Assertions.assertThrows(ExecutionException.class,
+                    () -> waiter.get(10, TimeUnit.SECONDS)).getCause());
+            Assertions.assertSame(fatal, Assertions.assertThrows(Error.class,
+                    () -> state.pin(identity, () -> new BsonTimestamp(1700000000, 3))));
+            Assertions.assertEquals(1, loads.get());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
         }
     }
 

@@ -23,9 +23,42 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 class MongoCatalogPropertiesTest {
+    @Test
+    void explicitTransportPropertiesOverrideUriOnTheMetadataClient() {
+        var properties = MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017/"
+                        + "?connectTimeoutMS=1&serverSelectionTimeoutMS=1&socketTimeoutMS=1&maxPoolSize=1",
+                "mongodb.connect_timeout_ms", "4321", "mongodb.server_selection_timeout_ms", "8765",
+                "mongodb.socket_timeout_ms", "6543", "mongodb.pool_max_clients", "7"));
+        var settings = properties.clientSettings();
+        Assertions.assertEquals(4321,
+                settings.getSocketSettings().getConnectTimeout(java.util.concurrent.TimeUnit.MILLISECONDS));
+        Assertions.assertEquals(6543,
+                settings.getSocketSettings().getReadTimeout(java.util.concurrent.TimeUnit.MILLISECONDS));
+        Assertions.assertEquals(8765,
+                settings.getClusterSettings().getServerSelectionTimeout(java.util.concurrent.TimeUnit.MILLISECONDS));
+        Assertions.assertEquals(7, settings.getConnectionPoolSettings().getMaxSize());
+    }
+
+    @Test
+    void allTransportAndPoolBoundsAreValidatedBeforeConnecting() {
+        for (String name : List.of("mongodb.connect_timeout_ms", "mongodb.server_selection_timeout_ms",
+                "mongodb.socket_timeout_ms", "mongodb.pool_max_clients")) {
+            int maximum = name.endsWith("pool_max_clients") ? 1024 : 300000;
+            for (String value : List.of("0", "-1", Integer.toString(maximum + 1))) {
+                Assertions.assertThrows(IllegalArgumentException.class, () -> MongoCatalogProperties.of(
+                        Map.of("mongodb.uri", "mongodb://localhost:27017", name, value)));
+            }
+            for (String value : List.of("1", Integer.toString(maximum))) {
+                MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017", name, value))
+                        .clientSettings();
+            }
+        }
+    }
+
     @Test
     void snapshotReadConcernIsAnExplicitCatalogOrStatementPolicy() {
         var defaults = MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017"));

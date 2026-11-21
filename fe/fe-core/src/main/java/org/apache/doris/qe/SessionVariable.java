@@ -2629,7 +2629,8 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = MAX_FILE_SPLIT_NUM,
-            description = "In non-batch mode, the maximum number of splits allowed per table scan to avoid OOM.",
+            description = "In non-batch mode, the maximum number of splits allowed per table scan to avoid OOM. "
+                    + "MongoDB range scans also apply this cap to their frozen plans before streaming.",
             needForward = true)
     public int maxFileSplitNum = 100000;
 
@@ -3136,6 +3137,16 @@ public class SessionVariable implements Serializable, Writable {
             affectQueryResultInExecution = true,
             description = "Read only MongoDB roots required by projections and residual predicates")
     public boolean enableMongoDBProjectionPushdown = true;
+
+    @VarAttrDef.VarAttr(name = "mongodb_split_strategy", needForward = true,
+            checker = "checkMongoDBSplitStrategy", options = {"single", "auto", "range"},
+            description = "MongoDB split planning: single cursor, conservative auto, "
+                    + "or explicit range at a shared snapshot")
+    public String mongodbSplitStrategy = "single";
+
+    @VarAttrDef.VarAttr(name = "mongodb_split_field", needForward = true, checker = "checkMongoDBSplitField",
+            description = "Top-level MongoDB split field; empty selects _id. Explicit fields require one MongoDB scan")
+    public String mongodbSplitField = "";
 
     public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
 
@@ -4635,6 +4646,18 @@ public class SessionVariable implements Serializable, Writable {
         if (!Set.of("inherit", "local", "majority", "available", "snapshot").contains(value.toLowerCase(Locale.ROOT))) {
             throw new UnsupportedOperationException("Invalid mongodb_read_concern; expected inherit, local, "
                     + "majority, available or snapshot");
+        }
+    }
+
+    public void checkMongoDBSplitStrategy(String value) {
+        if (!Set.of("single", "auto", "range").contains(value)) {
+            throw new UnsupportedOperationException("Invalid mongodb_split_strategy; expected single, auto or range");
+        }
+    }
+
+    public void checkMongoDBSplitField(String value) {
+        if (value.length() > 256 || value.contains(".") || value.contains("$") || value.indexOf(0) >= 0) {
+            throw new UnsupportedOperationException("mongodb_split_field must be an unambiguous top-level field");
         }
     }
 

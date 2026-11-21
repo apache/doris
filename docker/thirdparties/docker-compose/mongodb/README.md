@@ -1,6 +1,6 @@
 # MongoDB regression fixture
 
-This optional standalone MongoDB 8.0.20 service supplies deterministic BSON data for the native MongoDB Catalog and the embedded Trino 435 MongoDB connector. Start it with:
+This standalone MongoDB 8.0.20 service supplies deterministic BSON data for the native MongoDB Catalog and the embedded Trino 435 MongoDB connector. External CI starts it through the `all` component set. For local tests, start it with:
 
 ```bash
 CONTAINER_UID=doris-mongodb-test- bash docker/thirdparties/run-thirdparties-docker.sh -c mongodb
@@ -62,11 +62,38 @@ a time-series collection with duplicate timestamps, BSON special values, malform
 historical values, and a reader granted `find` only on the view. These tests use
 the native FE plugin and C++ reader and need no Trino plugin installation.
 
-Use the same regression configuration above, then run:
+Configure the fixture host, port, and credentials as above, then run:
 
 ```bash
 bash run-regression-test.sh --run -d external_table_p0/mongodb
 ```
+
+The External CI configuration defaults `enableMongoDBNativeTest` to `true`. This runs
+`test_mongodb_native`, `test_mongodb_native_acceptance`, `test_mongodb_m1`, and
+`test_mongodb_read_policy`, including collections, standard views and logical time-series
+reads, independently of the optional Trino plugin. The shared/local configuration defaults
+this switch to `false`, so ordinary local and P0 runs need no MongoDB service. To run these
+suites locally, start the fixture and set `enableMongoDBNativeTest = true`.
+
+External also enables `enableMongoSplitTest` and `enableMongoReadParameterTest` by default.
+The standard `run-thirdparties-docker.sh -c mongodb` startup now prepares both the standalone
+fixture and the authenticated snapshot topology used by these matrices. It needs Python 3
+with `venv` and installs the pinned `requirements-ci.txt` dependencies into the ignored
+`.ci-venv` directory. On Linux the advanced services publish their advertised ports through
+bridge networking, including under rootless Docker; `IP_HOST` must be reachable from
+containers and FE/BE. Startup fails if the topology or deterministic data cannot be prepared.
+
+The controller writes private, mode-0600 `regression.json` and `state.json` files under
+`.ci-state`. External reads the generated replica-set/mongos URIs from that file; credentials
+and addresses are not checked in. `MONGODB_CI_STATE_DIR` can select another private directory
+for both startup and the runner; `MONGODB_CI_BASE_PORT` changes the twelve-port range
+(default base 28100), and `MONGODB_CI_IMAGE` selects `mongo:7.0.28` or the default
+`mongo:8.0.20`. Split SQL uses mongos, and read-parameter SQL checks both sources and both
+planning modes. Enabled suites fail on missing fixture configuration instead of skipping.
+Stopping the MongoDB component removes its recorded advanced services too; startup failure
+cleanup also removes them. Local/shared runs leave these two switches disabled until opted in.
+
+The separate `enableMongoDBTest` switch still opts into the five Trino MongoDB suites.
 
 The suite covers auto/explicit/document schemas, exact ObjectId and int64 values,
 Decimal128 scales, UTC dates, binary subtypes, nested arrays/structs, canonical
@@ -126,13 +153,13 @@ from ten source documents to one.
 ## Authenticated common-snapshot matrix
 
 `snapshot_fixture.py` creates an independent Linux host-network fixture with a
-three-member replica set, two single-member shards, a configuration replica set,
+three-member replica set, two three-member shards, a configuration replica set,
 and two mongos routers. It pins `mongo:7.0.28` or `mongo:8.0.20`, enables test commands,
 and uses keyfile authentication. Data is disposable tmpfs; credentials and the
 recorded container names stay in the caller's private state directory. This is a
-functional snapshot fixture; its single-member shards do not qualify shard failover.
+functional snapshot/routing fixture; having secondaries does not qualify shard failover.
 Use an otherwise idle host and reachable advertised address. The fixture reserves
-eight ports after `--base-port`; every process advertises the supplied host.
+twelve ports after `--base-port`; every process advertises the supplied host.
 
 Install `pymongo` and `pymysql` in a test virtual environment. Supply synthetic
 administrator credentials through the environment, then create and validate a fixture:
@@ -202,3 +229,110 @@ The oracle enables the existing all-candidate external-scan spreading policy thr
 statement hints, since default single-split placement may choose one BE for both
 collections. Every scan still has to share T and match the source result at T. It deliberately
 omits the per-BE pool-contention fault case in this multi-BE run.
+
+## Frozen range-plan qualification
+
+`verify_native_splits.py` uses the same disposable authenticated 7.0.28/8.0.20
+replica-set and sharded fixtures. It only creates synthetic data in the reserved
+`doris_mongodb_splits` database. It never takes an arbitrary production MongoDB URI.
+The state file contains credentials and must remain private.
+
+```bash
+python3 verify_native_splits.py --fixture-state ./snapshot-state/state.json \
+    --prepare-only --allow-failpoints
+# Set DORIS_FE_HOST, DORIS_FE_PORT, DORIS_FE_USER, DORIS_FE_PASSWORD and
+# DORIS_FE_HTTP_ADDRESS for the isolated Doris test cluster, then run:
+python3 verify_native_splits.py --fixture-state ./snapshot-state/state.json \
+    --iterations 20 --allow-failpoints
+```
+
+The script creates read-only query identities and exercises replica-set and mongos
+catalogs. It checks source partition predicates at the exact T from completed
+Profiles, full result multisets across single/range paths, missing/null/array/other
+BSON families, ObjectIds, int64 boundaries, duplicate/skewed keys, DATETIME(0..6),
+Decimal precisions/scales and four time zones. Transactional split-key updates are
+compared against an independent single-cursor source read at exactly the same T.
+A one-client pool case uses the default 10000 ms connection/selection caps and a
+2-second competing query, covering the below-cap deadline case.
+
+After `--prepare-only`, enable the retained SQL suite with `enableMongoSplitTest=true`
+and set `mongodb_split_uri` from the corresponding `split_reader_uris` entry in the
+private fixture state. Run `test_mongodb_splits` with the regression runner, including
+`-d external_table_p0/mongodb` with `-s test_mongodb_splits`. The ordinary basic-read
+and snapshot suites remain required independently. The split suite covers compound
+wildcard indexes before an ordinary compound index, plus wildcard-only collections:
+it verifies ordinary-index selection, `auto` fallback and explicit `range` rejection
+in both synchronous and streaming reads. Remove only fixture-owned
+containers with `snapshot_fixture.py --state-dir ./snapshot-state --remove`.
+
+For a second Doris BE, rerun with `--oracle-only --require-cross-backend` so the
+exact-T transaction oracle also verifies that native partitions actually ran on
+multiple BEs. Keep fault tests on the isolated one-BE fixture. Independent fixture
+runs may use distinct `--catalog-prefix` values to avoid dropping each other's SQL
+catalogs. Each invocation reseeds its fixture and replaces its read-only identity;
+do not run a retained regression suite against that same fixture concurrently.
+
+The range verifier also covers normal 60,000-character predicate staging in both
+synchronous and streaming plans, cancellation during the exhausted-reply FE random sample,
+257 empty fallbacks against one pinned source, and a one-worker workload group
+with a one-client pool. The worker fixture has enough rows to keep a cursor live
+across output blocks; a tiny collection can reach EOF before exercising contention.
+Range tests use the shared `file_split_size`/`max_file_split_num` settings. Only
+`mongodb_split_strategy` and `mongodb_split_field` are MongoDB-specific session knobs.
+
+
+## Native read-parameter qualification
+
+`verify_native_read_parameters.py` complements the snapshot/split fault oracles
+with source-observed routing. Use the replicated fixture above, seed it using
+`verify_native_splits.py --prepare-only --allow-failpoints`, and run with exactly
+one live Doris BE so competing queries exercise the same BE-local client pool:
+
+```bash
+python3 docker/thirdparties/docker-compose/mongodb/verify_native_read_parameters.py \
+    --fixture-state '<private-state-directory>/state.json' --allow-failpoints \
+    --report '<private-report-file>'
+```
+
+The administrator enables per-member profiling and restores its previous level
+in `finally`; SQL uses synthetic read-only identities. Every successful native
+read must appear on an actual primary/secondary with the expected readConcern.
+For snapshot reads every observed native find must use the same T. Run separately
+for MongoDB 7.0.28 and 8.0.20. The fixture state and reports are private artifacts.
+
+| Settings | Retained coverage |
+| --- | --- |
+| `mongodb.uri`, `mongodb.read_preference`, `mongodb.read_concern`; session overrides | Replica set and mongos, five preferences, four concerns, three split strategies, synchronous/streaming plans; 90 successful combinations per topology. Catalog inheritance, URI precedence, tags/max staleness, conflicting primary override, missing tags, replica discovery/direct primary, multiple/alternate routers and both SCRAM mechanisms. |
+| `mongodb.username`, `mongodb.password`, `mongodb.auth_database` | URI/separate credentials, authentication database differing from data access, invalid password, ALTER recovery. |
+| `mongodb.databases`, `mongodb.schema.mode`, `mongodb.schema` | Trimmed allowlists, all four schema modes, explicit mapping aliases, missing validator/manifest rejection. |
+| `mongodb.type_mismatch`, `mongodb.datetime_timezone` | Null/error field conversion, explicit UTC, invalid non-UTC setting; the split oracle independently covers DATETIME(0..6), nine Decimal precision/scale pairs and four session time zones. |
+| Three Catalog timeout properties | FE settings/bounds UT; URI transport options lose to explicit properties, actual socket-delay success/timeout, missing-member selection timeout and recovery. |
+| `mongodb.pool_max_clients` | Legal/illegal bounds, per-BE one-client contention with unequal deadlines. Source profiling proves the waiter sends no new find, excluding a second I/O timeout as a false positive. |
+| Three MongoDB pushdown switches | Disabled/enabled combinations, full residual equality and source policy checks; existing predicate/precision suites retain LIKE and typed candidate coverage. |
+| `mongodb_split_strategy`, `mongodb_split_field`; shared file sizes/counts | Policy matrix, invalid values, incompatible range/concern rejection, one/large/unlimited user caps, shared size heuristic, explicit fields and qualified scalar families in the split suite. |
+| `batch_size`, generic scanner/pipeline controls | 1/16/1024/65535 batches, invalid bounds, scanner/pipeline hints; split oracle covers single-worker contention and actual cross-BE partition placement separately. |
+
+For the normal SQL runner, set `enableMongoReadParameterTest=true` and the private
+`mongodb_replica_uri` / `mongodb_mongos_uri` from `split_reader_uris`, then run
+`test_mongodb_read_parameters`. It checks complete result equality for both
+topologies, policies, strategies and planning modes, hint isolation, pushdown
+switches, batch/pool limits and invalid settings. The Python verifier adds the
+source-side proof that a secondary policy really reads a secondary rather than
+merely succeeding against a standalone server. Neither matrix claims arbitrary
+TLS/SRV combinations, source failover, or release-soak qualification.
+
+For cursor-lifetime checks, the Python read-parameter verifier temporarily disables
+hedging on both fixture routers and restores their previous setting, including on
+failure. MongoDB 7 hedged reads can leave a losing shard cursor after a fully consumed
+PyMongo read, with no remaining mongos cursor. This source-only behavior is outside
+the native cursor-ownership assertion; the verifier keeps its strict zero-cursor
+check and still exercises all five read preferences. Hedged source cursor cleanup
+is not qualified by this matrix. Preferred policies permit a cold driver's fallback;
+strict `primary`/`secondary` policies are checked by actual node role, and preferred
+and `nearest` policies also retain their source wire-mode assertions.
+
+Range qualification also checks mixed BSON `_id` values (including precise Decimal128,
+int64 endpoints, NaN/infinities, dates, binary, objects and MinKey/MaxKey). Source
+profiles require exactly one data-document pass for `_id` ranges, no independent
+complement, the same T for sampling and all readers, and no sampling getMore. Custom
+multikey/missing fields retain their disjoint typed complement.

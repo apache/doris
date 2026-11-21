@@ -18,10 +18,13 @@
 package org.apache.doris.connector.mongodb;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.thrift.TMongoSnapshot;
 
 import com.mongodb.ClientSessionOptions;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
+import com.mongodb.MongoExecutionTimeoutException;
+import com.mongodb.MongoOperationTimeoutException;
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
 import com.mongodb.client.ClientSession;
@@ -29,10 +32,13 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.cursor.TimeoutMode;
 import com.mongodb.client.internal.MongoClientImpl;
 import com.mongodb.internal.operation.BatchCursor;
 import com.mongodb.internal.operation.ListCollectionsOperation;
+import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.codecs.DocumentCodec;
 import org.bson.types.ObjectId;
@@ -174,6 +180,136 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
             return timestamp;
         } catch (MongoException failure) {
             throw failure(failure);
+        }
+    }
+
+    @Override
+    public MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
+            TMongoSnapshot snapshot, int rows, long timeoutMs, Runnable checkCancelled) {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        String index = null;
+        long bytes = 0;
+        try {
+            var collection = probeDatabase(table.getDatabase(), deadline, checkCancelled)
+                    .getCollection(table.getName());
+            // Fetch the bounded index inventory together: one RTT per index can exhaust the
+            // optional probe deadline before a later qualifying ordinary index is reached.
+            try (MongoCursor<Document> indexes = collection.listIndexes().batchSize(128)
+                    .timeoutMode(TimeoutMode.CURSOR_LIFETIME).iterator()) {
+                int count = 0;
+                while (true) {
+                    // hasNext may issue getMore. Cancellation must be checked before that request,
+                    // not only after it returns; the lifetime timeout also covers all cursor batches.
+                    checkProbe(deadline, checkCancelled);
+                    if (!indexes.hasNext()) {
+                        break;
+                    }
+                    checkProbe(deadline, checkCancelled);
+                    Document value = indexes.next();
+                    bytes += MongoSplitPlan.encode(value.toBsonDocument()).length;
+                    if (++count > 128 || bytes > 65536) {
+                        throw new MongoRangePlanner.PlanningLimit();
+                    }
+                    if (eligibleIndex(value, field)) {
+                        index = value.getString("name");
+                        break;
+                    }
+                }
+            }
+            if (index == null) {
+                return new MongoSplitProbe(List.of(), -1, bytes, false);
+            }
+            Document stats = probeDatabase(table.getDatabase(), deadline, checkCancelled)
+                    .runCommand(new Document("collStats", table.getName()).append("scale", 1));
+            Number size = stats.get("size", Number.class);
+            long logicalBytes = size == null ? -1 : size.longValue();
+            List<BsonValue> samples = new ArrayList<>();
+            // Sampling an index prefix puts almost all increasing keys into the final range.
+            // Keep $sample first so MongoDB can use its random cursor, then retain only bounded
+            // fixed-width keys. Statistics tune cost only; they never narrow source coverage.
+            // Unsupported large strings/arrays become null before they can reach the FE.
+            Document type = new Document("$type", "$" + field);
+            Document supported = new Document("$in", List.of(type, List.of("int", "long", "objectId", "date")));
+            Document projection = new Document("_id", 0).append("value",
+                    new Document("$cond", List.of(supported, "$" + field, new Document("$literal", null))));
+            // Do not shrink small-table requests below MongoDB's 5% random-cursor threshold.
+            // Its historical random cursor can stall on concurrently rewritten records; a bounded
+            // full sample of a small collection remains cheap and preserves the pinned timestamp.
+            var pipeline = List.of(new Document("$sample", new Document("size", rows)),
+                    new Document("$project", projection), new Document("$group", new Document("_id", null)
+                            .append("values", new Document("$push", "$value"))));
+            // Grouping at most 4096 fixed-width hints produces at most one small document.
+            // batchSize=2 exhausts that reply, avoiding remote cursor cleanup on cancellation and
+            // driver 5.14's invalid snapshot readConcern on killCursors. No getMore is needed.
+            var command = new Document("aggregate", table.getName()).append("pipeline", pipeline)
+                    .append("cursor", new Document("batchSize", 2))
+                    .append("readConcern", new Document("level", "snapshot").append("atClusterTime",
+                            new BsonTimestamp((int) snapshot.getTimestampSeconds(),
+                                    (int) snapshot.getTimestampIncrement())));
+            BsonDocument reply = probeDatabase(table.getDatabase(), deadline, checkCancelled)
+                    .runCommand(command, properties.readPreferenceForSnapshot(preference), BsonDocument.class);
+            checkProbe(deadline, checkCancelled);
+            bytes += MongoSplitPlan.encode(reply).length;
+            if (bytes > 1024 * 1024) {
+                throw new MongoRangePlanner.PlanningLimit();
+            }
+            for (BsonValue batch : reply.getDocument("cursor").getArray("firstBatch")) {
+                for (BsonValue value : batch.asDocument().getArray("values")) {
+                    checkProbe(deadline, checkCancelled);
+                    if (samples.size() >= rows) {
+                        throw new MongoRangePlanner.PlanningLimit();
+                    }
+                    samples.add(value);
+                }
+            }
+            checkProbe(deadline, checkCancelled);
+            return new MongoSplitProbe(samples, logicalBytes, bytes, true);
+        } catch (MongoException error) {
+            checkCancelled.run();
+            // Only the optional planning deadline can trigger auto fallback. Permission denial,
+            // expired snapshot history, replacement, and transport errors must fail the statement.
+            // A thread can resume after its deadline while handling an earlier BadValue/permission
+            // failure. Elapsed time alone must not disguise that source error as optional timeout.
+            if (error instanceof MongoExecutionTimeoutException || error instanceof MongoOperationTimeoutException) {
+                throw new MongoRangePlanner.PlanningLimit();
+            }
+            throw failure(error);
+        }
+    }
+
+    static boolean eligibleIndex(Document index, String field) {
+        Document keys = index.get("key", Document.class);
+        if (keys == null || keys.isEmpty() || !field.equals(keys.keySet().iterator().next())
+                || !(keys.get(field) instanceof Number direction) || Math.abs(direction.intValue()) != 1
+                || Boolean.TRUE.equals(index.getBoolean("sparse")) || index.containsKey("partialFilterExpression")
+                || Boolean.TRUE.equals(index.getBoolean("hidden")) || index.containsKey("buildUUID")) {
+            return false;
+        }
+        // A TEXT suffix makes prefix inequalities unusable; wildcard suffixes can also make
+        // coverage incomplete without sparse:true. Only ordinary B-tree components qualify.
+        for (var entry : keys.entrySet()) {
+            if ("$**".equals(entry.getKey()) || entry.getKey().endsWith(".$**")
+                    || !(entry.getValue() instanceof Number value) || Math.abs(value.doubleValue()) != 1) {
+                return false;
+            }
+        }
+        Document collation = index.get("collation", Document.class);
+        return collation == null || "simple".equals(collation.getString("locale"));
+    }
+
+    private MongoDatabase probeDatabase(String database, long deadline, Runnable checkCancelled) {
+        checkProbe(deadline, checkCancelled);
+        return metadataDatabase(database).withTimeout(Math.max(1,
+                TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())), TimeUnit.MILLISECONDS);
+    }
+
+    private static void checkProbe(long deadline, Runnable checkCancelled) {
+        checkCancelled.run();
+        if (Thread.currentThread().isInterrupted()) {
+            throw new java.util.concurrent.CancellationException("MongoDB split planning interrupted");
+        }
+        if (System.nanoTime() >= deadline) {
+            throw new MongoRangePlanner.PlanningLimit();
         }
     }
 

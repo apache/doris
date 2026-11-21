@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.mongodb;
 
+import org.apache.doris.thrift.TMongoSnapshot;
+
 import org.bson.BsonTimestamp;
 import org.bson.Document;
 
@@ -39,6 +41,11 @@ interface MongoCatalogClient extends AutoCloseable {
 
     default BsonTimestamp selectSnapshot(String database, String collection, String preference, long timeoutMs) {
         throw new UnsupportedOperationException("MongoDB snapshot selection is unavailable");
+    }
+
+    default MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
+            TMongoSnapshot snapshot, int rows, long timeoutMs, Runnable checkCancelled) {
+        throw new UnsupportedOperationException("MongoDB range planning is unavailable");
     }
 
     @Override

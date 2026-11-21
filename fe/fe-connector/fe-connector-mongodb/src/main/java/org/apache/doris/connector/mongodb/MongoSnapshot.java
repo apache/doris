@@ -19,6 +19,7 @@ package org.apache.doris.connector.mongodb;
 
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.thrift.TMongoSnapshot;
 
@@ -41,6 +42,7 @@ final class MongoSnapshot {
     static TMongoSnapshot prepare(ConnectorSession session, MongoCatalogProperties properties,
             MongoTableHandle table, Supplier<MongoCatalogClient> client, String concern,
             String preference, long timeoutMs) {
+        checkQueryCancelled(session);
         var scope = session.getStatementScope();
         if (!"snapshot".equals(concern)) {
             if (scope != ConnectorStatementScope.NONE) {
@@ -63,8 +65,10 @@ final class MongoSnapshot {
         State state = scope.computeIfAbsent(STATE_KEY, () -> new State(timeoutMs));
         Source source = scope.computeIfAbsent("mongodb.snapshot.source:" + session.getCatalogId()
                 + ":" + properties.configurationVersion(), () -> client.get().snapshotSource(state.remainingMillis()));
+        checkQueryCancelled(session);
         BsonTimestamp time = state.pin(source, () -> client.get().selectSnapshot(table.getDatabase(), table.getName(),
                 preference, state.remainingMillis()));
+        checkQueryCancelled(session);
         // Copy plain values into each range. Driver sessions/cursors stay local, and neither BE nor
         // a different catalog should mutate the statement's selected timestamp or source identity.
         TMongoSnapshot result = new TMongoSnapshot();
@@ -82,7 +86,30 @@ final class MongoSnapshot {
         return result;
     }
 
+    static void checkQueryCancelled(ConnectorSession session) {
+        if (Thread.currentThread().isInterrupted()
+                || session.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT).isClosed()
+                || session.getTaskScheduler(ConnectorTaskScheduler.Stage.METADATA).isClosed()) {
+            throw new CancellationException("MongoDB planning cancelled");
+        }
+    }
+
+    static String pinnedTimestamp(ConnectorSession session) {
+        State state = session.getStatementScope().getIfPresent(STATE_KEY);
+        if (state == null) {
+            return "none";
+        }
+        synchronized (state) {
+            if (state.timestamp == null || !state.timestamp.isDone() || state.timestamp.isCompletedExceptionally()) {
+                return "none";
+            }
+            BsonTimestamp pin = state.timestamp.getNow(null);
+            return Integer.toUnsignedLong(pin.getTime()) + ":" + Integer.toUnsignedLong(pin.getInc());
+        }
+    }
+
     static long remainingMillis(ConnectorSession session) {
+        checkQueryCancelled(session);
         State state = session.getStatementScope().getIfPresent(STATE_KEY);
         if (state == null) {
             throw new IllegalArgumentException("MongoDB statement snapshot is not pinned");
@@ -159,9 +186,13 @@ final class MongoSnapshot {
                         throw new DorisConnectorException("MongoDB did not return a usable snapshot timestamp");
                     }
                     selected.complete(value);
-                } catch (RuntimeException failure) {
-                    // A failed selection stays failed for the whole statement; never select a newer T.
+                } catch (Throwable failure) {
+                    // Every failed selection, including a fatal Error, completes the shared pin.
+                    // Waiters must fail promptly and must never select a newer T for this statement.
                     selected.completeExceptionally(failure);
+                    if (failure instanceof Error fatal) {
+                        throw fatal;
+                    }
                 }
             }
             try {
@@ -172,6 +203,9 @@ final class MongoSnapshot {
             } catch (TimeoutException timeout) {
                 throw new DorisConnectorException("MongoDB snapshot planning deadline exceeded");
             } catch (ExecutionException failure) {
+                if (failure.getCause() instanceof Error fatal) {
+                    throw fatal;
+                }
                 if (failure.getCause() instanceof RuntimeException runtime) {
                     throw runtime;
                 }

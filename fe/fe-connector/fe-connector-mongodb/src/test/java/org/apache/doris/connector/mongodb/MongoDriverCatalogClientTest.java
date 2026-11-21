@@ -43,6 +43,49 @@ import java.util.List;
 import java.util.Map;
 
 class MongoDriverCatalogClientTest {
+    @Test
+    void splitProbesRequireVisibleCompleteSimpleBtreePrefixes() {
+        for (int direction : List.of(1, -1)) {
+            Assertions.assertTrue(MongoDriverCatalogClient.eligibleIndex(new Document("name", "split_index")
+                    .append("key", new Document("sequence", direction).append("suffix", 1)), "sequence"));
+        }
+        for (Document key : List.of(new Document("sequence", "hashed"), new Document("sequence", "text"),
+                new Document("prefix", 1).append("sequence", 1), new Document("$**", 1))) {
+            Assertions.assertFalse(MongoDriverCatalogClient.eligibleIndex(new Document("key", key), "sequence"));
+        }
+        for (var option : Map.of("sparse", true, "hidden", true, "buildUUID", "fixture",
+                "partialFilterExpression", new Document("sequence", new Document("$gt", 0)),
+                "collation", new Document("locale", "en")).entrySet()) {
+            Assertions.assertFalse(MongoDriverCatalogClient.eligibleIndex(new Document("key",
+                    new Document("sequence", 1)).append(option.getKey(), option.getValue()), "sequence"));
+        }
+    }
+
+    @Test
+    void splitProbesRejectWildcardComponentsAfterAnOrdinaryPrefix() {
+        for (int direction : List.of(1, -1)) {
+            for (String wildcard : List.of("$**", "payload.$**", "payload.nested.$**")) {
+                var keys = new Document("sequence", direction).append(wildcard, 1).append("tail", -1);
+                Assertions.assertFalse(MongoDriverCatalogClient.eligibleIndex(new Document("key", keys),
+                        "sequence"), keys.toJson());
+            }
+        }
+    }
+
+    @Test
+    void splitProbesRejectNonBtreeComponentsAfterAnOrdinaryPrefix() {
+        for (int direction : List.of(1, -1)) {
+            for (String family : List.of("text", "hashed", "2d", "2dsphere", "columnstore")) {
+                var keys = new Document("sequence", direction).append("suffix", family).append("tail", 1);
+                Assertions.assertFalse(MongoDriverCatalogClient.eligibleIndex(new Document("key", keys),
+                        "sequence"), keys.toJson());
+            }
+            var text = new Document("sequence", direction).append("_fts", "text").append("_ftsx", 1);
+            Assertions.assertFalse(MongoDriverCatalogClient.eligibleIndex(new Document("key", text),
+                    "sequence"), text.toJson());
+        }
+    }
+
     private static final class RecordingDriver {
         final List<Document> commands = new ArrayList<>();
         int clientCloses;

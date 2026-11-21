@@ -722,6 +722,18 @@ cleanup_started_stacks() {
 
     for ((i = ${#START_ORDER[@]} - 1; i >= 0; --i)); do
         component="${START_ORDER[$i]}"
+        if [[ "${component}" == "mongodb" ]]; then
+            # Metadata registered by the background worker is not visible in this parent shell.
+            # Use the known MongoDB paths so another component's failure cannot leak these services.
+            if [[ -x "${ROOT}/docker-compose/mongodb/.ci-venv/bin/python" ]]; then
+                "${ROOT}/docker-compose/mongodb/.ci-venv/bin/python" \
+                    "${ROOT}/docker-compose/mongodb/ci_fixture.py" \
+                    --state-dir "${MONGODB_CI_STATE_DIR:-${ROOT}/docker-compose/mongodb/.ci-state}" --remove || true
+            fi
+            compose_down_stack "${ROOT}/docker-compose/mongodb/mongodb.yaml" \
+                "${ROOT}/docker-compose/mongodb/mongodb.env" --remove-orphans >/dev/null 2>&1 || true
+            continue
+        fi
         compose_file="${START_COMPOSE_FILES["${component}"]:-}"
         env_file="${START_ENV_FILES["${component}"]:-}"
         [[ -n "${compose_file}" ]] || continue
@@ -948,6 +960,10 @@ start_mysql() {
 }
 
 start_mongodb() {
+    local mongodb_dir="${ROOT}/docker-compose/mongodb"
+    local fixture_python="${mongodb_dir}/.ci-venv/bin/python"
+    local fixture_state="${MONGODB_CI_STATE_DIR:-${mongodb_dir}/.ci-state}"
+    local fixture_network="bridge"
     # Pass the selected port through the rendered env file.
     export MONGODB_PORT="${MONGODB_PORT:-27017}"
     envsubst '${MONGODB_PORT}' <"${ROOT}/docker-compose/mongodb/mongodb.env.tpl" \
@@ -957,6 +973,25 @@ start_mongodb() {
         "${ROOT}/docker-compose/mongodb/mongodb.yaml" \
         "${ROOT}/docker-compose/mongodb/mongodb.env" \
         -d --wait --
+    if [[ "${STOP}" -eq 1 ]]; then
+        if [[ -x "${fixture_python}" ]]; then
+            exec "${fixture_python}" "${mongodb_dir}/ci_fixture.py" --state-dir "${fixture_state}" --remove
+        fi
+        return 0
+    fi
+    if [[ ! -x "${fixture_python}" ]]; then
+        python3 -m venv "${mongodb_dir}/.ci-venv"
+    fi
+    "${fixture_python}" -m pip install --disable-pip-version-check -r "${mongodb_dir}/requirements-ci.txt"
+    "${fixture_python}" -m unittest discover -s "${mongodb_dir}" -p test_snapshot_fixture.py
+    if [[ "${HOST_OS}" == "Darwin" ]]; then
+        fixture_network="host"
+    fi
+    # External's enabled split/parameter suites require real secondaries and mongos, not just
+    # the standalone fixture above. Exec keeps the controller under the launcher's tracked PID.
+    exec "${fixture_python}" "${mongodb_dir}/ci_fixture.py" --state-dir "${fixture_state}" \
+        --advertised-host "${IP_HOST}" --base-port "${MONGODB_CI_BASE_PORT:-28100}" \
+        --network-mode "${fixture_network}" --image "${MONGODB_CI_IMAGE:-mongo:8.0.20}"
 }
 
 start_pg() {

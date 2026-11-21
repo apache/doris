@@ -93,7 +93,8 @@ and values outside the target range are rejected. No implicit string coercion oc
 
 ## Execution policy
 
-This implementation emits one split per logical namespace. The native cursor handles
+By default, each logical namespace has one split. Opt-in range planning is described
+below. The native cursor handles
 find/getMore batches. Safe source projection includes complete top-level roots required by
 output columns and every residual predicate; whole-document bindings and literal dot/dollar
 roots keep full documents. Whole roots preserve scalar-ancestor errors for nested mappings.
@@ -119,8 +120,8 @@ for every arm. LIKE sends an escaped required literal substring as a conservativ
 wildcard-only, ambiguous escapes, NUL and REGEXP stay local. Doris always evaluates the full
 LIKE pattern, including anchors, wildcards, Unicode and newline rules.
 
-Join, aggregation, sort and LIMIT remain Doris operations. Range splitting and LIMIT pushdown
-remain separate work. Common snapshots are described below. Use matching FE/BE versions; the new optional BSON
+Join, aggregation, sort and LIMIT remain Doris operations; LIMIT is not pushed to MongoDB.
+Common snapshots and range planning are described below. Use matching FE/BE versions; the optional BSON
 filter/projection fields preserve the single-cursor descriptor layout.
 
 `batch_size` and `query_timeout` are session variables. The following session variables
@@ -166,7 +167,8 @@ Catalog connection defaults:
 | `mongodb.datetime_timezone` | `UTC` |
 
 A majority read does not imply a point-in-time snapshot. User-supplied time-travel
-timestamps and range scans remain unsupported. EOF, early termination, cancellation and errors close the
+timestamps remain unsupported. Parallel ranges require the qualified snapshot contract below.
+EOF, early termination, cancellation and errors close the
 cursor and return its exclusive client lease. Pool identities include catalog
 configuration and credentials. Driver errors expose stable error codes without
 source values or connection strings. Keep network timeouts small enough for the
@@ -217,8 +219,150 @@ snapshot reads with concurrent inserts and **without concurrent drop/rename** of
 time-series collection. An observed options change fails the read. Options equality
 cannot detect dropping and recreating an identical time-series definition, so that
 DDL combination is outside this contract. No internal bucket reads are introduced.
-Snapshot consistency does not imply parallel range partitioning; each namespace
-continues to use one native cursor.
+Single remains the default. Qualified ordinary collections can opt into the bounded
+range planner below; views and time-series collections retain one cursor.
+
+## Bounded parallel scans
+
+Use a matching FE/BE deployment and `mongodb_read_concern='snapshot'`. The initial
+parallel contract covers ordinary collections on the qualified MongoDB 7/8 replica
+sets and mongos. Standard views and time-series range scans are rejected explicitly;
+`auto` retains their declared single-cursor paths when the requested read concern is
+supported. No direct shard or bucket scans are used.
+
+```sql
+SELECT /*+ SET_VAR(mongodb_read_concern='snapshot', mongodb_split_strategy='range',
+                  file_split_size=67108864, max_file_split_num=8) */ count(*) FROM mongo_native.sample.records;
+```
+
+| MongoDB session variable | Default | Meaning |
+| --- | --- | --- |
+| `mongodb_split_strategy` | `single` | `single`, conservative `auto`, or explicit `range` |
+| `mongodb_split_field` | empty | Empty or `_id` selects `_id`; other top-level fields require exactly one MongoDB scan in the statement |
+
+Sizing and count admission reuse the existing external-scan settings:
+
+| Shared session variable | Default | MongoDB planning use |
+| --- | --- | --- |
+| `file_split_size` | `0` | A positive value selects the logical-byte target directly; otherwise use the shared size heuristic |
+| `max_initial_file_split_size` | 32 MiB | Initial logical-byte target for smaller collections |
+| `max_file_split_size` | 64 MiB | Target for unknown size or collections at least this size times `max_initial_file_split_num` |
+| `max_initial_file_split_num` | `200` | Threshold used by the shared size heuristic |
+| `max_file_split_num` | `100000` | Per-scan count cap; nonpositive means no user cap, while internal safety caps still apply |
+
+The desired total is estimated from `collStats.size / target`, rounded up and
+including any custom-field complement; unknown size uses eight as a bounded `range` hint, while
+`auto` retains single. This is a logical-byte estimate, not compressed storage,
+network bytes or an exact per-partition size. The internal per-scan/source cap is
+256. MongoDB freezes its complete boundary table even when publishing through the
+streaming transport, so `max_file_split_num` also caps that retained plan in batch
+mode. A cap of one yields a complete single scan. Repeated boundaries and other
+planning budgets can reduce the actual count further.
+
+Execution still uses `parallel_pipeline_task_num`, `max_file_scanners_concurrency`,
+`min_file_scanners_concurrency`, the remote scanner pool and workload-group limits.
+The split total is a task count, not a client/thread count. A native reader that
+cannot immediately borrow a pooled client retries cooperatively: it preserves its
+split and original deadline and yields the worker so an existing lease holder can
+resume, including in a one-worker workload group.
+
+Boundary probing has fixed internal limits of 4096 rows and 2000 ms, capped by the
+remaining query time. A source `$sample` followed by a fixed-width projection and
+bounded grouping returns at most one small document in an exhausted batch, so
+cancellation or timeout leaves no sampling cursor on the source. The pinned Java
+driver's snapshot session otherwise adds an unsupported readConcern to killCursors. These are planning
+safeguards rather than additional session variables. Properties/schema initialization performs no snapshot or range probe;
+source work and byte admission happen in final planning with its complete predicate,
+projection and query cancellation signal. EXPLAIN properties read the resulting
+frozen plan without starting another probe.
+
+Range planning additionally requires `listIndexes` and `collStats` on the collection;
+a missing privilege fails explicitly. The planner admits a completed, visible,
+non-hidden, non-sparse, non-partial B-tree
+index with the split field first and simple collation. Samples come from a bounded
+`$sample` aggregation at the statement's T, rather than an index prefix. MongoDB can use
+its random cursor when the request is below 5% of the collection. Small-table requests
+are not reduced to force that path: MongoDB 7's historical random cursor can stall when
+records are continuously rewritten. A small collection can instead return all of its
+visible rows within the fixed sample cap. Sharded, small or historical reads can still
+require a source scan or random sort. The execution deadline bounds optional planning work. Random samples improve balance but do not guarantee it.
+Sampling has a 1 MiB returned-byte cap, a 128-index/64 KiB metadata cap, client CSOT,
+server execution limits, and cancellation checks. At most two probes run concurrently;
+completed probes share a 16 MiB statement budget for returned sample/metadata bytes.
+
+Scalar families are ObjectId, signed int32/int64, and BSON Date. Comparisons retain
+all 12 ObjectId bytes, exact signed 64-bit integers and epoch milliseconds. Decimal128,
+double, strings, arrays, nested/compound fields and BSON Timestamp are not range
+families. Their documents remain covered by the unbounded `_id` ranges or the custom-field
+complement; explicit requests whose samples provide no supported family fail, while
+`auto` records the fallback reason.
+Date partitioning does not cast into SQL DATETIME precision or the session time zone.
+Decimal and other output conversions continue through the existing SerDes.
+
+For `_id`, which always exists and cannot be an array, `$expr` comparisons span MongoDB's
+complete BSON ordering. Unbounded end ranges cover unsampled types too, so there is no
+independent complement scan. Custom fields retain exactly one complement for missing,
+null, arrays and other families: their `$expr/$type` checks test the field itself rather
+than array elements. Sorted quantiles preserve duplicate frequencies before boundary
+deduplication; ranges cover `(-infinity,b1)`, `[b1,b2)`, ..., `[bn,+infinity)` by omitting
+infinite ends. Neither validators nor homogeneous samples justify removing a custom-field
+complement. When quantiles produce no internal boundary, either `_id` or a custom
+field uses one complete single scan; two unbounded typed scans would add work without
+partitioning the useful key space.
+The source candidate is ANDed with each partition; SQL residuals remain in Doris,
+including when predicate/projection pushdown switches are off or strict decoding is used.
+
+A statement admits at most 4096 planned range partitions in total and 256 per pinned
+source, including complements; successful single fallbacks also consume these budgets,
+while the default `single` strategy remains exempt. Unused quantile slots are refunded. Conservative
+serialized descriptor budgets are 8 MiB per plan, 32 MiB per pinned source and 64 MiB
+per statement, including repeated schema/connection/filter payloads. Wide metadata
+therefore reduces admitted counts instead of multiplying into an oversized split RPC. These are planning
+limits for the opted-in range path, not a new cross-statement/cross-BE source service.
+The existing per-catalog/configuration BE client-pool bound controls leases during
+execution and is shared across unequal remaining query deadlines. Splits are tasks,
+not additional clients opened inside every scanner. General D06 resource-policy and
+credential-lifecycle extensions remain outside this change.
+
+The two-second probe cap is deliberately fixed: range planning is optional tuning and
+must not spend an unbounded part of a query selecting boundaries on a large collection.
+It covers index discovery, collection statistics and sampling, including a wait for a probe
+slot; the remaining statement deadline or configured transport caps can shorten it.
+It is independent of collection size and is not raised by `query_timeout`. A large source
+whose random sampling requires a scan may exhaust it: `auto` then falls back before
+publishing any split, while explicit `range` reports `probe_budget`. Use `single` to avoid
+the probe altogether. This cap bounds optional FE work, not the subsequent data scan;
+no additional MongoDB-specific timeout knob is introduced.
+
+Custom fields retain a full-collection complement scan even when all sampled values are
+of one type. If indexed typed ranges collectively examine about N documents, that
+complement adds about N more (roughly 2N in total); mixed/multikey data or different source
+plans can cost more. The complement can dominate elapsed time. `auto` currently uses
+logical bytes and the shared split-size heuristic, not a source I/O cost model, so it does
+not avoid this amplification automatically. Prefer the default `_id` split field when
+possible: its complete BSON-order ranges require no independent complement. Custom
+fields without internal boundaries still fall back to one complete cursor.
+
+`auto` requires known logical collection size to estimate planning/scanning cost and
+retains single for a small collection, missing index, unknown cost, unsupported
+family or exhausted optional probe budget. It does not convert authorization, history,
+identity, cancellation or source transport errors into successful fallback. `range`
+reports unsupported planning conditions rather than silently changing fields.
+Requested/admitted/actual counts, type family and stable decision reasons appear in
+EXPLAIN and completed Profiles; bounds and connection secrets do not.
+
+The complete boundary/complement table is frozen before publishing its first split.
+Streaming creates descriptors under engine backpressure instead of retaining a schema
+copy per split. A failed plan remains failed for the statement; after publication,
+source failures fail the SQL without reselecting T or appending a full-namespace rescan.
+Version-2 descriptors require the range partition and snapshot; old native readers
+reject them. Version-1 single reads retain their existing contract.
+
+Pool creation uses stable configured connection/selection caps. Leased-client socket
+timeouts, server execution limits and local scan deadlines remain separate. The pinned
+synchronous C driver can remain inside connection/selection for its configured cap;
+a local cancellation flag does not immediately interrupt those calls. Keep transport
+caps appropriate for the desired cancellation responsiveness.
 
 ## Dependencies and tests
 
@@ -234,9 +378,11 @@ FE unit tests reside in this module, BSON SerDe unit tests in
 in `be/test/format_v2/table/mongodb_reader_test.cpp`. The regression suites
 `external_table_p0/mongodb/test_mongodb_native.groovy` and
 `external_table_p0/mongodb/test_mongodb_read_policy.groovy` use the disposable MongoDB
-fixture under `docker/thirdparties/docker-compose/mongodb/`, enabled with
-`enableMongoDBTest`, `externalEnvIp`, `mongodb_port`, `mongodb_user`, and
-`mongodb_password` regression settings.
+fixture under `docker/thirdparties/docker-compose/mongodb/`, with
+`enableMongoDBNativeTest` enabled by default in External CI. Local/common
+configuration leaves optional MongoDB suites disabled until their fixture is started. `externalEnvIp`, `mongodb_port`, `mongodb_user`, and
+`mongodb_password` select the fixture. The separate `enableMongoDBTest` setting
+controls the optional Trino MongoDB suites and is not required for native reads.
 
 The M1 suite `test_mongodb_m1` uses `03-m1-fixtures.js` and compares predicate,
 LIKE and projection switches on/off over large integers, decimals, UTC dates,

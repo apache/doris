@@ -1,0 +1,210 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_mongodb_splits", "p0,external") {
+    if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enableMongoSplitTest"))) {
+        return
+    }
+    String uri = context.config.otherConfigs.get("mongodb_split_uri")
+    assertTrue(uri != null && !uri.isEmpty(), "Start the MongoDB CI fixture before running enabled split tests")
+    def original = sql("SELECT @@mongodb_read_concern,@@time_zone,@@mongodb_split_strategy,@@mongodb_split_field")[0]
+    def columns = [[name: "seq", path: ["seq"], bson_types: ["long"], doris_type: "BIGINT"]]
+    for (int precision = 0; precision <= 6; precision++) {
+        columns.add([name: "time_p${precision}", path: ["observed"], bson_types: ["date"],
+            doris_type: "DATETIME(${precision})"])
+    }
+    for (List spec : [[1, 0], [9, 0], [9, 9], [18, 0], [18, 6], [18, 18], [38, 0], [38, 4], [38, 38]]) {
+        columns.add([name: "decimal_p${spec[0]}s${spec[1]}", path: ["amount"], bson_types: ["decimal"],
+            doris_type: "DECIMAL(${spec[0]},${spec[1]})"])
+    }
+    def manifest = [:]
+    for (String name : ["integer_records", "date_records", "oid_records", "duplicate_records", "empty_records",
+            "decimal_records", "double_records", "string_records", "no_index_records", "record_view", "measurements",
+            "mixed_id_records", "date_id_records"]) {
+        manifest["doris_mongodb_splits.${name}"] = [columns: columns]
+    }
+    manifest["doris_mongodb_splits.predicate_records"] = [columns: [
+        [name: "seq", path: ["seq"], bson_types: ["long"], doris_type: "BIGINT"],
+        [name: "text", path: ["text"], bson_types: ["string"], doris_type: "STRING"]]]
+    for (String name : ["compound_wildcard_records", "wildcard_only_records", "compound_text_records",
+            "text_only_records", "pool_records"]) {
+        manifest["doris_mongodb_splits.${name}"] = [columns: [
+            [name: "seq", path: ["seq"], bson_types: ["long"], doris_type: "BIGINT"]]]
+    }
+    manifest["doris_mongodb_splits.pool_records"] = [columns: [
+        [name: "seq", path: ["seq"], bson_types: ["long"], doris_type: "BIGINT"],
+        [name: "payload", path: ["payload"], bson_types: ["string"], doris_type: "STRING"]]]
+    def create = { String catalog, String policy, int pool = 8 ->
+        sql "DROP CATALOG IF EXISTS ${catalog}"
+        def properties = ["type": "mongodb", "mongodb.uri": uri, "mongodb.databases": "doris_mongodb_splits",
+            "mongodb.schema.mode": "explicit", "mongodb.schema": groovy.json.JsonOutput.toJson(manifest),
+            "mongodb.type_mismatch": policy, "mongodb.read_concern": "snapshot", "mongodb.pool_max_clients": pool]
+        String values = properties.collect { key, value ->
+            "'${key}'='${value.toString().replace("\\", "\\\\").replace("'", "\\'")}'"
+        }.join(",")
+        sql "CREATE CATALOG ${catalog} PROPERTIES (${values})"
+    }
+    String namespace = "mongodb_splits_regression.doris_mongodb_splits"
+    try {
+        create("mongodb_splits_regression", "null")
+        create("mongodb_splits_strict", "error")
+        sql "SET mongodb_read_concern='inherit'"
+        sql "SET mongodb_split_strategy='single'"
+        sql "SET mongodb_split_field=''"
+        for (String name : ["integer_records", "date_records", "oid_records", "duplicate_records", "empty_records",
+                "mixed_id_records", "date_id_records"]) {
+            String field = name in ["oid_records", "mixed_id_records", "date_id_records"] ? "_id" : "split_key"
+            for (String zone : ["UTC", "+08:00", "America/Los_Angeles", "Asia/Kathmandu"]) {
+                sql "SET time_zone='${zone}'"
+                def baseline = sql("SELECT * FROM ${namespace}.${name} ORDER BY seq")
+                for (int count : [1, 2, 3, 8, 32]) {
+                    for (boolean enabled : [false, true]) {
+                        def parallel = sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',
+                            mongodb_split_field='${field}',file_split_size=1,max_file_split_num=${count},
+                            enable_mongodb_predicate_pushdown=${enabled},enable_mongodb_projection_pushdown=${enabled}) */
+                            * FROM ${namespace}.${name} ORDER BY seq"""
+                        assertEquals(baseline, parallel)
+                    }
+                }
+            }
+            "qt_count_${name}" """SELECT /*+ SET_VAR(mongodb_split_strategy='range',
+                mongodb_split_field='${field}',file_split_size=1,max_file_split_num=8) */ count(*),sum(seq)
+                FROM ${namespace}.${name}"""
+        }
+        sql "SET time_zone='UTC'"
+        order_qt_precision """SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,
+            mongodb_split_field='split_key') */ * FROM ${namespace}.integer_records WHERE seq < 9"""
+        for (String condition : ["seq > 0 AND seq < 300", "CAST(seq AS STRING) LIKE '%7%'",
+                "time_p6 >= '2024-03-10 09:59:59.999' AND decimal_p38s4 >= 1", "seq < 3 OR seq > 597"]) {
+            def baseline = sql "SELECT * FROM ${namespace}.integer_records WHERE ${condition} ORDER BY seq"
+            def parallel = sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,
+                mongodb_split_field='split_key') */ * FROM ${namespace}.integer_records
+                WHERE ${condition} ORDER BY seq"""
+            assertEquals(baseline, parallel)
+        }
+        for (String name : ["decimal_records", "double_records", "string_records", "no_index_records"]) {
+            test {
+                sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,
+                    mongodb_split_field='split_key') */ count(*) FROM ${namespace}.${name}"""
+                exception "range planning unavailable"
+            }
+            "qt_auto_${name}" """SELECT /*+ SET_VAR(mongodb_split_strategy='auto',file_split_size=1,max_file_split_num=8,
+                mongodb_split_field='split_key') */ count(*),sum(seq) FROM ${namespace}.${name}"""
+        }
+        for (String name : ["record_view", "measurements"]) {
+            test {
+                sql """SELECT /*+ SET_VAR(mongodb_read_concern='majority',mongodb_split_strategy='range',
+                    file_split_size=1,max_file_split_num=8) */ count(*) FROM ${namespace}.${name}"""
+                exception "unsupported_object"
+            }
+        }
+        for (String strategy : ["single", "range"]) {
+            test {
+                sql """SELECT /*+ SET_VAR(mongodb_split_strategy='${strategy}',file_split_size=1,max_file_split_num=8,
+                    mongodb_split_field='split_key') */ decimal_p1s0
+                    FROM mongodb_splits_strict.doris_mongodb_splits.integer_records"""
+                exception "BSON"
+            }
+        }
+        test {
+            sql """SELECT /*+ SET_VAR(mongodb_read_concern='majority',mongodb_split_strategy='range',
+                file_split_size=1,max_file_split_num=8) */ count(*) FROM ${namespace}.integer_records"""
+            exception "snapshot_required"
+        }
+        test {
+            sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',mongodb_split_field='split_key',
+                file_split_size=1,max_file_split_num=8) */ l.seq FROM ${namespace}.integer_records l
+                JOIN ${namespace}.date_records r ON l.seq=r.seq"""
+            exception "exactly one MongoDB scan"
+        }
+        // Without an internal boundary, custom fields must not publish two unbounded collection scans.
+        for (boolean streaming : [false, true]) {
+            for (List spec : [["duplicate_records", 8], ["integer_records", 2], ["date_records", 2]]) {
+                String plan = sql("EXPLAIN SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1," +
+                    "max_file_split_num=${spec[1]},mongodb_split_field='split_key'," +
+                    "enable_external_table_batch_mode=${streaming}) */ count(*) FROM ${namespace}.${spec[0]}").toString()
+                assertTrue(plan.contains("requested/admitted/actual: ${spec[1]}/${spec[1]}/1"))
+                assertTrue(plan.contains("MongoDB splits: single;"))
+                assertTrue(plan.contains("reason: insufficient_boundaries"))
+            }
+        }
+        String one = sql("EXPLAIN SELECT /*+ SET_VAR(mongodb_split_strategy='range'," +
+            "file_split_size=2147483647,max_file_split_num=8) */ count(*) FROM ${namespace}.integer_records").toString()
+        assertTrue(one.contains("requested/admitted/actual: 1/1/1"))
+        String literal = "v" * 60000
+        qt_large_final_predicate """SELECT /*+ SET_VAR(mongodb_split_strategy='range',
+            file_split_size=1,max_file_split_num=8) */ count(*),sum(seq)
+            FROM ${namespace}.predicate_records WHERE text='${literal}'"""
+        for (boolean streaming : [false, true]) {
+            for (String name : ["compound_text_records", "text_only_records"]) {
+                def baseline = sql "SELECT seq FROM ${namespace}.${name} ORDER BY seq"
+                String strategy = name == "text_only_records" ? "auto" : "range"
+                def parallel = sql """SELECT /*+ SET_VAR(mongodb_split_strategy='${strategy}',
+                    mongodb_split_field='split_key',file_split_size=1,max_file_split_num=8,
+                    enable_external_table_batch_mode=${streaming}) */ seq
+                    FROM ${namespace}.${name} ORDER BY seq"""
+                assertEquals(baseline, parallel)
+                String plan = sql("EXPLAIN SELECT /*+ SET_VAR(mongodb_split_strategy='${strategy}'," +
+                    "mongodb_split_field='split_key',file_split_size=1,max_file_split_num=8," +
+                    "enable_external_table_batch_mode=${streaming}) */ seq FROM ${namespace}.${name}").toString()
+                assertTrue(plan.contains(name == "text_only_records" ? "reason: missing_index" : "MongoDB splits: range;"))
+            }
+            test {
+                sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',mongodb_split_field='split_key',
+                    file_split_size=1,max_file_split_num=8,enable_external_table_batch_mode=${streaming}) */
+                    count(*) FROM ${namespace}.text_only_records"""
+                exception "missing_index"
+            }
+            "qt_wildcard_regular_${streaming}" """SELECT /*+ SET_VAR(mongodb_split_strategy='range',
+                mongodb_split_field='split_key',file_split_size=1,max_file_split_num=8,
+                enable_external_table_batch_mode=${streaming}) */ count(*),sum(seq)
+                FROM ${namespace}.compound_wildcard_records"""
+            "qt_wildcard_auto_${streaming}" """SELECT /*+ SET_VAR(mongodb_split_strategy='auto',
+                mongodb_split_field='split_key',file_split_size=1,max_file_split_num=8,
+                enable_external_table_batch_mode=${streaming}) */ count(*),sum(seq)
+                FROM ${namespace}.wildcard_only_records"""
+            test {
+                sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',mongodb_split_field='split_key',
+                    file_split_size=1,max_file_split_num=8,enable_external_table_batch_mode=${streaming}) */
+                    count(*) FROM ${namespace}.wildcard_only_records"""
+                exception "missing_index"
+            }
+        }
+        create("mongodb_splits_join_pool", "null", 2)
+        String joinTable = "mongodb_splits_join_pool.doris_mongodb_splits.pool_records"
+        for (boolean streaming : [false, true]) {
+            def baseline = sql """SELECT count(*),sum(l.seq),sum(length(l.payload)),sum(length(r.payload))
+                FROM ${joinTable} l JOIN [broadcast] ${joinTable} r ON l.seq=r.seq"""
+            for (String splitField : ["", "_id"]) {
+                def parallel = sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,
+                    mongodb_split_field='${splitField}',max_file_split_num=2,max_file_scanners_concurrency=2,
+                    min_file_scanners_concurrency=2,enable_adaptive_scan=false,parallel_pipeline_task_num=1,
+                    runtime_filter_mode='OFF',enable_external_scan_task_reuse=false,scan_queue_mem_limit=10485760,
+                    query_timeout=30,enable_external_table_batch_mode=${streaming}) */
+                    count(*),sum(l.seq),sum(length(l.payload)),sum(length(r.payload))
+                    FROM ${joinTable} l JOIN [broadcast] ${joinTable} r ON l.seq=r.seq"""
+                assertEquals(baseline, parallel)
+            }
+        }
+        qt_statement_restored "SELECT @@mongodb_split_strategy,length(@@mongodb_split_field)"
+    } finally {
+        sql "SET mongodb_read_concern='${original[0]}'"
+        sql "SET time_zone='${original[1]}'"
+        sql "SET mongodb_split_strategy='${original[2]}'"
+        sql "SET mongodb_split_field='${original[3]}'"
+    }
+}

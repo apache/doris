@@ -115,7 +115,7 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
     _resource_ctx = _state->get_query_ctx()->resource_ctx();
     ctx_id = UniqueId::gen_uid().to_string();
     for (auto& scanner : _all_scanners) {
-        _pending_tasks.push(std::make_shared<ScanTask>(scanner));
+        _pending_tasks.push_back(std::make_shared<ScanTask>(scanner));
     }
     if (limit < 0) {
         limit = -1;
@@ -603,7 +603,13 @@ void ScannerContext::push_pending_scan_task(std::shared_ptr<ScanTask> scan_task,
     DORIS_CHECK(!scan_task->is_eos());
     // The state transition documents that this is an admission queue, not a completed-result queue.
     scan_task->set_state(ScanTask::State::PENDING);
-    _pending_tasks.push(std::move(scan_task));
+    if (scan_task->resource_wait) {
+        // With five completed scanners and admission reduced to four, the holder is parked
+        // first. Putting each empty waiter above it would starve it indefinitely.
+        _pending_tasks.push_front(std::move(scan_task));
+    } else {
+        _pending_tasks.push_back(std::move(scan_task));
+    }
 }
 
 bool ScannerContext::can_admit_scan_task(const std::unique_lock<std::mutex>& transfer_lock) const {
@@ -660,8 +666,8 @@ std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(
 
     // Pop and mark in-flight while holding the same lock used by completion and consumption.
     // Thus concurrent Context workers cannot admit the same task or both pass the limit check.
-    auto scan_task = _pending_tasks.top();
-    _pending_tasks.pop();
+    auto scan_task = _pending_tasks.back();
+    _pending_tasks.pop_back();
     // ThreadPool admission bypasses ScannerScheduler::submit(); restart the per-scanner wait
     // timer here so it measures admission-to-execution instead of everything since the previous
     // attempt paused, which would include time the completed block waited for the operator.
@@ -750,6 +756,11 @@ Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner scheduler logical error.");
     }
 
+    // TaskExecutor normally resumes the consumed task directly. A resource waiter must
+    // instead join the deferred end, just like ThreadPool admission, to let holders run.
+    if (current_scan_task && current_scan_task->resource_wait) {
+        push_pending_scan_task(std::exchange(current_scan_task, nullptr), transfer_lock);
+    }
     std::list<std::shared_ptr<ScanTask>> tasks_to_submit;
 
     int32_t margin = _get_margin(transfer_lock, scheduler_lock);
@@ -760,8 +771,7 @@ Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan
         // We need to add it back to task queue to make sure it could be resubmitted.
         if (current_scan_task) {
             // This usually happens when we should downgrade the concurrency.
-            current_scan_task->set_state(ScanTask::State::PENDING);
-            _pending_tasks.push(current_scan_task);
+            push_pending_scan_task(current_scan_task, transfer_lock);
             VLOG_DEBUG << fmt::format(
                     "{} push back scanner to task queue, because diff <= 0, _completed_tasks size "
                     "{}, _in_flight_tasks_num {}",
@@ -806,8 +816,7 @@ Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan
                                                "Scanner scheduler logical error.");
                     }
                     // Current scan task is not scheduled, we need to add it back to task queue to make sure it could be resubmitted.
-                    current_scan_task->set_state(ScanTask::State::PENDING);
-                    _pending_tasks.push(current_scan_task);
+                    push_pending_scan_task(current_scan_task, transfer_lock);
                 }
             }
             first_pull = false;
@@ -880,8 +889,8 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
             return nullptr;
         }
         std::shared_ptr<ScanTask> next_scan_task;
-        next_scan_task = _pending_tasks.top();
-        _pending_tasks.pop();
+        next_scan_task = _pending_tasks.back();
+        _pending_tasks.pop_back();
         return next_scan_task;
     } else {
         return nullptr;
