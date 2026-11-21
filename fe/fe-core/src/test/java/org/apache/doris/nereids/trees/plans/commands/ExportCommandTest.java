@@ -20,9 +20,12 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -38,6 +41,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public class ExportCommandTest extends TestWithFeService {
     @Override
@@ -118,9 +122,58 @@ public class ExportCommandTest extends TestWithFeService {
         String brokerPath = "oss://export-bucket/nested/result_";
         Assertions.assertEquals(brokerPath, generateExportJob(brokerPath,
                 new BrokerDesc("broker", StorageType.BROKER, ImmutableMap.of())).getExportPath());
-        String localPath = "file:///tmp/export_test_";
-        Assertions.assertEquals(localPath, generateExportJob(localPath,
-                new BrokerDesc("local", StorageType.LOCAL, null)).getExportPath());
+    }
+
+    @Test
+    public void testLocalExportRequiresEnabledSetting() throws Exception {
+        String path = "file:///tmp/export_test_";
+        BrokerDesc local = new BrokerDesc("local", StorageType.LOCAL, null);
+        boolean previous = Config.enable_outfile_to_local;
+        try {
+            Config.enable_outfile_to_local = false;
+            Exception disabled = Assertions.assertThrows(AnalysisException.class,
+                    () -> local.getFileLocationForExport(path, connectContext));
+            Assertions.assertTrue(disabled.getMessage().contains("enable_outfile_to_local"), disabled.getMessage());
+            Config.enable_outfile_to_local = true;
+            Assertions.assertEquals(path, generateExportJob(path, local).getExportPath());
+        } finally {
+            Config.enable_outfile_to_local = previous;
+        }
+    }
+
+    @Test
+    public void testExportTaskRetainsAuthenticatedRoles() throws Exception {
+        Set<String> originalRoles = connectContext.getAuthenticatedRoles();
+        Set<String> roles = Set.of("export_test_role");
+        try {
+            connectContext.setAuthenticatedRoles(roles);
+            ExportJob job = generateExportJob("hdfs://nn/export_test_",
+                    new BrokerDesc(null, ImmutableMap.of("hadoop.username", "doris")));
+            connectContext.setAuthenticatedRoles(originalRoles);
+            try (AutoCloseConnectContext worker = Deencapsulation.invoke(
+                    job.getCopiedTaskExecutors().get(0), "buildConnectContext")) {
+                Assertions.assertEquals(roles, worker.connectContext.getAuthenticatedRoles());
+                Assertions.assertEquals(connectContext.getCurrentUserIdentity(),
+                        worker.connectContext.getCurrentUserIdentity());
+            }
+        } finally {
+            connectContext.setAuthenticatedRoles(originalRoles);
+        }
+    }
+
+    @Test
+    public void testExportDestinationMatchesWriter() {
+        BrokerDesc local = new BrokerDesc("local", StorageType.LOCAL, null);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> local.getFileLocationForExport("/results/part_", connectContext));
+        BrokerDesc hdfs = new BrokerDesc(null, ImmutableMap.of("hadoop.username", "doris"));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> hdfs.getFileLocationForExport("file:/results/part_", connectContext));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> hdfs.getFileLocationForExport("report:/results/part_", connectContext));
+        BrokerDesc mismatched = new BrokerDesc("S3", StorageType.S3, ImmutableMap.of("hadoop.username", "doris"));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> mismatched.getFileLocationForExport("s3://export-bucket/results/part_", connectContext));
     }
 
     private Map<String, String> s3Properties(String endpoint, String region) {

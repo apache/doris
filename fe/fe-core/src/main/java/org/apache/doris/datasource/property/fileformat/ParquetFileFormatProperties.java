@@ -86,7 +86,8 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
 
         //save the enable int96 timestamp property
         if (formatProperties.containsKey(ENABLE_INT96_TIMESTAMPS)) {
-            this.enableInt96Timestamps = parseEnableInt96Timestamps(formatProperties.get(ENABLE_INT96_TIMESTAMPS));
+            this.enableInt96Timestamps = parseEnableInt96Timestamps(getOrDefault(formatProperties,
+                    ENABLE_INT96_TIMESTAMPS, "", isRemoveOriginProperty));
         }
 
         // save all parquet prefix property

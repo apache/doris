@@ -18,12 +18,17 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.StorageBackend.StorageType;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.foundation.property.StoragePropertiesException;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;
@@ -34,6 +39,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Map;
 
 // Broker descriptor
@@ -124,15 +130,58 @@ public class BrokerDesc extends StorageDesc implements Writable {
     /**
      * Normalize EXPORT and OUTFILE destinations for the BE writer.
      */
-    public String getFileLocationForExport(String location) throws UserException {
+    public String getFileLocationForExport(String location, ConnectContext ctx) throws UserException {
+        StorageType type = getStorageType();
+        if (type == StorageType.LOCAL) {
+            if (!location.startsWith(OutFileClause.LOCAL_FILE_PREFIX)) {
+                throw new AnalysisException("Local export destinations must start with file:///");
+            }
+            checkLocalExport(ctx);
+            if (!getProperties().isEmpty()) {
+                throw new AnalysisException("Local export destinations do not take storage properties");
+            }
+            return location;
+        }
+        if (StringUtils.startsWithIgnoreCase(location, "file:")) {
+            throw new AnalysisException("A file URI requires a local export destination");
+        }
+        if (type == StorageType.HDFS || type == StorageType.JFS) {
+            if (!StringUtils.startsWithAny(location.toLowerCase(Locale.ROOT),
+                    "hdfs:/", "viewfs:/", "jfs:/", "oss:/")) {
+                throw new AnalysisException("HDFS export destinations require a remote Hadoop filesystem URI");
+            }
+            checkExportStorageKind(StorageKind.HDFS_COMPATIBLE);
+        } else if (type == StorageType.S3) {
+            checkExportStorageKind(StorageKind.OBJECT_STORAGE);
+        }
         // BE parses HTTP(S) paths as path-style, while FE defaults to virtual-hosted parsing.
         // Preserve these paths and the existing path handling for non-S3 backends.
-        if (StorageType.S3.equals(getStorageType())
+        if (type == StorageType.S3
                 && !StringUtils.startsWithIgnoreCase(location, "http://")
                 && !StringUtils.startsWithIgnoreCase(location, "https://")) {
             return getFileLocation(location);
         }
         return location;
+    }
+
+    private void checkExportStorageKind(StorageKind expected) throws AnalysisException {
+        StorageAdapter adapter = getStorageAdapter();
+        if (adapter != null && adapter.getSpiProperties().kind() != expected) {
+            throw new AnalysisException("Export storage properties must match the " + getStorageType().name()
+                    + " destination");
+        }
+    }
+
+    static void checkLocalExport(ConnectContext ctx) throws AnalysisException {
+        if (!Config.enable_outfile_to_local) {
+            throw new AnalysisException("Exporting results to local disk is not allowed."
+                    + " To enable this feature, you need to add `enable_outfile_to_local=true`"
+                    + " in fe.conf and restart FE");
+        }
+        if (ctx == null || ctx.getCurrentUserIdentity() == null
+                || !ctx.getEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
+            throw new AnalysisException("Local file export requires ADMIN_PRIV");
+        }
     }
 
     public static BrokerDesc createForStreamLoad() {
