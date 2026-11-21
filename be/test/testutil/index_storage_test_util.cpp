@@ -57,6 +57,7 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/variant/variant_desc_schema.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/task/index_builder.h"
@@ -1575,8 +1576,8 @@ Result<std::vector<RowsetSharedPtr>> IndexStorageTestFixture::rowsets_with_varia
         return ResultError(Status::InvalidArgument("rowset schema is not initialized"));
     }
 
-    auto schema = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
-            rowsets, rowsets.front()->tablet_schema());
+    auto schema = variant_util::calculate_variant_extended_schema(rowsets,
+                                                                  rowsets.front()->tablet_schema());
     if (schema == nullptr) {
         return ResultError(Status::InternalError("failed to calculate variant extended schema"));
     }

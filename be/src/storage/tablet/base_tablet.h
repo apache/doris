@@ -327,7 +327,8 @@ public:
 
     RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
 
-    std::vector<RowsetSharedPtr> get_snapshot_rowset(bool include_stale_rowset = false) const;
+    std::vector<RowsetSharedPtr> get_snapshot_rowset(bool include_stale_rowset = false,
+                                                     TabletSchemaSPtr* schema = nullptr) const;
 
     virtual void clear_cache() = 0;
 

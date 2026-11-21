@@ -2405,8 +2405,12 @@ RowsetSharedPtr BaseTablet::get_rowset(const RowsetId& rowset_id) {
     return nullptr;
 }
 
-std::vector<RowsetSharedPtr> BaseTablet::get_snapshot_rowset(bool include_stale_rowset) const {
+std::vector<RowsetSharedPtr> BaseTablet::get_snapshot_rowset(bool include_stale_rowset,
+                                                             TabletSchemaSPtr* schema) const {
     std::shared_lock rdlock(_meta_lock);
+    if (schema != nullptr) {
+        *schema = _max_version_schema;
+    }
     std::vector<RowsetSharedPtr> rowsets;
     std::transform(_rs_version_map.cbegin(), _rs_version_map.cend(), std::back_inserter(rowsets),
                    [](auto& kv) { return kv.second; });

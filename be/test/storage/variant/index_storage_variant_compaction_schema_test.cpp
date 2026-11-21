@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include "exec/common/variant_util.h"
+#include "storage/segment/variant/variant_desc_schema.h"
 #include "storage/variant/index_storage_variant_test_base.h"
 
 namespace doris::index_storage_test {
@@ -77,9 +78,7 @@ TEST(IndexStorageVariantCompactionUtilTest, EmptyInputsKeepVariantSchemaWithoutP
     auto base_schema = build_tablet_schema(options);
     ASSERT_NE(base_schema, nullptr);
 
-    EXPECT_EQ(
-            variant_util::VariantCompactionUtil::calculate_variant_extended_schema({}, base_schema),
-            nullptr);
+    EXPECT_EQ(variant_util::calculate_variant_extended_schema({}, base_schema), nullptr);
 
     auto compaction_schema = std::make_shared<TabletSchema>(*base_schema);
     VariantCompactionPathsMap compaction_paths;
@@ -93,6 +92,53 @@ TEST(IndexStorageVariantCompactionUtilTest, EmptyInputsKeepVariantSchemaWithoutP
     EXPECT_TRUE(path_set_info->typed_path_set.empty());
     EXPECT_TRUE(path_set_info->sub_path_set.empty());
     EXPECT_TRUE(path_set_info->sparse_path_set.empty());
+}
+
+TEST_F(IndexStorageVariantCompactionSchemaTest, PersistedDescSummaryMatchesSegmentReader) {
+    VariantColumnSpec variant;
+    variant.unique_id = 2;
+    variant.name = "v";
+    variant.max_subcolumns_count = 0;
+
+    IndexTabletOptions options;
+    options.tablet_id = 110055;
+    options.variant_columns = {std::move(variant)};
+    ASSERT_TRUE(create_tablet(options).ok());
+
+    std::vector<RowsetSharedPtr> rowsets;
+    const std::vector<std::string> documents {
+            R"({"same": 1, "nested": {"a": [1, 2]}})",
+            R"({"same": 1, "nested": {"a": [1, 2]}})",
+            R"({"same": "changed", "extra": 3})",
+    };
+    for (size_t i = 0; i < documents.size(); ++i) {
+        IndexRowsetSpec spec;
+        spec.version = i;
+        spec.batches.push_back(IndexBatch::single_variant({documents[i]}, 0));
+        auto result = write_rowset(spec);
+        ASSERT_TRUE(result.has_value()) << result.error();
+        ASSERT_TRUE(result.value()->rowset_meta()->has_variant_desc_summary());
+        rowsets.push_back(std::move(result.value()));
+    }
+    EXPECT_EQ(rowsets[0]->rowset_meta()->variant_desc_summary(),
+              rowsets[1]->rowset_meta()->variant_desc_summary());
+    EXPECT_NE(rowsets[0]->rowset_meta()->variant_desc_summary(),
+              rowsets[2]->rowset_meta()->variant_desc_summary());
+
+    auto from_summary = variant_util::calculate_variant_extended_schema(rowsets, tablet_schema());
+    ASSERT_NE(from_summary, nullptr);
+    EXPECT_TRUE(schema_has_extracted_variant_path(*from_summary, 2, "extra"));
+    rowsets[2]->rowset_meta()->clear_variant_desc_summary();
+    auto mixed = variant_util::calculate_variant_extended_schema(rowsets, tablet_schema());
+    ASSERT_NE(mixed, nullptr);
+    EXPECT_EQ(from_summary->to_key(), mixed->to_key());
+
+    for (const auto& rowset : rowsets) {
+        rowset->rowset_meta()->clear_variant_desc_summary();
+    }
+    auto from_segments = variant_util::calculate_variant_extended_schema(rowsets, tablet_schema());
+    ASSERT_NE(from_segments, nullptr);
+    EXPECT_EQ(from_summary->to_key(), from_segments->to_key());
 }
 
 TEST_F(IndexStorageVariantCompactionSchemaTest,

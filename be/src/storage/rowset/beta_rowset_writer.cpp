@@ -57,6 +57,7 @@
 #include "storage/rowset/segcompaction.h"
 #include "storage/schema_change/schema_change.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/variant/variant_desc_schema.h"
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
@@ -114,6 +115,7 @@ bool copy_key_bounds_with_truncation(const KeyBoundsPB& src, KeyBoundsPB* dst) {
 SegmentStatistics copy_segment_statistics_with_truncated_key_bounds(const SegmentStatistics& src,
                                                                     bool& key_bounds_truncated) {
     SegmentStatistics dst;
+    dst.variant_desc_summary = src.variant_desc_summary;
     dst.row_num = src.row_num;
     dst.data_size = src.data_size;
     dst.index_size = src.index_size;
@@ -1075,6 +1077,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     int64_t total_index_size = 0;
     std::vector<KeyBoundsPB> segments_encoded_key_bounds;
     std::vector<uint32_t> segment_rows;
+    std::vector<std::string> variant_desc_summaries;
     std::vector<int64_t> segment_ids;
     std::optional<bool> segments_key_bounds_truncated;
     const bool record_segment_ids =
@@ -1101,6 +1104,9 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
             // segcompaction don't modify _segment_num_rows, so we need to get segment rows from _segid_statistics_map for load
             segment_rows.push_back(cast_set<uint32_t>(itr.second.row_num));
+            if (itr.second.variant_desc_summary) {
+                variant_desc_summaries.push_back(*itr.second.variant_desc_summary);
+            }
         }
         segments_key_bounds_truncated = _segments_key_bounds_truncated;
     }
@@ -1161,6 +1167,18 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     if (!segment_ids.empty()) {
         DORIS_CHECK_EQ(segment_ids.size(), segment_num);
         rowset_meta->set_segment_ids(segment_ids);
+    }
+    rowset_meta->clear_variant_desc_summary();
+    if (_context.tablet_schema->num_variant_columns() > 0 && segment_num > 0) {
+        const auto& summaries = _vertical_variant_desc_summaries.empty()
+                                        ? variant_desc_summaries
+                                        : _vertical_variant_desc_summaries;
+        if (summaries.size() == segment_num) {
+            auto desc_summary = variant_util::merge_desc_summaries(summaries);
+            if (desc_summary) {
+                rowset_meta->set_variant_desc_summary(std::move(*desc_summary));
+            }
+        }
     }
     rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
     rowset_meta->set_total_disk_size(total_data_size + _total_data_size + total_index_size +
