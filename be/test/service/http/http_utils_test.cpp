@@ -98,24 +98,61 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
     }
 }
 
-TEST_F(HttpUtilsTest, parse_auth_code) {
-    {
+TEST_F(HttpUtilsTest, http_auth_code_does_not_override_basic_credentials) {
+    for (const auto* code : {"1", "not_a_number", "9223372036854775808"}) {
         HttpRequest req(_evhttp_req);
         req._headers.emplace(HttpHeaders::AUTHORIZATION, encode_basic_auth("doris", "passwd"));
-        req._headers.emplace(HTTP_AUTH_CODE, "1234567890123");
+        req._headers.emplace(HTTP_AUTH_CODE, code);
         AuthInfo auth;
-        EXPECT_TRUE(parse_basic_auth(req, &auth));
-        EXPECT_EQ(1234567890123, auth.auth_code);
+        ASSERT_TRUE(parse_basic_auth(req, &auth));
+        EXPECT_EQ(-1, auth.auth_code);
+        EXPECT_EQ("doris", auth.user);
+        EXPECT_EQ("passwd", auth.passwd);
+
+        // FE must receive the password, not an auth_code that skips its authentication branch.
+        TLoadTxnBeginRequest request;
+        set_request_auth(&request, auth);
+        EXPECT_FALSE(request.__isset.auth_code);
+        EXPECT_EQ("doris", request.user);
+        EXPECT_EQ("passwd", request.passwd);
     }
-    {
-        // a malformed auth code is rejected instead of throwing out of the http callback
+}
+
+TEST_F(HttpUtilsTest, http_auth_code_alone_is_not_a_credential) {
+    for (const auto* code : {"1", "not_a_number"}) {
         HttpRequest req(_evhttp_req);
-        req._headers.emplace(HttpHeaders::AUTHORIZATION, encode_basic_auth("doris", "passwd"));
-        req._headers.emplace(HTTP_AUTH_CODE, "not_a_number");
+        req._headers.emplace(HTTP_AUTH_CODE, code);
         AuthInfo auth;
         EXPECT_FALSE(parse_basic_auth(req, &auth));
         EXPECT_EQ(-1, auth.auth_code);
     }
+}
+
+TEST_F(HttpUtilsTest, http_auth_code_does_not_override_token) {
+    for (const auto& header : {std::string("token"), std::string(HttpHeaders::AUTH_TOKEN)}) {
+        HttpRequest req(_evhttp_req);
+        req._headers.emplace(header, "cluster-token");
+        req._headers.emplace(HTTP_AUTH_CODE, "1");
+        AuthInfo auth;
+        ASSERT_TRUE(parse_basic_auth(req, &auth));
+        EXPECT_EQ(-1, auth.auth_code);
+        EXPECT_EQ("cluster-token", auth.token);
+
+        TLoadTxnBeginRequest request;
+        set_request_auth(&request, auth);
+        EXPECT_FALSE(request.__isset.auth_code);
+        EXPECT_TRUE(request.__isset.token);
+        EXPECT_EQ("cluster-token", request.token);
+    }
+}
+
+TEST_F(HttpUtilsTest, internal_auth_code_is_still_forwarded) {
+    AuthInfo auth;
+    auth.auth_code = 123;
+    TLoadTxnBeginRequest request;
+    set_request_auth(&request, auth);
+    EXPECT_TRUE(request.__isset.auth_code);
+    EXPECT_EQ(123, request.auth_code);
 }
 
 } // namespace doris
