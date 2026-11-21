@@ -1,6 +1,6 @@
 module github.com/apache/doris/extension/beats
 
-go 1.20
+go 1.24
 
 require (
 	github.com/elastic/beats/v7 v7.17.5
@@ -87,7 +87,7 @@ require (
 	github.com/joeshaw/multierror v0.0.0-20140124173710-69b34d4ec901 // indirect
 	github.com/jonboulle/clockwork v0.2.2 // indirect
 	github.com/json-iterator/go v1.1.11 // indirect
-	github.com/klauspost/compress v1.13.6 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/lib/pq v1.1.2-0.20190507191818-2ff3cb3adc01 // indirect
 	github.com/magefile/mage v1.11.0 // indirect
 	github.com/mattn/go-colorable v0.1.6 // indirect
