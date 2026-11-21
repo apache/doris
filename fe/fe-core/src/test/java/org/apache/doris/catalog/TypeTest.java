@@ -24,8 +24,29 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.List;
 
 public class TypeTest {
+
+    @Test
+    public void testAggStateExactMatch() {
+        List<Type> inputs = List.of(ScalarType.createDecimalV3Type(18, 2));
+        List<Boolean> nullables = List.of(false);
+        Type result = ScalarType.createDecimalV3Type(38, 2);
+        AggStateType sum = new AggStateType("sum", true, inputs, nullables, result);
+        AggStateType same = new AggStateType("sum", true, inputs, nullables, result);
+        Assertions.assertEquals(sum, same);
+        Assertions.assertEquals(sum.hashCode(), same.hashCode());
+        Assertions.assertTrue(Type.matchExactType(sum, same, true));
+        for (AggStateType different : List.of(
+                new AggStateType("avg", true, inputs, nullables, result),
+                new AggStateType("sum", false, inputs, nullables, result),
+                new AggStateType("sum", true, inputs, nullables),
+                new AggStateType("sum", true, inputs, nullables, ScalarType.createDecimalV3Type(76, 2)))) {
+            Assertions.assertNotEquals(sum, different);
+            Assertions.assertFalse(Type.matchExactType(sum, different, true));
+        }
+    }
 
     @Test
     public void testVarbinaryColumnSizeIsItsLengthInBytes() {

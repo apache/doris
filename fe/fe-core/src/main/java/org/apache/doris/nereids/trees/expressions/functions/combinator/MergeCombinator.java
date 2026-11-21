@@ -71,9 +71,8 @@ public class MergeCombinator extends AggregateFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return nested.getSignatures().stream().map(sig -> {
-            return sig.withArgumentTypes(false, ImmutableList.of(inputType));
-        }).collect(ImmutableList.toImmutableList());
+        // Rebuilding the nested signature can apply the consumer's decimal precision to a stored state.
+        return ImmutableList.of(FunctionSignature.ret(getDataType()).args(inputType));
     }
 
     @Override
@@ -83,7 +82,7 @@ public class MergeCombinator extends AggregateFunction
 
     @Override
     public DataType getDataType() {
-        return nested.getDataType();
+        return inputType.getResultType(nested);
     }
 
     @Override

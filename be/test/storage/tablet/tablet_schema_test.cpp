@@ -1185,7 +1185,7 @@ TEST_F(TabletSchemaTest, EscapedVariantPropertyAndIndexSuffixRoundTrip) {
 
 TEST_F(TabletSchemaTest, MasterPersistedEncodingGoldenBytes) {
     // Physical segment expectations remain in the writer/reader golden test. The table
-    // policy now lives in TabletSchemaPB 47 (f8 02 01), never in ColumnPB 36.
+    // policy lives in TabletSchemaPB 47 (f8 02 01), not in ColumnPB.
     const auto golden = std::string("\xf8\x02\x01", 3);
     TabletSchemaPB pb;
     ASSERT_TRUE(pb.ParseFromString(golden));
@@ -1200,7 +1200,7 @@ TEST_F(TabletSchemaTest, MasterPersistedEncodingGoldenBytes) {
         if (field->number() != 47) projection.GetReflection()->ClearField(&projection, field);
     }
     EXPECT_EQ(projection.SerializeAsString(), golden);
-    EXPECT_EQ(ColumnPB::descriptor()->FindFieldByNumber(36), nullptr);
+    EXPECT_EQ(ColumnPB::descriptor()->FindFieldByName("variant_escape_dots_in_keys"), nullptr);
 }
 
 TEST_F(TabletSchemaTest, EscapedSchemaPolicySurvivesCopies) {

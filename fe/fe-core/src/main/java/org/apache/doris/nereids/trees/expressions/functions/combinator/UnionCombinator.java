@@ -71,9 +71,7 @@ public class UnionCombinator extends AggregateFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return nested.getSignatures().stream().map(sig -> {
-            return sig.withArgumentTypes(false, ImmutableList.of(inputType)).withReturnType(inputType);
-        }).collect(ImmutableList.toImmutableList());
+        return ImmutableList.of(FunctionSignature.ret(inputType).args(inputType));
     }
 
     @Override

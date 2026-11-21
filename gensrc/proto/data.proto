@@ -72,6 +72,7 @@ message PColumnMeta {
     optional bool variant_is_v2 = 12 [default = false];
     // Older blocks omit the declared VARBINARY length and retain the unspecified sentinel.
     optional int32 varbinary_length = 13 [default = -1];
+    optional PTypeDesc agg_state_result_type = 14;
 }
 
 message PBlock {

@@ -29,6 +29,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
@@ -389,9 +390,24 @@ public class ColumnDefinition {
         }
     }
 
-    /**
-     * validate column definition and analyze
-     */
+    /** Persist the source column's effective signature in the new table, including for a legacy source. */
+    public void copyAggStateType(org.apache.doris.catalog.AggStateType source) {
+        AggStateType effective = (AggStateType) DataType.fromCatalogType(source);
+        type = new AggStateType(effective.getFunctionName(), effective.getSubTypes(), effective.getSubTypeNullables(),
+                source.getResultIsNullable(), effective.getResultType());
+    }
+
+    /** Bind newly declared aggregate state signatures before validating or persisting the column. */
+    public void analyzeType() {
+        if (type instanceof AggStateType) {
+            if (Config.be_exec_version < Config.AGG_STATE_RESULT_TYPE_MIN_BE_EXEC_VERSION) {
+                throw new AnalysisException("Aggregate states require be_exec_version >= "
+                        + Config.AGG_STATE_RESULT_TYPE_MIN_BE_EXEC_VERSION);
+            }
+            type = ((AggStateType) type).resolveDeclaration();
+        }
+    }
+
     public void validate(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet, boolean isEnableMergeOnWrite,
             KeysType keysType) {
         validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false);
@@ -432,6 +448,7 @@ public class ColumnDefinition {
             throw new AnalysisException(
                     "Cannot use `VARIANT` type column named with a `.` character: " + name);
         }
+        analyzeType();
         type.validateDataType();
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()

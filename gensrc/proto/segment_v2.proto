@@ -18,6 +18,8 @@
 
 syntax="proto2";
 
+import "types.proto";
+
 package doris.segment_v2;
 
 // page position info
@@ -234,6 +236,7 @@ message ColumnMetaPB {
     optional bool variant_enable_doc_mode = 27 [default = false];
     // Variant root only: 0 is the legacy namespace, 1 escapes object-key components.
     optional uint32 variant_path_encoding = 28 [default = 0];
+    optional doris.PTypeDesc agg_state_result_type = 29;
 }
 
 // External column meta entry describing one top-level column's externalized

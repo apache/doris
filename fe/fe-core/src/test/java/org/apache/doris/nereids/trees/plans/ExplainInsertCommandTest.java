@@ -18,6 +18,10 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.catalog.AggStateType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -25,15 +29,20 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.insert.FastInsertIntoValuesPlanner;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -193,10 +202,156 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         }
     }
 
-    private void planFastValues(String sql, boolean batch) throws Exception {
+    @Test
+    public void testFastValuesAggStateCasts() throws Exception {
+        boolean enableAggState = connectContext.getSessionVariable().enableAggState;
+        boolean enableDecimal256 = connectContext.getSessionVariable().enableDecimal256;
+        try {
+            connectContext.getSessionVariable().enableAggState = true;
+            connectContext.getSessionVariable().enableDecimal256 = false;
+            createTable("create table values_max (k int, m agg_state<max(bigint not null)> generic) aggregate key(k) "
+                    + "distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            createTable("create table values_sum (k int, "
+                    + "s agg_state<sum(decimal(18,2) not null)> generic) aggregate key(k) "
+                    + "distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            connectContext.getSessionVariable().enableDecimal256 = true;
+            for (boolean batch : new boolean[] {false, true}) {
+                String max = "(1, max_state(cast(7 as int)))";
+                String sum = "(1, sum_state(cast(7 as decimal(18,2))))";
+                for (boolean multiRow : new boolean[] {false, true}) {
+                    planFastValues("insert into values_max values " + max + (multiRow ? "," + max : ""), batch);
+                    AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                            () -> planFastValues("insert into values_sum values "
+                                    + sum + (multiRow ? "," + sum : ""), batch));
+                    Assertions.assertTrue(error.getMessage().contains("cannot cast agg_state<sum"), error.getMessage());
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().enableAggState = enableAggState;
+            connectContext.getSessionVariable().enableDecimal256 = enableDecimal256;
+        }
+    }
+
+    @Test
+    public void testHighScaleMapStateConsumers() throws Exception {
+        boolean enableAggState = connectContext.getSessionVariable().enableAggState;
+        boolean enableDecimal256 = connectContext.getSessionVariable().enableDecimal256;
+        try {
+            connectContext.getSessionVariable().enableAggState = true;
+            connectContext.getSessionVariable().enableDecimal256 = true;
+            createTable("create table high_scale_map_state (k int, "
+                    + "s agg_state<avg_map(map<int,decimal(76,40)> not null)> generic) aggregate key(k) "
+                    + "distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            Column column = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test")
+                    .getTableOrAnalysisException("high_scale_map_state").getColumn("s");
+            AggStateType saved = (AggStateType) column.getType();
+            connectContext.getSessionVariable().enableDecimal256 = false;
+            for (boolean legacy : new boolean[] {false, true}) {
+                if (legacy) {
+                    column.setType(new AggStateType(saved.getFunctionName(), saved.getResultIsNullable(),
+                            saved.getSubTypes(), saved.getSubTypeNullables()));
+                }
+                for (String expression : new String[] {"avg_map_merge(s)", "avg_map_union(s)",
+                        "avg_map_finalize(avg_map_union(s))", "avg_map_finalize(s)"}) {
+                    PlanFragment fragment = getOutputFragment(
+                            "explain select " + expression + " from high_scale_map_state");
+                    Assertions.assertEquals(1, fragment.getOutputExprs().size());
+                    Assertions.assertEquals(expression.equals("avg_map_union(s)")
+                            ? column.getType() : saved.getResultType(), fragment.getOutputExprs().get(0).getType());
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().enableAggState = enableAggState;
+            connectContext.getSessionVariable().enableDecimal256 = enableDecimal256;
+        }
+    }
+
+    @Test
+    public void testInsertIntoLegacyState() throws Exception {
+        boolean enableAggState = connectContext.getSessionVariable().enableAggState;
+        boolean enableDecimal256 = connectContext.getSessionVariable().enableDecimal256;
+        try {
+            connectContext.getSessionVariable().enableAggState = true;
+            connectContext.getSessionVariable().enableDecimal256 = false;
+            createTable("create table legacy_sum (k int, s agg_state<sum(decimal(18,2) not null)> generic) "
+                    + "aggregate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            Column column = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test")
+                    .getTableOrAnalysisException("legacy_sum").getColumn("s");
+            AggStateType saved = (AggStateType) column.getType();
+            column.setType(new AggStateType(saved.getFunctionName(), saved.getResultIsNullable(),
+                    saved.getSubTypes(), saved.getSubTypeNullables()));
+
+            String values = "insert into legacy_sum values (1, sum_state(cast(7 as decimal(18,2))))";
+            String select = "explain insert into legacy_sum select 1, sum_state(cast(7 as decimal(18,2)))";
+            FastInsertIntoValuesPlanner planner = planFastValues(values, false);
+            PlanFragment fragment = new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext()))
+                    .translatePlan(planner.getPhysicalPlan());
+            TExpr stateValue = fragment.getPlanRoot().treeToThrift().getNodes().get(0)
+                    .getUnionNode().getConstExprLists().get(0).get(1);
+            // The BE must receive the cast to the legacy slot type when it materializes this constant row.
+            Assertions.assertEquals(TExprNodeType.CAST_EXPR, stateValue.getNodes().get(0).getNodeType());
+            getOutputFragment(select);
+            connectContext.getSessionVariable().enableDecimal256 = true;
+            getOutputFragment("explain insert into legacy_sum select k, s from legacy_sum");
+            Assertions.assertTrue(Assertions.assertThrows(AnalysisException.class,
+                    () -> planFastValues(values, false)).getMessage().contains("cannot cast agg_state<sum"));
+            Assertions.assertTrue(Assertions.assertThrows(AnalysisException.class,
+                    () -> getOutputFragment(select)).getMessage().contains("cannot cast agg_state<sum"));
+            Assertions.assertNull(((AggStateType) column.getType()).getResultType());
+        } finally {
+            connectContext.getSessionVariable().enableAggState = enableAggState;
+            connectContext.getSessionVariable().enableDecimal256 = enableDecimal256;
+        }
+    }
+
+    @Test
+    public void testAggStateBindingIgnoresAliasFunction() throws Exception {
+        boolean enableAggState = connectContext.getSessionVariable().enableAggState;
+        boolean preferUdf = connectContext.getSessionVariable().preferUdfOverBuiltin;
+        connectContext.getSessionVariable().enableAggState = true;
+        try {
+            createTable("create table legacy_sum_shadowed (k int, s agg_state<sum(int not null)> generic) "
+                    + "aggregate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            Column column = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test")
+                    .getTableOrAnalysisException("legacy_sum_shadowed").getColumn("s");
+            AggStateType saved = (AggStateType) column.getType();
+            column.setType(new AggStateType(saved.getFunctionName(), saved.getResultIsNullable(),
+                    saved.getSubTypes(), saved.getSubTypeNullables()));
+
+            createFunction("CREATE ALIAS FUNCTION sum(INT) WITH PARAMETER(x) AS abs(x)");
+            try {
+                connectContext.getSessionVariable().preferUdfOverBuiltin = true;
+                Assertions.assertInstanceOf(AliasUdfBuilder.class, Env.getCurrentEnv().getFunctionRegistry()
+                        .findFunctionBuilder("sum", new SlotReference("x", IntegerType.INSTANCE, false)));
+
+                Assertions.assertAll(
+                        () -> {
+                            createTable("create table new_sum_shadowed (k int, s agg_state<sum(int not null)> generic) "
+                                    + "aggregate key(k) distributed by hash(k) buckets 1 "
+                                    + "properties('replication_num'='1')");
+                            AggStateType state = (AggStateType) Env.getCurrentInternalCatalog()
+                                    .getDbOrAnalysisException("test").getTableOrAnalysisException("new_sum_shadowed")
+                                    .getColumn("s").getType();
+                            Assertions.assertEquals(Type.BIGINT, state.getResultType());
+                        },
+                        () -> Assertions.assertEquals(Type.BIGINT, getOutputFragment(
+                                "explain select sum_merge(s) from legacy_sum_shadowed")
+                                .getOutputExprs().get(0).getType()));
+            } finally {
+                connectContext.getSessionVariable().preferUdfOverBuiltin = preferUdf;
+                executeSql("DROP FUNCTION sum(INT)");
+            }
+        } finally {
+            connectContext.getSessionVariable().enableAggState = enableAggState;
+        }
+    }
+
+    private FastInsertIntoValuesPlanner planFastValues(String sql, boolean batch) throws Exception {
         StatementContext context = MemoTestUtils.createStatementContext(connectContext, sql);
         LogicalPlan logical = (LogicalPlan) ((Explainable) parser.parseSingle(sql)).getExplainPlan(connectContext);
-        new FastInsertIntoValuesPlanner(context, true, batch).planWithLock(logical, PhysicalProperties.ANY);
+        FastInsertIntoValuesPlanner planner = new FastInsertIntoValuesPlanner(context, true, batch);
+        planner.planWithLock(logical, PhysicalProperties.ANY);
+        return planner;
     }
 
     @Test

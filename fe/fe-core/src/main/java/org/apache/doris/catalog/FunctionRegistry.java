@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdafBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtfBuilder;
@@ -46,6 +47,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -138,19 +140,28 @@ public class FunctionRegistry {
     }
 
     private boolean containsAggregateFunction(List<FunctionBuilder> functionBuilders) {
-        Class<?> aggClass = org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction.class;
         for (FunctionBuilder functionBuilder : functionBuilders) {
-            if (aggClass.isAssignableFrom(functionBuilder.functionClass())) {
+            if (isAggregateBuilder(functionBuilder)) {
                 return true;
             }
         }
         return false;
     }
 
+    private static boolean isAggregateBuilder(FunctionBuilder builder) {
+        return AggregateFunction.class.isAssignableFrom(builder.functionClass());
+    }
+
+    /** Resolve the aggregate named in an AggState signature independently of UDF precedence. */
+    public FunctionBuilder findBuiltinAggregateBuilder(String name, List<?> arguments) {
+        List<FunctionBuilder> aggregateBuilders = name2BuiltinBuilders.getOrDefault(name.toLowerCase(Locale.ROOT),
+                ImmutableList.of()).stream().filter(FunctionRegistry::isAggregateBuilder).collect(Collectors.toList());
+        return resolveFunctionBuilder(name, name, arguments, aggregateBuilders);
+    }
+
     // currently we only find function by name and arity and args' types.
     public FunctionBuilder findFunctionBuilder(String dbName, String name, List<?> arguments) {
         List<FunctionBuilder> functionBuilders = null;
-        int arity = arguments.size();
         String qualifiedName = StringUtils.isEmpty(dbName) ? name : dbName + "." + name;
 
         boolean preferUdfOverBuiltin = ConnectContext.get() == null ? false
@@ -175,7 +186,12 @@ public class FunctionRegistry {
             }
         }
 
-        if (functionBuilders == null || functionBuilders.isEmpty()) {
+        return resolveFunctionBuilder(name, qualifiedName, arguments, functionBuilders);
+    }
+
+    private FunctionBuilder resolveFunctionBuilder(String name, String qualifiedName, List<?> arguments,
+            List<FunctionBuilder> functionBuilders) {
+        if (CollectionUtils.isEmpty(functionBuilders)) {
             throw new AnalysisException("Can not found function '" + qualifiedName + "'");
         }
 
@@ -189,7 +205,7 @@ public class FunctionRegistry {
         if (candidateBuilders.isEmpty()) {
             String candidateHints = getCandidateHint(name, functionBuilders);
             throw new AnalysisException("Can not found function '" + qualifiedName
-                    + "' which has " + arity + " arity. Candidate functions are: " + candidateHints);
+                    + "' which has " + arguments.size() + " arity. Candidate functions are: " + candidateHints);
         }
         if (!Config.enable_java_udf) {
             candidateBuilders = candidateBuilders.stream()

@@ -32,12 +32,14 @@ public:
     DataTypes sub_types = {sub_type};
     // DataTypeAggState---> column_fixed_length_object ----> DataTypeStringSerDeBase<ColumnFixedLengthObject>
     DataTypePtr datatype_agg_state_count = std::make_shared<DataTypeAggState>(
-            sub_types, false, "count", BeExecVersionManager::get_newest_version());
+            sub_types, false, "count", BeExecVersionManager::get_newest_version(),
+            std::make_shared<DataTypeInt64>());
     DataTypeSerDeSPtr datatype_agg_state_serde_count = datatype_agg_state_count->get_serde();
 
     // DataTypeAggState---> column_string ----> DataTypeStringSerDeBase<ColumnString>
     DataTypePtr datatype_agg_state_hll_union = std::make_shared<DataTypeAggState>(
-            sub_types, false, "hll_union", BeExecVersionManager::get_newest_version());
+            sub_types, false, "hll_union", BeExecVersionManager::get_newest_version(),
+            DataTypeFactory::instance().create_data_type(TYPE_HLL, false));
     DataTypeSerDeSPtr datatype_agg_state_serde_hll_union =
             datatype_agg_state_hll_union->get_serde();
 };

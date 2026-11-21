@@ -53,6 +53,9 @@
 #include "core/column/column_nullable.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_map.h"
 #include "core/field.h"
 #include "core/value/bitmap_value.h"
 #include "core/value/hll.h"
@@ -766,23 +769,38 @@ TabletSchemaSPtr create_complex_value_schema(TabletStorageFormatPB storage_forma
         schema_pb.set_bf_fpp(0.01);
     }
     auto add_agg_state_column = [&](int32_t unique_id, std::string_view name,
-                                    std::string_view function_name) {
+                                    std::string_view function_name,
+                                    const DataTypePtr& result_type) {
         auto* column = add_column(&schema_pb, unique_id, name, agg_state_type, false, false,
                                   function_name);
         column->set_result_is_nullable(false);
+        result_type->to_protobuf(column->mutable_agg_state_result_type());
         column->set_be_exec_version(kGoldenBeExecVersion);
         return column;
     };
-    auto* count = add_agg_state_column(8, "v_agg_count", "count");
+    auto* count =
+            add_agg_state_column(8, "v_agg_count", "count",
+                                 DataTypeFactory::instance().create_data_type(TYPE_BIGINT, false));
     add_child_column(count, 801, "arg", kKeyTypes[3], false);
-    auto* hll_union = add_agg_state_column(9, "v_agg_hll_union", "hll_union");
+    auto* hll_union =
+            add_agg_state_column(9, "v_agg_hll_union", "hll_union",
+                                 DataTypeFactory::instance().create_data_type(TYPE_HLL, false));
     add_child_column(hll_union, 901, "arg", hll_type, false);
-    auto* array_agg = add_agg_state_column(10, "v_agg_array", "array_agg");
+    auto* array_agg = add_agg_state_column(
+            10, "v_agg_array", "array_agg",
+            std::make_shared<DataTypeArray>(
+                    DataTypeFactory::instance().create_data_type(TYPE_INT, true)));
     add_child_column(array_agg, 1001, "arg", kKeyTypes[3], true);
-    auto* map_agg = add_agg_state_column(11, "v_agg_map", "map_agg_v2");
+    auto* map_agg = add_agg_state_column(
+            11, "v_agg_map", "map_agg_v2",
+            std::make_shared<DataTypeMap>(
+                    DataTypeFactory::instance().create_data_type(TYPE_STRING, true),
+                    DataTypeFactory::instance().create_data_type(TYPE_INT, true)));
     add_child_column(map_agg, 1101, "key", kKeyTypes[12], true);
     add_child_column(map_agg, 1102, "value", kKeyTypes[3], true);
-    auto* bitmap_union = add_agg_state_column(12, "v_agg_bitmap_union", "bitmap_union");
+    auto* bitmap_union =
+            add_agg_state_column(12, "v_agg_bitmap_union", "bitmap_union",
+                                 DataTypeFactory::instance().create_data_type(TYPE_BITMAP, false));
     add_child_column(bitmap_union, 1201, "arg", bitmap_type, false);
 
     auto schema = std::make_shared<TabletSchema>();

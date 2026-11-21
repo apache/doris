@@ -57,6 +57,42 @@ public class CreateTableLikeTest extends TestWithFeService {
     }
 
     @Test
+    public void testCopyAggStateResultType() throws Exception {
+        SessionVariable session = connectContext.getSessionVariable();
+        boolean enableAggState = session.enableAggState;
+        boolean enableDecimal256 = session.enableDecimal256;
+        try {
+            session.enableAggState = true;
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+            for (boolean wide : new boolean[] {false, true}) {
+                session.enableDecimal256 = wide;
+                String sourceName = "like_state_src_" + wide;
+                String targetName = "like_state_dst_" + wide;
+                createTable("create table test." + sourceName + " (k int, s agg_state<sum(decimal(18,2))> generic) "
+                        + "aggregate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
+                session.enableDecimal256 = !wide;
+                createTableLike("create table test." + targetName + " like test." + sourceName);
+                AggStateType target = (AggStateType) db.getTableOrDdlException(targetName).getColumn("s").getType();
+                Assertions.assertEquals(ScalarType.createDecimalV3Type(wide ? 76 : 38, 2), target.getResultType());
+            }
+
+            Column source = db.getTableOrDdlException("like_state_src_false").getColumn("s");
+            AggStateType saved = (AggStateType) source.getType();
+            source.setType(new AggStateType(saved.getFunctionName(), saved.getResultIsNullable(),
+                    saved.getSubTypes(), saved.getSubTypeNullables()));
+            session.enableDecimal256 = true;
+            createTableLike("create table test.like_state_from_legacy like test.like_state_src_false");
+            AggStateType target = (AggStateType) db.getTableOrDdlException("like_state_from_legacy")
+                    .getColumn("s").getType();
+            Assertions.assertEquals(ScalarType.createDecimalV3Type(38, 2), target.getResultType());
+            Assertions.assertNull(((AggStateType) source.getType()).getResultType());
+        } finally {
+            session.enableAggState = enableAggState;
+            session.enableDecimal256 = enableDecimal256;
+        }
+    }
+
+    @Test
     public void testGeneratedColumnSessionVariables() throws Exception {
         SessionVariable original = connectContext.getSessionVariable();
         boolean originalDecimal256 = original.enableDecimal256;

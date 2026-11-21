@@ -435,6 +435,10 @@ protected:
             descriptor.__set_sub_types(arguments);
             descriptor.__set_function_name(state_type.get_function_name());
             descriptor.__set_result_is_nullable(false);
+            descriptor.__set_agg_state_result_type(
+                    remove_nullable(state_type.get_nested_function()->get_return_type())
+                            ->to_thrift()
+                            .types);
             descriptor.__set_be_exec_version(BeExecVersionManager::get_newest_version());
         }
         source_definition.__set_slotType(descriptor);
@@ -780,7 +784,7 @@ protected:
     void check_count_state(bool variable_binary, int width = 8) {
         set_column_type(make_nullable(std::make_shared<DataTypeAggState>(
                 DataTypes {std::make_shared<DataTypeInt32>()}, false, "count",
-                BeExecVersionManager::get_newest_version())));
+                BeExecVersionManager::get_newest_version(), std::make_shared<DataTypeInt64>())));
         std::unique_ptr<arrow::ArrayBuilder> builder;
         const auto wire_type = variable_binary ? arrow::binary() : arrow::fixed_size_binary(width);
         ASSERT_TRUE(arrow::MakeBuilder(arrow::default_memory_pool(), wire_type, &builder).ok());
