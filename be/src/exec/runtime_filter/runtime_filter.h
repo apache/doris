@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/runtime_filter/runtime_filter_wrapper.h"
@@ -67,8 +68,32 @@ public:
         request->set_filter_id(_wrapper->filter_id());
 
         auto state = _wrapper->get_state();
-        if (state != RuntimeFilterWrapper::State::READY) {
+        // Align with the legacy (branch-3.1) semantics: only a *really* disabled filter
+        // (reach max_in_num / join spill / rpc error, i.e. State::DISABLED) should be
+        // published as `disabled` to consumers. A filter that is merely NOT ready yet
+        // (State::UNINITED) must NOT be turned into a disabled filter, otherwise the
+        // consumer permanently gives up this filter ("get disabled from remote") and a
+        // large table degrades to a full scan.
+        //
+        // Callers are expected to skip publishing an UNINITED filter (see
+        // is_wrapper_uninited() checks in the producer / merge controller) and let the
+        // consumer wait until timeout instead. Reaching here with UNINITED therefore means
+        // an unexpected code path. We surface it via DCHECK (fail fast in debug builds) but
+        // in release builds we degrade *safely*: neither mark the filter as disabled nor
+        // return an error. Serializing "nothing" leaves the request without filter content
+        // and without the disabled flag, so the consumer keeps waiting until timeout and at
+        // worst loses the filter effect (falling back to a full scan) instead of failing the
+        // whole query.
+        if (state == RuntimeFilterWrapper::State::DISABLED) {
             request->set_disabled(true);
+            return Status::OK();
+        }
+        if (state == RuntimeFilterWrapper::State::UNINITED) {
+            DCHECK(false) << "Try to serialize an uninitialized(not ready) runtime filter, "
+                          << "filter_id=" << _wrapper->filter_id();
+            LOG(WARNING) << "Try to serialize an uninitialized(not ready) runtime filter, "
+                            "skip publishing to avoid disabling it on consumers, filter_id="
+                         << _wrapper->filter_id();
             return Status::OK();
         }
 

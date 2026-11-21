@@ -64,6 +64,14 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
         bool ready = false;
         RETURN_IF_ERROR(context->merger->merge_from(this, &ready));
         if (ready) {
+            // Align with the legacy (branch-3.1) semantics: only send the merged filter when
+            // there is real content (READY) or it is really disabled (DISABLED). If the merger
+            // has collected all products by count but the content is still UNINITED, skip
+            // sending so that consumers fall back to waiting until timeout, instead of being
+            // told "disabled from remote" and degrading a large table to a full scan.
+            if (context->merger->is_wrapper_uninited()) {
+                return Status::OK();
+            }
             if (_has_remote_target) {
                 RETURN_IF_ERROR(_send_to_remote_targets(state, context->merger.get()));
             } else {
