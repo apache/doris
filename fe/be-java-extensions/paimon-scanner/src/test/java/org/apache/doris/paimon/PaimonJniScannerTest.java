@@ -93,6 +93,63 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void avroPrimaryKeyFilesUseSdkMergingAndNullableProjection() throws Exception {
+        org.apache.doris.jni.spi.utils.OffHeap.setTesting();
+        try (org.apache.paimon.catalog.Catalog catalog = new org.apache.paimon.catalog.FileSystemCatalog(
+                LocalFileIO.create(), new org.apache.paimon.fs.Path(temporaryFolder.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "avro_merge");
+            catalog.createTable(id, org.apache.paimon.schema.Schema.newBuilder()
+                    .column("id", DataTypes.INT().notNull()).column("v", DataTypes.STRING())
+                    .primaryKey("id").option("bucket", "1").option("file.format", "avro")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            for (int batch = 0; batch < 2; batch++) {
+                org.apache.paimon.table.sink.BatchWriteBuilder builder = table.newBatchWriteBuilder();
+                try (org.apache.paimon.table.sink.BatchTableWrite write = builder.newWrite()) {
+                    write.write(org.apache.paimon.data.GenericRow.of(1,
+                            org.apache.paimon.data.BinaryString.fromString(batch == 0 ? "old" : "updated")));
+                    write.write(org.apache.paimon.data.GenericRow.of(2, batch == 0
+                            ? org.apache.paimon.data.BinaryString.fromString("old") : null));
+                    try (org.apache.paimon.table.sink.BatchTableCommit commit = builder.newCommit()) {
+                        commit.commit(write.prepareCommit());
+                    }
+                }
+            }
+            Map<Integer, Object> rows = new HashMap<>();
+            for (org.apache.paimon.table.source.Split split : table.newReadBuilder().newScan().plan().splits()) {
+                Map<String, String> params = createBaseParams();
+                params.put("required_fields", "v,id");
+                params.put("columns_types", "string#int");
+                params.put("time_zone", "UTC");
+                params.put(SERIALIZED_TABLE, encodePaimonObject(table));
+                params.put("paimon_split", encodePaimonObject(split));
+                params.put("paimon_predicate", encodePaimonObject(Collections.emptyList()));
+                PaimonJniScanner scanner = new PaimonJniScanner(1, params);
+                try {
+                    scanner.open();
+                    while (scanner.getNextBatchMeta() != 0) {
+                        int count = scanner.getTable().getNumRows();
+                        Object[] values = scanner.getTable().getColumn(0).getObjectColumn(0, count);
+                        Object[] ids = scanner.getTable().getColumn(1).getObjectColumn(0, count);
+                        for (int row = 0; row < count; row++) {
+                            Assertions.assertFalse(rows.containsKey((Integer) ids[row]));
+                            rows.put((Integer) ids[row], values[row]);
+                        }
+                        scanner.releaseTable();
+                    }
+                } finally {
+                    scanner.close();
+                }
+            }
+            Assertions.assertEquals(2, rows.size());
+            Assertions.assertEquals("updated", rows.get(1));
+            Assertions.assertTrue(rows.containsKey(2));
+            Assertions.assertNull(rows.get(2));
+        }
+    }
+
+    @Test
     public void crossFamilyHistoricalParquetTimestampsRetainFractionsUntilRepair() throws Exception {
         org.apache.doris.jni.spi.utils.OffHeap.setTesting();
         java.util.TimeZone originalZone = java.util.TimeZone.getDefault();

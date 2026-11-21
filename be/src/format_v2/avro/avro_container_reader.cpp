@@ -1,0 +1,795 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "format_v2/avro/avro_container_reader.h"
+
+#include <snappy.h>
+#include <zlib.h>
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+
+#include <algorithm>
+#include <array>
+#include <avro/Compiler.hh>
+#include <avro/Generic.hh>
+#include <avro/NodeImpl.hh>
+#include <bit>
+#include <cstring>
+#include <limits>
+#include <type_traits>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+#include "common/exception.h"
+#include "io/fs/file_reader.h"
+#include "io/io_common.h"
+#include "runtime/runtime_profile.h"
+
+namespace doris::format::avro {
+namespace {
+
+void require(bool condition, const char* message) {
+    if (!condition) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, message);
+    }
+}
+
+template <typename Cursor>
+int64_t read_long(Cursor& cursor) {
+    uint64_t value = 0;
+    for (unsigned shift = 0; shift < 64; shift += 7) {
+        const uint8_t byte = cursor.byte();
+        // The tenth byte has only one available bit in a 64-bit Avro varint.
+        require(shift != 63 || byte <= 1, "Avro varint overflows");
+        value |= static_cast<uint64_t>(byte & 127) << shift;
+        if ((byte & 128) == 0) {
+            return static_cast<int64_t>(value >> 1) ^ -static_cast<int64_t>(value & 1);
+        }
+    }
+    throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid Avro varint");
+}
+
+struct MemoryCursor {
+    const uint8_t* data = nullptr;
+    size_t length = 0;
+    size_t position = 0;
+    size_t remaining() const { return length - position; }
+    uint8_t byte() {
+        require(remaining() != 0, "Truncated Avro value");
+        return data[position++];
+    }
+    void read(void* output, size_t size) {
+        require(size <= remaining(), "Truncated Avro value");
+        if (size != 0) {
+            memcpy(output, data + position, size);
+        }
+        position += size;
+    }
+    void skip(size_t size) {
+        require(size <= remaining(), "Truncated Avro value");
+        position += size;
+    }
+};
+
+class FileCursor {
+public:
+    FileCursor(io::FileReaderSPtr file, std::shared_ptr<io::IOContext> context)
+            : _file(std::move(file)), _context(std::move(context)) {}
+    size_t position() const { return _position; }
+    size_t remaining() const { return _file->size() - _position; }
+    size_t scratch_bytes() const { return _prefix_buffer.capacity(); }
+    void coalesce_prefix(const AvroContainerReader::Reserve& reserve) {
+        reserve(1024 * 1024);
+        _prefix_buffer.resize(1024 * 1024);
+        _buffer_size = 0;
+    }
+    void seek(size_t position) {
+        require(position <= _file->size(), "Invalid Avro file offset");
+        _position = position;
+    }
+    uint8_t byte() {
+        uint8_t value;
+        read(&value, 1);
+        return value;
+    }
+    void read(void* output, size_t size) {
+        require(size <= remaining(), "Truncated Avro container");
+        auto* destination = static_cast<uint8_t*>(output);
+        while (size != 0) {
+            if (_context != nullptr && _context->should_stop) {
+                throw Exception(ErrorCode::CANCELLED, "Avro scan cancelled");
+            }
+            if (_position < _buffer_start || _position >= _buffer_start + _buffer_size) {
+                size_t read = 0;
+                auto* buffer = _prefix_buffer.empty() ? _buffer.data() : _prefix_buffer.data();
+                const auto capacity =
+                        _prefix_buffer.empty() ? _buffer.size() : _prefix_buffer.size();
+                auto status =
+                        _file->read_at(_position, Slice(buffer, std::min(capacity, remaining())),
+                                       &read, _context.get());
+                if (!status.ok()) {
+                    throw Exception(status);
+                }
+                require(read != 0, "Truncated Avro container");
+                _buffer_start = _position;
+                _buffer_size = read;
+            }
+            const size_t count = std::min(size, _buffer_start + _buffer_size - _position);
+            const auto* buffer = _prefix_buffer.empty() ? _buffer.data() : _prefix_buffer.data();
+            memcpy(destination, buffer + _position - _buffer_start, count);
+            destination += count;
+            size -= count;
+            _position += count;
+        }
+    }
+
+private:
+    io::FileReaderSPtr _file;
+    std::shared_ptr<io::IOContext> _context;
+    std::array<char, 64 * 1024> _buffer;
+    std::vector<char> _prefix_buffer;
+    size_t _position = 0;
+    size_t _buffer_start = 0;
+    size_t _buffer_size = 0;
+};
+
+::avro::NodePtr resolved(const ::avro::NodePtr& node) {
+    return node->type() == ::avro::AVRO_SYMBOLIC ? ::avro::resolveSymbol(node) : node;
+}
+
+} // namespace
+
+struct AvroContainerReader::Impl {
+    FileCursor file;
+    Reserve reserve;
+    Checkpoint checkpoint;
+    Workspace workspace;
+    RuntimeProfile::Counter* decompress_time = nullptr;
+    ::avro::ValidSchema schema;
+    ::avro::ValidSchema projected_schema;
+    std::unordered_map<std::string, std::string> metadata;
+    std::array<uint8_t, 16> sync;
+    std::vector<uint8_t> compressed;
+    std::vector<uint8_t> uncompressed;
+    std::unordered_map<const ::avro::Node*, size_t> datum_sizes;
+    std::unordered_map<size_t, size_t> selected;
+    MemoryCursor data;
+    size_t header_end = 0;
+    int64_t remaining_rows = 0;
+    int64_t total_rows = 0;
+    size_t schema_charge = 0;
+    bool loaded = false;
+
+    Impl(io::FileReaderSPtr input, std::shared_ptr<io::IOContext> context, Reserve allocation,
+         Checkpoint reset, Workspace codec_workspace, RuntimeProfile* profile)
+            : file(std::move(input), std::move(context)),
+              reserve(std::move(allocation)),
+              checkpoint(std::move(reset)),
+              workspace(std::move(codec_workspace)) {
+        if (profile != nullptr) {
+            decompress_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "AvroDecompressTime",
+                                                         "AvroDecodeAndMaterializeTime", 1);
+        }
+        std::array<uint8_t, 4> magic;
+        file.read(magic.data(), magic.size());
+        require(magic == std::array<uint8_t, 4> {'O', 'b', 'j', 1}, "Invalid Avro magic");
+        for (int64_t count = read_long(file); count != 0; count = read_long(file)) {
+            if (count < 0) {
+                require(count != std::numeric_limits<int64_t>::min(),
+                        "Invalid Avro metadata count");
+                count = -count;
+                const auto bytes = read_long(file);
+                require(bytes >= 0 && static_cast<uint64_t>(bytes) <= file.remaining(),
+                        "Invalid Avro metadata block");
+            }
+            growth(0, count, 128);
+            require(static_cast<uint64_t>(count) <= file.remaining() / 2,
+                    "Truncated Avro metadata");
+            for (int64_t i = 0; i < count; ++i) {
+                auto key = read_string(file);
+                auto value = read_string(file);
+                metadata.insert_or_assign(std::move(key), std::move(value));
+            }
+        }
+        file.read(sync.data(), sync.size());
+        header_end = file.position();
+        const auto found = metadata.find("avro.schema");
+        require(found != metadata.end(), "Avro schema metadata is missing");
+        // The upstream JSON compiler recurses. Bound nesting before entering it, even for a
+        // header-only file; braces inside escaped JSON strings do not contribute to depth.
+        size_t depth = 0;
+        bool quoted = false, escaped = false;
+        for (const char c : found->second) {
+            if (quoted) {
+                if (escaped) {
+                    escaped = false;
+                } else if (c == '\\') {
+                    escaped = true;
+                } else if (c == '"') {
+                    quoted = false;
+                }
+            } else if (c == '"') {
+                quoted = true;
+            } else if (c == '{' || c == '[') {
+                require(++depth <= 128, "Avro schema nesting is unsupported");
+            } else if (c == '}' || c == ']') {
+                require(depth != 0, "Invalid Avro schema JSON");
+                --depth;
+            }
+        }
+        growth(0, found->second.size(), 16);
+        schema_charge = found->second.size() * 16;
+        schema = ::avro::compileJsonSchemaFromString(found->second);
+    }
+
+    void growth(size_t capacity, size_t count, size_t item_size = 1) const {
+        require(count <= std::numeric_limits<int64_t>::max() / 2 / item_size,
+                "Avro allocation size overflows");
+        if (count > capacity) {
+            reserve(std::max(count, capacity * 2) * item_size);
+        }
+    }
+
+    template <typename Cursor>
+    std::string read_string(Cursor& input) {
+        const auto length = read_long(input);
+        require(length >= 0, "Invalid Avro string length");
+        growth(0, length);
+        require(static_cast<uint64_t>(length) <= input.remaining(), "Truncated Avro string");
+        std::string value(static_cast<size_t>(length), '\0');
+        input.read(value.data(), value.size());
+        return value;
+    }
+
+    size_t datum_size(const ::avro::NodePtr& input) {
+        const auto node = resolved(input);
+        if (const auto found = datum_sizes.find(node.get()); found != datum_sizes.end()) {
+            return found->second;
+        }
+        size_t size = 0;
+        switch (node->type()) {
+        case ::avro::AVRO_STRING:
+            size = sizeof(std::string);
+            break;
+        case ::avro::AVRO_BYTES:
+            size = sizeof(std::vector<uint8_t>);
+            break;
+        case ::avro::AVRO_FIXED:
+            size = sizeof(::avro::GenericFixed) + node->fixedSize();
+            break;
+        case ::avro::AVRO_ARRAY:
+            size = sizeof(::avro::GenericArray);
+            break;
+        case ::avro::AVRO_MAP:
+            size = sizeof(::avro::GenericMap);
+            break;
+        case ::avro::AVRO_ENUM:
+            size = sizeof(::avro::GenericEnum);
+            break;
+        case ::avro::AVRO_UNION: {
+            // Estimate the canonical null-first skeleton even when this is a writer node used
+            // to admit a nested branch. An unused large FIXED alternative must not consume budget.
+            const size_t first =
+                    node->leaves() == 2 && node->leafAt(1)->type() == ::avro::AVRO_NULL ? 1 : 0;
+            size = sizeof(::avro::GenericUnion) + datum_size(node->leafAt(first));
+            break;
+        }
+        case ::avro::AVRO_RECORD:
+            size = sizeof(::avro::GenericRecord) + node->leaves() * sizeof(::avro::GenericDatum);
+            for (size_t i = 0; i < node->leaves(); ++i) {
+                const auto child = datum_size(node->leafAt(i));
+                require(child <= std::numeric_limits<int64_t>::max() - size,
+                        "Avro datum size overflows");
+                size += child;
+            }
+            break;
+        default:
+            break;
+        }
+        datum_sizes.emplace(node.get(), size);
+        return size;
+    }
+
+    bool zero_width(const ::avro::NodePtr& input) {
+        const auto node = resolved(input);
+        if (node->type() == ::avro::AVRO_NULL) {
+            return true;
+        }
+        if (node->type() == ::avro::AVRO_FIXED) {
+            return node->fixedSize() == 0;
+        }
+        if (node->type() != ::avro::AVRO_RECORD) {
+            return false;
+        }
+        for (size_t i = 0; i < node->leaves(); ++i) {
+            if (!zero_width(node->leafAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    int64_t block_header(size_t* payload_end) {
+        const int64_t count = read_long(file);
+        const int64_t bytes = read_long(file);
+        require(count >= 0 && bytes >= 0 && file.remaining() >= sync.size() &&
+                        static_cast<uint64_t>(bytes) <= file.remaining() - sync.size(),
+                "Invalid Avro data block bounds");
+        *payload_end = file.position() + bytes;
+        return count;
+    }
+
+    void verify_sync() {
+        std::array<uint8_t, 16> marker;
+        file.read(marker.data(), marker.size());
+        require(marker == sync, "Avro sync mismatch");
+    }
+
+    void decompress_snappy() {
+        require(compressed.size() >= 4, "Truncated Avro Snappy block");
+        const size_t length = compressed.size() - 4;
+        size_t output_size = 0;
+        require(snappy::GetUncompressedLength(reinterpret_cast<const char*>(compressed.data()),
+                                              length, &output_size),
+                "Invalid Avro Snappy block");
+        growth(uncompressed.capacity(), output_size);
+        uncompressed.resize(output_size);
+        require(snappy::RawUncompress(reinterpret_cast<const char*>(compressed.data()), length,
+                                      reinterpret_cast<char*>(uncompressed.data())),
+                "Avro Snappy decompression failed");
+        uint32_t expected = 0;
+        for (size_t i = length; i < compressed.size(); ++i) {
+            expected = (expected << 8) | compressed[i];
+        }
+        auto actual = crc32(0, nullptr, 0);
+        for (size_t offset = 0; offset < uncompressed.size();) {
+            const auto size = std::min(size_t(64 * 1024), uncompressed.size() - offset);
+            actual = crc32(actual, uncompressed.data() + offset, static_cast<uInt>(size));
+            offset += size;
+        }
+        require(expected == actual, "Avro Snappy checksum mismatch");
+    }
+
+    void decompress_zstandard() {
+        // Even a zero-byte Avro datum needs a real compressed frame when a block owns rows.
+        require(!compressed.empty(), "Missing Avro Zstandard frame");
+        size_t offset = 0;
+        while (offset < compressed.size()) {
+            const auto* frame = compressed.data() + offset;
+            const auto frame_size = ZSTD_findFrameCompressedSize(frame, compressed.size() - offset);
+            require(!ZSTD_isError(frame_size), "Invalid Avro Zstandard frame");
+            const auto workspace_bytes = ZSTD_estimateDStreamSize_fromFrame(frame, frame_size);
+            require(!ZSTD_isError(workspace_bytes), "Invalid Avro Zstandard window");
+            auto workspace_lease = workspace(workspace_bytes);
+            std::unique_ptr<ZSTD_DStream, decltype(&ZSTD_freeDStream)> stream(ZSTD_createDStream(),
+                                                                              &ZSTD_freeDStream);
+            require(stream != nullptr && !ZSTD_isError(ZSTD_initDStream(stream.get())),
+                    "Cannot initialize Avro Zstandard decoder");
+            ZSTD_inBuffer input {frame, frame_size, 0};
+            std::array<uint8_t, 64 * 1024> chunk;
+            size_t remaining = 1;
+            while (input.pos < input.size || remaining != 0) {
+                ZSTD_outBuffer output {chunk.data(), chunk.size(), 0};
+                remaining = ZSTD_decompressStream(stream.get(), &output, &input);
+                require(!ZSTD_isError(remaining), "Avro Zstandard decompression failed");
+                append(chunk.data(), output.pos);
+                require(input.pos != input.size || remaining == 0 || output.pos != 0,
+                        "Truncated Avro Zstandard frame");
+            }
+            offset += frame_size;
+        }
+    }
+
+    void decompress_deflate() {
+        auto workspace_lease = workspace(256 * 1024);
+        z_stream stream {};
+        require(inflateInit2(&stream, -15) == Z_OK, "Cannot initialize Avro deflate decoder");
+        std::unique_ptr<z_stream, decltype(&inflateEnd)> cleanup(&stream, &inflateEnd);
+        std::array<uint8_t, 64 * 1024> chunk;
+        size_t offset = 0;
+        int result = Z_OK;
+        while (result != Z_STREAM_END && !(remaining_rows == 0 && compressed.empty())) {
+            if (stream.avail_in == 0) {
+                const size_t length = std::min<size_t>(std::numeric_limits<uInt>::max(),
+                                                       compressed.size() - offset);
+                stream.next_in = compressed.data() + offset;
+                stream.avail_in = static_cast<uInt>(length);
+                offset += length;
+            }
+            stream.next_out = chunk.data();
+            stream.avail_out = chunk.size();
+            const auto before = stream.avail_in;
+            result = inflate(&stream, Z_NO_FLUSH);
+            require(result == Z_OK || result == Z_STREAM_END || result == Z_BUF_ERROR,
+                    "Invalid Avro deflate block");
+            const auto produced = chunk.size() - stream.avail_out;
+            append(chunk.data(), produced);
+            // zlib can consume the last input byte while a MATCH still has pending output.
+            // Only completion or a no-progress iteration can terminate the drain.
+            require(result == Z_STREAM_END || before != stream.avail_in || produced != 0,
+                    "Truncated Avro deflate block");
+        }
+        // Avro C++ may emit a zero-byte empty block when closing an empty writer.
+        require((remaining_rows == 0 && compressed.empty()) ||
+                        (result == Z_STREAM_END && stream.avail_in == 0 &&
+                         offset == compressed.size()),
+                "Truncated Avro deflate block");
+    }
+
+    void decompress() {
+        SCOPED_TIMER(decompress_time);
+        const auto found = metadata.find("avro.codec");
+        const auto codec = found == metadata.end() ? "null" : found->second;
+        uncompressed.clear();
+        if (codec == "null") {
+            compressed.swap(uncompressed);
+        } else if (codec == "snappy") {
+            decompress_snappy();
+        } else if (codec == "zstandard") {
+            decompress_zstandard();
+        } else if (codec == "deflate") {
+            decompress_deflate();
+        } else {
+            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Unsupported Avro codec: {}", codec);
+        }
+        data = {.data = uncompressed.data(), .length = uncompressed.size(), .position = 0};
+    }
+
+    void append(const uint8_t* bytes, size_t count) {
+        require(count <= std::numeric_limits<size_t>::max() - uncompressed.size(),
+                "Avro decompression size overflows");
+        growth(uncompressed.capacity(), uncompressed.size() + count);
+        uncompressed.insert(uncompressed.end(), bytes, bytes + count);
+    }
+
+    // Decode only selected values; skipping a writer field never constructs GenericDatum trees.
+    // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
+    void read_value(const ::avro::NodePtr& input, ::avro::GenericDatum* datum,
+                    bool retained = true) {
+        const auto node = resolved(input);
+        switch (node->type()) {
+        case ::avro::AVRO_NULL:
+            break;
+        case ::avro::AVRO_BOOL: {
+            const auto value = data.byte();
+            require(value <= 1, "Invalid Avro boolean");
+            if (datum) {
+                datum->value<bool>() = value;
+            }
+            break;
+        }
+        case ::avro::AVRO_INT: {
+            const auto value = read_long(data);
+            require(value >= std::numeric_limits<int32_t>::min() &&
+                            value <= std::numeric_limits<int32_t>::max(),
+                    "Avro int overflows");
+            if (datum) {
+                datum->value<int32_t>() = static_cast<int32_t>(value);
+            }
+            break;
+        }
+        case ::avro::AVRO_LONG: {
+            const auto value = read_long(data);
+            if (datum) {
+                datum->value<int64_t>() = value;
+            }
+            break;
+        }
+        case ::avro::AVRO_FLOAT:
+        case ::avro::AVRO_DOUBLE: {
+            uint64_t bits = 0;
+            const size_t length = node->type() == ::avro::AVRO_FLOAT ? 4 : 8;
+            for (size_t i = 0; i < length; ++i) {
+                bits |= uint64_t(data.byte()) << (8 * i);
+            }
+            if (datum) {
+                if (length == 4) {
+                    datum->value<float>() = std::bit_cast<float>(static_cast<uint32_t>(bits));
+                } else {
+                    datum->value<double>() = std::bit_cast<double>(bits);
+                }
+            }
+            break;
+        }
+        case ::avro::AVRO_STRING:
+        case ::avro::AVRO_BYTES:
+        case ::avro::AVRO_FIXED: {
+            const int64_t length = node->type() == ::avro::AVRO_FIXED
+                                           ? static_cast<int64_t>(node->fixedSize())
+                                           : read_long(data);
+            require(length >= 0, "Invalid Avro value length");
+            if (datum == nullptr) {
+                data.skip(length);
+            } else if (node->type() == ::avro::AVRO_STRING) {
+                auto& value = datum->value<std::string>();
+                growth(value.capacity(), length);
+                require(static_cast<uint64_t>(length) <= data.remaining(), "Truncated Avro string");
+                value.resize(length);
+                data.read(value.data(), length);
+            } else {
+                auto& value = node->type() == ::avro::AVRO_FIXED
+                                      ? datum->value<::avro::GenericFixed>().value()
+                                      : datum->value<std::vector<uint8_t>>();
+                growth(value.capacity(), length);
+                require(static_cast<uint64_t>(length) <= data.remaining(), "Truncated Avro bytes");
+                value.resize(length);
+                data.read(value.data(), length);
+            }
+            break;
+        }
+        case ::avro::AVRO_ENUM: {
+            const auto index = read_long(data);
+            require(index >= 0 && static_cast<uint64_t>(index) < node->names(),
+                    "Invalid Avro enum");
+            if (datum) {
+                datum->value<::avro::GenericEnum>().set(index);
+            }
+            break;
+        }
+        case ::avro::AVRO_UNION: {
+            const auto index = read_long(data);
+            require(index >= 0 && static_cast<uint64_t>(index) < node->leaves(),
+                    "Invalid Avro union");
+            // Projected datum unions are null-first; encoded indices always belong to the
+            // writer schema, including for nested collection elements and named records.
+            const auto datum_index =
+                    node->leaves() == 2 && node->leafAt(1)->type() == ::avro::AVRO_NULL ? 1 - index
+                                                                                        : index;
+            if (datum && datum->unionBranch() != static_cast<size_t>(datum_index)) {
+                const bool releases_old =
+                        retained && node->leafAt(index)->type() == ::avro::AVRO_NULL;
+                if (releases_old) {
+                    checkpoint(*datum, true);
+                }
+                reserve(datum_size(node->leafAt(index)));
+                datum->selectBranch(datum_index);
+                if (releases_old) {
+                    checkpoint(*datum, false);
+                }
+                retained = false;
+            }
+            read_value(node->leafAt(index), datum, retained);
+            break;
+        }
+        case ::avro::AVRO_RECORD:
+            for (size_t i = 0; i < node->leaves(); ++i) {
+                read_value(node->leafAt(i),
+                           datum ? &datum->value<::avro::GenericRecord>().fieldAt(i) : nullptr,
+                           retained);
+            }
+            break;
+        case ::avro::AVRO_ARRAY:
+        case ::avro::AVRO_MAP: {
+            const bool map = node->type() == ::avro::AVRO_MAP;
+            const auto child = node->leafAt(map ? 1 : 0);
+            auto projected_child = child;
+            if (datum != nullptr) {
+                projected_child = map ? datum->value<::avro::GenericMap>().schema()->leafAt(1)
+                                      : datum->value<::avro::GenericArray>().schema()->leafAt(0);
+            }
+            if (datum) {
+                checkpoint(*datum, true);
+                if (map) {
+                    datum->value<::avro::GenericMap>().value().clear();
+                } else {
+                    datum->value<::avro::GenericArray>().value().clear();
+                }
+                checkpoint(*datum, false);
+            }
+            for (int64_t count = read_long(data); count != 0; count = read_long(data)) {
+                std::optional<size_t> block_end;
+                if (count < 0) {
+                    require(count != std::numeric_limits<int64_t>::min(),
+                            "Invalid Avro collection count");
+                    count = -count;
+                    const auto bytes = read_long(data);
+                    require(bytes >= 0 && static_cast<uint64_t>(bytes) <= data.remaining(),
+                            "Invalid Avro collection block size");
+                    block_end = data.position + bytes;
+                    if (datum == nullptr) {
+                        data.skip(bytes);
+                        continue;
+                    }
+                }
+                // A positive block of nulls has no payload bytes. Skip its cardinality in one
+                // step rather than looping over a potentially enormous unprojected collection.
+                if (datum == nullptr && !map && zero_width(child)) {
+                    continue;
+                }
+                if (datum == nullptr) {
+                    require(static_cast<uint64_t>(count) <= data.remaining(),
+                            "Truncated Avro collection");
+                }
+                if (datum) {
+                    growth(0, count, std::max(size_t(1), datum_size(projected_child)));
+                    auto admit = [&](auto& values) {
+                        require(static_cast<uint64_t>(count) <= values.max_size() - values.size(),
+                                "Avro collection count overflows");
+                        const auto size = values.size() + count;
+                        growth(values.capacity(), size,
+                               sizeof(typename std::remove_reference_t<
+                                       decltype(values)>::value_type));
+                        values.reserve(size);
+                    };
+                    if (map) {
+                        admit(datum->value<::avro::GenericMap>().value());
+                    } else {
+                        admit(datum->value<::avro::GenericArray>().value());
+                    }
+                }
+                for (int64_t i = 0; i < count; ++i) {
+                    if (map) {
+                        if (datum) {
+                            auto& values = datum->value<::avro::GenericMap>().value();
+                            auto key = read_string(data);
+                            values.emplace_back(std::move(key),
+                                                ::avro::GenericDatum(projected_child));
+                            read_value(child, &values.back().second, false);
+                        } else {
+                            const auto length = read_long(data);
+                            require(length >= 0, "Invalid Avro map key length");
+                            data.skip(length);
+                            read_value(child, nullptr);
+                        }
+                    } else if (datum) {
+                        auto& values = datum->value<::avro::GenericArray>().value();
+                        values.emplace_back(projected_child);
+                        read_value(child, &values.back(), false);
+                    } else {
+                        read_value(child, nullptr);
+                    }
+                }
+                require(!block_end || *block_end == data.position,
+                        "Avro collection block size mismatch");
+            }
+            break;
+        }
+        default:
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Unsupported Avro value");
+        }
+    }
+};
+
+AvroContainerReader::AvroContainerReader(io::FileReaderSPtr file,
+                                         std::shared_ptr<io::IOContext> context, Reserve reserve,
+                                         Checkpoint checkpoint, Workspace workspace,
+                                         RuntimeProfile* profile)
+        : _impl(std::make_unique<Impl>(std::move(file), std::move(context), std::move(reserve),
+                                       std::move(checkpoint), std::move(workspace), profile)) {}
+AvroContainerReader::~AvroContainerReader() = default;
+
+const ::avro::ValidSchema& AvroContainerReader::dataSchema() const {
+    return _impl->schema;
+}
+
+std::optional<std::string> AvroContainerReader::metadata(const std::string& key) const {
+    const auto found = _impl->metadata.find(key);
+    return found == _impl->metadata.end() ? std::nullopt : std::optional(found->second);
+}
+
+size_t AvroContainerReader::scratchBytes() const {
+    size_t bytes = sizeof(Impl) + _impl->compressed.capacity() + _impl->uncompressed.capacity() +
+                   _impl->schema_charge + _impl->datum_sizes.size() * 64 +
+                   _impl->file.scratch_bytes();
+    for (const auto& [key, value] : _impl->metadata) {
+        bytes += 128 + key.capacity() + value.capacity();
+    }
+    return bytes;
+}
+
+size_t AvroContainerReader::position() const {
+    return _impl->file.position();
+}
+
+int64_t AvroContainerReader::seek_range(int64_t start, bool absolute_positions) {
+    auto& s = *_impl;
+    s.file.seek(s.header_end);
+    int64_t rows = 0;
+    if (absolute_positions) {
+        if (std::cmp_greater(start, s.header_end)) {
+            // Coalesce prefix headers so remote scans do not issue one GET per small OCF block.
+            s.file.coalesce_prefix(s.reserve);
+        }
+        while (s.file.position() < static_cast<uint64_t>(start) && s.file.remaining() != 0) {
+            size_t end;
+            const auto count = s.block_header(&end);
+            require(count <= std::numeric_limits<int64_t>::max() - rows,
+                    "Avro row count overflows");
+            rows += count;
+            s.file.seek(end);
+            s.verify_sync();
+        }
+    } else if (std::cmp_greater(start, s.header_end)) {
+        // Ordinary scans need sync alignment, not the absolute row count of every preceding block.
+        s.file.seek(
+                std::max(s.header_end - s.sync.size(), static_cast<size_t>(start) - s.sync.size()));
+        std::array<uint8_t, 16> window {};
+        size_t filled = 0;
+        while (s.file.remaining() != 0) {
+            std::move(window.begin() + 1, window.end(), window.begin());
+            window.back() = s.file.byte();
+            if (++filled >= window.size() && window == s.sync) {
+                break;
+            }
+        }
+    }
+    s.total_rows = rows;
+    return rows;
+}
+
+void AvroContainerReader::init(const ::avro::ValidSchema& schema, int64_t offset) {
+    auto& s = *_impl;
+    // The selected schema contains whole roots in writer order; omitted roots are skipped in place.
+    const auto source = s.schema.root();
+    const auto target = schema.root();
+    size_t ordinal = 0;
+    for (size_t i = 0; i < source->leaves(); ++i) {
+        if (ordinal < target->leaves() && source->nameAt(i) == target->nameAt(ordinal)) {
+            s.selected.emplace(i, ordinal++);
+        }
+    }
+    s.projected_schema = schema;
+    s.file.seek(offset);
+    size_t end;
+    s.block_header(&end);
+    s.file.seek(offset);
+}
+
+bool AvroContainerReader::hasMoreBefore(int64_t end) {
+    auto& s = *_impl;
+    while (s.remaining_rows == 0) {
+        require(!s.loaded || s.data.remaining() == 0, "Avro block has trailing values");
+        if (s.file.remaining() == 0 || s.file.position() >= static_cast<uint64_t>(end)) {
+            return false;
+        }
+        size_t payload_end;
+        s.remaining_rows = s.block_header(&payload_end);
+        require(s.remaining_rows <= std::numeric_limits<int64_t>::max() - s.total_rows,
+                "Avro row count overflows");
+        s.total_rows += s.remaining_rows;
+        const size_t bytes = payload_end - s.file.position();
+        s.growth(s.compressed.capacity(), bytes);
+        s.compressed.resize(bytes);
+        s.file.read(s.compressed.data(), bytes);
+        s.verify_sync();
+        s.decompress();
+        s.loaded = true;
+    }
+    return true;
+}
+
+std::unique_ptr<::avro::GenericDatum> AvroContainerReader::make_datum() {
+    auto& s = *_impl;
+    // A zero-row block needs no value tree, even when the schema contains a huge nonnullable FIXED.
+    s.reserve(sizeof(::avro::GenericDatum) + s.datum_size(s.projected_schema.root()));
+    return std::make_unique<::avro::GenericDatum>(s.projected_schema);
+}
+
+void AvroContainerReader::read(::avro::GenericDatum& datum) {
+    auto& s = *_impl;
+    const auto root = s.schema.root();
+    auto& record = datum.value<::avro::GenericRecord>();
+    for (size_t i = 0; i < root->leaves(); ++i) {
+        const auto found = s.selected.find(i);
+        s.read_value(root->leafAt(i),
+                     found == s.selected.end() ? nullptr : &record.fieldAt(found->second));
+    }
+    --s.remaining_rows;
+}
+
+} // namespace doris::format::avro

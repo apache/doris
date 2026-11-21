@@ -681,9 +681,9 @@ Status FileScannerV2::_read_by_rows_wrapped(const TFileRangeDesc& range,
     RETURN_IF_ERROR(validate_file_scan_support(*_params, &range));
     const auto format_type = get_range_format_type(*_params, range);
     if (format_type != TFileFormatType::FORMAT_PARQUET &&
-        format_type != TFileFormatType::FORMAT_ORC) {
+        format_type != TFileFormatType::FORMAT_ORC && format_type != TFileFormatType::FORMAT_AVRO) {
         return Status::NotSupported(
-                "FileScannerV2 row-id fetch supports only Parquet and ORC, file format={}",
+                "FileScannerV2 row-id fetch supports only Parquet, ORC and Avro, file format={}",
                 to_string(format_type));
     }
 
@@ -1110,6 +1110,9 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
         return Status::OK();
     case TFileFormatType::FORMAT_ORC:
         *file_format = format::FileFormat::ORC;
+        return Status::OK();
+    case TFileFormatType::FORMAT_AVRO:
+        *file_format = format::FileFormat::AVRO;
         return Status::OK();
     case TFileFormatType::FORMAT_JNI:
         *file_format = format::FileFormat::JNI;

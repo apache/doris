@@ -64,6 +64,7 @@ enum class FileFormat {
     ES_HTTP,
     MONGODB,
     LANCE,
+    AVRO,
 };
 
 // Format-local description of one independently readable part of a file. Scanner scheduling

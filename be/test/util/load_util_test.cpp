@@ -49,6 +49,16 @@ TEST_F(LoadUtilTest, StreamingTest) {
     }
 }
 
+TEST_F(LoadUtilTest, AvroUsesStagedFileInput) {
+    for (const char* name : {"avro", "AVRO"}) {
+        TFileFormatType::type format;
+        TFileCompressType::type compression;
+        LoadUtil::parse_format(name, "", &format, &compression);
+        EXPECT_EQ(format, TFileFormatType::FORMAT_AVRO);
+        EXPECT_FALSE(LoadUtil::is_format_support_streaming(format));
+    }
+}
+
 TEST_F(LoadUtilTest, ParseTest) {
     {
         // "", ""

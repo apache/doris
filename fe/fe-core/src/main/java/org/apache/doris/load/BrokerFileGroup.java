@@ -35,6 +35,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.fileformat.AvroFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
@@ -259,7 +260,8 @@ public class BrokerFileGroup {
     public boolean isBinaryFileFormat() {
         // Must call initDeferredFileFormatPropertiesIfNecessary before
         return fileFormatProperties instanceof ParquetFileFormatProperties
-                || fileFormatProperties instanceof OrcFileFormatProperties;
+                || fileFormatProperties instanceof OrcFileFormatProperties
+                || fileFormatProperties instanceof AvroFileFormatProperties;
     }
 
     public FileFormatProperties getFileFormatProperties() {

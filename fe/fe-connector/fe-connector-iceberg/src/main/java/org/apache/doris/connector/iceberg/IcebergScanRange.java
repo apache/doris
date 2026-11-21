@@ -367,7 +367,7 @@ public class IcebergScanRange implements ConnectorScanRange {
             // IcebergScanNode.setIcebergPositionDeleteSysTableParams (upstream #65135) field for field.
             //
             // BE routes into iceberg_position_delete_sys_table_reader iff table_format_type=="iceberg" AND the
-            // TOP-LEVEL iceberg_params.content is set to 1 or 3 AND the range format_type is PARQUET/ORC
+            // TOP-LEVEL iceberg_params.content is set to 1 or 3; the range retains its physical file format
             // (file_scanner.cpp:103-113, file_scanner_v2.cpp:75-125). The top-level content field is otherwise
             // deprecated and unset on ordinary data ranges — which is exactly what keeps them out of this
             // reader. Consequently the data path MUST NEVER set content to 1 or 3.
@@ -459,11 +459,14 @@ public class IcebergScanRange implements ConnectorScanRange {
             fileDesc.setDeleteFiles(deleteDescs);
         }
 
-        // native reader format (JNI = system tables, P6.5). Leaves the parent's default (FORMAT_JNI) otherwise.
+        // A scan-level Parquet default can also cover Avro files in mixed-format snapshots.
+        // Publish each file's physical decoder before BE opens its footer/header.
         if ("orc".equals(fileFormat)) {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
         } else if ("parquet".equals(fileFormat)) {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+        } else if ("avro".equals(fileFormat)) {
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_AVRO);
         }
 
         // table_level_row_count: the single collapsed COUNT(*)-pushdown range carries the snapshot-summary
@@ -504,7 +507,7 @@ public class IcebergScanRange implements ConnectorScanRange {
         private long length = -1;
         private long fileSize = -1;
         // Default empty (NOT "jni", which is not a real iceberg file format). Production callers set the real
-        // orc/parquet from the data file's format; mirrors PaimonScanRange.Builder.
+        // orc/parquet/avro from the data file's format; mirrors PaimonScanRange.Builder.
         private String fileFormat = "";
         private IcebergFileEncryption encryption;
         // Default 2 (the iceberg metadata default); production callers set the real table format version.
@@ -678,7 +681,7 @@ public class IcebergScanRange implements ConnectorScanRange {
      * enclosing range is serialized into the split). The {@code content} ids are the legacy literals
      * (1 = position delete, 2 = equality delete, 3 = deletion vector); only the fields relevant to a
      * given kind are non-null, and {@link #toThrift()} sets only the non-null ones (legacy sets bounds
-     * only when present and {@code file_format} only for parquet/orc).
+     * only when present and {@code file_format} only for parquet/orc/avro).
      */
     public static final class DeleteFile implements Serializable {
 

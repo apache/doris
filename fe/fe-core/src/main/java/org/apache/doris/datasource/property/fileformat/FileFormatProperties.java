@@ -96,7 +96,7 @@ public abstract class FileFormatProperties {
             case FORMAT_JSON:
                 return new JsonFileFormatProperties();
             case FORMAT_AVRO:
-                throw new AnalysisException("Avro file reads are no longer supported");
+                return new AvroFileFormatProperties();
             case FORMAT_WAL:
                 return new WalFileFormatProperties();
             case FORMAT_ARROW:

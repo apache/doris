@@ -102,6 +102,10 @@ public class DeferredFileFormatProperties extends FileFormatProperties {
                 this.formatName = FORMAT_ORC;
                 break;
             }
+            case FORMAT_AVRO: {
+                this.formatName = FORMAT_AVRO;
+                break;
+            }
             case FORMAT_JSON: {
                 this.formatName = FORMAT_JSON;
                 break;

@@ -468,6 +468,21 @@ build_openssl() {
     remove_all_dylib
 }
 
+# Apache Avro C++ uses Doris' codec libraries and a controlled build description.
+build_avro() {
+    check_if_source_exist "${AVRO_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${AVRO_SOURCE}/lang/c++"
+    cp "${TP_PATCH_DIR}/avro-cpp-CMakeLists.txt" CMakeLists.txt
+    # Avro only formats literal exception messages; retain compatibility with Doris' fmt headers.
+    sed -i.bak 's/fmt::format_string<Args\.\.\.> fmt/const char* fmt/' include/avro/Exception.hh
+    sed -i.bak 's/ctx) const {/ctx) {/' include/avro/Node.hh include/avro/Types.hh
+    ${CMAKE_CMD} -S . -B doris-build \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_CXX_COMPILER="${CXX}" -DCMAKE_CXX_FLAGS="${CXXFLAGS} -fPIC"
+    ${CMAKE_CMD} --build doris-build --parallel "${PARALLEL}"
+    ${CMAKE_CMD} --install doris-build
+}
+
 # thrift
 build_thrift() {
     check_if_source_exist "${THRIFT_SOURCE}"
@@ -2794,6 +2809,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         mecab_ipadic
         pugixml
         paimon_rust
+        avro
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
@@ -2821,6 +2837,7 @@ cleanup_package_source() {
         gtest)           src_var="GTEST_SOURCE" ;;
         rapidjson)       src_var="RAPIDJSON_SOURCE" ;;
         snappy)          src_var="SNAPPY_SOURCE" ;;
+        avro)            src_var="AVRO_SOURCE" ;;
         gperftools)      src_var="GPERFTOOLS_SOURCE" ;;
         zlib)            src_var="ZLIB_SOURCE" ;;
         crc32c)          src_var="CRC32C_SOURCE" ;;

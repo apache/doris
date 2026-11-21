@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TPaimonReaderType;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -45,6 +46,21 @@ public class PaimonScanRangeReaderTypeTest {
         TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
         range.populateRangeParams(formatDesc, new TFileRangeDesc());
         return formatDesc;
+    }
+
+    @Test
+    public void avroPhysicalFilesKeepThePaimonSdkMergeReader() {
+        PaimonScanRange range = new PaimonScanRange.Builder()
+                .fileFormat("avro")
+                .paimonSplit("serialized-logical-split")
+                .build();
+        TFileRangeDesc wireRange = new TFileRangeDesc();
+        wireRange.setFormatType(TFileFormatType.FORMAT_AVRO);
+        TTableFormatFileDesc format = new TTableFormatFileDesc();
+        range.populateRangeParams(format, wireRange);
+        Assertions.assertEquals(TFileFormatType.FORMAT_JNI, wireRange.getFormatType());
+        Assertions.assertEquals("avro", format.getPaimonParams().getFileFormat());
+        Assertions.assertEquals(TPaimonReaderType.PAIMON_JNI, format.getPaimonParams().getReaderType());
     }
 
     @Test

@@ -27,6 +27,9 @@
 
 #include <algorithm>
 #include <array>
+#include <avro/Compiler.hh>
+#include <avro/DataFile.hh>
+#include <avro/Generic.hh>
 #include <bit>
 #include <chrono>
 #include <cmath>
@@ -9329,4 +9332,221 @@ TEST(IcebergEncryptionTest, EncryptedAggregatesCannotUseTableLevelRowCounts) {
 #endif
 
 } // namespace
+TEST(IcebergV2ReaderTest, AvroEqualityDeletesPreserveInstantsAcrossDstFold) {
+    test::ScopedTempDirectory temp("iceberg_avro_dst");
+    const auto path = (temp.path() / "data.avro").string();
+    const auto delete_path = (temp.path() / "delete.avro").string();
+    const auto schema =
+            ::avro::compileJsonSchemaFromString(R"({"type":"record","name":"data","fields":[
+      {"name":"event_time","type":{"type":"long","logicalType":"timestamp-micros"},"field-id":1},
+      {"name":"id","type":"int","field-id":2}]})");
+    constexpr int64_t first = 1'730'611'800'000'000L;
+    constexpr int64_t second = 1'730'615'400'000'000L;
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), schema);
+        ::avro::GenericDatum datum(schema);
+        auto& record = datum.value<::avro::GenericRecord>();
+        record.fieldAt(0).value<int64_t>() = first;
+        record.fieldAt(1).value<int32_t>() = 1;
+        writer.write(datum);
+        record.fieldAt(0).value<int64_t>() = second;
+        record.fieldAt(1).value<int32_t>() = 2;
+        writer.write(datum);
+        writer.close();
+    }
+    const auto delete_schema =
+            ::avro::compileJsonSchemaFromString(R"({"type":"record","name":"del","fields":[
+      {"name":"event_time","type":{"type":"long","logicalType":"timestamp-micros"},"field-id":1}]})");
+    for (const auto tombstone : {first, second}) {
+        {
+            ::avro::DataFileWriter<::avro::GenericDatum> writer(delete_path.c_str(), delete_schema);
+            ::avro::GenericDatum datum(delete_schema);
+            datum.value<::avro::GenericRecord>().fieldAt(0).value<int64_t>() = tombstone;
+            writer.write(datum);
+            writer.close();
+        }
+        auto event =
+                external_schema_field("event_time", 1, {}, std::nullopt,
+                                      external_primitive_type(TPrimitiveType::TIMESTAMPTZ, -1, 6));
+        event.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+        auto params = make_local_parquet_scan_params();
+        params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+        params.__set_enable_mapping_timestamp_tz(false);
+        params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+        params.__set_current_schema_id(100);
+        params.__set_history_schema_info(
+                {external_schema(100, {event, external_schema_field("id", 2)})});
+        const std::vector<ColumnDefinition> projected {
+                make_table_column(2, "id", std::make_shared<DataTypeInt32>())};
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        state.set_timezone("America/New_York");
+        RuntimeProfile profile("iceberg_avro_dst");
+        ShardedKVCache cache(1);
+        auto io_ctx = std::make_shared<io::IOContext>();
+        doris::format::iceberg::IcebergTableReader reader;
+        init_iceberg_reader(&reader, projected, &params, io_ctx, &state, &profile,
+                            FileFormat::AVRO);
+        auto split = build_split_options(path);
+        split.current_split_format = FileFormat::AVRO;
+        split.cache = &cache;
+        split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                path, {make_iceberg_equality_delete_file(delete_path, {1},
+                                                         TFileFormatType::FORMAT_AVRO)}));
+        const auto status = reader.prepare_split(split);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(read_iceberg_ids(&reader, projected),
+                  std::vector<int32_t>({tombstone == first ? 2 : 1}));
+        EXPECT_TRUE(reader.close().ok());
+    }
+}
+
+TEST(IcebergV2ReaderTest, AvroDataAndDeletesPreserveHiddenKeysAndAbsoluteRows) {
+    test::ScopedTempDirectory temp("iceberg_avro");
+    const auto path = (temp.path() / "data.avro").string();
+    const auto equality_path = (temp.path() / "eq.avro").string();
+    const auto position_path = (temp.path() / "pos.avro").string();
+    const auto data_schema =
+            ::avro::compileJsonSchemaFromString(R"({"type":"record","name":"data","fields":[
+      {"name":"old_key","type":"long","field-id":2},
+      {"name":"old_id","type":"int","field-id":1}]})");
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), data_schema, 32,
+                                                            ::avro::DEFLATE_CODEC);
+        ::avro::GenericDatum datum(data_schema);
+        for (int32_t id = 1; id <= 5; ++id) {
+            auto& record = datum.value<::avro::GenericRecord>();
+            record.fieldAt(0).value<int64_t>() = id * 10;
+            record.fieldAt(1).value<int32_t>() = id;
+            writer.write(datum);
+            writer.flush();
+        }
+        writer.close();
+    }
+    {
+        const auto schema =
+                ::avro::compileJsonSchemaFromString(R"({"type":"record","name":"eq","fields":[
+          {"name":"deleted_key","type":"long","field-id":2}]})");
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(equality_path.c_str(), schema);
+        ::avro::GenericDatum datum(schema);
+        datum.value<::avro::GenericRecord>().fieldAt(0).value<int64_t>() = 20;
+        writer.write(datum);
+        writer.close();
+    }
+    {
+        const auto schema =
+                ::avro::compileJsonSchemaFromString(R"({"type":"record","name":"pos","fields":[
+          {"name":"file_path","type":"string","field-id":2147483546},
+          {"name":"pos","type":"long","field-id":2147483545}]})");
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(position_path.c_str(), schema);
+        ::avro::GenericDatum datum(schema);
+        auto& record = datum.value<::avro::GenericRecord>();
+        record.fieldAt(0).value<std::string>() = "another-data-file.avro";
+        record.fieldAt(1).value<int64_t>() = 0;
+        writer.write(datum);
+        record.fieldAt(0).value<std::string>() = path;
+        record.fieldAt(1).value<int64_t>() = 3;
+        writer.write(datum);
+        writer.close();
+    }
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(
+            100, {external_schema_field("renamed_id", 1, {}, std::nullopt,
+                                        external_primitive_type(TPrimitiveType::INT)),
+                  external_schema_field("renamed_key", 2, {}, std::nullopt,
+                                        external_primitive_type(TPrimitiveType::BIGINT))})});
+    const std::vector<ColumnDefinition> projected = {
+            make_table_column(1, "renamed_id", std::make_shared<DataTypeInt32>())};
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("iceberg_avro");
+    ShardedKVCache cache(1);
+    auto io_ctx = std::make_shared<io::IOContext>();
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected, &scan_params, io_ctx, &state, &profile,
+                        FileFormat::AVRO);
+    auto split = build_split_options(path);
+    split.current_split_format = FileFormat::AVRO;
+    split.cache = &cache;
+    auto position_delete = make_iceberg_position_delete_file(position_path);
+    position_delete.__set_file_format(TFileFormatType::FORMAT_AVRO);
+    split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            path,
+            {make_iceberg_equality_delete_file(equality_path, {2}, TFileFormatType::FORMAT_AVRO),
+             position_delete}));
+    const auto prepared = reader.prepare_split(split);
+    ASSERT_TRUE(prepared.ok()) << prepared;
+    EXPECT_EQ(read_iceberg_ids(&reader, projected), (std::vector<int32_t> {1, 3, 5}));
+    EXPECT_TRUE(reader.close().ok());
+    const std::vector<ColumnDefinition> count_columns {
+            make_table_column(2, "renamed_key", std::make_shared<DataTypeInt64>())};
+    doris::format::iceberg::IcebergTableReader count_reader;
+    ASSERT_TRUE(count_reader
+                        .init({.projected_columns = count_columns,
+                               .conjuncts = {},
+                               .format = FileFormat::AVRO,
+                               .scan_params = &scan_params,
+                               .io_ctx = io_ctx,
+                               .runtime_state = &state,
+                               .scanner_profile = &profile,
+                               .push_down_agg_type = TPushAggOp::type::COUNT,
+                               .push_down_count_columns = std::vector<GlobalIndex> {}})
+                        .ok());
+    ASSERT_TRUE(count_reader.prepare_split(split).ok());
+    Block count_block = build_table_block(count_columns);
+    bool eos = false;
+    size_t survivors = 0;
+    while (!eos) {
+        count_block.clear_column_data();
+        const auto status = count_reader.get_block(&count_block, &eos);
+        ASSERT_TRUE(status.ok()) << status;
+        survivors += count_block.rows();
+    }
+    EXPECT_EQ(survivors, 3);
+    EXPECT_TRUE(count_reader.close().ok());
+}
+
+TEST(IcebergV2ReaderTest, AvroSchemaEvolutionPromotesRenamedFieldsAndFillsInitialDefaults) {
+    test::ScopedTempDirectory temp("iceberg_avro_evolution");
+    const auto path = (temp.path() / "old.avro").string();
+    const auto schema =
+            ::avro::compileJsonSchemaFromString(R"({"type":"record","name":"old","fields":[
+      {"name":"original","type":"int","field-id":1}]})");
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), schema);
+        ::avro::GenericDatum datum(schema);
+        datum.value<::avro::GenericRecord>().fieldAt(0).value<int32_t>() = 7;
+        writer.write(datum);
+        writer.close();
+    }
+    auto added = make_table_column(2, "added", std::make_shared<DataTypeString>());
+    added.initial_default_value = "initial";
+    ASSERT_TRUE(iceberg::prepare_iceberg_initial_default_exprs(&added).ok());
+    const std::vector<ColumnDefinition> projected = {
+            added, make_table_column(1, "renamed", std::make_shared<DataTypeInt64>()),
+            make_synthesized_table_column(BeConsts::ICEBERG_ROW_POSITION_COL,
+                                          std::make_shared<DataTypeInt64>())};
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("iceberg_avro_evolution");
+    auto params = make_local_parquet_scan_params();
+    params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected, &params, std::make_shared<io::IOContext>(), &state,
+                        &profile, FileFormat::AVRO);
+    auto split = build_split_options(path);
+    split.current_split_format = FileFormat::AVRO;
+    split.current_range.__set_table_format_params(make_iceberg_table_format_desc(path, {}));
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    Block block = build_table_block(projected);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(block.rows(), 1);
+    expect_string_column_values(*block.get_by_position(0).column, {"initial"});
+    expect_int64_column_values(*block.get_by_position(1).column, {7});
+    expect_int64_column_values(*block.get_by_position(2).column, {0});
+    EXPECT_TRUE(reader.close().ok());
+}
+
 } // namespace doris::format

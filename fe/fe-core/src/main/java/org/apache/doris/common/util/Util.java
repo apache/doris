@@ -406,6 +406,8 @@ public class Util {
             return TFileFormatType.FORMAT_PARQUET;
         } else if (lowerCasePath.contains(".orc")) {
             return TFileFormatType.FORMAT_ORC;
+        } else if (lowerCasePath.contains(".avro")) {
+            return TFileFormatType.FORMAT_AVRO;
         } else if (lowerCasePath.contains(".json")) {
             return TFileFormatType.FORMAT_JSON;
         } else {
@@ -419,6 +421,8 @@ public class Util {
             return TFileFormatType.FORMAT_PARQUET;
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ORC)) {
             return TFileFormatType.FORMAT_ORC;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_AVRO)) {
+            return TFileFormatType.FORMAT_AVRO;
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_JSON)) {
             return TFileFormatType.FORMAT_JSON;
             // csv/csv_with_name/csv_with_names_and_types treat as csv format

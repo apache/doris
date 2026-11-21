@@ -557,6 +557,8 @@ The Apache Software License, Version 2.0
         - org.apache.ant:ant:1.9.1 (http://ant.apache.org/)
     * Apache Ant Launcher:
         - org.apache.ant:ant-launcher:1.9.1 (http://ant.apache.org/)
+    * Apache Avro C++ (static library):
+        - Apache Avro C++ 1.12.1 (https://avro.apache.org)
     * Apache Avro:
         - org.apache.avro:avro:1.10.1 (https://avro.apache.org)
         - org.apache.avro:avro:1.7.4 (http://avro.apache.org)

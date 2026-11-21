@@ -17,6 +17,7 @@
 
 #include "format_v2/schema_reader.h"
 
+#include "format_v2/avro/avro_reader.h"
 #include "format_v2/delimited_text/csv_reader.h"
 #include "format_v2/delimited_text/text_reader.h"
 #include "format_v2/json/json_reader.h"
@@ -105,6 +106,9 @@ Status fetch_file_schema(const TFileScanRangeParams& params, const TFileRangeDes
     } else if (params.format_type == TFileFormatType::FORMAT_ORC) {
         reader = std::make_unique<orc::OrcReader>(properties, file, io_ctx, profile, std::nullopt,
                                                   timestamp_tz, varbinary);
+    } else if (params.format_type == TFileFormatType::FORMAT_AVRO) {
+        reader = std::make_unique<avro::AvroReader>(properties, file, io_ctx, profile, timestamp_tz,
+                                                    varbinary);
     } else {
         return Status::NotSupported("Unsupported format {} for V2 schema inference",
                                     params.format_type);

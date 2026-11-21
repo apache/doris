@@ -132,6 +132,9 @@ format::TableColumnMappingMode HiveReader::mapping_mode() const {
         use_column_names = query_options.hive_orc_use_column_names;
     } else if (_format == format::FileFormat::PARQUET) {
         use_column_names = query_options.hive_parquet_use_column_names;
+    } else if (_format == format::FileFormat::AVRO) {
+        // Avro carries field names even when Hive's ORC/Parquet positional switches are disabled.
+        use_column_names = true;
     } else if (_format == format::FileFormat::CSV || _format == format::FileFormat::TEXT ||
                _format == format::FileFormat::JSON) {
         // Hive CSV/TEXT/JSON readers synthesize a file-local schema from FE-provided file slots

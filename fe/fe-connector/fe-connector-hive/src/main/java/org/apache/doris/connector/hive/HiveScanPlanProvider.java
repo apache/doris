@@ -172,6 +172,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         String dbName = hiveHandle.getDbName();
         String tableName = hiveHandle.getTableName();
         recordPruningProfile(hiveHandle);
+        HiveFileFormat fileFormat = HiveFileFormat.detect(
+                hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
+                readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
+        HiveAvroSchemaPolicy.validate(hiveHandle, fileFormat);
+
 
         // Typed FE pruning can leave an unfiltered handle when its full view was preloaded before planner
         // locks. Honor those names directly: do not enumerate or reselect the full partition universe here.
@@ -184,9 +189,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             return Collections.emptyList();
         }
 
-        HiveFileFormat fileFormat = HiveFileFormat.detect(
-                hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
-                readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
         long targetSplitSize = getTargetSplitSize(session);
         boolean isLzo = isLzoInputFormat(hiveHandle.getInputFormat());
         // LZO text is NOT splittable: a .lzo stream cannot be decompressed from an arbitrary byte offset.
@@ -409,9 +411,10 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             scanContext.checkCancelled();
             this.scheduler = session.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT);
             this.partitionNames = requiredPartitions.isEmpty() ? null : requiredPartitions;
-            this.fs = storage().getFileSystem(session);
             this.tableFormat = HiveFileFormat.detect(handle.getInputFormat(), handle.getSerializationLib(),
                     readHiveJsonInOneColumn(session), handle.isFirstColumnString());
+            HiveAvroSchemaPolicy.validate(handle, tableFormat);
+            this.fs = storage().getFileSystem(session);
             this.isLzo = isLzoInputFormat(handle.getInputFormat());
             this.splittable = tableFormat.isSplittable() && !isLzo;
             this.targetSplitSize = getTargetSplitSize(session);
@@ -704,6 +707,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         HiveFileFormat fileFormat = HiveFileFormat.detect(
                 hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
                 readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
+        HiveAvroSchemaPolicy.validate(hiveHandle, fileFormat);
         props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, fileFormat.getFormatName());
 
         // Partition key column names
