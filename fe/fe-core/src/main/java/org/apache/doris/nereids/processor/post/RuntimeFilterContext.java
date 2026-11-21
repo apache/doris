@@ -219,14 +219,15 @@ public class RuntimeFilterContext {
     }
 
     /**
-     * the selectivity produced by predicate or rf
+     * Effective source types in increasing priority for propagation.
      */
     public enum EffectiveSrcType {
-        NATIVE, REF
+        REF, NATIVE, CHANGELOG
     }
 
     public void addEffectiveSrcNode(Plan node, EffectiveSrcType type) {
-        effectiveSrcNodes.put(node, type);
+        effectiveSrcNodes.merge(node, type,
+                (existing, incoming) -> existing.compareTo(incoming) >= 0 ? existing : incoming);
     }
 
     public boolean isEffectiveSrcNode(Plan node) {

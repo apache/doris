@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.processor.post;
 
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -33,10 +34,12 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.Statistics;
@@ -56,7 +59,8 @@ import java.util.Set;
  * 2. the build column ndv is less than that of probe column, OR
  * 3. the build column's ColumnStats.selectivity < 1, OR
  * 4. the build column is reduced by another RF, which satisfies above criterions, OR
- * 5. the RF can eliminate whole scan ranges.
+ * 5. the RF can eliminate whole scan ranges, OR
+ * 6. the build side scans a table stream's incremental data.
  *
  * TODO: item 2 is not used since the estimation is not accurate now.
  */
@@ -96,6 +100,18 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     }
 
     @Override
+    public PhysicalUnion visitPhysicalUnion(PhysicalUnion union, CascadesContext context) {
+        visitPhysicalSetOperation(union, context);
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        if (union.children().stream()
+                .anyMatch(child -> rfContext.getEffectiveSrcType(child)
+                        == RuntimeFilterContext.EffectiveSrcType.CHANGELOG)) {
+            rfContext.addEffectiveSrcNode(union, RuntimeFilterContext.EffectiveSrcType.CHANGELOG);
+        }
+        return union;
+    }
+
+    @Override
     public PhysicalIntersect visitPhysicalIntersect(PhysicalIntersect intersect, CascadesContext context) {
         for (Plan child : intersect.children()) {
             child.accept(this, context);
@@ -129,7 +145,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
 
     @Override
     public PhysicalTopN<? extends Plan> visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext context) {
-        topN.child().accept(this, context);
+        propagateEffectiveSrc(topN, context);
         context.getRuntimeFilterContext().addEffectiveSrcNode(topN, RuntimeFilterContext.EffectiveSrcType.NATIVE);
         return topN;
     }
@@ -137,7 +153,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     public PhysicalLimit<? extends Plan> visitPhysicalLimit(
             PhysicalLimit<? extends Plan> limit,
             CascadesContext context) {
-        limit.child().accept(this, context);
+        propagateEffectiveSrc(limit, context);
         context.getRuntimeFilterContext().addEffectiveSrcNode(limit, RuntimeFilterContext.EffectiveSrcType.NATIVE);
         return limit;
     }
@@ -177,15 +193,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         }
         join.left().accept(this, context);
         if (rfContext.isEffectiveSrcNode(join.left())) {
-            RuntimeFilterContext.EffectiveSrcType leftType =
-                    rfContext.getEffectiveSrcType(join.left());
-            RuntimeFilterContext.EffectiveSrcType rightType =
-                    rfContext.getEffectiveSrcType(join.right());
-            if (rightType == null
-                    || (rightType == RuntimeFilterContext.EffectiveSrcType.REF
-                        && leftType == RuntimeFilterContext.EffectiveSrcType.NATIVE)) {
-                rfContext.addEffectiveSrcNode(join, leftType);
-            }
+            rfContext.addEffectiveSrcNode(join, rfContext.getEffectiveSrcType(join.left()));
         }
         return join;
     }
@@ -226,6 +234,18 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     }
 
     @Override
+    public PhysicalOlapScan visitPhysicalOlapScan(PhysicalOlapScan scan, CascadesContext context) {
+        if (scan.getTable() instanceof OlapChangelogTableWrapper) {
+            // Base-table statistics do not describe the stream's incremental data.
+            context.getRuntimeFilterContext().addEffectiveSrcNode(scan,
+                    RuntimeFilterContext.EffectiveSrcType.CHANGELOG);
+        } else {
+            visitPhysicalRelation(scan, context);
+        }
+        return scan;
+    }
+
+    @Override
     public PhysicalRelation visitPhysicalRelation(PhysicalRelation scan, CascadesContext context) {
         RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
         List<Slot> slots = rfCtx.getTargetListByScan(scan);
@@ -242,7 +262,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     @Override
     public PhysicalAssertNumRows visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             CascadesContext context) {
-        assertNumRows.child().accept(this, context);
+        propagateEffectiveSrc(assertNumRows, context);
         context.getRuntimeFilterContext().addEffectiveSrcNode(assertNumRows,
                 RuntimeFilterContext.EffectiveSrcType.NATIVE);
         return assertNumRows;
