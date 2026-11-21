@@ -471,6 +471,25 @@ public class Role implements GsonPostProcessable {
         return false;
     }
 
+    /**
+     * The first of {@code cols} this role grants {@code colPrivilege} on by a grant on the column itself, if
+     * any. A privilege on the table, or on anything above it, is not looked at: that is the table level
+     * question, and the caller has asked it already.
+     */
+    public Optional<String> findColWithPriv(String ctl, String db, String tbl, Set<String> cols,
+            Privilege colPrivilege) {
+        Set<String> grantedCols = colPrivMap.get(new ColPrivilegeKey(colPrivilege, ctl, db, tbl));
+        if (CollectionUtils.isEmpty(grantedCols)) {
+            return Optional.empty();
+        }
+        for (String col : cols) {
+            if (grantedCols.contains(col)) {
+                return Optional.of(col);
+            }
+        }
+        return Optional.empty();
+    }
+
     private boolean checkTblInternal(String ctl, String db, String tbl, PrivPredicate wanted, PrivBitSet savedPrivs) {
         tablePrivTable.getPrivs(ctl, db, tbl, savedPrivs);
         return Privilege.satisfy(savedPrivs, wanted);

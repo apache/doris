@@ -57,22 +57,34 @@ suite("test_select_count_auth","p0,auth") {
 
     sql """grant select_priv(query_id) on __internal_schema.audit_log to ${user}"""
 
+    // SELECT on one column of a table is enough for a statement that reads no column of it,
+    // as it is in MySQL and PostgreSQL
     connect(user, "${pwd}", context.config.jdbcUrl) {
+        sql """
+            select count(*) from __internal_schema.audit_log;
+        """
+        sql """
+            select count(1) from __internal_schema.audit_log;
+        """
+        sql """
+            select count(*) from __internal_schema.audit_log a;
+        """
+        sql """
+            select count(query_id) from __internal_schema.audit_log;
+        """
+        // a column that is read still takes its own privilege
         test {
               sql """
-                  select count(*) from __internal_schema.audit_log;
+                  select count(client_ip) from __internal_schema.audit_log;
               """
               exception "denied"
         }
         test {
               sql """
-                  select count(1) from __internal_schema.audit_log;
+                  select count(*) from __internal_schema.audit_log where client_ip = '127.0.0.1';
               """
               exception "denied"
         }
-      sql """
-          select count(query_id) from __internal_schema.audit_log;
-      """
     }
 
     sql """grant select_priv on __internal_schema.audit_log to ${user}"""
