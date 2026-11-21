@@ -190,7 +190,7 @@
       "patterns": [
         "^be/src/(?:format(?:_v2)?/|vec/exec/format/)"
       ],
-      "reviewers": ["yiguolei", "Gabriel39", "924060929", "gavinchou", "hubgeter", "zhangstar333", "HappenLee", "liaoxin01", "morningman", "hello-stephen", "CalvinKirs", "suxiaogang223"]
+      "reviewers": ["yiguolei", "Gabriel39", "gavinchou", "hubgeter", "zhangstar333", "HappenLee", "liaoxin01", "morningman", "suxiaogang223"]
     },
     "io.cache": {
       "label": "File cache and remote cache",
