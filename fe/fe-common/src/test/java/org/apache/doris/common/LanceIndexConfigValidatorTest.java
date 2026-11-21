@@ -39,6 +39,9 @@ public class LanceIndexConfigValidatorTest {
         Assertions.assertFalse(Config.enable_lance_index_mutation);
         Assertions.assertEquals(4096, Config.lance_index_max_num_partitions);
         Assertions.assertEquals(256, Config.lance_index_max_num_sub_vectors);
+        Assertions.assertEquals(2, Config.lance_index_mutation_max_concurrency);
+        Assertions.assertEquals(16, Config.lance_index_mutation_max_queued);
+        Assertions.assertEquals(300, Config.lance_index_mutation_budget_cap_seconds);
     }
 
     @Test
@@ -46,6 +49,12 @@ public class LanceIndexConfigValidatorTest {
         assertCallbackWiring("lance_index_max_num_partitions", true,
                 LanceIndexConfigValidator.PositiveIntConfigHandler.class);
         assertCallbackWiring("lance_index_max_num_sub_vectors", true,
+                LanceIndexConfigValidator.PositiveIntConfigHandler.class);
+        assertCallbackWiring("lance_index_mutation_max_concurrency", true,
+                LanceIndexConfigValidator.PositiveIntConfigHandler.class);
+        assertCallbackWiring("lance_index_mutation_max_queued", true,
+                LanceIndexConfigValidator.PositiveIntConfigHandler.class);
+        assertCallbackWiring("lance_index_mutation_budget_cap_seconds", true,
                 LanceIndexConfigValidator.PositiveIntConfigHandler.class);
 
         ConfigBase.ConfField gate = Config.class.getField("enable_lance_index_mutation")
@@ -69,6 +78,9 @@ public class LanceIndexConfigValidatorTest {
     public void testPositiveIntHandlerAssignsAcceptedValue() throws Exception {
         assertIntAssigns("lance_index_max_num_partitions");
         assertIntAssigns("lance_index_max_num_sub_vectors");
+        assertIntAssigns("lance_index_mutation_max_concurrency");
+        assertIntAssigns("lance_index_mutation_max_queued");
+        assertIntAssigns("lance_index_mutation_budget_cap_seconds");
     }
 
     private static void assertIntAssigns(String fieldName) throws Exception {
@@ -89,6 +101,10 @@ public class LanceIndexConfigValidatorTest {
         assertIntRejected("lance_index_max_num_partitions", "-4096");
         assertIntRejected("lance_index_max_num_partitions", "1.5");
         assertIntRejected("lance_index_max_num_sub_vectors", "abc");
+        assertIntRejected("lance_index_mutation_max_concurrency", "0");
+        assertIntRejected("lance_index_mutation_max_concurrency", "-2");
+        assertIntRejected("lance_index_mutation_max_queued", "0");
+        assertIntRejected("lance_index_mutation_budget_cap_seconds", "-1");
     }
 
     private static void assertIntRejected(String fieldName, String value) throws Exception {

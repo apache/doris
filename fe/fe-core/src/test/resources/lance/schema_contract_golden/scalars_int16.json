@@ -1,0 +1,17 @@
+{
+  "dataset_dir": "edge_scalars.lance",
+  "version": 1,
+  "column": "c_i16",
+  "verdict": "compare",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 2,
+        "nn": "c_i16",
+        "nt": "int\u003c16\u003e",
+        "nul": true
+      }
+    ]
+  }
+}

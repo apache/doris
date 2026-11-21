@@ -51,6 +51,9 @@ CloudBackendService::~CloudBackendService() = default;
 
 Status CloudBackendService::start_thrift_dependencies() {
     _agent_server->cloud_start_workers(_engine, _exec_env);
+    // Shared components (the Lance index worker service behind
+    // lance_index_mutate): cloud inherits the same isolated-worker execution.
+    RETURN_IF_ERROR(start_shared_thrift_dependencies());
     return Status::OK();
 }
 

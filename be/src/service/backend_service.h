@@ -30,6 +30,10 @@
 
 namespace doris {
 
+namespace lance {
+class LanceIndexWorkerService;
+}
+
 class StorageEngine;
 class ExecEnv;
 class TAgentResult;
@@ -67,11 +71,27 @@ public:
     // lightweight preparation hook.
     virtual Status start_thrift_dependencies() = 0;
 
+    // Starts the components shared by every storage layer (local and cloud):
+    // the Lance index worker service (the synchronous executor behind
+    // lance_index_mutate). Each layer's start_thrift_dependencies() calls this
+    // first so the shared components are up before the thrift server accepts
+    // connections.
+    Status start_shared_thrift_dependencies();
+
     // Agent service
     void submit_tasks(TAgentResult& return_value,
                       const std::vector<TAgentTaskRequest>& tasks) override {
         _agent_server->submit_tasks(return_value, tasks);
     }
+
+    // Synchronous Lance index mutation: the real isolated-worker execution.
+    // The whole handler body lives in the LanceIndexWorkerService (the
+    // handler thread runs the receive rail and then blocks for the bounded
+    // execution; the answer is composed only after the execution domain's
+    // termination was confirmed - respond-after-reap). This method is defined
+    // in backend_service.cpp.
+    void lance_index_mutate(TLanceIndexMutationResult& _return,
+                            const TLanceIndexMutationRequest& request) override;
 
     void publish_cluster_state(TAgentResult& result, const TAgentPublishRequest& request) override {
         _agent_server->publish_cluster_state(result, request);
@@ -151,7 +171,12 @@ public:
     void warm_up_tablets(TWarmUpTabletsResponse& response,
                          const TWarmUpTabletsRequest& request) override;
 
-    void stop_works() { _agent_server->stop_report_workers(); }
+    // Best-effort stop of the runtime workers started by
+    // start_thrift_dependencies() (the agent report workers and the Lance
+    // index worker service's executor pool + supervisor). Correctness never
+    // depends on this being called; the default doris_main exit path skips it.
+    // Defined in backend_service.cpp.
+    void stop_works();
 
 protected:
     void get_stream_load_record(TStreamLoadRecordResult& result, int64_t last_stream_record_time,
@@ -160,6 +185,12 @@ protected:
     ExecEnv* _exec_env = nullptr;
     std::unique_ptr<AgentServer> _agent_server;
     std::unique_ptr<ThreadPool> _ingest_binlog_workers;
+    // The synchronous isolated-worker executor behind lance_index_mutate:
+    // constructed here (constructor injection, pr4a LanceIndexJobService
+    // precedent) so both the local and the cloud layer inherit one real
+    // implementation; started by start_shared_thrift_dependencies() before
+    // the thrift server exists.
+    std::unique_ptr<lance::LanceIndexWorkerService> _lance_index_worker_service;
 };
 
 // `StorageEngine` mixin for `BaseBackendService`
