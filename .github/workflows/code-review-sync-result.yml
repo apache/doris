@@ -1,8 +1,9 @@
 name: Code Review
 
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review, edited, closed]
+  workflow_run:
+    workflows: [Pull Request Events]
+    types: [completed]
   issue_comment:
     types: [created]
 
@@ -309,27 +310,27 @@ jobs:
       pull-requests: read
       statuses: write
 
-  sync-status:
-    name: Sync review status
-    if: github.event_name == 'pull_request_target'
-    uses: ./.github/workflows/code-review-aggregate-status.yml
-    with:
-      head_sha: ${{ github.event.pull_request.head.sha }}
+  resolve-event:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+    uses: ./.github/workflows/resolve-pr-event.yml
     permissions:
+      actions: read
       contents: read
       pull-requests: read
-      statuses: write
 
-  sync-previous-head-status:
-    name: Sync previous review status
-    if: >
-      github.event_name == 'pull_request_target' &&
-      github.event.action == 'synchronize' &&
-      github.event.before != '' &&
-      github.event.before != github.event.pull_request.head.sha
+  sync-status:
+    name: Sync review status
+    needs: resolve-event
+    strategy:
+      fail-fast: false
+      matrix:
+        head_sha: ${{ fromJSON(needs.resolve-event.outputs.head_shas) }}
     uses: ./.github/workflows/code-review-aggregate-status.yml
     with:
-      head_sha: ${{ github.event.before }}
+      head_sha: ${{ matrix.head_sha }}
     permissions:
       contents: read
       pull-requests: read
