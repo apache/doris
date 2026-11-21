@@ -92,6 +92,18 @@ Status validate_paimon_deletion_vector_read_range(int64_t offset, int64_t size) 
             MAX_PAIMON_DELETION_VECTOR_BYTES, DeletionVectorSizeLimitStatus::DATA_QUALITY);
 }
 
+Status validate_delta_deletion_vector_read_range(int64_t offset, int32_t size_in_bytes,
+                                                 size_t& bytes_read) {
+    // Delta and Iceberg share the portable bitmap framing. Delta's descriptor omits the
+    // four-byte length and four-byte CRC; promote before adding them to avoid i32 overflow.
+    const int64_t size = static_cast<int64_t>(size_in_bytes) + 8;
+    RETURN_IF_ERROR(validate_deletion_vector_read_range(
+            "Delta deletion vector", offset, size, ICEBERG_DELETION_VECTOR_MIN_BYTES,
+            MAX_ICEBERG_DELETION_VECTOR_BYTES, DeletionVectorSizeLimitStatus::NOT_SUPPORTED));
+    bytes_read = static_cast<size_t>(size);
+    return Status::OK();
+}
+
 DeletionVectorReader::~DeletionVectorReader() {
     // The file reader may retain the child IOContext. Destroy it before merging and before the
     // child statistics storage goes away.
