@@ -178,6 +178,30 @@ void expect_file_cache_stats_eq(const io::FileCacheStatistics& actual,
 
 } // namespace
 
+TEST(FileCacheProfileReporterTest, RealtimeCountersKeepLayoutWithoutRegisteringDetails) {
+    RuntimeProfile profile("scan");
+    ADD_TIMER(&profile, "Parent");
+    const int initial = profile.num_counters();
+    io::FileCacheRealtimeProfileCounters realtime(&profile, "Parent");
+    EXPECT_EQ(profile.num_counters() - initial, 4);
+    realtime.update(3, 5, 2);
+    realtime.update(7, 13, 4);
+    EXPECT_EQ(realtime.bytes_scanned_from_cache->value(), 10);
+    EXPECT_EQ(realtime.bytes_scanned_from_remote->value(), 18);
+    EXPECT_EQ(realtime.bytes_write_into_cache->value(), 6);
+    EXPECT_EQ(profile.get_counter("NumLocalIOTotal"), nullptr);
+    EXPECT_EQ(realtime.total_time->value(), 0);
+    io::FileCacheProfileReporter full(&profile, "Parent");
+    EXPECT_EQ(realtime.total_time, full.total_time);
+    EXPECT_EQ(realtime.bytes_scanned_from_cache, full.bytes_scanned_from_cache);
+    TRuntimeProfileTree tree;
+    profile.to_thrift(&tree, 3);
+    const auto& node = tree.nodes.front();
+    EXPECT_EQ(node.child_counters_map.at("Parent").count("FileCache"), 1);
+    EXPECT_EQ(node.child_counters_map.at("FileCache").count("BytesScannedFromCache"), 1);
+    EXPECT_EQ(realtime.bytes_scanned_from_remote->type(), TUnit::BYTES);
+}
+
 TEST(FileCacheProfileReporterTest, DiffReturnsFullStatsWhenPreviousIsZero) {
     const auto current = make_file_cache_stats(3);
 

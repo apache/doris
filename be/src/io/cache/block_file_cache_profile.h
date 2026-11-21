@@ -69,21 +69,30 @@ private:
 FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& current,
                                                const FileCacheStatistics& previous);
 
-struct FileCacheProfileReporter {
-    RuntimeProfile* _profile = nullptr;
+// Shared by scanners of one local state; steady-state updates never look up counters.
+struct FileCacheRealtimeProfileCounters {
     RuntimeProfile::Counter* total_time = nullptr;
+    RuntimeProfile::Counter* bytes_scanned_from_cache = nullptr;
+    RuntimeProfile::Counter* bytes_scanned_from_remote = nullptr;
+    RuntimeProfile::Counter* bytes_write_into_cache = nullptr;
+
+    explicit FileCacheRealtimeProfileCounters(
+            RuntimeProfile* profile,
+            const std::string& parent_counter = RuntimeProfile::ROOT_COUNTER);
+    void update(int64_t local_bytes, int64_t remote_bytes, int64_t write_bytes) const;
+};
+
+struct FileCacheProfileReporter : FileCacheRealtimeProfileCounters {
+    RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* num_local_io_total = nullptr;
     RuntimeProfile::Counter* num_remote_io_total = nullptr;
     RuntimeProfile::Counter* num_peer_io_total = nullptr;
     RuntimeProfile::Counter* local_io_timer = nullptr;
-    RuntimeProfile::Counter* bytes_scanned_from_cache = nullptr;
-    RuntimeProfile::Counter* bytes_scanned_from_remote = nullptr;
     RuntimeProfile::Counter* bytes_scanned_from_peer = nullptr;
     RuntimeProfile::Counter* remote_io_timer = nullptr;
     RuntimeProfile::Counter* peer_io_timer = nullptr;
     RuntimeProfile::Counter* remote_wait_timer = nullptr;
     RuntimeProfile::Counter* write_cache_io_timer = nullptr;
-    RuntimeProfile::Counter* bytes_write_into_cache = nullptr;
     RuntimeProfile::Counter* num_skip_cache_io_total = nullptr;
     RuntimeProfile::Counter* read_cache_file_directly_timer = nullptr;
     RuntimeProfile::Counter* cache_get_or_set_timer = nullptr;
@@ -164,6 +173,13 @@ struct FileCacheProfileReporter {
             RuntimeProfile* profile,
             const std::string& parent_counter = RuntimeProfile::ROOT_COUNTER);
     void update(const FileCacheStatistics* statistics) const;
+    // Excludes the three realtime byte counters and both high-water marks.
+    void update_details(const FileCacheStatistics* statistics) const;
+
+private:
+    void _update_io_details(const FileCacheStatistics* statistics) const;
+    void _update_index_details(const FileCacheStatistics* statistics) const;
+    void _update_peer_details(const FileCacheStatistics* statistics) const;
 };
 
 } // namespace io
