@@ -178,7 +178,7 @@ public class MysqlLoadCommand extends Command implements NoForward {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
-        handleMysqlLoadCommand(ctx);
+        handleMysqlLoadCommand(ctx, executor);
     }
 
     /**
@@ -216,7 +216,7 @@ public class MysqlLoadCommand extends Command implements NoForward {
         }
     }
 
-    private void handleMysqlLoadCommand(ConnectContext ctx) {
+    private void handleMysqlLoadCommand(ConnectContext ctx, StmtExecutor executor) {
         try {
             LoadManager loadManager = ctx.getEnv().getLoadManager();
             if (mysqlDataDescription.isClientLocal() && !ctx.getCapability().supportClientLocalFile()) {
@@ -226,7 +226,7 @@ public class MysqlLoadCommand extends Command implements NoForward {
             }
             String loadId = UUID.randomUUID().toString();
             LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()
-                    .executeMySqlLoadJob(ctx, mysqlDataDescription, loadId);
+                    .executeMySqlLoadJob(executor, mysqlDataDescription, loadId);
             ctx.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),
                     submitResult.toString());
         } catch (UserException e) {

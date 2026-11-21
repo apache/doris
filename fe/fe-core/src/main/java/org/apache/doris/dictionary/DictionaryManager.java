@@ -33,6 +33,8 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.dictionary.Dictionary.DictionaryStatus;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.manager.TaskDisruptorGroupManager;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateDictionaryInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoDictionaryCommand;
@@ -44,6 +46,7 @@ import org.apache.doris.persist.DictionaryIncreaseVersionInfo;
 import org.apache.doris.persist.DropDictionaryPersistInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -444,24 +447,36 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         // Resolve first so every LOADING refresh carries one exact owner generation.
         Database database = getCurrentDatabase(dictionary);
 
-        // use atomic status as a lock.
-        if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.LOADING)) {
+        if (ctx != null) {
+            refreshInSession(ctx, database, dictionary, oldStatus, adaptiveLoad);
+        } else {
+            try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                    InsertTask.makeConnectContext(UserIdentity.ADMIN, dictionary.getDbName()))) {
+                refreshInSession(scope.connectContext, database, dictionary, oldStatus, adaptiveLoad);
+            }
+        }
+    }
+
+    private void refreshInSession(ConnectContext ctx, Database database, Dictionary dictionary,
+            DictionaryStatus oldStatus, boolean adaptiveLoad) throws Exception {
+        String insertSql = buildDataLoadSql(dictionary);
+        // Planning, commit and abort all consult this INSERT's statement resources.
+        StatementContext.withNestedStatement(ctx, insertSql, statement -> {
+            loadAndCommit(ctx, database, dictionary, oldStatus, adaptiveLoad, insertSql);
+            return null;
+        });
+    }
+
+    private void loadAndCommit(ConnectContext ctx, Database database, Dictionary dictionary, DictionaryStatus oldStatus,
+            boolean adaptiveLoad, String insertSql) throws Exception {
+        if (!dictionary.trySetStatus(DictionaryStatus.LOADING)) {
             throw new AnalysisException("Dictionary " + dictionary.getName() + " cannot load now, status is "
                     + dictionary.getStatus().name());
         }
-
-        while (DebugPointUtil.isEnable("DictionaryManager.dataLoad.blockBeforePlan")) {
-            Thread.sleep(10);
-        }
         try {
-            if (ctx == null) { // for run with scheduler, not by command.
-                // priv check is done in relative(caller) command. so use ADMIN here is ok.
-                ctx = InsertTask.makeConnectContext(UserIdentity.ADMIN, dictionary.getDbName());
+            while (DebugPointUtil.isEnable("DictionaryManager.dataLoad.blockBeforePlan")) {
+                Thread.sleep(10);
             }
-
-            // not use rerfresh command's executor to avoid potential problems.
-            String insertSql = buildDataLoadSql(dictionary);
-            StmtExecutor executor = new StmtExecutor(ctx, insertSql);
             NereidsParser parser = new NereidsParser();
             InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) parser.parseSingle(insertSql);
             LOG.info("Loading to dictionary {} with query {}. adaptive: {}", dictionary.getName(), ctx.queryId(),
@@ -476,11 +491,10 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(
                     baseCommand, database, dictionary, adaptiveLoad);
 
-            // run with sync by status.
             // avoid to generate EmptySetNode making us not able to get base table version.
             ctx.getSessionVariable().setVarOnce(SessionVariable.DISABLE_NEREIDS_RULES,
                     "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
-            command.run(ctx, executor);
+            executeRefreshInsert(ctx, command);
         } catch (Exception e) {
             // wait next shedule.
             dictionary.trySetStatus(oldStatus);
@@ -517,7 +531,8 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 } else {
                     abortSpecificVersion(ctx, dictionary, dictionary.getVersion() + 1);
                 }
-                throw new RuntimeException("Dictionary " + dictionary.getName() + " has been dropped during loading");
+                throw new RuntimeException("Dictionary " + dictionary.getName()
+                        + " has been dropped during loading");
             }
             // need under read lock here.
             // complete some(could be ALL) BE's data and no source data updated -> no need to increase version
@@ -574,6 +589,39 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
         LOG.info("Dictionary {} refresh succeed. now version is {}. used src version {}", dictionary.getName(),
                 dictionary.getVersion(), ctx.getStatementContext().getDictionaryUsedSrcVersion());
+    }
+
+    static void executeRefreshInsert(ConnectContext ctx, InsertIntoDictionaryCommand command) throws Exception {
+        StatementContext statement = ctx.getStatementContext();
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(command, statement);
+        adapter.setOrigStmt(statement.getOriginStatement());
+        StmtExecutor insert = new StmtExecutor(ctx, adapter);
+        StmtExecutor refresh = ctx.getExecutor();
+        if (refresh == null) {
+            // A scheduled refresh owns this private session.
+            ctx.setExecutor(insert);
+            try {
+                command.run(ctx, insert);
+            } finally {
+                ctx.setExecutor(null);
+            }
+            return;
+        }
+
+        // Keep the user command addressable by KILL throughout the refresh, including before publication.
+        Runnable cancelInsert = () -> insert.cancel(refresh.getPendingCancelReason(), false);
+        refresh.registerQueryCancellationCallback(cancelInsert);
+        try {
+            command.run(ctx, insert);
+            // A pre-start cancellation returns without planning or setting an error. Once the INSERT has
+            // run, its execution result decides whether the dictionary version needs committing.
+            Status cancelled = insert.getPendingCancelReason();
+            if (cancelled != null && insert.planner() == null) {
+                throw new AnalysisException(cancelled.getErrorMsg());
+            }
+        } finally {
+            refresh.unregisterQueryCancellationCallback(cancelInsert);
+        }
     }
 
     static String buildDataLoadSql(Dictionary dictionary) {

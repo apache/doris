@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -481,14 +480,8 @@ public class GroupCommitManager {
             LOG.warn("invalid table id: " + tableId);
         }
         if (!Env.getCurrentEnv().isMaster()) {
-            ConnectContext ctx = new ConnectContext();
-            ctx.setEnv(Env.getCurrentEnv());
-            ctx.setThreadLocalInfo();
-            // set user to ADMIN_USER, so that we can get the proper resource tag
-            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-            ctx.setThreadLocalInfo();
             try {
-                new MasterOpExecutor(ctx).updateLoadData(tableId, receiveData);
+                MasterOpExecutor.updateLoadData(Env.getCurrentEnv(), tableId, receiveData);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }

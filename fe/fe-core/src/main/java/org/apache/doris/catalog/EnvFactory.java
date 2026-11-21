@@ -151,17 +151,14 @@ public class EnvFactory {
         return new Coordinator(context, (NereidsPlanner) planner, statsErrorEstimator, jobId);
     }
 
-    // Used for broker load task/export task/update coordinator
-    public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
+    // The broker load task owns the context until its coordinator finishes.
+    public Coordinator createCoordinator(ConnectContext connectContext, Long jobId,
+            TUniqueId queryId, DescriptorTable descTable,
             List<PlanFragment> fragments, List<ScanNode> scanNodes,
             String timezone, boolean loadZeroTolerance, boolean enableProfile) {
         if (queryId == null) {
             UUID taskId = UUID.randomUUID();
             queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-        }
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
-            connectContext = new ConnectContext();
         }
         if (connectContext.getLoadId() == null) {
             connectContext.setLoadId(queryId);
@@ -172,13 +169,14 @@ public class EnvFactory {
         StatementContext statementContext = connectContext.getStatementContext();
         if (statementContext == null) {
             statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
+            connectContext.setStatementContext(statementContext);
         }
         DistributePlanner distributePlanner = new DistributePlanner(
                 statementContext, fragments, false, true, true);
         FragmentIdMapping<DistributedPlan> distributedPlans = distributePlanner.plan();
 
         return new Coordinator(
-                jobId, queryId, descTable, fragments, distributedPlans.valueList(),
+                connectContext, jobId, queryId, descTable, fragments, distributedPlans.valueList(),
                 scanNodes, timezone, loadZeroTolerance, enableProfile
         );
     }

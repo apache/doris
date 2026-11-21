@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -144,17 +145,17 @@ public class KillUtils {
      */
     @VisibleForTesting
     public static boolean killByQueryIdOnCurrentNode(ConnectContext ctx, String queryId) throws DdlException {
-        ConnectContext killCtx = ExecuteEnv.getInstance().getScheduler().getContextWithQueryId(queryId);
+        ConnectContext.QueryTarget target = ExecuteEnv.getInstance().getScheduler().findQueryByIdOrTraceId(queryId);
         if (LOG.isDebugEnabled()) {
             LOG.debug("kill query '{}' on current node", queryId);
         }
-        if (killCtx != null) {
-            // Check auth. Only user itself and user with admin priv can kill connection
-            if (!killCtx.getQualifiedUser().equals(ctx.getQualifiedUser())
+        if (target != null) {
+            if (!target.qualifiedUser().equals(ctx.getQualifiedUser())
                     && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, queryId);
             }
-            killCtx.kill(false);
+            target.executor().cancel(new Status(TStatusCode.CANCELLED, "cancel query by user from "
+                    + ctx.getRemoteHostPortString()));
             ctx.getState().setOk();
             return true;
         }
@@ -174,9 +175,9 @@ public class KillUtils {
         if (killCtx == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, connectionId);
         }
-        if (ctx == killCtx) {
-            // Suicide
-            ctx.setKilled();
+        if (ctx == killCtx && killConnection) {
+            // Self KILL CONNECTION must finish its response before closing the transport.
+            ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
         } else {
             // Check auth
             // Only user itself and user with admin priv can kill connection

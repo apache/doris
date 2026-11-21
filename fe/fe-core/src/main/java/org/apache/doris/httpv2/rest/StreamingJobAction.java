@@ -140,14 +140,19 @@ public class StreamingJobAction extends RestBaseController {
             throw new BadRequestException("Streaming job " + jobId + " has no creator identity");
         }
         ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setRemoteIP(request.getRemoteAddr());
-        ctx.setCurrentUserIdentity(job.getCreateUser());
-        if (!Strings.isNullOrEmpty(job.getCurrentDbName())) {
-            ctx.setDatabase(job.getCurrentDbName());
+        try {
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setRemoteIP(request.getRemoteAddr());
+            ctx.setCurrentUserIdentity(job.getCreateUser());
+            if (!Strings.isNullOrEmpty(job.getCurrentDbName())) {
+                ctx.setDatabase(job.getCurrentDbName());
+            }
+            ctx.getState().setInternal(true);
+            return ctx;
+        } catch (RuntimeException | Error e) {
+            ctx.cleanup();
+            throw e;
         }
-        ctx.getState().setInternal(true);
-        return ctx;
     }
 
     private Object failTask(TaskFailureRequest failureRequest) {

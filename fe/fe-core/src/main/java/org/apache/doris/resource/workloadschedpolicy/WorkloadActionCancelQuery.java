@@ -18,6 +18,8 @@
 package org.apache.doris.resource.workloadschedpolicy;
 
 import org.apache.doris.common.Status;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TStatusCode;
 
@@ -30,11 +32,14 @@ public class WorkloadActionCancelQuery implements WorkloadAction {
 
     @Override
     public void exec(WorkloadQueryInfo queryInfo) {
-        if (queryInfo.context != null && !queryInfo.context.isKilled()
+        if (queryInfo.context != null && !queryInfo.context.isClosingOrClosed()
                 && queryInfo.tUniqueId != null
                 && QeProcessorImpl.INSTANCE.getCoordinator(queryInfo.tUniqueId) != null) {
-            LOG.info("cancel query {} triggered by query schedule policy.", queryInfo.queryId);
-            queryInfo.context.cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by workload policy"));
+            ConnectContext.QueryTarget target = queryInfo.context.findQuery(DebugUtil.printId(queryInfo.tUniqueId));
+            if (target != null) {
+                LOG.info("cancel query {} triggered by query schedule policy.", queryInfo.queryId);
+                target.executor().cancel(new Status(TStatusCode.CANCELLED, "cancel query by workload policy"));
+            }
         }
     }
 

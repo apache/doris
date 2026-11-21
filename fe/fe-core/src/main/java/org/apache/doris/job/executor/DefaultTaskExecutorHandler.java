@@ -21,38 +21,16 @@ import org.apache.doris.job.disruptor.ExecuteTaskEvent;
 import org.apache.doris.job.task.AbstractTask;
 
 import com.lmax.disruptor.WorkHandler;
-import lombok.extern.log4j.Log4j2;
 
-/**
- * DefaultTaskExecutor is an implementation of the TaskExecutor interface.
- * if you need to implement your own TaskExecutor, you could refer to this class. and need to register
- * it in the TaskExecutorFactory
- * It executes a given AbstractTask by acquiring a semaphore token from the TaskTokenManager
- * and releasing it after the task execution.
- */
-@Log4j2
+/** Executes one task and releases its reusable Disruptor event. */
 public class DefaultTaskExecutorHandler<T extends AbstractTask> implements WorkHandler<ExecuteTaskEvent<T>> {
-
 
     @Override
     public void onEvent(ExecuteTaskEvent<T> executeTaskEvent) {
         try {
-            T task = executeTaskEvent.getTask();
-            if (null == task) {
-                log.warn("task is null, ignore,maybe task has been canceled");
-                return;
-            }
-            if (task.isCancelled()) {
-                log.info("task is canceled, ignore. task id is {}", task.getTaskId());
-                return;
-            }
-            log.info("start to execute task, task id is {}", task.getTaskId());
-            task.runTask();
-        } catch (Exception e) {
-            log.error("execute task error, task id is {}", executeTaskEvent.getTask().getTaskId(), e);
+            TaskProcessor.runTask(executeTaskEvent.getTask());
         } finally {
             executeTaskEvent.clear();
         }
-
     }
 }

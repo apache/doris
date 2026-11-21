@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.AllBackendComputeGroup;
 import org.apache.doris.resource.computegroup.CloudComputeGroup;
@@ -513,8 +514,11 @@ public class ComputeGroupTest {
                 emptyUser.setIsAnalyzed();
                 BrokerLoadJob brokerLoadJob =
                         new BrokerLoadJob(1, null, null, null, emptyUser);
-                brokerLoadJob.setComputeGroup();
-                Assertions.assertTrue(ConnectContext.get().getComputeGroupSafely() instanceof AllBackendComputeGroup);
+                try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+                    brokerLoadJob.setComputeGroup(scope.connectContext);
+                    Assertions.assertInstanceOf(AllBackendComputeGroup.class,
+                            scope.connectContext.getComputeGroupSafely());
+                }
             }
 
             // test invalid user
@@ -524,8 +528,11 @@ public class ComputeGroupTest {
                 emptyUser.setIsAnalyzed();
                 BrokerLoadJob brokerLoadJob =
                         new BrokerLoadJob(1, null, null, null, emptyUser);
-                brokerLoadJob.setComputeGroup();
-                Assertions.assertTrue(ConnectContext.get().getComputeGroupSafely() instanceof AllBackendComputeGroup);
+                try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+                    brokerLoadJob.setComputeGroup(scope.connectContext);
+                    Assertions.assertInstanceOf(AllBackendComputeGroup.class,
+                            scope.connectContext.getComputeGroupSafely());
+                }
             }
 
             // test get cg from user property
@@ -546,7 +553,7 @@ public class ComputeGroupTest {
 
                 BrokerLoadJob brokerLoadJob =
                         new BrokerLoadJob(1, null, null, null, nonAdminUser);
-                brokerLoadJob.setComputeGroup();
+                brokerLoadJob.setComputeGroup(ConnectContext.get());
                 ComputeGroup cg = ConnectContext.get().getComputeGroupSafely();
                 Assertions.assertTrue(cg instanceof MergedComputeGroup);
                 Assertions.assertTrue(((MergedComputeGroup) cg).getName().contains(tagName));

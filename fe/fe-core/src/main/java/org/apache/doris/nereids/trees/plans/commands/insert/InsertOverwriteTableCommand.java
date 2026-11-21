@@ -290,6 +290,7 @@ public class InsertOverwriteTableCommand extends Command
         insertOverwriteManager.recordRunningTableOrException(targetTable.getDatabase(), targetTable);
         isRunning.set(true);
         long taskId = 0;
+        boolean previousSkipAuth = ctx.isSkipAuth();
         try {
             // OLAP overwrite runs its internal partition replacement with the auth check skipped.
             // Set the flag here, inside the try, so the finally below always pairs the reset even if
@@ -386,7 +387,7 @@ public class InsertOverwriteTableCommand extends Command
             }
             throw e;
         } finally {
-            ConnectContext.get().setSkipAuth(false);
+            ctx.setSkipAuth(previousSkipAuth);
             insertOverwriteManager.dropRunningRecord(targetTable.getDatabase(), targetTable);
             isRunning.set(false);
         }

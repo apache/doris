@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Strings;
@@ -166,29 +165,24 @@ public class RelationUtil {
             String createMvSql = meta.getDefineStmt().originStmt;
             Optional<String> querySql = new NereidsParser().parseForSyncMv(createMvSql);
             if (querySql.isPresent()) {
-                LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(querySql.get());
-                ConnectContext connectContext = ConnectContext.get();
-                StatementContext statementContext = new StatementContext(connectContext,
-                        new OriginStatement(querySql.get(), 0));
-                NereidsPlanner planner = new NereidsPlanner(statementContext);
-                if (statementContext.getConnectContext().getStatementContext() == null) {
-                    statementContext.getConnectContext().setStatementContext(statementContext);
-                }
-                Set<String> tempDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
-                connectContext.getSessionVariable().setDisableNereidsRules(SYNC_MV_PLANER_DISABLE_RULES);
-                connectContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-                LogicalPlan logicalPlan;
-                try {
-                    // disable constant fold
-                    connectContext.getSessionVariable().setVarOnce(SessionVariable.DEBUG_SKIP_FOLD_CONSTANT, "true");
-                    planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY,
-                            ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
-                    logicalPlan = (LogicalPlan) planner.getCascadesContext().getRewritePlan();
-                } finally {
-                    // after operate, roll back the disable rules
-                    connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
-                    connectContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-                }
+                ConnectContext session = ConnectContext.get();
+                String sql = querySql.get();
+                LogicalPlan logicalPlan = StatementContext.withNestedStatement(session, sql, statement -> {
+                    LogicalPlan plan = new NereidsParser().parseSingle(sql);
+                    NereidsPlanner planner = new NereidsPlanner(statement);
+                    SessionVariable variables = session.getSessionVariable();
+                    Set<String> previousRules = variables.getDisableNereidsRuleNames();
+                    boolean previousSkipFold = variables.isDebugSkipFoldConstant();
+                    try {
+                        variables.setDisableNereidsRules(SYNC_MV_PLANER_DISABLE_RULES);
+                        variables.setDebugSkipFoldConstant(true);
+                        planner.planWithLock(plan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
+                        return (LogicalPlan) planner.getCascadesContext().getRewritePlan();
+                    } finally {
+                        variables.setDebugSkipFoldConstant(previousSkipFold);
+                        variables.setDisableNereidsRules(String.join(",", previousRules));
+                    }
+                });
                 Map<Boolean, List<Object>> partitionedPlan = logicalPlan
                         .collect(plan -> true)
                         .stream()

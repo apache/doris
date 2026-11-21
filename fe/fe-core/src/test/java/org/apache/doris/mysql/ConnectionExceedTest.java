@@ -52,6 +52,7 @@ public class ConnectionExceedTest {
 
     @Test
     public void testHandleConnectionExceed() throws Exception {
+        Mockito.when(mockConnection.isOpen()).thenReturn(true);
         try (MockedStatic<MysqlProto> mockedProto = Mockito.mockStatic(MysqlProto.class)) {
             // Create a scheduler with small max connections
             ConnectScheduler scheduler = new ConnectScheduler(2);
@@ -69,14 +70,14 @@ public class ConnectionExceedTest {
             context1.setEnv(mockEnv);
             context1.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
             Assertions.assertTrue(scheduler.submit(context1));
-            Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(context1));
+            Assertions.assertEquals(-1, context1.registerClientSession(scheduler.getConnectPoolMgr()));
 
             // Create second context and register
             ConnectContext context2 = new ConnectContext();
             context2.setEnv(mockEnv);
             context2.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
             Assertions.assertTrue(scheduler.submit(context2));
-            Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(context2));
+            Assertions.assertEquals(-1, context2.registerClientSession(scheduler.getConnectPoolMgr()));
 
             // Create third context and try to register - should fail
             ConnectContext context3 = new ConnectContext();
@@ -118,8 +119,6 @@ public class ConnectionExceedTest {
 
             InOrder contextInOrder = Mockito.inOrder(protocol, context);
             contextInOrder.verify(protocol).suspendAcceptQuery();
-            contextInOrder.verify(context).setThreadLocalInfo();
-            contextInOrder.verify(context).setKilled();
             contextInOrder.verify(context).cleanup();
             Mockito.verifyNoInteractions(queryState);
             Mockito.verifyNoInteractions(processor);
@@ -153,7 +152,7 @@ public class ConnectionExceedTest {
             mysql.setEnv(mockEnv);
             mysql.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
             Assertions.assertTrue(scheduler.submit(mysql));
-            Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(mysql));
+            Assertions.assertEquals(-1, mysql.registerClientSession(scheduler.getConnectPoolMgr()));
             FlightSessionsInConnectPool manager = new FlightSessionsInConnectPool(scheduler);
             for (int i = 0; i < 2; i++) {
                 String token = manager.openSession(authResult);

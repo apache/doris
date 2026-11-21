@@ -128,9 +128,12 @@ public class ConnectContextTest {
                 new PreparedStatementContext(null, ctx, null, "select 1"));
         long nextPreparedStmtId = ctx.getPreparedStmtId();
         TUniqueId queryId = new TUniqueId(100, 200);
-        ctx.setQueryId(queryId);
-        ctx.setTraceId("old_trace");
+        ConnectPoolMgr pool = new ConnectPoolMgr(10);
+        Mockito.when(connectScheduler.getConnectPoolMgr()).thenReturn(pool);
         ctx.setConnectScheduler(connectScheduler);
+        ctx.setTraceId("old_trace");
+        ctx.setQueryId(queryId);
+        Assertions.assertFalse(pool.getQueryIdByTraceId("old_trace").isEmpty());
         ctx.setCommand(MysqlCommand.COM_QUERY);
         ctx.updateReturnRows(10);
         ctx.setOrUpdateInsertResult(1, "label", "test_db", "test_table", TransactionStatus.VISIBLE, 1, 0);
@@ -153,7 +156,7 @@ public class ConnectContextTest {
         Assertions.assertNull(ctx.queryId());
         Assertions.assertNull(ctx.getLastQueryId());
         Assertions.assertNull(ctx.traceId());
-        Mockito.verify(connectScheduler).removeOldTraceId("old_trace");
+        Assertions.assertEquals("", pool.getQueryIdByTraceId("old_trace"));
         Assertions.assertEquals(nextPreparedStmtId, ctx.getPreparedStmtId());
         Assertions.assertTrue(initialPreparedStmtId != ctx.getPreparedStmtId());
         Assertions.assertNull(ctx.getInsertResult());
@@ -275,10 +278,8 @@ public class ConnectContextTest {
             ctx.setCapability(new MysqlCapability(10));
             Assertions.assertEquals(new MysqlCapability(10), ctx.getCapability());
 
-            // Kill flag
-            Assertions.assertFalse(ctx.isKilled());
-            ctx.setKilled();
-            Assertions.assertTrue(ctx.isKilled());
+            // Construction does not request session closure.
+            Assertions.assertFalse(ctx.isClosingOrClosed());
 
             // Current db
             Assertions.assertEquals("", ctx.getDatabase());
@@ -349,6 +350,25 @@ public class ConnectContextTest {
     }
 
     @Test
+    public void testProcesslistReadersKeepTheirOwnFullSqlOption() {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getSelfNode())
+                    .thenReturn(new SystemInfoService.HostInfo("127.0.0.1", 9030));
+            String sql = "select " + "x".repeat(150);
+            Mockito.when(executor.getOriginStmtInString()).thenReturn(sql);
+            try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+                scope.connectContext.setExecutor(executor);
+                ConnectContext.ThreadInfo full = scope.connectContext.toThreadInfo(true);
+                ConnectContext.ThreadInfo abbreviated = scope.connectContext.toThreadInfo(false);
+                Assertions.assertEquals(sql, full.toRow(-1, 0, Optional.empty()).get(12));
+                scope.connectContext.toThreadInfo(true);
+                Assertions.assertEquals(sql.substring(0, 100), abbreviated.toRow(-1, 0, Optional.empty()).get(12));
+            }
+        }
+    }
+
+    @Test
     public void testThreadInfoUsesSessionCloudCluster() {
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
@@ -393,30 +413,23 @@ public class ConnectContextTest {
 
         // sleep no time out
         ctx.setStartTime();
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
         long now = ctx.getStartTime() + ctx.getSessionVariable().getWaitTimeoutS() * 1000L - 1;
         ctx.checkTimeout(now);
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
 
         // Timeout
         ctx.setStartTime();
         now = ctx.getStartTime() + ctx.getSessionVariable().getWaitTimeoutS() * 1000L + 1;
         ctx.setExecutor(executor);
         ctx.checkTimeout(now);
-        Assertions.assertTrue(ctx.isKilled());
-
-        // user query timeout
-        ctx.setStartTime();
-        now = ctx.getStartTime() + auth.getQueryTimeout(qualifiedUser) * 1000L + 1;
-        ctx.setExecutor(executor);
-        ctx.checkTimeout(now);
-        Assertions.assertTrue(ctx.isKilled());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
 
         // Kill
         ctx.kill(true);
-        Assertions.assertTrue(ctx.isKilled());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
         ctx.kill(false);
-        Assertions.assertTrue(ctx.isKilled());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
 
         // clean up
         ctx.cleanup();
@@ -428,21 +441,21 @@ public class ConnectContextTest {
         ctx.setCommand(MysqlCommand.COM_QUERY);
 
         // sleep no time out
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
         ctx.setExecutor(executor);
         long now = ctx.getExecTimeoutS() * 1000L - 1;
         ctx.checkTimeout(now);
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
 
         // Timeout
         ctx.setExecutor(executor);
         now = ctx.getExecTimeoutS() * 1000L + 1;
         ctx.checkTimeout(now);
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
 
         // Kill
         ctx.kill(true);
-        Assertions.assertTrue(ctx.isKilled());
+        Assertions.assertTrue(ctx.isClosingOrClosed());
 
         // clean up
         ctx.cleanup();

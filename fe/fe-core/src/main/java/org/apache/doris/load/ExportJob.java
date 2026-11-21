@@ -19,7 +19,6 @@ package org.apache.doris.load;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.OutFileClause;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -39,11 +38,9 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -55,8 +52,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
@@ -164,12 +159,8 @@ public class ExportJob implements Writable {
 
     private Map<String, Long> partitionToVersion = Maps.newHashMap();
 
-    /**
-     * Each parallel has an associated Outfile list
-     * which are organized into a two-dimensional list.
-     * to get the outfile logical plans list responsible for each parallel task.
-     */
-    private List<Optional<StatementBase>> selectStmtPerParallel = Lists.newArrayList();
+    // Queued plans are bound to their worker session when execution starts.
+    private List<LogicalPlan> outfilePlans = Lists.newArrayList();
 
     private List<String> exportColumns = Lists.newArrayList();
 
@@ -247,7 +238,7 @@ public class ExportJob implements Writable {
 
             // debug LOG output
             if (LOG.isDebugEnabled()) {
-                for (int i = 0; i < selectStmtPerParallel.size(); ++i) {
+                for (int i = 0; i < outfilePlans.size(); ++i) {
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("ExportTaskExecutor {} is responsible for outfile:", i);
                     }
@@ -280,9 +271,7 @@ public class ExportJob implements Writable {
             // generate LogicalPlan
             LogicalPlan plan = generateOneLogicalPlan(qualifiedTableName, tabletsList,
                     this.partitionNames, selectLists);
-            // generate  LogicalPlanAdapter
-            StatementBase statementBase = generateLogicalPlanAdapter(plan);
-            selectStmtPerParallel.add(Optional.of(statementBase));
+            outfilePlans.add(plan);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Export Job [{}]: parallelism {} tablets: {}", id, index, tabletsList);
             }
@@ -315,10 +304,7 @@ public class ExportJob implements Writable {
         // generate LogicalPlan
         LogicalPlan plan = generateOneLogicalPlan(qualifiedTableName, ImmutableList.of(),
                 ImmutableList.of(), selectLists);
-        // generate  LogicalPlanAdapter
-        StatementBase statementBase = generateLogicalPlanAdapter(plan);
-
-        selectStmtPerParallel.add(Optional.of(statementBase));
+        outfilePlans.add(plan);
     }
 
     private LogicalPlan generateOneLogicalPlan(List<String> qualifiedTableName, List<Long> tabletIds,
@@ -340,26 +326,14 @@ public class ExportJob implements Writable {
         return plan;
     }
 
-    private StatementBase generateLogicalPlanAdapter(LogicalPlan outfileLogicalPlan) {
-        StatementContext statementContext = new StatementContext();
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null) {
-            statementContext.setConnectContext(connectContext);
-        }
-
-        StatementBase statementBase = new LogicalPlanAdapter(outfileLogicalPlan, statementContext);
-        statementBase.setOrigStmt(new OriginStatement("", 0));
-        return statementBase;
-    }
-
     public List<? extends TransientTaskExecutor> getCopiedTaskExecutors() {
         return Lists.newArrayList(jobExecutorList);
     }
 
     private void generateExportJobExecutor() {
         jobExecutorList = Lists.newArrayList();
-        for (Optional<StatementBase> selectStmt : selectStmtPerParallel) {
-            ExportTaskExecutor executor = new ExportTaskExecutor(selectStmt, this);
+        for (LogicalPlan plan : outfilePlans) {
+            ExportTaskExecutor executor = new ExportTaskExecutor(Optional.of(plan), this);
             jobExecutorList.add(executor);
         }
 
@@ -569,7 +543,7 @@ public class ExportJob implements Writable {
         finishTimeMs = System.currentTimeMillis();
         failMsg = new ExportFailMsg(type, msg);
         jobExecutorList.clear();
-        selectStmtPerParallel.clear();
+        outfilePlans.clear();
         allOutfileInfo.clear();
         partitionToVersion.clear();
         if (FeConstants.runningUnitTest) {
@@ -622,7 +596,7 @@ public class ExportJob implements Writable {
         outfileInfo = GsonUtils.GSON.toJson(allOutfileInfo);
         // Clear the jobExecutorList to release memory.
         jobExecutorList.clear();
-        selectStmtPerParallel.clear();
+        outfilePlans.clear();
         allOutfileInfo.clear();
         partitionToVersion.clear();
         Env.getCurrentEnv().getEditLog().logExportUpdateState(this, ExportJobState.FINISHED);

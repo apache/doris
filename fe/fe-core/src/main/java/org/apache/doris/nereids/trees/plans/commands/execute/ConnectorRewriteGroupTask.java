@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.ConnectorRewriteExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.RewriteTableCommand;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -128,19 +129,20 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
             }
             // Step 1: Build a fresh ConnectContext for this group and stash the per-group scan scope + the
             // shared connector transaction (read back during planning by pinRewriteFileScope / finalizeSink).
-            ConnectContext taskConnectContext = buildConnectContext();
-            StatementContext stmtCtx = taskConnectContext.getStatementContext();
-            stmtCtx.setRewriteSourceFilePaths(new ArrayList<>(group.getDataFilePaths()));
-            stmtCtx.setRewriteSharedTransaction(sharedTransaction);
+            try (AutoCloseConnectContext scope = new AutoCloseConnectContext(buildConnectContext())) {
+                ConnectContext taskConnectContext = scope.connectContext;
+                StatementContext stmtCtx = taskConnectContext.getStatementContext();
+                stmtCtx.setRewriteSourceFilePaths(new ArrayList<>(group.getDataFilePaths()));
+                stmtCtx.setRewriteSharedTransaction(sharedTransaction);
 
-            // Step 2: Build the INSERT-SELECT plan (rewrite-tagged connector sink) for this group.
-            RewriteTableCommand taskLogicalPlan = buildRewriteLogicalPlan();
-            LogicalPlanAdapter taskParsedStmt = new LogicalPlanAdapter(taskLogicalPlan, stmtCtx);
-            taskParsedStmt.setOrigStmt(new OriginStatement(taskLogicalPlan.toString(), 0));
+                // Step 2: Build the INSERT-SELECT plan (rewrite-tagged connector sink) for this group.
+                RewriteTableCommand taskLogicalPlan = buildRewriteLogicalPlan();
+                LogicalPlanAdapter taskParsedStmt = new LogicalPlanAdapter(taskLogicalPlan, stmtCtx);
+                taskParsedStmt.setOrigStmt(new OriginStatement(taskLogicalPlan.toString(), 0));
 
-            // Step 3: Execute the rewrite write for this group.
-            executeGroup(taskConnectContext, taskLogicalPlan, taskParsedStmt);
-
+                // Step 3: Execute the rewrite write for this group.
+                executeGroup(taskConnectContext, taskLogicalPlan, taskParsedStmt);
+            }
             if (resultCallback != null) {
                 resultCallback.onTaskCompleted(taskId);
             }
@@ -253,22 +255,25 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
 
     private ConnectContext buildConnectContext() {
         ConnectContext taskContext = new ConnectContext();
-        taskContext.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
-        taskContext.setEnv(Env.getCurrentEnv());
-        taskContext.setDatabase(connectContext.getDatabase());
-        taskContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
-        taskContext.setRemoteIP(connectContext.getRemoteIP());
+        try {
+            taskContext.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
+            taskContext.setEnv(Env.getCurrentEnv());
+            taskContext.setDatabase(connectContext.getDatabase());
+            taskContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
+            taskContext.setRemoteIP(connectContext.getRemoteIP());
 
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        taskContext.setQueryId(queryId);
-        taskContext.setThreadLocalInfo();
-        taskContext.setStartTime();
+            UUID uuid = UUID.randomUUID();
+            TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            taskContext.setQueryId(queryId);
+            taskContext.setStartTime();
 
-        StatementContext statementContext = new StatementContext();
-        statementContext.setConnectContext(taskContext);
-        taskContext.setStatementContext(statementContext);
-        return taskContext;
+            StatementContext statementContext = new StatementContext(taskContext, null);
+            taskContext.setStatementContext(statementContext);
+            return taskContext;
+        } catch (RuntimeException | Error e) {
+            taskContext.cleanup();
+            throw e;
+        }
     }
 
     /**

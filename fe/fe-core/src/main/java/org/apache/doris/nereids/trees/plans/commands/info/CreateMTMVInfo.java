@@ -286,8 +286,8 @@ public class CreateMTMVInfo extends CreateTableInfo {
             LOG.info("AUTO refresh materialized view {} fallback to non-IVM after IVM probe failed: {}",
                     tableNameInfo.getTbl(), e.getMessage());
             origin.restore(this);
-            logicalQuery = parseFreshLogicalQuery();
             resetStatementContext(ctx);
+            logicalQuery = parseFreshLogicalQuery();
             enableIvm = false;
             analyzeQuery(ctx);
         }
@@ -299,9 +299,11 @@ public class CreateMTMVInfo extends CreateTableInfo {
 
     private void resetStatementContext(ConnectContext ctx) {
         StatementContext oldStatementContext = ctx.getStatementContext();
-        StatementContext statementContext = new StatementContext(ctx,
-                oldStatementContext == null ? null : oldStatementContext.getOriginStatement());
-        ctx.setStatementContext(statementContext);
+        if (oldStatementContext != null) {
+            oldStatementContext.close();
+        }
+        ctx.setStatementContext(new StatementContext(ctx,
+                oldStatementContext == null ? null : oldStatementContext.getOriginStatement()));
     }
 
     private void rewriteQuerySql(ConnectContext ctx) {

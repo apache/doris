@@ -31,6 +31,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.httpv2.interceptor.ConnectContextFilter;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
@@ -110,7 +111,7 @@ public class BaseController {
             // request would otherwise be handed whatever the previous request on this pooled Jetty thread left
             // behind - another client's address rather than none. Handed to the check explicitly, so nothing
             // is put on the thread until this request is through.
-            ConnectContext ctx = new ConnectContext();
+            ConnectContext ctx = ConnectContextFilter.createRequestContext(request);
             ctx.setRemoteIP(authInfo.remoteIp);
             ctx.setCurrentUserIdentity(currentUser);
             ctx.setEnv(Env.getCurrentEnv());
@@ -206,7 +207,7 @@ public class BaseController {
     }
 
     private ConnectContext buildConnectContext(HttpServletRequest request, SessionValue sessionValue) {
-        ConnectContext ctx = new ConnectContext();
+        ConnectContext ctx = ConnectContextFilter.createRequestContext(request);
         // getRemoteAddr, not getRemoteHost: this value reaches a plugin as the client address a policy
         // may be written against, and getRemoteHost may answer with a resolved host name instead - so a
         // policy matching on an address would behave differently depending on which of the two

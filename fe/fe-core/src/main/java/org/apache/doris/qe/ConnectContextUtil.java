@@ -25,6 +25,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ExceptionDiagnosticUtils;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.StatementContext;
 
 import java.util.Map;
@@ -39,15 +41,35 @@ public class ConnectContextUtil {
     // Note: After calling this method, ensure to invoke the cleanup() method of ConnectContext.
     public static ConnectContext getDummyCtx(String dbName) {
         ConnectContext ctx = new ConnectContext();
-        ctx.setDatabase(dbName);
-        StatementContext statementContext = new StatementContext();
-        statementContext.setConnectContext(ctx);
-        ctx.setStatementContext(statementContext);
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-        ctx.getState().reset();
-        ctx.setThreadLocalInfo();
-        return ctx;
+        try {
+            ctx.setDatabase(dbName);
+            ctx.setStatementContext(new StatementContext(ctx, null));
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+            ctx.getState().reset();
+            ctx.setThreadLocalInfo();
+            return ctx;
+        } catch (Throwable failure) {
+            // Ownership has not reached the caller when namespace initialization fails.
+            ctx.cleanup();
+            throw failure;
+        }
+    }
+
+    public static Optional<Pair<ErrorCode, String>> initDefaultCatalog(ConnectContext ctx) {
+        // Match login semantics: a missing configured catalog leaves the initial internal catalog.
+        try {
+            String userInitCatalog = ctx.getEnv().getAuth().getInitCatalog(ctx.getQualifiedUser());
+            if (userInitCatalog != null && !userInitCatalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalog(userInitCatalog);
+                if (catalog != null) {
+                    ctx.getEnv().changeCatalog(ctx, userInitCatalog);
+                }
+            }
+        } catch (DdlException e) {
+            return Optional.of(Pair.of(e.getMysqlErrorCode(), e.getMessage()));
+        }
+        return Optional.empty();
     }
 
     public static Optional<Pair<ErrorCode, String>> initCatalogAndDb(ConnectContext ctx, String fullDbName) {

@@ -189,6 +189,24 @@ public class VariableMgr {
         return defaultSessionVariable;
     }
 
+    public static String getDefaultWorkloadGroup() {
+        rlock.lock();
+        try {
+            return defaultSessionVariable.getWorkloadGroup();
+        } finally {
+            rlock.unlock();
+        }
+    }
+
+    public static int getDefaultQueryTimeoutS() {
+        rlock.lock();
+        try {
+            return defaultSessionVariable.getQueryTimeoutS();
+        } finally {
+            rlock.unlock();
+        }
+    }
+
     public static boolean isDynamicPartitionDropProtectionEnabled() {
         rlock.lock();
         try {

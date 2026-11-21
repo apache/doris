@@ -2837,7 +2837,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor materializeTupleDesc = generateTupleDesc(materialize.getOutput(), null, context);
 
         MaterializationNode materializeNode = new MaterializationNode(context.nextPlanNodeId(), materializeTupleDesc,
-                inputPlanFragment.getPlanRoot());
+                inputPlanFragment.getPlanRoot(), context.getConnectContext().getComputeGroupSafely());
 
         List<Expr> rowIds = materialize.getRowIds().stream()
                 .map(e -> ExpressionTranslator.translate(e, context))

@@ -37,11 +37,11 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ThriftLogHelper;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.nereids.load.NereidsCloudStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadTask;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
@@ -69,7 +69,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
-public class StreamLoadHandler {
+public class StreamLoadHandler implements AutoCloseable {
     private static final Logger LOG = LogManager.getLogger(StreamLoadHandler.class);
     private static final CertificateRuntimeAuthService CERT_RUNTIME_AUTH_SERVICE =
             CertificateRuntimeAuthFactory.getInstance();
@@ -83,6 +83,7 @@ public class StreamLoadHandler {
     private List<OlapTable> tables = Lists.newArrayList();
     private long timeoutMs;
     private List fragmentParams = Lists.newArrayList();
+    private AutoCloseConnectContext contextScope;
 
     public StreamLoadHandler(TStreamLoadPutRequest request, AtomicInteger indexId,
             TStreamLoadPutResult result, String clientAddr) {
@@ -126,13 +127,12 @@ public class StreamLoadHandler {
         if (LOG.isDebugEnabled()) {
             LOG.debug("stream load put request: {}", ThriftLogHelper.requestForLog(request));
         }
-        // create connect context
-        ConnectContext ctx = new ConnectContext();
+        contextScope = new AutoCloseConnectContext(new ConnectContext());
+        ConnectContext ctx = contextScope.connectContext;
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQueryId(request.getLoadId());
         ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
         ctx.setBackendId(request.getBackendId());
-        ctx.setThreadLocalInfo();
 
         if (!Config.isCloudMode()) {
             return;
@@ -168,6 +168,14 @@ public class StreamLoadHandler {
                 // stream load
                 ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(request.getCloudCluster(), ctx);
             }
+        }
+    }
+
+    @Override
+    public void close() {
+        // A MySQL load can borrow its caller's context; only the scope created here is ours.
+        if (contextScope != null) {
+            contextScope.close();
         }
     }
 
@@ -280,16 +288,14 @@ public class StreamLoadHandler {
                 buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
             }
 
-            NereidsStreamLoadPlanner planner = null;
             if (Config.isCloudMode()) {
-                planner = new NereidsCloudStreamLoadPlanner(db, table, streamLoadTask, request.getCloudCluster());
-            } else {
-                planner = new NereidsStreamLoadPlanner(db, table, streamLoadTask);
+                // The handler has already established the planning context. The planner borrows it.
+                ConnectContext.get().setCloudCluster(request.getCloudCluster());
             }
+            NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, table, streamLoadTask);
             int index = multiTableFragmentInstanceIdIndex != null
                     ? multiTableFragmentInstanceIdIndex.getAndIncrement() : 0;
-            TPipelineFragmentParams result = null;
-            result = planner.plan(streamLoadTask.getId(), index);
+            TPipelineFragmentParams result = planner.plan(streamLoadTask.getId(), index);
             assignAdaptiveRandomBucket(result);
             result.setTableName(table.getName());
             result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());

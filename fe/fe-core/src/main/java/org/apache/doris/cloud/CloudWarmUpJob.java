@@ -32,7 +32,6 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService.Client;
 import org.apache.doris.thrift.TDownloadType;
@@ -730,12 +729,6 @@ public class CloudWarmUpJob implements Writable {
             cancel("Timeout", false);
             return;
         }
-        if (Config.isCloudMode()) {
-            LOG.debug("set context to job");
-            ConnectContext ctx = new ConnectContext();
-            ctx.setThreadLocalInfo();
-            ctx.setCloudCluster(dstClusterName);
-        }
         try {
             switch (jobState) {
                 case PENDING:
@@ -750,11 +743,6 @@ public class CloudWarmUpJob implements Writable {
         } catch (Exception e) {
             e.printStackTrace();
             LOG.warn("state {} exception {}", jobState, e.getMessage());
-        } finally {
-            if (Config.isCloudMode()) {
-                LOG.debug("remove context from job");
-                ConnectContext.remove();
-            }
         }
     }
 

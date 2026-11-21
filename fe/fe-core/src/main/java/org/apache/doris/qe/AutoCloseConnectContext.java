@@ -17,6 +17,20 @@
 
 package org.apache.doris.qe;
 
+/**
+ * Owns a newly created private context, including its statement resources and thread binding.
+ * Construct the scope before binding the context so that the caller's binding can be restored.
+ * A helper borrowing an existing context must leave cleanup to its owner instead of wrapping it.
+ *
+ * <p>Finish execution, copy any results and record audit information before leaving the scope.
+ * Close requests AFTER_RESPONSE to avoid cancelling a completed statement; a private MySQL
+ * context normally has no pending protocol response and is cleaned up immediately. The context
+ * is terminal afterwards and cannot be reused for another statement.
+ *
+ * <p>The scope does not wait for arbitrary background work. A worker that needs this context must
+ * own the scope for its full execution. Work that outlives the scope must own independent resources,
+ * as deferred connector split cleanup does, without relying on the context remaining open.
+ */
 public class AutoCloseConnectContext implements AutoCloseable {
 
     public final ConnectContext connectContext;
@@ -36,10 +50,15 @@ public class AutoCloseConnectContext implements AutoCloseable {
 
     @Override
     public void close() {
-        connectContext.clear();
-        ConnectContext.remove();
-        if (previousContext != null) {
-            previousContext.setThreadLocalInfo();
+        try {
+            // The synchronous scope has exited. Finish without cancelling its completed statement.
+            connectContext.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+        } finally {
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
         }
     }
 }

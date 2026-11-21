@@ -48,6 +48,23 @@ public class InsertOverwriteSkipAuthResetTest extends TestWithFeService {
     }
 
     @Test
+    public void cancelledNestedOverwritePreservesCallersSkipAuth() throws Exception {
+        String sql = "INSERT OVERWRITE TABLE iot_skipauth.t SELECT * FROM iot_skipauth.t";
+        boolean previous = connectContext.isSkipAuth();
+        try {
+            connectContext.setSkipAuth(true);
+            StmtExecutor executor = new StmtExecutor(connectContext, sql);
+            InsertOverwriteTableCommand command = (InsertOverwriteTableCommand) new NereidsParser().parseSingle(sql);
+            command.cancel();
+            Exception failure = Assertions.assertThrows(Exception.class, () -> command.run(connectContext, executor));
+            Assertions.assertTrue(failure.getMessage().contains("cancelled before registerTask"), failure::getMessage);
+            Assertions.assertTrue(connectContext.isSkipAuth());
+        } finally {
+            connectContext.setSkipAuth(previous);
+        }
+    }
+
+    @Test
     public void skipAuthIsResetAfterFailingBranchOverwrite() throws Exception {
         // @branch is only valid for iceberg; against an OLAP table run() plans the sink, marks the
         // overwrite as needing the auth-skip, then throws the guard below. The flag must not leak.

@@ -20,6 +20,7 @@ package org.apache.doris.job.extensions.insert;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -83,9 +85,9 @@ public class InsertTask extends AbstractTask {
     }
 
     private String labelName;
-    private InsertIntoTableCommand command;
-    private StmtExecutor stmtExecutor;
-    private ConnectContext ctx;
+    private volatile InsertIntoTableCommand command;
+    private NameSpaceContext planNamespace;
+    private volatile StmtExecutor stmtExecutor;
     private String sql;
     private String currentDb;
     @SerializedName(value = "uif")
@@ -128,11 +130,6 @@ public class InsertTask extends AbstractTask {
         CANCELLED
     }
 
-    public InsertTask(InsertIntoTableCommand insertInto,
-                      ConnectContext ctx, StmtExecutor executor, LoadStatistic statistic) {
-        this(insertInto.getLabelName().get(), insertInto, ctx, executor, statistic);
-    }
-
     public InsertTask(String labelName, String currentDb, String sql, UserIdentity userIdentity) {
         this.labelName = labelName;
         this.sql = sql;
@@ -140,83 +137,109 @@ public class InsertTask extends AbstractTask {
         this.userIdentity = userIdentity;
     }
 
-    public InsertTask(String labelName, InsertIntoTableCommand insertInto,
-                      ConnectContext ctx, StmtExecutor executor, LoadStatistic statistic) {
-        this.labelName = labelName;
-        this.command = insertInto;
-        this.userIdentity = ctx.getCurrentUserIdentity();
-        this.ctx = ctx;
-        this.stmtExecutor = executor;
+    InsertTask(InsertIntoTableCommand command, UserIdentity userIdentity, NameSpaceContext namespace,
+            LoadStatistic statistic) {
+        this(command.getLabelName().get(), null, null, userIdentity);
+        this.command = command;
+        this.planNamespace = namespace;
         this.loadStatistic = statistic;
     }
 
+    /** Returns a new, unbound context. The caller owns its binding and cleanup. */
     public static ConnectContext makeConnectContext(UserIdentity userIdentity, String currentDb) {
         ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCurrentUserIdentity(userIdentity);
-        ctx.getState().reset();
-        ctx.getState().setInternal(true);
-        ctx.getState().setNereids(true);
-        ctx.setThreadLocalInfo();
-        TUniqueId queryId = generateQueryId();
-        ctx.setQueryId(queryId);
-        if (StringUtils.isNotEmpty(currentDb)) {
-            ctx.setDatabase(currentDb);
+        try {
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setCurrentUserIdentity(userIdentity);
+            ctx.getState().reset();
+            ctx.getState().setInternal(true);
+            ctx.getState().setNereids(true);
+            TUniqueId queryId = generateQueryId();
+            ctx.setQueryId(queryId);
+            if (StringUtils.isNotEmpty(currentDb)) {
+                ctx.setDatabase(currentDb);
+            }
+            return ctx;
+        } catch (RuntimeException | Error e) {
+            ctx.cleanup();
+            throw e;
         }
-        return ctx;
-    }
-
-    public static StmtExecutor makeStmtExecutor(ConnectContext ctx) {
-        return new StmtExecutor(ctx, (String) null);
     }
 
     @Override
     public void before() throws JobException {
         if (isCanceled.get()) {
-            throw new JobException("Export executor has been canceled, task id: {}", getTaskId());
+            throw new JobException("Insert task has been canceled, task id: {}", getTaskId());
         }
-        ctx = makeConnectContext(userIdentity, currentDb);
-        StatementContext statementContext = new StatementContext();
-        ctx.setStatementContext(statementContext);
-        if (StringUtils.isNotEmpty(sql)) {
-            NereidsParser parser = new NereidsParser();
-            this.command = (InsertIntoTableCommand) parser.parseSingle(sql);
-            this.command.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
-            this.command.setJobId(getTaskId());
-            stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
-        }
-
         super.before();
     }
 
     @Override
     protected void closeOrReleaseResources() {
-        if (null != stmtExecutor) {
-            stmtExecutor = null;
-        }
-        if (null != command) {
-            command = null;
-        }
-        if (null != ctx) {
-            ctx = null;
+        command = null;
+    }
+
+    @Override
+    public void runTask() throws JobException {
+        try (InsertExecution execution = new InsertExecution()) {
+            runWithStatusCallbacks(execution::run);
         }
     }
 
     @Override
     public void run() throws JobException {
-        try {
+        try (InsertExecution execution = new InsertExecution()) {
+            execution.run();
+        }
+    }
+
+    // One invocation owns the context from preparation through its last callback. Cancellation only
+    // signals stmtExecutor and never closes this scope from another thread.
+    private class InsertExecution implements AutoCloseable {
+        private AutoCloseConnectContext scope;
+
+        void run() throws JobException {
+            // cancel() can release the queued plan. Once execution starts, the worker owns this reference.
+            InsertIntoTableCommand insert = command;
             if (isCanceled.get()) {
-                log.info("task has been canceled, task id is {}", getTaskId());
                 return;
             }
-            command.runWithUpdateInfo(ctx, stmtExecutor, loadStatistic);
-            if (ctx.getState().getStateType() != QueryState.MysqlStateType.OK) {
-                throw new JobException(ctx.getState().getErrorMessage());
+            try {
+                scope = bindExecutionContext(makeConnectContext(userIdentity, currentDb));
+                ConnectContext ctx = scope.connectContext;
+                if (planNamespace != null) {
+                    ctx.restoreNameSpaceContext(planNamespace);
+                }
+                ctx.setStatementContext(new StatementContext(ctx, null));
+                if (StringUtils.isNotEmpty(sql)) {
+                    insert = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
+                    insert.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
+                    insert.setJobId(getTaskId());
+                }
+                LogicalPlanAdapter plan = new LogicalPlanAdapter(insert, ctx.getStatementContext());
+                StmtExecutor executor = new StmtExecutor(ctx, plan);
+                stmtExecutor = executor;
+                if (isCanceled.get()) {
+                    return;
+                }
+                insert.runWithUpdateInfo(ctx, executor, loadStatistic);
+                if (ctx.getState().getStateType() != QueryState.MysqlStateType.OK) {
+                    throw new JobException(ctx.getState().getErrorMessage());
+                }
+            } catch (Exception e) {
+                log.warn("execute insert task error, job id is {}, task id is {},sql is {}", getJobId(),
+                        getTaskId(), sql, e);
+                throw new JobException(Util.getRootCauseMessage(e));
+            } finally {
+                stmtExecutor = null;
             }
-        } catch (Exception e) {
-            log.warn("execute insert task error, job id is {}, task id is {},sql is {}", getJobId(),
-                    getTaskId(), sql, e);
-            throw new JobException(Util.getRootCauseMessage(e));
+        }
+
+        @Override
+        public void close() {
+            if (scope != null) {
+                scope.close();
+            }
         }
     }
 
@@ -237,12 +260,12 @@ public class InsertTask extends AbstractTask {
 
     @Override
     protected void executeCancelLogic(boolean needWaitCancelComplete) {
-        if (isFinished.get() || isCanceled.get()) {
+        if (isFinished.get() || isCanceled.getAndSet(true)) {
             return;
         }
-        isCanceled.getAndSet(true);
-        if (null != stmtExecutor) {
-            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "insert task cancelled"));
+        StmtExecutor executor = stmtExecutor;
+        if (executor != null) {
+            executor.cancel(new Status(TStatusCode.CANCELLED, "insert task cancelled"));
         }
     }
 

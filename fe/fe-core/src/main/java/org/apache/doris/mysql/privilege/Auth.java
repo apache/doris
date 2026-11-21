@@ -641,12 +641,6 @@ public class Auth implements Writable {
             PrivPredicate wanted, ResourceTypeEnum type) {
         readLock();
         try {
-            ConnectContext ctx = ConnectContext.get();
-            if (ctx != null) {
-                if (ctx.getNoAuth()) {
-                    return true;
-                }
-            }
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
             PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
@@ -1508,6 +1502,16 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getQueryTimeout(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /** User-property timeout for a metadata RPC, independent of the calling SQL session. */
+    public int getQueryTimeoutForRegularUser(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getQueryTimeoutForRegularUser(qualifiedUser);
         } finally {
             readUnlock();
         }

@@ -37,6 +37,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -237,8 +238,6 @@ public class IndexChangeJob implements Writable {
      *      db lock
      */
     public synchronized void run() {
-        setCloudCluster();
-
         if (isTimeout()) {
             cancelImpl("Timeout");
             return;
@@ -246,7 +245,9 @@ public class IndexChangeJob implements Writable {
         try {
             switch (jobState) {
                 case WAITING_TXN:
-                    runWaitingTxnJob();
+                    try (AutoCloseConnectContext scope = setCloudCluster()) {
+                        runWaitingTxnJob();
+                    }
                     break;
                 case RUNNING:
                     runRunningJob();
@@ -259,13 +260,14 @@ public class IndexChangeJob implements Writable {
         }
     }
 
-    private void setCloudCluster() {
+    private AutoCloseConnectContext setCloudCluster() {
         if (!StringUtils.isEmpty(cloudClusterName)) {
             ConnectContext ctx = new ConnectContext();
-            ctx.setThreadLocalInfo();
             ctx.setCloudCluster(cloudClusterName);
             ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+            return new AutoCloseConnectContext(ctx);
         }
+        return null;
     }
 
     public final synchronized boolean cancel(String errMsg) {

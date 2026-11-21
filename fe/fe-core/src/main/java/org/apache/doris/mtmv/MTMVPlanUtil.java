@@ -19,7 +19,6 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
@@ -91,6 +90,7 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.AuditLogHelper;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.SessionVariable;
@@ -143,17 +143,21 @@ public class MTMVPlanUtil {
     // The rules should be disabled when run MTMV task
     public static final List<RuleType> DISABLE_RULES_WHEN_RUN_MTMV_TASK = DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE;
 
+    /** Returns an unbound context owned by the caller, which must close it after the last use. */
     public static ConnectContext createMTMVContext(MTMV mtmv, List<RuleType> disableRules) {
         ConnectContext ctx = createBasicMvContext(null, disableRules, mtmv.getSessionVariables());
-        Optional<String> workloadGroup = mtmv.getWorkloadGroup();
-        if (workloadGroup.isPresent()) {
-            ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
+        try {
+            Optional<String> workloadGroup = mtmv.getWorkloadGroup();
+            if (workloadGroup.isPresent()) {
+                ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
+            }
+            // Older materialized views can omit qualified names in their query SQL.
+            setCatalogAndDb(ctx, mtmv);
+            return ctx;
+        } catch (RuntimeException | Error e) {
+            ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            throw e;
         }
-        // Set db&catalog to be used when creating materialized views to avoid SQL statements not writing the full path
-        // After https://github.com/apache/doris/pull/36543,
-        // After 1, this logic is no longer needed. This is to be compatible with older versions
-        setCatalogAndDb(ctx, mtmv);
-        return ctx;
     }
 
     /**
@@ -187,9 +191,11 @@ public class MTMVPlanUtil {
     public static void executeCommand(MTMV mtmv, Command command,
             StatementContext stmtCtx, @Nullable String auditStmt,
             @Nullable Consumer<StmtExecutor> executorConsumer) throws Exception {
-        ConnectContext ctx = createMTMVContext(mtmv, DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        stmtCtx.setConnectContext(ctx);
-        executeCommand(ctx, command, stmtCtx, auditStmt, executorConsumer);
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                createMTMVContext(mtmv, DISABLE_RULES_WHEN_RUN_MTMV_TASK))) {
+            stmtCtx.setConnectContext(scope.connectContext);
+            executeCommand(scope.connectContext, command, stmtCtx, auditStmt, executorConsumer);
+        }
     }
 
     /**
@@ -232,15 +238,16 @@ public class MTMVPlanUtil {
         }
     }
 
+    /** Returns an unbound context owned by the caller, which must close it after the last use. */
     public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext,
             List<RuleType> disableRules, Map<String, String> sessionVariables) {
         ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-        ctx.getState().reset();
-        ctx.getState().setInternal(true);
         ConnectContext previousContext = ConnectContext.get();
         try {
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+            ctx.getState().reset();
+            ctx.getState().setInternal(true);
             ctx.setThreadLocalInfo();
             ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(sessionVariables);
             // Debug session variable should be disabled when refreshed
@@ -259,13 +266,14 @@ public class MTMVPlanUtil {
             }
             return ctx;
         } catch (RuntimeException | Error e) {
-            // Initialization can fail before MTMVCache takes responsibility for context cleanup.
+            ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            throw e;
+        } finally {
             if (previousContext == null) {
                 ConnectContext.remove();
             } else {
                 previousContext.setThreadLocalInfo();
             }
-            throw e;
         }
     }
 
@@ -347,26 +355,20 @@ public class MTMVPlanUtil {
     }
 
     public static QueryAnalysisResult getBaseTableFromQuery(String querySql, ConnectContext ctx) {
-        List<StatementBase> statements;
+        return StatementContext.withNestedStatement(ctx, querySql, statement -> {
+            NereidsPlanner planner = new NereidsPlanner(statement);
+            planner.planWithLock(parseDefinition(querySql), PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
+            return new QueryAnalysisResult(Sets.newHashSet(statement.getTables().values()),
+                    Sets.newHashSet(statement.getOneLevelTables().values()),
+                    planner.getAnalyzedPlan().containsType(LogicalOneRowRelation.class));
+        });
+    }
+
+    private static LogicalPlan parseDefinition(String sql) {
         try {
-            statements = new NereidsParser().parseSQL(querySql);
+            return new NereidsParser().parseSingle(sql);
         } catch (Exception e) {
             throw new ParseException("Nereids parse failed. " + e.getMessage());
-        }
-        StatementBase parsedStmt = statements.get(0);
-        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-        StatementContext original = ctx.getStatementContext();
-        try (StatementContext tempCtx = new StatementContext()) {
-            ctx.setStatementContext(tempCtx);
-            try {
-                NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-                planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
-                return new QueryAnalysisResult(Sets.newHashSet(ctx.getStatementContext().getTables().values()),
-                        Sets.newHashSet(ctx.getStatementContext().getOneLevelTables().values()),
-                        planner.getAnalyzedPlan().containsType(LogicalOneRowRelation.class));
-            } finally {
-                ctx.setStatementContext(original);
-            }
         }
     }
 
@@ -385,26 +387,13 @@ public class MTMVPlanUtil {
     public static List<ColumnDefinition> generateColumnsBySql(String querySql, ConnectContext ctx, String partitionCol,
             Set<String> distributionColumnNames, List<SimpleColumnDefinition> simpleColumnDefinitions,
             Map<String, String> properties) {
-        List<StatementBase> statements;
-        try {
-            statements = new NereidsParser().parseSQL(querySql);
-        } catch (Exception e) {
-            throw new ParseException("Nereids parse failed. " + e.getMessage());
-        }
-        StatementBase parsedStmt = statements.get(0);
-        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-        StatementContext original = ctx.getStatementContext();
-        try (StatementContext tempCtx = new StatementContext()) {
-            ctx.setStatementContext(tempCtx);
-            try {
-                NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-                Plan plan = planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
-                return generateColumns(plan, ctx, partitionCol, distributionColumnNames, simpleColumnDefinitions,
-                        properties);
-            } finally {
-                ctx.setStatementContext(original);
-            }
-        }
+        return StatementContext.withNestedStatement(ctx, querySql, statement -> {
+            NereidsPlanner planner = new NereidsPlanner(statement);
+            Plan plan = planner.planWithLock(parseDefinition(querySql), PhysicalProperties.ANY,
+                    ExplainLevel.ANALYZED_PLAN);
+            return generateColumns(plan, ctx, partitionCol, distributionColumnNames, simpleColumnDefinitions,
+                    properties);
+        });
     }
 
     /**
@@ -562,147 +551,133 @@ public class MTMVPlanUtil {
     public static MTMVAnalyzeQueryInfo analyzeQueryWithSql(MTMV mtmv, ConnectContext ctx,
             Map<String, String> mvProperties, Optional<IvmRewriteContext> ivmRewriteContext) throws UserException {
         String querySql = mtmv.getQuerySql();
-        MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
-        MTMVPartitionDefinition mtmvPartitionDefinition = new MTMVPartitionDefinition();
-        mtmvPartitionDefinition.setPartitionCol(mvPartitionInfo.getPartitionCol());
-        mtmvPartitionDefinition.setPartitionType(mvPartitionInfo.getPartitionType());
-        Expr expr = mvPartitionInfo.getExpr();
-        if (expr != null) {
-            mtmvPartitionDefinition.setFunctionCallExpression(new NereidsParser().parseExpression(
-                    expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)));
-        }
-        List<String> keys = mtmv.getBaseSchema(false).stream()
-                .filter(Column::isKey)
-                .map(Column::getName)
-                .collect(Collectors.toList());
-        List<StatementBase> statements;
-        try {
-            statements = new NereidsParser().parseSQL(querySql);
-        } catch (Exception e) {
-            throw new ParseException("Nereids parse failed. " + e.getMessage());
-        }
-        StatementBase parsedStmt = statements.get(0);
-        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-        DistributionInfo defaultDistributionInfo = mtmv.getDefaultDistributionInfo();
-        DistributionDescriptor distribution = new DistributionDescriptor(defaultDistributionInfo.getType().equals(
-                DistributionInfoType.HASH), defaultDistributionInfo.getAutoBucket(),
-                defaultDistributionInfo.getBucketNum(), Lists.newArrayList(mtmv.getDistributionColumnNames()));
-        return analyzeQuery(ctx, mvProperties, mtmvPartitionDefinition, distribution, null,
-                Maps.newHashMap(mtmv.getTableProperty().getProperties()), keys, logicalPlan, ivmRewriteContext);
+        return StatementContext.withNestedStatement(ctx, querySql, statement -> {
+            MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
+            MTMVPartitionDefinition mtmvPartitionDefinition = new MTMVPartitionDefinition();
+            mtmvPartitionDefinition.setPartitionCol(mvPartitionInfo.getPartitionCol());
+            mtmvPartitionDefinition.setPartitionType(mvPartitionInfo.getPartitionType());
+            Expr expr = mvPartitionInfo.getExpr();
+            if (expr != null) {
+                mtmvPartitionDefinition.setFunctionCallExpression(new NereidsParser().parseExpression(
+                        expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)));
+            }
+            List<String> keys = mtmv.getBaseSchema(false).stream()
+                    .filter(Column::isKey)
+                    .map(Column::getName)
+                    .collect(Collectors.toList());
+            LogicalPlan logicalPlan = parseDefinition(querySql);
+            DistributionInfo defaultDistributionInfo = mtmv.getDefaultDistributionInfo();
+            DistributionDescriptor distribution = new DistributionDescriptor(
+                    defaultDistributionInfo.getType().equals(DistributionInfoType.HASH),
+                    defaultDistributionInfo.getAutoBucket(), defaultDistributionInfo.getBucketNum(),
+                    Lists.newArrayList(mtmv.getDistributionColumnNames()));
+            return analyzeQuery(ctx, mvProperties, mtmvPartitionDefinition, distribution, null,
+                    Maps.newHashMap(mtmv.getTableProperty().getProperties()), keys, logicalPlan, ivmRewriteContext);
+        });
     }
 
     public static MTMVAnalyzeQueryInfo analyzeQuery(ConnectContext ctx, Map<String, String> mvProperties,
             MTMVPartitionDefinition mvPartitionDefinition, DistributionDescriptor distribution,
             List<SimpleColumnDefinition> simpleColumnDefinitions, Map<String, String> properties, List<String> keys,
             LogicalPlan logicalQuery, Optional<IvmRewriteContext> ivmRewriteContext) throws UserException {
-        return analyzeQueryInternal(ctx, mvProperties, mvPartitionDefinition, distribution,
-                simpleColumnDefinitions, properties, keys, logicalQuery, ivmRewriteContext);
-    }
-
-    private static MTMVAnalyzeQueryInfo analyzeQueryInternal(ConnectContext ctx, Map<String, String> mvProperties,
-            MTMVPartitionDefinition mvPartitionDefinition, DistributionDescriptor distribution,
-            List<SimpleColumnDefinition> simpleColumnDefinitions, Map<String, String> properties, List<String> keys,
-            LogicalPlan logicalQuery, Optional<IvmRewriteContext> ivmRewriteContext)
-            throws UserException {
         boolean isIvm = ivmRewriteContext.isPresent();
         Set<TableNameInfo> excludedTriggerTables = getExcludedTriggerTables(mvProperties);
         // Reuse the StatementContext already on the ConnectContext (set by NereidsParser during
         // SQL parsing or by the user session). Do NOT create a new StatementContext here.
         // IVM planning needs ExprId allocations and other statement-local state to stay on the
         // same StatementContext for the whole analyze flow.
-        try (StatementContext statementContext = ctx.getStatementContext()) {
-            statementContext.setIvmRewriteContext(ivmRewriteContext);
-            statementContext.setExcludedTriggerTables(excludedTriggerTables);
-            ivmRewriteContext.ifPresent(rewriteContext -> {
-                rewriteContext.setUseFullKeys(MTMVPropertyUtil.isIvmUseFullKeys(mvProperties));
-                rewriteContext.setForceMow(MTMVPropertyUtil.isIvmForceMow(mvProperties));
-                rewriteContext.setMinMaxTopK(MTMVPropertyUtil.getIvmMinMaxTopK(mvProperties).orElse(null));
-            });
-            NereidsPlanner planner = new NereidsPlanner(statementContext);
-            // this is for expression column name infer when not use alias
-            LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
-            // Should not make table without data to empty relation when analyze the related table,
-            // so add disable rules
-            Set<String> tempDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
-            ctx.getSessionVariable().setDisableNereidsRules(CreateMTMVInfo.MTMV_PLANER_DISABLE_RULES);
+        StatementContext statementContext = ctx.getStatementContext();
+        statementContext.setIvmRewriteContext(ivmRewriteContext);
+        statementContext.setExcludedTriggerTables(excludedTriggerTables);
+        ivmRewriteContext.ifPresent(rewriteContext -> {
+            rewriteContext.setUseFullKeys(MTMVPropertyUtil.isIvmUseFullKeys(mvProperties));
+            rewriteContext.setForceMow(MTMVPropertyUtil.isIvmForceMow(mvProperties));
+            rewriteContext.setMinMaxTopK(MTMVPropertyUtil.getIvmMinMaxTopK(mvProperties).orElse(null));
+        });
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        // this is for expression column name infer when not use alias
+        LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
+        // Should not make table without data to empty relation when analyze the related table,
+        // so add disable rules
+        Set<String> tempDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
+        ctx.getSessionVariable().setDisableNereidsRules(CreateMTMVInfo.MTMV_PLANER_DISABLE_RULES);
+        statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        Plan plan;
+        try {
+            // must disable constant folding by be, because be constant folding may return wrong type
+            ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
+            plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+        } finally {
+            // after operate, roll back the disable rules
+            ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
             statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-            Plan plan;
-            try {
-                // must disable constant folding by be, because be constant folding may return wrong type
-                ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
-                plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
-            } finally {
-                // after operate, roll back the disable rules
-                ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
-                statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-            }
-            Plan analyzedPlan = planner.getAnalyzedPlan();
-            Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
-            Set<TableIf> oneLevelTables = Sets.newHashSet(statementContext.getOneLevelTables().values());
-            MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
-            // Row TTL injects a time-dependent internal predicate. Report the unsupported table policy before
-            // the generic nondeterministic-expression check so the policy cannot be bypassed by MV properties.
-            MTMVUtil.checkNoRowTtlBaseTable(relation);
-            // can not contain Random function
-            analyzeExpressions(analyzedPlan, mvProperties);
-            // can not contain partition or tablets
-            boolean containTableQueryOperator = MaterializedViewUtils.containTableQueryOperator(
-                    analyzedPlan);
-            if (containTableQueryOperator) {
-                throw new AnalysisException("can not contain invalid expression");
-            }
-
-            for (TableIf table : baseTables) {
-                if (table.isTemporary()) {
-                    throw new AnalysisException("do not support create materialized view on temporary table ("
-                            + Util.getTempTableDisplayName(table.getName()) + ")");
-                }
-                if (table instanceof ExternalTable) {
-                    ExternalTable externalTable = (ExternalTable) table;
-                    if (externalTable.isView()) {
-                        throw new AnalysisException("can not contain external VIEW");
-                    }
-                }
-            }
-            MTMVPartitionInfo mvPartitionInfo = mvPartitionDefinition.analyzeAndTransferToMTMVPartitionInfo(planner);
-            List<ColumnDefinition> columns = MTMVPlanUtil.generateColumns(plan, ctx, mvPartitionInfo.getPartitionCol(),
-                    (distribution == null || CollectionUtils.isEmpty(distribution.getCols())) ? Sets.newHashSet()
-                            : Sets.newHashSet(distribution.getCols()),
-                    simpleColumnDefinitions, properties);
-            Optional<IvmRewriteResult> ivmRewriteResult = planner.getCascadesContext().getIvmRewriteResult();
-            // CREATE persists the capacity normalize resolved, so a later refresh reads the same
-            // value instead of re-deriving it. NORMALIZE/INCREMENTAL read the MV's own property and
-            // must not mutate it here (the change would bypass journaling).
-            ivmRewriteContext.ifPresent(rewriteContext -> {
-                Long resolved = rewriteContext.getResolvedMinMaxTopK();
-                if (rewriteContext.getMode() == IvmRewriteContext.Mode.CREATE && resolved != null
-                        && !mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK)) {
-                    mvProperties.put(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK, String.valueOf(resolved));
-                }
-            });
-            boolean appendOnlyDup = isAppendOnlyDup(ivmRewriteResult.orElse(null));
-            // The table model decides both: only the unique-key model merges on write, and only it has IVM
-            // hidden columns to lay out. An append-only detail MV is laid out as a plain DUP table.
-            KeysType mvKeysType = isIvm && !appendOnlyDup ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
-            final boolean finalEnableMergeOnWrite = isIvm && !appendOnlyDup;
-            keys = analyzeKeys(keys, properties, mvProperties, columns, isIvm, mvPartitionInfo, distribution,
-                    ivmRewriteResult.orElse(null));
-            properties = CreateTableInfo.addOlapHiddenColumns(columns, mvKeysType,
-                    finalEnableMergeOnWrite, properties, false);
-            // A changelog table carries hidden columns on top of the OLAP ones above, added by
-            // InternalCatalog#createOlapTable just before the table is built. The analyzed list has
-            // to carry them too: an MTMV re-validates its schema against it whenever a base table
-            // changes (MTMVPlanUtil#checkColumnIfChange), and a column missing here is
-            // indistinguishable from a real schema change. Idempotent, so the table still gets one.
-            CreateTableInfo.addChangelogHiddenColumns(columns, mvKeysType, finalEnableMergeOnWrite,
-                    ChangelogConfig.fromProperties(properties));
-            // analyze column
-            Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-            keysSet.addAll(keys);
-            validateColumns(columns, keysSet, finalEnableMergeOnWrite);
-            return new MTMVAnalyzeQueryInfo(columns, keys, mvPartitionInfo, relation, properties,
-                    isIvm ? ivmRewriteResult.orElse(null) : null, planner.getAnalyzedPlan());
         }
+        Plan analyzedPlan = planner.getAnalyzedPlan();
+        Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
+        Set<TableIf> oneLevelTables = Sets.newHashSet(statementContext.getOneLevelTables().values());
+        MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
+        // Row TTL injects a time-dependent internal predicate. Report the unsupported table policy before
+        // the generic nondeterministic-expression check so the policy cannot be bypassed by MV properties.
+        MTMVUtil.checkNoRowTtlBaseTable(relation);
+        // can not contain Random function
+        analyzeExpressions(analyzedPlan, mvProperties);
+        // can not contain partition or tablets
+        boolean containTableQueryOperator = MaterializedViewUtils.containTableQueryOperator(
+                analyzedPlan);
+        if (containTableQueryOperator) {
+            throw new AnalysisException("can not contain invalid expression");
+        }
+
+        for (TableIf table : baseTables) {
+            if (table.isTemporary()) {
+                throw new AnalysisException("do not support create materialized view on temporary table ("
+                        + Util.getTempTableDisplayName(table.getName()) + ")");
+            }
+            if (table instanceof ExternalTable) {
+                ExternalTable externalTable = (ExternalTable) table;
+                if (externalTable.isView()) {
+                    throw new AnalysisException("can not contain external VIEW");
+                }
+            }
+        }
+        MTMVPartitionInfo mvPartitionInfo = mvPartitionDefinition.analyzeAndTransferToMTMVPartitionInfo(planner);
+        List<ColumnDefinition> columns = MTMVPlanUtil.generateColumns(plan, ctx, mvPartitionInfo.getPartitionCol(),
+                (distribution == null || CollectionUtils.isEmpty(distribution.getCols())) ? Sets.newHashSet()
+                        : Sets.newHashSet(distribution.getCols()),
+                simpleColumnDefinitions, properties);
+        Optional<IvmRewriteResult> ivmRewriteResult = planner.getCascadesContext().getIvmRewriteResult();
+        // CREATE persists the capacity normalize resolved, so a later refresh reads the same
+        // value instead of re-deriving it. NORMALIZE/INCREMENTAL read the MV's own property and
+        // must not mutate it here (the change would bypass journaling).
+        ivmRewriteContext.ifPresent(rewriteContext -> {
+            Long resolved = rewriteContext.getResolvedMinMaxTopK();
+            if (rewriteContext.getMode() == IvmRewriteContext.Mode.CREATE && resolved != null
+                    && !mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK)) {
+                mvProperties.put(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK, String.valueOf(resolved));
+            }
+        });
+        boolean appendOnlyDup = isAppendOnlyDup(ivmRewriteResult.orElse(null));
+        // The table model decides both: only the unique-key model merges on write, and only it has IVM
+        // hidden columns to lay out. An append-only detail MV is laid out as a plain DUP table.
+        KeysType mvKeysType = isIvm && !appendOnlyDup ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
+        final boolean finalEnableMergeOnWrite = isIvm && !appendOnlyDup;
+        keys = analyzeKeys(keys, properties, mvProperties, columns, isIvm, mvPartitionInfo, distribution,
+                ivmRewriteResult.orElse(null));
+        properties = CreateTableInfo.addOlapHiddenColumns(columns, mvKeysType,
+                finalEnableMergeOnWrite, properties, false);
+        // A changelog table carries hidden columns on top of the OLAP ones above, added by
+        // InternalCatalog#createOlapTable just before the table is built. The analyzed list has
+        // to carry them too: an MTMV re-validates its schema against it whenever a base table
+        // changes (MTMVPlanUtil#checkColumnIfChange), and a column missing here is
+        // indistinguishable from a real schema change. Idempotent, so the table still gets one.
+        CreateTableInfo.addChangelogHiddenColumns(columns, mvKeysType, finalEnableMergeOnWrite,
+                ChangelogConfig.fromProperties(properties));
+        // analyze column
+        Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        keysSet.addAll(keys);
+        validateColumns(columns, keysSet, finalEnableMergeOnWrite);
+        return new MTMVAnalyzeQueryInfo(columns, keys, mvPartitionInfo, relation, properties,
+                isIvm ? ivmRewriteResult.orElse(null) : null, planner.getAnalyzedPlan());
     }
 
     private static Set<TableNameInfo> getExcludedTriggerTables(Map<String, String> mvProperties) {

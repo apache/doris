@@ -78,22 +78,24 @@ public class StatementSubmitter {
             Config.cloud_copy_into_statement_submitter_threads_num, "SQL submitter with block policy", true);
 
     public Future<ExecutionResultSet> submit(StmtContext queryCtx) {
-        Worker worker = new Worker(ConnectContext.get(), queryCtx);
+        Worker worker = new Worker(ConnectContext.get().getDatabase(), queryCtx);
         return executor.submit(worker);
     }
 
     public Future<ExecutionResultSet> submitBlock(StmtContext queryCtx) {
         LOG.debug("submitBlock {}", queryCtx);
-        Worker worker = new Worker(ConnectContext.get(), queryCtx);
+        Worker worker = new Worker(ConnectContext.get().getDatabase(), queryCtx);
         return executorBlockPolicy.submit(worker);
     }
 
     private static class Worker implements Callable<ExecutionResultSet> {
-        private final ConnectContext ctx;
+        // HTTP can return before this task finishes. The worker owns its JDBC connection and
+        // only needs the submitted database, not the request context or its planner resources.
+        private final String database;
         private final StmtContext queryCtx;
 
-        public Worker(ConnectContext ctx, StmtContext queryCtx) {
-            this.ctx = ctx;
+        public Worker(String database, StmtContext queryCtx) {
+            this.database = database;
             this.queryCtx = queryCtx;
         }
 
@@ -101,7 +103,7 @@ public class StatementSubmitter {
         public ExecutionResultSet call() throws Exception {
             Connection conn = null;
             Statement stmt = null;
-            String dbUrl = String.format(DB_URL_PATTERN, Config.query_port, ctx.getDatabase());
+            String dbUrl = String.format(DB_URL_PATTERN, Config.query_port, database);
             try {
                 Class.forName(JDBC_DRIVER);
                 conn = DriverManager.getConnection(dbUrl, queryCtx.user, queryCtx.passwd);

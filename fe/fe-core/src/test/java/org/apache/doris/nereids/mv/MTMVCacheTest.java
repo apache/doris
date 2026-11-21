@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 
@@ -168,22 +169,24 @@ public class MTMVCacheTest extends SqlTestBase {
                     ConnectContext cacheContext = Mockito.spy(MTMVPlanUtil.createBasicMvContext(connectContext,
                             MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE,
                             connectContext.getSessionVariable().getAffectQueryResultInPlanVariables()));
-                    cacheContext.getSessionVariable().setTimeZone("UTC");
-                    Mockito.doReturn(date.atStartOfDay(ZoneOffset.UTC).toInstant())
-                            .when(cacheContext).getStartTimeInstant();
-                    cacheContext.setThreadLocalInfo();
-                    MTMVCache cache = MTMVCache.from("select id, score from T1 where score > " + expression,
-                            cacheContext, false, true, connectContext, false);
-                    LogicalFilter<? extends Plan> filter = cache.getOriginalFinalPlan()
-                            .<LogicalFilter<? extends Plan>>collectFirst(LogicalFilter.class::isInstance)
-                            .orElseThrow(AssertionError::new);
-                    // The same definition folds to a different bound when its cache is rebuilt tomorrow.
-                    Assertions.assertTrue(filter.getConjuncts().stream().anyMatch(predicate ->
-                                    predicate instanceof GreaterThan && predicate.child(1) instanceof Literal
-                                            && ((Literal) predicate.child(1)).getStringValue()
-                                                    .equals(Integer.toString(date.getDayOfMonth()))),
-                            cache.getOriginalFinalPlan()::treeString);
-                    Assertions.assertTrue(cache.getOutputPredicates().isEmpty(), cache.getOutputPredicates()::toString);
+                    try (AutoCloseConnectContext scope = new AutoCloseConnectContext(cacheContext)) {
+                        scope.call();
+                        cacheContext.getSessionVariable().setTimeZone("UTC");
+                        Mockito.doReturn(date.atStartOfDay(ZoneOffset.UTC).toInstant())
+                                .when(cacheContext).getStartTimeInstant();
+                        MTMVCache cache = MTMVCache.from("select id, score from T1 where score > " + expression,
+                                cacheContext, false, true, false);
+                        LogicalFilter<? extends Plan> filter = cache.getOriginalFinalPlan()
+                                .<LogicalFilter<? extends Plan>>collectFirst(LogicalFilter.class::isInstance)
+                                .orElseThrow(AssertionError::new);
+                        // The same definition folds to a different bound when its cache is rebuilt tomorrow.
+                        Assertions.assertTrue(filter.getConjuncts().stream().anyMatch(predicate ->
+                                        predicate instanceof GreaterThan && predicate.child(1) instanceof Literal
+                                                && ((Literal) predicate.child(1)).getStringValue()
+                                                        .equals(Integer.toString(date.getDayOfMonth()))),
+                                cache.getOriginalFinalPlan()::treeString);
+                        Assertions.assertTrue(cache.getOutputPredicates().isEmpty(), cache.getOutputPredicates()::toString);
+                    }
                 }
             }
         } finally {
@@ -211,18 +214,20 @@ public class MTMVCacheTest extends SqlTestBase {
                 ConnectContext cacheContext = MTMVPlanUtil.createBasicMvContext(connectContext,
                         MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE,
                         connectContext.getSessionVariable().getAffectQueryResultInPlanVariables());
-                cacheContext.setThreadLocalInfo();
-                MTMVCache cache = MTMVCache.from(definitionSql, cacheContext, false, true, connectContext, false);
-                LogicalFilter<? extends Plan> filter = cache.getOriginalFinalPlan()
-                        .<LogicalFilter<? extends Plan>>collectFirst(LogicalFilter.class::isInstance)
-                        .orElseThrow(AssertionError::new);
-                // A rebuild binds the new deterministic body, although stored MV rows have not been refreshed.
-                Assertions.assertTrue(filter.getConjuncts().stream().anyMatch(predicate ->
-                                predicate instanceof GreaterThan && predicate.child(1) instanceof Literal
-                                        && ((Literal) predicate.child(1)).getStringValue()
-                                                .equals(Integer.toString(bound))),
-                        cache.getOriginalFinalPlan()::treeString);
-                Assertions.assertTrue(cache.getOutputPredicates().isEmpty(), cache.getOutputPredicates()::toString);
+                try (AutoCloseConnectContext scope = new AutoCloseConnectContext(cacheContext)) {
+                    scope.call();
+                    MTMVCache cache = MTMVCache.from(definitionSql, cacheContext, false, true, false);
+                    LogicalFilter<? extends Plan> filter = cache.getOriginalFinalPlan()
+                            .<LogicalFilter<? extends Plan>>collectFirst(LogicalFilter.class::isInstance)
+                            .orElseThrow(AssertionError::new);
+                    // A rebuild binds the new deterministic body, although stored MV rows have not been refreshed.
+                    Assertions.assertTrue(filter.getConjuncts().stream().anyMatch(predicate ->
+                                    predicate instanceof GreaterThan && predicate.child(1) instanceof Literal
+                                            && ((Literal) predicate.child(1)).getStringValue()
+                                                    .equals(Integer.toString(bound))),
+                            cache.getOriginalFinalPlan()::treeString);
+                    Assertions.assertTrue(cache.getOutputPredicates().isEmpty(), cache.getOutputPredicates()::toString);
+                }
             }
         } finally {
             connectContext.setThreadLocalInfo();

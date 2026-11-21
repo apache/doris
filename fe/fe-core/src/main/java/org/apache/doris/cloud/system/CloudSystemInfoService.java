@@ -1702,8 +1702,9 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         ConnectContext context = ConnectContext.get();
         if (context == null) {
-            LOG.warn("auto start cant get context so new it");
-            context = new ConnectContext();
+            // Policy selection needs the caller's identity. Background callers must name the cluster.
+            LOG.warn("cannot choose a compute group without a context or an explicit cluster name");
+            return null;
         }
         ConnectContext.CloudClusterResult cloudClusterTypeAndName = context.getCloudClusterByPolicy();
         if (cloudClusterTypeAndName == null) {

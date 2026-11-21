@@ -63,6 +63,7 @@ import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -1047,12 +1048,9 @@ public abstract class RoutineLoadJob
     // make this public here just for UT.
     public void setComputeGroup() {
         ComputeGroup computeGroup = null;
+        ConnectContext context = Preconditions.checkNotNull(ConnectContext.get(), "load context is not bound");
         try {
-            if (ConnectContext.get() == null) {
-                ConnectContext ctx = new ConnectContext();
-                ctx.setThreadLocalInfo();
-            }
-            String currentUser = ConnectContext.get().getQualifiedUser();
+            String currentUser = context.getQualifiedUser();
             if (StringUtils.isEmpty(currentUser)) {
                 currentUser = getUserIdentity().getQualifiedUser();
             }
@@ -1070,57 +1068,49 @@ public abstract class RoutineLoadJob
             LOG.warn("error happens when set compute group for routine load", t);
             computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
         }
-        ConnectContext.get().setComputeGroup(computeGroup);
+        context.setComputeGroup(computeGroup);
     }
 
     public TPipelineFragmentParams plan(NereidsStreamLoadPlanner planner, TUniqueId loadId, long txnId)
             throws UserException {
-        Preconditions.checkNotNull(planner);
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
-        boolean needCleanCtx = false;
-        table.readLock();
-        try {
-            if (Config.isCloudMode()) {
-                // Use the effective cluster, not the raw snapshot field: this context is what
-                // OlapTableSink uses to pick the backends the load writes to.
-                String effectiveCluster = getCloudCluster();
-                if (ConnectContext.get() == null) {
-                    ConnectContext ctx = new ConnectContext();
-                    ctx.setThreadLocalInfo();
-                    ctx.setCloudCluster(effectiveCluster);
-                    needCleanCtx = true;
-                } else {
+        try (AutoCloseConnectContext scope = ConnectContext.get() == null
+                ? new AutoCloseConnectContext(new ConnectContext()) : null) {
+            Preconditions.checkNotNull(planner);
+            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+            Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+            table.readLock();
+            try {
+                if (Config.isCloudMode()) {
+                    // Use the effective cluster, not the raw snapshot field: this context is what
+                    // OlapTableSink uses to pick the backends the load writes to.
+                    String effectiveCluster = getCloudCluster();
                     ConnectContext.get().setCloudCluster(effectiveCluster);
+                    ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
+                } else {
+                    setComputeGroup();
+                    // Set user identity for privilege check in expression rewrite (e.g., EncryptKeyRef)
+                    ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
                 }
-                ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
-            } else {
-                setComputeGroup();
-                // Set user identity for privilege check in expression rewrite (e.g., EncryptKeyRef)
-                ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
-            }
-            if (ConnectContext.get().getEnv() == null) {
-                ConnectContext.get().setEnv(Env.getCurrentEnv());
-            }
+                if (ConnectContext.get().getEnv() == null) {
+                    ConnectContext.get().setEnv(Env.getCurrentEnv());
+                }
 
-            TPipelineFragmentParams planParams = planner.plan(loadId);
-            // add table indexes to transaction state
-            TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
-            if (txnState == null) {
-                throw new UserException("txn does not exist: " + txnId);
-            }
-            txnState.addTableIndexes(planner.getDestTable());
-            if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
-                    || uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
-                txnState.setSchemaForPartialUpdate((OlapTable) table);
-            }
+                TPipelineFragmentParams planParams = planner.plan(loadId);
+                // add table indexes to transaction state
+                TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
+                if (txnState == null) {
+                    throw new UserException("txn does not exist: " + txnId);
+                }
+                txnState.addTableIndexes(planner.getDestTable());
+                if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
+                        || uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+                    txnState.setSchemaForPartialUpdate((OlapTable) table);
+                }
 
-            return planParams;
-        } finally {
-            if (needCleanCtx) {
-                ConnectContext.remove();
+                return planParams;
+            } finally {
+                table.readUnlock();
             }
-            table.readUnlock();
         }
     }
 
@@ -2106,8 +2096,8 @@ public abstract class RoutineLoadJob
         if (memtableOnSinkNodeValue != null) {
             memtableOnSinkNode = Boolean.parseBoolean(memtableOnSinkNodeValue);
         }
-        try {
-            ConnectContext ctx = new ConnectContext();
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+            ConnectContext ctx = scope.connectContext;
             ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId)
                     .orElseThrow(() -> new Exception("Database " + dbId + " does not exist")).getName());
             StatementContext statementContext = new StatementContext();
@@ -2116,36 +2106,31 @@ public abstract class RoutineLoadJob
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
             ctx.getState().reset();
-            try {
-                ctx.setThreadLocalInfo();
-                NereidsParser nereidsParser = new NereidsParser();
-                CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
-                        origStmt.originStmt);
-                CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
-                // This re-parse only rebuilds the RoutineLoadDesc and exec_mem_limit, which no ALTER
-                // changes and jobProperties does not hold; it must not re-check resources
-                // that can legitimately have disappeared since the job was created, because the
-                // catch below turns any failure into the final CANCELLED state.
-                createRoutineLoadInfo.setReplay(true);
-                // If tableId is set, resolve the current table name by ID so that
-                // table rename / SWAP TABLE won't cause replay to fail with stale name in origStmt.
-                if (!isMultiTable && tableId != 0) {
-                    try {
-                        Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).orElse(null);
-                        if (db != null) {
-                            db.getTable(tableId).ifPresent(
-                                    table -> createRoutineLoadInfo.setTableName(table.getName()));
-                        }
-                    } catch (Exception ignored) {
-                        // fall through; let validate() surface the real error
+            NereidsParser nereidsParser = new NereidsParser();
+            CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
+                    origStmt.originStmt);
+            CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
+            // This re-parse only rebuilds the RoutineLoadDesc and exec_mem_limit, which no ALTER
+            // changes and jobProperties does not hold; it must not re-check resources
+            // that can legitimately have disappeared since the job was created, because the
+            // catch below turns any failure into the final CANCELLED state.
+            createRoutineLoadInfo.setReplay(true);
+            // If tableId is set, resolve the current table name by ID so that
+            // table rename / SWAP TABLE won't cause replay to fail with stale name in origStmt.
+            if (!isMultiTable && tableId != 0) {
+                try {
+                    Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).orElse(null);
+                    if (db != null) {
+                        db.getTable(tableId).ifPresent(
+                                table -> createRoutineLoadInfo.setTableName(table.getName()));
                     }
+                } catch (Exception ignored) {
+                    // fall through; let validate() surface the real error
                 }
-                createRoutineLoadInfo.validate(ctx);
-                setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
-                execMemLimit = createRoutineLoadInfo.getExecMemLimit();
-            } finally {
-                ctx.cleanup();
             }
+            createRoutineLoadInfo.validate(ctx);
+            setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
+            execMemLimit = createRoutineLoadInfo.getExecMemLimit();
         } catch (Exception e) {
             // Terminalize this unusable job as CANCELLED. Set endTimestamp only if unset (avoid
             // refreshing on every image load) and keep the existing cancel reason if present.

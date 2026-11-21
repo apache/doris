@@ -91,7 +91,7 @@ public class MysqlWriteCancellationTest {
             processor.handleExecute(command, 7, prepared, execute, null);
             Assertions.assertEquals(8, bytesWritten.get());
             Assertions.assertEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
-            Assertions.assertTrue(ctx.isKilled());
+            Assertions.assertTrue(ctx.isClosingOrClosed());
             Mockito.verify(connection).close();
             channel.clearQueryCancelReason();
             Assertions.assertThrows(ConnectionException.class, processor::finalizeCommand);

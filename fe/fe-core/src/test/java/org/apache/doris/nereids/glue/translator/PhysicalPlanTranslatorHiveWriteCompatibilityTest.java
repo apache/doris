@@ -82,17 +82,19 @@ class PhysicalPlanTranslatorHiveWriteCompatibilityTest {
     void usesStatementVersionSnapshotWhenGlobalVersionChanges() {
         int originalBeExecVersion = Config.be_exec_version;
         try {
-            CascadesContext cascadesContext = CascadesContext.initTempContext();
-            cascadesContext.getStatementContext().initializeBeExecVersion(
-                    Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION);
-            PlanTranslatorContext context = new PlanTranslatorContext(cascadesContext);
+            CascadesContext.withTempContext(cascadesContext -> {
+                cascadesContext.getStatementContext().initializeBeExecVersion(
+                        Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION);
+                PlanTranslatorContext context = new PlanTranslatorContext(cascadesContext);
 
-            Config.be_exec_version = Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION - 1;
-            DataPartition partition = DataPartition.forHiveTableSink(
-                    Collections.emptyList(), context.getBeExecVersion());
+                Config.be_exec_version = Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION - 1;
+                DataPartition partition = DataPartition.forHiveTableSink(
+                        Collections.emptyList(), context.getBeExecVersion());
 
-            Assertions.assertEquals(TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED,
-                    partition.toThrift().type);
+                Assertions.assertEquals(TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED,
+                        partition.toThrift().type);
+                return null;
+            });
         } finally {
             Config.be_exec_version = originalBeExecVersion;
         }

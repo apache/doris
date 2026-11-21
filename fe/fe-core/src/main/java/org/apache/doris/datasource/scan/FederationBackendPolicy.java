@@ -20,6 +20,7 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IndexedPriorityQueue;
@@ -29,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ConsistentHash;
 import org.apache.doris.datasource.split.SplitWeight;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -189,15 +191,15 @@ public class FederationBackendPolicy {
 
     public void init(BeSelectionPolicy policy) throws UserException {
         ConnectContext ctx = ConnectContext.get();
+        ComputeGroup computeGroup;
         if (ctx == null) {
             if (Config.isCloudMode()) {
                 throw new AnalysisException("ConnectContext is null");
-            } else {
-                ctx = new ConnectContext();
             }
-
+            computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(Tag.VALUE_DEFAULT_TAG);
+        } else {
+            computeGroup = ctx.getComputeGroup();
         }
-        ComputeGroup computeGroup = ctx.getComputeGroup();
         if (Config.isNotCloudMode() && computeGroup.equals(ComputeGroup.INVALID_COMPUTE_GROUP)) {
             throw new LoadException(ComputeGroup.INVALID_COMPUTE_GROUP_ERR_MSG);
         }

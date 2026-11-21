@@ -247,9 +247,9 @@ class CastMonotonicityTest {
         RangePartitionItem item = new RangePartitionItem(Range.closedOpen(lowerKey, upperKey));
         SlotReference d = new SlotReference("d", source);
         Expression predicate = new EqualTo(new Cast(d, target), wanted);
-        Assertions.assertEquals(ImmutableList.of(1L), PartitionPruner.prune(
+        Assertions.assertEquals(ImmutableList.of(1L), CascadesContext.withTempContext(ctx -> PartitionPruner.prune(
                 ImmutableList.<Slot>of(d), predicate, ImmutableMap.<Long, PartitionItem>of(1L, item),
-                CascadesContext.initTempContext(), PartitionPruner.PartitionTableType.OLAP).first);
+                ctx, PartitionPruner.PartitionTableType.OLAP).first));
     }
 
     private TimestampTzLiteral timestampTz(String value) {

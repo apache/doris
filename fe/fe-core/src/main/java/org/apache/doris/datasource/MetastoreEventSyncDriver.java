@@ -393,11 +393,15 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
         String sql = "REFRESH CATALOG " + catalog.getName();
         OriginStatement originStmt = new OriginStatement(sql, 0);
         ConnectContext ctx = new ConnectContext();
-        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
-        ctx.setEnv(Env.getCurrentEnv());
-        MasterOpExecutor masterOpExecutor = new MasterOpExecutor(originStmt, ctx,
-                RedirectStatus.FORWARD_WITH_SYNC, false);
-        masterOpExecutor.execute();
+        try {
+            ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+            ctx.setEnv(Env.getCurrentEnv());
+            MasterOpExecutor masterOpExecutor = new MasterOpExecutor(originStmt, ctx,
+                    RedirectStatus.FORWARD_WITH_SYNC, false);
+            masterOpExecutor.execute();
+        } finally {
+            ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+        }
     }
 
     /**

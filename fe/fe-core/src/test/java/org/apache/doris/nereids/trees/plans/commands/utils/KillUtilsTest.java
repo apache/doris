@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -29,6 +30,7 @@ import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.FEOpExecutor;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
@@ -125,7 +127,17 @@ public class KillUtilsTest {
         KillUtils.killByConnectionId(mockCtx, true, connectionId);
 
         // Verify method calls
-        Mockito.verify(mockCtx).setKilled();
+        Mockito.verify(mockCtx).requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+        Mockito.verify(mockState).setOk();
+    }
+
+    @Test
+    public void testKillQueryOnOwnConnectionDoesNotRequestClosure() throws DdlException {
+        int connectionId = 123;
+        Mockito.when(mockScheduler.getContext(connectionId)).thenReturn(mockCtx);
+        KillUtils.killByConnectionId(mockCtx, false, connectionId);
+        Mockito.verify(mockCtx).kill(false);
+        Mockito.verify(mockCtx, Mockito.never()).requestClose(Mockito.any());
         Mockito.verify(mockState).setOk();
     }
 
@@ -186,7 +198,7 @@ public class KillUtilsTest {
     @Test
     public void testKillQueryByQueryIdFoundOnCurrentNode() throws UserException {
         String queryId = "test_query_id";
-        ConnectContext mockKillQueryCtx = Mockito.mock(ConnectContext.class);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
         ExecuteEnv mockExecEnv = Mockito.mock(ExecuteEnv.class);
         ConnectScheduler mockQueryScheduler = Mockito.mock(ConnectScheduler.class);
 
@@ -195,17 +207,14 @@ public class KillUtilsTest {
             mockedExecEnv.when(ExecuteEnv::getInstance).thenReturn(mockExecEnv);
             Mockito.when(mockExecEnv.getScheduler()).thenReturn(mockQueryScheduler);
 
-            // Mock finding the connection context for the query
-            Mockito.when(mockQueryScheduler.getContextWithQueryId(queryId)).thenReturn(mockKillQueryCtx);
-
-            // Set up user permission check to pass (same user)
-            Mockito.when(mockKillQueryCtx.getQualifiedUser()).thenReturn("test_user");
+            Mockito.when(mockQueryScheduler.findQueryByIdOrTraceId(queryId))
+                    .thenReturn(new ConnectContext.QueryTarget("test_user", executor));
 
             // Execute the method being tested
             KillUtils.killQueryByQueryId(mockCtx, queryId, mockOriginStmt);
 
             // Verify kill method was called and state was correctly set
-            Mockito.verify(mockKillQueryCtx).kill(false);
+            Mockito.verify(executor).cancel(Mockito.any(Status.class));
             Mockito.verify(mockState).setOk();
         }
     }
@@ -224,7 +233,7 @@ public class KillUtilsTest {
             Mockito.when(mockExecEnv.getScheduler()).thenReturn(mockQueryScheduler);
 
             // Mock query not found
-            Mockito.when(mockQueryScheduler.getContextWithQueryId(queryId)).thenReturn(null);
+            Mockito.when(mockQueryScheduler.findQueryByIdOrTraceId(queryId)).thenReturn(null);
             Mockito.when(mockCtx.isProxy()).thenReturn(true);
 
             // Mock ErrorReport.reportDdlException method which will throw an exception
@@ -257,7 +266,7 @@ public class KillUtilsTest {
             Mockito.when(mockExecEnv.getScheduler()).thenReturn(mockQueryScheduler);
 
             // Mock query not found
-            Mockito.when(mockQueryScheduler.getContextWithQueryId(queryId)).thenReturn(null);
+            Mockito.when(mockQueryScheduler.findQueryByIdOrTraceId(queryId)).thenReturn(null);
 
             Mockito.when(mockCtx.isProxy()).thenReturn(false);
             Mockito.when(mockEnv.getFrontends(null)).thenReturn(frontends);
@@ -311,7 +320,7 @@ public class KillUtilsTest {
             Mockito.when(mockExecEnv.getScheduler()).thenReturn(mockQueryScheduler);
 
             // Mock query not found
-            Mockito.when(mockQueryScheduler.getContextWithQueryId(queryId)).thenReturn(null);
+            Mockito.when(mockQueryScheduler.findQueryByIdOrTraceId(queryId)).thenReturn(null);
 
             Mockito.when(mockCtx.isProxy()).thenReturn(false);
             Mockito.when(mockEnv.getFrontends(null)).thenReturn(frontends);

@@ -19,12 +19,9 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.QueryState;
@@ -227,17 +224,9 @@ public class MysqlProto {
         }
         context.setConnectAttributes(authPacket.getConnectAttributes());
 
-        // try to change catalog, if default_init_catalog inside user property is not 'internal'
-        try {
-            String userInitCatalog = Env.getCurrentEnv().getAuth().getInitCatalog(context.getQualifiedUser());
-            if (userInitCatalog != null && !userInitCatalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-                CatalogIf catalogIf = context.getEnv().getCatalogMgr().getCatalog(userInitCatalog);
-                if (catalogIf != null) {
-                    context.getEnv().changeCatalog(context, userInitCatalog);
-                }
-            }
-        } catch (DdlException e) {
-            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        Optional<Pair<ErrorCode, String>> catalogError = ConnectContextUtil.initDefaultCatalog(context);
+        if (catalogError.isPresent()) {
+            context.getState().setError(catalogError.get().first, catalogError.get().second);
             sendResponsePacket(context);
             return false;
         }

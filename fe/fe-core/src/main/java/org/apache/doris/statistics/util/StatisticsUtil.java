@@ -148,19 +148,17 @@ public class StatisticsUtil {
     }
 
     public static QueryState execUpdate(String sql) throws Exception {
-        StmtExecutor stmtExecutor = null;
-        AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false);
-        try {
-            stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            stmtExecutor.execute();
-            QueryState state = r.connectContext.getState();
-            if (state.getStateType().equals(QueryState.MysqlStateType.ERR)) {
-                throw new Exception(state.getErrorMessage());
-            }
-            return state;
-        } finally {
-            r.close();
-            if (stmtExecutor != null) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            try {
+                stmtExecutor.execute();
+                QueryState state = r.connectContext.getState();
+                if (state.getStateType().equals(QueryState.MysqlStateType.ERR)) {
+                    throw new Exception(state.getErrorMessage());
+                }
+                return state;
+            } finally {
+                // Audit consumes session counters, so it must run before the owning scope closes.
                 AuditLogHelper.logAuditLog(r.connectContext, stmtExecutor.getOriginStmt().originStmt,
                         stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(), true);
             }
@@ -188,42 +186,45 @@ public class StatisticsUtil {
 
     public static AutoCloseConnectContext buildConnectContext(boolean useFileCacheForStat) {
         ConnectContext connectContext = new ConnectContext();
-        connectContext.getState().setInternal(true);
-        SessionVariable sessionVariable = connectContext.getSessionVariable();
-        sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
-        sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
-        sessionVariable.setEnableInsertStrict(true);
-        sessionVariable.setInsertMaxFilterRatio(1.0);
-        sessionVariable.enablePageCache = false;
-        sessionVariable.enableProfile = Config.enable_profile_when_analyze;
-        sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
-        sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
-        sessionVariable.setQueryTimeoutS(StatisticsUtil.getAnalyzeTimeout());
-        sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
-        sessionVariable.enableFileCache = false;
-        sessionVariable.forbidUnknownColStats = false;
-        sessionVariable.enablePushDownMinMaxOnUnique = true;
-        sessionVariable.forcePushDownZonemapMinMax = true;
-        sessionVariable.enableUniqueKeyPartialUpdate = false;
-        sessionVariable.enableMaterializedViewRewrite = false;
-        sessionVariable.enableQueryCache = false;
-        sessionVariable.enableSqlCache = false;
-        connectContext.setEnv(Env.getCurrentEnv());
-        connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
-        connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
-        connectContext.setStartTime();
-        if (Config.isCloudMode()) {
-            AutoCloseConnectContext ctx = new AutoCloseConnectContext(connectContext);
-            try {
-                ctx.connectContext.getCloudCluster();
-            } catch (ComputeGroupException e) {
-                LOG.warn("failed to connect to cloud cluster", e);
-                return ctx;
+        AutoCloseConnectContext scope = new AutoCloseConnectContext(connectContext);
+        try {
+            connectContext.getState().setInternal(true);
+            SessionVariable sessionVariable = connectContext.getSessionVariable();
+            sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
+            sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
+            sessionVariable.setEnableInsertStrict(true);
+            sessionVariable.setInsertMaxFilterRatio(1.0);
+            sessionVariable.enablePageCache = false;
+            sessionVariable.enableProfile = Config.enable_profile_when_analyze;
+            sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
+            sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
+            sessionVariable.setQueryTimeoutS(StatisticsUtil.getAnalyzeTimeout());
+            sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
+            sessionVariable.enableFileCache = false;
+            sessionVariable.forbidUnknownColStats = false;
+            sessionVariable.enablePushDownMinMaxOnUnique = true;
+            sessionVariable.forcePushDownZonemapMinMax = true;
+            sessionVariable.enableUniqueKeyPartialUpdate = false;
+            sessionVariable.enableMaterializedViewRewrite = false;
+            sessionVariable.enableQueryCache = false;
+            sessionVariable.enableSqlCache = false;
+            connectContext.setEnv(Env.getCurrentEnv());
+            connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
+            connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
+            connectContext.setStartTime();
+            if (Config.isCloudMode()) {
+                try {
+                    connectContext.getCloudCluster();
+                } catch (ComputeGroupException e) {
+                    LOG.warn("failed to connect to cloud cluster", e);
+                    return scope;
+                }
+                sessionVariable.disableFileCache = !useFileCacheForStat;
             }
-            sessionVariable.disableFileCache = !useFileCacheForStat;
-            return ctx;
-        } else {
-            return new AutoCloseConnectContext(connectContext);
+            return scope;
+        } catch (Throwable failure) {
+            scope.close();
+            throw failure;
         }
     }
 

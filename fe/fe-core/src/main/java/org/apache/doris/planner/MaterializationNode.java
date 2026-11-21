@@ -26,7 +26,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
@@ -136,24 +135,19 @@ public class MaterializationNode extends PlanNode {
 
     private boolean isTopMaterializeNode;
 
-    public MaterializationNode(PlanNodeId id, TupleDescriptor desc, PlanNode child) {
+    public MaterializationNode(PlanNodeId id, TupleDescriptor desc, PlanNode child, ComputeGroup computeGroup) {
         super(id, desc.getId().asList(), "MaterializeNode");
         this.materializeTupleDescriptor = desc;
-        initNodeInfo();
+        initNodeInfo(computeGroup);
         this.children.add(child);
     }
 
-    public void initNodeInfo() {
+    public void initNodeInfo(ComputeGroup computeGroup) {
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
                 .needQueryAvailable()
                 .setRequireAliveBe()
                 .build();
         nodesInfo = new TPaloNodesInfo();
-        ConnectContext context = ConnectContext.get();
-        if (context == null) {
-            context = new ConnectContext();
-        }
-        ComputeGroup computeGroup = context.getComputeGroupSafely();
         for (Backend backend : policy.getCandidateBackends(computeGroup.getBackendList())) {
             nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }

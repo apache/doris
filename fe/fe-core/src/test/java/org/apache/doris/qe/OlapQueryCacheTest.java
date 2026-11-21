@@ -171,7 +171,6 @@ public class OlapQueryCacheTest {
         Mockito.doReturn(1).when(ctx).getConnectionId();
         Mockito.doReturn(userName).when(ctx).getQualifiedUser();
         Mockito.doReturn(123L).when(ctx).getForwardedStmtId();
-        Mockito.doNothing().when(ctx).setKilled();
         Mockito.doNothing().when(ctx).updateReturnRows(Mockito.anyInt());
         Mockito.doReturn(0L).when(ctx).getStartTime();
         Mockito.doReturn(fullDbName).when(ctx).getDatabase();

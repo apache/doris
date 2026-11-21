@@ -24,7 +24,7 @@ import java.sql.Types
 // text; a query is run on the backend and pulled from there, typed; underneath, the session core
 // (variables, current database) is one and the same. The session's protocol adapter decides per
 // statement where the result is (FlightProtocolAdapter.beforeStatement / beforeQuery) and drops
-// what the previous request left behind (beginRequest), so a session can alternate between the two
+// what the previous request left behind (resetRequestState), so a session can alternate between the two
 // kinds of statements without one leaking into the next.
 //
 // Not in the 'arrow_flight_sql' group on purpose: `sql` stays the MySQL control connection, and the

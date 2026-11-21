@@ -32,6 +32,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.httpv2.interceptor.ConnectContextFilter;
 import org.apache.doris.httpv2.util.HttpHeaderUtils;
 import org.apache.doris.httpv2.util.StreamLoadRedirectDrainUtil;
 import org.apache.doris.load.StreamLoadHandler;
@@ -138,12 +139,8 @@ public class LoadAction extends RestBaseController {
             }
             return executeWithClusterToken(request, response, db, table, true);
         } else {
-            try {
-                executeCheckPassword(request, response);
-                return executeWithoutPassword(request, response, db, table, true, groupCommit);
-            } finally {
-                ConnectContext.remove();
-            }
+            executeCheckPassword(request, response);
+            return executeWithoutPassword(request, response, db, table, true, groupCommit);
         }
     }
 
@@ -440,7 +437,7 @@ public class LoadAction extends RestBaseController {
         if (groupCommit) {
             // Use pre-selected backend if provided to avoid duplicate calls
             backend = preSelectedBackend != null ? preSelectedBackend
-                    : selectBackendForGroupCommit("", request, tableId);
+                    : selectBackendForGroupCommit("", tableId);
         } else {
             backend = chooseRedirectBackendWithSelection(ctx, backendIds);
         }
@@ -468,7 +465,7 @@ public class LoadAction extends RestBaseController {
         if (groupCommit) {
             // Use pre-selected backend if provided to avoid duplicate calls
             backend = preSelectedBackend != null ? preSelectedBackend
-                    : selectBackendForGroupCommit(clusterName, req, tableId);
+                    : selectBackendForGroupCommit(clusterName, tableId);
         } else {
             backend = StreamLoadHandler.selectBackend(clusterName);
         }
@@ -625,9 +622,8 @@ public class LoadAction extends RestBaseController {
     private Object executeWithClusterToken(HttpServletRequest request, HttpServletResponse response, String db,
             String table, boolean isStreamLoad) {
         try {
-            ConnectContext ctx = new ConnectContext();
+            ConnectContext ctx = ConnectContextFilter.createRequestContext(request);
             ctx.setEnv(Env.getCurrentEnv());
-            ctx.setThreadLocalInfo();
             ctx.setRemoteIP(request.getRemoteAddr());
             // set user to ADMIN_USER, so that we can get the proper resource tag
             // cloud need
@@ -669,8 +665,6 @@ public class LoadAction extends RestBaseController {
         } catch (Exception e) {
             LOG.warn("Failed to execute stream load with cluster token, {}", e.getMessage(), e);
             return new RestBaseResult(e.getMessage());
-        } finally {
-            ConnectContext.remove();
         }
     }
 
@@ -760,52 +754,19 @@ public class LoadAction extends RestBaseController {
         DRAIN
     }
 
-    private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId)
+    private Backend selectBackendForGroupCommit(String clusterName, long tableId)
             throws LoadException {
-        ConnectContext currentCtx = ConnectContext.get();
-        ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setRemoteIP(req.getRemoteAddr());
-        // We set this variable to fulfill required field 'user' in
-        // TMasterOpRequest(FrontendService.thrift)
-        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-        inheritLoadSelectionContext(currentCtx, ctx);
-        if (Config.isCloudMode()) {
-            ctx.setCloudCluster(clusterName);
-        }
-
-        Backend backend = null;
+        ConnectContext ctx = ConnectContext.get();
         try {
-            ctx.setThreadLocalInfo();
-            backend = Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommit(tableId, ctx);
+            // Authentication owns this request's context. Backend selection borrows its identity and
+            // selection settings, and applies the compute group selected by this request's headers.
+            if (Config.isCloudMode()) {
+                ctx.setCloudCluster(clusterName);
+            }
+            return Env.getCurrentEnv().getGroupCommitManager().selectBackendForGroupCommit(tableId, ctx);
         } catch (DdlException e) {
             throw new LoadException(e.getMessage(), e);
-        } finally {
-            if (currentCtx != null) {
-                currentCtx.setThreadLocalInfo();
-            } else {
-                ConnectContext.remove();
-            }
         }
-        return backend;
-    }
-
-    private static void inheritLoadSelectionContext(ConnectContext source, ConnectContext target) {
-        if (source == null) {
-            return;
-        }
-        UserIdentity sourceIdentity = source.getCurrentUserIdentity();
-        if (sourceIdentity != null) {
-            target.setCurrentUserIdentity(sourceIdentity);
-        }
-        target.getSessionVariable().enableLoadBackendSelection =
-                source.getSessionVariable().isEnableLoadBackendSelection();
-        target.getSessionVariable().preferredBackendSelectionKey =
-                source.getSessionVariable().getPreferredBackendSelectionKey();
-        target.getSessionVariable().backendSelectionMode =
-                source.getSessionVariable().getBackendSelectionMode();
-        target.setConnectingFeLocalResourceGroup(source.getConnectingFeLocalResourceGroup());
     }
 
     /*
@@ -896,7 +857,7 @@ public class LoadAction extends RestBaseController {
         }
 
         // Get target backend for group commit
-        Backend targetBackend = selectBackendForGroupCommit(cloudClusterName, request, tableId);
+        Backend targetBackend = selectBackendForGroupCommit(cloudClusterName, tableId);
         if (targetBackend == null) {
             throw new LoadException("Failed to select target backend for group commit forwarding.");
         }

@@ -125,6 +125,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
@@ -1201,30 +1202,34 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
-        Frontend requester = validateForwardRequester(params);
+        validateForwardRequester(params);
         TMasterOpResult shortcut = handleForwardShortcut(params);
         if (shortcut != null) {
             return shortcut;
         }
         logForwardRequest(params);
-        ConnectContext context = createForwardContext(params, requester);
-        // createForwardContext() always builds a MySQL proxy context: the master replays the
-        // forwarded statement over a ProxyMysqlChannel and hands the packets back to the
-        // origin FE, whatever protocol the client is speaking there.
-        ConnectProcessor processor = new MysqlConnectProcessor(context);
-        Runnable clearCallback = registerProxyQuery(params, context);
-        try {
-            return executeForward(params, context, processor);
-        } finally {
-            ConnectContext.remove();
-            clearCallback.run();
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                ConnectContext.forMysqlProxy(params.getSessionId()))) {
+            ConnectContext context = scope.connectContext;
+            initializeForwardContext(context, params);
+            // The master replays every forwarded statement over a ProxyMysqlChannel and hands
+            // packets back to the origin FE, whatever protocol the client is speaking there.
+            ConnectProcessor processor = new MysqlConnectProcessor(context);
+            return context.executeCommand(0, () -> {
+                Runnable clearCallback = registerProxyQuery(params, context);
+                try {
+                    return executeForward(params, context, processor);
+                } finally {
+                    clearCallback.run();
+                }
+            });
         }
     }
 
-    private Frontend validateForwardRequester(TMasterOpRequest params) throws TException {
+    private void validateForwardRequester(TMasterOpRequest params) throws TException {
         Frontend fe = Env.getCurrentEnv().checkFeExist(params.getClientNodeHost(), params.getClientNodePort());
         if (fe != null) {
-            return fe;
+            return;
         }
         LOG.warn("reject request from invalid host. client: {}", params.getClientNodeHost());
         throw new TException("request from invalid host was rejected.");
@@ -1297,7 +1302,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         ConnectContext context = proxyQueryIdToConnCtx.get(params.getQueryId());
         if (context != null) {
-            context.cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by forward request."));
+            StmtExecutor executor = context.getExecutor();
+            if (executor == null) {
+                // This proxy owns exactly one request. Remember cancellation until its executor
+                // is published, leaving cleanup and response serialization to the request owner.
+                context.requestClose(ConnectContext.CloseMode.IMMEDIATE);
+            } else {
+                executor.cancel(new Status(TStatusCode.CANCELLED, "cancel query by forward request."));
+            }
         }
         TMasterOpResult result = createForwardResultWithJournalSync();
         result.setStatusCode(0);
@@ -1310,25 +1322,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
-    private ConnectContext createForwardContext(TMasterOpRequest params, Frontend requester) {
-        ConnectContext context = ConnectContext.forMysqlProxy(params.getSessionId());
+    private void initializeForwardContext(ConnectContext context, TMasterOpRequest params) {
         // Set current connected FE to the client address, so that we can know where
         // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
-        context.setConnectingFeLocalResourceGroup(params.isSetConnectingFeLocalResourceGroup()
-                ? params.getConnectingFeLocalResourceGroup() : requester.getLocalResourceGroup());
         if (Config.isCloudMode() && !Strings.isNullOrEmpty(params.getCloudCluster())) {
             context.setCloudCluster(params.getCloudCluster());
         }
-        return context;
     }
 
-    private Runnable registerProxyQuery(TMasterOpRequest params, ConnectContext context) {
+    Runnable registerProxyQuery(TMasterOpRequest params, ConnectContext context) {
         if (!params.isSetQueryId()) {
             return () -> {};
         }
-        proxyQueryIdToConnCtx.put(params.getQueryId(), context);
-        return () -> proxyQueryIdToConnCtx.remove(params.getQueryId());
+        TUniqueId queryId = params.getQueryId();
+        proxyQueryIdToConnCtx.put(queryId, context);
+        return () -> proxyQueryIdToConnCtx.remove(queryId, context);
     }
 
     private TMasterOpResult executeForward(TMasterOpRequest params, ConnectContext context,
@@ -3115,9 +3124,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, null, result, clientAddr);
-
-        try {
+        try (StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, null, result, clientAddr)) {
             checkGroupCommitStreamLoadAuth(request);
             if (groupCommitMode != null && !groupCommitMode.equals("off_mode") && Env.getCurrentEnv().isMaster()
                     && Config.enable_forward_group_commit_stream_load_to_follower) {
@@ -3164,8 +3171,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
             return result;
-        } finally {
-            ConnectContext.remove();
         }
         return result;
     }
@@ -3187,9 +3192,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List planFragmentParamsList = new ArrayList<>();
         multiTableFragmentInstanceIdIndexMap.putIfAbsent(request.getTxnId(), new AtomicInteger(1));
         AtomicInteger index = multiTableFragmentInstanceIdIndexMap.get(request.getTxnId());
-        StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, index, null,
-                                                                    getClientAddrAsString());
-        try {
+        try (StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, index, null,
+                getClientAddrAsString())) {
             streamLoadHandler.generatePlan();
             planFragmentParamsList.addAll(streamLoadHandler.getFragmentParams());
             if (LOG.isDebugEnabled()) {
@@ -3214,8 +3218,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
             return result;
-        } finally {
-            ConnectContext.remove();
         }
         result.setPipelineParams(planFragmentParamsList);
         if (LOG.isDebugEnabled()) {
@@ -4120,12 +4122,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             if (syncJournal) {
-                ConnectContext ctx = new ConnectContext();
-                ctx.setDatabase(request.getDb());
-                ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
-                ctx.setEnv(Env.getCurrentEnv());
-                MasterOpExecutor executor = new MasterOpExecutor(ctx);
-                executor.syncJournal();
+                MasterOpExecutor.syncJournal(Env.getCurrentEnv(), request.getDb(), request.getUser());
             }
 
             result = getBinlogImpl(request, clientAddr);
@@ -4446,11 +4443,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         restoreCommand.setJobInfo(backupJobInfo);
         restoreCommand.setIsBeingSynced();
         LOG.debug("restore snapshot info, restoreCommand: {}", restoreCommand);
-        try {
-            ConnectContext ctx = new ConnectContext();
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+            ConnectContext ctx = scope.connectContext;
             String fullUserName = request.getUser();
             ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(fullUserName, "%"));
-            ctx.setThreadLocalInfo();
             restoreCommand.validate(ctx);
             Env.getCurrentEnv().getBackupHandler().process(restoreCommand);
         } catch (UserException e) {
@@ -4461,8 +4457,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("catch unknown result. command: {}", restoreCommand, e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()) + ", command: " + restoreCommand);
-        } finally {
-            ConnectContext.remove();
         }
 
         return result;
@@ -5896,12 +5890,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // Create a ConnectContext with skipAuth=true for system table access
         // This is necessary because LoadJob.checkAuth() requires a ConnectContext
         // and system table queries from backend don't have user context
-        ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setSkipAuth(true);
-        ctx.setThreadLocalInfo();
-
-        try {
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+            ConnectContext ctx = scope.connectContext;
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setSkipAuth(true);
             LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
             List<TLoadJob> jobInfos = Lists.newArrayList();
             List<String> dbNames = Env.getCurrentInternalCatalog().getDbNames();
@@ -5957,8 +5949,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setLoadJobs(jobInfos);
 
             return result;
-        } finally {
-            ConnectContext.remove();
         }
     }
 

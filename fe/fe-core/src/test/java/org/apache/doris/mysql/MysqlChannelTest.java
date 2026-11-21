@@ -22,6 +22,7 @@ import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TStatusCode;
 
 import org.junit.jupiter.api.Assertions;
@@ -178,6 +179,32 @@ public class MysqlChannelTest {
 
 
     @Test
+    public void testStalledFilePacketReadRespectsOnlyTheCurrentCommandCancellation() throws IOException {
+        for (boolean cancelledCommand : new boolean[] {true, false}) {
+            MysqlChannel channel = receivingChannel(ByteBuffer.allocate(0), 16);
+            receivingContext.getSessionVariable().netReadTimeout = 0;
+            StmtExecutor executor = new StmtExecutor(receivingContext, "LOAD DATA");
+            channel.setQueryCancelReason(executor::getPendingCancelReason);
+            executor.cancel(CANCELLED, false);
+            if (!cancelledCommand) {
+                channel.clearQueryCancelReason();
+            }
+            ConduitStreamSourceChannel source = streamConnection.getSourceChannel();
+            Mockito.when(source.read(Mockito.any(ByteBuffer.class))).thenReturn(0).thenAnswer(inv -> {
+                putHeader(inv.getArgument(0), 0, 0);
+                return 4;
+            });
+            if (cancelledCommand) {
+                Assertions.assertNull(channel.fetchOnePacket());
+                Mockito.verify(source).read(Mockito.any(ByteBuffer.class));
+            } else {
+                Assertions.assertEquals(ByteBuffer.allocate(0), channel.fetchOnePacket());
+                Mockito.verify(source, Mockito.times(2)).read(Mockito.any(ByteBuffer.class));
+            }
+        }
+    }
+
+    @Test
     public void testOversizedPacketRejectedBeforeBody() throws IOException {
         for (boolean writeFails : new boolean[]{false, true}) {
             ByteBuffer input = ByteBuffer.allocate(4);
@@ -194,7 +221,7 @@ public class MysqlChannelTest {
             Assertions.assertThrows(IOException.class, channel::fetchOnePacket);
             Assertions.assertEquals(4, input.position());
             Mockito.verify(streamConnection.getSourceChannel()).read(ArgumentMatchers.any(ByteBuffer.class));
-            Assertions.assertTrue(receivingContext.isKilled());
+            Assertions.assertTrue(receivingContext.isClosingOrClosed());
             Mockito.verify(streamConnection).close();
             Assertions.assertNull(channel.fetchOnePacket());
             if (writeFails) {
@@ -223,7 +250,7 @@ public class MysqlChannelTest {
                 Assertions.assertEquals(fullLength + tailLength, packet.remaining());
                 Assertions.assertTrue(packet.capacity() <= maxLength);
                 Assertions.assertEquals(input.limit(), input.position());
-                Assertions.assertFalse(receivingContext.isKilled());
+                Assertions.assertFalse(receivingContext.isClosingOrClosed());
                 Mockito.verify(streamConnection, Mockito.never()).close();
                 continue;
             }
@@ -231,7 +258,7 @@ public class MysqlChannelTest {
             Assertions.assertEquals(fullLength + 8, input.position());
             Mockito.verify(streamConnection.getSourceChannel(), Mockito.times(3))
                     .read(ArgumentMatchers.any(ByteBuffer.class));
-            Assertions.assertTrue(receivingContext.isKilled());
+            Assertions.assertTrue(receivingContext.isClosingOrClosed());
             Mockito.verify(streamConnection).close();
             assertPacketTooLarge(3);
         }
@@ -246,7 +273,7 @@ public class MysqlChannelTest {
         handshake.setSequenceId(1);
         Assertions.assertEquals(ByteBuffer.wrap(handshakeRecord), handshake.fetchOnePacket());
         Assertions.assertEquals(1, handshake.sequenceId);
-        Assertions.assertFalse(receivingContext.isKilled());
+        Assertions.assertFalse(receivingContext.isClosingOrClosed());
         Assertions.assertEquals(0, response.size());
         Mockito.verify(streamConnection, Mockito.never()).close();
 

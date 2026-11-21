@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.RelatedTableColumnInfo;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -270,6 +271,26 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
     }
 
     // Test when join both side are all partition table and partition column name is same
+    @Test
+    public void failingNestedRewriteRestoresTheCallersSkipAuth() {
+        boolean original = connectContext.isSkipAuth();
+        IllegalStateException failure = new IllegalStateException("rewrite failed");
+        try {
+            connectContext.setSkipAuth(true);
+            CascadesContext.withTempContext(context -> {
+                Assertions.assertSame(failure, Assertions.assertThrows(IllegalStateException.class, () ->
+                        MaterializedViewUtils.rewriteByRules(context, nested -> {
+                            Assertions.assertTrue(nested.getConnectContext().isSkipAuth());
+                            throw failure;
+                        }, context.getRewritePlan(), context.getRewritePlan(), false, false)));
+                return null;
+            });
+            Assertions.assertTrue(connectContext.isSkipAuth());
+        } finally {
+            connectContext.setSkipAuth(original);
+        }
+    }
+
     @Test
     public void joinPartitionNameSameTest() {
         PlanChecker.from(connectContext)

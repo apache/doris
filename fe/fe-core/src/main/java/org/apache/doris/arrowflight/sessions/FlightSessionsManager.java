@@ -59,25 +59,29 @@ public interface FlightSessionsManager {
     ConnectContext getConnectContext(String peerIdentity);
 
     /**
-     * Ends the session known by this bearer token, the client's own CloseSession: nothing is held
-     * for it afterwards and every later call under the token is {@code UNAUTHENTICATED}. Ending a
-     * session that has already ended is not an error.
+     * Requests immediate closure for the client's CloseSession: every later call under the token
+     * is {@code UNAUTHENTICATED}, while resource release waits for the cancelled request and its
+     * interruption to finish. Ending a session that has already ended is not an error.
      */
     void closeConnectContext(String peerIdentity);
 
     static ConnectContext buildConnectContext(String peerIdentity, UserIdentity userIdentity, String remoteIP,
             ConnectScheduler connectScheduler) {
         ConnectContext connectContext = ConnectContext.forFlight(peerIdentity);
-        connectContext.setEnv(Env.getCurrentEnv());
-        connectContext.setStartTime();
-        connectContext.setCurrentUserIdentity(userIdentity);
-        connectContext.setRemoteIP(remoteIP);
-        connectContext.setUserQueryTimeout(
-                connectContext.getEnv().getAuth().getQueryTimeout(connectContext.getQualifiedUser()));
-        connectContext.setUserInsertTimeout(
-                connectContext.getEnv().getAuth().getInsertTimeout(connectContext.getQualifiedUser()));
-
-        connectContext.setConnectScheduler(connectScheduler);
-        return connectContext;
+        try {
+            connectContext.setEnv(Env.getCurrentEnv());
+            connectContext.setStartTime();
+            connectContext.setCurrentUserIdentity(userIdentity);
+            connectContext.setRemoteIP(remoteIP);
+            connectContext.setUserQueryTimeout(
+                    connectContext.getEnv().getAuth().getQueryTimeout(connectContext.getQualifiedUser()));
+            connectContext.setUserInsertTimeout(
+                    connectContext.getEnv().getAuth().getInsertTimeout(connectContext.getQualifiedUser()));
+            connectContext.setConnectScheduler(connectScheduler);
+            return connectContext;
+        } catch (Throwable failure) {
+            connectContext.cleanup();
+            throw failure;
+        }
     }
 }

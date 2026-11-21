@@ -148,7 +148,7 @@ public class BrokerLoadJobTest {
     }
 
     @Test
-    public void testRestoreLoadBackendSelectionForAsyncPlanning() {
+    public void testRestoreLoadBackendSelectionForAsyncPlanning() throws Exception {
         BrokerLoadJob job = new BrokerLoadJob();
         BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
                 "key_a", BackendSelection.Mode.PREFER, "persisted");
@@ -171,11 +171,14 @@ public class BrokerLoadJobTest {
             Mockito.when(env.getComputeGroupMgr()).thenReturn(computeGroupMgr);
             Mockito.when(computeGroupMgr.getAllBackendComputeGroup()).thenReturn(computeGroup);
 
-            job.setComputeGroup();
-
-            Assertions.assertSame(hint, context.getLoadBackendSelectionDecision());
+            job.withTaskContext(hint, task -> {
+                Assertions.assertSame(hint, task.getLoadBackendSelectionDecision());
+                Assertions.assertSame(computeGroup, task.getComputeGroupSafely());
+            });
+            Assertions.assertSame(context, ConnectContext.get());
+            Assertions.assertNull(context.getLoadBackendSelectionHint());
         } finally {
-            ConnectContext.remove();
+            context.cleanup();
         }
     }
 

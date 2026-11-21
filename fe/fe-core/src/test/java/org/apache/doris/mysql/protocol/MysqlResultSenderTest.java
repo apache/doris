@@ -328,7 +328,7 @@ public class MysqlResultSenderTest {
         adapter.finishCommand(ctx, null);
         Assertions.assertEquals(2, payloads(channel).size());
         Assertions.assertEquals(0, payloads(channel).get(1)[0] & 0xff);
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
     }
 
     @Test
@@ -342,7 +342,7 @@ public class MysqlResultSenderTest {
         MysqlProtocolAdapter.of(ctx).finishCommand(ctx, executor);
         Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
         Assertions.assertEquals(0xff, payloads(channel).get(0)[0] & 0xff);
-        Assertions.assertFalse(ctx.isKilled());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
 
         // A subsequent command on the same channel has no old executor's cancellation.
         ctx.getState().reset();

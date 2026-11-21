@@ -19,7 +19,6 @@ package org.apache.doris.cloud.load;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -30,21 +29,18 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
-import org.apache.doris.load.BrokerFileGroup;
-import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
-import org.apache.doris.load.loadv2.BrokerPendingTaskAttachment;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadLoadingTask;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
@@ -58,7 +54,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class CloudBrokerLoadJob extends BrokerLoadJob {
@@ -115,34 +110,6 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         }
     }
 
-    private AutoCloseConnectContext buildConnectContext() throws UserException {
-        cloudClusterId = sessionVariables.get(CLOUD_CLUSTER_ID);
-        String clusterName =  ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getClusterNameByClusterId(cloudClusterId);
-        if (Strings.isNullOrEmpty(clusterName)) {
-            LOG.warn("cluster name is empty, cluster id is {}", cloudClusterId);
-            throw new UserException("cluster name is empty, cluster id is: " + cloudClusterId);
-        }
-
-        // NOTE: set user info in context in for auth check in CloudReplica
-        if (ConnectContext.get() == null) {
-            ConnectContext connectContext = new ConnectContext();
-            connectContext.setCloudCluster(clusterName);
-            connectContext.setCurrentUserIdentity(this.userInfo);
-            if (connectContext.getEnv() == null) {
-                connectContext.setEnv(Env.getCurrentEnv());
-            }
-            return new AutoCloseConnectContext(connectContext);
-        } else {
-            ConnectContext.get().setCloudCluster(clusterName);
-            ConnectContext.get().setCurrentUserIdentity(this.userInfo);
-            if (ConnectContext.get().getEnv() == null) {
-                ConnectContext.get().setEnv(Env.getCurrentEnv());
-            }
-            return null;
-        }
-    }
-
     // override BulkLoadJob.analyze
     @Override
     public void analyze() {
@@ -151,28 +118,14 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
     }
 
     @Override
-    protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
-            boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
-            BrokerPendingTaskAttachment attachment) throws UserException {
+    public void setComputeGroup(ConnectContext context) throws UserException {
         cloudClusterId = sessionVariables.get(CLOUD_CLUSTER_ID);
-        LoadLoadingTask task = new CloudLoadLoadingTask(this.userInfo, db, table, brokerDesc,
-                brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
-                isStrictMode(), isPartialUpdate(), getPartialUpdateNewKeyPolicy(),
-                transactionId, this, getTimeZone(), getTimeout(),
-                getLoadParallelism(), getSendBatchParallelism(),
-                getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                getPriority(), isEnableMemtableOnSinkNode, batchSize, cloudClusterId);
-        UUID uuid = UUID.randomUUID();
-        TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-
-        try (AutoCloseConnectContext r = buildConnectContext()) {
-            task.init(loadId, attachment.getFileStatusByTable(aggKey),
-                    attachment.getFileNumByTable(aggKey), getUserInfo());
-            task.settWorkloadGroups(tWorkloadGroups);
-        } catch (UserException e) {
-            throw e;
+        String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getClusterNameByClusterId(cloudClusterId);
+        if (Strings.isNullOrEmpty(clusterName)) {
+            throw new UserException("cluster name is empty, cluster id is: " + cloudClusterId);
         }
-        return task;
+        context.setCloudCluster(clusterName);
     }
 
     @Override
@@ -186,23 +139,15 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
 
     @Override
     protected void afterLoadingTaskCommitTransaction(List<Table> tableList) {
-        ConnectContext ctx = null;
-        if (ConnectContext.get() == null) {
-            ctx = new ConnectContext();
-            ctx.setThreadLocalInfo();
-        } else {
-            ctx = ConnectContext.get();
-        }
-
-        if (ctx.getSessionVariable().enableMultiClusterSyncLoad()) {
-            // get the backends of each cluster expect the load cluster
+        if (SessionVariable.cloudEnableMultiClusterSyncLoad) {
+            // get the backends of each cluster except the load cluster
             CloudSystemInfoService infoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
             List<List<Backend>> backendsList = infoService.getCloudClusterIds()
-                                                                .stream()
-                                                                .filter(id -> !id.equals(cloudClusterId))
-                                                                .map(id -> infoService.getBackendsByClusterId(id))
-                                                                .collect(Collectors.toList());
-            // for each all load table, get its tablets
+                    .stream()
+                    .filter(id -> !id.equals(cloudClusterId))
+                    .map(id -> infoService.getBackendsByClusterId(id))
+                    .collect(Collectors.toList());
+            // for each load table, get its tablets
             tableList.forEach(table -> {
                 List<Long> allTabletIds = ((OlapTable) table).getAllTabletIds();
                 StmtExecutor.syncLoadForTablets(backendsList, allTabletIds);

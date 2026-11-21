@@ -238,13 +238,12 @@ public class StmtExecutor {
     // because per-statement SET_VAR values are reverted at the end of execute(), so reading
     // ConnectContext.getExecTimeoutS() later would report the session value instead.
     private volatile int deferredExecTimeoutS = -1;
-    // The query id and the start time of the deferred query, captured for the same reason: a
-    // statement the session runs before the query is finalized gives the context a new query id
-    // and start time, while the query is unregistered and its profile reported under its own id,
-    // the idle reaper's bound and the profile's times counted from its own start.
-    private volatile TUniqueId deferredQueryId;
+    // The id assigned to this execution attempt. A delayed cancellation must address this executor
+    // even if the session has already installed its successor. Flight also uses it for finalization.
+    private volatile TUniqueId executionQueryId;
+    // The idle reaper and the profile measure a deferred query from its own start time.
     private volatile long deferredStartTimeMs = -1;
-    private MasterOpExecutor masterOpExecutor = null;
+    private volatile MasterOpExecutor masterOpExecutor = null;
     // Optional forward target for cancellations issued on this executor: statements that
     // spawn a nested internal executor with its own query id (e.g. IVM dry-run delta
     // queries) register it here so Ctrl+C / KILL QUERY / statement timeout on the outer
@@ -256,10 +255,11 @@ public class StmtExecutor {
     private boolean isProxy;
     private ShowResultSet proxyShowResultSet = null;
     private Data.PQueryStatistics.Builder statisticsForAuditLog;
+    // Result metadata (such as OUTFILE information) belongs to this execution, not its session.
+    private final List<Map<String, String>> resultAttachedInfo = Lists.newArrayList();
     private boolean isCached;
     private String stmtName;
     private String prepareStmtName; // for prox
-    private String mysqlLoadId;
     // Handle selects that fe can do without be
     private boolean isHandleQueryInFe = false;
     // The profile of this execution
@@ -283,9 +283,6 @@ public class StmtExecutor {
     // this constructor is mainly for proxy
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
         this.context = context;
-        if (context != null) {
-            context.setExecutor(this);
-        }
         this.originStmt = originStmt;
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
@@ -294,6 +291,8 @@ public class StmtExecutor {
                 this.context.getSessionVariable().enableProfile(),
                 this.context.getSessionVariable().getProfileLevel(),
                 this.context.getSessionVariable().getAutoProfileThresholdMs());
+        // Publication can synchronously deliver a cancellation received while a proxy was initializing.
+        context.setExecutor(this);
     }
 
     // for test
@@ -518,6 +517,10 @@ public class StmtExecutor {
 
     public void setPlanner(Planner planner) {
         this.planner = planner;
+    }
+
+    public List<Map<String, String>> getResultAttachedInfo() {
+        return resultAttachedInfo;
     }
 
     public boolean isForwardToMaster() {
@@ -968,7 +971,7 @@ public class StmtExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Nereids start to execute query:\n {}", getStmtForLoggingBeforeParse());
         }
-        context.setQueryId(queryId);
+        publishQueryId(queryId);
         context.setStartTime();
 
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
@@ -1030,7 +1033,7 @@ public class StmtExecutor {
                     }
                     forwardToMaster();
                     if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
-                        context.setQueryId(masterOpExecutor.getQueryId());
+                        publishQueryId(masterOpExecutor.getQueryId());
                     }
                     return;
                 }
@@ -1106,7 +1109,7 @@ public class StmtExecutor {
                 redirectStatus = RedirectStatus.NO_FORWARD;
                 forwardToMaster();
                 if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
-                    context.setQueryId(masterOpExecutor.getQueryId());
+                    publishQueryId(masterOpExecutor.getQueryId());
                 }
                 return;
             }
@@ -1268,10 +1271,21 @@ public class StmtExecutor {
         queryCancelCallbacks.clear();
     }
 
+    // The session can install its next executor before that executor receives a query id.
+    // Only ids assigned to this statement (including retries) can identify it for cancellation.
+    void publishQueryId(TUniqueId queryId) {
+        executionQueryId = queryId;
+        context.setQueryId(queryId);
+    }
+
+    TUniqueId getExecutionQueryId() {
+        return executionQueryId;
+    }
+
     // The id this query runs under: the context's, until the query is deferred for Arrow Flight and
     // the context may move on to another statement before the query is finalized.
     private TUniqueId queryId() {
-        return deferredForArrowFlight ? deferredQueryId : context.queryId();
+        return deferredForArrowFlight ? executionQueryId : context.queryId();
     }
 
     public boolean isDeferredForArrowFlight() {
@@ -1285,7 +1299,7 @@ public class StmtExecutor {
 
     // The query id the deferred query runs under; null when the query is not deferred.
     public TUniqueId getDeferredQueryId() {
-        return deferredQueryId;
+        return deferredForArrowFlight ? executionQueryId : null;
     }
 
     // When the deferred query started, in epoch milliseconds; -1 when the query is not deferred.
@@ -1303,9 +1317,9 @@ public class StmtExecutor {
     // before) and pinned here so that nothing of finalizing the query is left to be read from the
     // session later: see the comment on deferredForArrowFlight.
     void deferForArrowFlight() {
+        executionQueryId = context.queryId();
         deferredForArrowFlight = true;
         deferredExecTimeoutS = context.getExecTimeoutS();
-        deferredQueryId = context.queryId();
         deferredStartTimeMs = context.getStartTime();
         reportsProfile();
         context.addFlightSqlDeferredExecutor(this);
@@ -1338,7 +1352,7 @@ public class StmtExecutor {
                     TUniqueId newQueryId = UniqueIdUtils.fastUniqueId();
                     AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
                             DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
-                    context.setQueryId(newQueryId);
+                    publishQueryId(newQueryId);
                     context.setNeedRegenerateInstanceId(newQueryId);
                     // Each retry attempt gets a fresh per-statement connector scope. The previous attempt's scope
                     // was closed by its own query-finish callback (registered under the previous query id), so
@@ -1525,6 +1539,11 @@ public class StmtExecutor {
 
     private void forwardToMaster() throws Exception {
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
+        // A cancel that preceded publication could not find the forwarding executor. Hand it the
+        // sticky cancellation now; execute() will not send a statement cancelled before dispatch.
+        if (pendingCoordinatorCancelReason.get() != null) {
+            masterOpExecutor.cancel();
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         }
@@ -1620,6 +1639,11 @@ public class StmtExecutor {
         }
     }
 
+    /** Release completed work. A cancellation already in progress may still invoke its callback. */
+    public void unregisterQueryCancellationCallback(Runnable callback) {
+        queryCancelCallbacks.remove(callback);
+    }
+
     private void runQueryCancellationCallback(Runnable callback) {
         try {
             callback.run();
@@ -1659,9 +1683,6 @@ public class StmtExecutor {
         Coordinator coordRef = coord;
         if (coordRef != null) {
             coordRef.cancel(coordinatorCancelReason);
-        }
-        if (mysqlLoadId != null) {
-            Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
         }
         if (cancelableCommand.isPresent() && needWaitCancelComplete) {
             // Wait for the command to run or cancel completion
@@ -1978,7 +1999,9 @@ public class StmtExecutor {
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
                     context.updateReturnRows(batch.getBatch().getRows().size());
-                    context.addResultAttachedInfo(batch.getBatch().getAttachedInfos());
+                    if (batch.getBatch().isSetAttachedInfos()) {
+                        resultAttachedInfo.add(batch.getBatch().getAttachedInfos());
+                    }
                 }
                 if (batch.isEos()) {
                     break;
@@ -2310,7 +2333,7 @@ public class StmtExecutor {
     private List<ResultRow> executeInternalQueryCommon(LogicalPlanAdapter prebuilt,
             ResultSender sendTo) throws Exception {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
-        context.setQueryId(queryId);
+        publishQueryId(queryId);
         if (originStmt != null && originStmt.originStmt != null) {
             context.setSqlHash(DigestUtils.md5Hex(originStmt.originStmt));
         }
@@ -2452,7 +2475,7 @@ public class StmtExecutor {
 
     private HttpStreamParams generateHttpStreamNereidsPlan(TUniqueId queryId) {
         LOG.info("TUniqueId: {} generate stream load plan", DebugUtil.printId(queryId));
-        context.setQueryId(queryId);
+        publishQueryId(queryId);
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
         parseByNereids();

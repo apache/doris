@@ -23,12 +23,16 @@ import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.RandomUtils;
+import org.apache.commons.lang3.function.FailableRunnable;
 
 import java.util.UUID;
 
@@ -190,9 +194,14 @@ public abstract class AbstractTask implements Task {
     }
 
     public void runTask() throws JobException {
+        runWithStatusCallbacks(this::run);
+    }
+
+    /** Runs the task body and its status callbacks within the caller's resource scope. */
+    protected final void runWithStatusCallbacks(FailableRunnable<JobException> body) throws JobException {
         try {
             before();
-            run();
+            body.run();
             onSuccess();
         } catch (Exception e) {
             if (TaskStatus.CANCELED.equals(status)) {
@@ -209,6 +218,21 @@ public abstract class AbstractTask implements Task {
                 closeOrReleaseResources();
             }
         }
+    }
+
+    protected static AutoCloseConnectContext bindExecutionContext(ConnectContext executionContext) {
+        return new AutoCloseConnectContext(executionContext) {
+            @Override
+            public void close() {
+                try {
+                    if (executionContext.queryId() != null) {
+                        QeProcessorImpl.INSTANCE.unregisterQuery(executionContext.queryId());
+                    }
+                } finally {
+                    super.close();
+                }
+            }
+        };
     }
 
     public boolean isCancelled() {

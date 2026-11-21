@@ -17,18 +17,25 @@
 
 package org.apache.doris.nereids.trees.plans.commands.execute;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.scheduler.exception.JobException;
 
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -65,6 +72,72 @@ public class ConnectorRewriteGroupTaskTest {
                         failure.set(error);
                     }
                 });
+    }
+
+    @Test
+    public void planningFailureClosesPrivateContextAndRestoresWorker() {
+        boolean savedUnitTest = FeConstants.runningUnitTest;
+        ConnectContext previous = ConnectContext.get();
+        FeConstants.runningUnitTest = true;
+        try (MockedStatic<Env> environment = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            CatalogMgr catalogs = Mockito.mock(CatalogMgr.class);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogs);
+            InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+            Mockito.when(catalog.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalogs.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)).thenReturn(catalog);
+            environment.when(Env::getCurrentEnv).thenReturn(env);
+            ConnectContext parent = new ConnectContext();
+            parent.getSessionVariable().setEnableSqlCache(false);
+            parent.setThreadLocalInfo();
+            AtomicReference<ConnectContext> execution = new AtomicReference<>();
+            IllegalStateException planningFailure = new IllegalStateException("planning failed");
+            ExternalTable table = Mockito.mock(ExternalTable.class);
+            Mockito.when(table.getCatalog()).thenAnswer(call -> {
+                execution.set(ConnectContext.get());
+                throw planningFailure;
+            });
+            ConnectorRewriteGroupTask task = new ConnectorRewriteGroupTask(
+                    new ConnectorRewriteGroup(ImmutableSet.of("s3://bucket/table/a.parquet"), 1, 1024L, 0),
+                    7L, Mockito.mock(ConnectorTransaction.class), table, parent, null);
+            JobException failure = Assertions.assertThrows(JobException.class, task::execute);
+            Assertions.assertSame(planningFailure, failure.getCause());
+            Assertions.assertSame(parent, ConnectContext.get());
+            Assertions.assertFalse(parent.isClosingOrClosed());
+            Assertions.assertNotNull(execution.get());
+            Assertions.assertNotSame(parent, execution.get());
+            Assertions.assertTrue(execution.get().isClosingOrClosed());
+            Assertions.assertNull(execution.get().getStatementContext());
+            parent.cleanup();
+        } finally {
+            FeConstants.runningUnitTest = savedUnitTest;
+            if (previous == null) {
+                ConnectContext.remove();
+            } else {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void databaseSetupFailureClosesUnpublishedContext() {
+        ConnectContext parent = Mockito.mock(ConnectContext.class);
+        Mockito.when(parent.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(parent.getDatabase()).thenReturn("db");
+        ConnectorRewriteGroupTask task = new ConnectorRewriteGroupTask(
+                new ConnectorRewriteGroup(ImmutableSet.of("s3://bucket/table/a.parquet"), 1, 1024L, 0),
+                7L, Mockito.mock(ConnectorTransaction.class), Mockito.mock(ExternalTable.class), parent, null);
+        ConnectContext previous = ConnectContext.get();
+        try (MockedConstruction<ConnectContext> contexts = Mockito.mockConstruction(ConnectContext.class,
+                (context, construction) -> Mockito.doThrow(new IllegalStateException("database setup failed"))
+                        .when(context).setDatabase("db"))) {
+            Assertions.assertThrows(JobException.class, task::execute);
+            Assertions.assertEquals(1, contexts.constructed().size());
+            Mockito.verify(contexts.constructed().get(0)).cleanup();
+            Mockito.verify(parent, Mockito.never()).cleanup();
+            Assertions.assertSame(previous, ConnectContext.get());
+        }
     }
 
     @Test
