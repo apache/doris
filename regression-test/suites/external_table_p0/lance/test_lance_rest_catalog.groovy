@@ -135,11 +135,15 @@ suite("test_lance_rest_catalog", "p0,external") {
         FROM `${catalogName}`.`default`.`all_types_unprefixed`
     """
 
-    // Doris filters these rows itself for now; the EXPLAIN checks that Lance does it come with
-    // predicate pushdown.
-    qt_rest_predicate_pushdown """
-        SELECT row_id FROM `${catalogName}`.`default`.`all_types` WHERE int32_col = 10 ORDER BY row_id
-    """
+    String pushedQuery =
+            """SELECT row_id FROM `${catalogName}`.`default`.`all_types` WHERE int32_col = 10 ORDER BY row_id"""
+    explain {
+        sql(pushedQuery)
+        contains "lancePushdownPredicate="
+        contains "int32_col"
+        notContains "PREDICATES:"
+    }
+    qt_rest_predicate_pushdown pushedQuery
 
     test {
         sql """SELECT count(*) FROM `${catalogName}`.`default`.`all_types_managed`"""
