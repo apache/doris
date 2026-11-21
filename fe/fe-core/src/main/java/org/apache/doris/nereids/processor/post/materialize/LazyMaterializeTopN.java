@@ -35,10 +35,13 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
@@ -63,7 +66,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Post rule to insert MaterializeNode for TopN lazy materialization.
+ * Post rule to insert MaterializeNode for TopN and join-LIMIT lazy materialization.
  * Expression pull-up is handled by PullUpProjectExprUnderTopN in the logical phase.
  */
 public class LazyMaterializeTopN extends PlanPostProcessor {
@@ -73,7 +76,8 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
         try {
-            Plan result = computeTopN(topN, ctx);
+            Plan result = computeBoundary(topN, topN.getLimit(),
+                    SessionVariable.getTopNLazyMaterializationThreshold(), ctx, false);
             if (SessionVariable.isFeDebug()) {
                 Validator validator = new Validator();
                 validator.processRoot(result, ctx);
@@ -85,39 +89,69 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         }
     }
 
-    private Plan computeTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
-        if (hasMaterialized) {
-            return topN;
-        }
-        if (SessionVariable.getTopNLazyMaterializationThreshold() < topN.getLimit()) {
-            return topN;
+    @Override
+    public Plan visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, CascadesContext ctx) {
+        PhysicalLimit<? extends Plan> rewrittenLimit = (PhysicalLimit<? extends Plan>) visit(limit, ctx);
+        // A local LIMIT may keep limit rows per fragment, not globally. Fetch only after the global LIMIT.
+        if (!rewrittenLimit.isGlobal() || rewrittenLimit.getOffset() != 0 || rewrittenLimit.getLimit() == 0
+                || ctx.getConnectContext().getSessionVariable().limitJoinLazyMaterializationThreshold <= 0) {
+            return rewrittenLimit;
         }
         try {
-            List<Slot> userVisibleOutput = ImmutableList.copyOf(topN.getOutput());
-            List<Slot> effectiveOutput = ImmutableList.copyOf(topN.getOutput());
-            Plan result = doComputeTopN(topN, ctx, effectiveOutput);
-            if (result == topN) {
-                return topN;
+            int threshold = ctx.getConnectContext().getSessionVariable().limitJoinLazyMaterializationThreshold;
+            Plan result = computeBoundary(rewrittenLimit, rewrittenLimit.getLimit(), threshold, ctx, true);
+            if (SessionVariable.isFeDebug()) {
+                new Validator().processRoot(result, ctx);
+            }
+            return result;
+        } catch (Exception e) {
+            LOG.warn("lazy materialize join limit failed", e);
+            return rewrittenLimit;
+        }
+    }
+
+    private Plan computeBoundary(Plan boundary, long limit, int threshold, CascadesContext ctx,
+            boolean joinLimit) {
+        if (hasMaterialized) {
+            return boundary;
+        }
+        if (threshold < limit || (joinLimit && !hasOnlyInnerJoins(boundary.child(0)))) {
+            return boundary;
+        }
+        try {
+            List<Slot> userVisibleOutput = ImmutableList.copyOf(boundary.getOutput());
+            Plan result = doCompute(boundary, ctx, userVisibleOutput, joinLimit);
+            if (result == boundary) {
+                return boundary;
             }
             result = new PhysicalProject(ImmutableList.copyOf(userVisibleOutput), null, result);
             return result;
         } catch (RuntimeException e) {
-            LOG.warn("lazy materialize topn failed for plan: {}", topN.shapeInfo(), e);
-            return topN;
+            LOG.warn("lazy materialize failed for plan: {}", boundary.shapeInfo(), e);
+            return boundary;
         }
     }
 
-    private Plan doComputeTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx, List<Slot> effectiveOutput) {
+    private boolean hasOnlyInnerJoins(Plan plan) {
+        // Leave ORDER BY to the existing TopN rewrite; this path handles a plain LIMIT only.
+        if (!plan.collectToList(node -> node instanceof PhysicalTopN).isEmpty()) {
+            return false;
+        }
+        List<AbstractPhysicalJoin> joins = plan.collectToList(node -> node instanceof AbstractPhysicalJoin);
+        return !joins.isEmpty() && joins.stream().allMatch(join -> join.getJoinType().isInnerJoin());
+    }
+
+    private Plan doCompute(Plan boundary, CascadesContext ctx, List<Slot> effectiveOutput, boolean joinLimit) {
         Map<Slot, MaterializeSource> materializeMap = new HashMap<>();
         List<Slot> materializedSlots = new ArrayList<>();
         Set<Slot> requiredMaterializedSlots = new HashSet<>();
-        collectProjectExprInputSlots(topN.child(), requiredMaterializedSlots);
-        collectRequiredAliasSources(topN, requiredMaterializedSlots);
+        collectProjectExprInputSlots(boundary.child(0), requiredMaterializedSlots);
+        collectRequiredAliasSources(boundary, requiredMaterializedSlots);
 
         /*
          * requiredMaterializedSlots only records slots consumed by Project/final-projection expressions inside the
-         * TopN subtree. Other mandatory slots, such as TopN order keys or Filter predicates, are rejected by
-         * MaterializeProbeVisitor while tracing each output slot from TopN down to the source relation:
+         * boundary subtree. Other mandatory slots, such as TopN order keys, join keys, or Filter predicates, are
+         * rejected by MaterializeProbeVisitor while tracing each output slot down to the source relation:
          *
          *   Project(b) -> TopN(order by id) -> Filter(a > 0) -> Scan(id, a, b, c)
          *
@@ -130,9 +164,9 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
          * through identity aliases are protected by collectRequiredAliasSources above.
          */
         for (Slot slot : effectiveOutput) {
-            Optional<MaterializeSource> source = computeMaterializeSource(topN, (SlotReference) slot,
+            Optional<MaterializeSource> source = computeMaterializeSource(boundary, (SlotReference) slot,
                     requiredMaterializedSlots);
-            if (source.isPresent()) {
+            if (source.isPresent() && (!joinLimit || source.get().relation instanceof PhysicalOlapScan)) {
                 SlotReference baseSlot = source.get().baseSlot;
                 if (source.get().baseSlot.hasSubColPath()
                         || source.get().baseSlot.getAllAccessPaths().isPresent()) {
@@ -143,7 +177,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                 materializedSlots.add(slot);
             }
         }
-        // A lazy alias can share its base slot with another output that must be materialized for TopN.
+        // A lazy alias can share its base slot with another output that must remain materialized.
         // Keep the alias materialized too, otherwise LazySlotPruning removes the base slot needed by that output.
         List<Slot> requiredOutputSlots = collectRequiredOutputSlots(
                 materializeMap, requiredMaterializedSlots, new HashSet<>(materializedSlots));
@@ -155,7 +189,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
 
         List<Slot> lazyMaterializeSlots = filterSlotsForLazyMaterialization(materializeMap);
         if (lazyMaterializeSlots.isEmpty()) {
-            return topN;
+            return boundary;
         }
 
         Map<Relation, List<Slot>> relationToLazySlotMap = new HashMap<>();
@@ -164,7 +198,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             relationToLazySlotMap.computeIfAbsent(source.relation, relation -> new ArrayList<>()).add(slot);
         }
 
-        Plan result = topN;
+        Plan result = boundary;
         BiMap<Relation, SlotReference> relationToRowId = HashBiMap.create(relationToLazySlotMap.size());
         HashSet<SlotReference> rowIdSet = new HashSet<>();
         StatementContext threadStatementContext = StatementScopeIdGenerator.getStatementContext();
@@ -178,7 +212,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                     && !((OlapTable) ((CatalogRelation) relation).getTable()).getEnableLightSchemaChange()) {
                 LOG.debug("Skip TopN lazy materialization for table {} with light_schema_change=false",
                         ((CatalogRelation) relation).getTable().getName());
-                return topN;
+                return boundary;
             }
             if (relation instanceof CatalogRelation) {
                 CatalogRelation catalogRelation = (CatalogRelation) relation;
@@ -302,11 +336,11 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
     }
 
     /**
-     * Keep the columns consumed below the TopN materialized during the scan, resolved through identity
+     * Keep the columns consumed below the boundary materialized during the scan, resolved through identity
      * aliases.
      *
      * <p>{@link MaterializeProbeVisitor} only protects the slot it is tracing: a slot consumed by an
-     * operator on the way from the TopN down to the relation stops the probe, but the columns an
+     * operator on the way from the boundary down to the relation stops the probe, but the columns an
      * identity alias reads are never resolved. For
      *
      * <pre>
@@ -320,9 +354,9 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
      * is classified lazy and {@link LazySlotPruning} removes it from the scan, while {@code lazy_col AS x}
      * below the outer TopN is still read by the inner TopN. The plan then references a slot its child no
      * longer produces and the final {@link Validator} rejects it. The same happens when an identity alias
-     * is consumed by a filter, a join condition or any other operator that stays below the TopN.
+     * is consumed by a filter, a join condition or any other operator that stays below the boundary.
      *
-     * <p>Therefore every slot consumed by this TopN and by the operators below it (its own order keys, the
+     * <p>Therefore every slot consumed by this boundary and by the operators below it (TopN order keys, the
      * expressions of every descendant operator and the slots that are required materialized already) is
      * resolved through its identity alias chain. The only consumed slots that are not required are the ones
      * {@link MaterializeProbeVisitor#isIndexLazyFilter} keeps lazy: {@link LazySlotPruning#visitPhysicalFilter}
@@ -336,14 +370,14 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
      * below a set operation are neither resolved nor reachable. If lazy materialization is ever extended
      * through set operations, the consumed slots have to be resolved per set operation branch instead.
      */
-    private void collectRequiredAliasSources(PhysicalTopN<? extends Plan> topN,
+    private void collectRequiredAliasSources(Plan boundary,
             Set<Slot> requiredMaterializedSlots) {
         Map<Slot, Slot> aliasToChild = new HashMap<>();
-        collectIdentityAliasMap(topN.child(), aliasToChild);
+        collectIdentityAliasMap(boundary.child(0), aliasToChild);
 
         Set<Slot> consumedSlots = new HashSet<>();
         Set<Slot> indexLazySlots = new HashSet<>();
-        collectConsumedSlots(topN, consumedSlots, indexLazySlots);
+        collectConsumedSlots(boundary, consumedSlots, indexLazySlots);
         consumedSlots.addAll(requiredMaterializedSlots);
         for (Slot slot : consumedSlots) {
             if (!indexLazySlots.contains(slot)) {
@@ -381,7 +415,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         }
     }
 
-    /** Collect {@code alias slot -> child slot} for every identity Alias of the Projects under the TopN. */
+    /** Collect {@code alias slot -> child slot} for every identity Alias below the boundary. */
     private void collectIdentityAliasMap(Plan plan, Map<Slot, Slot> aliasToChild) {
         if (plan instanceof PhysicalSetOperation) {
             // Set operations are not materialized lazily, so aliases below them are never reached.
@@ -439,11 +473,11 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         return new ArrayList<>(materializeMap.keySet());
     }
 
-    private Optional<MaterializeSource> computeMaterializeSource(PhysicalTopN<? extends Plan> topN, SlotReference slot,
+    private Optional<MaterializeSource> computeMaterializeSource(Plan boundary, SlotReference slot,
             Set<Slot> requiredMaterializedSlots) {
         MaterializeProbeVisitor probe = new MaterializeProbeVisitor();
         MaterializeProbeVisitor.ProbeContext context = new MaterializeProbeVisitor.ProbeContext(slot,
                 requiredMaterializedSlots);
-        return probe.visit(topN, context);
+        return probe.visit(boundary, context);
     }
 }

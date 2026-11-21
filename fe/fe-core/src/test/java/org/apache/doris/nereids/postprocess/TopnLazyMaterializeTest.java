@@ -26,6 +26,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.MaterializationNode;
@@ -296,6 +297,57 @@ public class TopnLazyMaterializeTest extends SSBTestBase {
                 .rewrite()
                 .implement();
         return new PlanPostProcessors(checker.getCascadesContext()).process(checker.getPhysicalPlan());
+    }
+
+    @Test
+    public void testLimitJoinLazyMaterialization() throws Exception {
+        this.createTable("create table limit_lazy_left(id int, payload varchar(200)) "
+                + "duplicate key(id) distributed by hash(id) buckets 1 "
+                + "properties('replication_num' = '1')");
+        this.createTable("create table limit_lazy_right(id int, flag int, payload varchar(200)) "
+                + "duplicate key(id) distributed by hash(id) buckets 1 "
+                + "properties('replication_num' = '1')");
+
+        String innerJoin = "select l.id, l.payload, r.payload from limit_lazy_left l "
+                + "join limit_lazy_right r on l.id = r.id where r.flag = 1 limit 2";
+        int oldThreshold = connectContext.getSessionVariable().limitJoinLazyMaterializationThreshold;
+        try {
+            PhysicalPlan plan = postProcess(innerJoin);
+            Assertions.assertTrue(plan.collectToList(node -> node instanceof PhysicalLazyMaterialize).isEmpty(),
+                    plan.treeString());
+
+            connectContext.getSessionVariable().limitJoinLazyMaterializationThreshold = 2;
+            plan = postProcess(innerJoin);
+            List<PhysicalLazyMaterialize<? extends Plan>> materializeNodes = plan.collectToList(
+                    node -> node instanceof PhysicalLazyMaterialize);
+            Assertions.assertEquals(1, materializeNodes.size(), plan.treeString());
+            Assertions.assertTrue(materializeNodes.get(0).child() instanceof PhysicalLimit, plan.treeString());
+            Assertions.assertTrue(((PhysicalLimit<?>) materializeNodes.get(0).child()).isGlobal(), plan.treeString());
+            Assertions.assertEquals(2, materializeNodes.get(0).getRowIds().size(), plan.treeString());
+            List<Integer> lazyColumnIndexes = Lists.newArrayList();
+            materializeNodes.get(0).getLazyBaseColumnIndices().forEach(lazyColumnIndexes::addAll);
+            lazyColumnIndexes.sort(Integer::compareTo);
+            Assertions.assertEquals(ImmutableList.of(1, 2), lazyColumnIndexes, plan.treeString());
+
+            // The extra fetch is not worthwhile for a larger LIMIT or a single-table early stop.
+            plan = postProcess(innerJoin.replace("limit 2", "limit 3"));
+            Assertions.assertTrue(plan.collectToList(node -> node instanceof PhysicalLazyMaterialize).isEmpty(),
+                    plan.treeString());
+            plan = postProcess("select id, payload from limit_lazy_left limit 2");
+            Assertions.assertTrue(plan.collectToList(node -> node instanceof PhysicalLazyMaterialize).isEmpty(),
+                    plan.treeString());
+
+            // Outer-join padding and OFFSET are excluded from the initial opt-in scope.
+            plan = postProcess("select l.id, l.payload, r.payload from limit_lazy_left l "
+                    + "left join limit_lazy_right r on l.id = r.id and r.flag = 1 limit 2");
+            Assertions.assertTrue(plan.collectToList(node -> node instanceof PhysicalLazyMaterialize).isEmpty(),
+                    plan.treeString());
+            plan = postProcess(innerJoin + " offset 1");
+            Assertions.assertTrue(plan.collectToList(node -> node instanceof PhysicalLazyMaterialize).isEmpty(),
+                    plan.treeString());
+        } finally {
+            connectContext.getSessionVariable().limitJoinLazyMaterializationThreshold = oldThreshold;
+        }
     }
 
     @Test
