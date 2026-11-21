@@ -3299,6 +3299,21 @@ public class Config extends ConfigBase {
     @ConfField
     public static int cloud_txn_tablet_batch_size = 50;
 
+    /** Cloud SHOW TRANSACTION WHERE LABEL LIKE returns the newest N matches by transaction ID. */
+    @ConfField(mutable = true)
+    public static int cloud_show_txn_label_match_max_rows = 1000;
+
+    @ConfField(mutable = true, description = "Number of transaction infos requested on each label scan page.")
+    public static int cloud_show_txn_label_match_scan_page_size = 1000;
+
+    @ConfField(mutable = true, description = "Maximum combined label and transaction info key reads per cloud label "
+            + "match statement. A complete final page may use one extra info read to advance.")
+    public static int cloud_show_txn_label_match_max_scan_keys = 100000;
+
+    /** Timeout in milliseconds for a cloud label match statement, also bounded by the session query timeout. */
+    @ConfField(mutable = true)
+    public static int cloud_show_txn_label_match_timeout_ms = 30000;
+
     /**
      * Default number of waiting copy jobs for the whole cluster
      */

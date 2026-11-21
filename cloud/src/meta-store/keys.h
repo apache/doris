@@ -388,6 +388,7 @@ static inline std::string storage_vault_key(const StorageVaultKeyInfo& in) { std
 
 std::string txn_key_prefix(std::string_view instance_id);
 void txn_label_key(const TxnLabelKeyInfo& in, std::string* out);
+std::string txn_label_key_prefix(const TxnLabelKeyInfo& in);
 void txn_info_key(const TxnInfoKeyInfo& in, std::string* out);
 void txn_index_key(const TxnIndexKeyInfo& in, std::string* out);
 void txn_running_key(const TxnRunningKeyInfo& in, std::string* out);
