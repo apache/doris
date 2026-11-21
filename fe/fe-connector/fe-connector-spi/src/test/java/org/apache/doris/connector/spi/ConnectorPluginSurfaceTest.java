@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 35 adds coarse-split targets and BE refinement after API 34 path partition keys.
-        Assertions.assertEquals("35.0", version.getProperty("api.version"));
+        // Major 36 adds selected partition row estimates for Iceberg scan and exchange costing.
+        Assertions.assertEquals("36.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -108,6 +108,7 @@ public class ConnectorPluginSurfaceTest {
             ConnectorColumn.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
+            org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition.class,
             org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,

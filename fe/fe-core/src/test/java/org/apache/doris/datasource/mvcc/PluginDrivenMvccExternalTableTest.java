@@ -130,6 +130,29 @@ public class PluginDrivenMvccExternalTableTest {
     private static final long TS_2024_02_02 = 1_800_000_000_000L;
 
     @Test
+    public void testRangeRowCountsTrackTheConvertedGeneration() {
+        ConnectorMvccPartition first = new ConnectorMvccPartition("p1",
+                Collections.singletonList("2024-01-01"), Collections.singletonList("2024-01-02"), 555, 1);
+        Fixture f = Fixture.rangeView(rangeView(first));
+        PluginDrivenMvccSnapshot before = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+        Assertions.assertEquals(OptionalLong.of(1),
+                before.getSelectedPartitionRowCount(Collections.singleton("p1")));
+
+        ConnectorMvccPartition second = new ConnectorMvccPartition("p1",
+                first.getLowerBound(), first.getUpperBound(), first.getFreshnessValue(), 7);
+        Mockito.when(f.metadata.getMvccPartitionView(f.session, f.pinnedHandle))
+                .thenReturn(Optional.of(rangeView(second)));
+        PluginDrivenMvccSnapshot after = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+        Assertions.assertNotSame(before.getNameToPartitionItem(), after.getNameToPartitionItem());
+        Assertions.assertEquals(OptionalLong.of(1),
+                before.getSelectedPartitionRowCount(Collections.singleton("p1")));
+        Assertions.assertEquals(OptionalLong.of(7),
+                after.getSelectedPartitionRowCount(Collections.singleton("p1")));
+    }
+
+    @Test
     public void transformedBinaryPartitionTypesPreserveCounts() {
         ConnectorPartitionInfo bucket = new ConnectorPartitionInfo("dt_bucket=3",
                 Collections.singletonMap("dt", "3"), Collections.emptyMap(), -1, -1, -1, -1,
