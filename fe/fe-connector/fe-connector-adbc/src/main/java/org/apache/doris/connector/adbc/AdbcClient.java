@@ -23,9 +23,14 @@ import org.apache.arrow.adbc.core.AdbcConnection;
 import org.apache.arrow.adbc.core.AdbcDatabase;
 import org.apache.arrow.adbc.core.AdbcDriver;
 import org.apache.arrow.adbc.core.AdbcException;
+import org.apache.arrow.adbc.core.AdbcInfoCode;
+import org.apache.arrow.adbc.core.AdbcStatusCode;
 import org.apache.arrow.adbc.driver.jni.JniDriver;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -33,6 +38,8 @@ import java.io.Closeable;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Owns the ADBC objects for one catalog: the Arrow allocator, the {@code AdbcDatabase}, and the short-lived
@@ -64,6 +71,10 @@ public class AdbcClient implements Closeable {
 
     private static final Logger LOG = LogManager.getLogger(AdbcClient.class);
 
+    // Retain the existing bound on concurrent cold remote probes. Native correctness comes from
+    // connection-scoped driver information, verified before requesting a vendor; ordinary calls stay concurrent.
+    private static final Object DRIVER_INFO_LOCK = new Object();
+
     private final Path driverPath;
     private final String driverUrl;
     private final String entrypoint;
@@ -71,6 +82,7 @@ public class AdbcClient implements Closeable {
     private final String user;
     private final String password;
     private final Map<String, String> driverOptions;
+    private final AtomicReference<Optional<String>> vendorName = new AtomicReference<>();
 
     // All guarded by this.
     private BufferAllocator allocator;
@@ -119,6 +131,70 @@ public class AdbcClient implements Closeable {
             Thread.currentThread().setContextClassLoader(previous);
             leave();
         }
+    }
+
+    /** The remote identity, shared by metadata routing and automatic SQL dialect selection. */
+    Optional<String> vendorName() {
+        Optional<String> known = vendorName.get();
+        if (known != null) {
+            return known;
+        }
+        synchronized (DRIVER_INFO_LOCK) {
+            // Another caller may have completed this catalog's probe while this one waited.
+            known = vendorName.get();
+            if (known == null) {
+                // Keep failures unresolved so a later request can retry. Do not hold the lifecycle
+                // monitor across the RPC: DROP CATALOG must still be able to close without waiting.
+                known = withConnection(AdbcClient::readVendorName);
+                vendorName.set(known);
+            }
+            return known;
+        }
+    }
+
+    /**
+     * Reads {@code VENDOR_NAME} out of the {@code getInfo} result.
+     *
+     * <p>The result is a two-column table -- an integer info code and a dense union holding the value in
+     * whichever of six types that code uses. Both columns are read through the generic
+     * {@code ValueVector.getObject} rather than by casting to a concrete vector class: the union's child
+     * layout is the driver's to choose, and a cast that assumed one would fail on a driver that laid it out
+     * differently, for a probe whose whole purpose is to tolerate not being answered.
+     *
+     * <p>The requested code is re-checked per row because a driver may answer with more rows than were
+     * asked for.
+     */
+    private static Optional<String> readVendorName(AdbcConnection connection) throws Exception {
+        AdbcDriverInfo.requireIsolatedVendorInfo(connection);
+        try (ArrowReader reader = connection.getInfo(new AdbcInfoCode[] {AdbcInfoCode.VENDOR_NAME})) {
+            VectorSchemaRoot root = reader.getVectorSchemaRoot();
+            while (reader.loadNextBatch()) {
+                FieldVector codes = root.getVector("info_name");
+                FieldVector values = root.getVector("info_value");
+                if (codes == null || values == null) {
+                    return Optional.empty();
+                }
+                for (int row = 0; row < root.getRowCount(); row++) {
+                    Object code = codes.getObject(row);
+                    if (!(code instanceof Number)
+                            || ((Number) code).intValue() != AdbcInfoCode.VENDOR_NAME.getValue()) {
+                        continue;
+                    }
+                    Object value = values.getObject(row);
+                    if (value != null) {
+                        return Optional.of(String.valueOf(value));
+                    }
+                }
+            }
+        } catch (AdbcException e) {
+            // Only an explicit unsupported getInfo is a stable capability result. IO, authentication
+            // and other failures must propagate so a later healthy operation can retry the probe.
+            if (e.getStatus() != AdbcStatusCode.NOT_IMPLEMENTED) {
+                throw e;
+            }
+            LOG.info("ADBC driver does not implement vendor information: {}", e.toString());
+        }
+        return Optional.empty();
     }
 
     /** Counts the calling thread in, opening the database on first use. */

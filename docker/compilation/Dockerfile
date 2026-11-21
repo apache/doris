@@ -123,6 +123,16 @@ RUN wget -q https://sh.rustup.rs -O /tmp/rustup-init.sh \
     && ln -sf "${CARGO_HOME}/env" /root/.cargo/env \
     && bash -c 'source ~/.cargo/env && cargo --version && rustc --version'
 
+# The patched ADBC Flight SQL driver is built from Go source.
+ARG GO_VERSION=1.26.5
+ARG GO_SHA256=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+RUN wget -q https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -O /tmp/go.tar.gz \
+    && echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/go.tar.gz -C /usr/local \
+    && rm -f /tmp/go.tar.gz \
+    && /usr/local/go/bin/go version
+ENV PATH="/usr/local/go/bin:${PATH}"
+
 # clone lastest source code, download and build third party
 COPY doris ${DEFAULT_DIR}/doris
 # Cargo build scripts run on CentOS 7. The LDB linker introduces a
@@ -148,7 +158,7 @@ ENV JAVA_HOME="/usr/lib/jvm/jdk-17.0.2/" \
     CARGO_HOME="/opt/cargo" \
     RUSTUP_HOME="/opt/rustup" \
     CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="/usr/bin/gcc" \
-    PATH="/opt/cargo/bin:/usr/local/bin:/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:/usr/lib/jvm/jdk-17.0.2/bin/:$PATH" \
+    PATH="/usr/local/go/bin:/opt/cargo/bin:/usr/local/bin:/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:/usr/lib/jvm/jdk-17.0.2/bin/:$PATH" \
     DORIS_THIRDPARTY="/var/local/thirdparty"
 WORKDIR /root
 
