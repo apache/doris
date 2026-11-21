@@ -77,6 +77,7 @@
 #include "service/backend_options.h"
 #include "storage/changelog.h"
 #include "storage/tablet_info.h"
+#include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
@@ -604,8 +605,17 @@ Status VNodeChannel::init(RuntimeState* state) {
     _row_desc = std::make_unique<RowDescriptor>(_tuple_desc);
     _batch_size = state->batch_size();
 
-    _stub = state->exec_env()->brpc_internal_client_cache()->get_client(_node_info.host,
-                                                                        _node_info.brpc_port);
+    auto* client_cache = state->exec_env()->brpc_internal_client_cache();
+    auto* cluster_info = state->exec_env()->cluster_info();
+    // Match the initial-open recovery gate in _open_internal. Let the real open RPC
+    // establish connectivity within its retry budget instead of failing an earlier probe.
+    const bool defer_handshake = !_is_incremental && _parent->_num_senders == 1 &&
+                                 cluster_info != nullptr && cluster_info->in_graceful_shutdown();
+    if (defer_handshake) {
+        _stub = client_cache->get_client(_node_info.host, _node_info.brpc_port, false);
+    } else {
+        _stub = client_cache->get_client(_node_info.host, _node_info.brpc_port);
+    }
     if (_stub == nullptr) {
         _cancelled = true;
         _is_closed = true;
@@ -801,7 +811,20 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     auto open_closure = AutoReleaseClosure<
             PTabletWriterOpenRequest,
             DummyBrpcCallback<PTabletWriterOpenResult>>::create_unique(request, open_callback);
-    open_callback->cntl_->set_timeout_ms(config::tablet_writer_open_rpc_timeout_sec * 1000);
+    int64_t open_timeout_ms = int64_t(config::tablet_writer_open_rpc_timeout_sec) * 1000;
+    OpenRpc open_rpc {open_callback, nullptr, 0};
+    auto* cluster_info = _state->exec_env()->cluster_info();
+    if (!is_incremental && _parent->_num_senders == 1 && cluster_info != nullptr &&
+        cluster_info->in_graceful_shutdown()) {
+        // Do not reopen a shared writer after another sender may already have sent data.
+        open_timeout_ms = std::max<int64_t>(
+                1, std::min(open_timeout_ms,
+                            _rpc_timeout_ms - static_cast<int64_t>(_timeout_watch.elapsed_time() /
+                                                                   NANOS_PER_MILLIS)));
+        open_rpc.retry_request = std::make_shared<PTabletWriterOpenRequest>(*request);
+        open_rpc.retry_deadline_ms = MonotonicMillis() + open_timeout_ms;
+    }
+    open_callback->cntl_->set_timeout_ms(open_timeout_ms);
     if (config::tablet_writer_ignore_eovercrowded) {
         open_callback->cntl_->ignore_eovercrowded();
     }
@@ -811,7 +834,7 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     _stub->tablet_writer_open(open_closure->cntl_.get(), open_closure->request_.get(),
                               open_closure->response_.get(), open_closure.get());
     open_closure.release();
-    _open_callbacks.push_back(open_callback);
+    _open_rpcs.push_back(std::move(open_rpc));
 }
 
 void VNodeChannel::open() {
@@ -825,7 +848,8 @@ void VNodeChannel::incremental_open() {
 
 Status VNodeChannel::open_wait() {
     Status status;
-    for (auto& open_callback : _open_callbacks) {
+    for (auto& open_rpc : _open_rpcs) {
+        auto& open_callback = open_rpc.callback;
         // because of incremental open, we will wait multi times. so skip the closures which have been checked and set to nullptr in previous rounds
         if (open_callback == nullptr) {
             continue;
@@ -833,8 +857,66 @@ Status VNodeChannel::open_wait() {
 
         open_callback->join();
         SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+        const bool retry_initial_open = open_rpc.retry_request != nullptr;
+        while (open_rpc.retry_request && open_callback->cntl_->Failed() &&
+               is_brpc_network_fault(open_callback->cntl_->ErrorCode())) {
+            if (_state->is_cancelled()) {
+                _cancelled = true;
+                return _state->cancel_reason();
+            }
+            auto remaining_ms = open_rpc.retry_deadline_ms - MonotonicMillis();
+            if (_cancelled || remaining_ms <= 0) {
+                break;
+            }
+            bthread_usleep(std::min<int64_t>(1000, remaining_ms) * 1000);
+            if (_state->is_cancelled()) {
+                _cancelled = true;
+                return _state->cancel_reason();
+            }
+            if (_cancelled || MonotonicMillis() >= open_rpc.retry_deadline_ms) {
+                break;
+            }
+
+            auto* env = _state->exec_env();
+            if (env->dns_cache() != nullptr && !is_valid_ip(_node_info.host)) {
+                env->dns_cache()->invalidate(_node_info.host);
+            }
+            // FailureDetectChannel has marked the old stub unhealthy. Reacquire by hostname
+            // so the cache replaces it without blindly erasing another caller's new stub.
+            // Skip the cache's nested handshake retries; this open owns the recovery budget.
+            auto stub = env->brpc_internal_client_cache()->get_client(_node_info.host,
+                                                                      _node_info.brpc_port, false);
+            remaining_ms = open_rpc.retry_deadline_ms - MonotonicMillis();
+            if (!stub || remaining_ms <= 0) {
+                continue;
+            }
+            if (_state->is_cancelled()) {
+                _cancelled = true;
+                return _state->cancel_reason();
+            }
+            _stub = std::move(stub);
+            LOG(INFO) << "retry tablet writer open after network failure, remaining_ms="
+                      << remaining_ms << ": " << channel_info();
+            open_callback = DummyBrpcCallback<PTabletWriterOpenResult>::create_shared();
+            open_callback->cntl_->set_timeout_ms(remaining_ms);
+            open_callback->cntl_->set_max_retry(0);
+            if (config::tablet_writer_ignore_eovercrowded) {
+                open_callback->cntl_->ignore_eovercrowded();
+            }
+            auto closure = AutoReleaseClosure<PTabletWriterOpenRequest,
+                                              DummyBrpcCallback<PTabletWriterOpenResult>>::
+                    create_unique(open_rpc.retry_request, open_callback);
+            _stub->tablet_writer_open(closure->cntl_.get(), closure->request_.get(),
+                                      closure->response_.get(), closure.get());
+            closure.release();
+            open_callback->join();
+        }
+        open_rpc.retry_request.reset();
         if (open_callback->cntl_->Failed()) {
-            if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
+            // Network failures already mark the cached channel unhealthy. Do not start
+            // another probe after the initial open has exhausted its recovery budget.
+            if (!retry_initial_open &&
+                !ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
                         _stub, _node_info.host, _node_info.brpc_port)) {
                 ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
                         open_callback->cntl_->remote_side());
@@ -1184,8 +1266,8 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
         //format an ipv6 address
         std::string brpc_url = get_brpc_http_url(host, _node_info.brpc_port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
-                _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
-                                                                                          "http");
+                _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(
+                        brpc_url, "http", "", "", 2000, 10, _node_info.host);
         if (_brpc_http_stub == nullptr) {
             cancel(fmt::format("{}, failed to open brpc http client to {}", channel_info(),
                                brpc_url));

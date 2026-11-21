@@ -912,6 +912,9 @@ DECLARE_mInt32(thrift_rpc_timeout_ms);
 // txn commit rpc timeout
 DECLARE_mInt32(txn_commit_rpc_timeout_ms);
 
+// Total time for Stream Load FE RPC retries during graceful restart / master election.
+DECLARE_mInt32(stream_load_fe_rpc_retry_timeout_ms);
+
 // If set to true, metric calculator will run
 DECLARE_Bool(enable_metric_calculator);
 
@@ -1693,6 +1696,10 @@ DECLARE_Int32(fe_expire_duration_seconds);
 // , but if the waiting time exceed the limit, then be will exit directly.
 // During this period, FE will not send any queries to BE and waiting for all running queries to stop.
 DECLARE_Int32(grace_shutdown_wait_seconds);
+// Bound the wait for a master heartbeat reporting shutdown, then allow heartbeat
+// edit logs to propagate before draining. Propagation is a time allowance, not an acknowledgement.
+DECLARE_Int32(grace_shutdown_heartbeat_wait_seconds);
+DECLARE_Int32(grace_shutdown_heartbeat_propagation_seconds);
 // When using the graceful stop feature, after the main process waits for
 // all currently running tasks to finish, it will continue to wait for
 // an additional period to ensure that queries still running on other nodes have also completed.

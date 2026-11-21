@@ -66,6 +66,16 @@ public class QeService {
         LOG.info("QE service start.");
     }
 
+    public void stopAcceptNewConnections() {
+        // Flight must remain available for DoGet of already issued tickets. Refuse new
+        // Flight statements at admission, and close its server only after draining.
+        try {
+            mysqlStarter.stop();
+        } catch (Exception e) {
+            LOG.warn("stop mysql listener failed", e);
+        }
+    }
+
     public void stop() {
         try {
             if (flightStarter != null) {
