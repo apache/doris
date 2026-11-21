@@ -67,6 +67,10 @@ public:
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
+    // Parquet binds the native Variant layout when building its schema.
+    static Status write_column_to_parquet_arrow(const IColumn& column, const NullMap* null_map,
+                                                arrow::ArrayBuilder* builder, int64_t start,
+                                                int64_t end);
     static bool is_native_arrow_type(const arrow::DataType& type);
     Status write_column_to_paimon_arrow(const std::shared_ptr<const IDataType>& type,
                                         const IColumn& column, const NullMap* null_map,

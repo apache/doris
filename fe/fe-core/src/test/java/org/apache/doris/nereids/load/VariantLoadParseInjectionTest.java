@@ -100,6 +100,24 @@ public class VariantLoadParseInjectionTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testNativeParquetVariantNeedsNoParse() throws Exception {
+        for (LoadFixture fixture : ImmutableList.of(
+                createStreamFixture(InputShape.DIRECT, TFileFormatType.FORMAT_PARQUET),
+                createBrokerFixture(InputShape.DIRECT, "parquet"))) {
+            for (Plan node : fixture.plan.<Plan>collectToList(ignored -> true)) {
+                for (Expression expression : node.getExpressions()) {
+                    Assertions.assertTrue(expression.collectToList(TryParseToVariant.class::isInstance).isEmpty(),
+                            fixture.evidence());
+                    Assertions.assertTrue(expression.collectToList(candidate -> candidate instanceof Cast
+                            && ((Cast) candidate).getDataType().isVariantType()
+                            && ((Cast) candidate).child().getDataType().isStringLikeType()).isEmpty(),
+                            fixture.evidence());
+                }
+            }
+        }
+    }
+
     private void assertParseInjectionInBothModes(LoadFixtureSupplier fixtureSupplier, InputShape shape)
             throws Exception {
         assertParseInjection(fixtureSupplier.get(), shape, true);
@@ -142,8 +160,12 @@ public class VariantLoadParseInjectionTest extends TestWithFeService {
     }
 
     private LoadFixture createStreamFixture(InputShape shape) throws Exception {
+        return createStreamFixture(shape, TFileFormatType.FORMAT_CSV_PLAIN);
+    }
+
+    private LoadFixture createStreamFixture(InputShape shape, TFileFormatType format) throws Exception {
         NereidsStreamLoadTask task = new NereidsStreamLoadTask(new TUniqueId(1L, 2L), 3L,
-                TFileType.FILE_STREAM, TFileFormatType.FORMAT_CSV_PLAIN, TFileCompressType.PLAIN);
+                TFileType.FILE_STREAM, format, TFileCompressType.PLAIN);
         task.getColumnExprDescs().descs.addAll(columnDescs(shape).descs);
         return createStreamFamilyFixture("stream/" + shape, task, new TUniqueId(1L, 2L));
     }
@@ -168,6 +190,10 @@ public class VariantLoadParseInjectionTest extends TestWithFeService {
     }
 
     private LoadFixture createBrokerFixture(InputShape shape) throws Exception {
+        return createBrokerFixture(shape, "csv");
+    }
+
+    private LoadFixture createBrokerFixture(InputShape shape, String format) throws Exception {
         String entrance = "broker/" + shape;
         prepareFixtureContext(entrance);
         Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(DATABASE);
@@ -175,7 +201,7 @@ public class VariantLoadParseInjectionTest extends TestWithFeService {
         NereidsImportColumnDescs descs = columnDescs(shape);
         NereidsDataDescription dataDescription = new NereidsDataDescription(TABLE, null,
                 new ArrayList<>(ImmutableList.of("file:///tmp/variant-load.csv")), descs.getFileColNames(),
-                null, "csv", false, descs.getColumnMappingList());
+                null, format, false, descs.getColumnMappingList());
         NereidsBrokerFileGroup fileGroup = analyzeFileGroup(database, dataDescription);
         FixtureSource source = new FixtureSource(targetTable, fileGroup);
         NereidsFileGroupInfo fileGroupInfo = new NereidsFileGroupInfo(6L, 7L, targetTable,
