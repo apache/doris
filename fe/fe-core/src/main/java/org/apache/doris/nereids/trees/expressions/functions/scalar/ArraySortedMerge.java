@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ImplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -53,7 +54,7 @@ import java.util.List;
  * propagation, which would fold a NULL flag into a NULL result instead of failing the analysis.
  */
 public class ArraySortedMerge extends ScalarFunction
-        implements ImplicitlyCastableSignature {
+        implements ImplicitlyCastableSignature, PropagateNullLiteral {
 
     // The bound form: the lambda plus the ascending flag; the arrays live in the lambda argument
     // references, like the other lambda functions.
@@ -144,6 +145,15 @@ public class ArraySortedMerge extends ScalarFunction
     @Override
     public DataType getDataType() {
         return ArrayType.of(((Lambda) child(0)).getRetType());
+    }
+
+    @Override
+    public List<Expression> getNullPropagatingArguments() {
+        // Folding must not hide an invalid ascending flag behind a NULL array input.
+        checkLegalityAfterRewrite();
+        return ((Lambda) getArgument(0)).getLambdaArguments().stream()
+                .map(ArrayItemReference::getArrayExpression)
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override

@@ -115,6 +115,17 @@ public class ArraySort extends ScalarFunction
     }
 
     @Override
+    public List<Expression> getNullPropagatingArguments() {
+        Expression argument = getArgument(0);
+        if (argument instanceof Lambda) {
+            return ((Lambda) argument).getLambdaArguments().stream()
+                    .map(ArrayItemReference::getArrayExpression)
+                    .collect(ImmutableList.toImmutableList());
+        }
+        return getArguments();
+    }
+
+    @Override
     public boolean nullable() {
         if (children.get(0) instanceof Lambda) {
             return ((Lambda) children.get(0)).getLambdaArguments().stream()

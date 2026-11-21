@@ -22,5 +22,5 @@ package org.apache.doris.nereids.trees.expressions.functions;
  *
  * e.g. Acos(NULL) ==> NULL.
  */
-public interface PropagateNullLiteral {
+public interface PropagateNullLiteral extends NullPropagating {
 }

@@ -60,8 +60,7 @@ import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.NullPropagating;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
@@ -894,8 +893,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (!expression.foldable()) {
             return Optional.of(expression);
         }
-        if (ExpressionUtils.hasNullLiteral(expression.getArguments())
-                && (expression instanceof PropagateNullLiteral || expression instanceof PropagateNullable)) {
+        if (expression instanceof NullPropagating
+                && ExpressionUtils.hasNullLiteral(
+                        ((NullPropagating) expression).getNullPropagatingArguments())) {
             return Optional.of(new NullLiteral(expression.getDataType()));
         }
         if (!ExpressionUtils.isAllLiteral(expression.getArguments())) {
