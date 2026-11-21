@@ -23,6 +23,7 @@
 #include "exprs/function/complex_hash_map_dictionary.h"
 #include "exprs/function/dictionary_factory.h"
 #include "exprs/function/dictionary_util.h"
+#include "exprs/function/flat_dictionary.h"
 #include "exprs/function/ip_address_dictionary.h"
 
 namespace doris {
@@ -85,6 +86,13 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
     }
     case TDictLayoutType::type::HASH_MAP: {
         dict = create_complex_hash_map_dict_from_column(dict_name, key_data, value_data);
+        break;
+    }
+    case TDictLayoutType::type::FLAT: {
+        if (key_data.size() != 1) {
+            return Status::InvalidArgument("FLAT dict key size must be 1");
+        }
+        dict = create_flat_dict_from_column(dict_name, key_data[0], value_data);
         break;
     }
     default:
