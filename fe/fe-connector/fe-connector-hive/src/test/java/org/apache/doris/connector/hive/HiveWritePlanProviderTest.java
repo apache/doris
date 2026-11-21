@@ -48,6 +48,7 @@ import org.apache.doris.thrift.THivePartition;
 import org.apache.doris.thrift.THiveTableSink;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import org.apache.hadoop.hive.common.FileUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -621,6 +622,147 @@ public class HiveWritePlanProviderTest {
     // ───────────────────────────── existing partitions ─────────────────────────────
 
     @Test
+    public void fullyStaticWritesLoadOnlyTargetWithoutListingPartitions() {
+        for (boolean overwrite : Arrays.asList(false, true)) {
+            for (String key : Arrays.asList("dt", "DT", "Dt")) {
+                RecordingHmsClient client = new RecordingHmsClient();
+                client.table = tableBuilder().partitionKeys(Collections.singletonList(col("dt", "string"))).build();
+                client.rejectPartitionListing = true;
+                client.partitions = Arrays.asList(
+                        partition(Collections.singletonList("2026-10-19")),
+                        partition(Collections.singletonList("2026-10-20")));
+
+                THiveTableSink sink = planSink(client, new RecordingConnectorContext(),
+                        handle().overwrite(overwrite).staticSpec(Collections.singletonMap(key, "2026-10-19")));
+
+                Assertions.assertEquals(Collections.singletonList("dt=2026-10-19"), client.requestedPartitions);
+                Assertions.assertEquals(1, sink.getPartitionsSize());
+                Assertions.assertEquals(Collections.singletonList("2026-10-19"),
+                        sink.getPartitions().get(0).getValues());
+                Assertions.assertEquals(overwrite, sink.isOverwrite());
+            }
+        }
+    }
+
+    @Test
+    public void staticPartitionNamesFollowSchemaOrderAndEscapeValues() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder().partitionKeys(Arrays.asList(col("dt", "string"), col("region", "string")))
+                .build();
+        client.rejectPartitionListing = true;
+        Map<String, String> spec = new java.util.LinkedHashMap<>();
+        spec.put("REGION", "a/b=c%z");
+        spec.put("DT", "2026-10-19");
+        client.partitions = Collections.singletonList(partition(Arrays.asList("2026-10-19", "a/b=c%z")));
+
+        THiveTableSink sink = planSink(client, new RecordingConnectorContext(), handle().staticSpec(spec));
+
+        Assertions.assertEquals(Collections.singletonList("dt=2026-10-19/region=a%2Fb%3Dc%25z"),
+                client.requestedPartitions);
+        Assertions.assertEquals(Arrays.asList("2026-10-19", "a/b=c%z"), sink.getPartitions().get(0).getValues());
+    }
+
+    @Test
+    public void missingStaticTargetDoesNotLoadUnrelatedPartitions() {
+        for (boolean overwrite : Arrays.asList(false, true)) {
+            RecordingHmsClient client = new RecordingHmsClient();
+            client.table = tableBuilder().partitionKeys(Collections.singletonList(col("dt", "string"))).build();
+            client.rejectPartitionListing = true;
+            client.partitions = Collections.singletonList(partition(Collections.singletonList("old")));
+
+            THiveTableSink sink = planSink(client, new RecordingConnectorContext(),
+                    handle().overwrite(overwrite).staticSpec(Collections.singletonMap("DT", "new")));
+
+            Assertions.assertEquals(Collections.singletonList("dt=new"), client.requestedPartitions);
+            Assertions.assertTrue(sink.getPartitions().isEmpty(), "BE must classify the absent target as NEW");
+        }
+    }
+
+    @Test
+    public void emptyStringStaticValueUsesHiveDefaultPartition() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder().partitionKeys(Collections.singletonList(col("dt", "string"))).build();
+        client.rejectPartitionListing = true;
+        client.partitions = Collections.singletonList(
+                partition(Collections.singletonList("__HIVE_DEFAULT_PARTITION__")));
+
+        THiveTableSink sink = planSink(client, new RecordingConnectorContext(),
+                handle().staticSpec(Collections.singletonMap("DT", "")));
+
+        Assertions.assertEquals(Collections.singletonList("dt=__HIVE_DEFAULT_PARTITION__"),
+                client.requestedPartitions);
+        Assertions.assertEquals(1, sink.getPartitionsSize());
+    }
+
+    @Test
+    public void sqlNullStaticValueRetainsFullListing() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder().partitionKeys(Collections.singletonList(col("dt", "string"))).build();
+        client.partitionNames = Collections.singletonList("dt=__HIVE_DEFAULT_PARTITION__");
+        client.partitions = Collections.singletonList(
+                partition(Collections.singletonList("__HIVE_DEFAULT_PARTITION__")));
+        WriteHandle writeHandle = handle().staticSpec(Collections.singletonMap("DT", "NULL"));
+        // The production handle excludes SQL NULL keys from the cast spec; the string 'NULL' is distinct.
+        writeHandle.castStaticSpec = Collections.emptyMap();
+
+        THiveTableSink sink = planSink(client, new RecordingConnectorContext(), writeHandle);
+
+        Assertions.assertTrue(client.calls.contains("listPartitionNames"));
+        Assertions.assertEquals(1, sink.getPartitionsSize());
+    }
+
+    @Test
+    public void staticPartitionLookupUsesCastValues() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder().partitionKeys(Collections.singletonList(col("dt", "string"))).build();
+        client.rejectPartitionListing = true;
+        WriteHandle writeHandle = handle().staticSpec(Collections.singletonMap("DT", "too-long"));
+        writeHandle.castStaticSpec = Collections.singletonMap("DT", "too");
+
+        planSink(client, new RecordingConnectorContext(), writeHandle);
+
+        Assertions.assertEquals(Collections.singletonList("dt=too"), client.requestedPartitions,
+                "metadata must locate the partition from the value actually materialized into the row");
+    }
+
+    @Test
+    public void partialAndNullStaticSpecsRetainFullPartitionListing() {
+        for (Map<String, String> spec : Arrays.asList(Collections.<String, String>emptyMap(),
+                Collections.singletonMap("DT", "x"), Collections.<String, String>singletonMap("DT", null))) {
+            RecordingHmsClient client = new RecordingHmsClient();
+            client.table = tableBuilder().partitionKeys(Arrays.asList(col("dt", "string"), col("region", "string")))
+                    .build();
+            client.partitionNames = Collections.singletonList("dt=x/region=bj");
+            client.partitions = Collections.singletonList(partition(Arrays.asList("x", "bj")));
+
+            THiveTableSink sink = planSink(client, new RecordingConnectorContext(), handle().staticSpec(spec));
+
+            Assertions.assertTrue(client.calls.contains("listPartitionNames"));
+            Assertions.assertEquals(client.partitionNames, client.requestedPartitions);
+            Assertions.assertEquals(1, sink.getPartitionsSize());
+        }
+    }
+
+    @Test
+    public void typedPartitionSpecsRetainFullPartitionListing() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder().partitionKeys(Collections.singletonList(col("flag", "boolean"))).build();
+        client.partitionNames = Collections.singletonList("flag=1");
+        client.partitions = Collections.singletonList(partition(Collections.singletonList("1")));
+
+        THiveTableSink sink = planSink(client, new RecordingConnectorContext(),
+                handle().staticSpec(Collections.singletonMap("FLAG", "true")));
+
+        Assertions.assertTrue(client.calls.contains("listPartitionNames"));
+        Assertions.assertEquals(Collections.singletonList("1"), sink.getPartitions().get(0).getValues());
+    }
+
+    private static HmsPartitionInfo partition(List<String> values) {
+        return new HmsPartitionInfo(values, "oss://bucket/db/t/partition", PARQUET_INPUT_FORMAT,
+                TEXT_OUTPUT_FORMAT, LAZY_SIMPLE_SERDE, Collections.emptyMap());
+    }
+
+    @Test
     public void planWritePartitionedTableEmitsExistingPartitions() {
         // For a partitioned table BE needs the existing partition dirs (to distinguish APPEND from NEW); the
         // list is fetched live. Each THivePartition carries its values, its own file format, and its in-place
@@ -777,6 +919,8 @@ public class HiveWritePlanProviderTest {
         private boolean overwrite;
         private List<ConnectorColumn> boundTargetColumns = Collections.emptyList();
         private String boundWriteMetadataIdentity;
+        private Map<String, String> staticSpec = Collections.emptyMap();
+        private Map<String, String> castStaticSpec;
 
         WriteHandle(ConnectorTableHandle tableHandle) {
             this.tableHandle = tableHandle;
@@ -784,6 +928,11 @@ public class HiveWritePlanProviderTest {
 
         WriteHandle overwrite(boolean v) {
             this.overwrite = v;
+            return this;
+        }
+
+        WriteHandle staticSpec(Map<String, String> spec) {
+            this.staticSpec = spec;
             return this;
         }
 
@@ -819,7 +968,12 @@ public class HiveWritePlanProviderTest {
 
         @Override
         public Map<String, String> getStaticPartitionSpec() {
-            return Collections.emptyMap();
+            return staticSpec;
+        }
+
+        @Override
+        public Map<String, String> getCastStaticPartitionSpec() {
+            return castStaticSpec == null ? staticSpec : castStaticSpec;
         }
 
         @Override
@@ -919,6 +1073,8 @@ public class HiveWritePlanProviderTest {
         private Map<String, String> defaultValues = Collections.emptyMap();
         private List<String> partitionNames = Collections.emptyList();
         private List<HmsPartitionInfo> partitions = Collections.emptyList();
+        private List<String> requestedPartitions = Collections.emptyList();
+        private boolean rejectPartitionListing;
 
         @Override
         public List<String> listDatabases() {
@@ -966,6 +1122,9 @@ public class HiveWritePlanProviderTest {
 
         @Override
         public List<String> listPartitionNames(String dbName, String tableName, int maxParts) {
+            if (rejectPartitionListing) {
+                throw new AssertionError("fully static writes must not list unrelated partitions");
+            }
             calls.add("listPartitionNames");
             return partitionNames;
         }
@@ -973,7 +1132,24 @@ public class HiveWritePlanProviderTest {
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
             calls.add("getPartitions:" + partNames);
+            requestedPartitions = new ArrayList<>(partNames);
             return partitions;
+        }
+
+        @Override
+        public List<HmsPartitionInfo> getExistingPartitions(String dbName, String tableName, List<String> partNames) {
+            getPartitions(dbName, tableName, partNames);
+            List<String> keys = new ArrayList<>();
+            for (ConnectorColumn column : table.getPartitionKeys()) {
+                keys.add(column.getName());
+            }
+            List<HmsPartitionInfo> existing = new ArrayList<>();
+            for (HmsPartitionInfo partition : partitions) {
+                if (partNames.contains(FileUtils.makePartName(keys, partition.getValues()))) {
+                    existing.add(partition);
+                }
+            }
+            return existing;
         }
 
         @Override
