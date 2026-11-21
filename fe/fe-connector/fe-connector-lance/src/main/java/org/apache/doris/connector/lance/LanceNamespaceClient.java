@@ -51,6 +51,8 @@ final class LanceNamespaceClient {
     private static final int PAGE_SIZE = 1000;
 
     private final LanceNamespace namespace;
+    /** Whether to ask the namespace for each table's storage credentials, as a REST namespace can vend them. */
+    private final boolean vendCredentials;
     private final String rootDatabase;
     private final List<String> parentNamespace;
     private final List<StorageProperties> storageProperties;
@@ -62,9 +64,10 @@ final class LanceNamespaceClient {
      */
     private final Object namespaceLock = new Object();
 
-    LanceNamespaceClient(LanceNamespace namespace, String rootDatabase, List<String> parentNamespace,
-            List<StorageProperties> storageProperties) {
+    LanceNamespaceClient(LanceNamespace namespace, boolean vendCredentials, String rootDatabase,
+            List<String> parentNamespace, List<StorageProperties> storageProperties) {
         this.namespace = namespace;
+        this.vendCredentials = vendCredentials;
         this.rootDatabase = rootDatabase;
         this.parentNamespace = Collections.unmodifiableList(new ArrayList<>(parentNamespace));
         this.storageProperties = Collections.unmodifiableList(new ArrayList<>(storageProperties));
@@ -180,9 +183,16 @@ final class LanceNamespaceClient {
     LanceTableAccess resolveTableAccess(String dbName, String tableName) {
         List<String> tableId = buildTableId(dbName, tableName);
         DescribeTableResponse table = namespace.describeTable(
-                new DescribeTableRequest().id(tableId).withTableUri(true));
+                new DescribeTableRequest().id(tableId).withTableUri(true).vendCredentials(vendCredentials));
         if (Boolean.TRUE.equals(table.getIsOnlyDeclared())) {
             throw new DorisConnectorException("Lance table is declared in the namespace but has no data yet");
+        }
+        // The namespace, not the dataset's _versions/ directory, decides which versions of such a table exist.
+        // Opening it by URI reads the newest manifest in storage, which the namespace may not have published,
+        // and is all this connector can do yet.
+        if (Boolean.TRUE.equals(table.getManagedVersioning())) {
+            throw new DorisConnectorException("Lance table " + dbName + "." + tableName + " has its versions"
+                    + " managed by the namespace (managed_versioning), which is not supported yet");
         }
         String datasetUri = StringUtils.firstNonBlank(table.getTableUri(), table.getLocation());
         if (datasetUri == null) {

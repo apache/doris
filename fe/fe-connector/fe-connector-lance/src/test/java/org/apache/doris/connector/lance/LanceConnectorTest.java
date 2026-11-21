@@ -72,22 +72,46 @@ class LanceConnectorTest {
         new LanceConnector(filesystem(), unreachable).close();
     }
 
+    /** A REST namespace reads no storage of its own, so CREATE has nothing to check before test_connection. */
+    @Test
+    void restCatalogPassesCreateValidationWithoutBindingStorage() {
+        LanceTestContext noStorage = new LanceTestContext() {
+            @Override
+            public ConnectorStorageContext getStorageContext() {
+                throw new AssertionError("a REST catalog's CREATE validation must not bind storage properties");
+            }
+        };
+        LanceConnector connector = new LanceConnector(rest(), noStorage);
+        connector.preCreateValidation(null);
+        connector.close();
+    }
+
     /**
-     * A REST catalog from an earlier version still builds, so it replays and can be dropped or altered;
-     * CREATE refuses a new one and reading through one says why.
+     * The engine binds an OSS-HDFS configuration as HDFS-compatible storage, which no Lance provider reads. CREATE
+     * refuses it, and so does the first use of the namespace, which is all an ALTER to it reaches.
      */
     @Test
-    void restCatalogBuildsButCannotBeCreatedOrRead() {
-        LanceConnector connector = new LanceConnector(rest(), new LanceTestContext());
-        String expected = "Lance rest catalogs are not supported yet; only 'lance.catalog.type'='filesystem'"
-                + " catalogs can be read";
-        Assertions.assertEquals(expected, Assertions.assertThrows(DorisConnectorException.class,
+    void ossHdfsStorageIsRefusedAtCreateAndAtFirstUse() {
+        Map<String, String> properties = filesystem();
+        properties.put("warehouse", "oss://bucket/lance");
+        LanceTestContext ossHdfs = new LanceTestContext(
+                Collections.singletonList(new FakeStorageBinding("OSS_HDFS")),
+                Collections.emptyMap());
+        LanceConnector connector = new LanceConnector(properties, ossHdfs);
+        String expected = "OSS-HDFS is not supported by the Lance catalog. Doris reads this form through its"
+                + " HDFS-compatible properties, which carry no Lance OSS storage options.";
+        Assertions.assertEquals(expected, Assertions.assertThrows(IllegalArgumentException.class,
                 () -> connector.preCreateValidation(null)).getMessage());
         LanceTestSession session = new LanceTestSession();
-        Assertions.assertEquals(expected, Assertions.assertThrows(DorisConnectorException.class,
-                () -> connector.getMetadata(session).listDatabaseNames(session)).getMessage());
-        Assertions.assertFalse(connector.testConnection(session).isSuccess());
+        Assertions.assertTrue(Assertions.assertThrows(DorisConnectorException.class,
+                () -> connector.getMetadata(session).listDatabaseNames(session)).getMessage().contains(expected));
         connector.close();
+
+        // An OSS binding of its own is what an oss:// warehouse is read with.
+        LanceConnector oss = new LanceConnector(properties, new LanceTestContext(
+                Collections.singletonList(new FakeS3CompatibleStorageProperties("OSS")), Collections.emptyMap()));
+        oss.preCreateValidation(null);
+        oss.close();
     }
 
     @Test
