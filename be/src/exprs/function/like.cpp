@@ -745,6 +745,29 @@ Status FunctionLikeBase::vector_non_const(const ColumnString& values, const Colu
 
 Status FunctionLike::like_fn(const LikeSearchState* state, const ColumnString& val,
                              const StringRef& pattern, ColumnUInt8::Container& result) {
+    // Fast path: bypass regex compilation for common patterns (prefix, suffix, substring, equals)
+    std::string search_string;
+    LikeFastPath fast_path = extract_like_fast_path(pattern.data, pattern.size, search_string);
+
+    if (fast_path != LikeFastPath::REGEX) {
+        LikeSearchState local_state;
+        local_state.set_search_string(search_string);
+        switch (fast_path) {
+        case LikeFastPath::ALLPASS:
+            return constant_allpass_fn(&local_state, val, pattern, result);
+        case LikeFastPath::EQUALS:
+            return constant_equals_fn(&local_state, val, pattern, result);
+        case LikeFastPath::STARTS_WITH:
+            return constant_starts_with_fn(&local_state, val, pattern, result);
+        case LikeFastPath::ENDS_WITH:
+            return constant_ends_with_fn(&local_state, val, pattern, result);
+        case LikeFastPath::SUBSTRING:
+            return constant_substring_fn(&local_state, val, pattern, result);
+        default:
+            break;
+        }
+    }
+
     std::string re_pattern;
     convert_like_pattern(state, std::string(pattern.data, pattern.size), &re_pattern);
     return regexp_fn(state, val, {re_pattern.c_str(), re_pattern.size()}, result);
