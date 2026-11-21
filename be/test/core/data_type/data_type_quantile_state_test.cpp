@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <iostream>
+#include <vector>
 
 #include "agent/be_exec_version_manager.h"
 #include "core/column/column.h"
@@ -31,6 +32,7 @@
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
+#include "core/string_buffer.hpp"
 #include "core/types.h"
 
 // this test is gonna to be a data type test template for all DataType which should make ut test to coverage the function defined
@@ -157,6 +159,42 @@ TEST_P(DataTypeQuantileStateTest, SerializeDeserializeAsStreamTest) {
                   column_res->get_data()[i].get_serialized_size());
     }
     std::cout << "finish serialize deserialize as stream test" << std::endl;
+}
+
+TEST(DataTypeQuantileStateLowCompressionTest, ColumnAndStreamRoundTrip) {
+    DataTypeQuantileState type;
+    auto input = ColumnQuantileState::create();
+    QuantileState low(128);
+    QuantileState high(2048);
+    for (int i = 0; i < 1440; ++i) {
+        low.add_value(i);
+        high.add_value(i);
+    }
+    input->insert_value(low);
+    input->insert_value(high);
+    const int version = BeExecVersionManager::get_newest_version();
+    std::vector<char> buffer(type.get_uncompressed_serialized_bytes(*input, version));
+    ASSERT_EQ(buffer.data() + buffer.size(), type.serialize(*input, buffer.data(), version));
+
+    auto restored = type.create_column();
+    type.deserialize(buffer.data(), &restored, version);
+    auto& column = assert_cast<ColumnQuantileState&>(*restored);
+    ASSERT_EQ(2, column.size());
+    EXPECT_EQ(0, column.get_element(0).get_value_by_percentile(0));
+    EXPECT_EQ(1439, column.get_element(0).get_value_by_percentile(1));
+    EXPECT_EQ(0, column.get_element(1).get_value_by_percentile(0));
+    column.get_element(0).add_value(2000);
+    EXPECT_EQ(2000, column.get_element(0).get_value_by_percentile(1));
+
+    auto stream = ColumnString::create();
+    BufferWritable writer(*stream);
+    DataTypeQuantileState::serialize_as_stream(low, writer);
+    writer.commit();
+    BufferReadable reader(stream->get_data_at(0));
+    QuantileState stream_restored;
+    DataTypeQuantileState::deserialize_as_stream(stream_restored, reader);
+    stream_restored.add_value(2000);
+    EXPECT_EQ(2000, stream_restored.get_value_by_percentile(1));
 }
 
 INSTANTIATE_TEST_SUITE_P(Params, DataTypeQuantileStateTest, ::testing::Values(0, 1, 100, 1000));

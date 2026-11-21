@@ -255,6 +255,40 @@ TEST(AggregateFunctionQuantileStateTest, ResetClearsAllRepresentations) {
     }
 }
 
+TEST(AggregateFunctionQuantileStateTest, RestoredAccumulatorMergesNextPartial) {
+    using Data = AggregateFunctionQuantileStateData<AggregateFunctionQuantileStateUnionOp>;
+    for (float compression : {128.0F, 2048.0F}) {
+        Data original;
+        QuantileState first(compression);
+        for (int i = 0; i < 480; ++i) {
+            first.add_value(10);
+        }
+        original.merge(first);
+        auto serialized = ColumnString::create();
+        BufferWritable writer(*serialized);
+        original.write(writer);
+        writer.commit();
+
+        Data restored;
+        BufferReadable reader(serialized->get_data_at(0));
+        restored.read(reader);
+        QuantileState next(compression);
+        for (int i = 0; i < 480; ++i) {
+            next.add_value(20);
+        }
+        restored.merge(next);
+        EXPECT_FALSE(restored.is_first);
+        EXPECT_EQ(compression, restored.value._compression);
+        EXPECT_EQ(10, restored.value.get_value_by_percentile(0));
+        EXPECT_EQ(20, restored.value.get_value_by_percentile(1));
+        if (compression == 128) {
+            EXPECT_EQ(960, restored.value._mutable_tdigest().total_weight());
+        } else {
+            EXPECT_EQ(960, restored.value._explicit_data.size());
+        }
+    }
+}
+
 TEST(AggregateFunctionQuantileStateTest, RepeatedExplicitFramesReuseCapacity) {
     for (size_t frame_size : {size_t(2), size_t(3), size_t(QUANTILE_STATE_EXPLICIT_NUM)}) {
         expect_repeated_explicit_frames_reuse_capacity(frame_size);

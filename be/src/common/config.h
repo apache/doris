@@ -123,6 +123,10 @@ DECLARE_Int32(arrow_flight_sql_port);
 // Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
 DECLARE_Bool(enable_arrow_input_validation);
 
+// Only permit creating low-compression quantile states after every reader has been upgraded.
+// Disabling creation does not make existing low-compression data readable by older binaries.
+DECLARE_Bool(enable_low_compression_quantile_state);
+
 // port for cdc client scan oltp cdc data
 DECLARE_Int32(cdc_client_port);
 

@@ -209,6 +209,35 @@ public:
         add(others.cbegin(), others.cend());
     }
 
+    // Recompress a larger partial into a low-compression state without retaining its
+    // entire pending buffer. A bulk merge of 60000 pending centroids into C=128
+    // otherwise leaves that allocation behind even after _process() clears it.
+    void merge_bounded(const TDigest* other) {
+        // Processed centroids carry weights, but their means are not the original
+        // endpoints. Preserve the source's recorded extrema as well as pending values.
+        _min = std::min(_min, other->_min);
+        _max = std::max(_max, other->_max);
+        for (const auto& centroid : other->_processed) {
+            add(centroid.mean(), centroid.weight());
+        }
+        for (const auto& centroid : other->_unprocessed) {
+            _min = std::min(_min, centroid.mean());
+            _max = std::max(_max, centroid.mean());
+            add(centroid.mean(), centroid.weight());
+        }
+        if (have_unprocessed()) {
+            compress();
+        }
+        // This path merges digest partials, not individual raw samples. Rebuild
+        // once per partial so capacities follow the compressed sizes rather than
+        // the high-C source or prior geometric growth.
+        // NOLINTNEXTLINE(modernize-shrink-to-fit): shrink_to_fit is nonbinding.
+        std::vector<Centroid>(_processed).swap(_processed);
+        std::vector<Centroid>().swap(_unprocessed);
+        // NOLINTNEXTLINE(modernize-shrink-to-fit): shrink_to_fit is nonbinding.
+        std::vector<Weight>(_cumulative).swap(_cumulative);
+    }
+
     const std::vector<Centroid>& processed() const { return _processed; }
 
     const std::vector<Centroid>& unprocessed() const { return _unprocessed; }
@@ -472,6 +501,16 @@ public:
     Value compression() const { return _compression; }
 
     void add(Value x) { add(x, 1); }
+
+    // Low-compression states must retain an actual sample endpoint even when
+    // processing folds that sample into a weighted tail centroid (e.g. 60000
+    // after a processed 0..59999 partial at C=128).
+    void add_preserving_extrema(Value x) {
+        if (add(x, 1)) {
+            _min = std::min(_min, x);
+            _max = std::max(_max, x);
+        }
+    }
 
     void compress() { _process(); }
 

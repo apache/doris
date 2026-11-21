@@ -32,7 +32,8 @@ namespace doris {
 class TDigest;
 
 const static int QUANTILE_STATE_EXPLICIT_NUM = 2048;
-const static int QUANTILE_STATE_COMPRESSION_MIN = 2048;
+const static int QUANTILE_STATE_COMPRESSION_MIN = 128;
+const static int QUANTILE_STATE_COMPRESSION_DEFAULT = 2048;
 const static int QUANTILE_STATE_COMPRESSION_MAX = 10000;
 
 enum QuantileStateType {
@@ -79,6 +80,11 @@ private:
     // operations are supported; mutating the same state requires exclusive access.
     struct TDigestHolder;
     TDigest& _mutable_tdigest();
+    void _add_to_digest(TDigest& digest, double value) const;
+    size_t _explicit_limit() const;
+    void _convert_to_tdigest();
+    void _normalize_low_digest();
+    void _merge_explicit(const QuantileState& other);
 
     QuantileStateType _type = EMPTY;
     std::shared_ptr<TDigestHolder> _tdigest_ptr;
