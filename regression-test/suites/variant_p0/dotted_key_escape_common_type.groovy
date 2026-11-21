@@ -20,6 +20,7 @@ suite("dotted_key_escape_common_type", "p0,nonConcurrent") {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     sql "set debug_variant_enable_doc_mode=false"
     sql "set debug_variant_max_subcolumns_count=0"
+    sql "set debug_variant_sparse_hash_shard_count=1"
     sql "set group_commit='off_mode'"
     sql "set enable_sql_cache=false"
     sql "set enable_query_cache=false"
