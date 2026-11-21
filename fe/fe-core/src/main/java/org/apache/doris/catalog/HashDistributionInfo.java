@@ -75,6 +75,14 @@ public class HashDistributionInfo extends DistributionInfo {
             throw new DdlException("Floating point type should not be used in distribution column["
                     + columnName + "].");
         }
+        if (type.isObjectStored()) {
+            throw new DdlException(type.toSql() + " type should not be used in distribution column["
+                    + columnName + "].");
+        }
+        if (type.isAggStateType()) {
+            throw new DdlException(type.toSql() + " type should not be used in distribution column["
+                    + columnName + "].");
+        }
     }
 
     public boolean sameDistributionColumns(HashDistributionInfo other) {
