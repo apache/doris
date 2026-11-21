@@ -854,15 +854,10 @@ std::shared_ptr<IPartitionWriterBase> VIcebergTableWriter::_create_partition_wri
     }
     // Case 3: Non-partitioned table, written to the data location itself
 
-    IPartitionWriterBase::WriteInfo write_info = {
-            .location = partition_path.empty() ? *_output_location
-                                               : _output_location->subdirectory(partition_path),
-            .file_type = iceberg_table_sink.file_type,
-            .broker_addresses = {}};
-    if (iceberg_table_sink.__isset.broker_addresses) {
-        write_info.broker_addresses.assign(iceberg_table_sink.broker_addresses.begin(),
-                                           iceberg_table_sink.broker_addresses.end());
-    }
+    auto location = partition_path.empty() ? *_output_location
+                                           : _output_location->subdirectory(partition_path);
+    // A sort writer can open the next file later. Borrow storage options from the table-owned sink.
+    auto fs_properties = io::FSPropertiesRef::from(iceberg_table_sink);
 
     std::vector<std::string> column_names;
     column_names.reserve(_write_output_vexpr_ctxs.size());
@@ -873,17 +868,16 @@ std::shared_ptr<IPartitionWriterBase> VIcebergTableWriter::_create_partition_wri
     }
 
     auto create_writer_lambda =
-            [this, partition_values, column_names, write_info](
+            [this, partition_values, column_names, location, fs_properties](
                     const std::string* file_name,
                     int file_name_index) -> std::shared_ptr<VIcebergPartitionWriter> {
         auto& iceberg_table_sink = _t_sink.iceberg_table_sink;
         _write_file_count++;
         return std::make_shared<VIcebergPartitionWriter>(
                 _t_sink, partition_values, _write_output_vexpr_ctxs, *_schema,
-                &_t_sink.iceberg_table_sink.schema_json, column_names, write_info,
+                &_t_sink.iceberg_table_sink.schema_json, column_names, location,
                 (file_name == nullptr) ? _compute_file_name() : *file_name, file_name_index,
-                iceberg_table_sink.file_format, iceberg_table_sink.compression_type,
-                iceberg_table_sink.hadoop_config,
+                iceberg_table_sink.file_format, iceberg_table_sink.compression_type, fs_properties,
                 [this](std::shared_ptr<io::FileSystem> fs, const std::string& path) {
                     _closed_files.emplace_back(std::move(fs), path);
                 });

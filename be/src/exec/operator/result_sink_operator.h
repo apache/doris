@@ -22,6 +22,7 @@
 
 #include "exec/operator/operator.h"
 #include "exec/sink/writer/result_writer.h"
+#include "io/file_system_properties.h"
 #include "runtime/result_block_buffer.h"
 
 namespace doris {
@@ -36,8 +37,7 @@ struct ResultFileOptions {
     std::string column_separator;
     std::string line_delimiter;
     size_t max_file_size_bytes = 1 * 1024 * 1024 * 1024; // 1GB
-    std::vector<TNetworkAddress> broker_addresses;
-    std::map<std::string, std::string> broker_properties;
+    io::FileSystemProperties fs_properties;
     std::string success_file_name;
     std::vector<std::vector<std::string>> schema;       //not use in outfile with parquet format
     std::map<std::string, std::string> file_properties; //not use in outfile with parquet format
@@ -68,8 +68,8 @@ struct ResultFileOptions {
     // Zero-pad the per-file index in the output file name to this many digits.
     // 0 means no padding, preserving the historical name format.
     int file_name_padding = 0;
-
-    ResultFileOptions(const TResultFileSinkOptions& t_opt) {
+    ResultFileOptions(const TResultFileSinkOptions& t_opt, TFileType::type file_type)
+            : fs_properties(io::FSPropertiesRef::from(t_opt, file_type).to_owned()) {
         file_path = t_opt.file_path;
         file_format = t_opt.file_format;
         column_separator = t_opt.__isset.column_separator ? t_opt.column_separator : "\t";
@@ -85,14 +85,7 @@ struct ResultFileOptions {
             file_name_padding = t_opt.file_name_padding;
         }
 
-        is_local_file = true;
-        if (t_opt.__isset.broker_addresses) {
-            broker_addresses = t_opt.broker_addresses;
-            is_local_file = false;
-        }
-        if (t_opt.__isset.broker_properties) {
-            broker_properties = t_opt.broker_properties;
-        }
+        is_local_file = !t_opt.__isset.broker_addresses;
         if (t_opt.__isset.success_file_name) {
             success_file_name = t_opt.success_file_name;
         }

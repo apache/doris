@@ -371,7 +371,7 @@ TEST(VIcebergTableWriterTest, PartitionWritersWriteAndCommitUnderBothFormsOfTheD
         auto writer_base = writer._create_partition_writer(nullptr, -1, &file_name, 0);
         auto* partition_writer = dynamic_cast<VIcebergPartitionWriter*>(writer_base.get());
         ASSERT_NE(nullptr, partition_writer);
-        const auto& location = partition_writer->_write_info.location;
+        const auto& location = partition_writer->_location;
         const std::string target_file = partition_writer->_get_target_file_name();
         EXPECT_EQ("s3://b/db/t/data/" + partition_dir + target_file,
                   location.write_path(target_file));

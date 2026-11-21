@@ -17,12 +17,15 @@
 
 #include "exec/sink/writer/async_result_writer.h"
 
+#include <gen_cpp/DataSinks_types.h>
 #include <gtest/gtest.h>
 
 #include "core/block/block.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "exec/operator/result_sink_operator.h"
 #include "exec/pipeline/dependency.h"
+#include "io/file_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/global_memory_arbitrator.h"
@@ -180,6 +183,42 @@ TEST_F(AsyncResultWriterTest, OpenFailureDrainsQueuedReservation) {
     EXPECT_FALSE(writer.get_writer_status().ok());
     EXPECT_EQ(0, thread_context()->thread_mem_tracker_mgr->reserved_mem());
     EXPECT_EQ(0, GlobalMemoryArbitrator::process_reserved_memory());
+}
+
+TEST(ResultFileOptionsTest, KeepsTypedAzureAccess) {
+    TResultFileSinkOptions t_opt;
+    t_opt.__set_file_path("abfss://container@account.dfs.core.windows.net/out/");
+    t_opt.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+    TAzureSas sas;
+    sas.__set_token("sv=2024-01-01&sig=x");
+    TAzureCredential credential;
+    credential.__set_sas(sas);
+    TAzureClientConfig azure;
+    azure.__set_endpoint("https://account.blob.core.windows.net");
+    azure.__set_credential(credential);
+    t_opt.__set_azure_client_config(azure);
+
+    const auto type = FileFactory::convert_storage_type(TStorageBackendType::AZURE);
+    ASSERT_TRUE(type.has_value());
+    ResultFileOptions options(t_opt, *type);
+    // The success-marker RPC borrows the same Thrift fields for its synchronous factory call.
+    auto marker = io::FSPropertiesRef::from(t_opt, *type);
+    EXPECT_EQ(TFileType::FILE_S3, marker.type);
+    EXPECT_EQ(&t_opt.azure_client_config, marker.azure_client_config);
+    t_opt.__set_azure_client_config(TAzureClientConfig {});
+
+    ASSERT_TRUE(options.fs_properties.azure_client_config.has_value());
+    EXPECT_EQ(azure, *options.fs_properties.azure_client_config);
+}
+
+TEST(ResultFileOptionsTest, LeavesAzureAccessUnsetForOtherStorage) {
+    TResultFileSinkOptions t_opt;
+    t_opt.__set_file_path("s3://bucket/out/");
+    t_opt.__set_file_format(TFileFormatType::FORMAT_CSV_PLAIN);
+
+    ResultFileOptions options(t_opt, TFileType::FILE_S3);
+
+    EXPECT_FALSE(options.fs_properties.azure_client_config.has_value());
 }
 
 } // namespace doris

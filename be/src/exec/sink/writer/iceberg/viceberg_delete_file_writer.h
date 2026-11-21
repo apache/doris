@@ -38,8 +38,9 @@ class Schema;
 }
 
 namespace io {
+struct FSPropertiesRef;
 class FileSystem;
-}
+} // namespace io
 
 class VFileFormatTransformer;
 
@@ -64,8 +65,7 @@ public:
      */
     Status open(RuntimeState* state, RuntimeProfile* profile, const VExprContextSPtrs& output_exprs,
                 const std::vector<std::string>& column_names,
-                const std::map<std::string, std::string>& hadoop_config, TFileType::type file_type,
-                const std::vector<TNetworkAddress>& broker_addresses = {});
+                const io::FSPropertiesRef& fs_properties);
 
     /**
      * Write a block of delete data.

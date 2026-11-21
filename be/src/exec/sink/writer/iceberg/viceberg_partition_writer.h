@@ -21,10 +21,12 @@
 
 #include <functional>
 
+#include "exec/sink/writer/iceberg/iceberg_output_location.h"
 #include "exec/sink/writer/iceberg/vpartition_writer_base.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/table/iceberg/schema.h"
 #include "format/transformer/vfile_format_transformer.h"
+#include "io/file_system_properties.h"
 #include "io/fs/file_writer.h"
 
 namespace doris {
@@ -48,16 +50,13 @@ public:
     using ClosedFileCallback =
             std::function<void(std::shared_ptr<io::FileSystem>, const std::string&)>;
 
-    VIcebergPartitionWriter(const TDataSink& t_sink, std::vector<std::string> partition_values,
-                            const VExprContextSPtrs& write_output_expr_ctxs,
-                            const doris::iceberg::Schema& schema,
-                            const std::string* iceberg_schema_json,
-                            std::vector<std::string> write_column_names, WriteInfo write_info,
-                            std::string file_name, int file_name_index,
-                            TFileFormatType::type file_format_type,
-                            TFileCompressType::type compress_type,
-                            const std::map<std::string, std::string>& hadoop_conf,
-                            ClosedFileCallback closed_file_callback = nullptr);
+    VIcebergPartitionWriter(
+            const TDataSink& t_sink, std::vector<std::string> partition_values,
+            const VExprContextSPtrs& write_output_expr_ctxs, const doris::iceberg::Schema& schema,
+            const std::string* iceberg_schema_json, std::vector<std::string> write_column_names,
+            IcebergOutputLocation location, std::string file_name, int file_name_index,
+            TFileFormatType::type file_format_type, TFileCompressType::type compress_type,
+            io::FSPropertiesRef fs_properties, ClosedFileCallback closed_file_callback = nullptr);
 
     Status open(RuntimeState* state, RuntimeProfile* profile,
                 const RowDescriptor* row_desc) override;
@@ -97,12 +96,12 @@ private:
     const doris::iceberg::Schema& _schema;
     const std::string* _iceberg_schema_json;
     std::vector<std::string> _write_column_names;
-    WriteInfo _write_info;
+    IcebergOutputLocation _location;
     std::string _file_name;
     int _file_name_index;
     TFileFormatType::type _file_format_type;
     TFileCompressType::type _compress_type;
-    const std::map<std::string, std::string>& _hadoop_conf;
+    io::FSPropertiesRef _fs_properties;
     ClosedFileCallback _closed_file_callback;
     bool _file_cleanup_deferred = false;
     Status _terminal_close_status = Status::OK();

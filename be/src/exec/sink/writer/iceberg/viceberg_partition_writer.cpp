@@ -61,21 +61,20 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
         const TDataSink& t_sink, std::vector<std::string> partition_values,
         const VExprContextSPtrs& write_output_expr_ctxs, const iceberg::Schema& schema,
         const std::string* iceberg_schema_json, std::vector<std::string> write_column_names,
-        WriteInfo write_info, std::string file_name, int file_name_index,
+        IcebergOutputLocation location, std::string file_name, int file_name_index,
         TFileFormatType::type file_format_type, TFileCompressType::type compress_type,
-        const std::map<std::string, std::string>& hadoop_conf,
-        ClosedFileCallback closed_file_callback)
+        io::FSPropertiesRef fs_properties, ClosedFileCallback closed_file_callback)
         : _partition_values(std::move(partition_values)),
           _write_output_expr_ctxs(write_output_expr_ctxs),
           _schema(schema),
           _iceberg_schema_json(iceberg_schema_json),
           _write_column_names(std::move(write_column_names)),
-          _write_info(std::move(write_info)),
+          _location(std::move(location)),
           _file_name(std::move(file_name)),
           _file_name_index(file_name_index),
           _file_format_type(file_format_type),
           _compress_type(compress_type),
-          _hadoop_conf(hadoop_conf),
+          _fs_properties(fs_properties),
           _closed_file_callback(std::move(closed_file_callback)) {
     if (t_sink.iceberg_table_sink.__isset.collect_column_stats) {
         _collect_column_stats = t_sink.iceberg_table_sink.collect_column_stats;
@@ -88,14 +87,9 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
 Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile,
                                      const RowDescriptor* row_desc) {
     _state = state;
-    io::FSPropertiesRef fs_properties(_write_info.file_type);
-    fs_properties.properties = &_hadoop_conf;
-    if (!_write_info.broker_addresses.empty()) {
-        fs_properties.broker_addresses = &(_write_info.broker_addresses);
-    }
-    _path = _write_info.location.write_path(_get_target_file_name());
+    _path = _location.write_path(_get_target_file_name());
     io::FileDescription file_description = {.path = _path, .fs_name {}};
-    _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
+    _fs = DORIS_TRY(FileFactory::create_fs(_fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
 
     Status open_status;
@@ -207,7 +201,7 @@ Status VIcebergPartitionWriter::_build_iceberg_commit_data(TIcebergCommitData* c
     DCHECK(commit_data != nullptr);
     DCHECK(_file_format_transformer != nullptr);
 
-    commit_data->__set_file_path(_write_info.location.commit_path(_get_target_file_name()));
+    commit_data->__set_file_path(_location.commit_path(_get_target_file_name()));
     commit_data->__set_row_count(_row_count);
     commit_data->__set_affected_rows(_row_count);
     commit_data->__set_file_size(_file_format_transformer->written_len());

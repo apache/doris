@@ -59,9 +59,7 @@ VIcebergDeleteFileWriter::~VIcebergDeleteFileWriter() = default;
 Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profile,
                                       const VExprContextSPtrs& output_exprs,
                                       const std::vector<std::string>& column_names,
-                                      const std::map<std::string, std::string>& hadoop_config,
-                                      TFileType::type file_type,
-                                      const std::vector<TNetworkAddress>& broker_addresses) {
+                                      const io::FSPropertiesRef& fs_properties) {
     if (_delete_type != TFileContent::POSITION_DELETES) {
         return Status::NotSupported("Iceberg delete file writer only supports position deletes");
     }
@@ -70,12 +68,6 @@ Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profi
     _state = state;
 
     // Create file system and file writer
-    io::FSPropertiesRef fs_properties(file_type);
-    fs_properties.properties = &hadoop_config;
-    if (!broker_addresses.empty()) {
-        fs_properties.broker_addresses = &broker_addresses;
-    }
-
     io::FileDescription file_description = {.path = _write_path, .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
 

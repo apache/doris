@@ -75,9 +75,7 @@ private:
 Status load_rewritable_delete_rows(RuntimeState* state, RuntimeProfile* profile,
                                    const std::string& referenced_data_file_path,
                                    const std::vector<TIcebergDeleteFileDesc>& delete_files,
-                                   const std::map<std::string, std::string>& hadoop_conf,
-                                   TFileType::type file_type,
-                                   const std::vector<TNetworkAddress>& broker_addresses,
+                                   const io::FileSystemProperties& fs_properties,
                                    roaring::Roaring64Map* rows_to_delete) {
     if (rows_to_delete == nullptr) {
         return Status::InvalidArgument("rows_to_delete is null");
@@ -86,8 +84,7 @@ Status load_rewritable_delete_rows(RuntimeState* state, RuntimeProfile* profile,
         return Status::OK();
     }
 
-    TFileScanRangeParams params =
-            build_iceberg_delete_scan_range_params(hadoop_conf, file_type, broker_addresses);
+    TFileScanRangeParams params = fs_properties.to_scan_range_params();
     IcebergDeleteFileIOContext delete_file_io_ctx(state);
     IcebergDeleteFileReaderOptions options;
     options.state = state;
@@ -159,19 +156,7 @@ Status VIcebergDeleteSink::init_properties(ObjectPool* pool) {
     }
     _output_location.emplace(delete_sink.output_path, delete_sink.table_location);
 
-    // Get Hadoop configuration
-    if (delete_sink.__isset.hadoop_config) {
-        _hadoop_conf.insert(delete_sink.hadoop_config.begin(), delete_sink.hadoop_config.end());
-    }
-
-    if (delete_sink.__isset.file_type) {
-        _file_type = delete_sink.file_type;
-    }
-
-    if (delete_sink.__isset.broker_addresses) {
-        _broker_addresses.assign(delete_sink.broker_addresses.begin(),
-                                 delete_sink.broker_addresses.end());
-    }
+    _fs_properties = io::FSPropertiesRef::from(delete_sink).to_owned();
 
     // Get partition information
     if (delete_sink.__isset.partition_spec_id) {
@@ -504,7 +489,7 @@ Status VIcebergDeleteSink::_write_position_delete_files(
         // Open writer
         Status open_status =
                 writer->open(_state, _state->runtime_profile(), _position_delete_output_expr_ctxs,
-                             column_names, _hadoop_conf, _file_type, _broker_addresses);
+                             column_names, _fs_properties);
         if (writer->file_system() != nullptr) {
             _created_files.emplace_back(writer->file_system(), writer->write_path());
         }
@@ -655,9 +640,9 @@ Status VIcebergDeleteSink::_write_deletion_vector_files(
         auto previous_delete_it = _rewritable_delete_files.find(data_file_path);
         if (previous_delete_it != _rewritable_delete_files.end()) {
             roaring::Roaring64Map previous_rows;
-            RETURN_IF_ERROR(load_rewritable_delete_rows(
-                    _state, _state->runtime_profile(), data_file_path, previous_delete_it->second,
-                    _hadoop_conf, _file_type, _broker_addresses, &previous_rows));
+            RETURN_IF_ERROR(load_rewritable_delete_rows(_state, _state->runtime_profile(),
+                                                        data_file_path, previous_delete_it->second,
+                                                        _fs_properties, &previous_rows));
             merged_rows |= previous_rows;
         }
 
@@ -721,13 +706,8 @@ Status VIcebergDeleteSink::_write_puffin_file(const std::string& puffin_path,
     DCHECK(blobs != nullptr);
     DCHECK(!blobs->empty());
 
-    io::FSPropertiesRef fs_properties(_file_type);
-    fs_properties.properties = &_hadoop_conf;
-    if (!_broker_addresses.empty()) {
-        fs_properties.broker_addresses = &_broker_addresses;
-    }
     io::FileDescription file_description = {.path = puffin_path, .fs_name {}};
-    auto fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
+    auto fs = DORIS_TRY(FileFactory::create_fs(_fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
     io::FileWriterPtr file_writer;
     _created_files.emplace_back(fs, puffin_path);

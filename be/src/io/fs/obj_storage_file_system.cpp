@@ -51,7 +51,6 @@
 #include "util/s3_uri.h"
 
 namespace doris::io {
-namespace {
 #ifndef CHECK_OBJ_STORAGE_CLIENT
 #define CHECK_OBJ_STORAGE_CLIENT(client)                        \
     if (!client) {                                              \
@@ -59,14 +58,18 @@ namespace {
     }
 #endif
 
-Result<std::string> get_key(const Path& full_path) {
-    // FIXME(plat1ko): Check bucket in full path and support relative path
+Result<std::string> ObjStorageFileSystem::get_key(const Path& full_path) const {
+    if (_azure_endpoint) {
+        auto location = _azure_endpoint->resolve(full_path.native(), _bucket);
+        if (!location.has_value()) {
+            return unexpected(std::move(location).error());
+        }
+        return std::move(location->key);
+    }
     S3URI uri(full_path.native());
     RETURN_IF_ERROR_RESULT(uri.parse());
     return uri.get_key();
 }
-
-} // namespace
 
 std::string ObjStorageFileSystem::full_object_path(std::string_view key) const {
     auto config = _client->config();
@@ -76,19 +79,22 @@ std::string ObjStorageFileSystem::full_object_path(std::string_view key) const {
 }
 
 Result<std::shared_ptr<ObjStorageFileSystem>> ObjStorageFileSystem::create(
-        ObjStorageResourceConfig storage_config, std::string id) {
-    std::shared_ptr<ObjStorageFileSystem> fs(
-            new ObjStorageFileSystem(std::move(storage_config), std::move(id)));
+        ObjStorageResourceConfig storage_config, std::string id,
+        std::optional<AzureBlobEndpoint> azure_endpoint) {
+    std::shared_ptr<ObjStorageFileSystem> fs(new ObjStorageFileSystem(
+            std::move(storage_config), std::move(id), std::move(azure_endpoint)));
     RETURN_IF_ERROR_RESULT(fs->init());
     return fs;
 }
 
-ObjStorageFileSystem::ObjStorageFileSystem(ObjStorageResourceConfig storage_config, std::string id)
+ObjStorageFileSystem::ObjStorageFileSystem(ObjStorageResourceConfig storage_config, std::string id,
+                                           std::optional<AzureBlobEndpoint> azure_endpoint)
         : RemoteFileSystem(storage_config.prefix, std::move(id), FileSystemType::OBJECT_STORAGE),
           _bucket(std::move(storage_config.bucket)),
           _prefix(storage_config.normalized_prefix()),
           _sse_enabled(storage_config.sse_enabled),
           _is_internal_bucket(storage_config.is_internal_bucket),
+          _azure_endpoint(std::move(azure_endpoint)),
           _client(std::make_shared<ObjStorageClientHolder>(
                   std::move(storage_config.client),
                   ObjStorageRateLimiterManager::policy_for(_is_internal_bucket), _bucket)) {}
@@ -372,8 +378,16 @@ Status ObjStorageFileSystem::download_impl(const Path& remote_file, const Path& 
 std::string ObjStorageFileSystem::generate_presigned_url(const Path& path, int64_t expiration_secs,
                                                          bool is_public_endpoint) const {
     // An empty prefix must not add a separator absent from the uploaded object key.
-    std::string key =
-            _prefix.empty() ? path.native() : fmt::format("{}/{}", _prefix, path.native());
+    std::string key;
+    if (_azure_endpoint) {
+        auto resolved = get_key(path);
+        if (!resolved.has_value()) {
+            return {};
+        }
+        key = std::move(resolved).value();
+    } else {
+        key = _prefix.empty() ? path.native() : fmt::format("{}/{}", _prefix, path.native());
+    }
     auto client = _client->get();
     ObjStoragePath opts {.bucket = _bucket, .key = key};
     return is_public_endpoint ? client->generate_public_presigned_url(opts, expiration_secs)

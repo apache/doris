@@ -28,6 +28,7 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "io/file_system_properties.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
@@ -36,28 +37,6 @@ namespace doris {
 namespace io {
 class FileSystem;
 class FileWriter;
-
-struct FileSystemProperties {
-    TFileType::type system_type;
-    std::map<std::string, std::string> properties;
-    THdfsParams hdfs_params;
-    std::vector<TNetworkAddress> broker_addresses;
-};
-
-struct FSPropertiesRef {
-    TFileType::type type;
-    const std::map<std::string, std::string>* properties {nullptr};
-    const THdfsParams* hdfs_params {nullptr};
-    const std::vector<TNetworkAddress>* broker_addresses {nullptr};
-
-    FSPropertiesRef(TFileType::type type_) : type(type_) {}
-
-    FSPropertiesRef(const FileSystemProperties& fs_properties)
-            : type(fs_properties.system_type),
-              properties(&fs_properties.properties),
-              hdfs_params(&fs_properties.hdfs_params),
-              broker_addresses(&fs_properties.broker_addresses) {}
-};
 
 struct FileDescription {
     std::string path;
@@ -99,12 +78,10 @@ public:
     static Result<io::FileSystemSPtr> create_fs(const io::FSPropertiesRef& fs_properties,
                                                 const io::FileDescription& file_description);
 
-    /// Create FileWriter without FS
-    static Result<io::FileWriterPtr> create_file_writer(
-            TFileType::type type, ExecEnv* env,
-            const std::vector<TNetworkAddress>& broker_addresses,
-            const std::map<std::string, std::string>& properties, const std::string& path,
-            const io::FileWriterOptions& options);
+    /// Create a FileWriter without constructing a FileSystem.
+    static Result<io::FileWriterPtr> create_file_writer(const io::FSPropertiesRef& fs_properties,
+                                                        ExecEnv* env, const std::string& path,
+                                                        const io::FileWriterOptions& options);
 
     /// Create FileReader without FS
     static Result<io::FileReaderSPtr> create_file_reader(
