@@ -43,6 +43,7 @@ final class IcebergCoverageTestFixture implements AutoCloseable {
     final IcebergMetadataOps ops;
     final IcebergExternalTable dorisTable;
     final Writer writer;
+    final IcebergExternalMetaCache.WritableTableLease lease;
     private final MockedStatic<IcebergUtils> utilities;
     private final ThreadPoolExecutor executor = new ThreadPoolExecutor(
             1, 1, 0, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
@@ -60,8 +61,7 @@ final class IcebergCoverageTestFixture implements AutoCloseable {
         Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
         Mockito.when(dorisTable.getRemoteName()).thenReturn("events");
         Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(NameMapping.createForTest("db", "events"));
-        IcebergExternalMetaCache.WritableTableLease lease =
-                Mockito.mock(IcebergExternalMetaCache.WritableTableLease.class);
+        lease = Mockito.mock(IcebergExternalMetaCache.WritableTableLease.class);
         Mockito.when(lease.getTable()).thenReturn(table);
         Mockito.when(lease.getOps()).thenReturn(ops);
         Mockito.when(lease.getAuthenticator()).thenReturn(new ExecutionAuthenticator() { });
@@ -88,6 +88,7 @@ final class IcebergCoverageTestFixture implements AutoCloseable {
 
         WriteContext(Operation operation, boolean overwrite, Map<String, String> partitions, Optional<String> branch) {
             this.operation = operation;
+            insert.setMergeInto(operation == Operation.MERGE);
             insert.setOverwrite(overwrite);
             insert.setStaticPartitionValues(partitions);
             insert.setBranchName(branch);
