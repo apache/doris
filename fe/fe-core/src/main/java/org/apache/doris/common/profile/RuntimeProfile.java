@@ -826,6 +826,23 @@ public class RuntimeProfile {
         TPlanNodeRuntimeStatsItem item = new TPlanNodeRuntimeStatsItem();
         item.setNodeId(this.nodeId());
         boolean isBuildSinkOperator = this.getName().startsWith("HASH_JOIN_SINK_OPERATOR");
+        // Older BE profiles keep counters on the operator; current profiles group them below it.
+        appendRuntimeStats(item, isBuildSinkOperator);
+        childLock.readLock().lock();
+        try {
+            for (Pair<RuntimeProfile, Boolean> child : childList) {
+                String childName = child.first.getName();
+                if ("CommonCounters".equals(childName) || "CustomCounters".equals(childName)) {
+                    child.first.appendRuntimeStats(item, isBuildSinkOperator);
+                }
+            }
+        } finally {
+            childLock.readLock().unlock();
+        }
+        return item;
+    }
+
+    private void appendRuntimeStats(TPlanNodeRuntimeStatsItem item, boolean isBuildSinkOperator) {
         for (Map.Entry<String, Counter> entry : this.counterMap.entrySet()) {
             if (entry.getValue() instanceof AggCounter) {
                 AggCounter value = (AggCounter) entry.getValue();
@@ -889,6 +906,7 @@ public class RuntimeProfile {
                 AggCounter filteredAggCounter = new AggCounter(TUnit.UNIT);
                 AggCounter inputAggCounter = new AggCounter(TUnit.UNIT);
                 Set<String> childCounterSet = entry.getValue();
+                // Timing counters in this group do not contribute to HBO row estimates.
                 for (String childCounterName : childCounterSet) {
                     Counter rhsAggCounter = this.counterMap.get(childCounterName);
                     if (rhsAggCounter == null) {
@@ -905,15 +923,12 @@ public class RuntimeProfile {
                         filteredAggCounter.mergeCounter((AggCounter) rhsAggCounter);
                     } else if (childCounterName.endsWith("InputRows")) {
                         inputAggCounter.mergeCounter((AggCounter) rhsAggCounter);
-                    } else {
-                        LOG.warn("Should not happen, childCounterName: " + childCounterName);
                     }
                 }
                 item.setRuntimeFilterInputRows(inputAggCounter.sum.getValue());
                 item.setRuntimeFilterRows(filteredAggCounter.sum.getValue());
             }
         }
-        return item;
     }
 
     public static List<TPlanNodeRuntimeStatsItem> toTPlanNodeRuntimeStatsItem(RuntimeProfile profile,
