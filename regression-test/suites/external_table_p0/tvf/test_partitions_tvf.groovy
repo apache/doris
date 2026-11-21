@@ -60,9 +60,10 @@ suite("test_partitions_tvf","p0,external,tvf,external_docker") {
     assertEquals(2, res2[0][8]);
     // ReplicationNum: if force_olap_table_replication_num is set to 3,here will be 3
     // assertEquals(1, res[0][9]);
-    // StorageMedium
-    assertEquals("HDD", res[0][10]);
-    assertEquals("HDD", res2[0][10]);
+    // Cloud partitions use object storage; local partitions default to HDD.
+    String expectedStorageMedium = isCloudMode() ? "OBJECT_STORAGE" : "HDD"
+    assertEquals(expectedStorageMedium, res[0][10]);
+    assertEquals(expectedStorageMedium, res2[0][10]);
     // ReplicaAllocation: if force_olap_table_replication_num is set to 3,here will be 3
     // assertEquals("tag.location.default: 1", res[0][16]);
     // IsMutable
