@@ -22,6 +22,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "io/cache/block_file_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/packed_file_reader.h"
 #include "io/fs/packed_file_writer.h"
@@ -93,7 +94,8 @@ Status PackedFileSystem::create_file_impl(const Path& file, FileWriterPtr* write
     FileWriterPtr inner_writer;
     RETURN_IF_ERROR(_inner_fs->create_file(file, &inner_writer, opts));
 
-    if (!should_use_packed_writer(file.filename().native(), _append_info.first_segment_id)) {
+    if (!should_use_packed_writer(io::BlockFileCache::doris_table_cache_file_name(file.native()),
+                                  _append_info.first_segment_id)) {
         *writer = std::move(inner_writer);
         return Status::OK();
     }
