@@ -410,15 +410,20 @@ Status ArrowStreamReader::_open_next_stream() {
     options.use_threads = false;
     RETURN_DORIS_STATUS_IF_RESULT_ERROR(_ipc_reader,
                                         arrow::ipc::RecordBatchStreamReader::Open(_input, options));
+    // A requested column this stream does not carry keeps position -1. get_block() reports it
+    // as missing, so LoadTableReader loads the column's default, as for a field absent from a
+    // JSON row. Each IPC stream of a load resolves its own schema.
     _arrow_positions.assign(_file_slots.size(), -1);
     for (const auto& [id, position] : _request->local_positions) {
         const auto& name = _file_slots.at(id.value())->col_name();
         const auto indices = _ipc_reader->schema()->GetAllFieldIndices(name);
-        if (indices.size() != 1) {
-            return Status::InvalidArgument("Arrow stream requires exactly one column named '{}'",
+        if (indices.size() > 1) {
+            return Status::InvalidArgument("Arrow stream has {} columns named '{}'", indices.size(),
                                            name);
         }
-        _arrow_positions[id.value()] = indices[0];
+        if (indices.size() == 1) {
+            _arrow_positions[id.value()] = indices[0];
+        }
     }
     return Status::OK();
 }
@@ -426,6 +431,9 @@ Status ArrowStreamReader::_open_next_stream() {
 Status ArrowStreamReader::_prepare_arrays() {
     _arrays.assign(_file_slots.size(), nullptr);
     for (const auto& [id, position] : _request->local_positions) {
+        if (_arrow_positions[id.value()] < 0) {
+            continue;
+        }
         std::shared_ptr<arrow::Array> array;
         RETURN_IF_ERROR(normalize_arrow_array(_batch->column(_arrow_positions[id.value()]),
                                               _arrow_pool.get(), &array));
@@ -506,6 +514,7 @@ Status ArrowStreamReader::get_block(Block* block, size_t* rows, bool* eof) {
     SCOPED_TIMER(_total_time);
     *rows = 0;
     *eof = false;
+    _missing_fields.clear();
     if (_eof || (_io_ctx && _io_ctx->should_stop)) {
         *eof = true;
         return Status::OK();
@@ -521,7 +530,18 @@ Status ArrowStreamReader::get_block(Block* block, size_t* rows, bool* eof) {
         SCOPED_TIMER(_materialize_time);
         auto guard = block->mutate_columns_scoped();
         auto& columns = guard.mutable_columns();
+        const auto block_rows = cast_set<size_t>(end - _batch_offset);
         for (const auto& [id, position] : _request->local_positions) {
+            if (_arrow_positions[id.value()] < 0) {
+                // The FE plans every Arrow load source slot as nullable. The NULL placeholder
+                // becomes the column's default in LoadTableReader, or a rejected row when a NOT
+                // NULL column has no default.
+                auto& column = *columns.at(position.value());
+                DORIS_CHECK(column.is_nullable());
+                column.insert_many_defaults(block_rows);
+                _missing_fields[id].assign(block_rows, 1);
+                continue;
+            }
             // Preserve the original array and pass a row range: Arrow Slice creates nonzero
             // offsets, which nested Doris SerDes deliberately reject.
             const auto& data_type = guard.get_datatype_by_position(position.value());
