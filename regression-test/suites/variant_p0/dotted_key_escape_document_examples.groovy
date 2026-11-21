@@ -16,8 +16,11 @@
 // under the License.
 
 suite("dotted_key_escape_document_examples", "p0,nonConcurrent") {
+    // the layout depends on the row threshold and DESC prints it, which fuzzy mode picks at random
+    sql "set default_variant_doc_materialization_min_rows = 0"
     sql "set default_variant_enable_doc_mode=false"
-    def oldNested = sql("show variables like 'default_variant_enable_nested_group'")[0][1]
+    // SHOW VARIABLES does not list the test-only default_variant_* variables
+    def oldNested = sql("select @@default_variant_enable_nested_group")[0][0]
     try {
         [false, true].each { nestedDefault ->
             sql "set default_variant_enable_nested_group=${nestedDefault}"
@@ -58,7 +61,7 @@ suite("dotted_key_escape_document_examples", "p0,nonConcurrent") {
         sql """create table dotted_key_escape_glob(id int, v variant<
             MATCH_NAME_GLOB 'a%2Eb.*':bigint, MATCH_NAME_GLOB 'a.b.*':string,
             properties("variant_enable_nested_group"="false",
-                "variant_max_subcolumns_count"="2048", "variant_sparse_hash_shard_count"="1")>)
+                "variant_max_subcolumns_count"="2048", "variant_doc_hash_shard_count"="1")>)
             duplicate key(id) distributed by hash(id) buckets 1
             properties("variant_escape_dots_in_keys"="true", "replication_num"="1")"""
         sql """insert into dotted_key_escape_glob values

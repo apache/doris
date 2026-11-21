@@ -24,6 +24,7 @@ suite("test_variant_search_missing_doc_path", "p0") {
             id INT,
             v VARIANT<PROPERTIES(
                 "variant_enable_doc_mode"="true",
+                "variant_max_subcolumns_count"="2048",
                 "variant_doc_materialization_min_rows"="0"
             )>,
             INDEX idx_v(v) USING INVERTED PROPERTIES("parser"="unicode")

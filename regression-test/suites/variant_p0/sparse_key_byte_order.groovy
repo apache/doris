@@ -27,9 +27,9 @@ suite("sparse_key_byte_order", "p0") {
                     '"variant_enable_doc_mode"="true", "variant_enable_nested_group"="false", ' +
                     '"variant_doc_materialization_min_rows"="1000000", ' +
                     "\"variant_doc_hash_shard_count\"=\"${shardCount}\"" :
-                    '"variant_max_subcolumns_count"="1", "variant_enable_typed_paths_to_sparse"="false", ' +
+                    '"variant_max_subcolumns_count"="1", ' +
                     '"variant_enable_nested_group"="false", ' +
-                    "\"variant_sparse_hash_shard_count\"=\"${shardCount}\""
+                    "\"variant_doc_hash_shard_count\"=\"${shardCount}\""
                 sql "DROP TABLE IF EXISTS ${tableName}"
                 sql """
                     CREATE TABLE ${tableName} (

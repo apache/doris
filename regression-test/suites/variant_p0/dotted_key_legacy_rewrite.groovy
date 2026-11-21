@@ -16,16 +16,17 @@
 // under the License.
 
 suite("dotted_key_legacy_rewrite", "p0,nonConcurrent") {
+    // the layout depends on the row threshold and DESC prints it, which fuzzy mode picks at random
+    sql "set default_variant_doc_materialization_min_rows = 0"
     // Master rejects doc_mode=false together with explicit subcolumn properties.
     // Pin this one default here; each column still fixes all sparse layout options.
     sql "set default_variant_enable_doc_mode = false"
     sql "drop table if exists dotted_key_legacy_source"
     sql """create table dotted_key_legacy_source (
         id int, v variant<properties(
-                "variant_max_subcolumns_count"="0",
-                "variant_enable_typed_paths_to_sparse"="false",
+                "variant_max_subcolumns_count"="2048",
                 "variant_max_sparse_column_statistics_size"="10000",
-                "variant_sparse_hash_shard_count"="1",
+                "variant_doc_hash_shard_count"="1",
                 "variant_enable_nested_group"="false")>, padding int default '0'
     ) duplicate key(id) distributed by hash(id) buckets 1
     properties("replication_num"="1", "disable_auto_compaction"="true",
@@ -37,10 +38,9 @@ suite("dotted_key_legacy_rewrite", "p0,nonConcurrent") {
     sql "drop table if exists dotted_key_legacy_copy"
     sql """create table dotted_key_legacy_copy (
         id int, v variant<properties(
-                "variant_max_subcolumns_count"="0",
-                "variant_enable_typed_paths_to_sparse"="false",
+                "variant_max_subcolumns_count"="2048",
                 "variant_max_sparse_column_statistics_size"="10000",
-                "variant_sparse_hash_shard_count"="1",
+                "variant_doc_hash_shard_count"="1",
                 "variant_enable_nested_group"="false")>, padding int default '0'
     ) duplicate key(id) distributed by hash(id) buckets 1
     properties("replication_num"="1", "disable_auto_compaction"="true",
@@ -48,10 +48,9 @@ suite("dotted_key_legacy_rewrite", "p0,nonConcurrent") {
     sql "drop table if exists dotted_key_legacy_heavy"
     sql """create table dotted_key_legacy_heavy (
         id int, v variant<properties(
-                "variant_max_subcolumns_count"="0",
-                "variant_enable_typed_paths_to_sparse"="false",
+                "variant_max_subcolumns_count"="2048",
                 "variant_max_sparse_column_statistics_size"="10000",
-                "variant_sparse_hash_shard_count"="1",
+                "variant_doc_hash_shard_count"="1",
                 "variant_enable_nested_group"="false")>, padding int default '0'
     ) duplicate key(id) distributed by hash(id) buckets 1
     properties("replication_num"="1", "disable_auto_compaction"="true",
@@ -63,10 +62,9 @@ suite("dotted_key_legacy_rewrite", "p0,nonConcurrent") {
     sql "drop table if exists dotted_key_legacy_vertical"
     sql """create table dotted_key_legacy_vertical (
         id int, v variant<properties(
-                "variant_max_subcolumns_count"="0",
-                "variant_enable_typed_paths_to_sparse"="false",
+                "variant_max_subcolumns_count"="2048",
                 "variant_max_sparse_column_statistics_size"="10000",
-                "variant_sparse_hash_shard_count"="1",
+                "variant_doc_hash_shard_count"="1",
                 "variant_enable_nested_group"="false")>, padding int default '0'
     ) duplicate key(id) distributed by hash(id) buckets 1
     properties("replication_num"="1", "disable_auto_compaction"="true",
@@ -78,10 +76,9 @@ suite("dotted_key_legacy_rewrite", "p0,nonConcurrent") {
     sql "drop table if exists dotted_key_legacy_whole"
     sql """create table dotted_key_legacy_whole (
         id int, v variant<properties(
-                "variant_max_subcolumns_count"="0",
-                "variant_enable_typed_paths_to_sparse"="false",
+                "variant_max_subcolumns_count"="2048",
                 "variant_max_sparse_column_statistics_size"="10000",
-                "variant_sparse_hash_shard_count"="1",
+                "variant_doc_hash_shard_count"="1",
                 "variant_enable_nested_group"="false")>, padding int default '0'
     ) duplicate key(id) distributed by hash(id) buckets 1
     properties("replication_num"="1", "disable_auto_compaction"="true",

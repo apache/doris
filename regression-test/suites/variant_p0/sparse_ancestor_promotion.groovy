@@ -45,7 +45,7 @@ suite("sparse_ancestor_promotion", "p0") {
                         v VARIANT<PROPERTIES(
                             "variant_max_subcolumns_count"="1",
                             "variant_enable_nested_group"="false",
-                            "variant_sparse_hash_shard_count"="${shardCount}"
+                            "variant_doc_hash_shard_count"="${shardCount}"
                         )>
                     ) ${keyModel} KEY(id)
                     DISTRIBUTED BY HASH(id) BUCKETS 1

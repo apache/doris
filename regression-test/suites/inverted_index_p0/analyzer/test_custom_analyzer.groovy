@@ -476,11 +476,13 @@ suite("test_custom_analyzer", "p0") {
 
     def variantTableName = "test_custom_analyzer_2"
     sql "DROP TABLE IF EXISTS ${variantTableName}"
+    // typed paths to sparse is internal: only the session variable sets it
+    sql "set default_variant_enable_typed_paths_to_sparse = true"
     sql """
         CREATE TABLE ${variantTableName} (
             `a` bigint NOT NULL,
             `var` variant<'string_*' : string,
-                properties("variant_max_subcolumns_count" = "1", "variant_enable_typed_paths_to_sparse" = "true")
+                properties("variant_max_subcolumns_count" = "1")
             > NULL,
             INDEX idx_string (var) USING INVERTED PROPERTIES("field_pattern" = "string_*"),
             INDEX idx_string_prefix (var) USING INVERTED PROPERTIES("field_pattern" = "string_*", "support_phrase" = "true", "analyzer" = "lowercase_delimited")
@@ -491,6 +493,7 @@ suite("test_custom_analyzer", "p0") {
         "replication_allocation" = "tag.location.default: 1"
         );
     """
+    sql "set default_variant_enable_typed_paths_to_sparse = false"
 
     sql """ insert into ${variantTableName} values(1, ${variantV2Function}('{"string_1" : "FOO BAR", "string_2" : "FOO BAR", "string_3" : "FOO BAR"}')), (2, ${variantV2Function}('{"string_3" : "FOO BAR"}')); """
 

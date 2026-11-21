@@ -282,6 +282,14 @@ enum TRuntimeFilterMode {
   GLOBAL = 3
 }
 
+// How a VARIANT column shreds its paths. It only changes what variant_max_subcolumns_count == 0
+// means: V1 materializes every dynamic path, V2 none and keeps them in the sparse column.
+// Mirrors VariantSerializeTypePB in olap_file.proto.
+enum TVariantSerializeType {
+  V1 = 0,
+  V2 = 1
+}
+
 struct TColumnType {
   1: required TPrimitiveType type
   // Only set if type == CHAR_ARRAY

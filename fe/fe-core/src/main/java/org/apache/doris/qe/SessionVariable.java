@@ -1042,7 +1042,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
                                                             "default_variant_max_sparse_column_statistics_size";
-    public static final String DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT = "default_variant_sparse_hash_shard_count";
 
     public static final String DEFAULT_VARIANT_ENABLE_DOC_MODE = "default_variant_enable_doc_mode";
 
@@ -3787,15 +3786,6 @@ public class SessionVariable implements Serializable, Writable {
             description = "Whether to fall back to RE2 when Hyperscan cannot compile a regular expression")
     public boolean enableHyperscanFallback = true;
 
-    @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
-            flag = VarAttrDef.INVISIBLE,
-            needForward = true,
-            checker = "checkDefaultVariantSettable",
-            fuzzy = true
-    )
-    public int defaultVariantSparseHashShardCount = 0;
-
     @VarAttrDef.VarAttr(name = CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION, needForward = false,
             description = "Whether cache is used for the visible_version column"
                     + "in the partitions system table on cloud mode")
@@ -3819,6 +3809,7 @@ public class SessionVariable implements Serializable, Writable {
     )
     public long defaultVariantDocMaterializationMinRows = 0L;
 
+    // the shard count with and without doc mode
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT,
             flag = VarAttrDef.INVISIBLE,
@@ -3826,7 +3817,7 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
-    public int defaultVariantDocHashShardCount = 64;
+    public int defaultVariantDocHashShardCount = 0;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_NESTED_GROUP,
@@ -3920,18 +3911,16 @@ public class SessionVariable implements Serializable, Writable {
         int maxBytes = 10 * 1024 * 1024;
         this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
         this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
-        this.defaultVariantSparseHashShardCount = random.nextInt(5) + 1;
+        this.defaultVariantDocHashShardCount = random.nextInt(5) + 1;
         this.useV3StorageFormat = random.nextBoolean();
         this.defaultVariantEnableDocMode = random.nextBoolean();
-        this.defaultVariantDocHashShardCount = random.nextInt(5);
         boolean zeroOrOne = random.nextBoolean();
+        // the row threshold applies with and without doc mode
         this.defaultVariantDocMaterializationMinRows = zeroOrOne ? 0 : random.nextInt(20);
         if (this.defaultVariantEnableDocMode) {
-            this.defaultVariantMaxSubcolumnsCount = 0;
             this.defaultEnableTypedPathsToSparse = false;
         } else {
-            this.defaultVariantDocMaterializationMinRows = 0L;
-            this.defaultVariantDocHashShardCount = 0;
+            this.defaultEnableTypedPathsToSparse = random.nextBoolean();
         }
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
@@ -6993,10 +6982,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getDefaultVariantMaxSparseColumnStatisticsSize() {
         return defaultVariantMaxSparseColumnStatisticsSize;
-    }
-
-    public int getDefaultVariantSparseHashShardCount() {
-        return defaultVariantSparseHashShardCount;
     }
 
     public boolean getCloudPartitionsTableUseCachedVisibleVersion() {
