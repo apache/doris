@@ -231,8 +231,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         }
 
         IvmPlanSignature signature = new IvmPlanSignatureGenerator().generate(result);
-        IvmRewriteContext.Mode mode = ivmRewriteContext.getMode();
-        if (mode == IvmRewriteContext.Mode.INCREMENTAL || mode == IvmRewriteContext.Mode.PARTITIONS) {
+        if (ivmRewriteContext.isIncrementalRefresh() || ivmRewriteContext.isPartitionsRefresh()) {
             validatePlanSignature(ivmRewriteContext.getMtmv(), signature);
         }
         rewriteResult.setPlanSignature(signature);

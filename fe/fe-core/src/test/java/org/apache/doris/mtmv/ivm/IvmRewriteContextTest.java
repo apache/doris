@@ -37,7 +37,6 @@ class IvmRewriteContextTest {
     void testCreateModeAllowsNullMtmv() {
         IvmRewriteContext context = IvmRewriteContext.create("test_mtmv");
 
-        Assertions.assertEquals(IvmRewriteContext.Mode.CREATE, context.getMode());
         Assertions.assertTrue(context.isCreate());
         Assertions.assertNull(context.getMtmv());
         Assertions.assertEquals("test_mtmv", context.getMtmvName());
@@ -60,7 +59,7 @@ class IvmRewriteContextTest {
 
         IvmRewriteContext context = IvmRewriteContext.normalize(mtmv);
 
-        Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE, context.getMode());
+        Assertions.assertTrue(context.isNormalize());
         Assertions.assertSame(mtmv, context.getMtmv());
         Assertions.assertFalse(context.isIncludeExhaustedStreams());
     }
@@ -71,7 +70,8 @@ class IvmRewriteContextTest {
 
         IvmRewriteContext context = IvmRewriteContext.complete(mtmv);
 
-        Assertions.assertEquals(IvmRewriteContext.Mode.COMPLETE, context.getMode());
+        Assertions.assertTrue(context.isCompleteRefresh());
+        Assertions.assertTrue(context.isPartitionBasedRefresh());
         Assertions.assertSame(mtmv, context.getMtmv());
         Assertions.assertFalse(context.isIncludeExhaustedStreams());
         Assertions.assertFalse(context.hasFullRefreshStreamScans());
@@ -86,10 +86,12 @@ class IvmRewriteContextTest {
         Map<BaseTableInfo, Set<Long>> resetScopes = new HashMap<>();
         resetScopes.put(resetTable, resetPartitionIds);
 
-        IvmRewriteContext context = IvmRewriteContext.complete(mtmv,
+        IvmRewriteContext context = IvmRewriteContext.partitions(mtmv,
                 resetScopes, StreamReadMode.SNAPSHOT);
         resetPartitionIds.add(2L);
 
+        Assertions.assertTrue(context.isPartitionsRefresh());
+        Assertions.assertTrue(context.isPartitionBasedRefresh());
         Assertions.assertTrue(context.hasFullRefreshStreamScans());
         Set<Long> firstRead = context.getFullRefreshResetPartitionIds(resetTable).orElseThrow();
         Assertions.assertEquals(Collections.singleton(1L), firstRead);

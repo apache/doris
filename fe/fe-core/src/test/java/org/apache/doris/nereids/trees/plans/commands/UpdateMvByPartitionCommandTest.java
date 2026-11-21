@@ -283,8 +283,8 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         Assertions.assertNotNull(executor);
         Assertions.assertFalse(executor.getContext().getSessionVariable().isEnableMaterializedViewRewrite());
         Assertions.assertFalse(executor.getContext().getSessionVariable().isEnableDmlMaterializedViewRewrite());
-        Assertions.assertEquals(IvmRewriteContext.Mode.COMPLETE,
-                executor.getContext().getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
+        Assertions.assertTrue(executor.getContext().getStatementContext().getIvmRewriteContext().orElseThrow()
+                .isCompleteRefresh());
         Assertions.assertSame(executor.getContext(), statementContext.getConnectContext());
         Assertions.assertSame(statementContext, executor.getContext().getStatementContext());
         Assertions.assertSame(originStatement, statementContext.getOriginStatement());

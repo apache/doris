@@ -42,7 +42,7 @@ import java.util.Set;
  * reaches it. Per-statement rewrite artifacts proper are stored in {@link IvmRewriteResult}.
  */
 public class IvmRewriteContext {
-    public enum Mode {
+    private enum Mode {
         /** Normalize an IVM materialized-view query during CREATE MATERIALIZED VIEW. */
         CREATE,
         /** Normalize the materialized-view query and collect its IVM layout metadata. */
@@ -210,20 +210,28 @@ public class IvmRewriteContext {
                 Collections.emptyMap());
     }
 
-    public Mode getMode() {
-        return mode;
-    }
-
     public boolean isCreate() {
         return mode == Mode.CREATE;
+    }
+
+    public boolean isNormalize() {
+        return mode == Mode.NORMALIZE;
     }
 
     public boolean isIncrementalRefresh() {
         return mode == Mode.INCREMENTAL;
     }
 
+    public boolean isPartitionsRefresh() {
+        return mode == Mode.PARTITIONS;
+    }
+
+    public boolean isCompleteRefresh() {
+        return mode == Mode.COMPLETE;
+    }
+
     public boolean isPartitionBasedRefresh() {
-        return mode == Mode.COMPLETE || mode == Mode.PARTITIONS;
+        return isCompleteRefresh() || isPartitionsRefresh();
     }
 
     public MTMV getMtmv() {
