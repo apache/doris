@@ -134,6 +134,29 @@ void check_topn_uuid_scanner_predicate(bool is_asc, bool nulls_first) {
 
 } // namespace
 
+TEST(RuntimePredicateTest, ConditionCacheRequiresSnapshotIdentity) {
+    auto desc = create_topn_filter_desc();
+    RuntimePredicate absent(desc);
+    EXPECT_EQ(absent.condition_cache_digest(17), 0);
+    desc.__set_condition_cache_digest(0);
+    RuntimePredicate zero(desc);
+    EXPECT_EQ(zero.condition_cache_digest(17), 0);
+
+    desc.__set_condition_cache_digest(12345);
+    RuntimePredicate first(desc);
+    EXPECT_EQ(first.condition_cache_digest(0), 0);
+    const auto digest = first.condition_cache_digest(17);
+    EXPECT_NE(digest, 0);
+    EXPECT_NE(digest, first.condition_cache_digest(18));
+    ASSERT_TRUE(first.update(Field::create_field<TYPE_INT>(100)).ok());
+    ASSERT_TRUE(first.update(Field::create_field<TYPE_INT>(50)).ok());
+    EXPECT_EQ(digest, first.condition_cache_digest(17));
+
+    desc.__set_condition_cache_digest(67890);
+    RuntimePredicate other_snapshot(desc);
+    EXPECT_NE(digest, other_snapshot.condition_cache_digest(17));
+}
+
 TEST(RuntimePredicateTest, init_target_creates_column_predicate_for_valid_column_id) {
     RuntimePredicate predicate(create_topn_filter_desc());
     predicate.set_detected_source();

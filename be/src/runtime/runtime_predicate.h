@@ -85,6 +85,9 @@ public:
 
     bool nulls_first() const { return _nulls_first; }
 
+    // The snapshot identity is immutable; runtime boundary updates do not change the cache key.
+    uint64_t condition_cache_digest(uint64_t seed) const;
+
     bool target_is_slot(int32_t target_node_id) const {
         check_target_node_id(target_node_id);
         return _contexts.find(target_node_id)->second.target_is_slot();
@@ -130,6 +133,7 @@ private:
 
     bool _nulls_first;
     bool _is_asc;
+    const uint64_t _condition_cache_digest;
     std::map<int32_t, TargetContext> _contexts;
 
     Field _orderby_extrem {PrimitiveType::TYPE_NULL};

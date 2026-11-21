@@ -30,11 +30,13 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/thread_context.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/row_cursor.h"
+#include "storage/segment/condition_cache.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_iterator.h"
 #include "storage/segment/test_segment_writer.h"
@@ -43,6 +45,20 @@
 
 namespace doris::segment_v2 {
 namespace {
+class ConditionCacheScope {
+public:
+    ConditionCacheScope()
+            : _previous(ExecEnv::GetInstance()->get_condition_cache()),
+              _cache(ConditionCache::create_global_cache(1024 * 1024, 4)) {
+        ExecEnv::GetInstance()->_condition_cache = _cache.get();
+    }
+    ~ConditionCacheScope() { ExecEnv::GetInstance()->_condition_cache = _previous; }
+
+private:
+    ConditionCache* _previous;
+    std::unique_ptr<ConditionCache> _cache;
+};
+
 constexpr auto kTestDir = "./ut_dir/topn_runtime_ranges";
 constexpr int kRows = 131072;
 constexpr int kBound = kRows / 2 - 1;
@@ -104,7 +120,8 @@ protected:
     }
 
     void start(bool reverse = false, const Field& initial = Field(), bool with_hole = false,
-               int batch_rows = 1024) {
+               int batch_rows = 1024, uint64_t cache_digest = 0, bool with_predicate = true,
+               size_t read_limit = 0) {
         _reader.reset();
         _stats = OlapReaderStatistics {};
         auto target = TRuntimeFilterDescBuilder::get_default_expr();
@@ -128,11 +145,18 @@ protected:
             options.row_ranges.add({0, 2048});
             options.row_ranges.add({4096, kRows});
         }
-        options.column_predicates = {_predicate->get_predicate(20)};
-        auto block_predicate = AndBlockColumnPredicate::create_shared();
-        block_predicate->add_column_predicate(
-                SingleColumnBlockPredicate::create_unique(options.column_predicates.front()));
-        options.col_id_to_predicates.emplace(0, std::move(block_predicate));
+        options.condition_cache_digest = cache_digest;
+        options.read_limit = read_limit;
+        if (cache_digest != 0) {
+            options.topn_filter_source_node_ids = {10};
+        }
+        if (with_predicate) {
+            options.column_predicates = {_predicate->get_predicate(20)};
+            auto block_predicate = AndBlockColumnPredicate::create_shared();
+            block_predicate->add_column_predicate(
+                    SingleColumnBlockPredicate::create_unique(options.column_predicates.front()));
+            options.col_id_to_predicates.emplace(0, std::move(block_predicate));
+        }
         ASSERT_TRUE(_segment->new_iterator(_schema, options, &_reader).ok());
         _block = _schema->create_read_block();
     }
@@ -206,6 +230,75 @@ protected:
     MockRuntimeState _state;
     Block _block;
 };
+
+// GTest assertion macros account for the reported complexity of this two-pass test.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(SegmentIteratorTopNRuntimeFilterTest, ConditionCacheKeepsRowsBeforeBoundaryArrives) {
+    ConditionCacheScope cache;
+    constexpr uint64_t digest = 123456;
+    for (int run = 0; run < 2; ++run) {
+        ASSERT_NO_FATAL_FAILURE(start(false, Field(), false, 1024, digest, false));
+        std::vector<int32_t> ids;
+        ASSERT_NO_FATAL_FAILURE(drain(&ids));
+        ASSERT_EQ(kRows, ids.size());
+        EXPECT_EQ(0, ids.front());
+        EXPECT_EQ(kRows - 1, ids.back());
+        EXPECT_EQ(1, _stats.condition_cache_lookup_count);
+        EXPECT_EQ(run, _stats.condition_cache_hit_seg_nums);
+    }
+}
+
+TEST_F(SegmentIteratorTopNRuntimeFilterTest, ConditionCacheReusesCompletedTopNExclusions) {
+    ConditionCacheScope cache;
+    constexpr uint64_t digest = 234567;
+    ASSERT_NO_FATAL_FAILURE(start(false, Field(), false, 1024, digest));
+    std::vector<int32_t> expected;
+    ASSERT_TRUE(read(&expected).ok());
+    ASSERT_TRUE(_predicate->update(Field::create_field<TYPE_INT>(kBound)).ok());
+    ASSERT_NO_FATAL_FAILURE(drain(&expected));
+    ASSERT_EQ(kRows / 2, expected.size());
+
+    // The next scan has no current boundary. Its fixed snapshot still justifies the exclusions.
+    ASSERT_NO_FATAL_FAILURE(start(false, Field(), false, 1024, digest, false));
+    std::vector<int32_t> actual;
+    ASSERT_NO_FATAL_FAILURE(drain(&actual));
+    EXPECT_EQ(expected, actual);
+    EXPECT_EQ(1, _stats.condition_cache_hit_seg_nums);
+    EXPECT_LT(_stats.raw_rows_read, kRows);
+
+    // A different global snapshot must not inherit the old exclusions, even for this same segment.
+    ASSERT_NO_FATAL_FAILURE(start(false, Field(), false, 1024, digest + 1, false));
+    actual.clear();
+    ASSERT_NO_FATAL_FAILURE(drain(&actual));
+    EXPECT_EQ(kRows, actual.size());
+    EXPECT_EQ(0, _stats.condition_cache_hit_seg_nums);
+}
+
+// GTest assertion macros account for the reported complexity of the two incomplete-scan cases.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(SegmentIteratorTopNRuntimeFilterTest, ConditionCacheDoesNotPublishIncompleteScan) {
+    ConditionCacheScope cache;
+    for (bool limit_reached : {false, true}) {
+        SCOPED_TRACE(limit_reached);
+        const uint64_t digest = limit_reached ? 345678 : 456789;
+        ASSERT_NO_FATAL_FAILURE(
+                start(false, Field(), false, 1024, digest, false, limit_reached ? 64 : 0));
+        std::vector<int32_t> ids;
+        if (limit_reached) {
+            ASSERT_NO_FATAL_FAILURE(drain(&ids));
+            ASSERT_EQ(64, ids.size());
+        } else {
+            ASSERT_TRUE(read(&ids).ok());
+            ASSERT_EQ(1024, ids.size());
+        }
+        // Destroying a partially consumed iterator must not publish its still-false tail.
+        ASSERT_NO_FATAL_FAILURE(start(false, Field(), false, 1024, digest, false));
+        ids.clear();
+        ASSERT_NO_FATAL_FAILURE(drain(&ids));
+        EXPECT_EQ(kRows, ids.size());
+        EXPECT_EQ(0, _stats.condition_cache_hit_seg_nums);
+    }
+}
 
 TEST_F(SegmentIteratorTopNRuntimeFilterTest, LateArrivalSkipsPagesAndMatchesRowFiltering) {
     ASSERT_NO_FATAL_FAILURE(check_late_scan(false));
