@@ -525,6 +525,7 @@ Status ScalarColumnWriter::init() {
                 // documented "forwarded to every created IndexColumnWriter"
                 // contract holds for both values.
                 _inverted_index_builders[i]->set_direct_load(_opts.is_direct_load);
+                _inverted_index_builders[i]->set_delete_sign_rows(_opts.delete_sign_rows);
             }
         } while (false);
     }
@@ -994,6 +995,7 @@ Status ArrayColumnWriter::init() {
             // Same unconditional forwarding as the scalar path: after
             // create()/init(), before any array value is added.
             _inverted_index_writer->set_direct_load(_opts.is_direct_load);
+            _inverted_index_writer->set_delete_sign_rows(_opts.delete_sign_rows);
         }
     }
     if (_opts.need_ann_index) {

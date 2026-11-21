@@ -106,6 +106,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
           _key_encoder(*_tablet_schema, _is_mow()) {
     CHECK_NOTNULL(file_writer);
     _num_short_key_columns = _tablet_schema->num_short_key_columns();
+    _records_delete_sign_rows = _should_record_delete_sign_rows();
 }
 
 VerticalSegmentWriter::~VerticalSegmentWriter() {
@@ -191,6 +192,9 @@ Status VerticalSegmentWriter::_create_column_writer(size_t pos, uint32_t cid,
     }
     // Let SNII select the direct-load PRX zstd level.
     opts.is_direct_load = _opts.write_type == DataWriteType::TYPE_DIRECT;
+    if (_records_delete_sign_rows) {
+        opts.delete_sign_rows = &_delete_sign_rows;
+    }
     if (!skip_inverted_index) {
         auto inverted_indexs = tablet_schema->inverted_indexs(column);
         if (inverted_indexs.empty() && column.is_extracted_column() &&
@@ -418,6 +422,15 @@ Status VerticalSegmentWriter::append_block(const Block* block, size_t row_pos, s
             << ", block->columns()=" << block->columns()
             << ", _column_writers.size()=" << _column_writers.size()
             << ", _tablet_schema->dump_structure()=" << _tablet_schema->dump_structure();
+    if (_has_key && _records_delete_sign_rows) {
+        // The key group of a unique table carries the delete sign, see
+        // Merger::vertical_split_columns, and is written before the value groups.
+        const auto delete_sign = std::ranges::find(
+                _column_ids, cast_set<uint32_t>(_tablet_schema->delete_sign_idx()));
+        DORIS_CHECK(delete_sign != _column_ids.end());
+        _collect_delete_sign_rows(*block->get_by_position(delete_sign - _column_ids.begin()).column,
+                                  row_pos, num_rows);
+    }
     std::vector<const IColumn*> key_columns;
     const IColumn* seq_column = nullptr;
     // keyed by cluster key unique id
@@ -454,6 +467,10 @@ Status VerticalSegmentWriter::append_block(const Block* block, size_t row_pos, s
 
 Status VerticalSegmentWriter::write_block(const Block* block, size_t row_pos, size_t num_rows) {
     RETURN_IF_ERROR(_open_group(_all_column_ids(), true));
+    if (_records_delete_sign_rows) {
+        _collect_delete_sign_rows(*block->get_by_position(_tablet_schema->delete_sign_idx()).column,
+                                  row_pos, num_rows);
+    }
     // Each column writer is created right before its column is written, so
     // only one column's page buffers are alive at a time. The derived
     // (row-store) column goes first, pumped from its generator in batches.
@@ -505,6 +522,24 @@ Status VerticalSegmentWriter::write_block(const Block* block, size_t row_pos, si
     // The generator snapshots the block's rows; it must not survive them.
     _derived_column = {};
     return Status::OK();
+}
+
+bool VerticalSegmentWriter::_should_record_delete_sign_rows() {
+    // Writes the segment's indexes as a BE that predates the recording does, for tests of the
+    // segments such a BE left behind.
+    DBUG_EXECUTE_IF("VerticalSegmentWriter._records_delete_sign_rows.disable", { return false; });
+    return _is_mow() && _tablet_schema->delete_sign_idx() >= 0;
+}
+
+void VerticalSegmentWriter::_collect_delete_sign_rows(const IColumn& delete_sign, size_t row_pos,
+                                                      size_t num_rows) {
+    const auto& signs = assert_cast<const ColumnInt8&>(delete_sign).get_data();
+    for (size_t i = 0; i < num_rows; ++i) {
+        // Any sign other than 0 deletes the row.
+        if (signs[row_pos + i] != 0) {
+            _delete_sign_rows.add(_num_rows_written + cast_set<uint32_t>(i));
+        }
+    }
 }
 
 void VerticalSegmentWriter::_collect_cluster_key_column(

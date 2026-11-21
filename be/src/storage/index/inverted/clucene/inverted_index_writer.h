@@ -63,6 +63,7 @@ public:
     Status add_null_document();
     Status add_nulls(uint32_t count) override;
     Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override;
+    void set_delete_sign_rows(const roaring::Roaring* rows) override;
     Status new_inverted_index_field(const char* field_value_data, size_t field_value_size);
     void new_char_token_stream(const char* s, size_t len, lucene::document::Field* field);
     void new_field_value(const char* s, size_t len, lucene::document::Field* field);
@@ -87,9 +88,16 @@ public:
 #endif
 
 private:
+    // Whether the row `_rid` was written with the delete sign, which gives it no terms.
+    bool has_delete_sign() const {
+        return _delete_sign_rows != nullptr && _delete_sign_rows->contains(_rid);
+    }
+
     rowid_t _rid = 0;
     uint32_t _row_ids_seen_for_bkd = 0;
     roaring::Roaring _null_bitmap;
+    // set_delete_sign_rows(), on a text index only: the segment writer owns them.
+    const roaring::Roaring* _delete_sign_rows = nullptr;
     uint64_t _reverted_index_size;
 
     std::unique_ptr<lucene::document::Document> _doc = nullptr;

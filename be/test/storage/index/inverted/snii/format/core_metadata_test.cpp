@@ -49,7 +49,8 @@ CoreMetadata sample_core(IndexConfig index_config = IndexConfig::kDocsOnly) {
                              .posting_region = {.offset = 21, .length = 22},
                              .norms = {},
                              .null_bitmap = {.offset = 41, .length = 42},
-                             .bsbf = {.offset = 51, .length = 52}};
+                             .bsbf = {.offset = 51, .length = 52},
+                             .delete_sign_rows = {}};
     // Norms require positions for BM25 frequencies; docs-only samples omit them.
     if (has_positions(index_config)) {
         metadata.section_refs.norms = {.offset = 31, .length = 32};
@@ -111,6 +112,10 @@ void expect_core_eq(const CoreMetadata& expected, const CoreMetadata& actual) {
     EXPECT_EQ(expected.section_refs.null_bitmap.length, actual.section_refs.null_bitmap.length);
     EXPECT_EQ(expected.section_refs.bsbf.offset, actual.section_refs.bsbf.offset);
     EXPECT_EQ(expected.section_refs.bsbf.length, actual.section_refs.bsbf.length);
+    EXPECT_EQ(expected.section_refs.delete_sign_rows.offset,
+              actual.section_refs.delete_sign_rows.offset);
+    EXPECT_EQ(expected.section_refs.delete_sign_rows.length,
+              actual.section_refs.delete_sign_rows.length);
     EXPECT_EQ(expected.gram_scheme, actual.gram_scheme);
 }
 
@@ -242,6 +247,30 @@ TEST(SniiCoreMetadata, OmitsEmptyNormsRefOnEncode) {
     CoreMetadata decoded;
     ASSERT_TRUE(decode_core_metadata(Slice(framed), &decoded).ok());
     EXPECT_EQ(decoded.section_refs.norms.length, 0U);
+    expect_core_eq(metadata, decoded);
+}
+
+// Only a merge-on-write index records the rows written with the delete sign. Every other index
+// leaves field 6 off the wire, so its bytes do not change, and decodes with an empty reference.
+TEST(SniiCoreMetadata, EncodesDeleteSignRowsRefOnlyWhenRecorded) {
+    auto metadata = sample_core(IndexConfig::kDocsPositions);
+    auto framed = encode(metadata);
+    doris::snii::SniiCoreMetadataPB core;
+    auto payload = payload_of(framed);
+    ASSERT_TRUE(core.ParseFromArray(payload.data(), static_cast<int>(payload.size())));
+    EXPECT_FALSE(core.section_refs().has_delete_sign_rows());
+    CoreMetadata decoded;
+    ASSERT_TRUE(decode_core_metadata(Slice(framed), &decoded).ok());
+    EXPECT_EQ(decoded.section_refs.delete_sign_rows.length, 0U);
+
+    metadata.section_refs.delete_sign_rows = {.offset = 5, .length = 12};
+    framed = encode(metadata);
+    payload = payload_of(framed);
+    ASSERT_TRUE(core.ParseFromArray(payload.data(), static_cast<int>(payload.size())));
+    ASSERT_TRUE(core.section_refs().has_delete_sign_rows());
+    EXPECT_EQ(core.section_refs().delete_sign_rows().offset(), 5U);
+    EXPECT_EQ(core.section_refs().delete_sign_rows().length(), 12U);
+    ASSERT_TRUE(decode_core_metadata(Slice(framed), &decoded).ok());
     expect_core_eq(metadata, decoded);
 }
 

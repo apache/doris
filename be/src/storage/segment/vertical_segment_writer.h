@@ -235,6 +235,15 @@ private:
     bool _is_mow_with_cluster_key() {
         return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
     }
+    // Whether the text indexes of the segment give no terms to the rows written with the delete
+    // sign and record them: merge-on-write only. A merge-on-read scan merges the versions of a key
+    // after an index filters the rows on its key columns, and a delete sign row the index left out
+    // would no longer delete the older version it overrides. Decided once, in the constructor, so
+    // every column writer of the segment agrees.
+    bool _should_record_delete_sign_rows();
+    // Adds the rows of `delete_sign`, from `row_pos` on, that carry the sign to _delete_sign_rows.
+    // Runs before any column of these rows is written.
+    void _collect_delete_sign_rows(const IColumn& delete_sign, size_t row_pos, size_t num_rows);
 
 private:
     uint32_t _segment_id;
@@ -275,6 +284,13 @@ private:
     // In vertical compaction row count is recorded when key columns group finish
     //  and _num_rows_written will be updated in value column group
     uint32_t _row_count = 0;
+
+    // The rows of this segment written with the delete sign, when _records_delete_sign_rows. The
+    // column writers hand them to their indexes, which read them up to finish(). write_block, or
+    // the key group, which vertical compaction writes first, fills them in; clear() keeps them,
+    // as the indexes of the value groups need them too.
+    roaring::Roaring _delete_sign_rows;
+    bool _records_delete_sign_rows = false;
 
     bool _is_first_row = true;
     faststring _min_key;

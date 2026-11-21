@@ -92,6 +92,10 @@ struct ColumnWriterOptions {
     // SNII can select its direct-load PRX zstd level without plumbing
     // DataWriteType itself down here.
     bool is_direct_load = false;
+    // Merge-on-write only: the rows of the segment written with the delete sign, which the segment
+    // writer owns and fills before it writes them. Propagated to variant subcolumn writers and
+    // forwarded to every created IndexColumnWriter via set_delete_sign_rows().
+    const roaring::Roaring* delete_sign_rows = nullptr;
 
     SegmentFooterPB* footer = nullptr;
     io::FileWriter* file_writer = nullptr;

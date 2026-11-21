@@ -52,6 +52,7 @@ public:
 
     Status init() override;
     void set_direct_load(bool is_direct_load) override;
+    void set_delete_sign_rows(const roaring::Roaring* rows) override;
     Status add_values(const uint8_t* values, size_t count) override;
     Status add_array_values(size_t field_size, const uint8_t* value_ptr,
                             const uint8_t* nested_null_map, const uint64_t* offsets_ptr,
@@ -118,6 +119,8 @@ private:
     Status _finish_density_calibration();
     void _report_density_sample_capacity(bool release_all = false);
     Status _latch_analysis_failure(Status status);
+    // Whether the row `_rid` was written with the delete sign, which gives it no terms.
+    bool _has_delete_sign() const;
 
     IndexFileWriter* _index_file_writer = nullptr;
     const TabletIndex* _index_meta = nullptr;
@@ -138,6 +141,8 @@ private:
     bool _is_direct_load = false;
     uint32_t _ignore_above = 0;
     uint32_t _rid = 0;
+    // set_delete_sign_rows(): the segment writer owns them.
+    const roaring::Roaring* _delete_sign_rows = nullptr;
     ::doris::snii::format::IndexConfig _config = ::doris::snii::format::IndexConfig::kDocsOnly;
     // Scheme parameters of a gram-family analyzer (an ngram tokenizer with a mode property);
     // obtained by _apply_gram_family_scheme, before the term buffer is constructed, from the

@@ -20,6 +20,7 @@
 #include <array>
 #include <cstring>
 #include <mutex>
+#include <roaring/roaring.hh>
 
 #include "common/cast_set.h"
 #include "common/exception.h"
@@ -577,6 +578,9 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                             seg_ptr->id()))};
             std::vector<ColumnId> return_columns;
             std::vector<std::pair<int64_t, int64_t>> inverted_index_writer_signs;
+            // Read by the writers of this segment until they finish below.
+            roaring::Roaring delete_sign_rows;
+            const bool records_delete_sign_rows = _records_delete_sign_rows(*output_rowset_schema);
 
             std::unique_ptr<IndexFileWriter> index_file_writer = nullptr;
             if (output_rowset_schema->get_inverted_index_storage_format() >=
@@ -672,6 +676,9 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         }
 
                         if (inverted_index_builder) {
+                            if (records_delete_sign_rows) {
+                                inverted_index_builder->set_delete_sign_rows(&delete_sign_rows);
+                            }
                             auto writer_sign = std::make_pair(seg_ptr->id(), index_id);
                             auto [index_column_writer_it, inserted] = _index_column_writers.insert(
                                     std::make_pair(writer_sign, std::move(inverted_index_builder)));
@@ -721,6 +728,11 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             DORIS_CHECK(index_file_writer_it->second != nullptr);
             // Even without columns to rebuild, the inherited indexes must be sealed below.
             if (!return_columns.empty()) {
+                // After the indexed columns, whose block positions follow _alter_inverted_indexes.
+                const auto delete_sign_position = return_columns.size();
+                if (records_delete_sign_rows) {
+                    return_columns.emplace_back(output_rowset_schema->delete_sign_idx());
+                }
                 // create iterator for each segment
                 OlapReaderStatistics stats;
                 StorageReadOptions read_options(stats);
@@ -739,6 +751,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 }
 
                 auto block = Block::create_unique(schema->create_read_block());
+                uint32_t rows_read = 0;
                 while (true) {
                     auto status = iter->next_batch(block.get());
                     DBUG_EXECUTE_IF(
@@ -756,6 +769,11 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         return status;
                     }
 
+                    if (records_delete_sign_rows) {
+                        _add_delete_sign_rows(*block->get_by_position(delete_sign_position).column,
+                                              rows_read, &delete_sign_rows);
+                    }
+                    rows_read += cast_set<uint32_t>(block->rows());
                     // write inverted index data, or ann index data
                     status = _write_inverted_index_data(output_rowset_schema, iter->data_id(),
                                                         block.get());
@@ -932,6 +950,9 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
     // from the same block column.
     std::vector<std::vector<std::pair<int64_t, int64_t>>> group_writer_signs;
     std::vector<ColumnId> return_columns;
+    // Read by the writers of this segment until they finish below.
+    roaring::Roaring delete_sign_rows;
+    const bool records_delete_sign_rows = _records_delete_sign_rows(*output_rowset_schema);
     for (const auto& [col_unique_id, index_metas] : plan.build_columns) {
         const int32_t column_idx = output_rowset_schema->field_index(col_unique_id);
         DORIS_CHECK_GE(column_idx, 0);
@@ -948,6 +969,9 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "CLuceneError occurred: {}", e.what());
             }
+            if (records_delete_sign_rows) {
+                index_column_writer->set_delete_sign_rows(&delete_sign_rows);
+            }
             auto writer_sign =
                     std::make_pair<int64_t, int64_t>(seg_ptr->id(), index_meta->index_id());
             auto [writer_it, inserted] = _index_column_writers.insert(
@@ -959,6 +983,11 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
         group_writer_signs.push_back(std::move(signs));
     }
 
+    // After the indexed columns, whose block positions follow plan.build_columns.
+    const auto delete_sign_position = return_columns.size();
+    if (records_delete_sign_rows) {
+        return_columns.emplace_back(output_rowset_schema->delete_sign_idx());
+    }
     OlapReaderStatistics stats;
     StorageReadOptions read_options(stats);
     auto schema = std::make_shared<ReadSchema>(
@@ -967,6 +996,7 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
     RETURN_IF_ERROR(seg_ptr->new_iterator(schema, read_options, &iter));
 
     auto block = Block::create_unique(schema->create_read_block());
+    uint32_t rows_read = 0;
     while (true) {
         Status status = iter->next_batch(block.get());
         if (!status.ok()) {
@@ -977,6 +1007,11 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
                          << ", err=" << status.to_string();
             return status;
         }
+        if (records_delete_sign_rows) {
+            _add_delete_sign_rows(*block->get_by_position(delete_sign_position).column, rows_read,
+                                  &delete_sign_rows);
+        }
+        rows_read += cast_set<uint32_t>(block->rows());
         RETURN_IF_ERROR(_write_snii_index_data(output_rowset_schema, block.get(), plan,
                                                group_writer_signs));
         block->clear_column_data();
@@ -1060,6 +1095,22 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
                                     /*pad_char=*/true));
     }
     return Status::OK();
+}
+
+bool IndexBuilder::_records_delete_sign_rows(const TabletSchema& schema) const {
+    return schema.keys_type() == KeysType::UNIQUE_KEYS &&
+           _tablet->enable_unique_key_merge_on_write() && schema.delete_sign_idx() >= 0;
+}
+
+void IndexBuilder::_add_delete_sign_rows(const IColumn& delete_sign, uint32_t first_row,
+                                         roaring::Roaring* rows) {
+    const auto& signs = assert_cast<const ColumnInt8&>(delete_sign).get_data();
+    for (size_t i = 0; i < signs.size(); ++i) {
+        // Any sign other than 0 deletes the row.
+        if (signs[i] != 0) {
+            rows->add(first_row + cast_set<uint32_t>(i));
+        }
+    }
 }
 
 Status IndexBuilder::_add_array(const std::vector<std::pair<int64_t, int64_t>>& index_writer_signs,

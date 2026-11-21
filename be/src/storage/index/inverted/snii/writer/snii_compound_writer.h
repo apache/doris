@@ -123,6 +123,8 @@ private:
     SniiIndexInput input_;
     std::unique_ptr<LogicalIndexWriter> writer_;
     uint64_t post_off_ = 0;
+    uint64_t delete_sign_rows_off_ = 0;
+    uint64_t delete_sign_rows_len_ = 0;
     bool norms_required_ = false;
     bool norms_set_ = false;
     bool finished_ = false;
@@ -208,6 +210,8 @@ private:
         uint64_t null_len = 0;
         uint64_t bsbf_off = 0;
         uint64_t bsbf_len = 0;
+        uint64_t delete_sign_rows_off = 0;
+        uint64_t delete_sign_rows_len = 0;
     };
 
     // One logical index carried over from a source container: its raw
@@ -244,6 +248,11 @@ private:
     // contiguous is what makes a single-index cold query touch one cache block instead
     // of three; the previous layout grouped these by section type across all indexes.
     Status write_index_aux_sections(LogicalIndexWriter& writer, Placement& placement);
+    // Writes the docids of `in.delete_sign_rows`, if any, ahead of the index's posting region and
+    // returns where. An older BE that carries a logical index over (inherit) copies the container
+    // up to the end of the sections it knows, and this index's dictionary, which follows its
+    // posting region, ends after this section, so the copy keeps it too.
+    Status write_delete_sign_rows(const SniiIndexInput& in, uint64_t* offset, uint64_t* length);
     Status write_tail();
     Status append(const std::vector<uint8_t>& bytes);
     Status _add_logical_index(const SniiIndexInput& in, TrackedNullDocids null_docids);

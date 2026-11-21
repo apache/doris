@@ -32,6 +32,15 @@ namespace segment_v2 {
 class IndexFileWriter;
 class IndexFileReader;
 
+// Records in each merged index the rows written with the delete sign that its sources record,
+// moved to their rows in the merged segments. Their terms were left out of the sources, so the
+// merge leaves them out too. Only when every source records them: see
+// IndexColumnWriter::set_delete_sign_rows.
+Status merge_delete_sign_rows(
+        const std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>>& src_index_dirs,
+        const std::vector<lucene::store::Directory*>& dest_index_dirs,
+        const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& trans_vec);
+
 Status compact_column(
         int64_t index_id,
         std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>>& src_index_dirs,

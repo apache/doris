@@ -113,6 +113,16 @@ private:
             const std::vector<std::vector<std::pair<int64_t, int64_t>>>& group_writer_signs);
     Status _write_inverted_index_data(TabletSchemaSPtr tablet_schema, int64_t segment_idx,
                                       Block* block);
+    // Whether the text indexes built on a segment of `schema` give no terms to the rows written
+    // with the delete sign and record them, as the segment writer has them do on load and
+    // compaction (IndexColumnWriter::set_delete_sign_rows): merge-on-write only. The delete-sign
+    // column is then read after the indexed columns, and each block's rows with the sign are added
+    // before the writers receive the block.
+    bool _records_delete_sign_rows(const TabletSchema& schema) const;
+    // Adds the rows of `delete_sign`, the delete-sign column of the block that starts at row
+    // `first_row` of the segment, that carry the sign to `rows`.
+    static void _add_delete_sign_rows(const IColumn& delete_sign, uint32_t first_row,
+                                      roaring::Roaring* rows);
     // Feeds a block's column to one index writer; `nested` has its Nullable
     // wrapper peeled and `null_map` is that wrapper's map, or nullptr. CHAR reads
     // back without its padding: `pad_char` feeds it padded to its length, as on

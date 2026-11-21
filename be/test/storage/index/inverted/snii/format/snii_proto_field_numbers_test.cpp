@@ -71,7 +71,8 @@ TEST(SniiProtoFieldNumbers, SectionRefsMatchTheShippedLayout) {
                                                            {"posting_region", 2},
                                                            {"null_bitmap", 3},
                                                            {"bsbf", 4},
-                                                           {"norms", 5}});
+                                                           {"norms", 5},
+                                                           {"delete_sign_rows", 6}});
 }
 
 TEST(SniiProtoFieldNumbers, CoreMetadataMatchesTheShippedLayout) {

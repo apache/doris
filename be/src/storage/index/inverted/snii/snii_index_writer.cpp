@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <roaring/roaring.hh>
 #include <string_view>
 #include <utility>
 
@@ -204,6 +205,15 @@ void SniiIndexColumnWriter::set_direct_load(bool is_direct_load) {
     _is_direct_load = is_direct_load;
 }
 
+void SniiIndexColumnWriter::set_delete_sign_rows(const roaring::Roaring* rows) {
+    DCHECK_EQ(_rid, 0);
+    _delete_sign_rows = rows;
+}
+
+bool SniiIndexColumnWriter::_has_delete_sign() const {
+    return _delete_sign_rows != nullptr && _delete_sign_rows->contains(_rid);
+}
+
 Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t docid,
                                                 uint32_t position_base, uint32_t* max_position,
                                                 uint32_t* token_count) {
@@ -266,15 +276,21 @@ Status SniiIndexColumnWriter::add_values(const uint8_t* values, size_t count) {
     }
     const auto* v = reinterpret_cast<const Slice*>(values);
     for (size_t i = 0; i < count; ++i) {
+        // A row written with the delete sign gets no terms and the norm of no tokens. Held back
+        // below, it is an empty value: the analyzed lane that calibration serves gives that no
+        // tokens, and the row keeps its place among the norms the held-back rows push in order.
+        // Not so on the keyword lane, where an empty value is a token, so it is never tokenized.
+        const bool has_delete_sign = _has_delete_sign();
+        const Slice value = has_delete_sign ? Slice() : *v;
         if (_density_calibrating) {
             // Held back, not dropped: this row is tokenized once the rate is known. The
             // solver sees exactly the bytes the extractor will see -- a CHAR value ends at
             // its first NUL, as in _add_value_tokens -- and the sample is charged at what it
             // really retains: the payload plus the vector element and string header that
             // hold it, so a run of empty or tiny rows still reaches the cap.
-            const size_t logical_size = _is_char ? strnlen(v->data, v->size) : v->size;
-            _density_solver->observe(std::string_view(v->data, logical_size));
-            _density_sample.emplace_back(_rid, std::string(v->data, logical_size));
+            const size_t logical_size = _is_char ? strnlen(value.data, value.size) : value.size;
+            _density_solver->observe(std::string_view(value.data, logical_size));
+            _density_sample.emplace_back(_rid, std::string(value.data, logical_size));
             _density_sample_bytes += static_cast<int64_t>(logical_size) + kDensitySampleRowOverhead;
             _report_density_sample_capacity();
             ++v;
@@ -286,7 +302,9 @@ Status SniiIndexColumnWriter::add_values(const uint8_t* values, size_t count) {
         }
         uint32_t max_position = 0;
         uint32_t token_count = 0;
-        RETURN_IF_ERROR(_add_value_tokens(*v, _rid, 0, &max_position, &token_count));
+        if (!has_delete_sign) {
+            RETURN_IF_ERROR(_add_value_tokens(value, _rid, 0, &max_position, &token_count));
+        }
         if (_writes_norms) {
             _encoded_norms.push_back(::doris::snii::query::encode_norm(token_count));
             _report_encoded_norms_capacity();
@@ -314,9 +332,11 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const uint8_t*
     size_t start_off = 0;
     for (size_t i = 0; i < count; ++i) {
         auto array_elem_size = offsets[i + 1] - offsets[i];
+        // A row written with the delete sign is indexed as an empty array.
+        const auto indexed_elem_size = _has_delete_sign() ? 0 : array_elem_size;
         uint32_t position_base = 0;
         uint64_t row_token_count = 0;
-        for (auto j = start_off; j < start_off + array_elem_size; ++j) {
+        for (auto j = start_off; j < start_off + indexed_elem_size; ++j) {
             if (nested_null_map != nullptr && nested_null_map[j] == 1) {
                 continue;
             }
@@ -512,6 +532,7 @@ Status SniiIndexColumnWriter::finish() {
     IndexFileWriter::SniiAddIndexOptions options {};
     options.is_direct_load = _is_direct_load;
     options.gram_scheme = _gram_scheme;
+    options.delete_sign_rows = _delete_sign_rows;
     if (_writes_norms) {
         DORIS_CHECK_EQ(_encoded_norms.size(), _rid);
         options.encoded_norms = std::move(_encoded_norms);

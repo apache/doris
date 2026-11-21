@@ -476,7 +476,8 @@ Status IndexDiskUsageCollector::_collect_snii(const IndexDiskUsageOptions& optio
                                       entry.dict_block_directory.length + refs.bsbf.length);
             record.posting_bytes = cast_set<int64_t>(refs.posting_region.length);
             record.stats_bytes = cast_set<int64_t>(entry.core_metadata.length + refs.norms.length);
-            record.other_bytes = cast_set<int64_t>(refs.null_bitmap.length);
+            record.other_bytes =
+                    cast_set<int64_t>(refs.null_bitmap.length + refs.delete_sign_rows.length);
             if (!snii::format::has_positions(core.index_config)) {
                 record.position_bytes = 0;
             } else if (options.position_detail) {

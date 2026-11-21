@@ -63,6 +63,26 @@ public:
 using EntriesType = std::unordered_map<std::string, std::unique_ptr<ReaderFileEntry>>;
 
 class CLUCENE_EXPORT DorisCompoundReader : public lucene::store::Directory {
+public:
+    // Gives the reads this thread makes through the sub-file streams of any compound reader that
+    // carry no I/O context of their own `io_ctx` until the scope ends, then the previous one.
+    // A CLucene reader reads a field's norms through a stream it keeps open for as long as the
+    // reader lives, shared by every query of a cached searcher, so that stream cannot hold one
+    // query's context: the stream would outlive the query, and other queries would read with it.
+    // Scoping the context to the reading thread lets the read follow the query's file cache
+    // choices and count to its statistics, and leaves no query's pointer behind.
+    class ScopedIOContext {
+    public:
+        explicit ScopedIOContext(const io::IOContext* io_ctx);
+        ~ScopedIOContext();
+
+        ScopedIOContext(const ScopedIOContext&) = delete;
+        ScopedIOContext& operator=(const ScopedIOContext&) = delete;
+
+    private:
+        const io::IOContext* _previous = nullptr;
+    };
+
 private:
     std::unique_ptr<lucene::store::RAMDirectory> _ram_dir;
     CL_NS(store)::IndexInput* _stream = nullptr;

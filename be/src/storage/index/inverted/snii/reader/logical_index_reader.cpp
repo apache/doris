@@ -24,6 +24,7 @@
 #include <list>
 #include <memory>
 #include <mutex>
+#include <roaring/roaring.hh>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -676,6 +677,46 @@ Status LogicalIndexReader::read_null_docids(
                     "logical_index: null docid outside document domain");
         }
     }
+    return Status::OK();
+}
+
+Status LogicalIndexReader::read_delete_sign_rows(
+        std::shared_ptr<const roaring::Roaring>* out) const {
+    DORIS_CHECK(out != nullptr);
+    DORIS_CHECK(reader_ != nullptr);
+    const RegionRef& ref = section_refs().delete_sign_rows;
+    if (ref.length == 0) {
+        *out = nullptr;
+        return Status::OK();
+    }
+    const uint64_t file_size = reader_->size();
+    if (ref.offset > file_size || ref.length > file_size - ref.offset) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: delete sign rows region past end of file");
+    }
+    size_t read_len = 0;
+    RETURN_IF_ERROR(checked_size(ref.length, "logical_index: delete sign rows length out of range",
+                                 &read_len));
+    std::vector<uint8_t> bytes;
+    RETURN_IF_ERROR(reader_->read_at(ref.offset, read_len, &bytes));
+    if (bytes.size() != read_len) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: short delete sign rows read");
+    }
+    // The section has the null bitmap's format, and the reader validates its frame and roaring.
+    format::NullBitmapReader rows_reader;
+    RETURN_IF_ERROR(format::NullBitmapReader::open(Slice(bytes), &rows_reader));
+    if (rows_reader.doc_count() != stats().doc_count) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: delete sign rows doc count mismatch");
+    }
+    auto rows = std::make_shared<roaring::Roaring>();
+    rows_reader.copy_to(rows.get());
+    if (!rows->isEmpty() && rows->maximum() >= stats().doc_count) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: delete sign row outside document domain");
+    }
+    *out = std::move(rows);
     return Status::OK();
 }
 
