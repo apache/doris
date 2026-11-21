@@ -732,36 +732,44 @@ suite("test_show_data_with_compaction", "p2") {
     }
 
     def wait_for_show_data_finish = { table_name, OpTimeout, origin_size, maxRetries = 5 ->
-        def size = origin_size
-        def retries = 0
-        def last_size = origin_size
+        // Keep the original maximum budget, but allow any number of size changes
+        // within it. Every change starts a fresh, complete stability window.
+        long started = System.nanoTime()
+        long totalTimeout = OpTimeout * maxRetries * 1_000_000L
+        long stableTimeout = OpTimeout * 1_000_000L
+        Long stableSince = null
+        def lastSize = null
 
-        while (retries < maxRetries) {
-            for (int t = 0; t < OpTimeout; t += delta_time) {
-                def result = sql """show data from ${database}.${table_name};"""
-                if (result.size() > 0) {
-                    logger.info(table_name + " show data, detail: " + result[0].toString())
-                    size = result[0][2].replace(" KB", "").toDouble()
-                }
-                useTime += delta_time
-                Thread.sleep(delta_time)
-
-                // If size changes, break the for loop to check in the next while iteration
-                if (size != origin_size && size != last_size) {
-                    break
-                }
+        while (System.nanoTime() - started < totalTimeout) {
+            def result = sql """show data from ${database}.${table_name};"""
+            long observed = System.nanoTime()
+            if (observed - started >= totalTimeout) {
+                break
             }
-
-            if (size != last_size) {
-                last_size = size
+            if (result == null || result.isEmpty()) {
+                // A missing observation cannot extend a previously stable sample.
+                stableSince = null
+                lastSize = null
             } else {
-                // If size didn't change during the last OpTimeout period, return size
-                if (size != origin_size) {
+                logger.info(table_name + " show data, detail: " + result[0].toString())
+                def size = result[0][2].replace(" KB", "").toDouble()
+                assert !size.isNaN() && !size.isInfinite()
+                if (size == origin_size) {
+                    stableSince = null
+                } else if (stableSince == null || size != lastSize) {
+                    stableSince = observed
+                } else if (observed - stableSince >= stableTimeout) {
                     return size
                 }
+                lastSize = size
             }
-
-            retries++
+            long remaining = totalTimeout - (System.nanoTime() - started)
+            if (remaining <= 0) {
+                break
+            }
+            long sleepMillis = Math.min(delta_time, (remaining + 999_999L).intdiv(1_000_000L))
+            useTime += sleepMillis
+            Thread.sleep(sleepMillis)
         }
         return "wait_timeout"
     }
