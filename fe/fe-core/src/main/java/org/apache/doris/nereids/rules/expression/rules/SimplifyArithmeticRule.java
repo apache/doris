@@ -143,6 +143,14 @@ public class SimplifyArithmeticRule implements ExpressionPatternRuleFactory {
     // flag: true for '+' or '*', false for '-' or '/'
     // isAddOrSub: true for extract only "+" or "-" sub expressions, false for extract only "*" or "/" sub expressions
     private static void doFlatten(boolean flag, Expression expr, boolean isAddOrSub, List<Operand> result) {
+        if (!isAddOrSub && !flag) {
+            // A complete denominator is an evaluation boundary. Flattening its multiply/divide
+            // children into the enclosing expression can invert them or move them to the numerator,
+            // changing division-by-zero, null, overflow, and floating-point behavior. Keep the
+            // subtree atomic here; process() will still simplify it recursively within its boundary.
+            result.add(Operand.of(false, expr));
+            return;
+        }
         BinaryArithmetic arithmetic = null;
         Predicate<Expression> isPositiveArithmetic = isAddOrSub
                 ? TypeUtils::isAdd : TypeUtils::isMultiply;
