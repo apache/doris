@@ -183,6 +183,47 @@ TEST(ParquetScanMetadataSafetyTest, CheckedChunkRangesDrivePrefetchAndSplitAssig
                          .ok());
 }
 
+TEST(ParquetScanMetadataSafetyTest, RootOnlyRowGroupsBelongToFirstNonemptyRange) {
+    tparquet::FileMetaData metadata;
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(0);
+    metadata.__set_schema({root});
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(2);
+    metadata.__set_row_groups({row_group, row_group});
+
+    struct TestCase {
+        int64_t start;
+        int64_t size;
+        std::vector<int> expected;
+    };
+    const std::vector<int64_t> first_rows {0, 2};
+    for (const auto& test_case :
+         std::vector<TestCase> {{0, 50, {0, 1}}, {50, 50, {}}, {0, 0, {}}, {0, 100, {0, 1}}}) {
+        const format::parquet::ParquetScanRange range {
+                .start_offset = test_case.start, .size = test_case.size, .file_size = 100};
+        std::vector<int> selected;
+        const auto status = format::parquet::detail::select_native_row_groups_by_scan_range(
+                metadata, range, first_rows, &selected);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(selected, test_case.expected);
+    }
+
+    // A schema with a physical field still requires column chunks in a partial range.
+    metadata.schema[0].__set_num_children(1);
+    tparquet::SchemaElement leaf;
+    leaf.__set_name("value");
+    leaf.__set_type(tparquet::Type::INT32);
+    metadata.schema.push_back(leaf);
+    const format::parquet::ParquetScanRange range {.start_offset = 0, .size = 50, .file_size = 100};
+    std::vector<int> selected;
+    const auto status = format::parquet::detail::select_native_row_groups_by_scan_range(
+            metadata, range, first_rows, &selected);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("has no column chunks"), std::string::npos);
+}
+
 TEST(ParquetScanMetadataSafetyTest, ExactRowGroupUsesPrecomputedFirstRows) {
     tparquet::FileMetaData metadata;
     tparquet::RowGroup unrelated_before;

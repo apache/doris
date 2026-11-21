@@ -38,6 +38,8 @@ suite("test_two_level_file_splits", "p0,external") {
     def queries = [
         "select k, count(*) from fact_big where k is not null group by k order by k",
         "select count(*) from fact_big",
+        "select k, count(*) from fact_big tablesample(4 percent) repeatable 7 group by k order by k",
+        "select k, count(*) from fact_big tablesample(1000 rows) repeatable 7 group by k order by k",
         "select a.k, count(*) from fact_big a join dim_small b on a.k=b.k where b.c1=5 group by a.k order by a.k",
         "select col1, col2, col3 from orc_tiny_stripes where col1%100=0 order by col1,col2,col3",
         "select count(*) from orc_tiny_stripes"

@@ -64,9 +64,20 @@ public class PluginDrivenSplit extends FileSplit {
         }
     }
 
+    private PluginDrivenSplit(PluginDrivenSplit source, long start, long length) {
+        super(source, start, length);
+        this.connectorScanRange = source.connectorScanRange;
+        this.splitIdentity = source.splitIdentity;
+    }
+
     /** Returns the underlying connector scan range for format-specific param extraction. */
     public ConnectorScanRange getConnectorScanRange() {
         return connectorScanRange;
+    }
+
+    @Override
+    public PluginDrivenSplit withRange(long start, long length) {
+        return new PluginDrivenSplit(this, start, length);
     }
 
     @Override
