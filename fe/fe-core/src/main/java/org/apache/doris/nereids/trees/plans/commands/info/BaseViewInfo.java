@@ -128,12 +128,18 @@ public class BaseViewInfo {
      */
     public static String rewriteSql(TreeMap<Pair<Integer, Integer>, String> indexStringSqlMap, String querySql) {
         StringBuilder builder = new StringBuilder();
+        // The parser counts a supplementary character such as an emoji as one character, while querySql
+        // counts it as two. beg and begTokenPosition are the same place on both scales; the keys ascend,
+        // so each position is converted by scanning forward from the previous one.
         int beg = 0;
+        int begTokenPosition = 0;
         for (Map.Entry<Pair<Integer, Integer>, String> entry : indexStringSqlMap.entrySet()) {
             Pair<Integer, Integer> index = entry.getKey();
-            builder.append(querySql, beg, index.first);
+            int start = querySql.offsetByCodePoints(beg, index.first - begTokenPosition);
+            builder.append(querySql, beg, start);
             builder.append(entry.getValue());
-            beg = index.second + 1;
+            beg = querySql.offsetByCodePoints(start, index.second + 1 - index.first);
+            begTokenPosition = index.second + 1;
         }
         builder.append(querySql, beg, querySql.length());
         return builder.toString();

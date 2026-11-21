@@ -182,6 +182,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     private String icebergRestSigningRegion = "";
 
     @ConnectorProperty(names = {"iceberg.rest.access-key-id"},
+            sensitive = true,
             required = false,
             description = "The access key ID for the iceberg rest catalog service.")
     private String icebergRestAccessKeyId = "";
