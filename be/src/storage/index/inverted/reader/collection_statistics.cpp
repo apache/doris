@@ -42,6 +42,7 @@
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/query/exec/term_pattern.h"
+#include "storage/index/inverted/reader/scoring_delete_predicates.h"
 #include "storage/index/inverted/snii/reader/snii_index_source.h"
 #include "storage/index/inverted/snii/snii_doris_adapter.h"
 #include "storage/iterators.h"
@@ -299,14 +300,67 @@ VisibleDocFreq cached_visible_doc_freq(index_query::IndexSource& source,
 
 namespace {
 
+Status collect_delete_sign_docs(const std::shared_ptr<segment_v2::Segment>& segment,
+                                const TabletColumn& delete_sign,
+                                const StorageReadOptions& read_options, roaring::Roaring* hidden) {
+    std::shared_ptr<segment_v2::ColumnReader> column_reader;
+    RETURN_IF_ERROR(
+            segment->get_column_reader_for_pruning(delete_sign, read_options, &column_reader));
+    bool may_hold_deletes = true;
+    if (column_reader->has_zone_map()) {
+        segment_v2::ZoneMap zone_map;
+        RETURN_IF_ERROR(column_reader->get_segment_zone_map(&zone_map));
+        // Any sign other than 0 deletes the row. Bounds the zone map cannot vouch for say
+        // nothing.
+        may_hold_deletes = zone_map.pass_all ||
+                           (zone_map.has_not_null && (zone_map.min_value.get<TYPE_TINYINT>() != 0 ||
+                                                      zone_map.max_value.get<TYPE_TINYINT>() != 0));
+    }
+    if (!may_hold_deletes) {
+        return Status::OK();
+    }
+    std::unique_ptr<segment_v2::ColumnIterator> iterator;
+    RETURN_IF_ERROR(segment->new_column_iterator(delete_sign, &iterator, &read_options));
+    segment_v2::ColumnIteratorOptions iterator_options {
+            .use_page_cache = read_options.use_page_cache,
+            .file_reader = segment->file_reader().get(),
+            .stats = read_options.stats,
+            .io_ctx = read_options.io_ctx,
+    };
+    RETURN_IF_ERROR(iterator->init(iterator_options));
+    RETURN_IF_ERROR(iterator->seek_to_ordinal(0));
+    auto data_type = DataTypeFactory::instance().create_data_type(delete_sign);
+    constexpr size_t kBatch = 4096;
+    for (uint32_t begin = 0; begin < segment->num_rows();) {
+        size_t rows = std::min<size_t>(kBatch, segment->num_rows() - begin);
+        MutableColumnPtr column = data_type->create_column();
+        bool has_null = false;
+        RETURN_IF_ERROR(iterator->next_batch(&rows, column, &has_null));
+        if (rows == 0) {
+            return Status::Corruption("segment {} ended after {} of its {} rows", segment->id(),
+                                      begin, segment->num_rows());
+        }
+        const auto& signs = assert_cast<const ColumnInt8&>(*column).get_data();
+        for (size_t i = 0; i < rows; ++i) {
+            if (signs[i] != 0) {
+                hidden->add(begin + static_cast<uint32_t>(i));
+            }
+        }
+        begin += static_cast<uint32_t>(rows);
+    }
+    return Status::OK();
+}
+
 // The rows of a segment that a scan with `hidden_rows` does not return, ascending.
 Status collect_hidden_docs(const RowsetSharedPtr& rowset, const RowsetSegmentView& seg,
                            const TabletSchema& tablet_schema, const MowHiddenRows& hidden_rows,
-                           const io::IOContext* io_ctx, DorisVector<uint32_t>* hidden_docs) {
+                           const io::IOContext* io_ctx, DorisVector<uint32_t>* hidden_docs,
+                           const ScoringDeletePredicates* delete_predicates, RuntimeState* state) {
     DORIS_CHECK(hidden_rows.delete_bitmap != nullptr);
     DORIS_CHECK(hidden_rows.version >= 0);
     roaring::Roaring hidden =
             *hidden_rows.delete_bitmap->get_agg(seg.delete_bitmap_key(hidden_rows.version));
+    DorisVector<uint32_t> predicate_docs;
 
     // A row written with the delete sign stays readable until base compaction removes it, while
     // queries filter it out by predicate.
@@ -329,55 +383,25 @@ Status collect_hidden_docs(const RowsetSharedPtr& rowset, const RowsetSegmentVie
         StorageReadOptions read_options(stats);
         read_options.version = rowset->version();
         read_options.io_ctx = data_io_ctx;
-        std::shared_ptr<segment_v2::ColumnReader> column_reader;
-        RETURN_IF_ERROR(
-                segment->get_column_reader_for_pruning(delete_sign, read_options, &column_reader));
-        bool may_hold_deletes = true;
-        if (column_reader->has_zone_map()) {
-            segment_v2::ZoneMap zone_map;
-            RETURN_IF_ERROR(column_reader->get_segment_zone_map(&zone_map));
-            // Any sign other than 0 deletes the row. Bounds the zone map cannot vouch for say
-            // nothing.
-            may_hold_deletes = zone_map.pass_all || (zone_map.has_not_null &&
-                                                     (zone_map.min_value.get<TYPE_TINYINT>() != 0 ||
-                                                      zone_map.max_value.get<TYPE_TINYINT>() != 0));
-        }
-        if (may_hold_deletes) {
-            std::unique_ptr<segment_v2::ColumnIterator> iterator;
-            RETURN_IF_ERROR(segment->new_column_iterator(delete_sign, &iterator, &read_options));
-            segment_v2::ColumnIteratorOptions iterator_options {
-                    .use_page_cache =
-                            hidden_rows.use_page_cache && !config::disable_storage_page_cache,
-                    .file_reader = segment->file_reader().get(),
-                    .stats = &stats,
-                    .io_ctx = read_options.io_ctx,
-            };
-            RETURN_IF_ERROR(iterator->init(iterator_options));
-            RETURN_IF_ERROR(iterator->seek_to_ordinal(0));
-            auto data_type = DataTypeFactory::instance().create_data_type(delete_sign);
-            constexpr size_t kBatch = 4096;
-            for (uint32_t begin = 0; begin < segment->num_rows();) {
-                size_t rows = std::min<size_t>(kBatch, segment->num_rows() - begin);
-                MutableColumnPtr column = data_type->create_column();
-                bool has_null = false;
-                RETURN_IF_ERROR(iterator->next_batch(&rows, column, &has_null));
-                if (rows == 0) {
-                    return Status::Corruption("segment {} ended after {} of its {} rows",
-                                              segment->id(), begin, segment->num_rows());
-                }
-                const auto& signs = assert_cast<const ColumnInt8&>(*column).get_data();
-                for (size_t i = 0; i < rows; ++i) {
-                    if (signs[i] != 0) {
-                        hidden.add(begin + static_cast<uint32_t>(i));
-                    }
-                }
-                begin += static_cast<uint32_t>(rows);
-            }
+        read_options.use_page_cache =
+                hidden_rows.use_page_cache && !config::disable_storage_page_cache;
+        RETURN_IF_ERROR(collect_delete_sign_docs(segment, delete_sign, read_options, &hidden));
+        // Every MoW table has a delete-sign column. Its segment stays pinned while light-delete
+        // predicates are read too, after the bitmap/sign set is complete so no row is counted twice.
+        if (delete_predicates != nullptr) {
+            RETURN_IF_ERROR(delete_predicates->collect(segment, rowset->end_version(), read_options,
+                                                       state, hidden, &predicate_docs));
         }
     }
 
     hidden_docs->resize(hidden.cardinality());
     hidden.toUint32Array(hidden_docs->data());
+    if (!predicate_docs.empty()) {
+        DorisVector<uint32_t> merged;
+        merged.reserve(hidden_docs->size() + predicate_docs.size());
+        std::ranges::merge(*hidden_docs, predicate_docs, std::back_inserter(merged));
+        hidden_docs->swap(merged);
+    }
     return Status::OK();
 }
 
@@ -414,11 +438,22 @@ Status CollectionStatistics::collect_full_collection(
         return Status::OK();
     }
 
+    // Compile the captured DELETE predicates once for the whole tablet. The holder also
+    // shares this work across parallel scanners; a scan without light deletes adds no I/O.
+    std::optional<ScoringDeletePredicates> delete_predicates;
+    if (hidden_rows != nullptr && hidden_rows->delete_predicates != nullptr &&
+        !hidden_rows->delete_predicates->empty()) {
+        delete_predicates.emplace();
+        RETURN_IF_ERROR(delete_predicates->init(*hidden_rows->delete_predicates,
+                                                hidden_rows->version, tablet_schema));
+    }
+    const auto* predicate_filter =
+            delete_predicates && !delete_predicates->empty() ? &*delete_predicates : nullptr;
     for (const auto& rowset : rowsets) {
         DORIS_CHECK(rowset != nullptr);
         for (auto seg : rowset->segments()) {
             auto status = process_segment(rowset, seg, tablet_schema.get(), collect_infos,
-                                          hidden_rows, io_ctx);
+                                          hidden_rows, io_ctx, predicate_filter, state);
             if (!status.ok()) {
                 if (tablet_schema->get_inverted_index_storage_format() !=
                             InvertedIndexStorageFormatPB::SNII &&
@@ -531,12 +566,11 @@ Status CollectionStatistics::extract_collect_info(
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size) Segment collection handles both formats.
-Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
-                                             const RowsetSegmentView& seg,
-                                             const TabletSchema* tablet_schema,
-                                             const CollectInfoMap& collect_infos,
-                                             const MowHiddenRows* hidden_rows,
-                                             io::IOContext* io_ctx) {
+Status CollectionStatistics::process_segment(
+        const RowsetSharedPtr& rowset, const RowsetSegmentView& seg,
+        const TabletSchema* tablet_schema, const CollectInfoMap& collect_infos,
+        const MowHiddenRows* hidden_rows, io::IOContext* io_ctx,
+        const ScoringDeletePredicates* delete_predicates, RuntimeState* state) {
     auto seg_path = DORIS_TRY(seg.path());
     auto rowset_meta = rowset->rowset_meta();
 
@@ -563,7 +597,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
     DorisVector<uint32_t> hidden_docs;
     if (hidden_rows != nullptr) {
         RETURN_IF_ERROR(collect_hidden_docs(rowset, seg, *tablet_schema, *hidden_rows, io_ctx,
-                                            &hidden_docs));
+                                            &hidden_docs, delete_predicates, state));
     }
 
     if (is_snii) {
