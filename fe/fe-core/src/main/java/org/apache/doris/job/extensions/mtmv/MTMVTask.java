@@ -1346,15 +1346,18 @@ public class MTMVTask extends AbstractTask {
                     partitionPlan.partitions);
             return true;
         } catch (JobException e) {
-            if (IvmFailureClassifier.classifyExecutionFailure(Util.getRootCauseMessage(e))
-                    .filter(reason -> reason == IvmFailureReason.PLAN_SIGNATURE_MISMATCH).isEmpty()) {
+            Optional<IvmFailureReason> reason = IvmFailureClassifier.classifyExecutionFailure(
+                    Util.getRootCauseMessage(e))
+                    .filter(candidate -> candidate == IvmFailureReason.PLAN_SIGNATURE_MISMATCH);
+            if (reason.isEmpty()) {
                 throw e;
             }
+            String reasonName = reason.get().name();
             if (!request.allowFallback) {
-                failureStage = IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name();
+                failureStage = reasonName;
                 throw e;
             }
-            ivmFallbackReason = IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name();
+            ivmFallbackReason = reasonName;
             fallingBack = true;
             LOG.warn("IVM partition refresh signature mismatch for mv={}, taskId={}. Continuing with COMPLETE refresh.",
                     mtmv.getName(), getTaskId());
