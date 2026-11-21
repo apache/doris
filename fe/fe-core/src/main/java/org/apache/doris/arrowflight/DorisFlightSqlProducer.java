@@ -34,6 +34,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryAdmissionController;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -181,7 +182,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
         // The result is streamed under the session's command lock: the next statement of the
         // session resets the channel, which would close the VectorSchemaRoot while it is being sent.
-        FlightProtocolAdapter.of(connectContext).runCommand(connectContext, () -> {
+        FlightProtocolAdapter.of(connectContext).runContinuation(connectContext, () -> {
             try {
                 final FlightSqlResultCacheEntry flightSqlResultCacheEntry = Objects.requireNonNull(
                         connectContext.getFlightSqlChannel().getResult(queryId));
@@ -916,6 +917,16 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void closeSession(CloseSessionRequest request, final CallContext context,
             final StreamListener<CloseSessionResult> listener) {
+        QueryAdmissionController.INSTANCE.acquireContinuation();
+        try {
+            closeSessionWithAdmission(request, context, listener);
+        } finally {
+            QueryAdmissionController.INSTANCE.release();
+        }
+    }
+
+    private void closeSessionWithAdmission(CloseSessionRequest request, CallContext context,
+            StreamListener<CloseSessionResult> listener) {
         try {
             flightSessionsManager.closeConnectContext(context.peerIdentity());
         } catch (final Throwable e) {

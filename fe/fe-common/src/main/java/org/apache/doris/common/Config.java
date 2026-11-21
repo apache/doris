@@ -488,6 +488,18 @@ public class Config extends ConfigBase {
     @ConfField(description = "The maximum number of task threads in the MySQL service")
     public static int max_mysql_service_task_threads_num = 4096;
 
+    @ConfField(mutable = true, description = "Seconds to keep serving requests after FE becomes unready, "
+            + "allowing load balancers and DNS to converge.")
+    public static int graceful_shutdown_drain_seconds = 15;
+
+    @ConfField(mutable = true, description = "Maximum seconds to wait for existing requests "
+            + "after FE stops admitting new requests.")
+    public static int grace_shutdown_wait_seconds = 300;
+
+    @ConfField(description = "Maximum seconds to wait for Thrift worker threads to exit after stopping the listener. "
+            + "Business requests and transactions are drained before this wait.")
+    public static int thrift_server_stop_timeout_seconds = 3;
+
     @ConfField(description = "BackendServiceProxy pool size for pooling GRPC channels.")
     public static int backend_proxy_num = 48;
 
