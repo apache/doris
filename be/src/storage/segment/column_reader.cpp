@@ -22,6 +22,7 @@
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
+#include <parallel_hashmap/phmap.h>
 
 #include <algorithm>
 #include <memory>
@@ -451,6 +452,18 @@ Status ColumnReader::create_struct(const ColumnReaderOptions& opts, const Column
                                              &sub_reader));
         struct_reader->_sub_readers.push_back(std::move(sub_reader));
     }
+    // The last sub-reader holds the null map, not a struct field, so it is excluded from the
+    // id-indexed map. Skip readers without an id (segments written before subfield ids existed).
+    const size_t child_size = meta.is_nullable() && !struct_reader->_sub_readers.empty()
+                                      ? struct_reader->_sub_readers.size() - 1
+                                      : struct_reader->_sub_readers.size();
+    struct_reader->_sub_reader_by_uid.reserve(child_size);
+    for (size_t i = 0; i < child_size; ++i) {
+        const int32_t uid = struct_reader->_sub_readers[i]->unique_id();
+        if (uid >= 0) {
+            struct_reader->_sub_reader_by_uid.emplace(uid, struct_reader->_sub_readers[i]);
+        }
+    }
     struct_reader->_meta_type = FieldType::OLAP_FIELD_TYPE_STRUCT;
     *reader = std::move(struct_reader);
     return Status::OK();
@@ -555,12 +568,27 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
     _meta_is_nullable = meta.is_nullable();
     _meta_dict_page = meta.dict_page();
     _meta_compression = meta.compression();
+    // Older segment metadata has no subcolumn id; -1 marks it as unavailable.
+    _unique_id = meta.has_unique_id() ? static_cast<int32_t>(meta.unique_id()) : -1;
 }
 
 ColumnReader::~ColumnReader() = default;
 
+// Resolves a subcolumn id to the reader that physically holds its data in this segment.
+ColumnReader* ColumnReader::sub_reader_by_uid(int32_t uid) const {
+    if (uid < 0) {
+        return nullptr;
+    }
+    auto it = _sub_reader_by_uid.find(uid);
+    return it == _sub_reader_by_uid.end() ? nullptr : it->second.get();
+}
+
 int64_t ColumnReader::get_metadata_size() const {
-    return sizeof(ColumnReader) + (_segment_zone_map ? _segment_zone_map->ByteSizeLong() : 0);
+    // Account for the sub-reader-by-id index, whose size grows with the number of struct fields.
+    constexpr size_t slot_size =
+            sizeof(std::pair<const int32_t, std::shared_ptr<ColumnReader>>) + 1;
+    return sizeof(ColumnReader) + (_segment_zone_map ? _segment_zone_map->ByteSizeLong() : 0) +
+           static_cast<int64_t>(_sub_reader_by_uid.capacity()) * static_cast<int64_t>(slot_size);
 }
 
 #ifdef BE_TEST
@@ -1176,24 +1204,39 @@ Status ColumnReader::new_struct_iterator(ColumnIteratorUPtr* iterator,
     std::vector<ColumnIteratorUPtr> sub_column_iterators;
     size_t child_size = is_nullable() ? _sub_readers.size() - 1 : _sub_readers.size();
     size_t tablet_column_size = tablet_column ? tablet_column->get_sub_columns().size() : 0;
-    sub_column_iterators.reserve(child_size);
+    sub_column_iterators.reserve(std::max(child_size, tablet_column_size));
 
-    for (uint64_t i = 0; i < child_size; i++) {
-        ColumnIteratorUPtr sub_column_iterator;
-        RETURN_IF_ERROR(_sub_readers[i]->new_iterator(
-                &sub_column_iterator, tablet_column ? &tablet_column->get_sub_column(i) : nullptr));
-        sub_column_iterator->set_column_name(tablet_column ? tablet_column->get_sub_column(i).name()
-                                                           : "");
-        sub_column_iterators.emplace_back(std::move(sub_column_iterator));
-    }
-
-    // create default_iterator for schema-change behavior which increase column
-    for (size_t i = child_size; i < tablet_column_size; i++) {
-        TabletColumn column = tablet_column->get_sub_column(i);
-        ColumnIteratorUPtr it;
-        RETURN_IF_ERROR(Segment::new_constant_iterator(column, &it));
-        it->set_column_name(column.name());
-        sub_column_iterators.emplace_back(std::move(it));
+    // Match the tablet schema's subcolumns to this segment's readers by unique id so fields added
+    // or reordered by light schema change still read the right data. Positions are only a fallback
+    // for legacy segments; genuinely new fields are filled with a constant default iterator.
+    if (tablet_column == nullptr) {
+        for (size_t i = 0; i < child_size; i++) {
+            ColumnIteratorUPtr sub_column_iterator;
+            RETURN_IF_ERROR(_sub_readers[i]->new_iterator(&sub_column_iterator, nullptr));
+            sub_column_iterator->set_column_name("");
+            sub_column_iterators.emplace_back(std::move(sub_column_iterator));
+        }
+    } else {
+        for (size_t i = 0; i < tablet_column_size; i++) {
+            const TabletColumn& sub_column = tablet_column->get_sub_column(i);
+            ColumnIteratorUPtr sub_column_iterator;
+            const int32_t uid = sub_column.unique_id();
+            auto reader_iter = _sub_reader_by_uid.find(uid);
+            if (uid >= 0 && reader_iter != _sub_reader_by_uid.end()) {
+                RETURN_IF_ERROR(
+                        reader_iter->second->new_iterator(&sub_column_iterator, &sub_column));
+            } else if (i < child_size) {
+                RETURN_IF_ERROR(_sub_readers[i]->new_iterator(&sub_column_iterator, &sub_column));
+            } else {
+                // Field added by schema change: absent from this segment, emit a constant.
+                TabletColumn column = sub_column;
+                ColumnIteratorUPtr constant_it;
+                RETURN_IF_ERROR(Segment::new_constant_iterator(column, &constant_it));
+                sub_column_iterator = std::move(constant_it);
+            }
+            sub_column_iterator->set_column_name(sub_column.name());
+            sub_column_iterators.emplace_back(std::move(sub_column_iterator));
+        }
     }
 
     ColumnIteratorUPtr null_iterator;

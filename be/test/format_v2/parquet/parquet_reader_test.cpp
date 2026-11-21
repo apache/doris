@@ -289,7 +289,7 @@ public:
     }
 
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
-        auto zone_map = ctx.zone_map(_column_id);
+        auto zone_map = ctx.zone_map({_column_id});
         if (zone_map == nullptr) {
             return unsupported_zonemap_filter(ctx);
         }
@@ -460,7 +460,7 @@ public:
 
     ZoneMapFilterResult evaluate_dictionary_filter(
             const DictionaryEvalContext& ctx) const override {
-        const auto* dictionary = ctx.slot(_column_id);
+        const auto* dictionary = ctx.slot({_column_id});
         if (dictionary == nullptr) {
             return ZoneMapFilterResult::kUnsupported;
         }
@@ -500,8 +500,8 @@ public:
 
     ZoneMapFilterResult evaluate_dictionary_filter(
             const DictionaryEvalContext& ctx) const override {
-        return ctx.slot(_column_id) == nullptr ? ZoneMapFilterResult::kUnsupported
-                                               : ZoneMapFilterResult::kMayMatch;
+        return ctx.slot({_column_id}) == nullptr ? ZoneMapFilterResult::kUnsupported
+                                                 : ZoneMapFilterResult::kMayMatch;
     }
 
     void collect_slot_column_ids(std::set<int>& column_ids) const override {
@@ -645,7 +645,7 @@ public:
 
     ZoneMapFilterResult evaluate_dictionary_filter(
             const DictionaryEvalContext& ctx) const override {
-        const auto* dictionary = ctx.slot(_column_id);
+        const auto* dictionary = ctx.slot({_column_id});
         if (dictionary == nullptr) {
             return ZoneMapFilterResult::kUnsupported;
         }

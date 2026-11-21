@@ -58,7 +58,9 @@ struct DictionaryEvalContext {
         std::vector<Field> values;
     };
 
-    const SlotDictionary* slot(int slot_index) const;
+    // Accepts the unified slot path; dictionary pruning is top-level only, so a path with more than
+    // one element (a nested STRUCT subfield) is unsupported and returns nullptr.
+    const SlotDictionary* slot(const std::vector<int>& slot_index) const;
     std::map<int, SlotDictionary> slots;
 };
 
@@ -70,14 +72,13 @@ struct BloomFilterEvalContext {
         const segment_v2::BloomFilter* bloom_filter = nullptr;
     };
 
-    const SlotBloomFilter* slot(int slot_index) const;
+    const SlotBloomFilter* slot(const std::vector<int>& slot_index) const;
     std::map<int, SlotBloomFilter> slots;
 };
 
 struct SlotLiteral {
-    // Slot ordinal in the current expression binding. It is also the key used to look up the
-    // corresponding reader-schema type and zone map from ZoneMapEvalContext.
-    int slot_index;
+    // [column_id] for a top-level column, or [column_id, field_ordinal, ...] for a nested STRUCT subfield.
+    std::vector<int> slot_index;
     // Type carried by the slot expression. It is kept separately because evaluation first has to
     // verify that the expression binding is compatible with the reader-schema type stored in the
     // ZoneMapEvalContext before using schema-indexed zone-map statistics.
@@ -101,14 +102,13 @@ struct SlotLiteral {
 // SlotLiteral there is no flag to flip the operator: with two slots the argument order already is
 // the expression order, so evaluators use the comparison operator as written.
 struct SlotSlot {
-    // Slot ordinals of the left and right operand. Both are keys used to look up the corresponding
-    // reader-schema type and zone map from ZoneMapEvalContext, same as SlotLiteral::slot_index.
-    int left_slot_index;
+    // [column_id] of the left and right operand; a slot-vs-slot comparison is always between two top-level columns.
+    std::vector<int> left_slot_index;
     // Type carried by the left slot expression. Kept separately for the same reason as
     // SlotLiteral::slot_type: evaluation first has to verify the expression binding is compatible
     // with the reader-schema type held by the context.
     DataTypePtr left_type;
-    int right_slot_index;
+    std::vector<int> right_slot_index;
     DataTypePtr right_type;
 };
 
@@ -134,6 +134,10 @@ struct MetadataProbe {
 };
 
 std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args);
+
+// Extracts a `struct.field OP literal` comparison into a SlotLiteral. STRUCT fields only; ARRAY/MAP
+// element access is intentionally excluded. Returns nullopt for any other shape.
+std::optional<SlotLiteral> extract_struct_field_and_literal(const VExprSPtrs& args);
 
 // Both operands must be bare VSlotRef. A cast around a slot is deliberately rejected: the zone map
 // holds raw stored values, so comparing across a cast would need the cast applied to the bounds.
@@ -187,7 +191,8 @@ inline bool data_types_compatible(const DataTypePtr& lhs, const DataTypePtr& rhs
     return lhs_type->equals(*rhs_type);
 }
 
-inline DataTypePtr fetch_compatible_slot_type(const ZoneMapEvalContext& ctx, int slot_index,
+inline DataTypePtr fetch_compatible_slot_type(const ZoneMapEvalContext& ctx,
+                                              const std::vector<int>& slot_index,
                                               const DataTypePtr& expr_slot_type) {
     auto slot_type = ctx.data_type(slot_index);
     if (slot_type == nullptr) {

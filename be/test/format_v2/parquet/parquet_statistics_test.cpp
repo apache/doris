@@ -194,7 +194,7 @@ public:
     bool can_evaluate_bloom_filter() const override { return true; }
     ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override {
         return expr_zonemap::eval_eq_bloom_filter(
-                ctx, expr_zonemap::SlotLiteral {.slot_index = _slot->column_id(),
+                ctx, expr_zonemap::SlotLiteral {.slot_index = {_slot->column_id()},
                                                 .slot_type = _slot->data_type(),
                                                 .literal = _value,
                                                 .literal_type = _slot->data_type(),
@@ -391,7 +391,7 @@ public:
     bool can_evaluate_zonemap_filter() const override { return true; }
     void collect_slot_column_ids(std::set<int>& column_ids) const override { column_ids.insert(0); }
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
-        const auto zone_map = ctx.zone_map(0);
+        const auto zone_map = ctx.zone_map({0});
         if (zone_map == nullptr) {
             return unsupported_zonemap_filter(ctx);
         }
@@ -420,7 +420,7 @@ public:
     bool can_evaluate_zonemap_filter() const override { return true; }
     void collect_slot_column_ids(std::set<int>& column_ids) const override { column_ids.insert(0); }
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
-        const auto zone_map = ctx.zone_map(0);
+        const auto zone_map = ctx.zone_map({0});
         if (zone_map == nullptr) {
             return unsupported_zonemap_filter(ctx);
         }
@@ -448,7 +448,7 @@ public:
         column_ids.insert(_slot_index);
     }
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
-        const auto zone_map = ctx.zone_map(_slot_index);
+        const auto zone_map = ctx.zone_map({_slot_index});
         if (zone_map == nullptr) {
             return unsupported_zonemap_filter(ctx);
         }
@@ -480,7 +480,7 @@ public:
     bool can_evaluate_zonemap_filter() const override { return true; }
     void collect_slot_column_ids(std::set<int>& column_ids) const override { column_ids.insert(0); }
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
-        const auto zone_map = ctx.zone_map(0);
+        const auto zone_map = ctx.zone_map({0});
         if (zone_map == nullptr || !zone_map->has_not_null || zone_map->min_value.is_null() ||
             zone_map->max_value.is_null()) {
             return ZoneMapFilterResult::kMayMatch;

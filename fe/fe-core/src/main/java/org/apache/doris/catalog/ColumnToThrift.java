@@ -152,6 +152,7 @@ public class ColumnToThrift {
             childrenTColumn.setPatternType(toThriftPatternType(children.getFieldPatternType()));
         }
         childrenTColumn.setClusterKeyId(children.getClusterKeyId());
+        childrenTColumn.setColUniqueId(children.getUniqueId());
 
         tColumn.children_column.add(childrenTColumn);
         toChildrenThrift(children, childrenTColumn);

@@ -19,7 +19,9 @@
 
 #include <parallel_hashmap/phmap.h>
 
+#include <map>
 #include <memory>
+#include <vector>
 
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
@@ -73,11 +75,27 @@ public:
         }
     };
 
-    std::shared_ptr<const segment_v2::ZoneMap> zone_map(int slot_index) const;
-    DataTypePtr data_type(int slot_index) const;
-    bool floating_nan_count_unknown(int slot_index) const;
+    // Unified lookup for every slot, keyed by a slot path: a single element is the top-level column
+    // id, while more than one addresses a nested STRUCT subfield as [column_id, field_ordinal, ...]
+    // from root to leaf. Returns nullptr when no zone map is available, so callers fall back to
+    // "unsupported" without branching on nesting. Top-level (size-1) lookups stay on the fast
+    // flat_hash_map; only nested paths touch the std::map, so the common column path pays no
+    // tree-lookup penalty.
+    const SlotZoneMap* lookup(const std::vector<int>& slot_index) const;
 
+    // Accessors keyed by the unified slot path (a single element is the top-level column id; more
+    // than one addresses a nested STRUCT subfield as [column_id, field_ordinal, ...]). They are thin
+    // wrappers over lookup, so both top-level and nested slots share one path and one dispatch.
+    std::shared_ptr<const segment_v2::ZoneMap> zone_map(const std::vector<int>& slot_index) const;
+    DataTypePtr data_type(const std::vector<int>& slot_index) const;
+    bool floating_nan_count_unknown(const std::vector<int>& slot_index) const;
+
+    // Top-level zone maps, keyed by column id. Backed by flat_hash_map for the common, hot path.
     phmap::flat_hash_map<int, SlotZoneMap> slots;
+    // Structured-field zone maps for STRUCT columns, keyed by the full slot path (column id followed
+    // by field ordinals). Backed by std::map because the vector key is orderable but not hashable;
+    // STRUCT subfields are far less frequent than top-level columns.
+    std::map<std::vector<int>, SlotZoneMap> nested_slots;
 
     mutable ZoneMapEvalStats stats;
 };

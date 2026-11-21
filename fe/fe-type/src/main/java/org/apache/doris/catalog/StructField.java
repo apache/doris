@@ -45,6 +45,9 @@ public class StructField {
     @SerializedName(value = "containsNull")
     private final boolean containsNull; // Now always true (nullable field)
 
+    @SerializedName(value = "uniqueId")
+    protected int uniqueId = -1; // subcolumn id; -1 until the schema assigns one
+
     // Runtime-only schema change intent; do not persist it as part of the table schema.
     private transient boolean commentSpecified;
 
@@ -125,6 +128,14 @@ public class StructField {
         this.position = position;
     }
 
+    public int getUniqueId() {
+        return uniqueId;
+    }
+
+    public void setUniqueId(int uniqueId) {
+        this.uniqueId = uniqueId;
+    }
+
     public boolean getContainsNull() {
         return containsNull;
     }
@@ -177,6 +188,7 @@ public class StructField {
         TStructField field = new TStructField();
         field.setName(name);
         field.setContainsNull(containsNull);
+        field.setColUniqueId(uniqueId);
         node.struct_fields.add(field);
         type.toThrift(container);
     }

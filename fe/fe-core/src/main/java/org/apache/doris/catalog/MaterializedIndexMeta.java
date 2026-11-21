@@ -357,15 +357,36 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
         this.maxColUniqueId = maxColUniqueId;
     }
 
+    /**
+     * (Re)assigns unique ids to every column and STRUCT subcolumn in this index's schema.
+     */
     public void initSchemaColumnUniqueId() {
         maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
-        this.schema.forEach(column -> {
-            column.setUniqueId(incAndGetMaxColUniqueId());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("indexId: {},  column:{}, uniqueId:{}",
-                        indexId, column, column.getUniqueId());
+        this.schema.forEach(column -> initSchemaColumnUniqueIdRecursively(column));
+    }
+
+    /**
+     * Assigns an id to the column and all of its STRUCT subcolumns, then mirrors the ids back into
+     * the STRUCT type metadata that is persisted with the schema.
+     */
+    private void initSchemaColumnUniqueIdRecursively(Column column) {
+        column.setUniqueId(incAndGetMaxColUniqueId());
+        LOG.debug("indexId: {},  column:{}, uniqueId:{}",
+                indexId, column, column.getUniqueId());
+        List<Column> children = column.getChildren();
+        if (children == null || children.isEmpty()) {
+            return;
+        }
+        for (Column child : children) {
+            initSchemaColumnUniqueIdRecursively(child);
+        }
+        if (column.getType().isStructType()) {
+            List<StructField> fields = ((StructType) column.getType()).getFields();
+            int fieldCount = Math.min(fields.size(), children.size());
+            for (int i = 0; i < fieldCount; i++) {
+                fields.get(i).setUniqueId(children.get(i).getUniqueId());
             }
-        });
+        }
     }
 
     public void initColumnNameMap() {

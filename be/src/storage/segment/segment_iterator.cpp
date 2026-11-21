@@ -54,7 +54,9 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/string_ref.h"
@@ -3667,6 +3669,56 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
             .stats = _opts.stats,
             .io_ctx = _opts.io_ctx,
     };
+
+    // Evaluate `conjuncts` against the per-page zone maps of `r`, returning the surviving row
+    // ranges in `*out_ranges`. `nested` selects whether the page zone map is keyed into
+    // `ctx.slots` (top-level column) or `ctx.nested_slots` (struct subfield); `key` is the lookup
+    // key (e.g. {column_id} or {column_id, field_ordinal, ...}). Sets `*has_page_zm` to false when
+    // `r` carries no per-page zone maps, so the caller can skip intersection (or fall back to
+    // segment-level).
+    auto prune_column_pages = [&](ColumnReader* r, const DataTypePtr& dt,
+                                  const VExprContextSPtrs& conjuncts, const std::vector<int>& key,
+                                  bool nested, RowRanges* out_ranges, bool* has_page_zm) -> Status {
+        *has_page_zm = false;
+        const std::vector<ZoneMapPB>* page_zone_maps = nullptr;
+        RETURN_IF_ERROR(r->get_page_zone_maps(iter_opts, &page_zone_maps));
+        if (page_zone_maps == nullptr || page_zone_maps->empty()) {
+            return Status::OK();
+        }
+        *has_page_zm = true;
+        RowRanges ranges;
+        ZoneMapEvalStats stats;
+        for (uint32_t page_index = 0; page_index < page_zone_maps->size(); ++page_index) {
+            RowRange page_range;
+            RETURN_IF_ERROR(r->get_row_range_for_page(page_index, iter_opts, &page_range));
+            if (!page_range.is_valid() || page_range.to() <= min_rowid) {
+                continue;
+            }
+            ZoneMapEvalContext ctx;
+            ZoneMapEvalContext::SlotZoneMap slot_zone_map;
+            slot_zone_map.data_type = dt;
+            ZoneMap zone_map;
+            RETURN_IF_ERROR(ZoneMap::from_proto((*page_zone_maps)[page_index], dt, zone_map));
+            slot_zone_map.zone_map = std::make_shared<ZoneMap>(std::move(zone_map));
+            if (nested) {
+                ctx.nested_slots.emplace(key, std::move(slot_zone_map));
+            } else {
+                ctx.slots.emplace(key[0], std::move(slot_zone_map));
+            }
+            const auto result = VExprContext::evaluate_zonemap_filter(conjuncts, ctx);
+            stats.merge_page_eval_stats(ctx.stats);
+            if (result != ZoneMapFilterResult::kNoMatch) {
+                ranges.add(
+                        RowRange(std::max<int64_t>(page_range.from(), min_rowid), page_range.to()));
+            } else {
+                ++_opts.stats->expr_zonemap_filtered_pages;
+            }
+        }
+        stats.accumulate_to(_opts.stats);
+        *out_ranges = std::move(ranges);
+        return Status::OK();
+    };
+
     for (const auto& [slot_index, slot_conjuncts] : ctxs_by_slot) {
         DORIS_CHECK_LT(cast_set<size_t>(slot_index), _schema->num_block_columns());
         const auto cid = cast_set<ColumnId>(slot_index);
@@ -3684,45 +3736,106 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         }
         RETURN_IF_ERROR(st);
         DORIS_CHECK(reader != nullptr);
-        if (!reader->has_zone_map()) {
+        const bool is_struct_column = tablet_column->type() == FieldType::OLAP_FIELD_TYPE_STRUCT;
+        if (!is_struct_column && !reader->has_zone_map()) {
             continue;
         }
-        const std::vector<ZoneMapPB>* page_zone_maps = nullptr;
-        RETURN_IF_ERROR(reader->get_page_zone_maps(iter_opts, &page_zone_maps));
-        if (page_zone_maps == nullptr || page_zone_maps->empty()) {
-            continue;
-        }
-        auto data_type = _segment->get_data_type_of(*tablet_column, _schema->data_type(cid), _opts);
 
-        RowRanges column_ranges;
-        ZoneMapEvalStats page_stats;
-        for (uint32_t page_index = 0; page_index < page_zone_maps->size(); ++page_index) {
-            RowRange page_range;
-            RETURN_IF_ERROR(reader->get_row_range_for_page(page_index, iter_opts, &page_range));
-            if (!page_range.is_valid() || page_range.to() <= min_rowid) {
+        if (is_struct_column) {
+            // Partition this column's conjuncts by the subfield path they reference, so each
+            // subfield is pruned independently against only its own predicates. Different
+            // subfields do not share page boundaries, so their pages cannot be pruned together.
+            std::map<std::vector<int>, VExprContextSPtrs> conjuncts_by_subfield;
+            for (const auto& conjunct : slot_conjuncts) {
+                if (auto sl = expr_zonemap::extract_struct_field_and_literal(
+                            conjunct->root()->children());
+                    sl.has_value()) {
+                    conjuncts_by_subfield[sl->slot_index].emplace_back(conjunct);
+                }
+            }
+            if (conjuncts_by_subfield.empty()) {
                 continue;
             }
-            ZoneMapEvalContext ctx;
-            ZoneMapEvalContext::SlotZoneMap slot_zone_map;
-            slot_zone_map.data_type = data_type;
-            ZoneMap zone_map;
-            RETURN_IF_ERROR(
-                    ZoneMap::from_proto((*page_zone_maps)[page_index], data_type, zone_map));
-            slot_zone_map.zone_map = std::make_shared<ZoneMap>(std::move(zone_map));
-            ctx.slots.emplace(slot_index, std::move(slot_zone_map));
-            const auto result = VExprContext::evaluate_zonemap_filter(slot_conjuncts, ctx);
-            page_stats.merge_page_eval_stats(ctx.stats);
-            if (result != ZoneMapFilterResult::kNoMatch) {
-                column_ranges.add(
-                        RowRange(std::max<int64_t>(page_range.from(), min_rowid), page_range.to()));
-            } else {
-                ++_opts.stats->expr_zonemap_filtered_pages;
+
+            // Struct type from the segment schema; each element of a subfield path after the slot
+            // id is a field ordinal into this type.
+            const DataTypePtr current_type = remove_nullable(_schema->data_type(cid));
+            for (const auto& [subfield_path, sub_conjuncts] : conjuncts_by_subfield) {
+                ColumnReader* sub_reader = reader.get();
+                DataTypePtr struct_type = current_type;
+                bool resolved = true;
+                // Walk the path by field unique id rather than by position, so subfields inserted
+                // or reordered by schema change still resolve to the reader holding their data.
+                for (size_t i = 1; i < subfield_path.size(); ++i) {
+                    auto struct_dt = std::dynamic_pointer_cast<const DataTypeStruct>(struct_type);
+                    if (struct_dt == nullptr) {
+                        resolved = false;
+                        break;
+                    }
+                    const int32_t field_ordinal = subfield_path[i];
+                    if (field_ordinal < 0 ||
+                        field_ordinal >= static_cast<int32_t>(struct_dt->get_elements().size())) {
+                        resolved = false;
+                        break;
+                    }
+                    const int32_t field_uid = struct_dt->get_unique_id(field_ordinal);
+                    ColumnReader* next = sub_reader->sub_reader_by_uid(field_uid);
+                    if (next == nullptr) {
+                        resolved = false;
+                        break;
+                    }
+                    sub_reader = next;
+                    struct_type = remove_nullable(struct_dt->get_element(field_ordinal));
+                }
+                // Unresolvable paths (e.g. array/map subfields or legacy segments without ids)
+                // and sub-readers without a zone map cannot be pruned.
+                if (!resolved || !sub_reader->has_zone_map()) {
+                    continue;
+                }
+
+                const DataTypePtr data_type = sub_reader->get_vec_data_type();
+                RowRanges sub_ranges;
+                bool has_page_zm = false;
+                RETURN_IF_ERROR(prune_column_pages(sub_reader, data_type, sub_conjuncts,
+                                                   subfield_path, true, &sub_ranges, &has_page_zm));
+                if (has_page_zm) {
+                    RowRanges::ranges_intersection(*row_ranges, sub_ranges, row_ranges);
+                    if (row_ranges->is_empty()) {
+                        return Status::OK();
+                    }
+                } else {
+                    ZoneMap sub_zone_map;
+                    if (sub_reader->get_segment_zone_map(&sub_zone_map).ok() &&
+                        !sub_zone_map.pass_all) {
+                        ZoneMapEvalContext ctx;
+                        ZoneMapEvalContext::SlotZoneMap slot_zone_map;
+                        slot_zone_map.data_type = data_type;
+                        slot_zone_map.zone_map = std::make_shared<ZoneMap>(std::move(sub_zone_map));
+                        ctx.nested_slots.emplace(subfield_path, std::move(slot_zone_map));
+                        const auto result =
+                                VExprContext::evaluate_zonemap_filter(sub_conjuncts, ctx);
+                        ctx.stats.accumulate_to(_opts.stats);
+                        if (result == ZoneMapFilterResult::kNoMatch) {
+                            row_ranges->clear();
+                            return Status::OK();
+                        }
+                    }
+                }
             }
-        }
-        page_stats.accumulate_to(_opts.stats);
-        RowRanges::ranges_intersection(*row_ranges, column_ranges, row_ranges);
-        if (row_ranges->is_empty()) {
-            return Status::OK();
+        } else {
+            auto data_type =
+                    _segment->get_data_type_of(*tablet_column, _schema->data_type(cid), _opts);
+            RowRanges column_ranges;
+            bool has_page_zm = false;
+            RETURN_IF_ERROR(prune_column_pages(reader.get(), data_type, slot_conjuncts,
+                                               {slot_index}, false, &column_ranges, &has_page_zm));
+            if (!has_page_zm) {
+                continue;
+            }
+            RowRanges::ranges_intersection(*row_ranges, column_ranges, row_ranges);
+            if (row_ranges->is_empty()) {
+                return Status::OK();
+            }
         }
     }
     return Status::OK();

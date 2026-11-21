@@ -34,6 +34,7 @@
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/primitive_type.h"
 #include "core/types.h"
 #include "io/fs/file_writer.h"
 #include "storage/index/bloom_filter/bloom_filter_index_writer.h"
@@ -173,7 +174,14 @@ Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
         // create sub writer
         ColumnWriterOptions column_options;
         column_options.meta = opts.meta->mutable_children_columns(i);
-        column_options.need_zone_map = false;
+        // Enable zone maps for scalar subfields so `struct.field OP literal` predicates can be
+        // pruned at the storage layer (in the spirit of DuckDB's STRUCT field statistics). Nested
+        // STRUCT subfields recurse and enable their own scalar leaves; ARRAY/MAP subfields, whose
+        // elements are not individually zone-mapped, are left out.
+        const auto sub_field_type = sub_column.type();
+        column_options.need_zone_map = sub_field_type != FieldType::OLAP_FIELD_TYPE_STRUCT &&
+                                       sub_field_type != FieldType::OLAP_FIELD_TYPE_ARRAY &&
+                                       sub_field_type != FieldType::OLAP_FIELD_TYPE_MAP;
         column_options.need_bloom_filter = sub_column.is_bf_column();
         column_options.storage_format = opts.storage_format;
         std::unique_ptr<ColumnWriter> sub_column_writer;
