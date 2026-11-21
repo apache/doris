@@ -65,10 +65,8 @@ int64_t calculate_tmp_rowset_expired_time(
 struct RecyclerThreadPoolGroup {
     RecyclerThreadPoolGroup() = default;
     RecyclerThreadPoolGroup(std::shared_ptr<SimpleThreadPool> s3_producer_pool,
-                            std::shared_ptr<SimpleThreadPool> recycle_tablet_pool,
                             std::shared_ptr<SimpleThreadPool> group_recycle_function_pool)
             : s3_producer_pool(std::move(s3_producer_pool)),
-              recycle_tablet_pool(std::move(recycle_tablet_pool)),
               group_recycle_function_pool(std::move(group_recycle_function_pool)) {}
     ~RecyclerThreadPoolGroup() = default;
     RecyclerThreadPoolGroup(const RecyclerThreadPoolGroup&) = default;
@@ -78,7 +76,6 @@ struct RecyclerThreadPoolGroup {
     // used for accessor.delete_files, accessor.delete_directory
     std::shared_ptr<SimpleThreadPool> s3_producer_pool;
     // used for InstanceRecycler::recycle_tablet
-    std::shared_ptr<SimpleThreadPool> recycle_tablet_pool;
     std::shared_ptr<SimpleThreadPool> group_recycle_function_pool;
 };
 
