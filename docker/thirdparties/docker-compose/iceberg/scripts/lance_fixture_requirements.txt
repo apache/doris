@@ -1,0 +1,31 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+# Exact pins for the Lance fixture builders in this directory
+# (lance_build_array_predicates.py, lance_build_predicate_pushdown.py).
+#
+# pylance writes the data and index files and lance-namespace writes the __manifest and
+# picks the hash-prefixed directory names, so those two decide what lands on disk. The
+# builders refuse to run with other versions: their self-checks read the fixture back with
+# the very Lance that produced it, so a wrong writer would pass them by construction while
+# emitting something the BE's lance-c or the FE's lance-java cannot open. The regression
+# suites under external_table_p0/lance are what prove both readers open it.
+#
+# pyarrow is pinned for reproducibility but not asserted: it only supplies the in-memory
+# Arrow buffers handed to Lance, and the self-checks compare every stored value.
+pylance==7.0.0
+lance-namespace==0.7.7
+pyarrow==25.0.0

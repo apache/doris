@@ -87,6 +87,17 @@ under the License.
             </exclusions>
         </dependency>
 
+        <!-- Builds the Substrait ExtendedExpression of the pushed predicates, which BE hands to lance-c. It
+             declares protobuf-java at runtime scope only, but the envelope is built with its generated
+             protobuf classes, so protobuf-java is a compile dependency here. -->
+        <dependency>
+            <groupId>io.substrait</groupId>
+            <artifactId>core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+        </dependency>
         <!-- Arrow allocator implementation. A RootAllocator needs an allocation-manager factory at runtime;
              declared so the plugin zip carries it whatever lance-core pulls in. -->
         <dependency>

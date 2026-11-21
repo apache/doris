@@ -373,6 +373,9 @@ under the License.
              pin it to arrow.version, as fe-core did when it carried Lance. Changing it means changing the
              glibc 2.17 JNI pins in docker/thirdparties/lance-jni-helpers.sh too. -->
         <lance.version>12.0.0</lance.version>
+        <!-- Substrait Java for fe-connector-lance, which sends the predicates it pushes to lance-c as a Substrait
+             ExtendedExpression; 4.x pinned the same version. -->
+        <substrait.version>0.40.0</substrait.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
 
@@ -2054,6 +2057,11 @@ under the License.
                 <groupId>org.lance</groupId>
                 <artifactId>lance-core</artifactId>
                 <version>${lance.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.substrait</groupId>
+                <artifactId>core</artifactId>
+                <version>${substrait.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.immutables</groupId>
