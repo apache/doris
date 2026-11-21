@@ -22,6 +22,8 @@ import type {
     DagAggregateMetric,
     DagEdgeKind,
     DagOperatorRole,
+    DagPlanFacts,
+    DagRuntimeFilter,
     ProfileDagEdge,
     ProfileDagFragment,
     ProfileDagNode,
@@ -61,10 +63,10 @@ const PIPELINE_RE = /^\s*Pipeline\s+(\d+)\s*\(\s*instance_num\s*=\s*(\d+)\s*\):\
 const OPERATOR_RE = /^\s+([A-Z][A-Z0-9_]*_OPERATOR)(.*):\s*$/;
 const ATTRIBUTE_RE = /([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(-?\d+)/g;
 const LIST_ATTRIBUTE_RE = /([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\[([^\]]*)\]/g;
-const TABLE_NAME_RE = /table_name=([^,)]+(?:\([^)]*\))?)/;
+const TABLE_NAME_RE = /table_name=([^,()]+(?:\([^)]*\))?)/;
 const COUNTERS_RE = /^\s*(?:Common|Custom)Counters:\s*$/;
 const PLANINFO_RE = /^\s*-\s*PlanInfo\s*$/;
-const COUNTER_RE = /^\s*-\s*([A-Za-z0-9_[\]]+?)\s*:\s*(.+?)\s*$/;
+const COUNTER_RE = /^(\s*)-\s*([A-Za-z0-9_[\]][A-Za-z0-9_[\]. ]*?)\s*:\s*(.*?)\s*$/;
 const PLAN_KV_RE = /^\s*-\s*([^:=]+?)\s*[:=]\s*(.+?)\s*$/;
 
 type OperatorSpec = readonly [family: string, role: DagOperatorRole, label: string];
@@ -139,7 +141,16 @@ const PLAN_INFO_WHITELIST: Readonly<Record<string, string>> = {
     'runtime filters': 'runtimeFilters',
     partitions: 'partitions',
     tablet: 'tablets',
+    tablets: 'tablets',
+    predicates: 'predicates',
+    pushaggop: 'pushAggOp',
+    preaggregation: 'preAggregation',
+    'topn opt': 'topnOpt',
+    projections: 'projections',
 };
+
+// PlanInfo puts more than one pair on some lines, e.g. "TABLE: db.t(t), PREAGGREGATION: ON".
+const PLAN_TRAILING_RE = /,\s*(PREAGGREGATION|PREDICATES)\s*:\s*(.+?)\s*$/i;
 
 type CounterValues = Record<'sum' | 'avg' | 'max' | 'min', number | undefined>;
 
@@ -281,6 +292,67 @@ function aggregateMetric(counter: CounterValues | undefined): DagAggregateMetric
     };
 }
 
+const RATIO_RE = /(\d+)\s*\/\s*(\d+)/;
+const RUNTIME_FILTER_RE = /^RuntimeFilterInfo\/(RF\d+)\s+(\w+)$/;
+
+/**
+ * Recovers the numbers PlanInfo reports as free text, so rules do not re-parse strings.
+ * For example "18000, avgRowSize=449.79193, numNodes=1" yields three separate facts.
+ */
+function derivePlanFacts(planInfo: ProfileDagNode['planInfo']): DagPlanFacts | undefined {
+    const facts: DagPlanFacts = {};
+    const text = (key: string): string | undefined => {
+        const value = planInfo[key];
+        return typeof value === 'string' ? value : undefined;
+    };
+
+    const cardinality = text('cardinality');
+    if (cardinality) {
+        const rows = cardinality.match(/^\s*(-?\d+(?:\.\d+)?)/);
+        if (rows) facts.cardinality = Number(rows[1]);
+        const avgRowSize = cardinality.match(/avgRowSize\s*=\s*(-?\d+(?:\.\d+)?)/i);
+        if (avgRowSize) facts.avgRowSize = Number(avgRowSize[1]);
+        const numNodes = cardinality.match(/numNodes\s*=\s*(-?\d+)/i);
+        if (numNodes) facts.numNodes = Number(numNodes[1]);
+    }
+
+    const partitions = text('partitions')?.match(RATIO_RE);
+    if (partitions) {
+        facts.partitionsSelected = Number(partitions[1]);
+        facts.partitionsTotal = Number(partitions[2]);
+    }
+    const tablets = text('tablets')?.match(RATIO_RE);
+    if (tablets) {
+        facts.tabletsSelected = Number(tablets[1]);
+        facts.tabletsTotal = Number(tablets[2]);
+    }
+
+    const pushAggOp = text('pushAggOp');
+    if (pushAggOp) facts.pushAggOp = pushAggOp;
+    const preAggregation = text('preAggregation');
+    if (preAggregation) facts.preAggregation = preAggregation;
+    const predicates = text('predicates');
+    if (predicates) facts.predicates = predicates;
+
+    return Object.keys(facts).length > 0 ? facts : undefined;
+}
+
+/** Groups the nested RuntimeFilterInfo counters into one entry per runtime filter. */
+function deriveRuntimeFilters(counters: Record<string, DagAggregateMetric>): DagRuntimeFilter[] | undefined {
+    const byId = new Map<string, DagRuntimeFilter>();
+    for (const [name, metric] of Object.entries(counters)) {
+        const match = name.match(RUNTIME_FILTER_RE);
+        if (!match) continue;
+        const filter = byId.get(match[1]) ?? { id: match[1] };
+        const value = metric.sum ?? metric.max ?? null;
+        if (match[2] === 'InputRows') filter.inputRows = value;
+        else if (match[2] === 'FilterRows') filter.filterRows = value;
+        else if (match[2] === 'AlwaysTrueFilterRows') filter.alwaysTrueFilterRows = value;
+        byId.set(match[1], filter);
+    }
+    return byId.size > 0 ? [...byId.values()] : undefined;
+}
+
 function finalizeNode(node: ParsedNode): ProfileDagNode {
     const exec = node.counters.ExecTime;
     const waitCounters = Object.entries(node.counters).filter(([name]) => name.startsWith('WaitFor') && name.endsWith('Time'));
@@ -327,8 +399,12 @@ function finalizeNode(node: ParsedNode): ProfileDagNode {
         };
     }
 
-    const { counters: _counters, ...output } = node;
-    void _counters;
+    const { counters: rawCounters, ...output } = node;
+    const counters: Record<string, DagAggregateMetric> = {};
+    for (const [name, values] of Object.entries(rawCounters)) {
+        const metric = aggregateMetric(values);
+        if (metric) counters[name] = metric;
+    }
     return {
         ...output,
         timing,
@@ -340,6 +416,9 @@ function finalizeNode(node: ParsedNode): ProfileDagNode {
             // Visual Profile compatible with profiles captured from Doris 4.0.
             memoryPeakBytes: aggregateMetric(node.counters.PeakMemoryUsage ?? node.counters.MemoryUsagePeak),
         },
+        counters,
+        planFacts: derivePlanFacts(node.planInfo),
+        runtimeFilters: deriveRuntimeFilters(counters),
         analysis: { heat: null, waitHeat: null, isBottleneck: false },
     };
 }
@@ -426,6 +505,7 @@ export function parseProfileText(text: string): ProfileGraphIR {
     let currentPipeline: ProfileDagPipeline | null = null;
     let currentNode: ParsedNode | null = null;
     let section: 'plan' | 'counters' | null = null;
+    let counterStack: { indent: number; path: string }[] = [];
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
@@ -509,6 +589,7 @@ export function parseProfileText(text: string): ProfileGraphIR {
             if (!spec) warnings.push({ kind: 'UNKNOWN_OPERATOR', nodeId: id, operatorType });
             if (parsedNodes.length > MAX_DAG_NODES) fail('DAG_TOO_LARGE', 'The execution graph contains too many nodes.');
             section = null;
+            counterStack = [];
             continue;
         }
         if (!currentNode) continue;
@@ -518,15 +599,33 @@ export function parseProfileText(text: string): ProfileGraphIR {
         }
         if (COUNTERS_RE.test(line)) {
             section = 'counters';
+            counterStack = [];
             continue;
         }
         if (section === 'counters') {
             const counterMatch = line.match(COUNTER_RE);
-            if (counterMatch) currentNode.counters[counterMatch[1]] = parseCounter(counterMatch[1], counterMatch[2]);
+            if (counterMatch) {
+                const [, indentText, name, rawValue] = counterMatch;
+                const indent = indentText.length;
+                while (counterStack.length > 0 && counterStack[counterStack.length - 1].indent >= indent) {
+                    counterStack.pop();
+                }
+                const parent = counterStack[counterStack.length - 1];
+                const key = parent ? `${parent.path}/${name}` : name;
+                currentNode.counters[key] = parseCounter(name, rawValue);
+                counterStack.push({ indent, path: key });
+            }
             continue;
         }
         if (section === 'plan') {
-            const planMatch = line.match(PLAN_KV_RE);
+            const trailing = line.match(PLAN_TRAILING_RE);
+            if (trailing) {
+                const trailingKey = PLAN_INFO_WHITELIST[trailing[1].toLowerCase()];
+                if (trailingKey && currentNode.planInfo[trailingKey] === undefined) {
+                    currentNode.planInfo[trailingKey] = trailing[2].trim().slice(0, MAX_PLAN_INFO_VALUE_LENGTH);
+                }
+            }
+            const planMatch = line.replace(PLAN_TRAILING_RE, '').match(PLAN_KV_RE);
             if (!planMatch) continue;
             const outputKey = PLAN_INFO_WHITELIST[planMatch[1].trim().toLowerCase()];
             if (outputKey && currentNode.planInfo[outputKey] === undefined) {
