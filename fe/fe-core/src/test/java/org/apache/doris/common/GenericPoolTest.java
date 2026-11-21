@@ -32,6 +32,8 @@ import org.apache.doris.thrift.TGetTopNHotPartitionsRequest;
 import org.apache.doris.thrift.TGetTopNHotPartitionsResponse;
 import org.apache.doris.thrift.TIngestBinlogRequest;
 import org.apache.doris.thrift.TIngestBinlogResult;
+import org.apache.doris.thrift.TLanceIndexMutationRequest;
+import org.apache.doris.thrift.TLanceIndexMutationResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishTopicRequest;
 import org.apache.doris.thrift.TPublishTopicResult;
@@ -48,6 +50,7 @@ import org.apache.doris.thrift.TScanOpenParams;
 import org.apache.doris.thrift.TScanOpenResult;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadRecordResult;
 import org.apache.doris.thrift.TSyncLoadForTabletsRequest;
 import org.apache.doris.thrift.TSyncLoadForTabletsResponse;
@@ -123,6 +126,11 @@ public class GenericPoolTest {
         @Override
         public TAgentResult submitTasks(List<TAgentTaskRequest> tasks) throws TException {
             return null;
+        }
+
+        @Override
+        public TLanceIndexMutationResult lanceIndexMutate(TLanceIndexMutationRequest request) throws TException {
+            return new TLanceIndexMutationResult().setStatus(new TStatus(TStatusCode.NOT_IMPLEMENTED_ERROR));
         }
 
         @Override
