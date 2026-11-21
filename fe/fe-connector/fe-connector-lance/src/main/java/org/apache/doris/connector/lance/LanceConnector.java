@@ -58,10 +58,20 @@ public final class LanceConnector implements Connector {
     private final LanceCatalogClient client;
 
     public LanceConnector(Map<String, String> properties, ConnectorContext context) {
-        this.props = LanceCatalogProperties.of(properties);
+        this(LanceCatalogProperties.of(properties), context);
+    }
+
+    private LanceConnector(LanceCatalogProperties props, ConnectorContext context) {
+        this(props, context, new LanceCatalogClient(props,
+                () -> context.getStorageContext().getStorageProperties(),
+                () -> LanceConf.arrowMemoryLimitBytes(context)));
+    }
+
+    /** Over a catalog client built by the caller, which tests give recording resources. */
+    LanceConnector(LanceCatalogProperties props, ConnectorContext context, LanceCatalogClient client) {
+        this.props = props;
         this.context = context;
-        this.client = new LanceCatalogClient(props, () -> context.getStorageContext().getStorageProperties(),
-                () -> LanceConf.arrowMemoryLimitBytes(context));
+        this.client = client;
     }
 
     @Override
@@ -104,6 +114,30 @@ public final class LanceConnector implements Connector {
             return ConnectorTestResult.failure("Lance " + props.getCatalogType()
                     + " catalog connectivity test failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * REFRESH CATALOG: the next call opens a new namespace and a cold Lance Session, which reads afresh a
+     * dataset replaced at the same URI. The engine also lands here on replay when it cannot name the database.
+     */
+    @Override
+    public void invalidateAll() {
+        client.refresh();
+    }
+
+    /**
+     * REFRESH DATABASE: every table is described again on its next read. Its cached metadata stays: Lance
+     * versions are immutable, and a read of the newest version still finds the newest one.
+     */
+    @Override
+    public void invalidateDb(String dbName) {
+        client.invalidateTableAccess();
+    }
+
+    /** REFRESH TABLE: as {@link #invalidateDb}, for every table, since a described table access is cheap. */
+    @Override
+    public void invalidateTable(String dbName, String tableName) {
+        client.invalidateTableAccess();
     }
 
     @Override

@@ -194,4 +194,22 @@ suite("test_lance_catalog_all_types", "p0,external") {
         exception "Lance S3 AssumeRole access is not supported yet"
     }
 
+    // How long a table's described URI and options are reused, in seconds; 0 describes on every read.
+    sql """DROP CATALOG IF EXISTS `test_lance_negative_access_cache_ttl`"""
+    test {
+        sql """
+            CREATE CATALOG `test_lance_negative_access_cache_ttl` PROPERTIES (
+                "type" = "lance",
+                "warehouse" = "s3://warehouse/lance",
+                "s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
+                "s3.access_key" = "admin",
+                "s3.secret_key" = "password",
+                "s3.region" = "us-east-1",
+                "use_path_style" = "true",
+                "lance.table_access_cache_ttl_seconds" = "-1"
+            )
+        """
+        exception "Property 'lance.table_access_cache_ttl_seconds' must be non-negative"
+    }
+
 }

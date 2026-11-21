@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.lance;
 
+import org.apache.doris.connector.lance.LanceMetadataMetrics.Operation;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
@@ -24,6 +25,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.NamedColumnHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
@@ -99,10 +101,34 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
         this.backendStorageProperties = backendStorageProperties;
     }
 
+    /**
+     * Plans the ranges, timed as the scan's split planning. The scan's metadata metrics are queued for
+     * {@link #collectScanProfiles} even when planning fails: the engine collects a failed scan's profile too.
+     */
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
         LanceTableHandle handle = lanceHandle(request.getTableHandle());
-        LanceTableMetadata metadata = metadata(session, handle);
+        LanceMetadataMetrics metrics = tableMetrics(session, handle);
+        try {
+            LanceTableMetadata metadata = metadata(session, handle);
+            try (LanceMetadataMetrics.Timer timer = metrics.start(Operation.SPLIT_PLANNING)) {
+                List<ConnectorScanRange> ranges = planRanges(session, request, handle, metadata);
+                timer.succeeded();
+                return ranges;
+            }
+        } finally {
+            LanceMetadataMetrics.publishScan(session, handle.getDbName(), handle.getTableName(), metrics);
+        }
+    }
+
+    /** The {@value LanceMetadataMetrics#GROUP_NAME} of the scan {@link #planScan} just planned. */
+    @Override
+    public List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
+        return LanceMetadataMetrics.collectScanProfiles(session);
+    }
+
+    private List<ConnectorScanRange> planRanges(ConnectorSession session, ConnectorScanRequest request,
+            LanceTableHandle handle, LanceTableMetadata metadata) {
         List<ConnectorExpression> conjuncts = LancePredicateConverter.conjuncts(request.getFilter());
         // Any filter, pushed or not, makes the version's row count larger than the result.
         if (request.isCountPushdown() && conjuncts.isEmpty()) {
@@ -195,10 +221,11 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
 
     private LanceScanPlan plan(ConnectorSession session, LanceTableHandle handle, LanceTableMetadata metadata,
             LancePredicateConverter converter, LancePredicateConverter.ConversionResult pushdown) {
+        LanceMetadataMetrics metrics = tableMetrics(session, handle);
         return LanceScanPlanner.plan(metadata, converter, pushdown.getPushedConjuncts(), fragmentsPerSplit(session),
                 () -> LanceStatementScope.sharedIndexMetadata(session, handle, metadata,
                         () -> client.loadIndexMetadata(handle.getDbName(), handle.getTableName(),
-                                metadata.getVersion())));
+                                metadata.getVersion(), metrics)));
     }
 
     private static int fragmentsPerSplit(ConnectorSession session) {
@@ -227,8 +254,19 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private LanceTableMetadata metadata(ConnectorSession session, LanceTableHandle handle) {
+        LanceMetadataMetrics metrics = tableMetrics(session, handle);
         return LanceStatementScope.sharedMetadata(session, handle,
-                () -> client.loadTableMetadata(handle.getDbName(), handle.getTableName(), handle.getVersion()));
+                () -> client.loadTableMetadata(handle.getDbName(), handle.getTableName(), handle.getVersion(),
+                        metrics));
+    }
+
+    /**
+     * The statement's metrics of the table. Look them up before a statement-scope loader runs, never inside one:
+     * a loader may not use the scope, whose ConcurrentHashMap throws "Recursive update" when the two keys share a
+     * bin.
+     */
+    private static LanceMetadataMetrics tableMetrics(ConnectorSession session, LanceTableHandle handle) {
+        return LanceMetadataMetrics.forTable(session, handle.getDbName(), handle.getTableName());
     }
 
     private static LanceTableHandle lanceHandle(ConnectorTableHandle handle) {

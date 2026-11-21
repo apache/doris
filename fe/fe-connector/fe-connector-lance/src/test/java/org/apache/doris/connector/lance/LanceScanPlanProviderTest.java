@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
@@ -439,5 +440,31 @@ class LanceScanPlanProviderTest {
         Assertions.assertFalse(rangeParams(plan(provider, request()).get(0)).isSetUseScalarIndex());
         // The control: a pushed predicate does ask for the index metadata.
         Assertions.assertThrows(AssertionError.class, () -> plan(provider, request().filter(Optional.of(ID_IS_5))));
+    }
+
+    /**
+     * Every planned scan leaves its table's metadata metrics for the engine to collect, a failed plan too. The
+     * statement read this version before, so the scans made no metadata read of their own.
+     */
+    @Test
+    void everyPlannedScanLeavesItsProfileEvenWhenPlanningFails() {
+        readInThisStatement(metadata(Collections.emptyMap(), new LanceFragmentInfo(0, 1, 1)));
+        LanceScanPlanProvider provider = provider(Collections.emptyMap());
+        Assertions.assertEquals(1, plan(provider, request()).size());
+        session.setSessionProperty(LanceScanPlanProvider.SESSION_FRAGMENTS_PER_SPLIT, "-1");
+        Assertions.assertEquals("lance_fragments_per_split must be non-negative", Assertions.assertThrows(
+                DorisConnectorException.class, () -> plan(provider, request())).getMessage());
+
+        List<ConnectorScanProfile> profiles = provider.collectScanProfiles(session);
+        Assertions.assertEquals(2, profiles.size());
+        for (ConnectorScanProfile profile : profiles) {
+            Assertions.assertEquals("Lance Metadata Metrics", profile.getGroupName());
+            Assertions.assertEquals("Table Scan (default.all_types)", profile.getScanLabel());
+            Assertions.assertEquals("1", profile.getMetrics().get("SplitPlanningCalls"));
+            Assertions.assertFalse(profile.getMetrics().containsKey("MetadataReadCalls"));
+        }
+        Assertions.assertEquals("0", profiles.get(0).getMetrics().get("SplitPlanningFailures"));
+        Assertions.assertEquals("1", profiles.get(1).getMetrics().get("SplitPlanningFailures"));
+        Assertions.assertTrue(provider.collectScanProfiles(session).isEmpty());
     }
 }
