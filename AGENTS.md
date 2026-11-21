@@ -76,7 +76,10 @@ When conducting code review (including self-review and review tasks), complete t
 
 ## Build and Run Standards
 
-Always use only the `build.sh` script with its correct parameters to build Doris BE and FE. For example, the simplest BE+FE build command is `./build.sh --be --fe`.
+Use the `build.sh` script with its correct parameters for full Doris BE and FE builds. For example, the simplest BE+FE build command is `./build.sh --be --fe`.
+
+For changes limited to a few Java files under `fe/fe-core`, when a complete FE build already exists, first use `./tools/fast-compile-fe.sh` for incremental compilation. Pass the changed source file paths explicitly to limit compilation, for example `./tools/fast-compile-fe.sh fe/fe-core/src/main/java/org/apache/doris/.../Foo.java`. For test source compilation, use `./tools/fast-compile-fe.sh --test <test-file-path>`. If incremental compilation fails, fall back to Maven using the appropriate FE modules and build parameters. This FE incremental workflow is an explicit exception to the `build.sh` rule above. Incremental compilation does not replace the required Checkstyle validation or test execution.
+
 Build type can be set via `BUILD_TYPE` in `custom_env.sh`, but only set it to `RELEASE` when explicitly required for performance testing; otherwise, keep it as `ASAN`.
 You may modify BE and FE ports and network settings in `conf/` before compilation to ensure correctness and avoid conflicts.
 Build artifacts are in the current directory's `output/`. If starting the service, ensure all process artifacts have their conf set with appropriate non-conflicting ports and the correct `priority_networks` that match the current network environment, for example `priority_networks = 10.16.10.3/24`. Use `--daemon` when starting. Cluster startup is slow; wait at least 30s for success. If still not ready after waiting, continue waiting. If not ready after a long time, check BE and FE logs to investigate.
