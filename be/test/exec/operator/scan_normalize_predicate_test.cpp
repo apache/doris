@@ -2005,4 +2005,40 @@ TEST_F(ScanNormalizePredicate, TimestampNsSlotInitializesValueRange) {
     EXPECT_TRUE(range->is_whole_value_range());
     EXPECT_EQ(range->scale(), TimeStampNsValue::FRACTIONAL_DIGITS);
 }
+
+TEST_F(ScanNormalizePredicate, TemplateIntPredicateRemainsForNonKeyColumn) {
+    class NonKeyScanLocalState : public ScanLocalState<MockScanLocalState> {
+    public:
+        using ScanLocalState<MockScanLocalState>::ScanLocalState;
+        PushDownType _should_push_down_binary_predicate(
+                VectorizedFnCall*, VExprContext*, Field& value,
+                const std::set<std::string>) const override {
+            value = Field::create_field<TYPE_INT>(5);
+            return PushDownType::ACCEPTABLE;
+        }
+        bool _is_key_column(const std::string&) override { return false; }
+    };
+    auto local_state = std::make_shared<NonKeyScanLocalState>(state.get(), op.get());
+    SlotDescriptor slot;
+    slot._type = std::make_shared<DataTypeInt32>();
+    local_state->_slot_id_to_value_range[0] = ColumnValueRange<TYPE_INT>("v.a", true, 0, 0);
+    local_state->_slot_id_to_predicates[0] = {};
+    op->_slot_id_to_slot_desc[0] = &slot;
+    auto ref = std::make_shared<MockSlotRef>(0, slot._type);
+    ref->_slot_id = 0;
+    auto expr = MockFnCall::create("eq");
+    expr->_node_type = TExprNodeType::BINARY_PRED;
+    expr->add_child(ref);
+    expr->add_child(std::make_shared<MockLiteral>(
+            ColumnHelper::create_column_with_name<DataTypeInt32>({5})));
+    auto context = VExprContext::create_shared(expr);
+    context->_prepared = true;
+    context->_opened = true;
+    VExprSPtr remaining;
+    const auto status = local_state->_normalize_predicate(context.get(), expr, remaining);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(local_state->_slot_id_to_predicates[0].size(), 1);
+    EXPECT_EQ(remaining, expr);
+}
+
 } // namespace doris
