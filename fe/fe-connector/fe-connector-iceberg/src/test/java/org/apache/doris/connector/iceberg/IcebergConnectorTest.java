@@ -183,6 +183,14 @@ public class IcebergConnectorTest {
     }
 
     @Test
+    public void declaresVarbinaryColumnCapability() {
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertTrue(
+                connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VARBINARY_COLUMN),
+                "iceberg must declare SUPPORTS_VARBINARY_COLUMN so CREATE TABLE can map VARBINARY to BINARY");
+    }
+
+    @Test
     public void declaresColumnAutoAnalyzeAndTopNLazyMaterializeCapabilities() {
         // WHY: legacy IcebergExternalTable is in StatisticsUtil.supportAutoAnalyze's whitelist and is forced to
         // FULL analyze, and IcebergExternalTable.class is in MaterializeProbeVisitor's lazy-top-N supported set.

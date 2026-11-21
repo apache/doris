@@ -281,6 +281,15 @@ public enum ConnectorCapability {
      */
     SUPPORTS_SORT_ORDER,
     /**
+     * Indicates the connector accepts {@code VARBINARY} columns, top-level or nested, in {@code CREATE TABLE}.
+     *
+     * <p>fe-core rejects VARBINARY for every other target, because OLAP tables cannot store it. The connector
+     * owns the type mapping.</p>
+     *
+     * <p><b>Scope: catalog-wide only.</b> Like {@link #SUPPORTS_SORT_ORDER}, the table does not exist yet.</p>
+     */
+    SUPPORTS_VARBINARY_COLUMN,
+    /**
      * Indicates the connector supports {@code ALTER TABLE} column schema-change DDL, including
      * dotted nested paths (e.g. {@code ADD/DROP/RENAME/MODIFY COLUMN s.b}, {@code arr.element},
      * {@code m.value}) and {@code MODIFY COLUMN ... COMMENT}.

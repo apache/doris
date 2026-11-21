@@ -482,15 +482,18 @@ public class CreateTableInfo {
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName), "database name is null or empty");
 
         //check datatype: datev1, decimalv2
+        boolean allowVarbinary = columns.stream().anyMatch(c -> TypeCoercionUtils.hasVarBinaryType(c.getType()))
+                && targetSupportsVarbinaryColumn();
         for (ColumnDefinition columnDef : columns) {
             String columnNameUpperCase = columnDef.getName().toUpperCase();
             if (columnNameUpperCase.startsWith("__DORIS_")) {
                 throw new AnalysisException(
                         "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
             }
-            if (columnDef.getType().isVarBinaryType()) {
+            if (columnDef.getType().isVarBinaryType() && !allowVarbinary) {
                 throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");
             }
+            columnDef.setAllowVarbinary(allowVarbinary);
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
                 throw new AnalysisException(
                         "Disable to create table with `DATE` type columns, please use `DATEV2`.");
@@ -866,6 +869,14 @@ public class CreateTableInfo {
                 checkPartitionNullity(columns, partitionTableInfo);
             }
         }
+    }
+
+    // only called when a column has VARBINARY, because it initializes the catalog
+    private boolean targetSupportsVarbinaryColumn() {
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+        return catalog instanceof PluginDrivenExternalCatalog
+                && ((PluginDrivenExternalCatalog) catalog)
+                        .hasConnectorCapability(ConnectorCapability.SUPPORTS_VARBINARY_COLUMN);
     }
 
     /**

@@ -91,7 +91,7 @@ public final class IcebergSchemaBuilder {
      * @throws DorisConnectorException if a column type cannot be represented in Iceberg
      */
     public static Schema buildSchema(List<ConnectorColumn> columns) {
-        IdAllocator ids = new IdAllocator(columns.size());
+        IdAllocator ids = new IdAllocator(columns.size(), true);
         List<Types.NestedField> fields = new ArrayList<>(columns.size());
         for (int i = 0; i < columns.size(); i++) {
             ConnectorColumn col = columns.get(i);
@@ -152,6 +152,9 @@ public final class IcebergSchemaBuilder {
                 }
                 return Types.StructType.of(sub);
             }
+            case "VARBINARY":
+                // not FIXED(n): VARBINARY(n) is a maximum length, FIXED(n) an exact one
+                return ids.allowBinary ? Types.BinaryType.get() : IcebergTypeMapping.toIcebergPrimitive(type);
             default:
                 return IcebergTypeMapping.toIcebergPrimitive(type);
         }
@@ -472,9 +475,16 @@ public final class IcebergSchemaBuilder {
     /** Sequential Iceberg field-id allocator for nested fields (legacy {@code DorisTypeToIcebergType} scheme). */
     private static final class IdAllocator {
         private int next;
+        // false for ALTER, so MODIFY still resolves VARBINARY against the existing column
+        private final boolean allowBinary;
 
         IdAllocator(int start) {
+            this(start, false);
+        }
+
+        IdAllocator(int start, boolean allowBinary) {
             this.next = start;
+            this.allowBinary = allowBinary;
         }
 
         int next() {
