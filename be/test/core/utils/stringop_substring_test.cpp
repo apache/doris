@@ -157,36 +157,28 @@ TEST(StringOPTest, testPushValueStringReservedAndAllowOverFlow) {
     }
 }
 TEST(StringOPTest, testFastRepeat) {
-    const std::string src = "example";
-    {
-        int32_t repeat_times = 0;
-        // Allocate enough buffer (when repeat_times is 0, the size is 0)
-        std::vector<uint8_t> dst(src.size() * repeat_times);
-        StringOP::fast_repeat(dst.data(),
-                              static_cast<const uint8_t*>(static_cast<const void*>(src.data())),
-                              src.size(), repeat_times);
-        // dst length is 0, no content written
-        ASSERT_EQ(dst.size(), 0);
-    }
-
-    {
-        for (int32_t repeat_times = 1; repeat_times <= 10; ++repeat_times) {
-            std::vector<uint8_t> dst(src.size() * repeat_times);
-            StringOP::fast_repeat(dst.data(),
-                                  static_cast<const uint8_t*>(static_cast<const void*>(src.data())),
-                                  src.size(), repeat_times);
-
-            // Use std::string constructor with pointer to uint8_t for better safety
-            std::string result(static_cast<const char*>(static_cast<const void*>(dst.data())),
-                               dst.size());
-
-            std::string expected;
-            for (int i = 0; i < repeat_times; ++i) {
-                expected += src;
-            }
-            ASSERT_EQ(result, expected) << "Failed for repeat_times = " << repeat_times;
+    auto check_repeat = [](const std::string& src, int32_t repeat_count) {
+        std::string expected = "!";
+        for (int32_t i = 0; i < repeat_count; ++i) {
+            expected += src;
         }
+        expected += '!';
+
+        std::string result(expected.size(), '!');
+        StringOP::fast_repeat(reinterpret_cast<uint8_t*>(result.data() + 1),
+                              reinterpret_cast<const uint8_t*>(src.data()), src.size(),
+                              repeat_count);
+        EXPECT_EQ(result, expected) << "Source size " << src.size() << ", count " << repeat_count;
+    };
+
+    for (int32_t repeat_count = -1; repeat_count <= 10; ++repeat_count) {
+        check_repeat("example", repeat_count);
     }
+    check_repeat("", 100);
+    check_repeat("z", 20000);
+    check_repeat("abcd", 8193);
+    check_repeat(std::string("a\0b", 3), 30001);
+    check_repeat(std::string(16 * 1024, 'x') + 'y', 3);
 }
 
 TEST(StringOPTest, testSubstringExecute) {
