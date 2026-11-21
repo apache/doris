@@ -2137,6 +2137,12 @@ DECLARE_mBool(enable_cloud_make_rs_visible_on_be);
 DECLARE_mBool(enable_cloud_random_segment_id);
 DECLARE_mInt32(file_handles_deplenish_frequency_times);
 
+// Number of samples retained explicitly before switching to T-Digest.
+DECLARE_Int32(quantile_state_explicit_num);
+
+// Minimum compression used by a default QuantileState and accepted when deserializing it.
+DECLARE_Int32(quantile_state_compression_min);
+
 #ifdef BE_TEST
 DECLARE_String(test_s3_ak);
 DECLARE_String(test_s3_sk);
