@@ -378,7 +378,6 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                         column_ptr->size(), rows,
                         local_state->_projections[i]->root()->debug_string());
             }
-            column_ptr = column_ptr->convert_to_full_column_if_const();
             if (is_column_nullable(*mutable_columns[i]) && !is_column_nullable(*column_ptr)) {
                 column_ptr = make_nullable(column_ptr, false);
             }
