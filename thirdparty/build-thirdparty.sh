@@ -2515,6 +2515,10 @@ install_paimon_rust() {
 
 build_lance_c() {
     check_if_source_exist "${LANCE_C_SOURCE}"
+    check_if_source_exist "${LANCE_NATIVE_SOURCE}"
+    check_if_source_exist "${LANCE_DF_RUNTIME_SOURCE}"
+    check_if_source_exist "${LANCE_FST_SOURCE}"
+    check_if_source_exist "${LANCE_ARROW_SELECT_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
 
     rm -rf "${BUILD_DIR}"
@@ -2583,6 +2587,19 @@ build_lance_c() {
         cargo_args+=(--offline)
     fi
     env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
+
+    # Replay pinned sources and exercise allocation, task and escaped-buffer
+    # ownership before CI publishes the ABI consumed by the BE.
+    if [[ "${LANCE_C_RUN_MEMORY_TESTS:-OFF}" == "ON" ]]; then
+        if command -v rustup >/dev/null 2>&1; then
+            env "${cargo_env[@]}" rustup component add rustfmt clippy
+        fi
+        env "${cargo_env[@]}" "CARGO=${cargo_bin}" \
+            bash "${TP_DIR}/test/lance-native-memory-test.sh" \
+            "${TP_SOURCE_DIR}/${LANCE_NATIVE_NAME}" "${TP_SOURCE_DIR}/${LANCE_C_NAME}" \
+            "${TP_SOURCE_DIR}/${LANCE_DF_RUNTIME_NAME}" "${TP_SOURCE_DIR}/${LANCE_FST_NAME}" \
+            "${TP_SOURCE_DIR}/${LANCE_ARROW_SELECT_NAME}"
+    fi
 
     mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
     rm -rf "${TP_INSTALL_DIR}/include/lance"

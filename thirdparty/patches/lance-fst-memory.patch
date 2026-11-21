@@ -1,0 +1,90 @@
+diff --git a/src/map.rs b/src/map.rs
+index d2121e0e8ea5906c6b304c84b72569b5cab3564c..112047733640144e6ea9c13f930177f6e7e308ca 100644
+--- a/src/map.rs
++++ b/src/map.rs
+@@ -629,6 +629,17 @@ impl<W: io::Write> MapBuilder<W> {
+         raw::Builder::new_type(wtr, 0).map(MapBuilder)
+     }
+ 
++    /// Construct with an explicit bounded node registry. Zero disables registry
++    /// reuse; a small registry preserves key/value results with less compression.
++    pub fn with_registry_capacity(
++        wtr: W,
++        table_size: usize,
++        mru_size: usize,
++    ) -> Result<MapBuilder<W>> {
++        raw::Builder::with_registry_capacity(wtr, 0, table_size, mru_size)
++            .map(MapBuilder)
++    }
++
+     /// Insert a new key-value pair into the map.
+     ///
+     /// Keys must be convertible to byte strings. Values must be a `u64`, which
+@@ -1269,3 +1280,30 @@ where
+         self.0.next().map(|(k, v)| (k, raw::Output::new(v)))
+     }
+ }
++
++#[cfg(test)]
++mod bounded_registry_tests {
++    use super::*;
++    #[test]
++    fn small_and_disabled_registries_preserve_keys_and_values() {
++        let entries =
++            [("alpha", 11), ("alphabet", 12), ("beta", 23), ("gamma", 34)];
++        for (table_size, mru_size) in [(0, 0), (1, 2), (10_000, 2)] {
++            let mut builder = MapBuilder::with_registry_capacity(
++                Vec::new(),
++                table_size,
++                mru_size,
++            )
++            .unwrap();
++            for (key, value) in entries {
++                builder.insert(key, value).unwrap();
++            }
++            let map = Map::new(builder.into_inner().unwrap()).unwrap();
++            assert_eq!(map.len(), entries.len());
++            for (key, value) in entries {
++                assert_eq!(map.get(key), Some(value));
++            }
++            assert_eq!(map.get("absent"), None);
++        }
++    }
++}
+diff --git a/src/raw/build.rs b/src/raw/build.rs
+index e93626b2738ab3ff3ca8f3a113f83f34067c2f08..961e288ccf5fab7486a63372394c1fc3a60544dc 100644
+--- a/src/raw/build.rs
++++ b/src/raw/build.rs
+@@ -120,6 +120,23 @@ impl<W: io::Write> Builder<W> {
+     /// The same as `new`, except it sets the type of the fst to the type
+     /// given.
+     pub fn new_type(wtr: W, ty: FstType) -> Result<Builder<W>> {
++        Self::with_registry_capacity(wtr, ty, 10_000, 2)
++    }
++
++    /// Construct with an explicit bounded registry. A smaller registry changes
++    /// compression opportunities, never the accepted keys or their outputs.
++    pub fn with_registry_capacity(
++        wtr: W,
++        ty: FstType,
++        table_size: usize,
++        mru_size: usize,
++    ) -> Result<Builder<W>> {
++        table_size.checked_mul(mru_size).ok_or_else(|| {
++            io::Error::new(
++                io::ErrorKind::InvalidInput,
++                "FST registry capacity overflow",
++            )
++        })?;
+         let mut wtr = CountingWriter::new(wtr);
+         // Don't allow any nodes to have address 0-7. We use these to encode
+         // the API version. We also use addresses `0` and `1` as special
+@@ -130,7 +147,7 @@ impl<W: io::Write> Builder<W> {
+         Ok(Builder {
+             wtr,
+             unfinished: UnfinishedNodes::new(),
+-            registry: Registry::new(10_000, 2),
++            registry: Registry::new(table_size, mru_size),
+             last: None,
+             last_addr: NONE_ADDRESS,
+             len: 0,
