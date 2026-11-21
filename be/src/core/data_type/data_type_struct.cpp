@@ -127,6 +127,16 @@ Status DataTypeStruct::check_column(const IColumn& column) const {
     return Status::OK();
 }
 
+Status DataTypeStruct::check_column_value(const IColumn& column, size_t row_num) const {
+    const auto* column_struct = check_and_get_column_with_const<ColumnStruct>(column);
+    DCHECK(column_struct != nullptr);
+    const size_t actual_row = is_column_const(column) ? 0 : row_num;
+    for (size_t i = 0; i < elems.size(); ++i) {
+        RETURN_IF_ERROR(elems[i]->check_column_value(column_struct->get_column(i), actual_row));
+    }
+    return Status::OK();
+}
+
 bool DataTypeStruct::equals(const IDataType& rhs) const {
     if (typeid(rhs) != typeid(*this)) {
         return false;
