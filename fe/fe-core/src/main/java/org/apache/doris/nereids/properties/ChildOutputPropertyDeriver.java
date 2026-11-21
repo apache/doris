@@ -109,6 +109,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             DistributionSpec firstChildSpec = childrenOutputProperties.get(0).getDistributionSpec();
             if (firstChildSpec instanceof DistributionSpecHash) {
                 return PhysicalProperties.createAnyFromHash((DistributionSpecHash) firstChildSpec);
+            } else if (firstChildSpec instanceof DistributionSpecStorageGather) {
+                // Losing singleton information must not lose the storage-location constraint.
+                return PhysicalProperties.STORAGE_ANY;
             } else {
                 return PhysicalProperties.ANY;
             }
@@ -590,7 +593,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitAbstractPhysicalSort(AbstractPhysicalSort<? extends Plan> sort,
             PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
-        if (sort.getSortPhase().isLocal()) {
+        if (sort.getSortPhase().isLocal()
+                || childrenOutputProperties.get(0).getDistributionSpec() instanceof DistributionSpecStorageGather) {
             return new PhysicalProperties(
                     childrenOutputProperties.get(0).getDistributionSpec(),
                     new OrderSpec(sort.getOrderKeys()));
