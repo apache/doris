@@ -229,6 +229,46 @@ class LanceRestCatalogTest {
         }
     }
 
+    /**
+     * A described table access serves the later statements until its TTL runs out or a refresh: REFRESH TABLE and
+     * REFRESH DATABASE describe the table again, and so does the new generation REFRESH CATALOG opens. With a TTL
+     * of 0 every statement describes it.
+     */
+    @Test
+    void describedAccessServesLaterStatementsUntilARefresh() throws IOException {
+        datasetUri = LanceNativeTestSupport.copyDataset(LanceNativeTestSupport.VERSIONED_ALL_TYPES, warehouse)
+                .toUri().toString();
+        LanceConnector connector = open(rest(restUri));
+        try {
+            Assertions.assertEquals(3, newestVersion(connector));
+            Assertions.assertEquals(3, newestVersion(connector));
+            Assertions.assertEquals(1, describes());
+            connector.invalidateTable("default", "all_types");
+            newestVersion(connector);
+            Assertions.assertEquals(2, describes());
+            connector.invalidateDb("default");
+            newestVersion(connector);
+            Assertions.assertEquals(3, describes());
+            connector.invalidateAll();
+            Assertions.assertEquals(3, newestVersion(connector));
+            Assertions.assertEquals(4, describes());
+        } finally {
+            connector.close();
+        }
+
+        requests.clear();
+        Map<String, String> uncached = rest(restUri);
+        uncached.put(LanceCatalogProperties.TABLE_ACCESS_CACHE_TTL_SECONDS, "0");
+        LanceConnector everyRead = open(uncached);
+        try {
+            newestVersion(everyRead);
+            newestVersion(everyRead);
+            Assertions.assertEquals(2, describes());
+        } finally {
+            everyRead.close();
+        }
+    }
+
     /** U4: until Doris reads the versions a namespace records, such a table is refused, not read at random. */
     @Test
     void tablesWhoseVersionsTheNamespaceManagesAreRefused() {
@@ -248,6 +288,17 @@ class LanceRestCatalogTest {
         } finally {
             connector.close();
         }
+    }
+
+    /** The newest version a new statement pins. */
+    private static long newestVersion(LanceConnector connector) {
+        LanceTestSession session = new LanceTestSession();
+        return connector.getMetadata(session).beginQuerySnapshot(session, new LanceTableHandle("default", "all_types"))
+                .get().getSnapshotId();
+    }
+
+    private long describes() {
+        return requests.stream().filter(request -> request.path.endsWith("/describe")).count();
     }
 
     private static Map<String, String> rest(String uri) {

@@ -70,6 +70,25 @@ class LanceCatalogPropertiesTest {
         Assertions.assertEquals(Collections.emptyList(), properties.secretValues());
     }
 
+    /** The table-access cache TTL (4.2's key and rules): 60 seconds by default, 0 disables it, never negative. */
+    @Test
+    void tableAccessCacheTtlDefaultsToAMinuteAndMayBeDisabled() {
+        Assertions.assertEquals(60, LanceCatalogProperties.of(filesystem("/tmp/lance")).getTableAccessCacheTtlSeconds());
+        for (Map<String, String> catalog : Arrays.asList(filesystem("/tmp/lance"), rest())) {
+            for (String ttl : new String[] {"0", "120", " 5 "}) {
+                catalog.put(LanceCatalogProperties.TABLE_ACCESS_CACHE_TTL_SECONDS, ttl);
+                Assertions.assertEquals(Integer.parseInt(ttl.trim()),
+                        LanceCatalogProperties.of(catalog).getTableAccessCacheTtlSeconds());
+            }
+            catalog.put(LanceCatalogProperties.TABLE_ACCESS_CACHE_TTL_SECONDS, "-1");
+            Assertions.assertEquals("Property 'lance.table_access_cache_ttl_seconds' must be non-negative",
+                    rejection(catalog));
+            catalog.put(LanceCatalogProperties.TABLE_ACCESS_CACHE_TTL_SECONDS, "a minute");
+            Assertions.assertTrue(rejection(catalog).startsWith(
+                    "Failed to set property 'lance.table_access_cache_ttl_seconds'"), rejection(catalog));
+        }
+    }
+
     /** The maps 4.1.x persisted for its Lance catalogs (fe-core's upgrade/415 fixture) still bind unchanged. */
     @Test
     void catalogsWrittenByEarlierVersionsStillBind() {

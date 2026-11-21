@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.lance;
 
+import org.apache.doris.connector.lance.LanceMetadataMetrics.Stage;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lance.Dataset;
@@ -32,6 +34,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
+import java.util.function.Supplier;
 
 /**
  * The top-level field ids and the user indexes of one fixed dataset version.
@@ -63,11 +66,23 @@ final class LanceIndexMetadata {
         return new LanceIndexMetadata(false, Collections.emptyMap(), indexSegments);
     }
 
-    /** Reads the field ids and the index segments of the caller's open snapshot. */
-    static LanceIndexMetadata read(Dataset dataset) {
-        Map<String, Integer> lanceFieldIds = loadTopLevelFieldIds(dataset);
+    /** Reads the field ids and the index segments of the caller's open snapshot, timing each into {@code timer}. */
+    static LanceIndexMetadata read(Dataset dataset, LanceMetadataMetrics.Timer timer) {
+        return read(dataset::getLanceSchema, () -> LanceDatasetIndexDiscovery.describeUserIndexes(dataset),
+                dataset.version(), timer);
+    }
+
+    /**
+     * {@link #read(Dataset, LanceMetadataMetrics.Timer)} over the two SDK reads it makes: the Lance schema, and the
+     * validated user indexes.
+     */
+    static LanceIndexMetadata read(Supplier<LanceSchema> lanceSchema, Supplier<List<IndexDescription>> userIndexes,
+            long version, LanceMetadataMetrics.Timer timer) {
+        Map<String, Integer> lanceFieldIds = timer.measure(Stage.FIELD_IDS,
+                () -> loadTopLevelFieldIds(lanceSchema, version));
         // Keep index validation even when the known schema conversion error disables field-ID mapping.
-        List<LanceIndexSegmentInfo> indexSegments = loadIndexSegments(dataset);
+        List<LanceIndexSegmentInfo> indexSegments = timer.measure(Stage.INDEXES,
+                () -> loadIndexSegments(userIndexes.get()));
         return lanceFieldIds == null
                 ? withUnavailableFieldIds(indexSegments)
                 : new LanceIndexMetadata(lanceFieldIds, indexSegments);
@@ -87,10 +102,10 @@ final class LanceIndexMetadata {
         return fieldId == null ? OptionalInt.empty() : OptionalInt.of(fieldId);
     }
 
-    private static Map<String, Integer> loadTopLevelFieldIds(Dataset dataset) {
+    private static Map<String, Integer> loadTopLevelFieldIds(Supplier<LanceSchema> lanceSchema, long version) {
         LanceSchema schema;
         try {
-            schema = dataset.getLanceSchema();
+            schema = lanceSchema.get();
         } catch (IllegalArgumentException e) {
             if (!"ArrowSchema conversion error".equals(e.getMessage())) {
                 throw e;
@@ -101,7 +116,7 @@ final class LanceIndexMetadata {
             // the SDK call: invalid ids and duplicate names below must remain errors.
             LOG.warn("Lance SDK schema conversion failed at dataset version {}; "
                     + "disabling FE scalar index segment planning for this snapshot: {}",
-                    dataset.version(), e.getMessage());
+                    version, e.getMessage());
             return null;
         }
         Map<String, Integer> result = new LinkedHashMap<>();
@@ -118,9 +133,9 @@ final class LanceIndexMetadata {
         return result;
     }
 
-    private static List<LanceIndexSegmentInfo> loadIndexSegments(Dataset dataset) {
+    private static List<LanceIndexSegmentInfo> loadIndexSegments(List<IndexDescription> userIndexes) {
         List<LanceIndexSegmentInfo> result = new ArrayList<>();
-        for (IndexDescription description : LanceDatasetIndexDiscovery.describeUserIndexes(dataset)) {
+        for (IndexDescription description : userIndexes) {
             for (Index segment : description.getSegments()) {
                 if (segment.indexType() == null) {
                     continue;
