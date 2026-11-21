@@ -19,11 +19,25 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergRowId;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TStatusCode;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
+
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Unit tests for IcebergDeleteCommand.
@@ -87,5 +101,84 @@ public class IcebergDeleteCommandTest {
 
         Assertions.assertEquals("expected", exception.getMessage());
         Assertions.assertFalse(ctx.getSessionVariable().enableExternalTableBatchMode);
+    }
+
+    @Test
+    public void deleteCapturesThePreRewriteAnalyzedPlanLocally() {
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+        AtomicReference<Plan> captured = new AtomicReference<>();
+
+        IcebergDeleteCommand.captureAnalyzedPlan(ctx, captured);
+
+        ArgumentCaptor<PlannerHook> captor = ArgumentCaptor.forClass(PlannerHook.class);
+        Mockito.verify(statementContext).addPlannerHook(captor.capture());
+        NereidsPlanner planner = Mockito.mock(NereidsPlanner.class);
+        CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
+        Plan analyzed = Mockito.mock(Plan.class);
+        Mockito.when(planner.getCascadesContext()).thenReturn(cascadesContext);
+        Mockito.when(cascadesContext.getRewritePlan()).thenReturn(analyzed);
+
+        captor.getValue().afterAnalyze(planner);
+
+        Assertions.assertSame(analyzed, captured.get());
+        Mockito.verify(planner, Mockito.never()).setAnalyzedPlan(Mockito.any());
+    }
+
+    @Test
+    public void retainedCancellationIsReplayedBeforeMetadataDelete() {
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getPendingCancelReason())
+                .thenReturn(new Status(TStatusCode.CANCELLED, "query was killed"));
+
+        UserException exception = Assertions.assertThrows(
+                UserException.class, () -> IcebergDeleteCommand.throwIfCancelled(
+                        executor, Mockito.mock(ConnectContext.class)));
+
+        Assertions.assertTrue(exception.getMessage().contains("query was killed"));
+    }
+
+    @Test
+    public void rowLevelFallbackReplaysCancellationBeforeCoordinatorPublication() {
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Status reason = new Status(TStatusCode.CANCELLED, "cancelled during metadata planning");
+        Mockito.when(executor.getPendingCancelReason()).thenReturn(reason);
+
+        IcebergDeleteCommand.publishDeleteCoordinator(executor, coordinator);
+
+        org.mockito.InOrder handoff = Mockito.inOrder(executor, coordinator);
+        handoff.verify(executor).setCoord(coordinator);
+        handoff.verify(executor).getPendingCancelReason();
+        handoff.verify(coordinator).cancel(reason);
+    }
+
+    @Test
+    public void rowLevelFallbackObservesCancellationDuringCoordinatorPublication() {
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Status reason = new Status(TStatusCode.CANCELLED, "cancelled during coordinator handoff");
+        AtomicReference<Status> pending = new AtomicReference<>();
+        Mockito.doAnswer(invocation -> {
+            pending.set(reason);
+            return null;
+        }).when(executor).setCoord(coordinator);
+        Mockito.when(executor.getPendingCancelReason()).thenAnswer(invocation -> pending.get());
+
+        IcebergDeleteCommand.publishDeleteCoordinator(executor, coordinator);
+
+        Mockito.verify(coordinator).cancel(reason);
+    }
+
+    @Test
+    public void rowLevelFallbackPublishesWithoutCancellation() {
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+
+        IcebergDeleteCommand.publishDeleteCoordinator(executor, coordinator);
+
+        Mockito.verify(executor).setCoord(coordinator);
+        Mockito.verifyNoInteractions(coordinator);
     }
 }

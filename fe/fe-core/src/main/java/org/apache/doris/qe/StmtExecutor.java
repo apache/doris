@@ -165,6 +165,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -194,6 +195,8 @@ public class StmtExecutor {
 
     @Setter
     private volatile Coordinator coord = null;
+    // A statement can be cancelled while it is still planning and has no coordinator yet.
+    private final AtomicReference<Status> pendingCoordinatorCancelReason = new AtomicReference<>();
     // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
     // is skipped.
@@ -1229,6 +1232,7 @@ public class StmtExecutor {
 
     // Because this is called by other thread
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
+        pendingCoordinatorCancelReason.compareAndSet(null, cancelReason);
         if (masterOpExecutor != null) {
             try {
                 masterOpExecutor.cancel();
@@ -1257,6 +1261,11 @@ public class StmtExecutor {
 
     public void cancel(Status cancelReason) {
         cancel(cancelReason, true);
+    }
+
+    /** The first terminal status delivered to this executor, or null when it has not been cancelled. */
+    public Status getPendingCancelReason() {
+        return pendingCoordinatorCancelReason.get();
     }
 
     private Optional<InsertOverwriteTableCommand> getInsertOverwriteTableCommand() {

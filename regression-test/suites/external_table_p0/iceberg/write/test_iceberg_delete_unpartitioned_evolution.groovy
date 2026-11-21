@@ -107,7 +107,9 @@ suite("test_iceberg_delete_unpartitioned_evolution",
         select record_key, metric from demo.${dbName}.mixed_partition_specs
         where record_key not in (1, 3) order by record_key
     """
-    sql """delete from mixed_partition_specs where record_key in (1, 3)"""
+    // This case checks row-level delete-file specs. A negated comparison keeps it on the
+    // metadata-delete fallback path; all fixture metrics are positive.
+    sql """delete from mixed_partition_specs where record_key in (1, 3) and metric <> -1"""
     checkRows("mixed_partition_specs", expectedAfterMixedDelete)
     assertEquals(mixedSpecs, sql("""
         select distinct spec_id from mixed_partition_specs\$delete_files order by spec_id
