@@ -61,8 +61,12 @@ Status CloudFullCompaction::prepare_compact() {
         return st;
     }
 
-    // always sync latest rowset for full compaction
-    st = cloud_tablet()->sync_rowsets();
+    // A manual full compaction can cold-load all changelog rowsets without their delete
+    // bitmaps. An incremental sync then returns no rowsets and cannot restore the filters
+    // for invalid events, so fetch all input bitmaps before merging changelog rowsets.
+    SyncOptions options;
+    options.full_sync = _tablet->is_changelog_tablet();
+    st = cloud_tablet()->sync_rowsets(options);
     RETURN_IF_ERROR(st);
 
     st = pick_rowsets_to_compact();
