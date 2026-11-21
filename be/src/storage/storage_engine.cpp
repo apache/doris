@@ -321,6 +321,26 @@ Status StorageEngine::_open() {
     auto dirs = get_stores();
     RETURN_IF_ERROR(load_data_dirs(dirs));
 
+    // Rebuild the history coverage requirement from recovered shadow rowsets before publishing starts.
+    _tablet_manager->for_each_tablet([](const TabletSharedPtr& tablet) {
+        if (tablet->keys_type() != KeysType::UNIQUE_KEYS ||
+            !tablet->enable_unique_key_merge_on_write()) {
+            return;
+        }
+        std::lock_guard wrlock(tablet->get_header_lock());
+        if (tablet->tablet_state() != TABLET_NOTREADY || tablet->tablet_meta()->in_restore_mode()) {
+            return;
+        }
+        int64_t max_version = tablet->max_version_unlocked();
+        if (max_version > 0) {
+            auto missing_versions = tablet->get_missed_versions_unlocked(max_version);
+            if (!missing_versions.empty()) {
+                tablet->update_schema_change_max_missing_version_unlocked(
+                        missing_versions.back().second);
+            }
+        }
+    });
+
     _disk_num = cast_set<int>(dirs.size());
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
     _memtable_flush_executor->init(_disk_num);
