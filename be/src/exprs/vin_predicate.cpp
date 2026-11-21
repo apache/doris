@@ -148,7 +148,6 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
         _zonemap_min_max == nullptr) {
         _prepare_zonemap_min_max(context);
     }
-    _open_finished = true;
     return Status::OK();
 }
 
@@ -315,7 +314,6 @@ Status VInPredicate::execute_column_impl(VExprContext* context, const Block* blo
     if (fast_execute(context, selector, count, result_column)) {
         return Status::OK();
     }
-    DCHECK(_open_finished || block == nullptr);
 
     // This is an optimization. For expressions like colA IN (1, 2, 3, 4),
     // where all values inside the IN clause are constants,

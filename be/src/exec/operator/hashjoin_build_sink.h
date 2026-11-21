@@ -87,6 +87,7 @@ protected:
      */
     bool _build_side_has_external_nullmap = false;
     std::vector<int> _build_col_ids;
+    bool _should_keep_hash_key_column = false;
     int _asof_build_col_id = -1;
     std::shared_ptr<CountedFinishDependency> _finish_dependency;
 
@@ -193,7 +194,6 @@ private:
 
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _should_keep_column_flags;
-    bool _should_keep_hash_key_column = false;
 
     // ASOF JOIN: build-side expression extracted from MATCH_CONDITION's right child
     // Prepared against build child's row_desc directly (no intermediate tuple needed)

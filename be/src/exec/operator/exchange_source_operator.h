@@ -110,7 +110,6 @@ public:
 
     std::string debug_string(int indentation_level = 0) const override;
 
-    Status close(RuntimeState* state) override;
     [[nodiscard]] bool is_source() const override { return true; }
 
     [[nodiscard]] int num_senders() const { return _num_senders; }

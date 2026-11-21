@@ -161,7 +161,6 @@ Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
     if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
-    _open_finished = true;
     return Status::OK();
 }
 
@@ -185,7 +184,6 @@ const std::string& VMatchPredicate::get_analyzer_key() const {
 Status VMatchPredicate::execute_column_impl(VExprContext* context, const Block* block,
                                             const Selector* selector, size_t count,
                                             ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr);
     if (fast_execute(context, selector, count, result_column)) {
         return Status::OK();
     }

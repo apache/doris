@@ -365,7 +365,6 @@ Status VectorizedFnCall::open(RuntimeState* state, VExprContext* context,
     if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
-    _open_finished = true;
     return Status::OK();
 }
 
@@ -440,7 +439,6 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
             }
         }
     })
-    DCHECK(_open_finished || block == nullptr) << debug_string();
 
     Block temp_block;
     ColumnNumbers args(_children.size());

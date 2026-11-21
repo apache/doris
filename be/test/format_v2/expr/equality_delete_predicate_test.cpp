@@ -79,7 +79,6 @@ protected:
                                                     Block* data_block, int* result_column_id) {
         auto predicate =
                 std::make_shared<EqualityDeletePredicate>(std::move(delete_block), field_ids);
-        predicate->_open_finished = true;
         for (size_t idx = 0; idx < field_ids.size(); ++idx) {
             predicate->add_child(
                     std::make_shared<MockSlotRef>(idx, data_block->get_by_position(idx).type));
@@ -123,7 +122,6 @@ TEST_F(EqualityDeletePredicateTest, UsesPopulatedPredicateColumnForLazyBatchSize
 
     auto predicate = std::make_shared<EqualityDeletePredicate>(std::move(delete_block),
                                                                std::vector<int> {1});
-    predicate->_open_finished = true;
     predicate->add_child(std::make_shared<MockSlotRef>(1, data_block.get_by_position(1).type));
     VExprContext context(predicate);
 
@@ -269,7 +267,6 @@ TEST_F(EqualityDeletePredicateTest, ChildCountMismatchReturnsError) {
     delete_block.insert(make_nullable_int_column("id", {1}));
     auto predicate = std::make_shared<EqualityDeletePredicate>(std::move(delete_block),
                                                                std::vector<int> {1});
-    predicate->_open_finished = true;
     Block data_block;
     data_block.insert(make_nullable_int_column("id", {1}));
     VExprContext context(predicate);
