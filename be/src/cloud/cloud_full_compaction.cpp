@@ -87,6 +87,7 @@ Status CloudFullCompaction::prepare_compact() {
     return Status::OK();
 }
 Status CloudFullCompaction::request_global_lock() {
+    RETURN_IF_ERROR(snapshot_sequence_retention());
     // prepare compaction job
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
@@ -350,6 +351,14 @@ void CloudFullCompaction::do_lease() {
 
 Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t initiator) {
     DCHECK(_output_rowset->start_version() <= 2) << _output_rowset->start_version();
+    if (_sequence_retention_enabled) {
+        DeleteBitmapPtr output_bitmap;
+        int64_t lock_start_time = 0;
+        return cloud_tablet()->calc_delete_bitmap_for_compaction(
+                _input_rowsets, _output_rowset, *_rowid_conversion, compaction_type(),
+                _stats.merged_rows, _stats.filtered_rows, initiator, output_bitmap,
+                _allow_delete_in_cumu_compaction, lock_start_time);
+    }
     std::vector<RowsetSharedPtr> tmp_rowsets {};
     DeleteBitmapPtr delete_bitmap =
             std::make_shared<DeleteBitmap>(_tablet->tablet_meta()->tablet_id());

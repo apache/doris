@@ -103,6 +103,7 @@ message PTabletWithPartition {
     required int64 tablet_id = 2;
     // ATTN(changelog-rename): formerly "binlog_tablet_id"
     optional int64 changelog_tablet_id = 3;
+    optional int64 sequence_retention_plan_version = 5;
 }
 
 message PRandomBucketPartitionParam {
@@ -157,6 +158,7 @@ message PTabletWriterOpenRequest {
     optional int64 workload_group_id = 20;
     optional bool is_adaptive_random_bucket = 21 [default = false];
     repeated PRandomBucketPartitionParam random_bucket_partitions = 22;
+    optional int64 sequence_retention_gap = 23;
 };
 
 message PTabletWriterOpenResult {

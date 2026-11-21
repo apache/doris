@@ -51,6 +51,7 @@
 #include "storage/delete/delete_bitmap_calculator.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/iterators.h"
+#include "storage/mow/sequence_retention_finalize.h"
 #include "storage/partial_update_info.h"
 #include "storage/rowid_conversion.h"
 #include "storage/rowset/beta_rowset.h"
@@ -61,6 +62,7 @@
 #include "storage/rowset/rowset_reader.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/column_reader.h"
+#include "storage/sequence_retention.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/txn/txn_manager.h"
 #include "util/bvar_helper.h"
@@ -561,15 +563,18 @@ Status BaseTablet::_lookup_row_data(
 }
 
 // NOLINTNEXTLINE(readability-function-size): Keep the existing rowset lookup flow together.
-Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema,
-                                  bool with_seq_col,
-                                  const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                  RowLocation* row_location, int64_t version,
-                                  std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                                  RowsetSharedPtr* rowset, bool with_rowid,
-                                  std::string* encoded_seq_value, OlapReaderStatistics* stats,
-                                  DeleteBitmapPtr delete_bitmap, const io::IOContext* io_ctx,
-                                  segment_v2::SegmentSharedPtr* segment) {
+Status BaseTablet::lookup_row_key(
+        const Slice& encoded_key, TabletSchema* latest_schema, bool with_seq_col,
+        const std::vector<RowsetSharedPtr>& specified_rowsets, RowLocation* row_location,
+        int64_t version, std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+        RowsetSharedPtr* rowset, bool with_rowid, std::string* encoded_seq_value,
+        OlapReaderStatistics* stats, DeleteBitmapPtr delete_bitmap, const io::IOContext* io_ctx,
+        segment_v2::SegmentSharedPtr* segment, const SequenceRetentionContext* sequence_retention,
+        bool* expired_delete_sign, const RowsetIdUnorderedSet* in_transaction_rowsets,
+        const DeleteBitmap* pending_delete_bitmap) {
+    if (expired_delete_sign != nullptr) {
+        *expired_delete_sign = false;
+    }
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
     // use the latest tablet schema to decide if the tablet has sequence column currently
@@ -606,6 +611,12 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         }
         std::vector<uint32_t> picked_segments;
         for (int j = num_segments - 1; j >= 0; j--) {
+            if (rs->rowset_meta()->sequence_retention_input().raw_partial_update() &&
+                j < rs->rowset_meta()->sequence_retention_input().original_segment_count()) {
+                // These segments deliberately have no PK index. Only final derived segments
+                // can participate in lookup, including before this rowset becomes visible.
+                continue;
+            }
             if (_key_is_not_in_segment(key_without_seq, segments_key_bounds[j],
                                        rs->rowset_meta()->is_segments_key_bounds_truncated())) {
                 continue;
@@ -634,8 +645,16 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             if (!s.ok() && !s.is<KEY_ALREADY_EXISTS>()) {
                 return s;
             }
-            if (s.ok() && tablet_delete_bitmap->contains_agg_with_cache_if_eligible(
-                                  {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
+            // Legacy sequence maxima are monotone; retention allows 100(delete) -> 80(live).
+            // The old 100 must therefore be excluded by its bitmap even when 90 loses to it.
+            bool respect_sequence_loser_bitmap = sequence_retention != nullptr;
+            if ((s.ok() || respect_sequence_loser_bitmap) &&
+                (tablet_delete_bitmap->contains_agg_with_cache_if_eligible(
+                         {loc.rowset_id, loc.segment_id, version}, loc.row_id) ||
+                 (pending_delete_bitmap != nullptr &&
+                  pending_delete_bitmap->contains(
+                          {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                          loc.row_id)))) {
                 // if has sequence col, we continue to compare the sequence_id of
                 // all rowsets, util we find an existing key.
                 if (schema->has_sequence_col()) {
@@ -643,6 +662,42 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
                 }
                 // The key is deleted, we don't need to search for it any more.
                 break;
+            }
+            bool from_same_transaction = in_transaction_rowsets != nullptr &&
+                                         in_transaction_rowsets->contains(rs->rowset_id());
+            if (respect_sequence_loser_bitmap && !from_same_transaction &&
+                (s.is<KEY_ALREADY_EXISTS>() || expired_delete_sign != nullptr)) {
+                // A singleton's version is authoritative even though its segment stores 0.
+                // A compacted range must retain each row's original VERSION instead.
+                const auto& old_schema = *rs->tablet_schema();
+                std::vector<uint32_t> cids {static_cast<uint32_t>(old_schema.delete_sign_idx())};
+                MutableColumns columns;
+                columns.push_back(ColumnInt8::create());
+                int64_t original_version = rs->start_version();
+                if (rs->start_version() != rs->end_version()) {
+                    if (old_schema.version_col_idx() < 0) {
+                        return Status::InternalError(
+                                "sequence retention rowset {} has no original VERSION",
+                                rs->rowset_id().to_string());
+                    }
+                    cids.push_back(static_cast<uint32_t>(old_schema.version_col_idx()));
+                    columns.push_back(ColumnInt64::create());
+                }
+                RETURN_IF_ERROR(fetch_values_by_rowids(rs, old_schema, loc.segment_id, {loc.row_id},
+                                                       cids, columns));
+                bool is_delete = assert_cast<const ColumnInt8&>(*columns[0]).get_data()[0] != 0;
+                if (columns.size() == 2) {
+                    original_version = assert_cast<const ColumnInt64&>(*columns[1]).get_data()[0];
+                }
+                const bool expired =
+                        is_delete &&
+                        DORIS_TRY(sequence_retention->expired_delete(original_version));
+                if (expired) {
+                    s = Status::OK();
+                    if (expired_delete_sign != nullptr) {
+                        *expired_delete_sign = true;
+                    }
+                }
             }
             // `st` is either OK or KEY_ALREADY_EXISTS now.
             // for partial update, even if the key is already exists, we still need to
@@ -669,13 +724,15 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
 // user can get all delete bitmaps from that token.
 // if `token` is nullptr, the calculation will run in local, and user can get the result
 // delete bitmap from `delete_bitmap` directly.
-Status BaseTablet::calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
-                                      const std::vector<segment_v2::SegmentSharedPtr>& segments,
-                                      const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                      DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                      CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
-                                      DeleteBitmapPtr tablet_delete_bitmap) {
-    if (specified_rowsets.empty() || segments.empty()) {
+Status BaseTablet::calc_delete_bitmap(
+        const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
+        const std::vector<segment_v2::SegmentSharedPtr>& segments,
+        const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
+        int64_t end_version, CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
+        DeleteBitmapPtr tablet_delete_bitmap,
+        std::shared_ptr<const SequenceRetentionBitmapOptions> retention) {
+    if (segments.empty() ||
+        (specified_rowsets.empty() && (retention == nullptr || !retention->invalidate_row_cache))) {
         return Status::OK();
     }
 
@@ -684,24 +741,23 @@ Status BaseTablet::calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetShared
         const auto& seg = segment;
         if (token != nullptr) {
             RETURN_IF_ERROR(token->submit(tablet, rowset, seg, specified_rowsets, end_version,
-                                          delete_bitmap, rowset_writer, tablet_delete_bitmap));
+                                          delete_bitmap, rowset_writer, tablet_delete_bitmap,
+                                          retention));
         } else {
             RETURN_IF_ERROR(tablet->calc_segment_delete_bitmap(
                     rowset, segment, specified_rowsets, delete_bitmap, end_version, rowset_writer,
-                    tablet_delete_bitmap));
+                    tablet_delete_bitmap, 0, retention.get()));
         }
     }
 
     return Status::OK();
 }
 
-Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
-                                              const segment_v2::SegmentSharedPtr& seg,
-                                              const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                              DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                              RowsetWriter* rowset_writer,
-                                              DeleteBitmapPtr tablet_delete_bitmap,
-                                              int64_t queue_time_us) {
+Status BaseTablet::calc_segment_delete_bitmap(
+        RowsetSharedPtr rowset, const segment_v2::SegmentSharedPtr& seg,
+        const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
+        int64_t end_version, RowsetWriter* rowset_writer, DeleteBitmapPtr tablet_delete_bitmap,
+        int64_t queue_time_us, const SequenceRetentionBitmapOptions* retention) {
     OlapStopWatch watch;
     auto rowset_id = rowset->rowset_id();
     Version dummy_version(end_version + 1, end_version + 1);
@@ -735,6 +791,18 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         // the complete variant is constructed by reading all the sub-columns of the variant.
         rowset_schema = rowset_schema->copy_without_variant_extracted_columns();
     }
+    // A tentative 90 that lost to delete100 can beat live80 after a concurrent publish.
+    // Only the bitmap from same-input deduplication can skip 90 in the delta scan.
+    const auto& input_bitmap = retention && retention->intra_rowset_bitmap
+                                       ? *retention->intra_rowset_bitmap
+                                       : *delete_bitmap;
+    const size_t cluster_rowid_length =
+            rowset_schema->cluster_key_uids().empty() ? 0 : PrimaryKeyIndexReader::ROW_ID_LENGTH;
+    const size_t sequence_length =
+            rowset_schema->has_sequence_col()
+                    ? rowset_schema->column(rowset_schema->sequence_col_idx()).length() + 1
+                    : 0;
+
     // use for partial update
     FixedReadPlan read_plan_ori;
     FixedReadPlan read_plan_update;
@@ -822,9 +890,18 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
                                                               (uint8_t*)&row_id));
             }
-            // same row in segments should be filtered
-            if (delete_bitmap->contains({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
-                                        row_id)) {
+            const DeleteBitmap::BitmapKey input_key {rowset_id, seg->id(),
+                                                     DeleteBitmap::TEMP_VERSION_COMMON};
+            if (input_bitmap.contains(input_key, row_id)) {
+                continue;
+            }
+            if (retention && retention->invalidate_row_cache) {
+                // A point query may have repopulated the key after the writer invalidated it.
+                const Slice primary_key(key.get_data(),
+                                        key.get_size() - sequence_length - cluster_rowid_length);
+                RowCache::instance()->erase({tablet_id(), primary_key.to_string()});
+            }
+            if (specified_rowsets.empty()) {
                 continue;
             }
 
@@ -841,15 +918,11 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             });
 
             RowsetSharedPtr rowset_find;
-            Status st = Status::OK();
-            if (tablet_delete_bitmap == nullptr) {
-                st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
-                                    dummy_version.first - 1, segment_caches, &rowset_find);
-            } else {
-                st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
-                                    dummy_version.first - 1, segment_caches, &rowset_find, true,
-                                    nullptr, nullptr, tablet_delete_bitmap);
-            }
+            Status st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
+                                       dummy_version.first - 1, segment_caches, &rowset_find, true,
+                                       nullptr, nullptr, tablet_delete_bitmap, nullptr, nullptr,
+                                       retention ? retention->retention.get() : nullptr, nullptr,
+                                       retention ? &retention->same_transaction_rowsets : nullptr);
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
             // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump
             // while stress test
@@ -935,7 +1008,11 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 ++new_generated_rows;
                 continue;
             }
-            // when st = ok
+            // A delta hit can supersede a speculative loss. The permanent input losers were
+            // skipped above, so only a transaction-local external mark can be cleared here.
+            if (retention && retention->intra_rowset_bitmap) {
+                delete_bitmap->remove(input_key, row_id);
+            }
             delete_bitmap->add({loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
                                loc.row_id);
         }
@@ -1729,6 +1806,10 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
                                         int64_t txn_id, int64_t txn_expiration,
                                         DeleteBitmapPtr tablet_delete_bitmap) {
     SCOPED_BVAR_LATENCY(g_tablet_update_delete_bitmap_latency);
+    if (txn_info->rowset->rowset_meta()->requires_sequence_retention()) {
+        return finalize_sequence_retention(self, txn_info, txn_id, txn_expiration,
+                                           std::move(tablet_delete_bitmap));
+    }
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
     RowsetIdUnorderedSet rowset_ids_to_del;

@@ -367,11 +367,63 @@ public class CloudInternalCatalogTest {
 
     }
 
+
+    @Test
+    public void testRetentionGapMarksInitialRowset() {
+        OlapFile.TabletMetaCloudPB.Builder meta = OlapFile.TabletMetaCloudPB.newBuilder()
+                .setPartitionId(22).addRsMetas(OlapFile.RowsetMetaCloudPB.newBuilder().setRowsetId(0));
+        CloudInternalCatalog.setSequenceRetentionGap(meta, 0);
+        Assertions.assertFalse(meta.hasSequenceRetentionGap());
+        Assertions.assertFalse(meta.getRsMetas(0).hasRequiresSequenceRetention());
+        CloudInternalCatalog.setSequenceRetentionGap(meta, 100);
+        Assertions.assertEquals(100, meta.getSequenceRetentionGap());
+        Assertions.assertTrue(meta.getRsMetas(0).getRequiresSequenceRetention());
+    }
+
+    @Test
+    public void testRetentionCreationRequiresMetaServiceAcknowledgement() throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        Cloud.CreateTabletsResponse.Builder response = Cloud.CreateTabletsResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK));
+        Mockito.when(proxy.createTablets(Mockito.any())).thenAnswer(invocation -> response.build());
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Cloud.CreateTabletsRequest.Builder request = Cloud.CreateTabletsRequest.newBuilder().setDbId(1);
+            request.addTabletMetas(OlapFile.TabletMetaCloudPB.newBuilder().setPartitionId(22));
+            Assertions.assertNotNull(catalog.sendCreateTabletsRpc(request));
+            request.getTabletMetasBuilder(0).setSequenceRetentionGap(100);
+            DdlException error = Assertions.assertThrows(DdlException.class,
+                    () -> catalog.sendCreateTabletsRpc(request));
+            Assertions.assertTrue(error.getMessage().contains("does not support sequence retention"));
+            response.setSupportsSequenceRetention(true);
+            Assertions.assertNotNull(catalog.sendCreateTabletsRpc(request));
+        }
+    }
+
+    @Test
+    public void testCloudCreationPersistsVersionColumnIndex() throws Exception {
+        Tablet tablet = Mockito.mock(Tablet.class);
+        Mockito.when(tablet.getId()).thenReturn(100L);
+        Mockito.when(tablet.getReplicas()).thenReturn(Collections.singletonList(Mockito.mock(Replica.class)));
+        List<Column> columns = Arrays.asList(
+                new Column("k", ScalarType.createType(PrimitiveType.INT), true, null, false, null, ""),
+                new Column(Column.VERSION_COL, ScalarType.createType(PrimitiveType.BIGINT), false,
+                        AggregateType.NONE, false, "0", "", false, 1));
+        OlapFile.TabletMetaCloudPB meta = createTabletMeta(tablet, TCompressionType.LZ4F, columns);
+        Assertions.assertEquals(1, meta.getSchema().getVersionColIdx());
+        Assertions.assertEquals(1, meta.getRsMetas(0).getTabletSchema().getVersionColIdx());
+    }
+
     private OlapFile.TabletMetaCloudPB createTabletMeta(Tablet tablet, TCompressionType compressionType)
             throws Exception {
+        return createTabletMeta(tablet, compressionType, Collections.emptyList());
+    }
+
+    private OlapFile.TabletMetaCloudPB createTabletMeta(Tablet tablet, TCompressionType compressionType,
+            List<Column> columns) throws Exception {
         return new CloudInternalCatalog().createTabletMetaBuilder(
                 1L, 2L, 3L, tablet, TTabletType.TABLET_TYPE_DISK, 23, KeysType.DUP_KEYS, (short) 1,
-                Collections.emptySet(), 0.05, Collections.emptyList(), Collections.emptyList(),
+                Collections.emptySet(), 0.05, Collections.emptyList(), columns,
                 new DataSortInfo(TSortType.LEXICAL, 0), compressionType, TStorageFormat.DEFAULT,
                 "", false, false,
                 "table", 0L, new RowTtlConfig(-1, 0), 0, false, false, 17, null, "size_based",

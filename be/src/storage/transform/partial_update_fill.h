@@ -31,6 +31,13 @@ public:
     std::string_view name() const override { return "FixedPartialUpdateFill"; }
 };
 
+// Full-row final decisions share the same probe and bitmap semantics as partial replay.
+class SequenceRetentionUpsertStage : public BlockTransform {
+public:
+    Status apply(TransformExecContext& ctx, Block* block) const override;
+    std::string_view name() const override { return "SequenceRetentionUpsert"; }
+};
+
 // Flexible partial update (UPDATE_FLEXIBLE_COLUMNS): the input is full-width
 // with a skip bitmap marking each row's missing cells. Aggregate duplicate keys
 // inside the block (the row set may shrink, even to empty), probe each key, and

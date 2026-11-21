@@ -184,7 +184,8 @@ public class StreamLoadHandlerTest {
         Mockito.when(task.getGroupCommit()).thenReturn("sync_mode");
         Mockito.doReturn(false).when(table).getEnableUniqueKeyMergeOnWrite();
         Mockito.doReturn(false).when(table).enableTso();
-        TPipelineFragmentParams plan = buildStreamLoadParams(new TOlapTableSink());
+        TPipelineFragmentParams plan = buildStreamLoadParams(new TOlapTableSink()
+                .setPartition(new TOlapTablePartitionParam().setPartitions(Lists.newArrayList())));
         plan.setQueryOptions(new TQueryOptions());
         try (MockedStatic<NereidsStreamLoadTask> tasks = Mockito.mockStatic(NereidsStreamLoadTask.class);
                 MockedConstruction<NereidsStreamLoadPlanner> planners = Mockito.mockConstruction(

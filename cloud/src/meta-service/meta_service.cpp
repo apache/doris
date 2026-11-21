@@ -1029,6 +1029,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
                                      CreateTabletsResponse* response,
                                      ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(create_tablets, get, put);
+    response->set_supports_sequence_retention(true);
 
     if (request->tablet_metas_size() == 0) {
         msg = "no tablet meta";
@@ -1107,6 +1108,14 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = fmt::format("failed to get vault id, vault name={}", name);
         return;
+    }
+
+    for (const auto& meta : request->tablet_metas()) {
+        if (meta.sequence_retention_gap() < 0) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "Invalid sequence retention gap";
+            return;
+        }
     }
 
     // [index_id, schema_version]
@@ -4541,7 +4550,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
 
     bool is_explicit_txn = (request->has_is_explicit_txn() && request->is_explicit_txn());
-    bool is_first_sub_txn = (is_explicit_txn && request->txn_id() == request->lock_id());
+    bool is_first_sub_txn = is_explicit_txn && (request->txn_id() == request->lock_id() ||
+                                                request->reset_pending_delete_bitmap());
     std::string log = ", update delete bitmap for tablet " + std::to_string(tablet_id);
     if (!without_lock) {
         // 1. Check whether the lock expires

@@ -28,6 +28,7 @@
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/sequence_retention.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet_info.h"
 
@@ -107,6 +108,11 @@ Status CloudRowsetBuilder::init() {
         context.enable_segcompaction = false;
     }
     context.write_type = DataWriteType::TYPE_DIRECT;
+    context.sequence_retention = _req.sequence_retention;
+    if (_req.sequence_retention) {
+        context.sequence_retention_enabled = true;
+        context.enable_segcompaction = false;
+    }
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
@@ -285,7 +291,8 @@ Status CloudRowsetBuilder::set_txn_related_info() {
         }
         _engine.txn_delete_bitmap_cache().set_tablet_txn_info(
                 _req.txn_id, _tablet->tablet_id(), _delete_bitmap, *_rowset_ids, _rowset,
-                _req.txn_expiration, _partial_update_info, _attach_changelog);
+                _req.txn_expiration, _partial_update_info, _attach_changelog,
+                _sequence_retention_baseline);
     } else {
         // TSO-enabled rowsets must become visible from MS rowset meta.
         if (config::enable_cloud_make_rs_visible_on_be && !_tablet_schema->is_tso_enabled()) {

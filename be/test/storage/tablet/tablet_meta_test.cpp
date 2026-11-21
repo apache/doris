@@ -29,6 +29,7 @@
 #include "storage/file_header.h"
 #include "storage/rowset/rowset.h"
 #include "storage/tablet/tablet_schema.h"
+#include "testutil/creators.h"
 #include "testutil/mock_rowset.h"
 #include "util/time.h"
 
@@ -582,6 +583,52 @@ TEST(TabletMetaTest, FileCacheTtlExpirationTime) {
     meta.set_creation_time(UnixSeconds());
     meta.set_ttl_seconds(std::numeric_limits<int64_t>::max());
     EXPECT_EQ(std::numeric_limits<int64_t>::max(), meta.file_cache_ttl_expiration_time());
+}
+
+TEST(TabletMetaTest, CreateWithSequenceRetentionGap) {
+    auto request = testutil::create_tablet_request(77, 88, 99, 1, TKeysType::UNIQUE_KEYS,
+                                                   {{"k", TPrimitiveType::INT, true},
+                                                    {SEQUENCE_COL, TPrimitiveType::BIGINT, false},
+                                                    {DELETE_SIGN, TPrimitiveType::TINYINT, false},
+                                                    {VERSION_COL, TPrimitiveType::BIGINT, false}});
+    request.__set_enable_unique_key_merge_on_write(true);
+    request.tablet_schema.__set_sequence_col_idx(1);
+    request.tablet_schema.__set_delete_sign_idx(2);
+    request.tablet_schema.__set_version_col_idx(3);
+    request.__set_sequence_retention_gap(100);
+    auto created = TabletMeta::create(request, TabletUid::gen_uid(), 0, 4,
+                                      {{0, 0}, {1, 1}, {2, 2}, {3, 3}});
+    ASSERT_TRUE(created.has_value()) << created.error();
+    TabletMetaPB serialized;
+    created.value()->to_meta_pb(&serialized, false);
+    TabletMeta restored;
+    restored.init_from_pb(serialized);
+    EXPECT_EQ(100, restored.sequence_retention_gap());
+    EXPECT_FALSE(restored.init_sequence_retention_gap(101).ok());
+    EXPECT_FALSE(restored.init_sequence_retention_gap(0).ok());
+    EXPECT_EQ(restored.tablet_schema()->version_col_idx(), 3);
+
+    request.__set_enable_unique_key_merge_on_write(false);
+    EXPECT_FALSE(TabletMeta::create(request, TabletUid::gen_uid(), 0, 4,
+                                    {{0, 0}, {1, 1}, {2, 2}, {3, 3}})
+                         .has_value());
+    request.__set_enable_unique_key_merge_on_write(true);
+    request.__set_sequence_retention_gap(-1);
+    EXPECT_FALSE(TabletMeta::create(request, TabletUid::gen_uid(), 0, 4,
+                                    {{0, 0}, {1, 1}, {2, 2}, {3, 3}})
+                         .has_value());
+}
+
+TEST(TabletMetaTest, CreateCompanionWithSequenceRetentionGap) {
+    auto request = testutil::create_tablet_request(77, 88, 99, 1, TKeysType::DUP_KEYS,
+                                                   {{"k", TPrimitiveType::INT, true}});
+    request.__set_tablet_role(TTabletRole::TABLET_ROLE_CHANGELOG);
+    request.__set_sequence_retention_gap(100);
+    auto result = TabletMeta::create(request, TabletUid::gen_uid(), 0, 1, {{0, 0}});
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result.value()->sequence_retention_gap(), 100);
+    request.__set_tablet_role(TTabletRole::TABLET_ROLE_DATA);
+    EXPECT_FALSE(TabletMeta::create(request, TabletUid::gen_uid(), 0, 1, {{0, 0}}).has_value());
 }
 
 } // namespace doris

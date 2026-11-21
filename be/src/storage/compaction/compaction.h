@@ -128,6 +128,10 @@ protected:
     Status finish_merge_input_rowsets_execution(MergeInputRowsetsContext* context);
     void snapshot_changelog_ttl();
     void snapshot_row_ttl();
+    Status snapshot_sequence_retention();
+    bool _sequence_retention_snapshot_initialized = false;
+    bool _sequence_retention_enabled = false;
+    int64_t _sequence_delete_prune_version = -1;
     bool pick_expired_changelog_rowset(const std::vector<RowsetSharedPtr>& candidates);
     void filter_changelog_ttl_rowsets();
     // Whether the rowset is expired changelog, which this compaction drops instead of merging it.

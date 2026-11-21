@@ -162,6 +162,11 @@ public class Coordinator implements CoordInterface {
         if (!status.ok()) {
             throw new UserException(status.getErrorMsg());
         }
+        for (PlanFragment fragment : getFragments()) {
+            if (fragment.getSink() instanceof OlapTableSink) {
+                ((OlapTableSink) fragment.getSink()).prepareSequenceRetention();
+            }
+        }
         enqueue(coordinatorContext.connectContext);
 
         processTopSink(coordinatorContext, coordinatorContext.topDistributedPlan);

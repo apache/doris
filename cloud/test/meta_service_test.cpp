@@ -7394,6 +7394,66 @@ TEST(MetaServiceTest, UpdateDeleteBitmapCheckPartitionVersion) {
     }
 }
 
+TEST(MetaServiceTest, UpdateDeleteBitmapRetryStartsAtFirstWritingSubTransaction) {
+    auto meta_service = get_meta_service();
+    constexpr int64_t db_id = 999;
+    constexpr int64_t table_id = 1001;
+    constexpr int64_t partition_id = 2001;
+    constexpr int64_t tablet_id = 3001;
+    constexpr int64_t initiator = -1;
+    ASSERT_NO_FATAL_FAILURE(create_tablet_with_db_id(meta_service.get(), db_id, table_id, 4001,
+                                                     partition_id, tablet_id));
+
+    int64_t parent_id;
+    int64_t sub_txn_id;
+    int64_t next_sub_txn_id;
+    begin_txn(meta_service.get(), db_id, "parent", table_id, parent_id);
+    begin_txn(meta_service.get(), db_id, "first writing statement", table_id, sub_txn_id);
+    begin_txn(meta_service.get(), db_id, "next statement", table_id, next_sub_txn_id);
+    ASSERT_NE(parent_id, sub_txn_id);
+    get_delete_bitmap_update_lock(meta_service.get(), table_id, partition_id, parent_id, initiator);
+
+    auto update = [&](int64_t txn_id, int64_t write_version, bool reset_pending) {
+        brpc::Controller cntl;
+        UpdateDeleteBitmapRequest request;
+        UpdateDeleteBitmapResponse response;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        request.set_table_id(table_id);
+        request.set_partition_id(partition_id);
+        request.set_tablet_id(tablet_id);
+        request.set_lock_id(parent_id);
+        request.set_initiator(initiator);
+        request.set_is_explicit_txn(true);
+        request.set_txn_id(txn_id);
+        request.set_next_visible_version(2);
+        request.set_reset_pending_delete_bitmap(reset_pending);
+        request.add_rowset_ids("123");
+        request.add_segment_ids(0);
+        request.add_versions(write_version);
+        request.add_segment_delete_bitmaps("1111");
+        meta_service->update_delete_bitmap(&cntl, &request, &response, nullptr);
+        ASSERT_EQ(MetaServiceCode::OK, response.status().code()) << response.status().msg();
+    };
+
+    update(sub_txn_id, 3, true);
+    update(sub_txn_id, 4, true);
+    update(next_sub_txn_id, 5, false);
+
+    extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                       const std::string& cloud_unique_id);
+    const auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, meta_service->txn_kv()->create_txn(&txn));
+    const auto read_bitmap = [&](int64_t version) {
+        ValueBuf value;
+        auto key = meta_delete_bitmap_key({instance_id, tablet_id, "123", version, 0});
+        return blob_get(txn.get(), key, &value);
+    };
+    EXPECT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND, read_bitmap(3));
+    EXPECT_EQ(TxnErrorCode::TXN_OK, read_bitmap(4));
+    EXPECT_EQ(TxnErrorCode::TXN_OK, read_bitmap(5));
+}
+
 TEST(MetaServiceTest, UpdateDeleteBitmapCheckPartitionVersionFail) {
     auto meta_service = get_meta_service();
     brpc::Controller cntl;

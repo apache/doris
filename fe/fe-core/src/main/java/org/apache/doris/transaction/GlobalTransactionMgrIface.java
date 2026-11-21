@@ -67,6 +67,9 @@ public interface GlobalTransactionMgrIface extends Writable {
         }
     }
 
+    Map<Long, Long> captureSequenceRetentionVersions(long dbId, long txnId, long tableId, long gap,
+            Map<Long, Long> observedVersions) throws UserException;
+
     public void setEditLog(EditLog editLog);
 
     public TxnStateCallbackFactory getCallbackFactory();

@@ -38,19 +38,22 @@ public:
 
     Status init();
 
-    Status get_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
-                               RowsetSharedPtr* rowset, DeleteBitmapPtr* delete_bitmap,
-                               RowsetIdUnorderedSet* rowset_ids, int64_t* txn_expiration,
-                               std::shared_ptr<PartialUpdateInfo>* partial_update_info,
-                               std::shared_ptr<PublishStatus>* publish_status,
-                               TxnPublishInfo* previous_publish_info,
-                               ChangelogTxnInfo* attach_changelog = nullptr);
+    Status get_tablet_txn_info(
+            TTransactionId transaction_id, int64_t tablet_id, RowsetSharedPtr* rowset,
+            DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids,
+            int64_t* txn_expiration, std::shared_ptr<PartialUpdateInfo>* partial_update_info,
+            std::shared_ptr<PublishStatus>* publish_status, TxnPublishInfo* previous_publish_info,
+            ChangelogTxnInfo* attach_changelog = nullptr,
+            std::shared_ptr<const SequenceRetentionBitmapBaseline>* sequence_retention_baseline =
+                    nullptr);
 
     void set_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                              DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& rowset_ids,
                              RowsetSharedPtr rowset, int64_t txn_expirationm,
                              std::shared_ptr<PartialUpdateInfo> partial_update_info,
-                             const ChangelogTxnInfo& attach_changelog = {});
+                             const ChangelogTxnInfo& attach_changelog = {},
+                             std::shared_ptr<const SequenceRetentionBitmapBaseline>
+                                     sequence_retention_baseline = nullptr);
 
     Status update_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                                   DeleteBitmapPtr delete_bitmap,
@@ -77,7 +80,9 @@ public:
     // and should replace versions in BitmapKey by the correct version
     Status get_delete_bitmap(TTransactionId transaction_id, int64_t tablet_id,
                              DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids,
-                             std::shared_ptr<PublishStatus>* publish_status);
+                             std::shared_ptr<PublishStatus>* publish_status,
+                             std::shared_ptr<const SequenceRetentionBitmapBaseline>*
+                                     sequence_retention_baseline = nullptr);
 
     // the caller should guarantee that the txn `transaction_id` has been published successfully in MS
     Result<std::pair<RowsetSharedPtr, DeleteBitmapPtr>> get_rowset_and_delete_bitmap(
@@ -92,8 +97,14 @@ private:
         // records rowsets calc in commit txn
         RowsetIdUnorderedSet rowset_ids;
 
-        DeleteBitmapCacheValue(DeleteBitmapPtr delete_bitmap_, const RowsetIdUnorderedSet& ids_)
-                : delete_bitmap(std::move(delete_bitmap_)), rowset_ids(ids_) {}
+        std::shared_ptr<const SequenceRetentionBitmapBaseline> sequence_retention_baseline;
+
+        DeleteBitmapCacheValue(
+                DeleteBitmapPtr delete_bitmap_, const RowsetIdUnorderedSet& ids_,
+                std::shared_ptr<const SequenceRetentionBitmapBaseline> baseline = nullptr)
+                : delete_bitmap(std::move(delete_bitmap_)),
+                  rowset_ids(ids_),
+                  sequence_retention_baseline(std::move(baseline)) {}
     };
 
     struct TxnKey {

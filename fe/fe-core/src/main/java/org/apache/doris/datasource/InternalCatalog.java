@@ -2345,6 +2345,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getVerticalCompactionNumColumnsPerGroup(),
                             tbl.getRowTtlConfig(),
                             tbl.getRowTtlTimeZoneOffsetSeconds());
+                    task.setSequenceRetentionGap(tbl.getSequenceRetentionGap());
                     if (isChangelogIndex) {
                         // BE locates the companion changelog tablet via base_tablet_id and writes it to the same disk.
                         task.setTabletRole(TTabletRole.TABLET_ROLE_CHANGELOG);
@@ -3276,6 +3277,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEQUENCE_RETENTION_GAP)) {
+            long gap = PropertyAnalyzer.parseSequenceRetentionGap(
+                    properties.remove(PropertyAnalyzer.PROPERTIES_SEQUENCE_RETENTION_GAP));
+            if (gap > 0) {
+                if (!olapTable.hasSequenceCol()) {
+                    throw new DdlException(PropertyAnalyzer.PROPERTIES_SEQUENCE_RETENTION_GAP
+                            + " requires a MOW unique-key table with row-level sequence");
+                }
+                olapTable.getTableProperty().setSequenceRetentionGapForCreate(gap);
+            }
+        }
+
         try {
             int groupCommitIntervalMs = PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties, true);
             olapTable.setGroupCommitIntervalMs(groupCommitIntervalMs);

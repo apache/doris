@@ -409,6 +409,7 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
         _tablet_meta->clear_rowsets();
         _tablet_meta->clear_stale_rowset();
         _max_version = -1;
+        _sequence_retention_bitmap_ready_version = -1;
     }
 
     st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, {}, stats);
@@ -919,7 +920,11 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
 
     return RowsetFactory::create_rowset_writer(_engine, context, false)
             .transform([&](auto&& writer) {
-                writer->set_segment_start_id(cast_set<int32_t>(rowset.num_segments()));
+                int64_t next_segment_id = 0;
+                for (const auto segment : rowset.rowset_meta()->segments()) {
+                    next_segment_id = std::max(next_segment_id, segment.id() + 1);
+                }
+                writer->set_segment_start_id(cast_set<int32_t>(next_segment_id));
                 return writer;
             });
 }
@@ -1229,6 +1234,10 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
                                        int64_t next_visible_version) {
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
+    // The first statement can be empty or route to other tablets. Clear previous
+    // attempts on the first statement that actually updates this tablet.
+    const bool reset_pending = txn_info->is_txn_load && txn_info->invisible_rowsets.empty() &&
+                               rowset->rowset_meta()->requires_sequence_retention();
     const bool build_changelog = txn_info->attach_changelog.rowset != nullptr;
     const RowsetId cur_build_rid = rowset->rowset_id();
     const RowsetId changelog_rid =
@@ -1245,8 +1254,9 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
             txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::PREPARE));
 
-    if (txn_info->partial_update_info != nullptr && rowset_writer != nullptr &&
-        rowset_writer->num_rows() > 0) {
+    if (rowset->rowset_meta()->requires_sequence_retention() ||
+        (txn_info->partial_update_info != nullptr && rowset_writer != nullptr &&
+         rowset_writer->num_rows() > 0)) {
         DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.update_tmp_rowset.error", {
             return Status::InternalError<false>("injected update_tmp_rowset error.");
         });
@@ -1271,14 +1281,14 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
         auto* changelog_tablet = static_cast<CloudTablet*>(txn_info->attach_changelog.tablet.get());
         RETURN_IF_ERROR(changelog_tablet->save_delete_bitmap_to_ms(
                 cur_version, txn_id, txn_info->attach_changelog.delete_bitmap, lock_id,
-                next_visible_version, txn_info->attach_changelog.rowset));
+                next_visible_version, txn_info->attach_changelog.rowset, reset_pending));
         RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
                 txn_id, changelog_tablet->tablet_id(), txn_info->attach_changelog.delete_bitmap,
                 cur_rowset_ids, PublishStatus::SUCCEED, txn_info->publish_info));
     }
 
     RETURN_IF_ERROR(save_delete_bitmap_to_ms(cur_version, txn_id, delete_bitmap, lock_id,
-                                             next_visible_version, rowset));
+                                             next_visible_version, rowset, reset_pending));
 
     // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
     // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
@@ -1309,7 +1319,8 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
 Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
                                              DeleteBitmapPtr delete_bitmap, int64_t lock_id,
-                                             int64_t next_visible_version, RowsetSharedPtr rowset) {
+                                             int64_t next_visible_version, RowsetSharedPtr rowset,
+                                             bool reset_pending) {
     DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
@@ -1332,7 +1343,7 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
             *this, ms_lock_id, LOAD_INITIATOR_ID, new_delete_bitmap.get(), new_delete_bitmap.get(),
             rowset->rowset_id().to_string(), storage_resource,
             config::delete_bitmap_store_write_version, table_id(), txn_id, is_explicit_txn,
-            next_visible_version));
+            next_visible_version, reset_pending));
     return Status::OK();
 }
 
@@ -1555,7 +1566,10 @@ Status CloudTablet::sync_meta() {
     // Keep tablet metadata refresh serialized with rowset sync and apply local metadata updates
     // under _meta_lock. The lock order must stay _sync_meta_lock -> _meta_lock.
     std::unique_lock lock(_sync_meta_lock);
+    return sync_meta_unlocked();
+}
 
+Status CloudTablet::sync_meta_unlocked() {
     TabletMetaSharedPtr tablet_meta;
     auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
     if (!st.ok()) {
@@ -1584,6 +1598,10 @@ Status CloudTablet::sync_meta() {
 
     {
         std::unique_lock wlock(_meta_lock);
+        if (_tablet_meta->sequence_retention_gap() != tablet_meta->sequence_retention_gap()) {
+            return Status::InternalError("sequence retention gap changed for tablet {}",
+                                         tablet_id());
+        }
         if (tablet_meta->row_ttl_config().duration_us() >= 0) {
             RETURN_IF_ERROR(_tablet_meta->update_row_ttl_config(tablet_meta->row_ttl_config()));
         }
@@ -2177,6 +2195,11 @@ void CloudTablet::try_make_committed_rs_visible_for_mow(int64_t txn_id, int64_t 
         if (_max_version + 1 != visible_version) {
             return;
         }
+        // Cached output can only be installed with a compatible tablet setting.
+        if (!is_empty_rowset && rowset->rowset_meta()->requires_sequence_retention() &&
+            _tablet_meta->sequence_retention_gap() <= 0) {
+            return;
+        }
         if (is_empty_rowset) {
             Versions existing_versions;
             for (const auto& [_, rs] : tablet_meta()->all_rs_metas()) {
@@ -2206,6 +2229,9 @@ void CloudTablet::try_make_committed_rs_visible_for_mow(int64_t txn_id, int64_t 
         rowset->rowset_meta()->set_cloud_fields_after_visible(visible_version,
                                                               version_update_time_ms);
         add_rowsets({rowset}, false, meta_wlock, true);
+        if (_sequence_retention_bitmap_ready_version >= visible_version - 1) {
+            _sequence_retention_bitmap_ready_version = visible_version;
+        }
     }
     LOG(INFO) << "mow added visible pending rowset, txn_id=" << txn_id
               << ", tablet_id=" << tablet_id() << ", version=" << visible_version

@@ -88,6 +88,7 @@
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/sequence_retention.h"
 #include "storage/storage_engine.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet.h"
@@ -298,6 +299,65 @@ int64_t Compaction::merge_way_num() {
     return way_num;
 }
 
+Status Compaction::snapshot_sequence_retention() {
+    if (!_sequence_retention_snapshot_initialized && !_input_rowsets.empty()) {
+        if (auto* cloud = dynamic_cast<CloudTablet*>(_tablet.get())) {
+            bool need_sync;
+            {
+                std::shared_lock lock(_tablet->get_header_lock());
+                // Full compaction normally has already synchronized. Base can reuse the cache
+                // when the chosen inputs are inside its bitmap-ready prefix.
+                need_sync = _tablet->tablet_meta()->sequence_retention_gap() > 0 &&
+                            cloud->sequence_retention_bitmap_ready_version_unlocked() <
+                                    _input_rowsets.back()->end_version();
+            }
+            if (need_sync) {
+                RETURN_IF_ERROR(cloud->sync_rowsets());
+            }
+        }
+    }
+    std::shared_lock lock(_tablet->get_header_lock());
+    if (_sequence_retention_snapshot_initialized) {
+        return Status::OK();
+    }
+    const int64_t gap = _tablet->tablet_meta()->sequence_retention_gap();
+    if (gap < 0 || (gap == 0 && std::ranges::any_of(_input_rowsets, [](const auto& rowset) {
+                        return rowset->rowset_meta()->requires_sequence_retention();
+                    }))) {
+        return Status::InternalError("invalid sequence retention setting for compaction: tablet={}",
+                                     _tablet->tablet_id());
+    }
+    auto published = _tablet->max_version_unlocked();
+    if (gap > 0) {
+        if (auto* cloud = dynamic_cast<CloudTablet*>(_tablet.get())) {
+            published =
+                    std::min(published, cloud->sequence_retention_bitmap_ready_version_unlocked());
+        }
+        if (!_input_rowsets.empty() && _input_rowsets.back()->end_version() > published) {
+            return Status::InternalError(
+                    "sequence retention compaction inputs exceed bitmap-ready prefix: tablet={}, "
+                    "ready={}, input={}",
+                    _tablet->tablet_id(), published, _input_rowsets.back()->end_version());
+        }
+    }
+    if (gap > 0) {
+        // max_version alone can include a received version beyond a hole. Such a version must
+        // not move GC forward: a lagging replica still needs the missing predecessor's bitmap.
+        auto continuous = _tablet->capture_consistent_versions_unlocked({0, published}, {});
+        if (!continuous.has_value()) {
+            return continuous.error();
+        }
+        if (!_tablet->is_changelog_tablet() &&
+            (compaction_type() == ReaderType::READER_BASE_COMPACTION ||
+             compaction_type() == ReaderType::READER_FULL_COMPACTION)) {
+            _sequence_delete_prune_version = sequence_retention_prune_version(published, gap);
+        }
+    }
+    _sequence_retention_enabled = gap > 0;
+    _sequence_retention_snapshot_initialized = true;
+    return Status::OK();
+}
+
 void Compaction::snapshot_row_ttl() {
     if (!_cur_tablet_schema->has_ttl_col() || !row_ttl_uses_source_time(*_cur_tablet_schema)) {
         return;
@@ -445,7 +505,10 @@ Status Compaction::prepare_merge_input_rowsets_execution(MergeInputRowsetsContex
         context->input_rs_readers.push_back(std::move(rs_reader));
     }
 
+    RETURN_IF_ERROR(snapshot_sequence_retention());
     RowsetWriterContext ctx;
+    ctx.sequence_retention_enabled = _sequence_retention_enabled;
+    ctx.sequence_delete_prune_version = _sequence_delete_prune_version;
     // Propagate input rowset readers into the rowset writer context before the writer is created.
     // Variant nested-group compaction uses this metadata to enable the streaming writer path.
     ctx.input_rs_readers = context->input_rs_readers;
@@ -790,6 +853,11 @@ bool CompactionMixin::handle_ordered_data_compaction() {
     if (config::is_cloud_mode()) {
         return false;
     }
+    // Linking a singleton would leave its physical VERSION=0 inside a range rowset, and
+    // cannot perform the required bitmap filtering. Materialize all H outputs instead.
+    if (_sequence_retention_enabled) {
+        return false;
+    }
     if (!config::enable_ordered_data_compaction) {
         return false;
     }
@@ -1021,6 +1089,7 @@ Status CompactionMixin::execute_compact() {
 
 Status CompactionMixin::execute_compact_impl(int64_t permits) {
     OlapStopWatch watch;
+    RETURN_IF_ERROR(snapshot_sequence_retention());
 
     if (handle_ordered_data_compaction()) {
         _is_ordered_data_compaction = true;
@@ -2088,7 +2157,8 @@ Status CompactionMixin::modify_rowsets() {
             // scans also count these rows as filtered, so subtract them from that count.
             std::size_t expected_missed_rows_size = _stats.merged_rows;
             int64_t cluster_key_filtered_rows = 0;
-            if (!_tablet->tablet_meta()->tablet_schema()->cluster_key_uids().empty()) {
+            if (_sequence_retention_enabled ||
+                !_tablet->tablet_meta()->tablet_schema()->cluster_key_uids().empty()) {
                 cluster_key_filtered_rows =
                         _stats.filtered_rows -
                         static_cast<int64_t>(_rowid_conversion->visibility_filtered_rows()->size());

@@ -42,6 +42,7 @@
 #include "storage/rowset/rowset_reader.h"
 #include "storage/rowset/rowset_reader_context.h"
 #include "storage/segment/segment.h"
+#include "storage/sequence_retention.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/simd/bits.h"
 
@@ -96,8 +97,13 @@ Status VerticalBlockReader::next_block_with_aggregation(Block* block, bool* eof)
     auto res = (this->*_next_block_func)(block, eof);
     if (res.ok() && (_filter_delete_sign || _filter_row_ttl) && block->rows() > 0) {
         RowVisibilityFilter filter;
-        RETURN_IF_ERROR(build_row_visibility_filter(*block, *_tablet_schema, _filter_delete_sign,
-                                                    _filter_row_ttl, _row_ttl_now_us, &filter));
+        RETURN_IF_ERROR(build_row_visibility_filter(
+                *block, *_tablet_schema, _filter_delete_sign && !_sequence_retention_active,
+                _filter_row_ttl, _row_ttl_now_us, &filter));
+        if (_sequence_retention_active) {
+            RETURN_IF_ERROR(apply_sequence_retention_delete_filter(
+                    *block, _sequence_delete_prune_version, &filter));
+        }
 
         // append() may spill the previous buffer and replace it with an equally large batch.
         // Translate the absolute batch offset instead of detecting spills by buffer size.
@@ -340,6 +346,10 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
     _filter_delete_sign = read_params.is_key_column_group &&
                           _next_block_func == &VerticalBlockReader::_unique_key_next_block &&
                           _delete_sign_available;
+    if (_sequence_retention_active) {
+        _filter_delete_sign =
+                read_params.is_key_column_group && _sequence_delete_prune_version >= 0;
+    }
 
     // Use sparse optimization flag from ReaderParams (calculated in merger.cpp based on avg_row_bytes threshold)
     _enable_sparse_optimization = read_params.enable_sparse_optimization;

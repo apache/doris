@@ -340,6 +340,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                     tbl.getRowTtlConfig(),
                                     tbl.getRowTtlTimeZoneOffsetSeconds());
 
+                            createReplicaTask.setSequenceRetentionGap(tbl.getSequenceRetentionGap());
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
                             if (this.storageFormat != null) {

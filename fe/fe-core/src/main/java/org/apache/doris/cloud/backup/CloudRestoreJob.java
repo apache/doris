@@ -418,8 +418,9 @@ public class CloudRestoreJob extends RestoreJob {
                         .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 for (Tablet restoreTablet : subRestoreTablets) {
                     try {
-                        requestBuilder.addTabletMetas(((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                                .createTabletMetaBuilder(localTbl.getId(), restoredIdx.getId(),
+                        OlapFile.TabletMetaCloudPB.Builder builder =
+                                ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                                        .createTabletMetaBuilder(localTbl.getId(), restoredIdx.getId(),
                                     restorePart.getId(), restoreTablet,
                                     localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
                                     indexMeta.getSchemaHash(), indexMeta.getKeysType(),
@@ -450,7 +451,10 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.getVerticalCompactionNumColumnsPerGroup(),
                                     indexMeta.isChangelogIndex()
                                             ? OlapFile.TabletRolePB.TABLET_ROLE_CHANGELOG
-                                            : OlapFile.TabletRolePB.TABLET_ROLE_DATA));
+                                            : OlapFile.TabletRolePB.TABLET_ROLE_DATA);
+                        CloudInternalCatalog.setSequenceRetentionGap(builder,
+                                localTbl.getSequenceRetentionGap());
+                        requestBuilder.addTabletMetas(builder);
                         // In cloud mode all storage medium will be saved to HDD.
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                                 restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD,

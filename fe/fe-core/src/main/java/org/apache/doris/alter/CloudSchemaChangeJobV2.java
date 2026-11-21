@@ -276,6 +276,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             columnSeqMapping,
                                             tbl.getVerticalCompactionNumColumnsPerGroup(),
                                             OlapFile.TabletRolePB.TABLET_ROLE_DATA);
+                    CloudInternalCatalog.setSequenceRetentionGap(builder, tbl.getSequenceRetentionGap());
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 requestBuilder.setDbId(dbId);

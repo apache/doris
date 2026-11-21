@@ -44,6 +44,7 @@
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/sequence_retention.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
@@ -135,7 +136,8 @@ TabletMetaSharedPtr create_tablet_meta(const TCreateTabletReq& request, TabletRo
     }
     auto tablet_meta = TabletMeta::create(request, TabletUid::gen_uid(), 0,
                                           cast_set<uint32_t>(request.tablet_schema.columns.size()),
-                                          col_idx_to_unique_id);
+                                          col_idx_to_unique_id)
+                               .value();
     tablet_meta->set_tablet_role(tablet_role);
     return tablet_meta;
 }
@@ -379,6 +381,50 @@ TEST_F(CloudGroupRowsetBuilderWriterTest, writerBuildsChangelogMeta) {
     ASSERT_EQ(2, rowsets.size());
 
     assert_rowset_meta(rowsets[0], rowsets[1]);
+}
+
+TEST_F(CloudGroupRowsetBuilderWriterTest, PendingWriterKeepsPlanningVersionEvenWhenEmpty) {
+    auto retention = std::make_shared<SequenceRetentionContext>();
+    retention->gap = 100;
+    retention->plan_version = 620;
+    RowsetWriterContext context;
+    context.rowset_state = PREPARED;
+    context.tablet_schema = _tablet->tablet_schema();
+    context.storage_resource = _engine->get_storage_resource("");
+    context.write_type = DataWriteType::TYPE_DIRECT;
+    context.sequence_retention_enabled = true;
+    context.sequence_retention = retention;
+    auto result = _tablet->create_rowset_writer(context, false);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    RowsetSharedPtr rowset;
+    ASSERT_TRUE(result.value()->build(rowset).ok());
+    EXPECT_EQ(rowset->num_rows(), 0);
+    EXPECT_TRUE(rowset->rowset_meta()->requires_sequence_retention());
+    EXPECT_EQ(rowset->rowset_meta()->sequence_retention_input().plan_version(), 620);
+    EXPECT_EQ(rowset->rowset_meta_state(), BEGIN_PARTIAL_UPDATE);
+}
+
+TEST_F(CloudGroupRowsetBuilderWriterTest, TransientWriterAppendsAboveSparsePhysicalSegmentIds) {
+    RowsetMetaPB stored;
+    stored.set_rowset_id(0);
+    stored.set_rowset_id_v2(_engine->next_rowset_id().to_string());
+    stored.set_rowset_type(BETA_ROWSET);
+    stored.set_rowset_state(COMMITTED);
+    stored.set_tablet_id(_tablet->tablet_id());
+    stored.set_partition_id(_tablet->partition_id());
+    stored.set_num_segments(2);
+    stored.add_segment_ids(7);
+    stored.add_segment_ids(13);
+    auto meta = std::make_shared<RowsetMeta>();
+    ASSERT_TRUE(meta->init_from_pb(stored));
+    meta->set_remote_storage_resource(*_engine->get_storage_resource(""));
+    RowsetSharedPtr rowset;
+    ASSERT_TRUE(RowsetFactory::create_rowset(_tablet->tablet_schema(), "", meta, &rowset).ok());
+    auto writer = _tablet->create_transient_rowset_writer(*rowset, nullptr, 0);
+    ASSERT_TRUE(writer.has_value()) << writer.error();
+    auto segment = writer.value()->allocate_segment_id();
+    ASSERT_TRUE(segment.has_value()) << segment.error();
+    EXPECT_EQ(segment.value(), 14);
 }
 
 } // namespace doris

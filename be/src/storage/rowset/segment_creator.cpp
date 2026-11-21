@@ -154,6 +154,13 @@ Status SegmentFlusher::_create_segment_writer(
 
     segment_v2::VerticalSegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
+    if (_context.sequence_retention && !_context.sequence_retention_replay &&
+        _context.partial_update_info && _context.partial_update_info->is_partial_update()) {
+        // Raw candidates can contain duplicate keys and an absent sequence. They are never
+        // queried by the MOW probe and are masked before publication. Use the native short-key
+        // layout until the final replay has resolved their missing cells and duplicates.
+        writer_options.enable_unique_key_merge_on_write = false;
+    }
     writer_options.rowset_ctx = &_context;
     writer_options.write_type = _context.write_type;
     writer_options.max_rows_per_segment = _context.max_rows_per_segment;

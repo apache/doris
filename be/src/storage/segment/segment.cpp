@@ -1332,6 +1332,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
             sought_key.get_data(),
             sought_key.get_size() - (segment_has_seq_col ? seq_col_length : 0) - rowid_length);
 
+    bool sequence_loses = false;
     if (has_seq_col) {
         // compare key
         if (key_without_seq.compare(sought_key_without_seq) != 0) {
@@ -1346,8 +1347,9 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
                     Slice(sought_key.get_data() + sought_key_without_seq.get_size() + 1,
                           seq_col_length - 1);
             if (sequence_id.compare(previous_sequence_id) < 0) {
-                return Status::Error<ErrorCode::KEY_ALREADY_EXISTS>(
-                        "key with higher sequence id exists");
+                // A higher sequence can belong to an already-masked row. Return its real
+                // location too, so retention lookup can check the version-bounded bitmap.
+                sequence_loses = true;
             }
         }
     } else if (has_rowid) {
@@ -1377,6 +1379,9 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
                     Slice(sought_key.get_data() + sought_key_without_seq.get_size(), seq_col_length)
                             .to_string();
         }
+    }
+    if (sequence_loses) {
+        return Status::Error<ErrorCode::KEY_ALREADY_EXISTS>("key with higher sequence id exists");
     }
     return Status::OK();
 }

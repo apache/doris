@@ -151,8 +151,21 @@ public class TableProperty implements GsonPostProcessable {
     // name mapping for show, it will be translated to unique id mapping when create tablet
     private Map<String, List<String>> columnSeqMapping = null;
 
+    private long sequenceRetentionGap;
+
+    public long getSequenceRetentionGap() {
+        return sequenceRetentionGap;
+    }
+
+    public void setSequenceRetentionGapForCreate(long gap) {
+        sequenceRetentionGap = gap;
+        properties.put(PropertyAnalyzer.PROPERTIES_SEQUENCE_RETENTION_GAP, Long.toString(gap));
+    }
+
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
+        this.sequenceRetentionGap = Long.parseLong(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_SEQUENCE_RETENTION_GAP, "0"));
     }
 
     public static boolean isSamePrefixProperties(Map<String, String> properties, String prefix) {
@@ -1013,6 +1026,8 @@ public class TableProperty implements GsonPostProcessable {
     }
 
     public void gsonPostProcess() throws IOException {
+        sequenceRetentionGap = Long.parseLong(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_SEQUENCE_RETENTION_GAP, "0"));
         executeBuildDynamicProperty();
         buildInMemory();
         buildMinLoadReplicaNum();

@@ -42,6 +42,9 @@ public:
     void set_compaction_stats(int64_t ms_base_compaction_cnt, int64_t ms_cumulative_compaction_cnt,
                               int64_t ms_cumulative_point);
     void set_tablet_state(int64_t tablet_state);
+    void set_sequence_retention_plan_version(int64_t plan_version) {
+        _sequence_retention_plan_version = plan_version;
+    }
 
     Status handle(int64_t queue_time_us) const;
 
@@ -57,6 +60,7 @@ private:
     int64_t _transaction_id;
     int64_t _version;
     std::vector<int64_t> _sub_txn_ids;
+    int64_t _sequence_retention_plan_version = 0;
 
     int64_t _ms_base_compaction_cnt {-1};
     int64_t _ms_cumulative_compaction_cnt {-1};

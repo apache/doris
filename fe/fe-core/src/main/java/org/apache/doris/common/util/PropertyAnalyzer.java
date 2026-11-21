@@ -161,6 +161,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_TTL = "ttl";
     public static final String PROPERTIES_TTL_TIME_ZONE = "ttl_time_zone";
     public static final String PROPERTIES_SEQUENCE_COL = "sequence_col";
+    public static final String PROPERTIES_SEQUENCE_RETENTION_GAP = "sequence_delete_retention_version_gap";
 
     public static final String PROPERTIES_SEQUENCE_MAPPING = "sequence_mapping";
     public static final String ROW_TTL_SEQUENCE_COLUMN_CONFLICT =
@@ -1471,6 +1472,18 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_TYPE);
         }
         return type;
+    }
+
+    public static long parseSequenceRetentionGap(String value) throws AnalysisException {
+        try {
+            long result = Long.parseLong(value);
+            if (result < 0) {
+                throw new NumberFormatException();
+            }
+            return result;
+        } catch (NumberFormatException e) {
+            throw new AnalysisException(PROPERTIES_SEQUENCE_RETENTION_GAP + " must be a non-negative BIGINT");
+        }
     }
 
     public static Type analyzeSequenceType(Map<String, String> properties, KeysType keysType) throws AnalysisException {

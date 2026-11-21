@@ -18,6 +18,8 @@
 #include "storage/rowset/beta_rowset_writer.h"
 
 #include <assert.h>
+
+#include "storage/sequence_retention.h"
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
@@ -382,6 +384,16 @@ void BaseBetaRowsetWriter::cancel_calc_delete_bitmap(const Status& st) {
     }
 }
 
+void BaseBetaRowsetWriter::_init_sequence_retention_meta() {
+    if (_context.sequence_retention_enabled) {
+        _rowset_meta->set_requires_sequence_retention(true);
+    }
+    if (_context.sequence_retention) {
+        _rowset_meta->mutable_sequence_retention_input()->set_plan_version(
+                _context.sequence_retention->plan_version);
+    }
+}
+
 Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
     DCHECK(_context.tablet_schema != nullptr);
@@ -402,6 +414,7 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
     _rowset_meta->set_rowset_type(_context.rowset_type);
     _rowset_meta->set_rowset_state(_context.rowset_state);
     _rowset_meta->set_segments_overlap(_context.segments_overlap);
+    _init_sequence_retention_meta();
     if (_context.rowset_state == PREPARED || _context.rowset_state == COMMITTED) {
         _is_pending = true;
         _rowset_meta->set_txn_id(_context.txn_id);
@@ -431,7 +444,7 @@ Status BaseBetaRowsetWriter::add_block(const Block* block) {
 
 Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     SCOPED_RAW_TIMER(&_delete_bitmap_ns);
-    if (_context.is_transient_rowset_writer ||
+    if (_context.is_transient_rowset_writer || _context.sequence_retention ||
         !_context.tablet->enable_unique_key_merge_on_write() ||
         (_context.partial_update_info && _context.partial_update_info->is_partial_update())) {
         return Status::OK();
