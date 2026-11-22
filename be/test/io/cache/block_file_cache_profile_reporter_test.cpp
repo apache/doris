@@ -178,42 +178,6 @@ void expect_file_cache_stats_eq(const io::FileCacheStatistics& actual,
 
 } // namespace
 
-TEST(FileCacheProfileReporterTest, RealtimeCountersKeepLayoutWithoutRegisteringDetails) {
-    RuntimeProfile profile("scan");
-    ADD_TIMER(&profile, "Parent");
-    const int initial = profile.num_counters();
-    io::FileCacheProfileReporter reporter(&profile, "Parent");
-    EXPECT_EQ(profile.num_counters() - initial, 4);
-    reporter.update_realtime(3, 5, 2);
-    reporter.update_realtime(7, 13, 4);
-    EXPECT_EQ(reporter.bytes_scanned_from_cache->value(), 10);
-    EXPECT_EQ(reporter.bytes_scanned_from_remote->value(), 18);
-    EXPECT_EQ(reporter.bytes_write_into_cache->value(), 6);
-    EXPECT_EQ(profile.get_counter("NumLocalIOTotal"), nullptr);
-    EXPECT_EQ(reporter.total_time->value(), 0);
-    auto* bytes_scanned_from_cache = reporter.bytes_scanned_from_cache;
-    io::FileCacheStatistics stats;
-    stats.bytes_read_from_local = 10;
-    stats.num_local_io_total = 2;
-    stats.local_io_timer = 11;
-    reporter.update_details(&stats);
-    const int with_details = profile.num_counters();
-    reporter.update_details(&stats);
-    EXPECT_EQ(profile.num_counters(), with_details);
-    EXPECT_EQ(reporter.bytes_scanned_from_cache, bytes_scanned_from_cache);
-    EXPECT_EQ(reporter.bytes_scanned_from_cache->value(), 10);
-    EXPECT_EQ(reporter.bytes_scanned_from_remote->value(), 18);
-    EXPECT_EQ(reporter.bytes_write_into_cache->value(), 6);
-    EXPECT_EQ(reporter.num_local_io_total->value(), 4);
-    EXPECT_EQ(reporter.total_time->value(), 22);
-    TRuntimeProfileTree tree;
-    profile.to_thrift(&tree, 3);
-    const auto& node = tree.nodes.front();
-    EXPECT_EQ(node.child_counters_map.at("Parent").count("FileCache"), 1);
-    EXPECT_EQ(node.child_counters_map.at("FileCache").count("BytesScannedFromCache"), 1);
-    EXPECT_EQ(reporter.bytes_scanned_from_remote->type(), TUnit::BYTES);
-}
-
 TEST(FileCacheProfileReporterTest, DiffReturnsFullStatsWhenPreviousIsZero) {
     const auto current = make_file_cache_stats(3);
 

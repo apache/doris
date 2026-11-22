@@ -125,39 +125,6 @@ PushDownType OlapScanLocalState::_should_push_down_binary_predicate(
     }
 }
 
-OlapScanLocalState::OlapScanLocalState(RuntimeState* state, OperatorXBase* parent)
-        : Base(state, parent) {}
-
-OlapScanLocalState::~OlapScanLocalState() = default;
-
-io::FileCacheProfileReporter& OlapScanLocalState::_get_file_cache_profile() {
-    std::call_once(_file_cache_profile_once, [this] {
-        _file_cache_profile =
-                std::make_unique<io::FileCacheProfileReporter>(_segment_profile.get());
-    });
-    return *_file_cache_profile;
-}
-
-void OlapScanLocalState::_update_file_cache_bytes(int64_t local_bytes, int64_t remote_bytes,
-                                                  int64_t write_bytes) {
-    _get_file_cache_profile().update_realtime(local_bytes, remote_bytes, write_bytes);
-}
-
-void OlapScanLocalState::_update_file_cache_details(const io::FileCacheStatistics& stats) {
-    auto& reporter = _get_file_cache_profile();
-    reporter.update_details(&stats);
-    // Thrift serializes HWM current, not its peak. A later scanner with zero/smaller values
-    // must not erase an earlier trigger/threshold (e.g. thresholds 1024, 512 -> 1024).
-    if (stats.remote_only_on_miss_triggered != 0 ||
-        stats.remote_only_on_miss_threshold_bytes != 0) {
-        std::lock_guard lock(_file_cache_high_water_mutex);
-        auto* triggered = reporter.remote_only_on_miss_triggered;
-        auto* threshold = reporter.remote_only_on_miss_threshold_bytes;
-        triggered->set(std::max(triggered->value(), stats.remote_only_on_miss_triggered));
-        threshold->set(std::max(threshold->value(), stats.remote_only_on_miss_threshold_bytes));
-    }
-}
-
 Status OlapScanLocalState::_init_profile() {
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::_init_profile());
     _condition_cache_lookup_counter =
@@ -185,6 +152,11 @@ Status OlapScanLocalState::_init_profile() {
     _tablets_pruned_by_tso_counter =
             ADD_COUNTER(custom_profile(), "TabletsPrunedByTso", TUnit::UNIT);
     _process_conjunct_timer = ADD_TIMER(custom_profile(), "ProcessConjunctTime");
+    _bytes_scanned_from_cache =
+            ADD_COUNTER(_segment_profile, "BytesScannedFromCache", TUnit::BYTES);
+    _bytes_scanned_from_remote =
+            ADD_COUNTER(_segment_profile, "BytesScannedFromRemote", TUnit::BYTES);
+    _bytes_write_into_cache = ADD_COUNTER(_segment_profile, "BytesWriteIntoCache", TUnit::BYTES);
     _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
     _read_uncompressed_counter =
             ADD_COUNTER(_segment_profile, "UncompressedBytesRead", TUnit::BYTES);
@@ -909,17 +881,13 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         }
 
         const OlapReaderStatistics* stats = scanner_builder.builder_stats();
-        // No builder I/O means no FileCache subtree; per-tablet preload belongs to its scanner.
-        if (stats->file_cache_stats != io::FileCacheStatistics {}) {
-            const auto& cache = stats->file_cache_stats;
-            _update_file_cache_bytes(cache.bytes_read_from_local, cache.bytes_read_from_remote,
-                                     cache.bytes_write_into_cache);
-            _update_file_cache_details(cache);
-            DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                    cache.bytes_read_from_local);
-            DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
-                    cache.bytes_read_from_remote);
-        }
+        io::FileCacheProfileReporter cache_profile(_segment_profile.get());
+        cache_profile.update(&stats->file_cache_stats);
+
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                stats->file_cache_stats.bytes_read_from_local);
+        DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
+                stats->file_cache_stats.bytes_read_from_remote);
 
         return Status::OK();
     }

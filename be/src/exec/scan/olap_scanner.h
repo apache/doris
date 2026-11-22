@@ -49,7 +49,9 @@ class RuntimeState;
 class TPaloScanRange;
 class ScanLocalStateBase;
 struct FilterPredicates;
+#ifndef NDEBUG
 struct OlapReaderStatistics;
+#endif
 
 namespace io {
 struct FileCacheStatistics;
@@ -120,16 +122,6 @@ private:
 #ifndef NDEBUG
     Status _check_ann_cache_hit_debug_points(const OlapReaderStatistics& stats);
 #endif
-
-    void _report_scan_io_deltas(OlapReaderStatistics& stats);
-    void _flush_file_cache_profile_once();
-
-    // Only these three fields are consumed during a batch; reader cache details accumulate.
-    int64_t _reported_local_bytes = 0;
-    int64_t _reported_remote_bytes = 0;
-    int64_t _reported_cache_write_bytes = 0;
-    bool _file_cache_profile_flushed = false;
-    bool _tablet_reader_initialized = false;
 
     std::vector<OlapScanRange*> _key_ranges;
 

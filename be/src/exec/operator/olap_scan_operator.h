@@ -19,7 +19,6 @@
 
 #include <stdint.h>
 
-#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <unordered_set>
@@ -35,10 +34,6 @@
 #include "storage/tablet/tablet_reader.h"
 
 namespace doris {
-namespace io {
-struct FileCacheProfileReporter;
-struct FileCacheStatistics;
-} // namespace io
 class OlapScanner;
 class QueryCacheRuntime;
 struct QueryCacheInstanceDecision;
@@ -52,8 +47,7 @@ public:
     using Parent = OlapScanOperatorX;
     using Base = ScanLocalState<OlapScanLocalState>;
     ENABLE_FACTORY_CREATOR(OlapScanLocalState);
-    OlapScanLocalState(RuntimeState* state, OperatorXBase* parent);
-    ~OlapScanLocalState() override;
+    OlapScanLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status prepare(RuntimeState* state) override;
     TOlapScanNode& olap_scan_node() const;
@@ -79,10 +73,6 @@ public:
 
 private:
     friend class OlapScanner;
-
-    io::FileCacheProfileReporter& _get_file_cache_profile();
-    void _update_file_cache_bytes(int64_t local_bytes, int64_t remote_bytes, int64_t write_bytes);
-    void _update_file_cache_details(const io::FileCacheStatistics& stats);
 
     Status _sync_cloud_tablets(RuntimeState* state);
     void set_scan_ranges(RuntimeState* state,
@@ -171,9 +161,9 @@ private:
     std::set<int32_t> _output_column_ids;
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
-    std::once_flag _file_cache_profile_once;
-    std::unique_ptr<io::FileCacheProfileReporter> _file_cache_profile;
-    std::mutex _file_cache_high_water_mutex;
+    RuntimeProfile::Counter* _bytes_scanned_from_cache = nullptr;
+    RuntimeProfile::Counter* _bytes_scanned_from_remote = nullptr;
+    RuntimeProfile::Counter* _bytes_write_into_cache = nullptr;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
     snii::SniiPrxRuntimeProfileCounters _snii_prx_profile_counters;
 

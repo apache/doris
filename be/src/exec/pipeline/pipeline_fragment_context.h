@@ -67,8 +67,6 @@ public:
     std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile() const;
     std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile() const;
 
-    void notify_olap_file_cache_profile() { ++_olap_file_cache_profile_epoch; }
-
     bool is_timeout(timespec now) const;
 
     uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
@@ -220,10 +218,6 @@ private:
     // holding _task_mutex while acquiring _pipeline_map's shard lock, which
     // would create an ABBA deadlock with dump_pipeline_tasks().
     bool _close_fragment_instance();
-    Status _refresh_olap_file_cache_profile();
-    std::atomic<uint64_t> _olap_file_cache_profile_epoch = 0;
-    uint64_t _saved_olap_file_cache_profile_epoch = 0;
-    bool _owns_saved_fragment_profile = false;
     void _init_next_report_time();
 
     // Id of this query

@@ -159,8 +159,6 @@ struct FileCacheStatistics {
 
     std::set<std::string> peer_hosts;
 
-    bool operator==(const FileCacheStatistics&) const = default;
-
     void merge_from(const FileCacheStatistics& other) {
         num_local_io_total += other.num_local_io_total;
         num_remote_io_total += other.num_remote_io_total;

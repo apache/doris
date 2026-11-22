@@ -26,7 +26,6 @@
 
 #include <algorithm>
 #include <cstdlib>
-#include <exception>
 
 // IWYU pragma: no_include <bits/chrono.h>
 #include <fmt/format.h>
@@ -162,14 +161,6 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     LOG_INFO("PipelineFragmentContext::~PipelineFragmentContext")
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id);
-    {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker());
-        auto status = _refresh_olap_file_cache_profile();
-        if (!status.ok()) {
-            LOG(WARNING) << "Failed to refresh final FileCache profile for query "
-                         << print_id(_query_id) << ", fragment " << _fragment_id << ": " << status;
-        }
-    }
     _release_resource();
     {
         // The memory released by the query end is recorded in the query mem tracker.
@@ -2311,11 +2302,8 @@ bool PipelineFragmentContext::_close_fragment_instance() {
     }
 
     if (_query_ctx->enable_profile()) {
-        // Read before serialization. If a scanner finishes during the snapshot, its newer
-        // epoch forces a refresh; reading after serialization could lose that publication.
-        _saved_olap_file_cache_profile_epoch = _olap_file_cache_profile_epoch.load();
-        _owns_saved_fragment_profile = _query_ctx->add_fragment_profile(
-                _fragment_id, collect_realtime_profile(), collect_realtime_load_channel_profile());
+        _query_ctx->add_fragment_profile(_fragment_id, collect_realtime_profile(),
+                                         collect_realtime_load_channel_profile());
     }
 
     // Return whether the caller needs to remove from the pipeline map.
@@ -2853,25 +2841,6 @@ std::set<int> PipelineFragmentContext::get_deregister_runtime_filter() const {
         result.merge(set);
     }
     return result;
-}
-
-Status PipelineFragmentContext::_refresh_olap_file_cache_profile() {
-    // Workers hold a strong execution-context reference. At destruction they have all
-    // returned, even for LIMIT/cancellation; no wait or reader access is needed here.
-    // Recursive CTE PFCs reuse IDs: only the first snapshot's owner may replace it.
-    if (_owns_saved_fragment_profile &&
-        _saved_olap_file_cache_profile_epoch != _olap_file_cache_profile_epoch.load()) {
-        try {
-            RETURN_IF_CATCH_EXCEPTION({
-                auto profiles = collect_realtime_profile();
-                _query_ctx->_refresh_fragment_profile(_fragment_id, std::move(profiles));
-            });
-        } catch (const std::exception& e) {
-            return Status::InternalError("Failed to serialize final FileCache profile: {}",
-                                         e.what());
-        }
-    }
-    return Status::OK();
 }
 
 void PipelineFragmentContext::_release_resource() {
