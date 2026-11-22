@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 
+import com.google.common.math.IntMath;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -41,8 +42,9 @@ public class MasterTxnExecutor {
 
     public MasterTxnExecutor(ConnectContext ctx) {
         this.ctx = ctx;
-        this.waitTimeoutMs = ctx.getExecTimeoutS() * 1000;
-        this.thriftTimeoutMs = ctx.getExecTimeoutS() * 1000;
+        // 2147484 seconds exceeds signed int milliseconds. Cap the RPC timeout before it wraps.
+        this.waitTimeoutMs = IntMath.saturatedMultiply(ctx.getExecTimeoutS(), 1000);
+        this.thriftTimeoutMs = waitTimeoutMs;
     }
 
     private TNetworkAddress getMasterAddress() throws TException {

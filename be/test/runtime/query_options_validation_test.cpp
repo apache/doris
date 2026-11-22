@@ -19,13 +19,32 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <limits>
+#include <string>
 
 #include "common/status.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/QueryCache_types.h"
 
 namespace doris {
+TEST(QueryOptionsValidationTest, ExecutionTimeoutMustBePositiveWhenSet) {
+    // One wire object reaches the validator before any RPC state is created.
+    // An absent field keeps the compatibility default; explicit 0 and -1 are invalid.
+    TQueryOptions options;
+    EXPECT_TRUE(validate_query_options(options).ok());
+    for (int timeout : {-1, 0}) {
+        options.__set_execution_timeout(timeout);
+        auto status = validate_query_options(options);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("execution_timeout"), std::string::npos);
+    }
+    for (int timeout : {1, std::numeric_limits<int32_t>::max()}) {
+        options.__set_execution_timeout(timeout);
+        EXPECT_TRUE(validate_query_options(options).ok());
+    }
+}
+
 TEST(QueryOptionsValidationTest, RejectNegativeCountsBeforeExecution) {
     // One request object is enough. No fragment, table, rows, or allocation is needed.
     TQueryOptions options;

@@ -104,6 +104,12 @@ Status validate_nonnegative_query_options(const TQueryOptions& options) {
 
 Status validate_query_options(const TQueryOptions& options) {
     RETURN_IF_ERROR(validate_nonnegative_query_options(options));
+    // An explicit 0 or -1 creates an immediate or negative execution RPC deadline.
+    // An absent field retains the existing compatibility default.
+    if (options.__isset.execution_timeout && options.execution_timeout <= 0) {
+        return Status::InvalidArgument("execution_timeout must be > 0, but was {}",
+                                       options.execution_timeout);
+    }
     // The wire field is i64, but the exchanger stores this count as int.
     if (options.__isset.local_exchange_free_blocks_limit &&
         (options.local_exchange_free_blocks_limit < 0 ||

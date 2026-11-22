@@ -249,6 +249,26 @@ TEST_F(ConfigValidatorTest, OptionalZeroAndTimeoutBoundaries) {
     EXPECT_TRUE(accepts32("thrift_connect_timeout_seconds", 2147483));
 }
 
+TEST_F(ConfigValidatorTest, ExecutionRpcTimeoutRequiresPositiveCap) {
+    // A nonpositive cap makes every execution RPC deadline nonpositive.
+    // Check startup and runtime updates without creating an RPC or waiting.
+    const auto original = execution_max_rpc_timeout_sec;
+    for (const auto* value : {"-1", "0"}) {
+        EXPECT_FALSE(init_from_conf(std::string("execution_max_rpc_timeout_sec=") + value));
+        EXPECT_EQ(execution_max_rpc_timeout_sec, original);
+        execution_max_rpc_timeout_sec = original;
+        EXPECT_FALSE(config::set_config("execution_max_rpc_timeout_sec", value).ok());
+        EXPECT_EQ(execution_max_rpc_timeout_sec, original);
+        execution_max_rpc_timeout_sec = original;
+    }
+    EXPECT_TRUE(init_from_conf("execution_max_rpc_timeout_sec=1"));
+    EXPECT_EQ(execution_max_rpc_timeout_sec, 1);
+    // Large caps remain valid because the RPC consumer saturates milliseconds to INT32_MAX.
+    EXPECT_TRUE(config::set_config("execution_max_rpc_timeout_sec", "2147483647").ok());
+    EXPECT_EQ(execution_max_rpc_timeout_sec, std::numeric_limits<int32_t>::max());
+    execution_max_rpc_timeout_sec = original;
+}
+
 TEST_F(ConfigValidatorTest, DefaultCapacitySentinels) {
     // -1 selects the existing default. Zero is not a usable capacity.
     for (const char* name :

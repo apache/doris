@@ -27,6 +27,8 @@ import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.math.IntMath;
+
 import java.util.Collections;
 
 public final class MasterTsoProvider {
@@ -44,7 +46,8 @@ public final class MasterTsoProvider {
         FrontendService.Client client = null;
         boolean reusable = false;
         try {
-            int timeoutMs = context.getExecTimeoutS() * 1000;
+            // Both RPC timeouts use signed int milliseconds. For example, cap 2147484 seconds.
+            int timeoutMs = IntMath.saturatedMultiply(context.getExecTimeoutS(), 1000);
             client = ClientPool.frontendPool.borrowObject(address, timeoutMs);
             // This RPC predates ROW TTL. With no tables and no transaction wait it returns
             // the master's calibrated clock, including during follower-first upgrades.

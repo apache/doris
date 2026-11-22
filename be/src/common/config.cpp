@@ -1238,6 +1238,8 @@ DEFINE_Validator(orc_natural_read_size_mb,
 // Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "32");
 DEFINE_mInt32(execution_max_rpc_timeout_sec, "3600");
+// Zero expires execution RPCs immediately; -1 becomes a negative millisecond deadline.
+DEFINE_Validator(execution_max_rpc_timeout_sec, [](int32_t value) { return value > 0; });
 DEFINE_mBool(execution_ignore_eovercrowded, "true");
 // cooldown task configs
 DEFINE_Int32(cooldown_thread_num, "5");

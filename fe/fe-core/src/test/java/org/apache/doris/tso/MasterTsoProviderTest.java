@@ -31,6 +31,8 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.thrift.TException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mockito;
 
 class MasterTsoProviderTest {
@@ -63,27 +65,31 @@ class MasterTsoProviderTest {
     }
 
     @SuppressWarnings("unchecked")
-    @Test
-    void testFollowerReusesSuccessfulRpcAndInvalidatesFailedRpc() throws Exception {
+    @ParameterizedTest
+    @CsvSource({"10, 10000", "2147484, 2147483647", "2147483647, 2147483647"})
+    void testFollowerReusesSuccessfulRpcAndInvalidatesFailedRpc(int timeoutSeconds, int timeoutMs) throws Exception {
         ConnectContext context = Mockito.mock(ConnectContext.class);
         Env env = Mockito.mock(Env.class);
         Mockito.when(context.getEnv()).thenReturn(env);
         Mockito.when(env.getMasterHost()).thenReturn("127.0.0.1");
         Mockito.when(env.getMasterRpcPort()).thenReturn(9020);
-        Mockito.when(context.getExecTimeoutS()).thenReturn(10);
+        // 2147484 is the first second count whose int millisecond product becomes negative.
+        // Verify both the connection timeout and the request timeout without a remote FE.
+        Mockito.when(context.getExecTimeoutS()).thenReturn(timeoutSeconds);
         TNetworkAddress address = new TNetworkAddress("127.0.0.1", 9020);
         FrontendService.Client client = Mockito.mock(FrontendService.Client.class);
         GenericPool<FrontendService.Client> pool = Mockito.mock(GenericPool.class);
-        Mockito.when(pool.borrowObject(address, 10000)).thenReturn(client);
+        Mockito.when(pool.borrowObject(Mockito.eq(address), Mockito.anyInt())).thenReturn(client);
         GenericPool<FrontendService.Client> originalPool = ClientPool.frontendPool;
         ClientPool.frontendPool = pool;
         try {
             Mockito.when(client.acquireTimeBasedChangeReadFence(Mockito.any())).thenReturn(
                     new TAcquireTimeBasedChangeReadFenceResult(new TStatus(TStatusCode.OK)).setCurrentTso(123L));
             Assertions.assertEquals(123L, MasterTsoProvider.getCurrentTso(context));
+            Mockito.verify(pool).borrowObject(address, timeoutMs);
             Mockito.verify(client).acquireTimeBasedChangeReadFence(Mockito.argThat(request ->
                     request.getDbToTableIds().isEmpty() && !request.isWaitForTransactions()
-                            && !request.isSetEndTimestampMs() && request.getTimeoutMs() == 10000));
+                            && !request.isSetEndTimestampMs() && request.getTimeoutMs() == timeoutMs));
             Mockito.verify(pool).returnObject(address, client);
 
             Mockito.clearInvocations(pool);

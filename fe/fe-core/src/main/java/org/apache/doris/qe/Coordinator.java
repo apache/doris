@@ -74,6 +74,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.math.IntMath;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -647,7 +648,9 @@ public class Coordinator implements CoordInterface {
                     }
                     QueryQueue queryQueue = wgs.get(0).getQueryQueue();
                     QueueToken queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
-                    int queryTimeout = coordinatorContext.queryOptions.getExecutionTimeout() * 1000;
+                    // A wrapped negative value makes QueueToken use a 4096 ms fallback wait.
+                    int queryTimeout = IntMath.saturatedMultiply(
+                            coordinatorContext.queryOptions.getExecutionTimeout(), 1000);
                     coordinatorContext.setQueueInfo(queryQueue, queueToken);
                     try {
                         queueToken.get(DebugUtil.printId(coordinatorContext.queryId), queryTimeout);

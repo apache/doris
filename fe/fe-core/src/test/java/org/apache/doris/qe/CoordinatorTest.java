@@ -21,9 +21,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.cloud.catalog.CloudEnvFactory;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
@@ -33,9 +35,14 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.runtime.MultiFragmentsPipelineTask;
 import org.apache.doris.qe.runtime.PipelineExecutionTask;
 import org.apache.doris.qe.runtime.SingleFragmentPipelineTask;
+import org.apache.doris.resource.workloadgroup.QueryQueue;
+import org.apache.doris.resource.workloadgroup.QueueToken;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TPipelineFragmentParams;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
@@ -44,6 +51,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
@@ -73,6 +81,38 @@ public class CoordinatorTest extends TestWithFeService {
                 .createCoordinator(connectContext, planner, null);
         int scanRangeNum = coordinator.getScanRangeNum();
         Assertions.assertEquals(10, scanRangeNum);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"10, 10000", "2147484, 2147483647", "2147483647, 2147483647"})
+    public void testQueueTimeoutConversion(int timeoutSeconds, int timeoutMs) throws Exception {
+        // Reuse the empty test table. Capture the queue wait instead of waiting for a large timeout.
+        // A product that wraps negative would make QueueToken fall back to a 4096 ms wait.
+        ConnectContext context = Mockito.spy(createDefaultCtx());
+        Coordinator coordinator = new Coordinator(context, plan("select * from test.tbl", context), null);
+        coordinator.coordinatorContext.queryOptions.setExecutionTimeout(timeoutSeconds);
+        Env env = Mockito.mock(Env.class);
+        WorkloadGroupMgr manager = Mockito.mock(WorkloadGroupMgr.class);
+        WorkloadGroup group = Mockito.mock(WorkloadGroup.class);
+        QueryQueue queue = Mockito.mock(QueryQueue.class);
+        QueueToken token = Mockito.mock(QueueToken.class);
+        Mockito.doReturn(env).when(context).getEnv();
+        Mockito.when(env.getWorkloadGroupMgr()).thenReturn(manager);
+        Mockito.when(manager.getWorkloadGroup(context)).thenReturn(List.of(group));
+        Mockito.when(group.toThrift()).thenReturn(new TPipelineWorkloadGroup());
+        Mockito.when(group.getQueryQueue()).thenReturn(queue);
+        Mockito.when(queue.getToken(Mockito.anyInt())).thenReturn(token);
+        boolean originalWorkloadGroup = Config.enable_workload_group;
+        boolean originalQueryQueue = Config.enable_query_queue;
+        try {
+            Config.enable_workload_group = true;
+            Config.enable_query_queue = true;
+            Deencapsulation.invoke(coordinator, "enqueue", context);
+            Mockito.verify(token).get(Mockito.anyString(), Mockito.eq(timeoutMs));
+        } finally {
+            Config.enable_workload_group = originalWorkloadGroup;
+            Config.enable_query_queue = originalQueryQueue;
+        }
     }
 
     @Test

@@ -1452,11 +1452,11 @@ public class Config extends ConfigBase {
      * But in special cases, you may need to manually set these two configs
      * to ensure that the clone task will not fail due to timeout.
      */
-    // Negative clone timeouts give FE and BE different task deadlines.
-    @ConfField(minValue = "0", mutable = true, masterOnly = true)
+    // A small tablet can use this minimum directly. Zero violates the scheduler's nonzero deadline check.
+    @ConfField(minValue = "1", mutable = true, masterOnly = true)
     public static long min_clone_task_timeout_sec = 3 * 60; // 3min
-    // Negative clone timeouts give FE and BE different task deadlines.
-    @ConfField(minValue = "0", mutable = true, masterOnly = true)
+    // A zero maximum forces every clone deadline to zero, which the scheduler rejects.
+    @ConfField(minValue = "1", mutable = true, masterOnly = true)
     public static long max_clone_task_timeout_sec = 2 * 60 * 60; // 2h
 
     /**
@@ -2070,8 +2070,8 @@ public class Config extends ConfigBase {
      * In normal case, the async remote fragment will be executed in a short time. If system are under high load
      * condition，try to set this timeout longer.
      */
-    // Zero keeps the existing timeout behavior; a negative timeout expires before waiting.
-    @ConfField(minValue = "0", mutable = true)
+    // BackendServiceClient adds 5000 ms. Limit the value to Long.MAX_VALUE - 5000 before publication.
+    @ConfField(minValue = "0", maxValue = "9223372036854770807", mutable = true)
     public static long remote_fragment_exec_timeout_ms = 30000; // 30 sec
 
     /**
@@ -3651,7 +3651,9 @@ public class Config extends ConfigBase {
             + "cloud mode. Default is 300s.")
     public static int calculate_delete_bitmap_task_timeout_seconds_for_transaction_load = 300;
 
-    @ConfField(mutable = true, description = "Lock wait timeout during commit phase in cloud mode. Default is 5s.")
+    // Zero keeps a nonblocking lock attempt. Negative values prevent waiting for a busy commit lock.
+    @ConfField(minValue = "0", mutable = true,
+            description = "Lock wait timeout during commit phase in cloud mode. Default is 5s.")
     public static int try_commit_lock_timeout_seconds = 5;
 
     @ConfField(mutable = true, description = "Whether to enable commit lock for all tables during transaction commit. "

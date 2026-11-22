@@ -20,6 +20,8 @@ package org.apache.doris.common;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.lang.reflect.Field;
 import java.nio.file.Files;
@@ -313,6 +315,8 @@ public class ConfigTest {
         Config config = new Config();
         // Check zero independently of -1. A zero pool or batch cannot make progress.
         for (String name : new String[] {
+                "min_clone_task_timeout_sec",
+                "max_clone_task_timeout_sec",
                 "group_commit_interval_ms_default_value",
                 "group_commit_data_bytes_default_value",
                 "report_resend_batch_task_num_per_rpc",
@@ -361,8 +365,6 @@ public class ConfigTest {
                 "streaming_cdc_heavy_rpc_timeout_sec",
                 "dictionary_rpc_timeout_seconds",
                 "point_query_timeout_ms",
-                "min_clone_task_timeout_sec",
-                "max_clone_task_timeout_sec",
                 "routine_load_task_timeout_multiplier",
                 "routine_load_task_min_timeout_sec",
                 "max_routine_load_task_num_per_be",
@@ -379,6 +381,38 @@ public class ConfigTest {
             } finally {
                 field.set(null, original);
             }
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "min_clone_task_timeout_sec, 0, 1",
+            "max_clone_task_timeout_sec, 0, 1",
+            "try_commit_lock_timeout_seconds, -1, 0",
+            "remote_fragment_exec_timeout_ms, 9223372036854770808, 9223372036854770807",
+            "remote_fragment_exec_timeout_ms, 9223372036854775807, 9223372036854770807"
+    })
+    public void testTimeoutBoundsBeforePublication(String name, String invalid, String valid) throws Exception {
+        // Each case uses one property. Zero clone deadlines violate the scheduler invariant.
+        // A negative wait cannot wait for a busy lock. A fragment timeout must leave room for 5000 ms.
+        Field field = Config.class.getField(name);
+        Object original = field.get(null);
+        Config config = new Config();
+        try {
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> config.init(configFile(name + "=" + invalid + "\n").toString()), name);
+            Assertions.assertEquals(original, field.get(null), name);
+            Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig(name, invalid), name);
+            Assertions.assertEquals(original, field.get(null), name);
+            // The adjacent valid boundary must work at startup and during a runtime update.
+            config.init(configFile(name + "=" + valid + "\n").toString());
+            Assertions.assertEquals(Long.parseLong(valid), ((Number) field.get(null)).longValue(), name);
+            field.set(null, original);
+            ConfigBase.setMutableConfig(name, valid);
+            Assertions.assertEquals(Long.parseLong(valid), ((Number) field.get(null)).longValue(), name);
+        } finally {
+            field.set(null, original);
         }
     }
 

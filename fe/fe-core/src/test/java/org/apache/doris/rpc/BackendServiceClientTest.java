@@ -107,6 +107,21 @@ public class BackendServiceClientTest {
         client.shutdown();
     }
 
+    @Test
+    public void testLargestFragmentTimeoutLeavesRoomForGracePeriod() {
+        // Config validation rejects larger values. One client verifies the accepted upper bound
+        // plus its 5000 ms grace period without sending an RPC or waiting for the deadline.
+        Config.remote_fragment_exec_timeout_ms = Long.MAX_VALUE - 5000;
+        BackendServiceClient client = new BackendServiceClient(
+                new TNetworkAddress("127.0.0.1", 9060), "127.0.0.1", executor);
+        try {
+            long timeout = Deencapsulation.getField(client, "execPlanTimeout");
+            Assertions.assertEquals(Long.MAX_VALUE, timeout);
+        } finally {
+            client.shutdown();
+        }
+    }
+
     /**
      * Test that when resolved IP is empty, the client falls back to using hostname.
      */
