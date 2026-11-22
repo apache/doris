@@ -22,7 +22,7 @@ suite("dotted_key_legacy_semantics", "p0,nonConcurrent") {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     // Master rejects doc_mode=false together with explicit subcolumn properties.
     // Pin this one default here; each column still fixes all sparse layout options.
-    sql "set default_variant_enable_doc_mode = false"
+    sql "set debug_variant_enable_doc_mode = false"
     sql "drop table if exists dotted_key_legacy_read"
     sql """
         create table dotted_key_legacy_read (

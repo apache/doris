@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.qe.SessionVariable;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -172,7 +173,10 @@ public class TypeTest {
         VariantType variantType = new VariantType(new ArrayList<>(), 0, false, 10000, 0,
                 false, 0L, 64, true);
 
-        Assert.assertTrue(variantType.toSql().contains("\"variant_enable_nested_group\" = \"true\""));
+        // Only the nested group property: the others are cleared for nested group and some, such as a statistics
+        // size of 0, would not parse.
+        Assert.assertEquals("variant<PROPERTIES (\"variant_enable_nested_group\" = \"true\")>",
+                variantType.toSql());
     }
 
     @Test
@@ -204,6 +208,20 @@ public class TypeTest {
         org.apache.doris.nereids.types.VariantType reparsed = (org.apache.doris.nereids.types.VariantType)
                 new NereidsParser().parseDataType("variant<" + parsed.getPredefinedFields().get(0).toSql() + ">");
         Assert.assertEquals(comment, reparsed.getPredefinedFields().get(0).getComment());
+    }
+
+    @Test
+    public void testVariantTakesBuiltInDefaults() {
+        // Without debug points, and without a session, the properties a DDL leaves out take the built-in values
+        // of the debug_variant_* session variables.
+        org.apache.doris.nereids.types.VariantType parsed = (org.apache.doris.nereids.types.VariantType)
+                new NereidsParser().parseDataType("variant");
+        SessionVariable builtIn = new SessionVariable();
+        Assert.assertEquals(builtIn.defaultVariantMaxSubcolumnsCount, parsed.getVariantMaxSubcolumnsCount());
+        Assert.assertEquals(builtIn.defaultVariantMaxSparseColumnStatisticsSize,
+                parsed.getVariantMaxSparseColumnStatisticsSize());
+        Assert.assertEquals(builtIn.defaultVariantEnableDocMode, parsed.getEnableVariantDocMode());
+        Assert.assertEquals(builtIn.defaultVariantEnableNestedGroup, parsed.getEnableNestedGroup());
     }
 
     // ===================== Mixed Nesting & Precision =====================

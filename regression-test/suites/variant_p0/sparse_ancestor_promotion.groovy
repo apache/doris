@@ -18,7 +18,7 @@
 suite("sparse_ancestor_promotion", "p0") {
     // V2 execution keeps a JSON string as a string Variant value; V1 parsed it on insert.
     def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
-    sql "SET default_variant_enable_doc_mode = false"
+    sql "SET debug_variant_enable_doc_mode = false"
     def backendIPs = [:]
     def backendHttpPorts = [:]
     getBackendIpHttpPort(backendIPs, backendHttpPorts)

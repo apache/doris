@@ -20,8 +20,8 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_segment_limit_pushdown = true """
-    sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     // Exercise index evaluation instead of reusing cached query or condition results.
     sql "set enable_sql_cache = false"
     sql "set enable_query_cache = false"
@@ -217,7 +217,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     tableName = "test_variant_predefine_types_with_multi_indexes"
     sql "DROP TABLE IF EXISTS ${tableName}"
     def max_subcolumns_count = new Random().nextInt(10)
-    sql "set default_variant_max_subcolumns_count = ${max_subcolumns_count}"
+    sql "set debug_variant_max_subcolumns_count = ${max_subcolumns_count}"
     sql """
         CREATE TABLE ${tableName} (
         `id` bigint NOT NULL AUTO_INCREMENT,

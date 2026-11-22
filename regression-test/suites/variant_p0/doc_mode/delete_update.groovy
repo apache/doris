@@ -20,8 +20,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("variant_delete_and_update_doc_value", "p0"){
     def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
-    sql """ set default_variant_enable_doc_mode = true """
-    sql """ set default_variant_doc_materialization_min_rows = 10000 """
+    sql """ set debug_variant_enable_doc_mode = true """
+    sql """ set debug_variant_doc_materialization_min_rows = 10000 """
     // MOR
     def table_name = "var_delete_update"
     sql "DROP TABLE IF EXISTS ${table_name}"
@@ -50,8 +50,8 @@ suite("variant_delete_and_update_doc_value", "p0"){
 
     // MOW
     table_name = "var_delete_update_mow"
-    sql """ set default_variant_enable_doc_mode = true """
-    sql """ set default_variant_max_subcolumns_count = 3"""
+    sql """ set debug_variant_enable_doc_mode = true """
+    sql """ set debug_variant_max_subcolumns_count = 3"""
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (

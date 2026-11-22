@@ -18,11 +18,11 @@
 suite("dotted_key_escape_document_examples", "p0,nonConcurrent") {
     setFeConfigTemporary([enable_variant_v2: true, enable_variant_escape_dots_in_keys: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
-    sql "set default_variant_enable_doc_mode=false"
-    def oldNested = sql("show variables like 'default_variant_enable_nested_group'")[0][1]
+    sql "set debug_variant_enable_doc_mode=false"
+    def oldNested = sql("select @@debug_variant_enable_nested_group")[0][0]
     try {
         [false, true].each { nestedDefault ->
-            sql "set default_variant_enable_nested_group=${nestedDefault}"
+            sql "set debug_variant_enable_nested_group=${nestedDefault}"
             sql "drop table if exists dotted_key_escape_document"
             sql """create table dotted_key_escape_document(id int, v variant<
                 MATCH_NAME 'a%2Eb':string, MATCH_NAME 'a.b':string, properties(
@@ -69,7 +69,7 @@ suite("dotted_key_escape_document_examples", "p0,nonConcurrent") {
         sql "set describe_extend_variant_column=true"
         order_qt_glob_schema "desc dotted_key_escape_glob"
     } finally {
-        sql "set default_variant_enable_nested_group=${oldNested}"
+        sql "set debug_variant_enable_nested_group=${oldNested}"
     }
     }
 }

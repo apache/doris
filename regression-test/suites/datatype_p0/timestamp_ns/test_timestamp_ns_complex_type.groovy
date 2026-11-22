@@ -59,7 +59,7 @@ suite("test_timestamp_ns_complex_type") {
     """
 
     def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
-    sql "set default_variant_enable_doc_mode = false"
+    sql "set debug_variant_enable_doc_mode = false"
     sql "drop table if exists timestamp_ns_typed_variant"
     sql """
         create table timestamp_ns_typed_variant (
