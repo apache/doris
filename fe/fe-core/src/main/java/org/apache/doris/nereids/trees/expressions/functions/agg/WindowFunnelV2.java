@@ -111,7 +111,7 @@ public class WindowFunnelV2 extends NullableAggregateFunction
         Expression window = FoldConstantRuleOnFE.evaluateWithoutContext(getArgument(0));
         if (window instanceof IntegerLikeLiteral
                 && !((IntegerLikeLiteral) window).isValueInRange(0, Long.MAX_VALUE)) {
-            throw new AnalysisException("the sliding time window must be a nonnegative BIGINT, but got: "
+            throw new AnalysisException("the sliding time window must be a positive integer, but got: "
                     + window.toSql());
         }
         if (!getArgument(1).isConstant()) {
