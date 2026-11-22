@@ -23,11 +23,10 @@
 
 namespace doris {
 
-int64_t PerfCounters::_vm_rss = 0;
-std::string PerfCounters::_vm_rss_str = "";
-int64_t PerfCounters::_vm_hwm = 0;
-int64_t PerfCounters::_vm_peak = 0;
-int64_t PerfCounters::_vm_size = 0;
+std::atomic<int64_t> PerfCounters::_vm_rss = 0;
+std::atomic<int64_t> PerfCounters::_vm_hwm = 0;
+std::atomic<int64_t> PerfCounters::_vm_peak = 0;
+std::atomic<int64_t> PerfCounters::_vm_size = 0;
 
 // macOS has no /proc/self/status, so read the task's basic info from the kernel: resident_size
 // is the counterpart of VmRSS, resident_size_max of VmHWM and virtual_size of VmSize. Mach does
@@ -46,13 +45,16 @@ void PerfCounters::get_proc_status(ProcStatus* out) {
 void PerfCounters::refresh_proc_status() {
     ProcStatus status;
     get_proc_status(&status);
-    _vm_size = status.vm_size;
-    _vm_rss = status.vm_rss;
-    _vm_hwm = status.vm_hwm;
+    _vm_size.store(status.vm_size, std::memory_order_relaxed);
+    _vm_rss.store(status.vm_rss, std::memory_order_relaxed);
+    _vm_hwm.store(status.vm_hwm, std::memory_order_relaxed);
+}
+
+std::string PerfCounters::get_vm_rss_str() {
 #ifdef ADDRESS_SANITIZER
-    _vm_rss_str = "[ASAN]" + PrettyPrinter::print(_vm_rss, TUnit::BYTES);
+    return "[ASAN]" + PrettyPrinter::print(get_vm_rss(), TUnit::BYTES);
 #else
-    _vm_rss_str = PrettyPrinter::print(_vm_rss, TUnit::BYTES);
+    return PrettyPrinter::print(get_vm_rss(), TUnit::BYTES);
 #endif
 }
 

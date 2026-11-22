@@ -16,10 +16,11 @@
 // under the License.
 
 #include <gtest/gtest.h>
+#include <sys/mman.h>
 
 #include <cstring>
-#include <vector>
 
+#include "util/defer_op.h"
 #include "util/perf_counters.h"
 
 namespace doris {
@@ -33,13 +34,18 @@ TEST(PerfCountersMacTest, ProcStatusReportsResidentMemory) {
     EXPECT_GE(before.vm_hwm, before.vm_rss);
     EXPECT_GE(before.vm_size, before.vm_rss);
 
-    // Writing 64 MiB makes those pages resident, so the resident size has to grow with them.
+    // Writing 64 MiB of newly mapped pages makes them resident, so the resident size has to grow
+    // with them. A heap buffer would not do: the allocator can hand back a freed block whose pages
+    // are still resident, and writing those adds nothing.
     constexpr size_t TOUCHED_BYTES = 64UL * 1024 * 1024;
-    std::vector<char> buffer(TOUCHED_BYTES);
-    std::memset(buffer.data(), 1, buffer.size());
+    void* pages = mmap(nullptr, TOUCHED_BYTES, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS,
+                       -1, 0);
+    ASSERT_NE(pages, MAP_FAILED);
+    Defer unmap_pages {[&]() { munmap(pages, TOUCHED_BYTES); }};
+    std::memset(pages, 1, TOUCHED_BYTES);
     PerfCounters::ProcStatus after;
     PerfCounters::get_proc_status(&after);
-    EXPECT_EQ(buffer.back(), 1);
+    EXPECT_EQ(static_cast<char*>(pages)[TOUCHED_BYTES - 1], 1);
     EXPECT_GE(after.vm_rss - before.vm_rss, static_cast<int64_t>(TOUCHED_BYTES / 2));
     EXPECT_GE(after.vm_hwm, after.vm_rss);
 }

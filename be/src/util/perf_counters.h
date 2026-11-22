@@ -23,6 +23,7 @@
 #include <gen_cpp/Metrics_types.h>
 #include <stdint.h>
 
+#include <atomic>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -117,11 +118,13 @@ public:
     static void refresh_proc_status();
     static void get_proc_status(ProcStatus* out);
     // Return the process actual physical memory in bytes.
-    static inline int64_t get_vm_rss() { return _vm_rss; }
-    static inline std::string get_vm_rss_str() { return _vm_rss_str; }
-    static inline int64_t get_vm_hwm() { return _vm_hwm; }
-    static inline int64_t get_vm_size() { return _vm_size; }
-    static inline int64_t get_vm_peak() { return _vm_peak; }
+    static inline int64_t get_vm_rss() { return _vm_rss.load(std::memory_order_relaxed); }
+    // Formatted from get_vm_rss() on every call, so callers never copy a string that a refresh
+    // is assigning.
+    static std::string get_vm_rss_str();
+    static inline int64_t get_vm_hwm() { return _vm_hwm.load(std::memory_order_relaxed); }
+    static inline int64_t get_vm_size() { return _vm_size.load(std::memory_order_relaxed); }
+    static inline int64_t get_vm_peak() { return _vm_peak.load(std::memory_order_relaxed); }
 
 private:
     // Copy constructor and assignment not allowed
@@ -166,11 +169,11 @@ private:
     // at the same time.  This is useful to better correlate counter values.
     int64_t _group_fd;
 
-    static int64_t _vm_rss;
-    static std::string _vm_rss_str;
-    static int64_t _vm_hwm;
-    static int64_t _vm_size;
-    static int64_t _vm_peak;
+    // The memory maintenance thread refreshes these while any other thread may read them.
+    static std::atomic<int64_t> _vm_rss;
+    static std::atomic<int64_t> _vm_hwm;
+    static std::atomic<int64_t> _vm_size;
+    static std::atomic<int64_t> _vm_peak;
 };
 
 } // namespace doris
