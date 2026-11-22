@@ -30,6 +30,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <ostream>
@@ -55,6 +56,7 @@
 #include "storage/olap_common.h"
 #include "storage/options.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/debug/leak_annotations.h"
 
 namespace doris::segment_v2 {
 namespace {
@@ -378,6 +380,40 @@ TEST_F(AnnIndexRangeReadTest, LoadAndSearchIssueTheRecordedReads) {
             }
             EXPECT_EQ(actual, it->second) << name << " reads differently from the recorded code";
         }
+    }
+}
+
+// A load whose index file is cut short reports the failure as a status, so try_load_index() can
+// fall back to brute force: the CLucene error of the read past the end must not escape. E.g. the
+// last 4 KiB of the file gone leaves its file table whole, and reading ann.faiss reaches EOF.
+TEST_F(AnnIndexRangeReadTest, ACutShortIndexFileFailsTheLoadWithAStatus) {
+    const AnnCase& ann_case = ann_cases().front();
+    for (const Format& format : kFormats) {
+        SCOPED_TRACE(format.name);
+        const TabletIndex meta = ann_meta(ann_case);
+        const std::string prefix = write_ann_index(
+                fresh_prefix(std::string("cut_short_") + format.name), format.format, meta);
+        const std::string path = format.format == InvertedIndexStorageFormatPB::V1
+                                         ? InvertedIndexDescriptor::get_index_file_path_v1(
+                                                   prefix, meta.index_id(), meta.get_index_suffix())
+                                         : InvertedIndexDescriptor::get_index_file_path_v2(prefix);
+        const auto size = std::filesystem::file_size(path);
+        ASSERT_GT(size, 4096U);
+        std::filesystem::resize_file(path, size - 4096);
+
+        auto reader = std::make_shared<AnnIndexReader>(
+                &meta, std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix,
+                                                         format.format));
+        io::IOContext io_ctx;
+        Status status;
+        {
+            // faiss::read_index does not free the objects it built before the failed read: its
+            // raw pointers leak when the reader throws. That cleanup is faiss's own, and a reader
+            // runs a failed load once, so the test does not count those bytes.
+            doris::debug::ScopedLSANDisabler lsan_disabler;
+            EXPECT_NO_THROW(status = reader->load_index(&io_ctx));
+        }
+        EXPECT_FALSE(status.ok());
     }
 }
 

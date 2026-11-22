@@ -286,7 +286,10 @@ Status write_index_file(const faiss::Index* index, AnnIndexSink* sink) {
 } // namespace
 
 // faiss deserializes an index by reading it front to back through this callback, in many reads of
-// a few bytes: the input coalesces them, this reader only keeps the position.
+// a few bytes: the input coalesces them, this reader only keeps the position. Like the writer, it
+// can only count items, so a failed read is thrown, and the RETURN_IF_CATCH_EXCEPTION around
+// faiss::read_index turns it back into a Status: e.g. an index file cut short then fails the load,
+// and the reader falls back to brute force instead of failing the query.
 struct FaissIndexReader : faiss::IOReader {
 public:
     FaissIndexReader(AnnIndexInput* input, const io::IOContext* io_ctx)
@@ -1103,7 +1106,7 @@ doris::Status FaissVectorIndex::load(AnnIndexSource* source, const io::IOContext
         //   inverted-list) pair, which is functionally identical and correct.
         constexpr int kIVFOnDiskReadFlags =
                 faiss::IO_FLAG_SKIP_IVF_DATA | faiss::IO_FLAG_SKIP_PRECOMPUTE_TABLE;
-        idx.reset(faiss::read_index(&reader, kIVFOnDiskReadFlags));
+        RETURN_IF_CATCH_EXCEPTION(idx.reset(faiss::read_index(&reader, kIVFOnDiskReadFlags)));
 
         // Replace OnDiskInvertedLists (metadata-only) with PreadInvertedLists
         faiss::PreadInvertedLists* pread = faiss::replace_with_pread_invlists(idx.get());
@@ -1124,7 +1127,7 @@ doris::Status FaissVectorIndex::load(AnnIndexSource* source, const io::IOContext
         // The flag is a no-op for HNSW (no IVF code path is reached).
         const int read_flags =
                 (_index_type == AnnIndexType::IVF) ? faiss::IO_FLAG_SKIP_PRECOMPUTE_TABLE : 0;
-        idx.reset(faiss::read_index(&reader, read_flags));
+        RETURN_IF_CATCH_EXCEPTION(idx.reset(faiss::read_index(&reader, read_flags)));
     }
 
     auto end_time = std::chrono::high_resolution_clock::now();
