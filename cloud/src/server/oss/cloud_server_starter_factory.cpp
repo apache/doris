@@ -64,7 +64,7 @@ public:
         if (config::brpc_internal_listen_port > 0) {
             options.internal_port = config::brpc_internal_listen_port;
         }
-        const std::string bind_addr = get_service_bind_address(config::priority_networks);
+        const std::string& bind_addr = network_options().bind_address();
         butil::EndPoint point;
         if (butil::str2endpoint(bind_addr.c_str(), _port, &point) < 0) {
             LOG(WARNING) << "convert address failed, host=" << bind_addr << ", port=" << _port;

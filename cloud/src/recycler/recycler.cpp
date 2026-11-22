@@ -300,7 +300,7 @@ static inline void check_recycle_task(const std::string& instance_id, const std:
 }
 
 Recycler::Recycler(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
-    ip_port_ = get_host_port(get_local_ip(config::priority_networks), config::brpc_listen_port);
+    ip_port_ = network_options().host_port(config::brpc_listen_port);
 
     auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism,
                                                                "s3_producer_pool");

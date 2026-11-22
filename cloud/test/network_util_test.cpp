@@ -43,6 +43,23 @@ TEST(NetWorkUtilTest, GetLocaHostTest) {
         ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "127.0.0.1");
     }
 
+    { // whitespace around the mask separator
+        doris::cloud::config::priority_networks = "127.0.0.1 / 8";
+        ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "127.0.0.1");
+    }
+
+    { // legacy IPv4 shorthand accepted by inet_aton
+        doris::cloud::config::priority_networks = "127.1 / 8";
+        ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "127.0.0.1");
+        ASSERT_EQ(doris::cloud::get_service_bind_address(doris::cloud::config::priority_networks),
+                  "0.0.0.0");
+    }
+
+    { // IPv4 address without an explicit mask
+        doris::cloud::config::priority_networks = "127.0.0.1";
+        ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "127.0.0.1");
+    }
+
     { // not match CIDR
         doris::cloud::config::priority_networks = "1.2.3.4/8";
         ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "127.0.0.1");
@@ -80,6 +97,11 @@ TEST(NetWorkUtilTest, GetIpv6CidrTest) {
 
     doris::cloud::config::priority_networks = "::1";
     ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "::1");
+
+    doris::cloud::config::priority_networks = "::1 / 128";
+    ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "::1");
+    ASSERT_EQ(doris::cloud::get_service_bind_address(doris::cloud::config::priority_networks),
+              "[::0]");
 
     doris::cloud::config::priority_networks = "::1/127";
     ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "::1");
@@ -133,4 +155,34 @@ TEST(NetWorkUtilTest, GetHostPortTest) {
     ASSERT_EQ(doris::cloud::get_host_port("10.0.0.1", 5000), "10.0.0.1:5000");
     ASSERT_EQ(doris::cloud::get_host_port("2001:db8::1", 5000), "[2001:db8::1]:5000");
     ASSERT_EQ(doris::cloud::get_host_port("ms-1", 5000), "ms-1:5000");
+}
+
+TEST(NetWorkUtilTest, NetworkOptionsCachesSelectedAddress) {
+    auto priority_networks_bak = doris::cloud::config::priority_networks;
+    bool enable_loopback_address_for_ms_bak = doris::cloud::config::enable_loopback_address_for_ms;
+    doris::cloud::config::enable_loopback_address_for_ms = true;
+    doris::cloud::config::priority_networks = "127.0.0.1/8";
+
+    doris::cloud::NetworkOptions options;
+    options.init(doris::cloud::config::priority_networks);
+    EXPECT_EQ(options.local_ip(), "127.0.0.1");
+    EXPECT_FALSE(options.is_ipv6());
+    EXPECT_EQ(options.bind_address(), "0.0.0.0");
+    EXPECT_EQ(options.host_port(5000), "127.0.0.1:5000");
+
+    // The identity is process-lifetime state. A later config change must not move the listener.
+    doris::cloud::config::priority_networks = "::1/128";
+    options.init(doris::cloud::config::priority_networks);
+    EXPECT_EQ(options.local_ip(), "127.0.0.1");
+    EXPECT_EQ(options.bind_address(), "0.0.0.0");
+
+    doris::cloud::NetworkOptions ipv6_options;
+    ipv6_options.init(doris::cloud::config::priority_networks);
+    EXPECT_EQ(ipv6_options.local_ip(), "::1");
+    EXPECT_TRUE(ipv6_options.is_ipv6());
+    EXPECT_EQ(ipv6_options.bind_address(), "[::0]");
+    EXPECT_EQ(ipv6_options.host_port(5000), "[::1]:5000");
+
+    doris::cloud::config::priority_networks = priority_networks_bak;
+    doris::cloud::config::enable_loopback_address_for_ms = enable_loopback_address_for_ms_bak;
 }

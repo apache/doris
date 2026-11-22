@@ -5293,9 +5293,9 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
     if (stats) {
         stats->get_bytes += val.size() + key.size();
     }
-    std::string self_endpoint =
-            config::hostname.empty() ? get_local_ip(config::priority_networks) : config::hostname;
-    self_endpoint = get_host_port(self_endpoint, config::brpc_listen_port);
+    std::string self_endpoint = config::hostname.empty()
+                                        ? network_options().host_port(config::brpc_listen_port)
+                                        : get_host_port(config::hostname, config::brpc_listen_port);
     ServiceRegistryPB reg;
     reg.ParseFromString(val);
 

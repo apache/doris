@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <utility>
 #include <vector>
 
@@ -42,40 +43,30 @@ class CIDR {
 public:
     bool reset(const std::string& cidr_str) {
         address_.fill(0);
-
-        // check if have mask
-        std::string cidr_format_str = cidr_str;
-        int32_t have_mask = cidr_str.find("/");
-        std::string ip_str = have_mask == -1 ? cidr_str : cidr_str.substr(0, have_mask);
-        if (inet_pton(AF_INET, ip_str.c_str(), address_.data())) {
-            family_ = AF_INET;
-            netmask_len_ = kIPv4Bits;
-        } else if (inet_pton(AF_INET6, ip_str.c_str(), address_.data())) {
-            family_ = AF_INET6;
-            netmask_len_ = kIPv6Bits;
-        } else {
-            LOG(WARNING) << "wrong CIDR IP value. network=" << cidr_str;
-            return false;
-        }
-        if (have_mask == -1) {
-            cidr_format_str.assign(cidr_str + "/" + std::to_string(netmask_len_));
-        }
-        VLOG_DEBUG << "cidr format str: " << cidr_format_str;
+        family_ = AF_UNSPEC;
+        netmask_len_ = 0;
 
         std::vector<std::string> cidr_items;
-        butil::SplitString(cidr_format_str, '/', &cidr_items);
-        if (cidr_items.size() != 2) {
+        butil::SplitString(cidr_str, '/', &cidr_items);
+
+        if (cidr_items.empty() || cidr_items.size() > 2) {
             LOG(WARNING) << "wrong CIDR format. network=" << cidr_str;
             return false;
         }
-
-        if (cidr_items[1].empty()) {
-            LOG(WARNING) << "wrong CIDR mask format. network=" << cidr_str;
+        if (!parse_ip(cidr_items[0])) {
+            LOG(WARNING) << "wrong CIDR IP value. network=" << cidr_str;
             return false;
         }
+        VLOG_DEBUG << "cidr format str: " << cidr_str;
 
-        char* endptr = nullptr;
-        int32_t mask_length = strtol(cidr_items[1].c_str(), &endptr, 10);
+        int32_t mask_length = 0;
+        if (cidr_items.size() == 1) {
+            mask_length = netmask_len_;
+        } else {
+            char* endptr = nullptr;
+            mask_length = strtol(cidr_items[1].c_str(), &endptr, 10);
+        }
+
         if (errno != 0 && mask_length == 0) {
             char errmsg[64];
             // Ignore unused return value
@@ -115,6 +106,34 @@ public:
     }
 
 private:
+    bool parse_ip(const std::string& ip_str) {
+        in_addr ipv4 {};
+        if (inet_pton(AF_INET, ip_str.c_str(), &ipv4) == 1) {
+            family_ = AF_INET;
+            netmask_len_ = kIPv4Bits;
+            std::memcpy(address_.data(), &ipv4, sizeof(ipv4));
+            return true;
+        }
+
+        in6_addr ipv6 {};
+        if (inet_pton(AF_INET6, ip_str.c_str(), &ipv6) == 1) {
+            family_ = AF_INET6;
+            netmask_len_ = kIPv6Bits;
+            std::memcpy(address_.data(), &ipv6, sizeof(ipv6));
+            return true;
+        }
+
+        // Keep accepting the legacy IPv4 forms supported by inet_aton, such as 127.1.
+        if (inet_aton(ip_str.c_str(), &ipv4) == 1) {
+            family_ = AF_INET;
+            netmask_len_ = kIPv4Bits;
+            address_.fill(0);
+            std::memcpy(address_.data(), &ipv4, sizeof(ipv4));
+            return true;
+        }
+        return false;
+    }
+
     static constexpr std::uint8_t kIPv4Bits = 32;
     static constexpr std::uint8_t kIPv6Bits = 128;
 
@@ -272,6 +291,47 @@ std::string get_local_ip(const std::string& priority_networks) {
     }
 
     return localhost_str;
+}
+
+void NetworkOptions::init(const std::string& priority_networks) {
+    std::call_once(init_once_, [this, &priority_networks] { initialize(priority_networks); });
+}
+
+const std::string& NetworkOptions::local_ip() const {
+    ensure_initialized();
+    return local_ip_;
+}
+
+bool NetworkOptions::is_ipv6() const {
+    ensure_initialized();
+    return is_ipv6_;
+}
+
+const std::string& NetworkOptions::bind_address() const {
+    ensure_initialized();
+    return bind_address_;
+}
+
+std::string NetworkOptions::host_port(int port) const {
+    ensure_initialized();
+    return get_host_port(local_ip_, port);
+}
+
+void NetworkOptions::ensure_initialized() const {
+    std::call_once(init_once_, [this] { initialize(config::priority_networks); });
+}
+
+void NetworkOptions::initialize(const std::string& priority_networks) const {
+    local_ip_ = get_local_ip(priority_networks);
+    is_ipv6_ = local_ip_.find(':') != std::string::npos;
+    bind_address_ = is_ipv6_ ? "[::0]" : "0.0.0.0";
+    LOG(INFO) << "network options initialized, local_ip=" << local_ip_
+              << ", bind_address=" << bind_address_;
+}
+
+NetworkOptions& network_options() {
+    static NetworkOptions options;
+    return options;
 }
 
 std::string get_service_bind_address(const std::string& priority_networks) {

@@ -225,8 +225,10 @@ int main(int argc, char** argv) {
     LOG(INFO) << build_info();
     std::cerr << build_info() << std::endl;
 
-    // Check the local ip before starting the meta service or recycler.
-    std::string ip = get_local_ip(config::priority_networks);
+    // Select the local network identity once. The listener and registry must use the same
+    // address family for the lifetime of the process.
+    network_options().init(config::priority_networks);
+    const std::string& ip = network_options().local_ip();
     std::cerr << "local ip: " << ip << std::endl;
 
     if (!args.get<bool>(ARG_META_SERVICE) && !args.get<bool>(ARG_RECYCLER)) {
