@@ -117,10 +117,12 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
 
     _timeout_second = query_options.execution_timeout;
 
+    // The wire default -1 leaves the quota unchanged; never convert it to unsigned capacity.
     bool initialize_context_holder =
             config::enable_file_cache && config::enable_file_cache_query_limit &&
             query_options.__isset.enable_file_cache && query_options.enable_file_cache &&
             query_options.__isset.file_cache_query_limit_percent &&
+            query_options.file_cache_query_limit_percent > 0 &&
             query_options.file_cache_query_limit_percent < 100;
 
     // Initialize file cache context holders

@@ -44,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Routine load task info is the task info include the only id (signature).
@@ -193,7 +194,8 @@ public abstract class RoutineLoadTaskInfo {
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         if (rlTaskTxnCommitAttachment.getTotalRows() < routineLoadJob.getMaxBatchRows()
                 && rlTaskTxnCommitAttachment.getReceivedBytes() < routineLoadJob.getMaxBatchSizeBytes()
-                && rlTaskTxnCommitAttachment.getTaskExecutionTimeMs() < routineLoadJob.getMaxBatchIntervalS() * 1000) {
+                && rlTaskTxnCommitAttachment.getTaskExecutionTimeMs()
+                        < TimeUnit.SECONDS.toMillis(routineLoadJob.getMaxBatchIntervalS())) {
             this.isEof = true;
         } else {
             this.isEof = false;

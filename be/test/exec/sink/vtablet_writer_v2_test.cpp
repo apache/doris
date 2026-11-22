@@ -31,6 +31,7 @@
 #include "exec/sink/load_stream_map_pool.h"
 #include "exec/sink/load_stream_stub.h"
 #include "exec/sink/sink_test_utils.h"
+#include "exec/sink/writer/vtablet_writer.h"
 #include "io/fs/local_file_system.h"
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
@@ -38,6 +39,7 @@
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/column_helper.h"
 #include "testutil/creators.h"
+#include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 
@@ -50,6 +52,89 @@ public:
     static void SetUpTestSuite() {}
     static void TearDownTestSuite() {}
 };
+
+TEST_F(TestVTabletWriterV2, WritersPreserveLargeTimeoutInMilliseconds) {
+    class CaptureOpen final : public FailureDetectChannel {
+    public:
+        int calls = 0;
+        int64_t idle_ms = -1;
+
+        void CallMethod(const google::protobuf::MethodDescriptor* method,
+                        google::protobuf::RpcController* controller,
+                        const google::protobuf::Message* request, google::protobuf::Message*,
+                        google::protobuf::Closure* done) override {
+            EXPECT_EQ(method->name(), "open_load_stream");
+            EXPECT_EQ(done, nullptr);
+            ++calls;
+            idle_ms = static_cast<const POpenLoadStreamRequest*>(request)->idle_timeout_ms();
+            controller->SetFailed("captured local open");
+        }
+    } capture;
+
+    // One node and no rows reach both timeout conversions. The local channel records
+    // the V2 request and returns an error so the temporary stream closes immediately.
+    OperatorContext ctx;
+    ctx.state._query_options.__set_execution_timeout(2'147'484);
+    auto* env = ctx.state.exec_env();
+    auto* original_internal = env->_internal_client_cache;
+    auto* original_streaming = env->_streaming_client_cache;
+    auto owned_cache = std::make_unique<BrpcClientCache<PBackendService_Stub>>();
+    auto* cache = owned_cache.get();
+    const std::string host = "127.0.0.1";
+    const std::string endpoint = "127.0.0.1:1";
+    auto stub = std::make_shared<PBackendService_Stub>(&capture);
+    ASSERT_TRUE(cache->_stub_map.emplace(endpoint, StubEntry<PBackendService_Stub> {host, stub})
+                        .second);
+    env->_internal_client_cache = cache;
+    env->_streaming_client_cache = cache;
+    Defer restore([&] {
+        env->_internal_client_cache = original_internal;
+        env->_streaming_client_cache = original_streaming;
+        cache->erase(endpoint);
+    });
+
+    TNodeInfo node;
+    node.__set_id(1);
+    node.__set_host(host);
+    node.__set_async_internal_port(1);
+    TPaloNodesInfo tnodes;
+    tnodes.__set_nodes({node});
+    DorisNodesInfo nodes(tnodes);
+    TOlapTableSchemaParam tschema;
+    TTupleId tuple_id = 0;
+    int64_t index_id = 0;
+    sink_test_utils::build_desc_tbl_and_schema(ctx, tschema, tuple_id, index_id, false);
+    auto schema = std::make_shared<OlapTableSchemaParam>();
+    ASSERT_TRUE(schema->init(tschema).ok());
+
+    TDataSink sink;
+    sink.__isset.olap_table_sink = true;
+    VExprContextSPtrs output_exprs;
+    VTabletWriter writer(sink, output_exprs, nullptr, nullptr);
+    writer._nodes_info = &nodes;
+    writer._output_tuple_desc = schema->tuple_desc();
+    writer._tablet_finder = std::make_unique<OlapTabletFinder>(
+            nullptr, OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW);
+    IndexChannel index(&writer, index_id, nullptr);
+    VNodeChannel node_channel(&writer, &index, 1, false);
+    ASSERT_TRUE(node_channel.init(&ctx.state).ok());
+    EXPECT_EQ(node_channel._rpc_timeout_ms, 2'147'484'000LL);
+    EXPECT_EQ(capture.calls, 0);
+
+    VTabletWriterV2 stream_writer(sink, output_exprs, nullptr, nullptr);
+    stream_writer._state = &ctx.state;
+    stream_writer._nodes_info = &nodes;
+    stream_writer._schema = schema;
+    stream_writer._txn_id = 1;
+    stream_writer._total_streams = 1;
+    LoadStreamStubs streams(1, UniqueId {0, 1}, 0, std::make_shared<IndexToTabletSchema>(),
+                            std::make_shared<IndexToEnableMoW>());
+    auto status = stream_writer._open_streams_to_backend(1, streams);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("captured local open"), std::string::npos);
+    EXPECT_EQ(capture.calls, 1);
+    EXPECT_EQ(capture.idle_ms, 2'147'484'000LL);
+}
 
 const int64_t src_id = 1000;
 

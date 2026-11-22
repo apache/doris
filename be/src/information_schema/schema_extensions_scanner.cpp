@@ -48,7 +48,7 @@ Status SchemaExtensionsScanner::start(RuntimeState* state) {
         return Status::InternalError("used before initialized.");
     }
     _block_rows_limit = state->batch_size();
-    _rpc_timeout_ms = state->execution_timeout() * 1000;
+    _rpc_timeout_ms = timeout_ms_for_int32(state->execution_timeout());
     // Extensions are per-FE local state: ask the FE this session is connected to.
     auto* query_ctx = state->get_query_ctx();
     if (query_ctx == nullptr) {

@@ -50,7 +50,7 @@ Status SchemaRoleMappingsScanner::start(RuntimeState* state) {
         return Status::InternalError("used before initialized.");
     }
     _block_rows_limit = state->batch_size();
-    _rpc_timeout_ms = state->execution_timeout() * 1000;
+    _rpc_timeout_ms = timeout_ms_for_int32(state->execution_timeout());
     return Status::OK();
 }
 

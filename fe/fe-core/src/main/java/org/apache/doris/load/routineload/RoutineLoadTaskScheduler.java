@@ -45,6 +45,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Routine load task scheduler is a function which allocate task to be.
@@ -108,7 +109,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             if (routineLoadTaskInfo.needDedalySchedule()) {
                 RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
                 if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime()
-                        < routineLoadJob.getMaxBatchIntervalS() * 1000) {
+                        < TimeUnit.SECONDS.toMillis(routineLoadJob.getMaxBatchIntervalS())) {
                     needScheduleTasksQueue.addLast(routineLoadTaskInfo);
                     return;
                 }

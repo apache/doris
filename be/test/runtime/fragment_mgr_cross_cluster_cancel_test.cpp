@@ -340,4 +340,22 @@ TEST(FragmentMgrExternalScanTest, SelectedColumnsFollowOutputExpressionOrder) {
     EXPECT_EQ(selected_columns[1].type, TPrimitiveType::INT);
 }
 
+TEST_F(FragmentMgrCrossClusterCancelTest, RejectInvalidOptionsBeforeQueryCreation) {
+    // No fragments or rows are needed. Each invalid request must fail at admission,
+    // even when an older coordinator omitted the FE assignment checks.
+    TPipelineFragmentParams params;
+    params.query_options.__set_data_queue_max_blocks(-1);
+    std::shared_ptr<QueryContext> context;
+    auto status = _exec_env._fragment_mgr->_get_or_create_query_ctx(
+            params, {}, QuerySource::INTERNAL_FRONTEND, context);
+    EXPECT_NE(status.to_string().find("data_queue_max_blocks"), std::string::npos);
+    params.query_options = TQueryOptions();
+    TQueryCacheParam cache;
+    cache.__set_entry_max_rows(-1);
+    params.fragment.__set_query_cache_param(cache);
+    status = _exec_env._fragment_mgr->_get_or_create_query_ctx(
+            params, {}, QuerySource::INTERNAL_FRONTEND, context);
+    EXPECT_NE(status.to_string().find("query cache entry limits"), std::string::npos);
+}
+
 } // namespace doris

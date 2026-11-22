@@ -25,6 +25,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <limits>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -2095,6 +2096,15 @@ TEST_F(ScannerContextTest, terminal_eos_skips_context_submission) {
   - Atomic operations and thread safety
   - Memory distribution algorithms
 */
+TEST(MemShareArbitratorBoundaryTest, FullInt64Budget) {
+    // INT64_MAX rounds up when converted to double. No memory allocation is needed;
+    // one reported byte obtains the full budget when it is the only active scanner.
+    const auto maximum = std::numeric_limits<int64_t>::max();
+    auto arbitrator = MemShareArbitrator::create_shared(TUniqueId {}, maximum, 1.0);
+    EXPECT_EQ(arbitrator->mem_limit, maximum);
+    EXPECT_EQ(arbitrator->update_mem_bytes(0, 1), maximum);
+}
+
 // ==================== MemShareArbitrator Tests ====================
 TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_basic) {
     TUniqueId query_id;

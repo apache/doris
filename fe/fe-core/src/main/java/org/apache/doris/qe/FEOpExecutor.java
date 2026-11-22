@@ -80,7 +80,9 @@ public class FEOpExecutor {
         this.feAddr = feAddress;
         this.originStmt = originStmt;
         this.ctx = ctx;
-        this.thriftTimeoutMs = (int) (ctx.getExecTimeoutS() * 1000 * RPC_TIMEOUT_COEFFICIENT);
+        // Widen seconds before multiplication. The final float-to-int conversion saturates
+        // at INT_MAX, so a large positive timeout cannot become a negative deadline.
+        this.thriftTimeoutMs = (int) (ctx.getExecTimeoutS() * 1000L * RPC_TIMEOUT_COEFFICIENT);
         // if isQuery=false, we shouldn't retry twice when catch exception because of Idempotency
         this.shouldNotRetry = !isQuery;
     }

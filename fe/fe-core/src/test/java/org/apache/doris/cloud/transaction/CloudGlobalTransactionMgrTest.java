@@ -197,6 +197,30 @@ public class CloudGlobalTransactionMgrTest {
     }
 
     @Test
+    public void testPrecommitTimeoutKeepsLongMilliseconds() throws Exception {
+        int original = Config.stream_load_default_precommit_timeout_second;
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            Config.stream_load_default_precommit_timeout_second = 2147484;
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.beginTxn(Mockito.any())).thenAnswer(invocation -> {
+                // Observe the actual protobuf request. No Meta Service or clock wait is needed.
+                Cloud.BeginTxnRequest request = invocation.getArgument(0);
+                Assertions.assertEquals(2147484000L, request.getTxnInfo().getPrecommitTimeoutMs());
+                return BeginTxnResponse.newBuilder().setTxnId(1000)
+                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK)).build();
+            });
+            Assertions.assertEquals(1000, masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), CatalogTestUtil.testTxnLabel1,
+                    transactionSource, TransactionState.LoadJobSourceType.FRONTEND,
+                    Config.stream_load_default_timeout_second));
+            Mockito.verify(proxy).beginTxn(Mockito.any());
+        } finally {
+            Config.stream_load_default_precommit_timeout_second = original;
+        }
+    }
+
+    @Test
     public void testBeginTransactionConflict() throws Exception {
         AtomicLong id = new AtomicLong(1000);
         MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);

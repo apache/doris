@@ -364,7 +364,7 @@ protected:
     NodeInfo _node_info;
 
     // this should be set in init() using config
-    int _rpc_timeout_ms = 60000;
+    int64_t _rpc_timeout_ms = 60000;
     int64_t _next_packet_seq = 0;
     MonotonicStopWatch _timeout_watch;
 

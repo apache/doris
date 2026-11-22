@@ -61,7 +61,7 @@ SchemaSqlBlockRuleStatusScanner::~SchemaSqlBlockRuleStatusScanner() = default;
 
 Status SchemaSqlBlockRuleStatusScanner::start(RuntimeState* state) {
     _block_rows_limit = state->batch_size();
-    _rpc_timeout = state->execution_timeout() * 1000;
+    _rpc_timeout = timeout_ms_for_int32(state->execution_timeout());
     return Status::OK();
 }
 

@@ -21,16 +21,19 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <librdkafka/rdkafkacpp.h>
 #include <unistd.h>
 
+#include <limits>
 #include <map>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
+#include "load/routine_load/data_consumer.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_executor.h"
 #include "runtime/cluster_info.h"
@@ -73,6 +76,44 @@ public:
         _env->clear_stream_load_executor();
     }
 };
+
+TEST_F(RoutineLoadTaskExecutorTest, KafkaExpiredDeadlineCannotBecomePositive) {
+    // The clock calculation is shared by both watermark calls. Supply elapsed time directly
+    // to reproduce a long-running request without a real wait or Kafka connection.
+    EXPECT_EQ(KafkaDataConsumer::remaining_timeout_ms(0, 2147483648LL), 0);
+    EXPECT_EQ(KafkaDataConsumer::remaining_timeout_ms(INT32_MIN, 1), 0);
+    EXPECT_EQ(KafkaDataConsumer::remaining_timeout_ms(INT32_MAX, 1), INT32_MAX - 1);
+    EXPECT_EQ(KafkaDataConsumer::remaining_timeout_ms(1, 1), 0);
+    auto context = std::make_shared<StreamLoadContext>(_env);
+    context->need_rollback = false;
+    context->kafka_info = std::make_unique<KafkaLoadInfo>(TKafkaLoadInfo {});
+    KafkaDataConsumer consumer(context);
+    std::vector<PIntegerPair> offsets;
+    auto status = consumer.get_latest_offsets_for_partitions({0}, &offsets, 0);
+    EXPECT_NE(status.to_string().find("latest offsets for partitions timeout"), std::string::npos);
+    PIntegerPair flag;
+    flag.set_key(0);
+    flag.set_val(-1);
+    status = consumer.get_real_offsets_for_partitions({flag}, &offsets, 0);
+    EXPECT_NE(status.to_string().find("real offsets for partitions timeout"), std::string::npos);
+    EXPECT_TRUE(offsets.empty());
+}
+
+TEST_F(RoutineLoadTaskExecutorTest, RejectIntervalsOutsideMillisecondRange) {
+    RoutineLoadTaskExecutor executor(_env);
+    ASSERT_TRUE(executor.init(1024 * 1024).ok());
+    // Reject the request before a consumer is created. No broker, partition, or row is needed.
+    for (int64_t seconds : {int64_t(-1), std::numeric_limits<int64_t>::max() / 1000 + 1}) {
+        TRoutineLoadTask task;
+        task.__set_max_interval_s(seconds);
+        auto status = executor.submit_task(task);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("Routine load interval out of range"), std::string::npos)
+                << status;
+        EXPECT_TRUE(executor._task_map.empty());
+    }
+    executor.stop();
+}
 
 TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     TRoutineLoadTask task;

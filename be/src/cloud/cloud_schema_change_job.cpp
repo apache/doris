@@ -31,6 +31,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/status.h"
+#include "runtime/query_options_validation.h"
 #include "service/backend_options.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
@@ -72,6 +73,9 @@ CloudSchemaChangeJob::CloudSchemaChangeJob(CloudStorageEngine& cloud_storage_eng
 CloudSchemaChangeJob::~CloudSchemaChangeJob() = default;
 
 Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
+    if (request.__isset.query_options) {
+        RETURN_IF_ERROR(validate_query_options(request.query_options));
+    }
     DBUG_EXECUTE_IF("CloudSchemaChangeJob::process_alter_tablet.block", DBUG_BLOCK);
     // new tablet has to exist
     _new_tablet = DORIS_TRY(_cloud_storage_engine.tablet_mgr().get_tablet(request.new_tablet_id));

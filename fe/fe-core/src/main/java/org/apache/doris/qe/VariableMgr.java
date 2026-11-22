@@ -31,6 +31,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.VariableAnnotation;
+import org.apache.doris.common.util.NumericRange;
 import org.apache.doris.foundation.util.SerializationUtils;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.GlobalVarPersistInfo;
@@ -423,6 +424,11 @@ public class VariableMgr {
             }
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
+        // Static global values have no session copy; journal replay applies the leader's result.
+        // Do not apply a rejected value or recheck the follower's load limits.
+        if (varCtx.getObj() == null) {
+            return;
+        }
         setVarInternal(sessionVariable, setVar, varCtx);
     }
 
@@ -481,6 +487,19 @@ public class VariableMgr {
             if (value == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_NO_DEFAULT, attr.name());
             }
+        }
+
+        // Check before changing the session, the global value, or its edit log. For example,
+        // a cache-block limit of -1 would become a huge unsigned bound in BE.
+        try {
+            NumericRange.check(attr.name(), value, attr.minValue(), attr.maxValue());
+            if (setVar.getType() == SetType.GLOBAL
+                    && attr.name().equals(GlobalVariable.AUDIT_PLUGIN_LOAD_TIMEOUT)) {
+                // Only the leader checks its current load bounds. Replay and followers apply its result.
+                GlobalVariable.checkAuditPluginLoadTimeout(value);
+            }
+        } catch (IllegalArgumentException e) {
+            ErrorReport.reportDdlException(e.getMessage());
         }
 
         if (setVar.getType() == SetType.GLOBAL) {

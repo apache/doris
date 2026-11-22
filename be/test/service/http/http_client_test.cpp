@@ -66,6 +66,31 @@
 
 namespace doris {
 
+TEST(HttpClientLimitsTest, KeepCurlArgumentTypesAndWideByteRates) {
+    const auto old_low = config::download_low_speed_limit_kbps;
+    const auto old_time = config::download_low_speed_time;
+    const auto old_max = config::max_download_speed_kbps;
+    Defer restore {[&] {
+        config::download_low_speed_limit_kbps = old_low;
+        config::download_low_speed_time = old_time;
+        config::max_download_speed_kbps = old_max;
+    }};
+    // Inspect the typed options instead of downloading gigabytes or measuring network speed.
+    static_assert(std::is_same_v<decltype(HttpClient::speed_limits().low_bytes_per_second), long>);
+    static_assert(std::is_same_v<decltype(HttpClient::speed_limits().low_seconds), long>);
+    static_assert(
+            std::is_same_v<decltype(HttpClient::speed_limits().max_bytes_per_second), curl_off_t>);
+    config::download_low_speed_limit_kbps = 2097152;
+    config::download_low_speed_time = 1;
+    config::max_download_speed_kbps = 4194304;
+    auto limits = HttpClient::speed_limits();
+    EXPECT_EQ(limits.low_bytes_per_second, 2147483648L);
+    EXPECT_EQ(limits.low_seconds, 1);
+    EXPECT_EQ(limits.max_bytes_per_second, 4294967296LL);
+    config::max_download_speed_kbps = 0;
+    EXPECT_EQ(HttpClient::speed_limits().max_bytes_per_second, 0);
+}
+
 // GTest assertion macro expansion inflates the complexity of this two-transfer check.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST(HttpClientMetricsTest, reports_new_and_reused_connections_including_http_errors) {

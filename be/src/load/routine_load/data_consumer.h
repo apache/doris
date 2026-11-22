@@ -168,6 +168,8 @@ public:
                                            std::vector<PIntegerPair>* offsets, int timeout);
 
 private:
+    static int remaining_timeout_ms(int timeout_ms, int64_t elapsed_ms);
+
     std::string _brokers;
     std::string _topic;
     std::unordered_map<std::string, std::string> _custom_properties;

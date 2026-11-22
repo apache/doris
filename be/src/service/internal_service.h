@@ -252,6 +252,8 @@ public:
                             google::protobuf::Closure* done) override;
 
 private:
+    static int kafka_meta_timeout_ms(const PProxyRequest& request);
+
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
                                         PExecPlanFragmentResult* result,

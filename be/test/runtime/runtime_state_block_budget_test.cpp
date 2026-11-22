@@ -343,4 +343,29 @@ TEST_F(MockRuntimeStateBlockBudgetTest, ConfigOffStillDisablesAdaptiveBytes) {
     EXPECT_EQ(state.preferred_block_size_bytes(), 536870912UL);
 }
 
+TEST(RuntimeStateNumericOptionsTest, UnitConversionsPreserveBoundaries) {
+    RuntimeState state;
+    state._query_options.__set_minimum_operator_memory_required_kb(2097152);
+    EXPECT_EQ(state.minimum_operator_memory_required_bytes(), 2147483648ULL);
+    state._query_options.__set_minimum_operator_memory_required_kb(4194304);
+    EXPECT_EQ(state.minimum_operator_memory_required_bytes(), 4294967296ULL);
+    state._query_options.__set_minimum_operator_memory_required_kb(-1);
+    EXPECT_THROW(state.minimum_operator_memory_required_bytes(), Exception);
+    // The millisecond API uses int32. Compare the last exact second with the first overflow.
+    EXPECT_EQ(timeout_ms_for_int32(2147483), 2147483000);
+    EXPECT_EQ(timeout_ms_for_int32(2147484), INT32_MAX);
+    EXPECT_EQ(timeout_ms_for_int32(INT64_MAX), INT32_MAX);
+    EXPECT_EQ(timeout_ms_for_int32(60), 60000);
+    // Clamp before multiplying at both signed endpoints.
+    EXPECT_EQ(timeout_ms_for_int32(-2147483), -2147483000);
+    EXPECT_EQ(timeout_ms_for_int32(-2147484), INT32_MIN);
+    EXPECT_EQ(timeout_ms_for_int32(INT64_MIN), INT32_MIN);
+    const auto saved_timeout = config::execution_max_rpc_timeout_sec;
+    config::execution_max_rpc_timeout_sec = INT32_MAX;
+    EXPECT_EQ(get_execution_rpc_timeout_ms(2147484), INT32_MAX);
+    config::execution_max_rpc_timeout_sec = 1;
+    EXPECT_EQ(get_execution_rpc_timeout_ms(2147484), 1000);
+    config::execution_max_rpc_timeout_sec = saved_timeout;
+}
+
 } // namespace doris

@@ -617,7 +617,8 @@ Status VNodeChannel::init(RuntimeState* state) {
                                      _node_info.host, _node_info.brpc_port, channel_info());
     }
 
-    _rpc_timeout_ms = state->execution_timeout() * 1000;
+    // BRPC accepts int64 milliseconds, including values above INT32_MAX.
+    _rpc_timeout_ms = state->execution_timeout() * int64_t {1000};
     _timeout_watch.start();
 
     // Initialize _cur_add_block_request

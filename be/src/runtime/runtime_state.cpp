@@ -59,6 +59,18 @@
 
 namespace doris {
 
+int32_t timeout_ms_for_int32(int64_t seconds) {
+    // The RPC accepts signed 32-bit milliseconds. For example, 2147484 seconds exceeds
+    // that range. Compare in seconds first so even an int64 wire value can be converted.
+    if (seconds > INT32_MAX / 1000) {
+        return INT32_MAX;
+    }
+    if (seconds < INT32_MIN / 1000) {
+        return INT32_MIN;
+    }
+    return static_cast<int32_t>(seconds * 1000);
+}
+
 segment_v2::CompressionTypePB RuntimeState::fragement_transmission_compression_type() const {
     if (_query_options.__isset.fragment_transmission_compression_codec) {
         if (_query_options.fragment_transmission_compression_codec == "lz4") {

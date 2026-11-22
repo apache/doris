@@ -228,6 +228,14 @@ public:
     }
 
 private:
+    // Keep the exact types required by curl_easy_setopt's variadic interface.
+    struct SpeedLimits {
+        long low_bytes_per_second;
+        long low_seconds;
+        curl_off_t max_bytes_per_second;
+    };
+    static SpeedLimits speed_limits();
+
     static std::string _get_ca_certificate_path(const std::string& configured_paths);
     Status _set_ca_certificate_from_config();
     const char* _to_errmsg(CURLcode code) const;

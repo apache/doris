@@ -79,7 +79,7 @@ SchemaCatalogMetaCacheStatsScanner::~SchemaCatalogMetaCacheStatsScanner() {}
 
 Status SchemaCatalogMetaCacheStatsScanner::start(RuntimeState* state) {
     _block_rows_limit = state->batch_size();
-    _rpc_timeout = state->execution_timeout() * 1000;
+    _rpc_timeout = timeout_ms_for_int32(state->execution_timeout());
     _fe_addr = state->get_query_ctx()->current_connect_fe;
     return Status::OK();
 }

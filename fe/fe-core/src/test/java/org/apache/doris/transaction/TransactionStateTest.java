@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlStatus;
@@ -54,6 +55,47 @@ public class TransactionStateTest {
     private static String fileName = "./TransactionStateTest";
     private static String fileName2 = "./TransactionStateTest2";
     private static String fileName3 = "./TransactionStateTest3";
+
+    @Test
+    public void testLargeDefaultTimeoutKeepsPositiveMilliseconds() {
+        int originalTimeout = Config.stream_load_default_timeout_second;
+        int originalPrecommit = Config.stream_load_default_precommit_timeout_second;
+        try {
+            // This is the smallest positive second count whose int millisecond product is negative.
+            // No load, table, or clock wait is required. One in-memory transaction is sufficient.
+            Config.stream_load_default_timeout_second = 2147484;
+            Config.stream_load_default_precommit_timeout_second = 2147484;
+            TransactionState state = new TransactionState();
+            Assertions.assertEquals(2147484000L, state.getTimeoutMs());
+            state.setTransactionStatus(TransactionStatus.PRECOMMITTED);
+            state.setPreCommitTime(1);
+            Assertions.assertFalse(state.isTimeout(1));
+            Assertions.assertFalse(state.isTimeout(2147484001L));
+            Assertions.assertTrue(state.isTimeout(2147484002L));
+        } finally {
+            Config.stream_load_default_timeout_second = originalTimeout;
+            Config.stream_load_default_precommit_timeout_second = originalPrecommit;
+        }
+    }
+
+    @Test
+    public void testLargePublishTimeoutAndProlongation() {
+        int original = Config.publish_version_timeout_second;
+        try {
+            TransactionState state = new TransactionState();
+            Config.publish_version_timeout_second = 2147484;
+            Deencapsulation.setField(state, "lastPublishVersionTime", System.currentTimeMillis());
+            Assertions.assertFalse(state.isPublishTimeout());
+            // Use a timestamp 1.5 intervals ago, away from either deadline. No clock wait is needed.
+            Deencapsulation.setField(state, "lastPublishVersionTime",
+                    System.currentTimeMillis() - 3221226000L);
+            Assertions.assertTrue(state.isPublishTimeout());
+            state.prolongPublishTimeout();
+            Assertions.assertFalse(state.isPublishTimeout());
+        } finally {
+            Config.publish_version_timeout_second = original;
+        }
+    }
 
     @AfterEach
     public void tearDown() {

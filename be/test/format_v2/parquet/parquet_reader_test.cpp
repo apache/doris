@@ -2019,6 +2019,49 @@ protected:
     std::string _file_path;
 };
 
+TEST_F(NewParquetReaderTest, LargeMiBLimitsDoNotWrapToZero) {
+    auto schema = arrow::schema({arrow::field("id", arrow::int32(), false)});
+    auto table = arrow::Table::Make(schema, {build_int32_array({1})});
+    auto output = arrow::io::FileOutputStream::Open(_file_path);
+    ASSERT_TRUE(output.ok()) << output.status();
+    PARQUET_THROW_NOT_OK(
+            ::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), *output, 1));
+    ASSERT_TRUE((*output)->Close().ok());
+
+    const auto old_header = config::parquet_header_max_size_mb;
+    const auto old_group = config::parquet_rowgroup_max_buffer_mb;
+    const auto old_column = config::parquet_column_max_buffer_mb;
+    Defer restore {[&] {
+        config::parquet_header_max_size_mb = old_header;
+        config::parquet_rowgroup_max_buffer_mb = old_group;
+        config::parquet_column_max_buffer_mb = old_column;
+    }};
+    // Keep the ordinary plaintext read valid with large limits. The encryption test
+    // separately checks prefetch reads and a header that cannot pass a zero byte limit.
+    config::parquet_header_max_size_mb = 4096;
+    config::parquet_rowgroup_max_buffer_mb = 4096;
+    config::parquet_column_max_buffer_mb = 4096;
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> columns;
+    ASSERT_TRUE(reader->get_schema(&columns).ok());
+    ASSERT_EQ(columns.size(), 1);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns.push_back(field_projection(columns[0].local_id));
+    request->local_positions.emplace(format::LocalColumnId(columns[0].local_id),
+                                     format::LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+    Block block;
+    block.insert({columns[0].type->create_column(), columns[0].type, columns[0].name});
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(block.get_by_position(0).type->to_string(*block.get_by_position(0).column, 0), "1");
+}
+
 TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
     // Keep all 32 schema entries resident even if they land in the same cache shard.
     FileMetaCache metadata_cache(1024);

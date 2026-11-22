@@ -19,10 +19,13 @@
 
 #include <memory>
 
+#include "common/config.h"
 #include "common/status.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_range_read_scheduler.h"
 #include "runtime/query_context.h"
 #include "testutil/mock/mock_query_context.h"
+#include "util/defer_op.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -53,6 +56,40 @@ std::unique_ptr<io::FileRangeReadScheduler> create_range_scheduler() {
 }
 
 } // namespace
+
+TEST(QueryContextNumericOptionsTest, NegativeSentinelDoesNotCreateCacheQuota) {
+    io::FileCacheFactory factory;
+    auto* env = ExecEnv::GetInstance();
+    auto* old_factory = env->_file_cache_factory;
+    const bool old_enabled = config::enable_file_cache;
+    const bool old_limit = config::enable_file_cache_query_limit;
+    Defer restore {[&] {
+        env->_file_cache_factory = old_factory;
+        config::enable_file_cache = old_enabled;
+        config::enable_file_cache_query_limit = old_limit;
+    }};
+    env->_file_cache_factory = &factory;
+    config::enable_file_cache = true;
+    config::enable_file_cache_query_limit = true;
+    // A tiny memory cache makes holder creation observable. An empty factory would hide the bug.
+    io::FileCacheSettings settings;
+    settings.storage = "memory";
+    settings.capacity = 100;
+    settings.query_queue_size = 100;
+    settings.query_queue_elements = 1;
+    settings.max_file_block_size = 100;
+    settings.max_query_cache_size = 100;
+    ASSERT_TRUE(factory.create_file_cache("memory", settings).ok());
+    for (int percent : {-1, 1, 100}) {
+        TQueryOptions options = create_fake_query_options();
+        options.__set_enable_file_cache(true);
+        options.__set_file_cache_query_limit_percent(percent);
+        TUniqueId id;
+        id.__set_lo(1);
+        auto query = MockQueryContext::create(id, ExecEnv::GetInstance(), options);
+        EXPECT_EQ(query->_query_context_holders.size(), percent == 1 ? 1 : 0);
+    }
+}
 
 TEST(QueryContextReadAheadTest, SharesAndCancelsRangeContext) {
     auto scheduler = create_range_scheduler();

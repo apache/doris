@@ -96,6 +96,7 @@
 #include "runtime/result_block_buffer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
@@ -1384,6 +1385,12 @@ void PInternalService::report_stream_load_status(google::protobuf::RpcController
     st.to_protobuf(response->mutable_status());
 }
 
+int PInternalService::kafka_meta_timeout_ms(const PProxyRequest& request) {
+    // Preserve the optional i64 seconds until the Kafka client's i32 millisecond boundary.
+    // For example, 2147484 seconds must become INT_MAX, not a negative timeout.
+    return timeout_ms_for_int32(request.has_timeout_secs() ? request.timeout_secs() : 60);
+}
+
 void PInternalService::get_info(google::protobuf::RpcController* controller,
                                 const PProxyRequest* request, PProxyResult* response,
                                 google::protobuf::Closure* done) {
@@ -1396,8 +1403,9 @@ void PInternalService::get_info(google::protobuf::RpcController* controller,
         // Currently it supports 2 kinds of requests:
         // 1. get all kafka partition ids for given topic
         // 2. get all kafka partition offsets for given topic and timestamp.
-        int timeout_ms = request->has_timeout_secs() ? request->timeout_secs() * 1000 : 60 * 1000;
         if (request->has_kafka_meta_request()) {
+            // The Kafka client accepts a signed 32-bit timeout in milliseconds.
+            const int timeout_ms = kafka_meta_timeout_ms(*request);
             const PKafkaMetaProxyRequest& kafka_request = request->kafka_meta_request();
             if (!kafka_request.offset_flags().empty()) {
                 std::vector<PIntegerPair> partition_offsets;

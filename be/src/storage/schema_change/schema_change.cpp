@@ -56,6 +56,7 @@
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/query_options_validation.h"
 #include "runtime/runtime_state.h"
 #include "storage/data_dir.h"
 #include "storage/delete/delete_handler.h"
@@ -869,6 +870,9 @@ Status VLocalSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowse
 }
 
 Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
+    if (request.__isset.query_options) {
+        RETURN_IF_ERROR(validate_query_options(request.query_options));
+    }
     if (!request.__isset.desc_tbl) {
         return Status::Error<INVALID_ARGUMENT>(
                 "desc_tbl is not set. Maybe the FE version is not equal to the BE "

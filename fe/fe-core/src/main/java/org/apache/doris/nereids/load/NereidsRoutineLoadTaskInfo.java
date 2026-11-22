@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.thrift.TFileCompressType;
@@ -115,10 +116,7 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
     }
 
     public int calTimeoutSec() {
-        int timeoutSec = (int) maxBatchIntervalS * Config.routine_load_task_timeout_multiplier;
-        int realTimeoutSec = timeoutSec < Config.routine_load_task_min_timeout_sec
-                ? Config.routine_load_task_min_timeout_sec : timeoutSec;
-        return realTimeoutSec;
+        return RoutineLoadJob.taskTimeoutSeconds(maxBatchIntervalS, Config.routine_load_task_min_timeout_sec);
     }
 
     @Override

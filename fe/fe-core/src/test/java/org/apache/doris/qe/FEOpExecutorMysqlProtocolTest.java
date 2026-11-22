@@ -207,6 +207,15 @@ public class FEOpExecutorMysqlProtocolTest {
         }
     }
 
+    @Test
+    public void testLargeForwardTimeoutStaysPositive() {
+        ConnectContext context = Mockito.spy(createContext());
+        // This is the first second count whose int millisecond product becomes negative.
+        Mockito.doReturn(2147484).when(context).getExecTimeoutS();
+        TestFEOpExecutor executor = new TestFEOpExecutor(context);
+        Assertions.assertEquals(Integer.MAX_VALUE, executor.thriftTimeoutMs);
+    }
+
     private ConnectContext createContext() {
         ConnectContext context = new ConnectContext();
         context.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("alice", "%"));

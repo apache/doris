@@ -84,4 +84,15 @@ TEST(FoldConstantExecutorTest, LegacyTimeStampNsResult) {
 }
 
 } // namespace
+TEST(FoldConstantExecutorTest, RejectInvalidForwardedQueryOptions) {
+    // An older FE can send a negative capacity. No expression is needed to check
+    // that the folding RPC validates the request before it creates an execution context.
+    TFoldConstantParams params;
+    params.query_options.__set_data_queue_max_blocks(-1);
+    PConstantExprResult response;
+    FoldConstantExecutor executor;
+    const auto status = executor.fold_constant_vexpr(params, &response);
+    EXPECT_NE(status.to_string().find("data_queue_max_blocks"), std::string::npos);
+}
+
 } // namespace doris

@@ -44,7 +44,8 @@ public class MasterOpExecutor extends FEOpExecutor {
         super(new TNetworkAddress(ctx.getEnv().getMasterHost(), ctx.getEnv().getMasterRpcPort()),
                 originStmt, ctx, isQuery);
         if (status.isNeedToWaitJournalSync()) {
-            this.journalWaitTimeoutMs = (int) (ctx.getExecTimeoutS() * 1000 * RPC_TIMEOUT_COEFFICIENT);
+            // Use the same bounded deadline as the forwarding RPC.
+            this.journalWaitTimeoutMs = thriftTimeoutMs;
         } else {
             this.journalWaitTimeoutMs = 0;
         }

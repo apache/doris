@@ -385,8 +385,12 @@ Status NativeColumnReader::init(
     _projected_column_ids = std::move(projected_column_ids);
     _dictionary_filter_enabled = enable_dictionary_filter && metadata->encryption() == nullptr;
 
-    const size_t max_group_buffer = config::parquet_rowgroup_max_buffer_mb << 20;
-    const size_t max_column_buffer = config::parquet_column_max_buffer_mb << 20;
+    // Convert before the shift. For example, 4096 MiB must stay 4 GiB.
+    const size_t max_group_buffer = static_cast<size_t>(config::parquet_rowgroup_max_buffer_mb)
+                                    << 20;
+    // Convert before the shift. For example, 4096 MiB must stay 4 GiB.
+    const size_t max_column_buffer = static_cast<size_t>(config::parquet_column_max_buffer_mb)
+                                     << 20;
     const size_t max_buffer_size = std::min(max_group_buffer, max_column_buffer);
     const auto& thrift_metadata = metadata->to_thrift();
     const native::ColumnReaderCreateContext context {

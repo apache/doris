@@ -22,13 +22,16 @@
 
 namespace doris {
 
+// A full scan budget must keep INT64_MAX exact instead of converting it through double.
 MemShareArbitrator::MemShareArbitrator(const TUniqueId& qid, int64_t query_mem_limit,
                                        double max_scan_ratio)
         : query_id(qid),
           query_mem_limit(query_mem_limit),
           mem_limit(std::max<int64_t>(
-                  1, static_cast<int64_t>(static_cast<double>(query_mem_limit) * max_scan_ratio))) {
-}
+                  1, (max_scan_ratio == 1.0
+                              ? query_mem_limit
+                              : static_cast<int64_t>(static_cast<double>(query_mem_limit) *
+                                                     max_scan_ratio)))) {}
 
 void MemShareArbitrator::register_scan_node() {
     total_mem_bytes.fetch_add(DEFAULT_SCANNER_MEM_BYTES);
@@ -41,7 +44,8 @@ int64_t MemShareArbitrator::update_mem_bytes(int64_t old_value, int64_t new_valu
     if (total <= 0) return mem_limit;
     // Proportional sharing: allocate based on this context's share of total usage
     double ratio = static_cast<double>(new_value) / static_cast<double>(std::max(total, new_value));
-    return static_cast<int64_t>(static_cast<double>(mem_limit) * ratio);
+    // INT64_MAX rounds to 2^63 as a double. Keep the exact integer for a full share.
+    return ratio == 1.0 ? mem_limit : static_cast<int64_t>(static_cast<double>(mem_limit) * ratio);
 }
 
 // ==================== MemLimiter ====================

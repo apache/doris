@@ -267,8 +267,9 @@ public class TransactionState implements Writable {
     // 3. in afterStateTransform(), callback object can not be found, so the write lock can not be released.
     private TxnStateChangeCallback callback = null;
     @SerializedName(value = "timeoutMs")
-    private long timeoutMs = Config.stream_load_default_timeout_second * 1000;
-    private long preCommittedTimeoutMs = Config.stream_load_default_precommit_timeout_second * 1000;
+    // Convert seconds in long arithmetic. For example, 2147484 seconds exceeds int milliseconds.
+    private long timeoutMs = Config.stream_load_default_timeout_second * 1000L;
+    private long preCommittedTimeoutMs = Config.stream_load_default_precommit_timeout_second * 1000L;
 
     // is set to true, we will double the publish timeout
     private boolean prolongPublishTimeout = false;
@@ -764,7 +765,8 @@ public class TransactionState implements Writable {
 
     public boolean isPublishTimeout() {
         // the max timeout is Config.publish_version_timeout_second * 2;
-        long timeoutMillis = Config.publish_version_timeout_second * 1000;
+        // Keep large positive timeouts positive before applying the optional factor of two.
+        long timeoutMillis = Config.publish_version_timeout_second * 1000L;
         if (prolongPublishTimeout) {
             timeoutMillis *= 2;
         }

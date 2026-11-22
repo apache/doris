@@ -183,9 +183,9 @@ public class KinesisTaskInfo extends RoutineLoadTaskInfo {
             maxBatchIntervalS = Math.max(maxBatchIntervalS, Config.routine_load_adaptive_min_batch_interval_sec);
             maxBatchRows = Math.max(maxBatchRows, RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS);
             maxBatchSize = Math.max(maxBatchSize, RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE);
-            this.timeoutMs = maxBatchIntervalS * Config.routine_load_task_timeout_multiplier * 1000;
+            this.timeoutMs = RoutineLoadJob.taskTimeoutSeconds(maxBatchIntervalS, 0) * 1000L;
         } else {
-            this.timeoutMs = routineLoadJob.getTimeout() * 1000;
+            this.timeoutMs = routineLoadJob.getTimeout() * 1000L;
         }
         tRoutineLoadTask.setMaxIntervalS(maxBatchIntervalS);
         tRoutineLoadTask.setMaxBatchRows(maxBatchRows);

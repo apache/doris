@@ -48,6 +48,7 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/query_options_validation.h"
 #include "runtime/result_block_buffer.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
@@ -366,6 +367,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                     reinterpret_cast<const uint8_t*>(request->query_options().data()), &len, false,
                     &t_query_options));
         }
+        RETURN_IF_ERROR(validate_query_options(t_query_options));
         RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
                                            timezone, *_tablet->tablet_schema(), 1));
         if (uuid != 0) {

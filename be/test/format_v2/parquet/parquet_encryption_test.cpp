@@ -77,7 +77,8 @@ const std::string AAD = "synthetic-file-aad";
 std::vector<uint8_t> encrypted_file(
         bool dictionary = true,
         ::parquet::ParquetDataPageVersion page_version = ::parquet::ParquetDataPageVersion::V1,
-        const std::string& key = KEY, bool plaintext_footer = false, int32_t rows_per_group = 4) {
+        const std::string& key = KEY, bool plaintext_footer = false, int32_t rows_per_group = 4,
+        int32_t group_count = 2) {
     auto sink = ::arrow::io::BufferOutputStream::Create().ValueOrDie();
     auto schema = ::parquet::schema::GroupNode::Make(
             "schema", ::parquet::Repetition::REQUIRED,
@@ -104,7 +105,8 @@ std::vector<uint8_t> encrypted_file(
     auto writer = ::parquet::ParquetFileWriter::Open(
             sink, std::static_pointer_cast<::parquet::schema::GroupNode>(schema),
             properties.build());
-    for (int32_t first : {1, 1 + rows_per_group}) {
+    for (int32_t group_index = 0; group_index < group_count; ++group_index) {
+        const int32_t first = 1 + group_index * rows_per_group;
         auto* group = writer->AppendRowGroup();
         auto* column = static_cast<::parquet::Int32Writer*>(group->NextColumn());
         std::vector<int32_t> values(rows_per_group);
@@ -1653,6 +1655,81 @@ TEST(ParquetEncryptionTest, EncryptedIndexesLoadAndIndexedReadsKeepPhysicalPageO
                 verify_indexed_row_group(context, schema, file, group, dictionary);
             }
             ASSERT_TRUE(context.close().ok());
+        }
+    }
+}
+
+// Exercise the selected reader with one row and keep its reported row count for the caller.
+void read_single_parquet_row(const std::shared_ptr<EncryptionMemoryReader>& file,
+                             const ParquetFileContext& context, const ParquetColumnSchema& schema,
+                             bool levels_only, int64_t* read) {
+    if (levels_only) {
+        std::unique_ptr<CountColumnReader> reader;
+        ASSERT_TRUE(CountColumnReader::create(file, context.native_metadata, 0, schema, nullptr,
+                                              nullptr, false, "", {}, &reader)
+                            .ok());
+        const auto status = reader->read_levels(1, read);
+        ASSERT_TRUE(status.ok()) << status;
+    } else {
+        std::unique_ptr<ParquetColumnReader> reader;
+        ASSERT_TRUE(NativeColumnReader::create(schema, nullptr, file, context.native_metadata, 0,
+                                               {{0, 1}}, {}, nullptr, std::nullopt, nullptr,
+                                               nullptr, false, "", false, {}, &reader)
+                            .ok());
+        auto output = reader->type()->create_column();
+        const auto status = reader->read(1, output, read);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ((*output)[0].get<TYPE_INT>(), 1);
+    }
+}
+
+// Read the same one-row file through each reader. Count physical reads to check prefetch.
+void check_single_row_with_large_mib_limits(const std::vector<uint8_t>& bytes, bool levels_only,
+                                            bool expect_prefetch) {
+    auto file = std::make_shared<EncryptionMemoryReader>(bytes);
+    auto info = parameters();
+    ParquetFileContext context;
+    io::FileDescription description;
+    ASSERT_TRUE(context.open(file, nullptr, false, description, false, false, false, &info).ok());
+    std::vector<std::unique_ptr<ParquetColumnSchema>> schema;
+    ASSERT_TRUE(build_parquet_column_schema(context.native_metadata->schema(), &schema).ok());
+    const auto reads_before = file->read_count();
+    int64_t read = 0;
+    read_single_parquet_row(file, context, *schema[0], levels_only, &read);
+    ASSERT_EQ(read, 1);
+    if (expect_prefetch) {
+        EXPECT_EQ(file->read_count() - reads_before, 1);
+    } else {
+        // A zero cap deliberately disables prefetch. This control makes the
+        // assertion detect a large positive cap that wrapped to zero.
+        EXPECT_GT(file->read_count() - reads_before, 1);
+    }
+    ASSERT_TRUE(context.close().ok());
+}
+
+TEST(ParquetEncryptionTest, LargeMiBLimitsKeepColumnPrefetchAndEncryptedHeaders) {
+    const auto old_header = config::parquet_header_max_size_mb;
+    const auto old_group = config::parquet_rowgroup_max_buffer_mb;
+    const auto old_column = config::parquet_column_max_buffer_mb;
+    Defer restore {[&] {
+        config::parquet_header_max_size_mb = old_header;
+        config::parquet_rowgroup_max_buffer_mb = old_group;
+        config::parquet_column_max_buffer_mb = old_column;
+    }};
+    // One row, one column, and one page suffice. Encrypted headers first read their length.
+    // A whole-chunk buffer makes that read and the body read use one underlying read_at call.
+    const auto bytes =
+            encrypted_file(false, ::parquet::ParquetDataPageVersion::V1, KEY, false, 1, 1);
+    for (bool levels_only : {false, true}) {
+        for (const auto [group_mb, column_mb] :
+             {std::pair {4096, 4096}, std::pair {0, 4096}, std::pair {4096, 0}}) {
+            config::parquet_rowgroup_max_buffer_mb = group_mb;
+            config::parquet_column_max_buffer_mb = column_mb;
+            // 4096 MiB becomes zero if the shift happens in int32. An encrypted header
+            // cannot pass a zero byte limit, even when its first read is complete.
+            config::parquet_header_max_size_mb = 4096;
+            check_single_row_with_large_mib_limits(bytes, levels_only,
+                                                   group_mb != 0 && column_mb != 0);
         }
     }
 }

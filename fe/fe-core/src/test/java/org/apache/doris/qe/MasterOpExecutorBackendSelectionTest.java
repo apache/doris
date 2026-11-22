@@ -45,6 +45,25 @@ public class MasterOpExecutorBackendSelectionTest {
     }
 
     @Test
+    public void testJournalWaitUsesBoundedRpcDeadline() throws Exception {
+        // Capture a wait request. The mocked journal returns immediately and no RPC is sent.
+        for (int seconds : new int[] {1, 2147484}) {
+            ConnectContext context = mockConnectContext();
+            Mockito.when(context.getExecTimeoutS()).thenReturn(seconds);
+            Env env = context.getEnv();
+            Mockito.when(env.getSelfNode()).thenReturn(new HostInfo("127.0.0.1", 9010));
+            TMasterOpResult result = new TMasterOpResult();
+            result.setMaxJournalId(7);
+            TestingMasterOpExecutor executor = new TestingMasterOpExecutor(context, result);
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                executor.syncJournal();
+                Mockito.verify(env.getJournalObservable()).waitOn(7L, seconds == 1 ? 1200 : Integer.MAX_VALUE);
+            }
+        }
+    }
+
+    @Test
     public void testGroupCommitLoadBackendChecksForwardResultStatusCode() throws Exception {
         TMasterOpResult result = new TMasterOpResult();
         result.setStatusCode(1);

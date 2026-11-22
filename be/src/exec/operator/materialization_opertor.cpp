@@ -709,7 +709,7 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool 
             // The response object is reused across batches. Clear it so an ignored failure for
             // an empty request cannot expose a response left by an earlier batch.
             rpc_struct.response.Clear();
-            rpc_struct.cntl->set_timeout_ms(state->execution_timeout() * 1000);
+            rpc_struct.cntl->set_timeout_ms(state->execution_timeout() * int64_t {1000});
             // send brpc request
             rpc_struct.stub->multiget_data_v2(rpc_struct.cntl.get(), &rpc_struct.request,
                                               &rpc_struct.response, callback);

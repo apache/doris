@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.util.NumericRange;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -51,6 +53,11 @@ public class ConfigBase {
         boolean mutable() default false;
 
         boolean masterOnly() default false;
+
+        // Bounds apply to startup files and runtime updates before a value is stored.
+        String minValue() default "";
+
+        String maxValue() default "";
 
         // If true, the value is a secret (e.g. a token or password) and is masked in every
         // config dump API (Config.dump / getConfigInfo), so it is never returned in plaintext.
@@ -352,6 +359,8 @@ public class ConfigBase {
 
     private static void setConfigField(Field f, String confVal) throws Exception {
         confVal = confVal.trim();
+        ConfField bounds = f.getAnnotation(ConfField.class);
+        NumericRange.check(f.getName(), confVal, bounds.minValue(), bounds.maxValue());
 
         String[] sa = confVal.split(",");
         for (int i = 0; i < sa.length; i++) {
@@ -453,6 +462,8 @@ public class ConfigBase {
         }
 
         try {
+            // Reject invalid values before a callback can change a pool or another live resource.
+            NumericRange.check(key, value, anno.minValue(), anno.maxValue());
             anno.callback().newInstance().handle(field, value);
         } catch (Exception e) {
             throw new ConfigException("Failed to set config '" + key + "'. err: " + e.getMessage());

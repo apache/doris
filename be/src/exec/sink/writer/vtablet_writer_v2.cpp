@@ -314,7 +314,7 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreamStubs
     if (node_info == nullptr) {
         return Status::InternalError("Unknown node {} in tablet location", dst_id);
     }
-    auto idle_timeout_ms = _state->execution_timeout() * 1000;
+    auto idle_timeout_ms = _state->execution_timeout() * int64_t {1000};
     std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
     DBUG_EXECUTE_IF("VTabletWriterV2._open_streams_to_backend.no_schema_when_open_streams",
                     { tablets_for_schema.clear(); });

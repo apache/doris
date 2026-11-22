@@ -346,4 +346,15 @@ TEST_F(PartitionSortOperatorTest, TestInvalidKeyType) {
     ASSERT_THROW(_variants->init(types, static_cast<HashKeyType>(-1)), Exception);
 }
 
+TEST_F(PartitionSortOperatorTest, PartitionEstimateExceedsInt32) {
+    // Only two partitions are needed. No sort buffers or rows need to be allocated.
+    state->_query_options.__set_partition_topn_max_partitions(1);
+    state->_query_options.__set_partition_topn_pre_partition_rows(1 << 30);
+    PartitionSortSinkLocalState local(nullptr, state.get());
+    local._topn_phase = TPartTopNPhase::ONE_PHASE_GLOBAL;
+    local._num_partition = 2;
+    local._sorted_partition_input_rows = 2;
+    EXPECT_TRUE(local.check_whether_need_passthrough());
+}
+
 } // namespace doris

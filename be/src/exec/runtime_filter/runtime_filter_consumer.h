@@ -94,9 +94,10 @@ private:
             _rf_wait_time_ms = desc->wait_time_ms;
         } else {
             bool wait_infinitely = state->runtime_filter_wait_infinitely() || !has_remote_target();
-            _rf_wait_time_ms = wait_infinitely
-                                       ? state->get_query_ctx()->execution_timeout() * 1000
-                                       : state->get_query_ctx()->runtime_filter_wait_time_ms();
+            _rf_wait_time_ms =
+                    wait_infinitely
+                            ? timeout_ms_for_int32(state->get_query_ctx()->execution_timeout())
+                            : state->get_query_ctx()->runtime_filter_wait_time_ms();
         }
         DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);
     }

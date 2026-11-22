@@ -143,8 +143,12 @@ Status CountColumnReader::create(io::FileReaderSPtr file, const NativeParquetMet
                                   leaf_schema->leaf_column_id, root_schema.name);
     }
 
-    const size_t max_group_buffer = config::parquet_rowgroup_max_buffer_mb << 20;
-    const size_t max_column_buffer = config::parquet_column_max_buffer_mb << 20;
+    // Convert before the shift. For example, 4096 MiB must stay 4 GiB.
+    const size_t max_group_buffer = static_cast<size_t>(config::parquet_rowgroup_max_buffer_mb)
+                                    << 20;
+    // Convert before the shift. For example, 4096 MiB must stay 4 GiB.
+    const size_t max_column_buffer = static_cast<size_t>(config::parquet_column_max_buffer_mb)
+                                     << 20;
     std::unique_ptr<native::LevelReader> level_reader;
     const auto compat = native::parquet_reader_compat(
             thrift_metadata.__isset.created_by ? thrift_metadata.created_by : "");

@@ -112,8 +112,9 @@ public class AgentBoundedBatchTask extends AgentBatchTask {
                     }
                     if (!backend.isAlive()) {
                         errMsg = String.format("backend %d is not alive", backendId);
+                        // Convert before multiplication; 2147484 seconds must not become negative milliseconds.
                         if (System.currentTimeMillis() - backend.getLastUpdateMs()
-                                > beUnavailableMaxLostTimeSecond * 1000) {
+                                > beUnavailableMaxLostTimeSecond * 1000L) {
                             errMsg = String.format("backend %d is not alive too long, last update time: %s",
                                     backendId, TimeUtils.longToTimeString(backend.getLastUpdateMs()));
                             throw new RuntimeException(errMsg);

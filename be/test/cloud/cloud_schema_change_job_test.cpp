@@ -680,4 +680,16 @@ TEST_F(CloudSchemaChangeJobTest, CrossV1CompactionAbortIdempotentReplay) {
     ASSERT_TRUE(status.is<ErrorCode::SC_COMPACTION_CONFLICT>()) << status.to_string();
 }
 
+TEST_F(CloudSchemaChangeJobTest, RejectInvalidOptionsBeforeTabletLookup) {
+    // Schema changes receive query options independently of ordinary fragments.
+    // A request with one negative count must fail before any tablet or row is required.
+    TAlterTabletReqV2 request;
+    TQueryOptions options;
+    options.__set_data_queue_max_blocks(-1);
+    request.__set_query_options(options);
+    CloudSchemaChangeJob job(_engine, "invalid-query-option", 0);
+    const auto status = job.process_alter_tablet(request);
+    EXPECT_NE(status.to_string().find("data_queue_max_blocks"), std::string::npos);
+}
+
 } // namespace doris

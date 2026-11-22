@@ -1193,10 +1193,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     // timeout is between MIN_CLONE_TASK_TIMEOUT_MS and MAX_CLONE_TASK_TIMEOUT_MS
     private long getApproximateTimeoutMs() {
         long tabletSize = getTabletSize();
-        long timeoutMs = tabletSize / 1024 / 1024 / MIN_CLONE_SPEED_MB_PER_SECOND * 1000;
-        timeoutMs = Math.max(timeoutMs, Config.min_clone_task_timeout_sec * 1000);
-        timeoutMs = Math.min(timeoutMs, Config.max_clone_task_timeout_sec * 1000);
-        return timeoutMs;
+        long seconds = tabletSize / 1024 / 1024 / MIN_CLONE_SPEED_MB_PER_SECOND;
+        seconds = Math.min(Math.max(seconds, Config.min_clone_task_timeout_sec), Config.max_clone_task_timeout_sec);
+        // TCloneReq stores seconds in an i32. Use the same deadline for the scheduler and the BE.
+        return Math.max(0, Math.min(seconds, Integer.MAX_VALUE)) * 1000L;
     }
 
     /*

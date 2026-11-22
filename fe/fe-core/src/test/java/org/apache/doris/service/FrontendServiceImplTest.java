@@ -32,6 +32,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -1157,6 +1158,52 @@ public class FrontendServiceImplTest extends TestWithFeService {
             Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
             executeCommand("DROP USER IF EXISTS " + normalUser);
             executeCommand("DROP ROLE IF EXISTS " + readerRole);
+        }
+    }
+
+    @Test
+    public void testCommitRequestsKeepLongDefaultTimeouts() throws Exception {
+        int original = Config.try_commit_lock_timeout_seconds;
+        mockTransactionForTokenValidation(100L);
+        try {
+            Config.try_commit_lock_timeout_seconds = 2147484;
+            Env env = Env.getCurrentEnv();
+            Mockito.when(env.isMaster()).thenReturn(true);
+            Mockito.when(env.getRoutineLoadManager()).thenReturn(Mockito.mock(RoutineLoadManager.class));
+            Mockito.when(env.getInternalCatalog().getTableByTableId(10L)).thenReturn(Mockito.mock(OlapTable.class));
+            GlobalTransactionMgrIface transactions = Env.getCurrentGlobalTransactionMgr();
+            Mockito.when(transactions.commitAndPublishTransaction(Mockito.any(), Mockito.anyList(),
+                    Mockito.eq(100L), Mockito.anyList(), Mockito.anyLong(), Mockito.isNull())).thenReturn(true);
+            FrontendServiceImpl service = Mockito.spy(new FrontendServiceImpl(exeEnv));
+            Mockito.doReturn(true).when(service).checkToken("test-token");
+            // Each request contains no commit rows. Only the timeout sent to the transaction manager matters.
+            TLoadTxnCommitRequest load = new TLoadTxnCommitRequest();
+            load.setDb("test");
+            load.setTableId(10L);
+            load.setTxnId(100L);
+            load.setToken("test-token");
+            load.setCommitInfos(Collections.emptyList());
+            TCommitTxnRequest commit = new TCommitTxnRequest();
+            commit.setUser("root");
+            commit.setPasswd("");
+            commit.setDb("test");
+            commit.setTxnId(100L);
+            commit.setToken("test-token");
+            commit.setCommitInfos(Collections.emptyList());
+            Assertions.assertEquals(TStatusCode.OK, service.loadTxnCommit(load).getStatus().getStatusCode());
+            Assertions.assertEquals(TStatusCode.OK, service.commitTxn(commit).getStatus().getStatusCode());
+            Mockito.verify(transactions, Mockito.times(2)).commitAndPublishTransaction(Mockito.any(),
+                    Mockito.anyList(), Mockito.eq(100L), Mockito.anyList(), Mockito.eq(2147484000L), Mockito.isNull());
+            // An explicit RPC timeout still takes precedence and reserves half for the response.
+            load.setThriftRpcTimeoutMs(15);
+            commit.setThriftRpcTimeoutMs(15);
+            Assertions.assertEquals(TStatusCode.OK, service.loadTxnCommit(load).getStatus().getStatusCode());
+            Assertions.assertEquals(TStatusCode.OK, service.commitTxn(commit).getStatus().getStatusCode());
+            Mockito.verify(transactions, Mockito.times(2)).commitAndPublishTransaction(Mockito.any(),
+                    Mockito.anyList(), Mockito.eq(100L), Mockito.anyList(), Mockito.eq(7L), Mockito.isNull());
+        } finally {
+            Config.try_commit_lock_timeout_seconds = original;
+            closeTransactionValidationMock();
         }
     }
 

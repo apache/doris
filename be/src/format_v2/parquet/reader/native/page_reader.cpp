@@ -253,7 +253,8 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::_try_cached_header(bool* loaded)
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status PageReader<IN_COLLECTION, OFFSET_INDEX>::_parse_encrypted_header(uint32_t* header_size) {
     const size_t max_size = _end_offset - _offset;
-    const size_t max_header_size = config::parquet_header_max_size_mb << 20;
+    // Convert before the shift. For example, 4096 MiB must stay 4 GiB.
+    const size_t max_header_size = static_cast<size_t>(config::parquet_header_max_size_mb) << 20;
     if (max_size < 4) {
         return Status::Corruption("File encryption [INVALID_MODULE_SIZE]");
     }
@@ -305,7 +306,8 @@ template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status PageReader<IN_COLLECTION, OFFSET_INDEX>::_parse_plaintext_header(const uint8_t** bytes,
                                                                         uint32_t* real_size) {
     const size_t max_size = _end_offset - _offset;
-    const size_t max_header_size = config::parquet_header_max_size_mb << 20;
+    // Convert before the shift. For example, 4096 MiB must stay 4 GiB.
+    const size_t max_header_size = static_cast<size_t>(config::parquet_header_max_size_mb) << 20;
     size_t size = std::min(INIT_PAGE_HEADER_SIZE, max_size);
     while (true) {
         if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {

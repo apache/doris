@@ -262,6 +262,8 @@ TEST(VRowDistributionTest, GenerateRowsDistributionWhereClauseUInt8ColumnFilters
 
 TEST(VRowDistributionTest, AutoPartitionMissingValuesBatchingDedupAndCreatePartition) {
     OperatorContext ctx;
+    // The callback observes the actual RPC deadline without waiting or using a network.
+    ctx.state._query_options.__set_execution_timeout(2147484);
     constexpr int64_t txn_id = 1;
 
     TOlapTableSchemaParam tschema;
@@ -315,8 +317,10 @@ TEST(VRowDistributionTest, AutoPartitionMissingValuesBatchingDedupAndCreateParti
     doris::DebugPoints::instance()->clear();
 
     bool injected = false;
-    std::function<void(doris::TCreatePartitionRequest*, doris::TCreatePartitionResult*)> handler =
-            [&](doris::TCreatePartitionRequest* req, doris::TCreatePartitionResult* res) {
+    std::function<void(doris::TCreatePartitionRequest*, doris::TCreatePartitionResult*, const int*)>
+            handler = [&](doris::TCreatePartitionRequest* req, doris::TCreatePartitionResult* res,
+                          const int* timeout_ms) {
+                EXPECT_EQ(*timeout_ms, INT32_MAX);
                 injected = true;
                 ASSERT_TRUE(req->__isset.partitionValues);
                 ASSERT_EQ(req->partitionValues.size(), 1);
@@ -370,6 +374,8 @@ TEST(VRowDistributionTest, AutoPartitionMissingValuesBatchingDedupAndCreateParti
 
 TEST(VRowDistributionTest, ReplaceOverwritingPartitionInjectedRequestDedupAndReplace) {
     OperatorContext ctx;
+    // The callback observes the actual RPC deadline without waiting or using a network.
+    ctx.state._query_options.__set_execution_timeout(2147484);
     constexpr int64_t txn_id = 1;
 
     TOlapTableSchemaParam tschema;
@@ -418,8 +424,11 @@ TEST(VRowDistributionTest, ReplaceOverwritingPartitionInjectedRequestDedupAndRep
     doris::DebugPoints::instance()->clear();
 
     int injected_times = 0;
-    std::function<void(doris::TReplacePartitionRequest*, doris::TReplacePartitionResult*)> handler =
-            [&](doris::TReplacePartitionRequest* req, doris::TReplacePartitionResult* res) {
+    std::function<void(doris::TReplacePartitionRequest*, doris::TReplacePartitionResult*,
+                       const int*)>
+            handler = [&](doris::TReplacePartitionRequest* req, doris::TReplacePartitionResult* res,
+                          const int* timeout_ms) {
+                EXPECT_EQ(*timeout_ms, INT32_MAX);
                 injected_times++;
                 ASSERT_TRUE(req->__isset.partition_ids);
                 ASSERT_EQ(req->partition_ids.size(), 2);

@@ -190,16 +190,20 @@ public final class GlobalVariable {
     @VarAttrDef.VarAttr(name = ENABLE_AUDIT_PLUGIN, flag = VarAttrDef.GLOBAL)
     public static boolean enableAuditLoader = true;
 
-    @VarAttrDef.VarAttr(name = AUDIT_PLUGIN_MAX_BATCH_BYTES, flag = VarAttrDef.GLOBAL)
+    // A negative batch threshold forces a flush for every record.
+    @VarAttrDef.VarAttr(minValue = "0", name = AUDIT_PLUGIN_MAX_BATCH_BYTES, flag = VarAttrDef.GLOBAL)
     public static long auditPluginMaxBatchBytes = 50 * 1024 * 1024;
 
-    @VarAttrDef.VarAttr(name = AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC, flag = VarAttrDef.GLOBAL)
+    // A negative interval makes every pending batch ready to flush.
+    @VarAttrDef.VarAttr(minValue = "0", name = AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC, flag = VarAttrDef.GLOBAL)
     public static long auditPluginMaxBatchInternalSec = 60;
 
-    @VarAttrDef.VarAttr(name = AUDIT_PLUGIN_MAX_SQL_LENGTH, flag = VarAttrDef.GLOBAL)
+    // For example, -1 is an invalid ByteBuffer length and loses the audit record.
+    @VarAttrDef.VarAttr(minValue = "0", name = AUDIT_PLUGIN_MAX_SQL_LENGTH, flag = VarAttrDef.GLOBAL)
     public static int auditPluginMaxSqlLength = 2097152;
 
-    @VarAttrDef.VarAttr(name = AUDIT_PLUGIN_MAX_INSERT_STMT_LENGTH, flag = VarAttrDef.GLOBAL,
+    // Zero retains no SQL bytes; do not silently turn negative lengths into zero.
+    @VarAttrDef.VarAttr(minValue = "0", name = AUDIT_PLUGIN_MAX_INSERT_STMT_LENGTH, flag = VarAttrDef.GLOBAL,
             description = "This is specifically used to limit the length of INSERT statements. "
                     + "If this value is greater than AUDIT_PLUGIN_MAX_SQL_LENGTH, "
                     + "it will use the value of AUDIT_PLUGIN_MAX_SQL_LENGTH. "
@@ -208,6 +212,16 @@ public final class GlobalVariable {
 
     @VarAttrDef.VarAttr(name = AUDIT_PLUGIN_LOAD_TIMEOUT, flag = VarAttrDef.GLOBAL)
     public static int auditPluginLoadTimeoutS = 600;
+
+    public static void checkAuditPluginLoadTimeout(String value) {
+        int timeout = Integer.parseInt(value);
+        // -1 selects the stream-load default. Other values must pass its timeout contract.
+        if (timeout != -1 && (timeout < Config.min_load_timeout_second
+                || timeout > Config.max_stream_load_timeout_second)) {
+            throw new IllegalArgumentException(AUDIT_PLUGIN_LOAD_TIMEOUT + " must be -1 or between "
+                    + Config.min_load_timeout_second + " and " + Config.max_stream_load_timeout_second);
+        }
+    }
 
     @VarAttrDef.VarAttr(name = ENABLE_GET_ROW_COUNT_FROM_FILE_LIST, flag = VarAttrDef.GLOBAL,
             description = "For external tables, whether to enable getting row count from file list. "
@@ -224,11 +238,13 @@ public final class GlobalVariable {
             description = "Only for compatibility with MySQL ecosystem, no practical meaning")
     public static boolean super_read_only = true;
 
-    @VarAttrDef.VarAttr(name = PARTITION_ANALYZE_BATCH_SIZE, flag = VarAttrDef.GLOBAL,
+    // The partition counter cannot reach a zero or negative batch size.
+    @VarAttrDef.VarAttr(minValue = "1", name = PARTITION_ANALYZE_BATCH_SIZE, flag = VarAttrDef.GLOBAL,
             description = "Number of partitions to collect in one batch.")
     public static int partitionAnalyzeBatchSize = 10;
 
-    @VarAttrDef.VarAttr(name = HUGE_PARTITION_LOWER_BOUND_ROWS, flag = VarAttrDef.GLOBAL,
+    // A negative threshold marks even empty partitions as huge.
+    @VarAttrDef.VarAttr(minValue = "0", name = HUGE_PARTITION_LOWER_BOUND_ROWS, flag = VarAttrDef.GLOBAL,
             description = "This defines the lower size bound for large partitions, "
                     + "which will skip auto partition analyze.")
     public static long hugePartitionLowerBoundRows = 100000000L;

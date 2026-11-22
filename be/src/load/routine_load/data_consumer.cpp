@@ -478,7 +478,18 @@ Status KafkaDataConsumer::get_offsets_for_times(const std::vector<PIntegerPair>&
     return Status::OK();
 }
 
-// get latest offsets for given partitions
+int KafkaDataConsumer::remaining_timeout_ms(int timeout_ms, int64_t elapsed_ms) {
+    DCHECK_GE(elapsed_ms, 0);
+    // A stopwatch cannot move backwards. Compare before narrowing or subtracting:
+    // timeout 0 and elapsed 2147483648 must mean expired, not a positive int32 wait.
+    if (elapsed_ms >= timeout_ms) {
+        return 0;
+    }
+    // Here 0 <= elapsed_ms < timeout_ms <= INT_MAX, so both the cast and difference fit.
+    return timeout_ms - static_cast<int>(elapsed_ms);
+}
+
+// Get the latest offsets for the given partitions.
 Status KafkaDataConsumer::get_latest_offsets_for_partitions(
         const std::vector<int32_t>& partition_ids, std::vector<PIntegerPair>* offsets,
         int timeout) {
@@ -491,7 +502,7 @@ Status KafkaDataConsumer::get_latest_offsets_for_partitions(
     for (int32_t partition_id : partition_ids) {
         int64_t low = 0;
         int64_t high = 0;
-        auto timeout_ms = timeout - static_cast<int>(watch.elapsed_time() / 1000 / 1000);
+        const int timeout_ms = remaining_timeout_ms(timeout, watch.elapsed_time() / 1000 / 1000);
         if (UNLIKELY(timeout_ms <= 0)) {
             return Status::InternalError("get kafka latest offsets for partitions timeout");
         }
@@ -535,7 +546,7 @@ Status KafkaDataConsumer::get_real_offsets_for_partitions(
 
         int64_t low = 0;
         int64_t high = 0;
-        auto timeout_ms = timeout - static_cast<int>(watch.elapsed_time() / 1000 / 1000);
+        const int timeout_ms = remaining_timeout_ms(timeout, watch.elapsed_time() / 1000 / 1000);
         if (UNLIKELY(timeout_ms <= 0)) {
             return Status::InternalError("get kafka real offsets for partitions timeout");
         }

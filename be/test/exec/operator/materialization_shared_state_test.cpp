@@ -99,6 +99,62 @@ TEST(MaterializationOperatorTimingTest, PushDoesNotDuplicateFrameworkExecTimer) 
     EXPECT_EQ(before, timer->value());
 }
 
+TEST(MaterializationOperatorTimingTest, LargeTimeoutReachesRemoteReadController) {
+    ObjectPool pool;
+    MockRuntimeState state;
+    // Even an empty-block timing test needs a real tuple: OperatorXBase builds
+    // a RowDescriptor from the plan and requires non-empty, resolvable tuple IDs.
+    TTupleDescriptor tuple;
+    tuple.__set_id(0);
+    TDescriptorTable thrift_desc;
+    thrift_desc.__set_tupleDescriptors({tuple});
+    DescriptorTbl* desc_tbl = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_desc, &desc_tbl).ok());
+    state.set_desc_tbl(desc_tbl);
+
+    TPlanNode node;
+    node.__set_node_id(0);
+    node.__set_node_type(TPlanNodeType::MATERIALIZATION_NODE);
+    node.__set_row_tuples({0});
+    node.__set_nullable_tuples({false});
+    MaterializationOperator op(&pool, node, 0, state.desc_tbl());
+    RuntimeProfile profile("materialization_timing");
+    auto local = MaterializationLocalState::create_unique(&state, &op);
+    LocalStateInfo info {.parent_profile = &profile,
+                         .scan_ranges = {},
+                         .shared_state = nullptr,
+                         .shared_state_map = {},
+                         .task_idx = 0};
+    ASSERT_TRUE(local->init(&state, info).ok());
+    local->_materialization_state.rpc_struct_inited = true;
+    class DeadlineChannel final : public google::protobuf::RpcChannel {
+    public:
+        int calls = 0;
+        void CallMethod(const google::protobuf::MethodDescriptor* method,
+                        google::protobuf::RpcController* controller,
+                        const google::protobuf::Message*, google::protobuf::Message*,
+                        google::protobuf::Closure* done) override {
+            EXPECT_EQ(method->name(), "multiget_data_v2");
+            // BRPC accepts int64, then caps its stored deadline at INT_MAX.
+            // A narrow multiplication would pass a negative value instead.
+            EXPECT_EQ(static_cast<brpc::Controller*>(controller)->timeout_ms(), INT32_MAX);
+            ++calls;
+            done->Run();
+        }
+    } channel;
+    FetchRpcStruct rpc;
+    rpc.stub = std::make_shared<PBackendService_Stub>(&channel);
+    rpc.cntl = std::make_unique<brpc::Controller>();
+    local->_materialization_state.rpc_struct_map.emplace(1, std::move(rpc));
+    state._query_options.__set_execution_timeout(2147484);
+    state.resize_op_id_to_local_state(-1);
+    state.emplace_local_state(0, std::move(local));
+    Block block;
+    // EOS sends the request without data rows. The local channel completes it immediately.
+    ASSERT_TRUE(op.push(&state, &block, true).ok());
+    EXPECT_EQ(channel.calls, 1);
+}
+
 class MaterializationSharedStateTest : public testing::Test {
 protected:
     void SetUp() override {

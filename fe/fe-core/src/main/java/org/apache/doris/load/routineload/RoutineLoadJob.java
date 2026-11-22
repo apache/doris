@@ -674,10 +674,14 @@ public abstract class RoutineLoadJob
 
     @Override
     public int getTimeout() {
-        int timeoutSec = (int) getMaxBatchIntervalS() * Config.routine_load_task_timeout_multiplier;
-        int realTimeoutSec = timeoutSec < Config.routine_load_task_min_timeout_sec
-                    ? Config.routine_load_task_min_timeout_sec : timeoutSec;
-        return realTimeoutSec;
+        return taskTimeoutSeconds(getMaxBatchIntervalS(), Config.routine_load_task_min_timeout_sec);
+    }
+
+    public static int taskTimeoutSeconds(long batchSeconds, int minimumSeconds) {
+        // The execution plan stores seconds in an i32. Bound the interval before the
+        // multiplication so a BIGINT interval cannot overflow a Java long either.
+        long seconds = Math.min(batchSeconds, Integer.MAX_VALUE) * Config.routine_load_task_timeout_multiplier;
+        return (int) Math.min(Integer.MAX_VALUE, Math.max(seconds, minimumSeconds));
     }
 
     @Override

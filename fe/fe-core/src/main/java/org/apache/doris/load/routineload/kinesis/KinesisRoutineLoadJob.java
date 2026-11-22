@@ -228,7 +228,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                                 ((KinesisProgress) progress).getSequenceNumberByShard(shardId));
                     }
                     KinesisTaskInfo kinesisTaskInfo = new KinesisTaskInfo(UUID.randomUUID(), id,
-                            getTimeout() * 1000, taskKinesisProgress, isMultiTable(), -1, false);
+                            getTimeout() * 1000L, taskKinesisProgress, isMultiTable(), -1, false);
                     routineLoadTaskInfoList.add(kinesisTaskInfo);
                     result.add(kinesisTaskInfo);
                 }

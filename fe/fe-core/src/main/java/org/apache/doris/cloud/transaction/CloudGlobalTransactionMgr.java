@@ -317,7 +317,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             txnInfoBuilder.setCoordinator(TxnUtil.txnCoordinatorToPb(coordinator));
             txnInfoBuilder.setLoadJobSourceType(LoadJobSourceTypePB.forNumber(sourceType.value()));
             txnInfoBuilder.setTimeoutMs(timeoutSecond * 1000);
-            txnInfoBuilder.setPrecommitTimeoutMs(Config.stream_load_default_precommit_timeout_second * 1000);
+            // The protobuf field is int64. Convert before multiplication to keep large timeouts positive.
+            txnInfoBuilder.setPrecommitTimeoutMs(Config.stream_load_default_precommit_timeout_second * 1000L);
 
             // Set load_cluster_id for compaction read-write separation.
             // commit_txn uses this to update last_active_cluster_id on tablet stats.

@@ -75,6 +75,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/frontend_info.h"
 #include "runtime/query_context.h"
+#include "runtime/query_options_validation.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
@@ -481,6 +482,10 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                                              const TPipelineFragmentParamsList& parent,
                                              QuerySource query_source,
                                              std::shared_ptr<QueryContext>& query_ctx) {
+    RETURN_IF_ERROR(validate_query_options(params.query_options));
+    if (params.fragment.__isset.query_cache_param) {
+        RETURN_IF_ERROR(validate_query_cache_parameters(params.fragment.query_cache_param));
+    }
     auto query_id = params.query_id;
     DBUG_EXECUTE_IF("FragmentMgr._get_query_ctx.failed", {
         return Status::InternalError("FragmentMgr._get_query_ctx.failed, query id {}",

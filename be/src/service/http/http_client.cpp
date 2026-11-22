@@ -491,10 +491,20 @@ void HttpClient::set_abort_callback(std::function<bool()> callback) {
     curl_easy_setopt(_curl, CURLOPT_NOPROGRESS, 0L);
 }
 
+HttpClient::SpeedLimits HttpClient::speed_limits() {
+    // libcurl reads long or curl_off_t from these variadic arguments. Widen before multiplication:
+    // 4194304 KiB/s is 4 GiB/s, but an int32 product wraps to zero and disables the limit.
+    return {.low_bytes_per_second = config::download_low_speed_limit_kbps * 1024L,
+            .low_seconds = static_cast<long>(config::download_low_speed_time),
+            .max_bytes_per_second =
+                    static_cast<curl_off_t>(config::max_download_speed_kbps) * 1024};
+}
+
 void HttpClient::set_speed_limit() {
-    curl_easy_setopt(_curl, CURLOPT_LOW_SPEED_LIMIT, config::download_low_speed_limit_kbps * 1024);
-    curl_easy_setopt(_curl, CURLOPT_LOW_SPEED_TIME, config::download_low_speed_time);
-    curl_easy_setopt(_curl, CURLOPT_MAX_RECV_SPEED_LARGE, config::max_download_speed_kbps * 1024);
+    const auto limits = speed_limits();
+    curl_easy_setopt(_curl, CURLOPT_LOW_SPEED_LIMIT, limits.low_bytes_per_second);
+    curl_easy_setopt(_curl, CURLOPT_LOW_SPEED_TIME, limits.low_seconds);
+    curl_easy_setopt(_curl, CURLOPT_MAX_RECV_SPEED_LARGE, limits.max_bytes_per_second);
 }
 
 size_t HttpClient::on_response_data(const void* data, size_t length) {

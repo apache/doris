@@ -142,11 +142,10 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         if (isAdaptiveBatch) {
             long maxBatchIntervalS = Math.max(routineLoadJob.getMaxBatchIntervalS(),
                     adaptiveMinBatchInterval);
-            long timeoutSec = maxBatchIntervalS * Config.routine_load_task_timeout_multiplier;
-            long realTimeoutSec = Math.max(timeoutSec, Config.routine_load_task_min_timeout_sec);
-            this.timeoutMs = realTimeoutSec * 1000;
+            this.timeoutMs = RoutineLoadJob.taskTimeoutSeconds(maxBatchIntervalS,
+                    Config.routine_load_task_min_timeout_sec) * 1000L;
         } else {
-            this.timeoutMs = routineLoadJob.getTimeout() * 1000;
+            this.timeoutMs = routineLoadJob.getTimeout() * 1000L;
         }
     }
 

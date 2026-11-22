@@ -167,6 +167,22 @@ class RuntimeFilterTranslatorBucketPruneTest {
         Assertions.assertEquals(0, translateGroupWithOneNonBlockingFilter(true).getWaitTimeMs());
     }
 
+    @Test
+    void testBlockingFilterDeadlineFitsThriftMilliseconds() {
+        // One blocking filter is enough. No scan or wait is executed.
+        // 2147484 seconds is the first whole second whose milliseconds exceed i32.
+        sessionVariable.runtimeFilterWaitInfinitely = true;
+        for (int seconds : new int[] {2147483, 2147484}) {
+            sessionVariable.setQueryTimeoutS(seconds);
+            TranslatorHarness harness = new TranslatorHarness();
+            SlotReference target = harness.addTargetSlot("dist_col", harness.distributionColumn,
+                    IntegerType.INSTANCE);
+            TRuntimeFilterDesc desc = harness.translate(ImmutableList.of(harness.newFilter(target, target)));
+            Assertions.assertEquals(seconds == 2147483 ? 2147483000 : Integer.MAX_VALUE,
+                    desc.getWaitTimeMs());
+        }
+    }
+
     /** Translate a group of two filters which only merge into one legacy filter: one of them non-blocking. */
     private TRuntimeFilterDesc translateGroupWithOneNonBlockingFilter(boolean nonBlockingIsFirst) {
         TranslatorHarness harness = new TranslatorHarness();

@@ -58,6 +58,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/query_options_validation.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -75,6 +76,7 @@ static std::unordered_set<PrimitiveType> PRIMITIVE_TYPE_SET {
 
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
                                                  PConstantExprResult* response) {
+    RETURN_IF_ERROR(validate_query_options(params.query_options));
     const auto& expr_map = params.expr_map;
     auto* expr_result_map = response->mutable_expr_result_map();
 

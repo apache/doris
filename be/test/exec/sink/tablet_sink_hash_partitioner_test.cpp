@@ -344,6 +344,8 @@ TEST(TabletSinkHashPartitionerTest, DoPartitioningSkipsImmutablePartitionAndHash
 
 TEST(TabletSinkHashPartitionerTest, TryCutInLineCreatesPartitionAndReturnsBatchedBlock) {
     OperatorContext ctx;
+    // The callback observes the actual RPC deadline without waiting or using a network.
+    ctx.state._query_options.__set_execution_timeout(2147484);
     constexpr size_t partition_count = 8;
     constexpr int64_t txn_id = 1;
 
@@ -370,8 +372,10 @@ TEST(TabletSinkHashPartitionerTest, TryCutInLineCreatesPartitionAndReturnsBatche
     doris::DebugPoints::instance()->clear();
 
     bool injected = false;
-    std::function<void(doris::TCreatePartitionRequest*, doris::TCreatePartitionResult*)> handler =
-            [&](doris::TCreatePartitionRequest* req, doris::TCreatePartitionResult* res) {
+    std::function<void(doris::TCreatePartitionRequest*, doris::TCreatePartitionResult*, const int*)>
+            handler = [&](doris::TCreatePartitionRequest* req, doris::TCreatePartitionResult* res,
+                          const int* timeout_ms) {
+                EXPECT_EQ(*timeout_ms, INT32_MAX);
                 injected = true;
                 ASSERT_TRUE(req->__isset.partitionValues);
                 ASSERT_EQ(req->partitionValues.size(), 1);

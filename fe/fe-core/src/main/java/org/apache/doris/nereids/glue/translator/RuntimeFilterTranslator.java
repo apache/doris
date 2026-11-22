@@ -49,6 +49,7 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.primitives.Ints;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -405,7 +406,8 @@ public class RuntimeFilterTranslator {
                 SessionVariable sessionVar = ConnectContext.get().getSessionVariable();
                 if (sessionVar.runtimeFilterWaitInfinitely || isLocalTarget) {
                     // wait infinitely
-                    filter.setWaitTimeMs(sessionVar.getQueryTimeoutS() * 1000);
+                    // The wire field stores signed 32-bit milliseconds.
+                    filter.setWaitTimeMs(Ints.saturatedCast(sessionVar.getQueryTimeoutS() * 1000L));
                 } else {
                     filter.setWaitTimeMs(sessionVar.getRuntimeFilterWaitTimeMs());
                 }

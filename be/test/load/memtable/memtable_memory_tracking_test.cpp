@@ -29,11 +29,59 @@
 #include "load/memtable/memtable_flush_executor.h"
 #include "load/memtable/memtable_writer.h"
 #include "runtime/workload_management/resource_context.h"
+#include "storage/partial_update_info.h"
 #include "testutil/creators.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 
 namespace doris {
+
+TEST(MemTableBufferLimitTest, PartialUpdateUsesWideProduct) {
+    // Use an empty memtable. The limit is only a threshold; this test allocates no data rows.
+    // Five schema columns and four updated columns make the old uint64 product wrap to zero:
+    // (2^60 bytes * adaptive factor 4) * 4 columns. This incorrectly requests a flush.
+    ScopedInitThreadContext thread_context;
+    const auto old_adaptive = config::enable_adaptive_write_buffer_size;
+    const auto old_buffer_size = config::write_buffer_size;
+    const auto old_min_buffer = config::min_write_buffer_size_for_partial_update;
+    Defer restore_config {[&] {
+        config::enable_adaptive_write_buffer_size = old_adaptive;
+        config::write_buffer_size = old_buffer_size;
+        config::min_write_buffer_size_for_partial_update = old_min_buffer;
+    }};
+    config::enable_adaptive_write_buffer_size = true;
+    config::write_buffer_size = int64_t {1} << 60;
+    config::min_write_buffer_size_for_partial_update = 0;
+
+    auto resource_ctx = ResourceContext::create_shared();
+    resource_ctx->memory_context()->set_mem_tracker(MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::LOAD, "MemTableBufferLimitTest"));
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(UNIQUE_KEYS);
+    for (int i = 0; i < 5; ++i) {
+        testutil::add_column_pb(&schema_pb, i, "c" + std::to_string(i), "INT", i == 0, false);
+    }
+    auto schema = std::make_shared<TabletSchema>();
+    schema->init_from_pb(schema_pb);
+    auto tdesc = testutil::create_descriptor_table(
+            {{.type = TYPE_INT, .column_name = "c0", .nullable = false},
+             {.type = TYPE_INT, .column_name = "c1", .nullable = false},
+             {.type = TYPE_INT, .column_name = "c2", .nullable = false},
+             {.type = TYPE_INT, .column_name = "c3", .nullable = false}});
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, tdesc, &desc_tbl).ok());
+    auto* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    PartialUpdateInfo partial_update;
+    partial_update.partial_update_mode = UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS;
+    MemTable memtable(1, schema, &tuple_desc->slots(), tuple_desc, true, &partial_update,
+                      resource_ctx, false);
+    ASSERT_EQ(memtable._adaptive_write_buffer_size(), int64_t {1} << 62);
+    EXPECT_FALSE(memtable.need_flush());
+    // Zero still means that a flush can start immediately.
+    config::write_buffer_size = 0;
+    EXPECT_TRUE(memtable.need_flush());
+}
 
 class MemTableMemoryTrackingTest : public testing::TestWithParam<bool> {
 protected:

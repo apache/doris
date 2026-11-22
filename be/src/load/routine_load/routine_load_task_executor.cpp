@@ -296,6 +296,11 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     ctx->auth.token = _exec_env->cluster_info()->curr_auth_token;
 
     if (task.__isset.max_interval_s) {
+        // Consumers track elapsed milliseconds. Reject intervals that cannot fit that clock.
+        if (task.max_interval_s < 0 || task.max_interval_s > INT64_MAX / 1000) {
+            return Status::InvalidArgument("Routine load interval out of range: {} seconds",
+                                           task.max_interval_s);
+        }
         ctx->max_interval_s = task.max_interval_s;
     }
     if (task.__isset.max_batch_rows) {

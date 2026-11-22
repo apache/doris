@@ -292,6 +292,38 @@ protected:
     }
 };
 
+TEST_F(PointQueryReadAheadTest, RejectInvalidOptionsAfterDeserialization) {
+    // Init first resolves a real tablet, but it must reject the option before preparing
+    // expressions or reading keys. One empty tablet and empty expression lists suffice.
+    auto tablet_request = testutil::create_tablet_request(
+            5299, 1, 10, 1, TKeysType::DUP_KEYS,
+            {{.column_name = "k", .type = TPrimitiveType::INT, .is_key = true}});
+    RuntimeProfile profile("point-query-options");
+    ASSERT_TRUE(_engine->create_tablet(tablet_request, &profile).ok());
+    auto* env = ExecEnv::GetInstance();
+    auto* old_cache = env->_lookup_connection_cache;
+    auto cache = std::make_unique<LookupConnectionCache>(1);
+    env->_lookup_connection_cache = cache.get();
+    Defer restore {[&] { env->_lookup_connection_cache = old_cache; }};
+    TDescriptorTable descriptors;
+    TExprList expressions;
+    TQueryOptions options;
+    options.__set_data_queue_max_blocks(-1);
+    PTabletKeyLookupRequest request;
+    request.set_tablet_id(5299);
+    request.mutable_uuid()->set_uuid_high(0);
+    request.mutable_uuid()->set_uuid_low(0);
+    ThriftSerializer serializer(false, 128);
+    ASSERT_TRUE(serializer.serialize(&descriptors, request.mutable_desc_tbl()).ok());
+    ASSERT_TRUE(serializer.serialize(&expressions, request.mutable_output_expr()).ok());
+    ASSERT_TRUE(serializer.serialize(&options, request.mutable_query_options()).ok());
+    PTabletKeyLookupResponse response;
+    PointQueryExecutor executor;
+    auto status = executor.init(&request, &response);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("data_queue_max_blocks"), std::string::npos);
+}
+
 TEST_F(PointQueryReadAheadTest, UnifiedColumnReadsWithoutReadAheadContext) {
     check_column_read(ReadMode::NORMAL);
 }

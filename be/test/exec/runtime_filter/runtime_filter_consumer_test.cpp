@@ -140,8 +140,12 @@ TEST_F(RuntimeFilterConsumerTest, wait_infinity) {
     auto desc = TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build();
     const_cast<TQueryOptions&>(_query_ctx->_query_options)
             .__set_runtime_filter_wait_infinitely(true);
+    // Exercise the consumer's own conversion. No filter arrival or real wait is needed.
+    const_cast<TQueryOptions&>(_query_ctx->_query_options).__set_execution_timeout(2147484);
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             RuntimeFilterConsumer::create(_runtime_states[1].get(), &desc, 0, &consumer));
+
+    EXPECT_EQ(consumer->_rf_wait_time_ms, INT32_MAX);
 
     std::shared_ptr<RuntimeFilterConsumer> registed_consumer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_runtime_states[1]->register_consumer_runtime_filter(

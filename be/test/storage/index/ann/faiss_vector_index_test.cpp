@@ -348,12 +348,10 @@ TEST_F(AnnOmpThreadBudgetTest, ConfigurationRejectsInvalidReservations) {
     const auto& validate = config::RegisterConfValidator::_s_field_validator->at(
             "ann_index_build_threads_per_task");
     for (int value : {-2, 0}) {
-        config::ann_index_build_threads_per_task = value;
-        EXPECT_FALSE(validate()) << value;
+        EXPECT_FALSE(validate(&value)) << value;
     }
     for (int value : {-1, 1, 4}) {
-        config::ann_index_build_threads_per_task = value;
-        EXPECT_TRUE(validate()) << value;
+        EXPECT_TRUE(validate(&value)) << value;
     }
 }
 

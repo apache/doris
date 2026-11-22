@@ -281,7 +281,7 @@ Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     request.metada_table_params.__set_columns_name(filter_columns);
 
     // _state->execution_timeout() is seconds, change to milliseconds
-    int time_out = _state->execution_timeout() * 1000;
+    int time_out = timeout_ms_for_int32(_state->execution_timeout());
     TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
     TFetchSchemaTableDataResult result;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(

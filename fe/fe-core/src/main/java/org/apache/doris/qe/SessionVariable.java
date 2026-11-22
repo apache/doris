@@ -27,6 +27,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.NumericRange;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -953,7 +954,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SHUFFLE_KEY_PRUNE = "enable_shuffle_key_prune";
 
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
-    @VarAttrDef.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
+    // Zero collects no hot values; a negative count produces an invalid LIMIT.
+    @VarAttrDef.VarAttr(minValue = "0", name = HOT_VALUE_COLLECT_COUNT, needForward = true,
                 description = "When collecting column statistics, collect the top values ranked by their "
                         + "proportion as hot values, up to HOT_VALUE_COLLECT_COUNT.")
     public int hotValueCollectCount = 10; // Select the values that account for at least 10% of the column
@@ -1176,12 +1178,14 @@ public class SessionVariable implements Serializable, Writable {
     // max memory used on every backend. Default value to 100G.
     @VarAttrDef.VarAttr(name = EXEC_MEM_LIMIT, needForward = true)
     public long maxExecMemByte = 100147483648L;
-    @VarAttrDef.VarAttr(name = MAX_SCAN_MEM_RATIO, needForward = true)
+    // This fraction must stay between zero and one, including both bounds.
+    @VarAttrDef.VarAttr(minValue = "0", maxValue = "1", name = MAX_SCAN_MEM_RATIO, needForward = true)
     public double maxScanMemRatio = 0.3;
     @VarAttrDef.VarAttr(name = ENABLE_ADAPTIVE_SCAN, needForward = true)
     public boolean enableAdaptiveScan = true;
 
-    @VarAttrDef.VarAttr(name = SCAN_QUEUE_MEM_LIMIT, needForward = true,
+    // Do not silently replace negative bytes with the BE minimum buffer size.
+    @VarAttrDef.VarAttr(minValue = "0", name = SCAN_QUEUE_MEM_LIMIT, needForward = true,
             description = "How many bytes of block can be saved in the block queue of each Scan Instance")
     // 100MB
     public long maxScanQueueMemByte = 2147483648L / 20;
@@ -1210,7 +1214,8 @@ public class SessionVariable implements Serializable, Writable {
             description = "Deprecated compatibility variable. File scans always use FileScannerV2.")
     public boolean enableFileScannerV2 = true;
 
-    @VarAttrDef.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT, needForward = true)
+    // A negative limit becomes a huge unsigned queue bound in BE.
+    @VarAttrDef.VarAttr(minValue = "0", name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT, needForward = true)
     public int localExchangeFreeBlocksLimit = 4;
 
     @VarAttrDef.VarAttr(name = MIN_SCANNERS_CONCURRENCY, needForward = true,
@@ -1229,7 +1234,9 @@ public class SessionVariable implements Serializable, Writable {
             varType = VariableAnnotation.DEPRECATED)
     public int minScanSchedulerConcurrency = 0;
 
-    @VarAttrDef.VarAttr(name = CTE_MAX_RECURSION_DEPTH, needForward = true, description = "The maximum depth of CTE "
+    // Zero permits no recursive rounds; a negative depth is invalid.
+    @VarAttrDef.VarAttr(minValue = "0", name = CTE_MAX_RECURSION_DEPTH, needForward = true,
+            description = "The maximum depth of CTE "
             + "recursion. Default is 100")
     public int cteMaxRecursionDepth = 100;
 
@@ -1659,10 +1666,12 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = QUERY_CACHE_FORCE_REFRESH, needForward = true)
     private boolean queryCacheForceRefresh = false;
 
-    @VarAttrDef.VarAttr(name = QUERY_CACHE_ENTRY_MAX_BYTES, needForward = true)
+    // Negative cache limits reject even empty results.
+    @VarAttrDef.VarAttr(minValue = "0", name = QUERY_CACHE_ENTRY_MAX_BYTES, needForward = true)
     private long queryCacheEntryMaxBytes = 5242880;
 
-    @VarAttrDef.VarAttr(name = QUERY_CACHE_ENTRY_MAX_ROWS, needForward = true)
+    // Negative cache limits reject even empty results.
+    @VarAttrDef.VarAttr(minValue = "0", name = QUERY_CACHE_ENTRY_MAX_ROWS, needForward = true)
     private long queryCacheEntryMaxRows = 500000;
 
     @VarAttrDef.VarAttr(name = ENABLE_CONDITION_CACHE)
@@ -1758,7 +1767,8 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkParallelScanMaxScannersCount")
     private int parallelScanMaxScannersCount = 0;
 
-    @VarAttrDef.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
+    // Reject negative row counts before applying the scanner minimum.
+    @VarAttrDef.VarAttr(minValue = "0", name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
     private long parallelScanMinRowsPerScanner = 2097152; // 2M
 
@@ -1861,16 +1871,20 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
     private String runtimeFilterMode = "GLOBAL";
 
-    @VarAttrDef.VarAttr(name = RUNTIME_BLOOM_FILTER_SIZE, needForward = true)
+    // Bloom filter sizing and logarithms require a positive byte count.
+    @VarAttrDef.VarAttr(minValue = "1", name = RUNTIME_BLOOM_FILTER_SIZE, needForward = true)
     private int runtimeBloomFilterSize = 2097152;
 
-    @VarAttrDef.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE, needForward = true)
+    // Zero adds no lower bound; a negative byte count is invalid.
+    @VarAttrDef.VarAttr(minValue = "0", name = RUNTIME_BLOOM_FILTER_MIN_SIZE, needForward = true)
     private int runtimeBloomFilterMinSize = 1048576;
 
-    @VarAttrDef.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true)
+    // Bloom filter sizing and logarithms require a positive byte count.
+    @VarAttrDef.VarAttr(minValue = "1", name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true)
     private int runtimeBloomFilterMaxSize = 67108864;
 
-    @VarAttrDef.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS, needForward = true)
+    // Zero skips waiting; a negative duration is already expired.
+    @VarAttrDef.VarAttr(minValue = "0", name = RUNTIME_FILTER_WAIT_TIME_MS, needForward = true)
     private int runtimeFilterWaitTimeMs = 1000;
 
     @VarAttrDef.VarAttr(name = runtime_filter_wait_infinitely, fuzzy = true, needForward = true)
@@ -2048,13 +2062,17 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_PARTITION_TOPN, needForward = true)
     private boolean enablePartitionTopN = true;
 
-    @VarAttrDef.VarAttr(name = PARTITION_TOPN_MAX_PARTITIONS, needForward = true, description = "This threshold "
+    // A negative count makes the first partition exceed the threshold.
+    @VarAttrDef.VarAttr(minValue = "0", name = PARTITION_TOPN_MAX_PARTITIONS, needForward = true,
+            description = "This threshold "
             + "determines how many partitions will be allocated for window function get topn."
             + " if this threshold is exceeded and input rows less than the estimated total rows, the remaining"
             + " data will be pass through to other node directly.")
     private int partitionTopNMaxPartitions = 1024;
 
-    @VarAttrDef.VarAttr(name = PARTITION_TOPN_PER_PARTITION_ROWS, needForward = true, description = "This value is "
+    // A negative row estimate disables the passthrough comparison.
+    @VarAttrDef.VarAttr(minValue = "0", name = PARTITION_TOPN_PER_PARTITION_ROWS, needForward = true,
+            description = "This value is "
             + "used for partition_topn to estimate the number of rows in each partition, to calculate "
             + " the estimated total amount of data for all partitions, and to determine whether the next operator "
             + " can be passed transparently.")
@@ -2603,7 +2621,8 @@ public class SessionVariable implements Serializable, Writable {
                     + "A nonpositive value does not disable BE refinement.")
     public long fileSplitSizeOnBe = 64L * 1024L * 1024L;
 
-    @VarAttrDef.VarAttr(
+    // A zero or negative split size prevents the file cursor from advancing.
+    @VarAttrDef.VarAttr(minValue = "1",
             name = MAX_INITIAL_FILE_SPLIT_SIZE,
             description = "For each table scan, The maximum initial file split size. "
                     + "Initialize using MAX_INITIAL_FILE_SPLIT_SIZE,"
@@ -2611,7 +2630,8 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     public long maxInitialSplitSize = 32L * 1024L * 1024L;
 
-    @VarAttrDef.VarAttr(
+    // A zero or negative split size prevents the file cursor from advancing.
+    @VarAttrDef.VarAttr(minValue = "1",
             name = MAX_FILE_SPLIT_SIZE,
             description = "For each table scan, the maximum initial file split size. "
                     + "Initialize using MAX_INITIAL_FILE_SPLIT_SIZE,"
@@ -2881,7 +2901,8 @@ public class SessionVariable implements Serializable, Writable {
                     + " use a skiplist to optimize the intersection.")
     public int invertedIndexConjunctionOptThreshold = 1000;
 
-    @VarAttrDef.VarAttr(name = INVERTED_INDEX_MAX_EXPANSIONS,
+    // Zero expands all terms; a negative term count is invalid.
+    @VarAttrDef.VarAttr(minValue = "0", name = INVERTED_INDEX_MAX_EXPANSIONS,
             affectQueryResultInExecution = true,
             description = "This parameter is used to limit the number of term expansions during a query,"
                     + " thereby controlling query performance")
@@ -2970,7 +2991,9 @@ public class SessionVariable implements Serializable, Writable {
     )
     public int statsInsertMergeItemCount = 200;
 
-    @VarAttrDef.VarAttr(name = HUGE_TABLE_DEFAULT_SAMPLE_ROWS, flag = VarAttrDef.GLOBAL, description = "This defines "
+    // This row count is both a LIMIT value and a divisor.
+    @VarAttrDef.VarAttr(minValue = "1", name = HUGE_TABLE_DEFAULT_SAMPLE_ROWS, flag = VarAttrDef.GLOBAL,
+            description = "This defines "
             + "the number of sample percent for large tables when automatic sampling for"
             + "large tables is enabled")
     public long hugeTableDefaultSampleRows = 4194304;
@@ -3160,6 +3183,7 @@ public class SessionVariable implements Serializable, Writable {
     public int lanceFragmentsPerSplit = 0;
 
     @VarAttrDef.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,
+            checker = "checkMinimumOperatorMemoryRequiredKB",
             description = "The minimum memory required to be used by an operator, if not meet, the operator will not "
                     + "run")
     public int minimumOperatorMemoryRequiredKB = 32000;
@@ -3448,10 +3472,12 @@ public class SessionVariable implements Serializable, Writable {
     // CLOUD_VARIABLES_END
 
     // fetch remote schema rpc timeout
-    @VarAttrDef.VarAttr(name = FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS, fuzzy = true)
+    // Zero keeps the no-wait behavior; a negative timeout is invalid.
+    @VarAttrDef.VarAttr(minValue = "0", name = FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS, fuzzy = true)
     public long fetchRemoteSchemaTimeoutSeconds = 120;
     // max tablet count for fetch remote schema
-    @VarAttrDef.VarAttr(name = MAX_FETCH_REMOTE_TABLET_COUNT, fuzzy = true)
+    // A negative count gives subList a negative end index.
+    @VarAttrDef.VarAttr(minValue = "0", name = MAX_FETCH_REMOTE_TABLET_COUNT, fuzzy = true)
     public int maxFetchRemoteTabletCount = 512;
 
     @VarAttrDef.VarAttr(
@@ -3462,7 +3488,8 @@ public class SessionVariable implements Serializable, Writable {
     )
     public boolean enableCompressMaterialize = false;
 
-    @VarAttrDef.VarAttr(
+    // Zero requests immediate backpressure; a negative block count has no meaning.
+    @VarAttrDef.VarAttr(minValue = "0",
             name = DATA_QUEUE_MAX_BLOCKS,
             description = "Max blocks in DataQueue.",
             needForward = true, fuzzy = true)
@@ -3490,57 +3517,69 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true, fuzzy = true)
     public boolean enableReserveMemory = true;
 
-    @VarAttrDef.VarAttr(name = SPILL_MIN_REVOCABLE_MEM, needForward = true, fuzzy = true)
+    // Reject negative values before BE applies its minimum working size.
+    @VarAttrDef.VarAttr(minValue = "0", name = SPILL_MIN_REVOCABLE_MEM, needForward = true, fuzzy = true)
     public long spillMinRevocableMem = 4 * 1024 * 1024;
 
-    @VarAttrDef.VarAttr(name = SPILL_BUFFER_SIZE_BYTES, fuzzy = true, needForward = true,
+    // Reject negative values before BE applies its minimum working size.
+    @VarAttrDef.VarAttr(minValue = "0", name = SPILL_BUFFER_SIZE_BYTES, fuzzy = true, needForward = true,
             description = "Maximum block size for spill writes (in bytes). Blocks larger than this threshold are "
                     + "split before writing to disk. Also controls per-file read buffer size during merge sort. "
                     + "Default is 8MB.")
     public long spillBufferSizeBytes = 8L * 1024L * 1024L;
 
-    @VarAttrDef.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, needForward = true, fuzzy = true)
+    // Reject negative values before BE applies its minimum working size.
+    @VarAttrDef.VarAttr(minValue = "0", name = SPILL_AGGREGATION_PARTITION_COUNT, needForward = true, fuzzy = true)
     public int spillAggregationPartitionCount = 4;
 
-    @VarAttrDef.VarAttr(name = LOW_MEMORY_MODE_BUFFER_LIMIT, needForward = true, fuzzy = false)
+    // Reject negative values before BE applies its minimum working size.
+    @VarAttrDef.VarAttr(minValue = "0", name = LOW_MEMORY_MODE_BUFFER_LIMIT, needForward = true, fuzzy = false)
     public long lowMemoryModeBufferLimit = 33554432;
 
     // The memory limit of streaming agg when spilling is enabled. It is applied on top of the
     // query-limit-based budget (1/5 of the query memory limit shared among the tasks);
     // 0 disables this explicit bound.
     // NOTE: streaming agg operator will not spill to disk.
-    @VarAttrDef.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, needForward = true, fuzzy = false)
+    // Zero disables the fixed limit; negative bytes are not a limit.
+    @VarAttrDef.VarAttr(minValue = "0", name = SPILL_STREAMING_AGG_MEM_LIMIT, needForward = true, fuzzy = false)
     public long spillStreamingAggMemLimit = 268435456; //256MB
 
-    @VarAttrDef.VarAttr(name = SPILL_HASH_JOIN_PARTITION_COUNT, needForward = true, fuzzy = true)
+    // Reject negative values before BE applies its minimum working size.
+    @VarAttrDef.VarAttr(minValue = "0", name = SPILL_HASH_JOIN_PARTITION_COUNT, needForward = true, fuzzy = true)
     public int spillHashJoinPartitionCount = 4;
 
-    @VarAttrDef.VarAttr(name = SPILL_REPARTITION_MAX_DEPTH, fuzzy = true, needForward = true,
+    // Reject negative values before BE applies its minimum working size.
+    @VarAttrDef.VarAttr(minValue = "0", name = SPILL_REPARTITION_MAX_DEPTH, fuzzy = true, needForward = true,
             description = "Maximum depth for repartition recursion. When exceeded, repartitioning will stop. Default "
                     + "is 8.")
     public int spillRepartitionMaxDepth = 8;
 
-    @VarAttrDef.VarAttr(name = SPILL_JOIN_BUILD_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+    // Reject negative values before BE applies its minimum working size.
+    @VarAttrDef.VarAttr(minValue = "0", name = SPILL_JOIN_BUILD_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
             description = "After spill is triggered, join build sink will proactively spill when revocable memory "
                     + "exceeds this threshold (in bytes). Default is 64MB.")
     public long spillJoinBuildSinkMemLimitBytes = 64L * 1024L * 1024L;
 
-    @VarAttrDef.VarAttr(name = SPILL_AGGREGATION_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+    // Reject negative values before BE applies its minimum working size.
+    @VarAttrDef.VarAttr(minValue = "0", name = SPILL_AGGREGATION_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
             description = "After spill is triggered, aggregation sink will proactively spill when revocable memory "
                     + "exceeds this threshold (in bytes). Default is 64GB.")
     public long spillAggregationSinkMemLimitBytes = 64L * 1024L * 1024L * 1024L;
 
-    @VarAttrDef.VarAttr(name = SPILL_SORT_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+    // Reject negative values before BE applies its minimum working size.
+    @VarAttrDef.VarAttr(minValue = "0", name = SPILL_SORT_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
             description = "After spill is triggered, sort sink will proactively spill when revocable memory "
                     + "exceeds this threshold (in bytes). Default is 64MB.")
     public long spillSortSinkMemLimitBytes = 64L * 1024L * 1024L;
 
-    @VarAttrDef.VarAttr(name = SPILL_ANALYTIC_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+    // Reject negative values before BE applies its minimum working size.
+    @VarAttrDef.VarAttr(minValue = "0", name = SPILL_ANALYTIC_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
             description = "Non-streaming analytic partitions will proactively spill when revocable memory "
                     + "exceeds this threshold (in bytes). Default is 64MB.")
     public long spillAnalyticSinkMemLimitBytes = 64L * 1024L * 1024L;
 
-    @VarAttrDef.VarAttr(name = SPILL_SORT_MERGE_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+    // Reject negative values before BE applies its minimum working size.
+    @VarAttrDef.VarAttr(minValue = "0", name = SPILL_SORT_MERGE_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
             description = "After spill is triggered, total memory budget for the sort merge phase (in bytes). "
                     + "Divided by spill_buffer_size_bytes gives the number of files that can be merged "
                     + "in parallel. Default is 64MB.")
@@ -4539,6 +4578,10 @@ public class SessionVariable implements Serializable, Writable {
                             + ", you set value is: " + value);
         }
         return val;
+    }
+
+    public void checkMinimumOperatorMemoryRequiredKB(String value) throws Exception {
+        checkFieldValue(MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, 0, value);
     }
 
     private static int checkFieldValue(String variableName, int minValue, String value) throws Exception {
@@ -6283,10 +6326,14 @@ public class SessionVariable implements Serializable, Writable {
                     LOG.debug("set forward variable: {} = {}", varAttr.name(), val);
                 }
 
-                // set config field
+                // Older FE nodes can forward values that the current SET entry rejects.
+                NumericRange.check(varAttr.name(), val, varAttr.minValue(), varAttr.maxValue());
                 VariableMgr.setValue(this, val, f, varAttr.name());
             }
             refreshDerivedSessionVariables();
+        } catch (IllegalArgumentException e) {
+            // The proxy must return an error and must not execute with the invalid value.
+            throw e;
         } catch (Throwable e) {
             LOG.error("failed to set forward variables", e);
         }

@@ -58,8 +58,11 @@ class ObjStorageFileSystem;
 } // namespace io
 class RuntimeFilter;
 
+int32_t timeout_ms_for_int32(int64_t seconds);
+
 inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
-    return std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec) * 1000;
+    return timeout_ms_for_int32(
+            std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec));
 }
 
 class PipelineXLocalStateBase;
@@ -885,7 +888,14 @@ public:
 
     size_t minimum_operator_memory_required_bytes() const {
         if (_query_options.__isset.minimum_operator_memory_required_kb) {
-            return _query_options.minimum_operator_memory_required_kb * 1024;
+            const auto kb = _query_options.minimum_operator_memory_required_kb;
+            // An older FE can send a negative value. An unsigned conversion would reserve
+            // almost the entire address space. For positive values, widen before scaling.
+            if (kb < 0) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Negative operator memory limit: {} KiB", kb);
+            }
+            return static_cast<size_t>(kb) * 1024;
         } else {
             // refer other database
             return 4 * 1024 * 1024;
