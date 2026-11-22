@@ -194,8 +194,10 @@ public final class GlobalVariable {
     @VarAttrDef.VarAttr(minValue = "0", name = AUDIT_PLUGIN_MAX_BATCH_BYTES, flag = VarAttrDef.GLOBAL)
     public static long auditPluginMaxBatchBytes = 50 * 1024 * 1024;
 
-    // A negative interval makes every pending batch ready to flush.
-    @VarAttrDef.VarAttr(minValue = "0", name = AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC, flag = VarAttrDef.GLOBAL)
+    // AuditLoader multiplies seconds by 1000. Long.MAX_VALUE would become -1000 ms
+    // and flush every pending batch. Zero keeps its immediate-flush meaning.
+    @VarAttrDef.VarAttr(minValue = "0", maxValue = "9223372036854775",
+            name = AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC, flag = VarAttrDef.GLOBAL)
     public static long auditPluginMaxBatchInternalSec = 60;
 
     // For example, -1 is an invalid ByteBuffer length and loses the audit record.
