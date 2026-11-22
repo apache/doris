@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -773,6 +774,17 @@ public:
     }
 };
 
+namespace {
+uint64_t checked_bitmap_element(Int64 value, const char* function_name) {
+    // -1 is not UINT64_MAX. Reject it before contains/remove can access a different element.
+    if (value < 0) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "{} element must be >= 0, but was {}",
+                        function_name, value);
+    }
+    return static_cast<uint64_t>(value);
+}
+} // namespace
+
 struct NameBitmapContains {
     static constexpr auto name = "bitmap_contains";
 };
@@ -789,19 +801,20 @@ struct BitmapContains {
     static void vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
-            res[i] = lvec[i].contains(rvec[i]);
+            res[i] = lvec[i].contains(checked_bitmap_element(rvec[i], "bitmap_contains"));
         }
     }
     static void vector_scalar(const LTData& lvec, const T1& rval, ResTData& res) {
+        const auto element = checked_bitmap_element(rval, "bitmap_contains");
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
-            res[i] = lvec[i].contains(rval);
+            res[i] = lvec[i].contains(element);
         }
     }
     static void scalar_vector(const BitmapValue& lval, const RTData& rvec, ResTData& res) {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
-            res[i] = lval.contains(rvec[i]);
+            res[i] = lval.contains(checked_bitmap_element(rvec[i], "bitmap_contains"));
         }
     }
 };
@@ -823,21 +836,22 @@ struct BitmapRemove {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lvec[i];
-            res[i].remove(rvec[i]);
+            res[i].remove(checked_bitmap_element(rvec[i], "bitmap_remove"));
         }
     }
     static void vector_scalar(const LTData& lvec, const T1& rval, ResTData& res) {
+        const auto element = checked_bitmap_element(rval, "bitmap_remove");
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lvec[i];
-            res[i].remove(rval);
+            res[i].remove(element);
         }
     }
     static void scalar_vector(const BitmapValue& lval, const RTData& rvec, ResTData& res) {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
             res[i] = lval;
-            res[i].remove(rvec[i]);
+            res[i].remove(checked_bitmap_element(rvec[i], "bitmap_remove"));
         }
     }
 };

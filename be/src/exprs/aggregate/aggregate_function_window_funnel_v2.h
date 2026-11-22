@@ -662,6 +662,13 @@ public:
              Arena&) const override {
         const auto& win = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[0])
                                   .get_data()[row_num];
+        // A false event still has a window argument. Reject -1 before an empty event list
+        // can bypass get()'s check. The internal WINDOW_UNSET state remains valid.
+        if (win < 0) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "the sliding time window must be a nonnegative BIGINT, but got: {}",
+                            win);
+        }
         StringRef mode = columns[1]->get_data_at(row_num);
         this->data(place).add(columns, row_num, win,
                               string_to_window_funnel_mode(mode.to_string()));

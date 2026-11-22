@@ -19,8 +19,10 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -104,6 +106,13 @@ public class WindowFunnelV2 extends NullableAggregateFunction
         }
         if (!getArgument(0).isConstant()) {
             throw new AnalysisException("The window parameter of " + functionName + " must be a constant");
+        }
+        // A negative window is invalid even when every event is false or the input is pruned.
+        Expression window = FoldConstantRuleOnFE.evaluateWithoutContext(getArgument(0));
+        if (window instanceof IntegerLikeLiteral
+                && !((IntegerLikeLiteral) window).isValueInRange(0, Long.MAX_VALUE)) {
+            throw new AnalysisException("the sliding time window must be a nonnegative BIGINT, but got: "
+                    + window.toSql());
         }
         if (!getArgument(1).isConstant()) {
             throw new AnalysisException("The mode parameter of " + functionName + " must be a constant");
