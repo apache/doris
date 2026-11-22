@@ -148,11 +148,11 @@ public class ElementAt extends ScalarFunction
     private DataType structFieldType(StructType structType) {
         Expression field = getArgument(1);
         if (field instanceof IntegerLikeLiteral) {
-            int offset = ((IntegerLikeLiteral) field).getIntValue();
-            if (offset <= 0 || offset > structType.getFields().size()) {
+            StructField selected = structType.getFieldByOrdinal(((IntegerLikeLiteral) field).getBigDecimalValue());
+            if (selected == null) {
                 throw new AnalysisException("the specified field index out of bound: " + this.toSql());
             }
-            return structType.getFields().get(offset - 1).getDataType();
+            return selected.getDataType();
         } else if (field instanceof StringLikeLiteral) {
             String name = ((StringLikeLiteral) field).getStringValue();
             StructField structField = structType.getField(name);
