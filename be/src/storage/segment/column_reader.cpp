@@ -2968,28 +2968,34 @@ Status FileColumnIterator::next_batch_of_zone_map(size_t* n, MutableColumnPtr& d
 
 namespace {
 
-// Runs `decode`, a page decoder call that appends values to the column it is given. The decoders
-// append to the column of the type, as ScalarColumnWriter::append peels the Nullable off before
-// the values reach a page, so a Nullable dst lends them its nested column and the rows they
-// append are marked not NULL here. A dictionary page decoder may replace the column it appends to
-// (a ColumnDictI32 becomes a ColumnString when a page falls back to plain encoding), and the
-// replacement goes back into dst.
+// Hold one mutable reference while reading a range of the nested column. A dictionary decoder
+// can replace ColumnDictI32 with ColumnString. Publish that replacement after the callback,
+// including when a later decoder call returns an error.
+template <typename Decode>
+Status with_nested_column(ColumnNullable& nullable, const Decode& decode) {
+    MutableColumnPtr nested = nullable.get_nested_column_ptr();
+    const IColumn* const lent = nested.get();
+    Status st = decode(nested);
+    if (nested.get() != lent) {
+        ColumnPtr replacement = std::move(nested);
+        nullable.change_nested_column(replacement);
+    }
+    return st;
+}
+
+// Page decoders append values without a NULL wrapper. Mark each appended value as non-NULL.
 template <typename Decode>
 Status decode_values(MutableColumnPtr& dst, const Decode& decode) {
     if (!is_column_nullable(*dst)) {
         return decode(dst);
     }
     auto& nullable = static_cast<ColumnNullable&>(*dst);
-    MutableColumnPtr nested = nullable.get_nested_column_ptr();
-    const IColumn* const lent = nested.get();
-    const size_t rows = lent->size();
-    Status st = decode(nested);
-    nullable.push_false_to_nullmap(nested->size() - rows);
-    if (nested.get() != lent) {
-        ColumnPtr replacement = std::move(nested);
-        nullable.change_nested_column(replacement);
-    }
-    return st;
+    return with_nested_column(nullable, [&](MutableColumnPtr& nested) {
+        const size_t rows = nested->size();
+        Status st = decode(nested);
+        nullable.push_false_to_nullmap(nested->size() - rows);
+        return st;
+    });
 }
 
 } // namespace
@@ -3068,29 +3074,47 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
         size_t nrows_in_page = std::min(remaining, _page.remaining());
         size_t nrows_to_read = nrows_in_page;
         if (_page.has_null) {
-            while (nrows_to_read > 0) {
-                bool is_null = false;
-                size_t this_run = _page.null_decoder.GetNextRun(&is_null, nrows_to_read);
-                // we use num_rows only for CHECK
-                size_t num_rows = this_run;
-                if (!is_null) {
-                    RETURN_IF_ERROR(decode_values(dst, [&](MutableColumnPtr& values) {
-                        return _page.data_decoder->next_batch(&num_rows, values);
-                    }));
-                    DCHECK_EQ(this_run, num_rows);
-                } else {
-                    *has_null = true;
-                    auto* null_col = check_and_get_column<ColumnNullable>(dst.get());
-                    if (null_col != nullptr) {
-                        null_col->insert_many_defaults(this_run);
+            auto* nullable = check_and_get_column<ColumnNullable>(dst.get());
+            // Borrow the nested column once for this page range, not once per non-NULL run.
+            // For [1, NULL, 2, NULL], both values use the same reference. This avoids an atomic
+            // reference-count increment and decrement for each short non-NULL run.
+            auto read_runs = [&](MutableColumnPtr& values) -> Status {
+                while (nrows_to_read > 0) {
+                    bool is_null = false;
+                    size_t this_run = _page.null_decoder.GetNextRun(&is_null, nrows_to_read);
+                    if (!is_null) {
+                        size_t num_rows = this_run;
+                        const size_t old_size = values->size();
+                        Status st = _page.data_decoder->next_batch(&num_rows, values);
+                        if (nullable) {
+                            nullable->push_false_to_nullmap(values->size() - old_size);
+                        }
+                        RETURN_IF_ERROR(st);
+                        DCHECK_EQ(this_run, num_rows);
                     } else {
-                        return Status::InternalError("unexpected column type in column reader");
+                        *has_null = true;
+                        // A NULL row cannot be appended to a nonnullable destination. A range
+                        // containing only valid rows can still use that destination.
+                        if (!nullable) {
+                            return Status::InternalError("unexpected column type in column reader");
+                        }
+                        // Use the current value column. A preceding dictionary run can replace
+                        // it, while the outer nullable column still holds the old column.
+                        values->insert_many_defaults(this_run);
+                        auto& null_map = nullable->get_null_map_data();
+                        null_map.resize_fill(null_map.size() + this_run, 1);
                     }
-                }
 
-                nrows_to_read -= this_run;
-                _page.offset_in_page += this_run;
-                _current_ordinal += this_run;
+                    nrows_to_read -= this_run;
+                    _page.offset_in_page += this_run;
+                    _current_ordinal += this_run;
+                }
+                return Status::OK();
+            };
+            if (nullable) {
+                RETURN_IF_ERROR(with_nested_column(*nullable, read_runs));
+            } else {
+                RETURN_IF_ERROR(read_runs(dst));
             }
         } else {
             RETURN_IF_ERROR(decode_values(dst, [&](MutableColumnPtr& values) {

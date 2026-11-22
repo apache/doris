@@ -40,6 +40,7 @@
 #include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "core/column/column_dictionary.h"
 #include "core/column/column_map.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
@@ -57,6 +58,8 @@
 #include "io/fs/read_ahead_metrics.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
+#include "storage/segment/binary_dict_page.h"
+#include "storage/segment/binary_plain_page.h"
 #include "storage/segment/column_read_ahead_controller.h"
 #include "storage/segment/column_read_ahead_resources.h"
 #include "storage/segment/column_reader_cache.h"
@@ -67,6 +70,7 @@
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
+#include "util/coding.h"
 #include "util/defer_op.h"
 #include "util/json/path_in_data.h"
 #include "util/threadpool.h"
@@ -1634,6 +1638,145 @@ TEST_F(ColumnReaderTest, NullMapOnlyReadBySparseRowidsAcrossPages) {
     EXPECT_EQ(0, null_map[0]);
     EXPECT_EQ(1, null_map[1]);
     EXPECT_EQ(2, nullable_col.get_nested_column().size());
+}
+
+TEST_F(ColumnReaderTest, NullableShortRunsAcrossBatchesAndPages) {
+    // Eight rows contain alternating runs, a two-row NULL run, and a two-row valid run.
+    // Read them in partial batches into a nonempty destination. The small page size also
+    // exercises page changes. Constant masks check the all-valid and all-NULL boundaries.
+    const std::array<std::array<UInt8, 8>, 3> masks = {
+            {{0, 1, 0, 1, 1, 0, 0, 1}, {0, 0, 0, 0, 0, 0, 0, 0}, {1, 1, 1, 1, 1, 1, 1, 1}}};
+    for (auto encoding : {PLAIN_ENCODING, BIT_SHUFFLE}) {
+        for (size_t mask_index = 0; mask_index < masks.size(); ++mask_index) {
+            SCOPED_TRACE(fmt::format("encoding={}, mask={}", encoding, mask_index));
+            const auto& mask = masks[mask_index];
+            const auto path = fmt::format("{}/short_runs_{}_{}", COLUMN_READER_FILE_TEST_DIR,
+                                          encoding, mask_index);
+            ColumnMetaPB meta;
+            meta.set_column_id(0);
+            meta.set_unique_id(0);
+            meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_DOUBLE));
+            meta.set_length(sizeof(double));
+            meta.set_encoding(encoding);
+            meta.set_compression(segment_v2::CompressionTypePB::LZ4F);
+            meta.set_is_nullable(true);
+            ColumnWriterOptions options;
+            options.meta = &meta;
+            options.data_page_size = sizeof(double) * 2;
+            options.need_zone_map = false;
+            TabletColumn schema(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                                FieldType::OLAP_FIELD_TYPE_DOUBLE);
+            auto fs = io::global_local_filesystem();
+            io::FileWriterPtr file_writer;
+            ASSERT_TRUE(fs->create_file(path, &file_writer).ok());
+            std::unique_ptr<ColumnWriter> writer;
+            ASSERT_TRUE(ColumnWriter::create(options, &schema, file_writer.get(), &writer).ok());
+            ASSERT_TRUE(writer->init().ok());
+            auto values = ColumnFloat64::create();
+            auto nulls = ColumnUInt8::create();
+            for (size_t i = 0; i < mask.size(); ++i) {
+                values->insert_value(static_cast<double>(i + 1));
+                nulls->insert_value(mask[i]);
+            }
+            auto input = ColumnNullable::create(std::move(values), std::move(nulls));
+            ASSERT_TRUE(writer->append(*input, 0, mask.size()).ok());
+            ASSERT_TRUE(writer->finish().ok());
+            ASSERT_TRUE(writer->write_data().ok());
+            ASSERT_TRUE(writer->write_ordinal_index().ok());
+            ASSERT_TRUE(file_writer->close().ok());
+
+            io::FileReaderSPtr file_reader;
+            ASSERT_TRUE(fs->open_file(path, &file_reader).ok());
+            std::shared_ptr<ColumnReader> reader;
+            ASSERT_TRUE(ColumnReader::create({}, meta, mask.size(), file_reader, &reader).ok());
+            ColumnIteratorUPtr iterator;
+            ASSERT_TRUE(reader->new_iterator(&iterator, &schema).ok());
+            OlapReaderStatistics stats;
+            ColumnIteratorOptions iterator_options;
+            iterator_options.file_reader = file_reader.get();
+            iterator_options.stats = &stats;
+            ASSERT_TRUE(iterator->init(iterator_options).ok());
+            ASSERT_TRUE(iterator->seek_to_ordinal(0).ok());
+            MutableColumnPtr output = input->clone_empty();
+            output->insert_default(); // Preserve an existing NULL while appending all batches.
+            for (size_t requested : {3, 2, 3}) {
+                size_t count = requested;
+                ASSERT_TRUE(iterator->next_batch(&count, output).ok());
+                ASSERT_EQ(count, requested);
+            }
+            ASSERT_EQ(output->size(), 9);
+            EXPECT_TRUE(output->is_null_at(0));
+            for (size_t i = 0; i < mask.size(); ++i) {
+                EXPECT_EQ(output->compare_at(i + 1, i, *input, 1), 0);
+            }
+            ASSERT_TRUE(iterator->seek_to_ordinal(2).ok());
+            size_t count = 3;
+            ASSERT_TRUE(iterator->next_batch(&count, output).ok());
+            ASSERT_EQ(count, 3);
+            for (size_t i = 0; i < count; ++i) {
+                EXPECT_EQ(output->compare_at(9 + i, 2 + i, *input, 1), 0);
+            }
+            if (mask_index == 0) {
+                // A valid subrange of a nullable page can use a nonnullable destination.
+                // The following NULL row must still report an error for that destination.
+                ASSERT_TRUE(iterator->seek_to_ordinal(0).ok());
+                MutableColumnPtr plain = ColumnFloat64::create();
+                count = 1;
+                ASSERT_TRUE(iterator->next_batch(&count, plain).ok());
+                EXPECT_EQ(assert_cast<const ColumnFloat64&>(*plain).get_element(0), 1.0);
+                count = 1;
+                EXPECT_FALSE(iterator->next_batch(&count, plain).ok());
+            }
+        }
+    }
+}
+
+TEST_F(ColumnReaderTest, NullableRunUsesReplacementFromDictionaryDecoder) {
+    // A plain page inside a dictionary column replaces ColumnDictI32 with ColumnString.
+    // ["a", NULL, "b"] is enough to check that the NULL run uses the replacement column
+    // and that the next valid run appends to it. No file or large dictionary is needed.
+    BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR> builder({});
+    ASSERT_TRUE(builder.init().ok());
+    const Slice strings[] = {Slice("a"), Slice("b")};
+    size_t count = std::size(strings);
+    ASSERT_TRUE(builder.add(reinterpret_cast<const uint8_t*>(strings), &count).ok());
+    ASSERT_EQ(count, 2);
+    OwnedSlice body;
+    ASSERT_TRUE(builder.finish(&body).ok());
+    faststring page;
+    put_fixed32_le(&page, PLAIN_ENCODING);
+    page.append(body.slice().data, body.slice().size);
+    auto decoder = std::make_unique<BinaryDictPageDecoder>(Slice(page), PageDecoderOptions());
+    ASSERT_TRUE(decoder->init().ok());
+
+    faststring null_bits;
+    RleEncoder<bool> encoder(&null_bits, 1);
+    encoder.Put(false);
+    encoder.Put(true);
+    encoder.Put(false);
+    encoder.Flush();
+    auto reader = create_test_reader(true, 3, FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    FileColumnIterator iterator(reader);
+    OlapReaderStatistics stats;
+    iterator._opts.stats = &stats;
+    iterator._page.has_null = true;
+    iterator._page.num_rows = 3;
+    iterator._page.null_decoder = RleDecoder<bool>(null_bits.data(), encoder.len(), 1);
+    iterator._page.data_decoder = std::move(decoder);
+    MutableColumnPtr output =
+            ColumnNullable::create(ColumnDictI32::create(), ColumnUInt8::create());
+    count = 3;
+    bool has_null = false;
+    ASSERT_TRUE(iterator.next_batch(&count, output, &has_null).ok());
+    ASSERT_EQ(count, 3);
+    EXPECT_TRUE(has_null);
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto* values = check_and_get_column<ColumnString>(&nullable.get_nested_column());
+    ASSERT_NE(values, nullptr);
+    ASSERT_EQ(values->size(), 3);
+    EXPECT_EQ(values->get_data_at(0).to_string(), "a");
+    EXPECT_TRUE(nullable.is_null_at(1));
+    EXPECT_EQ(values->get_data_at(2).to_string(), "b");
 }
 
 TEST_F(ColumnReaderTest, ArrayReadByRowidsMatchesSequentialReadAcrossPages) {
