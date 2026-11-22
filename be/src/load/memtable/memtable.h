@@ -293,7 +293,7 @@ private:
             MutableBlock& mutable_block,
             DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
 
-    Status _put_into_output(Block& in_block);
+    void _copy_sorted_rows_and_release_input();
     bool _is_first_insertion;
 
     void _init_agg_functions(const Block* block);
