@@ -20,6 +20,7 @@
 #include <gen_cpp/RuntimeProfile_types.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <latch>
@@ -165,11 +166,32 @@ protected:
         return counter ? counter->value() : -1;
     }
 
-    void expect_byte_counter_root(const TRuntimeProfileTree& tree, const std::string& name) {
-        const auto& children = tree.nodes.front().child_counters_map;
-        EXPECT_EQ(children.at(RuntimeProfile::ROOT_COUNTER).count(name), 1);
-        EXPECT_EQ(children.at("FileCache").count(name), 0);
-        EXPECT_EQ(local->_segment_profile->get_counter(name)->type(), TUnit::BYTES);
+    void expect_byte_counter(const TRuntimeProfileTree& tree, const std::string& name,
+                             int64_t expected_value) {
+        ASSERT_EQ(tree.nodes.size(), 1);
+        const auto& node = tree.nodes.front();
+        const auto& children = node.child_counters_map;
+        ASSERT_TRUE(children.contains(RuntimeProfile::ROOT_COUNTER));
+        ASSERT_TRUE(children.contains("FileCache"));
+        EXPECT_EQ(children.at(RuntimeProfile::ROOT_COUNTER).count("FileCache"), 1);
+        EXPECT_EQ(children.at(RuntimeProfile::ROOT_COUNTER).count(name), 0);
+        EXPECT_EQ(children.at("FileCache").count(name), 1);
+        auto counter = std::ranges::find(node.counters, name, &TCounter::name);
+        ASSERT_NE(counter, node.counters.end());
+        EXPECT_EQ(counter->type, TUnit::BYTES);
+        EXPECT_EQ(counter->level, 1);
+        EXPECT_EQ(counter->value, expected_value);
+    }
+
+    void expect_byte_counters(int64_t local_bytes, int64_t remote_bytes, int64_t written_bytes) {
+        for (int level : {1, 2, 3}) {
+            SCOPED_TRACE(level);
+            TRuntimeProfileTree tree;
+            local->_segment_profile->to_thrift(&tree, level);
+            expect_byte_counter(tree, "BytesScannedFromCache", local_bytes);
+            expect_byte_counter(tree, "BytesScannedFromRemote", remote_bytes);
+            expect_byte_counter(tree, "BytesWriteIntoCache", written_bytes);
+        }
     }
 
     std::atomic<int64_t> next_tablet_id {20};
@@ -180,28 +202,32 @@ protected:
     std::shared_ptr<OlapScanLocalState> local;
 };
 
-TEST_F(OlapFileCacheProfileTest, ByteCountersAreSegmentRootsAndReusedByReporter) {
+TEST_F(OlapFileCacheProfileTest, ByteCountersAreFileCacheChildrenAndReusedByReporter) {
     EXPECT_EQ(value("BytesScannedFromCache"), 0);
     EXPECT_EQ(value("BytesScannedFromRemote"), 0);
     EXPECT_EQ(value("BytesWriteIntoCache"), 0);
-    EXPECT_EQ(local->_segment_profile->get_counter("FileCache"), nullptr);
+    expect_byte_counters(0, 0, 0);
+    auto* file_cache = local->_segment_profile->get_counter("FileCache");
+    ASSERT_NE(file_cache, nullptr);
+    EXPECT_EQ(file_cache->type(), TUnit::TIME_NS);
+    EXPECT_EQ(file_cache->level(), 2);
     io::FileCacheProfileReporter reporter(local->_segment_profile.get());
+    EXPECT_EQ(reporter.total_time, file_cache);
     EXPECT_EQ(reporter.bytes_scanned_from_cache, local->_bytes_scanned_from_cache);
     EXPECT_EQ(reporter.bytes_scanned_from_remote, local->_bytes_scanned_from_remote);
     EXPECT_EQ(reporter.bytes_write_into_cache, local->_bytes_write_into_cache);
     io::FileCacheStatistics builder_stats;
     builder_stats.bytes_read_from_local = 3;
+    builder_stats.bytes_read_from_remote = 5;
+    builder_stats.bytes_write_into_cache = 2;
     reporter.update(&builder_stats);
     auto scanner = make_scanner();
-    scanner->_tablet_reader->mutable_stats()->file_cache_stats.bytes_read_from_local = 7;
+    auto& stats = scanner->_tablet_reader->mutable_stats()->file_cache_stats;
+    stats.bytes_read_from_local = 7;
+    stats.bytes_read_from_remote = 13;
+    stats.bytes_write_into_cache = 4;
     scanner->update_realtime_counters();
-    EXPECT_EQ(value("BytesScannedFromCache"), 10);
-    TRuntimeProfileTree tree;
-    local->_segment_profile->to_thrift(&tree, 3);
-    for (const auto& name :
-         {"BytesScannedFromCache", "BytesScannedFromRemote", "BytesWriteIntoCache"}) {
-        expect_byte_counter_root(tree, name);
-    }
+    expect_byte_counters(10, 18, 6);
 }
 
 TEST_F(OlapFileCacheProfileTest, MultiBatchRealtimeAndFinal) {
@@ -244,7 +270,7 @@ TEST_F(OlapFileCacheProfileTest, MultiBatchRealtimeAndFinal) {
     scanner->update_realtime_counters();
     scanner->update_realtime_counters();
     EXPECT_EQ(local->_segment_profile->num_counters(), counters_before);
-    EXPECT_EQ(local->_segment_profile->get_counter("FileCache"), nullptr);
+    EXPECT_EQ(value("FileCache"), 0);
     EXPECT_EQ(value("BytesScannedFromRemote"), 18);
     EXPECT_EQ(io->scan_bytes_from_local_storage(), 18);
     EXPECT_EQ(io->scan_bytes_from_remote_storage(), 18);
@@ -331,7 +357,7 @@ TEST_F(OlapFileCacheProfileTest, NoCacheFallbackAndUnpreparedScanner) {
     EXPECT_EQ(value("BytesScannedFromCache"), 0);
     EXPECT_EQ(value("BytesScannedFromRemote"), 0);
     EXPECT_EQ(value("BytesWriteIntoCache"), 0);
-    EXPECT_EQ(local->_segment_profile->get_counter("FileCache"), nullptr);
+    EXPECT_EQ(value("FileCache"), 0);
 }
 
 class OlapFileCacheFinalProfileTest : public OlapFileCacheProfileTest {
