@@ -29,6 +29,7 @@
 always   be/lib/meta_tool
 always   be/lib/cdc_client
 always   fe/arthas
+always   fe/mysql_ssl_default_certificate
 
 # ---- format-specific JNI scanners kept only in the -full tag ----
 # Each maps to exactly one class name BE can construct, see the table in

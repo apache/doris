@@ -211,7 +211,7 @@ public class IvmIncrRefreshManagerTest {
     public void testManagerReturnsPlanSignatureMismatchFallback() throws Exception {
         MTMV mtmv = mockMtmv();
         TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), Collections.emptyList());
-        manager.planSignatureMismatch = new IvmPlanSignature("current plan", "current-signature");
+        manager.planSignatureMismatch = new IvmPlanSignature("current plan", "current-signature", "plan tree");
 
         IvmIncrRefreshResult result = manager.doRefresh(manager.context);
 

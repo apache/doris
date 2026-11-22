@@ -27,6 +27,7 @@
 #include <functional>
 #include <map>
 #include <memory> // for unique_ptr
+#include <span>
 #include <string>
 #include <unordered_map>
 
@@ -59,6 +60,10 @@ class PrimaryKeyIndexReader;
 class RowwiseIterator;
 struct RowLocation;
 
+namespace io {
+class FileRangeReadContext;
+}
+
 namespace segment_v2 {
 
 class Segment;
@@ -70,6 +75,12 @@ class ColumnIterator;
 class ColumnReaderCache;
 class ColumnMetaAccessor;
 class VariantColumnReader;
+
+// Logical input to Segment::read_columns_by_rowids(). Segment owns the temporary iterators.
+struct RowIdColumnRead {
+    SlotDescriptor* slot {nullptr};
+    MutableColumnPtr* result {nullptr};
+};
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
 
@@ -190,6 +201,19 @@ public:
                                   const std::vector<uint32_t>& row_ids, MutableColumnPtr& result,
                                   StorageReadOptions& storage_read_options,
                                   std::unique_ptr<ColumnIterator>& iterator_hint);
+
+    // Prepare all eligible columns before decoding any of them. A null context selects ordinary
+    // reads; all columns share the caller's rowset constants, statistics and query admission.
+    Status read_columns_by_rowids(
+            const TabletSchema& schema, const std::vector<uint32_t>& row_ids,
+            std::span<const RowIdColumnRead> columns, StorageReadOptions& read_options,
+            const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context = {});
+
+    // Read a known physical scalar, such as the row-store column, without slot/type conversion.
+    Status read_column_by_rowids(
+            const TabletColumn& column, const std::vector<uint32_t>& row_ids,
+            MutableColumnPtr& result, StorageReadOptions& read_options,
+            const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context = {});
 
     Status load_index(OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
 

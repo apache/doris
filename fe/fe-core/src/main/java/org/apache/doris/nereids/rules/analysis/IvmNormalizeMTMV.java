@@ -21,7 +21,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.mtmv.ivm.IvmNormalizeDupKeysMTMV;
 import org.apache.doris.mtmv.ivm.IvmNormalizeUniqKeysMTMV;
-import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.nereids.StatementContext;
@@ -36,8 +35,6 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.util.List;
 
 /**
  * Normalizes an IVM MV's query: settles which table model the MV is built with, and hands the query
@@ -80,22 +77,16 @@ public class IvmNormalizeMTMV implements CustomRewriter {
             // pin down.
             result = new IvmNormalizeDupKeysMTMV().normalize(plan, statementContext.getExcludedTriggerTables());
         } else {
-            result = new IvmNormalizeUniqKeysMTMV().normalize(plan, jobContext);
+            result = new IvmNormalizeUniqKeysMTMV().normalizeRoot(plan, jobContext);
         }
         // Whichever normalizer built it, the normalized plan is published here, and only here, so
         // that a statement downstream of this rewrite reads the plan of the model that was chosen.
         rewriteResult.setNormalizeRewritten(true);
         rewriteResult.setNormalizedPlan(result);
         if (rewriteContext.getMode() == IvmRewriteContext.Mode.CREATE) {
-            // The normalized plan is what an incremental refresh is built against, so CREATE logs it
-            // whole, together with the signature the unique-key model pins it down by. A detail MV has
-            // no signature: it holds the query's own rows, and its refresh reads no layout.
-            IvmPlanSignature planSignature = rewriteResult.getPlanSignature();
-            LOG.info("IVM normalized plan, mtmvName={}, keysType={}, detailModel={}, inputRoot={}, plan={}, "
-                            + "canonicalString={}, signature={}",
+            LOG.info("IVM normalized plan, mtmvName={}, keysType={}, detailModel={}, inputRoot={}, plan={}",
                     rewriteContext.getMtmvName(), keysType, detailModel, plan.getClass().getSimpleName(),
-                    result.treeString(), planSignature == null ? null : planSignature.getCanonicalString(),
-                    planSignature == null ? null : planSignature.getSha256());
+                    result.treeString());
         }
         return result;
     }
@@ -144,19 +135,13 @@ public class IvmNormalizeMTMV implements CustomRewriter {
         if (rewriteContext.isForceMow()) {
             return KeysType.UNIQUE_KEYS;
         }
-        boolean needsRowIdMaintenance = plan.anyMatch(node -> node instanceof LogicalAggregate
-                || node instanceof LogicalRepeat
-                || (node instanceof LogicalJoin
-                        && ((LogicalJoin<?, ?>) node).getJoinType().isOuterJoin()));
-        if (needsRowIdMaintenance) {
-            return KeysType.UNIQUE_KEYS;
-        }
-        List<SupportChangelog> scans = plan.collectToList(SupportChangelog.class::isInstance);
-        for (SupportChangelog scan : scans) {
-            if (!scan.isChangelogAppendOnly()) {
-                return KeysType.UNIQUE_KEYS;
-            }
-        }
-        return KeysType.DUP_KEYS;
+        boolean needsRowIdMaintenance = plan.anyMatch(node ->
+                node instanceof LogicalAggregate
+                        || node instanceof LogicalRepeat
+                        || (node instanceof LogicalJoin
+                                && ((LogicalJoin<?, ?>) node).getJoinType().isOuterJoin())
+                        || (node instanceof SupportChangelog
+                                && !((SupportChangelog) node).isChangelogAppendOnly()));
+        return needsRowIdMaintenance ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
     }
 }

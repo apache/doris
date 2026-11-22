@@ -18,7 +18,7 @@
 suite("dotted_key_legacy_rewrite", "p0,nonConcurrent") {
     // Master rejects doc_mode=false together with explicit subcolumn properties.
     // Pin this one default here; each column still fixes all sparse layout options.
-    sql "set default_variant_enable_doc_mode = false"
+    sql "set debug_variant_enable_doc_mode = false"
     sql "drop table if exists dotted_key_legacy_source"
     sql """create table dotted_key_legacy_source (
         id int, v variant<properties(

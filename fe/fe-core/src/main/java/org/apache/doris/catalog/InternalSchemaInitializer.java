@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.DbName;
+import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -55,6 +56,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -583,21 +585,70 @@ public class InternalSchemaInitializer extends Thread {
         return alterAuditSchemaIfNeeded(auditTable);
     }
 
-    private boolean alterAuditSchemaIfNeeded(OlapTable auditTable) {
-        List<ColumnDef> expectedSchema = InternalSchema.AUDIT_SCHEMA;
-        List<String> expectedColumnNames = expectedSchema.stream()
-                .map(ColumnDef::getName)
+    @VisibleForTesting
+    public static boolean alterAuditSchemaIfNeeded(OlapTable auditTable) {
+        List<String> currentColumnNames = auditTable.getBaseSchema().stream()
+                .map(Column::getName)
                 .map(String::toLowerCase)
                 .collect(Collectors.toList());
-        List<Column> currentColumns = auditTable.getBaseSchema();
-        List<String> currentColumnNames = currentColumns.stream()
-                .map(Column::getName)
+        List<AlterTableOp> alterOps = getAuditTableAlterOps(currentColumnNames, InternalSchema.AUDIT_SCHEMA);
+        if (alterOps.isEmpty()) {
+            return true;
+        }
+        TableNameInfo auditTableName = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                FeConstants.INTERNAL_DB_NAME, AuditLoader.AUDIT_LOG_TABLE);
+        AlterTableCommand alterTableCommand = new AlterTableCommand(auditTableName, alterOps);
+        // A schema change that rewrites the table creates a replica on a backend for every tablet, and in cloud
+        // mode the backend comes from the compute group of the session. This daemon thread has no session.
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+            Env.getCurrentEnv().alterTable(alterTableCommand);
+        } catch (Exception e) {
+            LOG.warn("Failed to alter audit table schema", e);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * The ops that bring an audit table whose columns are {@code currentColumnNames} (in lower case) to
+     * {@code expectedSchema}, keeping the columns it has beyond the schema at the end; none when it is there.
+     *
+     * When the columns the table has of the schema are in the schema's order and come before any other column, as
+     * in a table an earlier release created when the releases since only added columns, each missing column is
+     * added right after the column before it in the schema: a light schema change, which rewrites nothing.
+     * Otherwise the missing columns are appended and the table is reordered, which rewrites it.
+     */
+    @VisibleForTesting
+    public static List<AlterTableOp> getAuditTableAlterOps(List<String> currentColumnNames,
+            List<ColumnDef> expectedSchema) {
+        List<String> expectedColumnNames = expectedSchema.stream()
+                .map(ColumnDef::getName)
                 .map(String::toLowerCase)
                 .collect(Collectors.toList());
         // check if all expected columns are exists and in the right order
         if (currentColumnNames.size() >= expectedColumnNames.size()
                 && expectedColumnNames.equals(currentColumnNames.subList(0, expectedColumnNames.size()))) {
-            return true;
+            return Collections.emptyList();
+        }
+
+        List<String> presentColumnNames = expectedColumnNames.stream()
+                .filter(currentColumnNames::contains)
+                .collect(Collectors.toList());
+        // With the first column of the schema there, every missing column has a column before it to follow: one
+        // the table has, or one an earlier op of the same ALTER adds.
+        if (currentColumnNames.contains(expectedColumnNames.get(0))
+                && presentColumnNames.equals(currentColumnNames.subList(0, presentColumnNames.size()))) {
+            List<AlterTableOp> addColumnOps = Lists.newArrayList();
+            for (int i = 1; i < expectedSchema.size(); i++) {
+                if (!presentColumnNames.contains(expectedColumnNames.get(i))) {
+                    ColumnDefinition columnDefinition = expectedSchema.get(i).translateToColumnDefinition();
+                    AddColumnOp addColumnOp = new AddColumnOp(columnDefinition,
+                            new ColumnPosition(expectedSchema.get(i - 1).getName()), null, null);
+                    addColumnOp.setColumn(columnDefinition.translateToCatalogStyleForSchemaChange());
+                    addColumnOps.add(addColumnOp);
+                }
+            }
+            return addColumnOps;
         }
 
         List<AlterTableOp> alterClauses = Lists.newArrayList();
@@ -619,16 +670,7 @@ public class InternalSchemaInitializer extends Thread {
         newColumnOrders.addAll(removedColumnNames);
         ReorderColumnsOp reorderColumnsOp = new ReorderColumnsOp(newColumnOrders, null, Maps.newHashMap());
         alterClauses.add(reorderColumnsOp);
-        TableNameInfo auditTableName = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
-                FeConstants.INTERNAL_DB_NAME, AuditLoader.AUDIT_LOG_TABLE);
-        AlterTableCommand alterTableCommand = new AlterTableCommand(auditTableName, alterClauses);
-        try {
-            Env.getCurrentEnv().alterTable(alterTableCommand);
-        } catch (Exception e) {
-            LOG.warn("Failed to alter audit table schema", e);
-            return false;
-        }
-        return true;
+        return alterClauses;
     }
 
     public static boolean isStatsTableSchemaValid() {

@@ -17,9 +17,13 @@
 
 package org.apache.doris.connector.es;
 
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Optional;
 
 /** What this connector declares to the engine before any catalog of its type is initialized. */
@@ -40,5 +44,14 @@ public class EsConnectorProviderTest {
         // ES exposes no metastore-event source, so the engine's event driver must never force-initialize an
         // idle es catalog just to look for one.
         Assertions.assertFalse(new EsConnectorProvider().providesEventSource());
+    }
+
+    @Test
+    public void thePasswordIsASecretInBothSpellings() {
+        // A catalog may write any key with the legacy elasticsearch. prefix, so the engine masks both.
+        ConnectorSecuritySurface surface = new EsConnectorProvider().securitySurface();
+        Assertions.assertEquals(new HashSet<>(Arrays.asList("password", "elasticsearch.password")),
+                new HashSet<>(surface.sensitiveKeys()));
+        Assertions.assertTrue(surface.sensitiveKeyPrefixes().isEmpty());
     }
 }

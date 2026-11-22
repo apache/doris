@@ -19,35 +19,25 @@
 
 #include <glog/logging.h>
 
-#include "CLucene.h"
-#include "CLucene/analysis/LanguageBasedAnalyzer.h"
-
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wshadow-field"
-#endif
-// clang-format off
-#include "common/compile_check_avoid_begin.h"
-#include "CLucene/analysis/standard95/StandardAnalyzer.h"
-#include "common/compile_check_avoid_end.h"
-// clang-format on
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
-#include "storage/index/inverted/analysis/analyzer/basic/basic_analyzer.h"
-#include "storage/index/inverted/analysis/analyzer/icu/icu_analyzer.h"
-#include "storage/index/inverted/analysis/analyzer/ik/IKAnalyzer.h"
+#include "storage/index/inverted/analysis/analyzer/chain_analyzer.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/CharacterUtil.h"
-#include "storage/index/inverted/analysis/analyzer/kuromoji/KuromojiAnalyzer.h"
+#include "storage/index/inverted/analysis/analyzer/kuromoji/KuromojiMode.h"
+#include "storage/index/inverted/analysis/analyzer/kuromoji/dict/kuromoji_dictionary.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/kuromoji_normalize.h"
+#include "storage/index/inverted/analysis/char_filter/char_filtered_stream.h"
 #include "storage/index/inverted/analysis/char_filter/char_replace_char_filter_factory.h"
 #include "storage/index/inverted/analysis/gram/gram_scheme.h"
-#include "storage/index/inverted/analysis/scratch.h"
 #include "storage/index/inverted/analysis/token_filter/lower_case_filter.h"
-#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
-#include "util/string_util.h"
+#include "storage/index/inverted/analysis/tokenizer/basic/basic_tokenizer_factory.h"
+#include "storage/index/inverted/analysis/tokenizer/byte_classifier.h"
+#include "storage/index/inverted/analysis/tokenizer/english/english_tokenizer.h"
+#include "storage/index/inverted/analysis/tokenizer/icu/icu_tokenizer_factory.h"
+#include "storage/index/inverted/analysis/tokenizer/ik/ik_tokenizer_factory.h"
+#include "storage/index/inverted/analysis/tokenizer/jieba/jieba_tokenizer.h"
+#include "storage/index/inverted/analysis/tokenizer/kuromoji/kuromoji_tokenizer_factory.h"
+#include "storage/index/inverted/analysis/tokenizer/standard/uax29_tokenizer.h"
 
 namespace doris::segment_v2::inverted_index {
 namespace {
@@ -60,10 +50,8 @@ InvertedIndexParserType builtin_parser_type(const InvertedIndexAnalyzerConfig& c
 }
 
 TextAnalyzerPtr builtin_text_analyzer(const InvertedIndexAnalyzerConfig& config) {
-    return std::make_shared<LuceneBackedTextAnalyzer>(
-            InvertedIndexAnalyzer::create_builtin_analyzer(builtin_parser_type(config),
-                                                           config.parser_mode, config.lower_case,
-                                                           config.stop_words));
+    return InvertedIndexAnalyzer::create_builtin_analyzer(
+            builtin_parser_type(config), config.parser_mode, config.lower_case, config.stop_words);
 }
 
 class BuiltinAnalyzerProvider final : public AnalyzerProvider {
@@ -77,58 +65,27 @@ private:
     const TextAnalyzerPtr _analyzer;
 };
 
-// The index's char filter in front of an analyzer. The writers and the query side used to apply it
-// through the reader they gave the analyzer (create_reader); it now belongs to the analyzer, so
-// every consumer reads every value through it, whatever the analyzer: a normalizer index with
-// char_filter_pattern "-" writes "A-B" as "a b". It runs the CLucene char filter over the whole
-// value until the char filters are native.
-class IndexCharFilterStream final : public TextTokenStream {
-public:
-    IndexCharFilterStream(const CharFilterMap* char_filters, std::unique_ptr<TextTokenStream> in)
-            : _char_filters(char_filters), _in(std::move(in)) {}
+// The index's char filter, which a char filter map that is not empty always describes as a
+// char_replace of char_filter_pattern by char_filter_replacement.
+CharFilterFactoryPtr index_char_filter(const CharFilterMap& char_filter_map) {
+    DORIS_CHECK_EQ(char_filter_map.at(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE),
+                   INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE);
+    return std::make_shared<CharReplaceCharFilterFactory>(
+            char_filter_map.at(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN),
+            char_filter_map.at(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT));
+}
 
-    void reset(std::string_view text) override {
-        // Assigning a result short enough for the string's inline buffer keeps the buffer a long
-        // value grew, so release it first when it is above the high water mark.
-        release_oversized_scratch(_filtered);
-        _filtered = InvertedIndexAnalyzer::filter_characters(*_char_filters, text);
-        _in->reset(_filtered);
-    }
-
-    bool next_batch(TokenBatch& batch) override { return _in->next_batch(batch); }
-
-    // The filtered copy of the current value.
-    size_t reserved_bytes() const override { return _filtered.capacity() + _in->reserved_bytes(); }
-
-    void set_strict_utf8(bool strict) override { _in->set_strict_utf8(strict); }
-
-private:
-    const CharFilterMap* const _char_filters;
-    const std::unique_ptr<TextTokenStream> _in;
-    std::string _filtered;
-};
-
-class IndexCharFilterAnalyzer final : public TextAnalyzer {
-public:
-    IndexCharFilterAnalyzer(CharFilterMap char_filters, TextAnalyzerPtr analyzer)
-            : _char_filters(std::move(char_filters)), _analyzer(std::move(analyzer)) {}
-
-    std::unique_ptr<TextTokenStream> create_stream() const override {
-        return std::make_unique<IndexCharFilterStream>(&_char_filters, _analyzer->create_stream());
-    }
-
-private:
-    const CharFilterMap _char_filters;
-    const TextAnalyzerPtr _analyzer;
-};
-
-// `analyzer` behind the index's char filter, or `analyzer` itself for an index without one.
-TextAnalyzerPtr with_index_char_filter(const CharFilterMap& char_filters,
+// `analyzer` behind the index's char filter, or `analyzer` itself for an index without one. Every
+// consumer reads every value through it, whatever the analyzer: a normalizer index with
+// char_filter_pattern "-" writes "A-B" as "a b".
+TextAnalyzerPtr with_index_char_filter(const CharFilterMap& char_filter_map,
                                        TextAnalyzerPtr analyzer) {
-    if (char_filters.empty()) {
+    if (char_filter_map.empty()) {
         return analyzer;
     }
-    return std::make_shared<IndexCharFilterAnalyzer>(char_filters, std::move(analyzer));
+    return std::make_shared<CharFilteredAnalyzer>(
+            std::vector<CharFilterFactoryPtr> {index_char_filter(char_filter_map)},
+            std::move(analyzer));
 }
 
 // A provider whose analyzer is behind the index's char filter; the gram scheme is the inner one.
@@ -171,40 +128,22 @@ std::string normalize_builtin_term(InvertedIndexParserType parser_type, bool low
         }
         return text;
     default:
-        return lower_case ? to_lower(text) : text;
+        if (lower_case) {
+            ascii_lower(text);
+        }
+        return text;
     }
 }
 
 } // namespace
-
-ReaderPtr InvertedIndexAnalyzer::create_reader(const CharFilterMap& char_filter_map) {
-    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-    if (!char_filter_map.empty()) {
-        auto it_type = char_filter_map.find(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);
-        if (it_type != char_filter_map.end() &&
-            it_type->second == INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE) {
-            auto it_pattern = char_filter_map.find(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
-            auto it_replacement =
-                    char_filter_map.find(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT);
-            if (it_pattern != char_filter_map.end() && it_replacement != char_filter_map.end()) {
-                reader = std::make_shared<CharReplaceCharFilter>(reader, it_pattern->second,
-                                                                 it_replacement->second);
-            }
-        }
-    }
-    return reader;
-}
 
 std::string InvertedIndexAnalyzer::filter_characters(const CharFilterMap& char_filter_map,
                                                      std::string_view value) {
     if (char_filter_map.empty()) {
         return std::string(value);
     }
-    auto reader = create_reader(char_filter_map);
-    reader->init(value.data(), static_cast<int32_t>(value.size()), true);
-    std::string filtered(reader->size(), '\0');
-    reader->readCopy(filtered.data(), 0, static_cast<int32_t>(filtered.size()));
-    return filtered;
+    std::string scratch;
+    return std::string(index_char_filter(char_filter_map)->create()->apply(value, scratch));
 }
 
 bool InvertedIndexAnalyzer::is_builtin_analyzer(const std::string& analyzer_name) {
@@ -221,41 +160,66 @@ bool InvertedIndexAnalyzer::is_builtin_analyzer(const std::string& analyzer_name
 
 namespace {
 
-AnalyzerPtr build_builtin_analyzer(InvertedIndexParserType parser_type,
-                                   const std::string& parser_mode, const std::string& lower_case,
-                                   const std::string& stop_words) {
-    std::shared_ptr<lucene::analysis::Analyzer> analyzer;
+// The lowercasing of a builtin parser: lower_case "true" or "false", and the parser's own default
+// when it is empty.
+bool builtin_lowercase(const std::string& lower_case, bool parser_default) {
+    if (lower_case == INVERTED_INDEX_PARSER_TRUE) {
+        return true;
+    }
+    if (lower_case == INVERTED_INDEX_PARSER_FALSE) {
+        return false;
+    }
+    return parser_default;
+}
 
+// The builtin parsers lowercase by default, except chinese; stop_words only applies to the
+// standard tokenizer.
+TextAnalyzerPtr build_builtin_analyzer(InvertedIndexParserType parser_type,
+                                       const std::string& parser_mode,
+                                       const std::string& lower_case,
+                                       const std::string& stop_words) {
     if (parser_type == InvertedIndexParserType::PARSER_STANDARD ||
         parser_type == InvertedIndexParserType::PARSER_UNICODE) {
-        analyzer = std::make_shared<lucene::analysis::standard95::StandardAnalyzer>();
-    } else if (parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
-        analyzer = std::make_shared<lucene::analysis::SimpleAnalyzer<char>>();
-    } else if (parser_type == InvertedIndexParserType::PARSER_CHINESE) {
-        auto chinese_analyzer =
-                std::make_shared<lucene::analysis::LanguageBasedAnalyzer>(L"chinese", false);
-        chinese_analyzer->initDict(config::inverted_index_dict_path);
-        if (parser_mode == INVERTED_INDEX_PARSER_COARSE_GRANULARITY) {
-            chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
-        } else {
-            chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
-        }
-        analyzer = std::move(chinese_analyzer);
-    } else if (parser_type == InvertedIndexParserType::PARSER_ICU) {
-        analyzer = std::make_shared<ICUAnalyzer>();
-        analyzer->initDict(config::inverted_index_dict_path + "/icu");
-    } else if (parser_type == InvertedIndexParserType::PARSER_BASIC) {
-        analyzer = std::make_shared<BasicAnalyzer>();
-    } else if (parser_type == InvertedIndexParserType::PARSER_IK) {
-        auto ik_analyzer = std::make_shared<IKAnalyzer>();
-        ik_analyzer->initDict(config::inverted_index_dict_path + "/ik");
-        if (parser_mode == INVERTED_INDEX_PARSER_SMART) {
-            ik_analyzer->setMode(true);
-        } else {
-            ik_analyzer->setMode(false);
-        }
-        analyzer = std::move(ik_analyzer);
-    } else if (parser_type == InvertedIndexParserType::PARSER_KUROMOJI) {
+        return std::make_shared<ChainAnalyzer>(
+                std::vector<CharFilterFactoryPtr> {},
+                std::make_shared<Uax29TokenizerFactory>(builtin_lowercase(lower_case, true),
+                                                        stop_words != "none"),
+                std::vector<TokenFilterFactoryPtr> {});
+    }
+    if (parser_type == InvertedIndexParserType::PARSER_CHINESE) {
+        // The fine mode cuts every dictionary word; coarse_grained mixes the dictionary and the HMM.
+        return std::make_shared<ChainAnalyzer>(
+                std::vector<CharFilterFactoryPtr> {},
+                std::make_shared<JiebaTokenizerFactory>(
+                        parser_mode != INVERTED_INDEX_PARSER_COARSE_GRANULARITY,
+                        builtin_lowercase(lower_case, false), config::inverted_index_dict_path),
+                std::vector<TokenFilterFactoryPtr> {});
+    }
+    if (parser_type == InvertedIndexParserType::PARSER_ICU) {
+        // The tokenizer lowercases its own terms as the lowercase filter did.
+        return std::make_shared<ChainAnalyzer>(
+                std::vector<CharFilterFactoryPtr> {},
+                std::make_shared<ICUTokenizerFactory>(builtin_lowercase(lower_case, true)),
+                std::vector<TokenFilterFactoryPtr> {});
+    }
+    if (parser_type == InvertedIndexParserType::PARSER_BASIC) {
+        // The tokenizer lowercases its own tokens, which are all a lowercase filter would change.
+        return std::make_shared<ChainAnalyzer>(
+                std::vector<CharFilterFactoryPtr> {},
+                std::make_shared<BasicTokenizerFactory>(builtin_lowercase(lower_case, true)),
+                std::vector<TokenFilterFactoryPtr> {});
+    }
+    if (parser_type == InvertedIndexParserType::PARSER_IK) {
+        // lower_case only applies to the words: IK always matches its dictionary in lowercase.
+        auto tokenizer = std::make_shared<IKTokenizerFactory>(
+                parser_mode == INVERTED_INDEX_PARSER_SMART, builtin_lowercase(lower_case, true));
+        // Loaded here so that a missing dictionary fails the analyzer, not its first stream.
+        tokenizer->load_dictionary();
+        return std::make_shared<ChainAnalyzer>(std::vector<CharFilterFactoryPtr> {},
+                                               std::move(tokenizer),
+                                               std::vector<TokenFilterFactoryPtr> {});
+    }
+    if (parser_type == InvertedIndexParserType::PARSER_KUROMOJI) {
         if (!config::enable_kuromoji_analyzer) {
             throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                             "kuromoji analyzer is disabled by default. Set "
@@ -267,45 +231,34 @@ AnalyzerPtr build_builtin_analyzer(InvertedIndexParserType parser_type,
         if (kuromoji_mode.empty() || kuromoji_mode == INVERTED_INDEX_PARSER_COARSE_GRANULARITY) {
             kuromoji_mode = INVERTED_INDEX_PARSER_KUROMOJI_SEARCH;
         }
-        auto kuromoji_analyzer = std::make_shared<KuromojiAnalyzer>();
-        kuromoji_analyzer->setMode(kuromoji_mode_from_string(kuromoji_mode));
-        kuromoji_analyzer->initDict(config::inverted_index_dict_path + "/kuromoji");
-        analyzer = std::move(kuromoji_analyzer);
-    } else {
-        // default
-        analyzer = std::make_shared<lucene::analysis::SimpleAnalyzer<char>>();
+        const std::string dict_path = config::inverted_index_dict_path + "/kuromoji";
+        const auto* dict = kuromoji::KuromojiDictionary::get_or_load(dict_path);
+        if (dict == nullptr) {
+            throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                            "kuromoji dictionary could not be loaded from {}; ensure system.bin, "
+                            "matrix.bin, chardef.bin and unkdict.bin are present in the BE package",
+                            dict_path);
+        }
+        return std::make_shared<ChainAnalyzer>(std::vector<CharFilterFactoryPtr> {},
+                                               std::make_shared<KuromojiTokenizerFactory>(
+                                                       kuromoji_mode_from_string(kuromoji_mode),
+                                                       builtin_lowercase(lower_case, true), dict),
+                                               std::vector<TokenFilterFactoryPtr> {});
     }
-
-    // set lowercase
-    if (lower_case == INVERTED_INDEX_PARSER_TRUE) {
-        analyzer->set_lowercase(true);
-    } else if (lower_case == INVERTED_INDEX_PARSER_FALSE) {
-        analyzer->set_lowercase(false);
-    }
-
-    // set stop words
-    if (stop_words == "none") {
-        analyzer->set_stopwords(nullptr);
-    } else {
-        analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
-    }
-
-    return analyzer;
+    // english, and the default for an unknown parser; neither has stop words.
+    return std::make_shared<ChainAnalyzer>(
+            std::vector<CharFilterFactoryPtr> {},
+            std::make_shared<EnglishTokenizerFactory>(builtin_lowercase(lower_case, true)),
+            std::vector<TokenFilterFactoryPtr> {});
 }
 
 } // namespace
 
-AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserType parser_type,
-                                                           const std::string& parser_mode,
-                                                           const std::string& lower_case,
-                                                           const std::string& stop_words) {
-    try {
-        return build_builtin_analyzer(parser_type, parser_mode, lower_case, stop_words);
-    } catch (const CLuceneError& e) {
-        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
-                        "building the {} analyzer failed: {}",
-                        inverted_index_parser_type_to_string(parser_type), e.what());
-    }
+TextAnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserType parser_type,
+                                                               const std::string& parser_mode,
+                                                               const std::string& lower_case,
+                                                               const std::string& stop_words) {
+    return build_builtin_analyzer(parser_type, parser_mode, lower_case, stop_words);
 }
 
 TextAnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerConfig* config) {
@@ -420,16 +373,6 @@ Status InvertedIndexAnalyzer::analyze(std::string_view value, const InvertedInde
 
 std::string InvertedIndexAnalyzer::normalize(const std::string& value,
                                              const std::map<std::string, std::string>& properties) {
-    try {
-        return normalize_term(value, properties);
-    } catch (const CLuceneError& e) {
-        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, "normalizing '{}' failed: {}",
-                        value, e.what());
-    }
-}
-
-std::string InvertedIndexAnalyzer::normalize_term(
-        const std::string& value, const std::map<std::string, std::string>& properties) {
     const std::string analyzer_name = get_analyzer_name_from_properties(properties);
     if (analyzer_name.empty() || is_builtin_analyzer(analyzer_name)) {
         // The index writers read a builtin analyzer's text through the index's character filter.

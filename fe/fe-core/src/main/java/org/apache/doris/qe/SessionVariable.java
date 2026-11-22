@@ -577,6 +577,10 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    public static final String FILE_SPLIT_SIZE_ON_FE = "file_split_size_on_fe";
+
+    public static final String FILE_SPLIT_SIZE_ON_BE = "file_split_size_on_be";
+
     public static final String MAX_INITIAL_FILE_SPLIT_SIZE = "max_initial_file_split_size";
 
     public static final String MAX_FILE_SPLIT_SIZE = "max_file_split_size";
@@ -1031,23 +1035,23 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ANN_INDEX_CANDIDATE_ROWS_PERCENT_THRESHOLD =
             "ann_index_candidate_rows_percent_threshold";
 
-    public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
+    public static final String DEBUG_VARIANT_MAX_SUBCOLUMNS_COUNT = "debug_variant_max_subcolumns_count";
 
-    public static final String DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
-                                                            "default_variant_enable_typed_paths_to_sparse";
+    public static final String DEBUG_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
+                                                            "debug_variant_enable_typed_paths_to_sparse";
 
-    public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
-                                                            "default_variant_max_sparse_column_statistics_size";
-    public static final String DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT = "default_variant_sparse_hash_shard_count";
+    public static final String DEBUG_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
+                                                            "debug_variant_max_sparse_column_statistics_size";
+    public static final String DEBUG_VARIANT_SPARSE_HASH_SHARD_COUNT = "debug_variant_sparse_hash_shard_count";
 
-    public static final String DEFAULT_VARIANT_ENABLE_DOC_MODE = "default_variant_enable_doc_mode";
+    public static final String DEBUG_VARIANT_ENABLE_DOC_MODE = "debug_variant_enable_doc_mode";
 
-    public static final String DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
-            "default_variant_doc_materialization_min_rows";
+    public static final String DEBUG_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
+            "debug_variant_doc_materialization_min_rows";
 
-    public static final String DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT = "default_variant_doc_hash_shard_count";
+    public static final String DEBUG_VARIANT_DOC_HASH_SHARD_COUNT = "debug_variant_doc_hash_shard_count";
 
-    public static final String DEFAULT_VARIANT_ENABLE_NESTED_GROUP = "default_variant_enable_nested_group";
+    public static final String DEBUG_VARIANT_ENABLE_NESTED_GROUP = "debug_variant_enable_nested_group";
 
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
@@ -1378,7 +1382,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = SQL_SELECT_LIMIT, needForward = true, affectQueryResultInExecution = true)
     private long sqlSelectLimit = Long.MAX_VALUE;
 
-    // this is used to make c3p0 library happy
+    // Maximum incoming MySQL logical packet and prepared-statement long-data size, in bytes.
     @VarAttrDef.VarAttr(name = MAX_ALLOWED_PACKET)
     public int maxAllowedPacket = 16777216;
 
@@ -2590,6 +2594,15 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
 
+    @VarAttrDef.VarAttr(name = FILE_SPLIT_SIZE_ON_FE, needForward = true,
+            description = "Target bytes for FE coarse file splits when BE refinement is supported. Default: 512 MiB.")
+    public long fileSplitSizeOnFe = 512L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(name = FILE_SPLIT_SIZE_ON_BE, needForward = true,
+            description = "Target bytes for coalescing BE physical splits. Default: 64 MiB. "
+                    + "A nonpositive value does not disable BE refinement.")
+    public long fileSplitSizeOnBe = 64L * 1024L * 1024L;
+
     @VarAttrDef.VarAttr(
             name = MAX_INITIAL_FILE_SPLIT_SIZE,
             description = "For each table scan, The maximum initial file split size. "
@@ -3103,10 +3116,26 @@ public class SessionVariable implements Serializable, Writable {
     public String mongodbReadPreference = "inherit";
 
     @VarAttrDef.VarAttr(name = MONGODB_READ_CONCERN, needForward = true,
-            checker = "checkMongoDBReadConcern", options = {"inherit", "local", "majority", "available"},
+            checker = "checkMongoDBReadConcern", affectQueryResultInExecution = true,
+            options = {"inherit", "local", "majority", "available", "snapshot"},
             description = "MongoDB data-read visibility for this session or SET_VAR statement. "
-                    + "inherit follows the catalog policy; shared snapshots are not supported")
+                    + "inherit follows the catalog policy; snapshot pins a shared MongoDB cluster timestamp")
     public String mongodbReadConcern = "inherit";
+
+    @VarAttrDef.VarAttr(name = "enable_mongodb_predicate_pushdown", needForward = true,
+            affectQueryResultInExecution = true,
+            description = "Enable verified MongoDB candidate predicates; strict errors and views remain local")
+    public boolean enableMongoDBPredicatePushdown = true;
+
+    @VarAttrDef.VarAttr(name = "enable_mongodb_like_pushdown", needForward = true,
+            affectQueryResultInExecution = true,
+            description = "Enable conservative MongoDB LIKE candidates with local residual evaluation")
+    public boolean enableMongoDBLikePushdown = true;
+
+    @VarAttrDef.VarAttr(name = "enable_mongodb_projection_pushdown", needForward = true,
+            affectQueryResultInExecution = true,
+            description = "Read only MongoDB roots required by projections and residual predicates")
+    public boolean enableMongoDBProjectionPushdown = true;
 
     public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
 
@@ -3724,7 +3753,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
+            name = DEBUG_VARIANT_MAX_SUBCOLUMNS_COUNT,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantMaxSubcolumnsCount",
@@ -3733,7 +3762,7 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantMaxSubcolumnsCount = 2048;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+            name = DEBUG_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3742,7 +3771,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean defaultEnableTypedPathsToSparse = false;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
+            name = DEBUG_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantMaxSparseColumnStatisticsSize",
@@ -3759,7 +3788,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableHyperscanFallback = true;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
+            name = DEBUG_VARIANT_SPARSE_HASH_SHARD_COUNT,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3773,7 +3802,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean cloudPartitionsTableUseCachedVisibleVersion = true;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_ENABLE_DOC_MODE,
+            name = DEBUG_VARIANT_ENABLE_DOC_MODE,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3782,7 +3811,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean defaultVariantEnableDocMode = false;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
+            name = DEBUG_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3791,7 +3820,7 @@ public class SessionVariable implements Serializable, Writable {
     public long defaultVariantDocMaterializationMinRows = 0L;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT,
+            name = DEBUG_VARIANT_DOC_HASH_SHARD_COUNT,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3800,7 +3829,7 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantDocHashShardCount = 64;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_ENABLE_NESTED_GROUP,
+            name = DEBUG_VARIANT_ENABLE_NESTED_GROUP,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -4603,9 +4632,9 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void checkMongoDBReadConcern(String value) {
-        if (!Set.of("inherit", "local", "majority", "available").contains(value.toLowerCase(Locale.ROOT))) {
+        if (!Set.of("inherit", "local", "majority", "available", "snapshot").contains(value.toLowerCase(Locale.ROOT))) {
             throw new UnsupportedOperationException("Invalid mongodb_read_concern; expected inherit, local, "
-                    + "majority or available");
+                    + "majority, available or snapshot");
         }
     }
 
@@ -5060,6 +5089,22 @@ public class SessionVariable implements Serializable, Writable {
 
     public long getFileSplitSize() {
         return fileSplitSize;
+    }
+
+    public long getFileSplitSizeOnFe() {
+        return fileSplitSizeOnFe;
+    }
+
+    public void setFileSplitSizeOnFe(long fileSplitSizeOnFe) {
+        this.fileSplitSizeOnFe = fileSplitSizeOnFe;
+    }
+
+    public long getFileSplitSizeOnBe() {
+        return fileSplitSizeOnBe;
+    }
+
+    public void setFileSplitSizeOnBe(long fileSplitSizeOnBe) {
+        this.fileSplitSizeOnBe = fileSplitSizeOnBe;
     }
 
     public void setFileSplitSize(long fileSplitSize) {
@@ -6895,11 +6940,11 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    // The default_variant_* variables only drive the tests, which run with debug points enabled. Users state VARIANT
+    // The debug_variant_* variables only drive the tests, which run with debug points enabled. Users state VARIANT
     // properties in the column definition, so a DDL text creates the same column in every session.
     public void checkDefaultVariantSettable(String value) {
         if (!Config.enable_debug_points) {
-            throw new UnsupportedOperationException("default_variant_* session variables are only for testing, "
+            throw new UnsupportedOperationException("debug_variant_* session variables are only for testing, "
                     + "set the property in the VARIANT column definition");
         }
     }

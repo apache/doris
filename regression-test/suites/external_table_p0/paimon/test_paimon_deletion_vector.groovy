@@ -41,6 +41,7 @@ suite("test_paimon_deletion_vector", "p0,external") {
             // Force tiny splits so both native and JNI paths read Paimon DV tables through multiple
             // scanner ranges while still returning the same filtered rows.
             sql """ set file_split_size=1 """
+            sql """ set file_split_size_on_fe=0 """
             qt_1 """select count(*) from deletion_vector_orc;"""
             qt_2 """select count(*) from deletion_vector_parquet;"""
             qt_3 """select count(*) from deletion_vector_orc where id > 2;"""
@@ -102,7 +103,43 @@ suite("test_paimon_deletion_vector", "p0,external") {
     } finally {
         sql """ set enable_count_push_down_for_external_table=true; """
         sql """unset variable file_split_size"""
+        sql """unset variable file_split_size_on_fe"""
         sql """set force_jni_scanner=false"""
     }
 
+    sql "CREATE DATABASE IF NOT EXISTS test_paimon_deletion_vector.paimon_bitmap64_dv_db"
+    sql "DROP TABLE IF EXISTS test_paimon_deletion_vector.paimon_bitmap64_dv_db.bitmap64_dv"
+    sql """
+        CREATE TABLE test_paimon_deletion_vector.paimon_bitmap64_dv_db.bitmap64_dv (
+            id INT NOT NULL, payload INT
+        ) ENGINE=paimon PROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'file.format' = 'parquet',
+            'deletion-vectors.enabled' = 'true',
+            'deletion-vectors.bitmap64' = 'true'
+        )
+    """
+    sql "INSERT INTO test_paimon_deletion_vector.paimon_bitmap64_dv_db.bitmap64_dv VALUES (1, 10), (2, 20), (3, 30)"
+    sql "DELETE FROM test_paimon_deletion_vector.paimon_bitmap64_dv_db.bitmap64_dv WHERE id = 2"
+
+    // The native query must read a physical DV rather than an already rewritten data file.
+    def indexes = sql """
+        SELECT row_count
+        FROM test_paimon_deletion_vector.paimon_bitmap64_dv_db.`bitmap64_dv\$table_indexes`
+        WHERE index_type = 'DELETION_VECTORS' AND row_count > 0
+    """
+    assertFalse(indexes.isEmpty(), "DELETE must leave a deletion-vector entry")
+
+    def bitmap64Query = """
+        SELECT /*+ SET_VAR(enable_file_scanner_v2=true, enable_paimon_rust_reader=false, force_jni_scanner=false) */
+               id, payload
+        FROM test_paimon_deletion_vector.paimon_bitmap64_dv_db.bitmap64_dv
+        ORDER BY id
+    """
+    explain {
+        sql bitmap64Query
+        contains "paimonNativeReadSplits=1/1"
+    }
+    order_qt_bitmap64_native bitmap64Query
 }

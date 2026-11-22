@@ -43,6 +43,7 @@ import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -60,6 +61,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -125,24 +128,27 @@ class IvmNormalizeUniqKeysMTMVTest {
     }
 
     @Test
-    void testIvmRewriteContextEnablesNormalizeWithoutSessionVariable() {
-        JobContext jobContext = newJobContextForRoot(scan, false, Collections.emptySet(),
+    void testCreateResultSinkNormalizesWithNoSignature() {
+        Plan sink = new LogicalResultSink<>(ImmutableList.of(scan.getOutput().get(0)), scan);
+        JobContext jobContext = newJobContextForRoot(sink, false, Collections.emptySet(),
                 Optional.of(IvmRewriteContext.create("test_mtmv")));
-        Plan result = new IvmNormalizeUniqKeysMTMV().normalize(scan, jobContext);
 
-        Assertions.assertInstanceOf(LogicalProject.class, result);
+        Plan result = new IvmNormalizeUniqKeysMTMV().normalizeRoot(sink, jobContext);
+
+        Assertions.assertInstanceOf(LogicalResultSink.class, result);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
-        Assertions.assertNotNull(rewriteResult.getPlanSignature());
+        Assertions.assertNull(rewriteResult.getPlanSignature());
     }
 
     @Test
     void testIncrementalSignatureMismatchThrowsAtNormalize() {
         MTMV mtmv = mockIvmMtmv("stored-signature");
-        JobContext jobContext = newJobContextForRoot(scan, true, Collections.emptySet(),
+        Plan sink = signatureTestSink(mtmv);
+        JobContext jobContext = newJobContextForRoot(sink, true, Collections.emptySet(),
                 Optional.of(IvmRewriteContext.incremental(mtmv)));
 
         IvmException exception = Assertions.assertThrows(IvmException.class,
-                () -> new IvmNormalizeUniqKeysMTMV().normalize(scan, jobContext));
+                () -> new IvmNormalizeUniqKeysMTMV().normalizeRoot(sink, jobContext));
 
         Assertions.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, exception.getFailureReason());
         Assertions.assertTrue(exception.getMessage().contains("storedSignature=stored-signature"));
@@ -150,20 +156,35 @@ class IvmNormalizeUniqKeysMTMVTest {
     }
 
     @Test
-    void testIncrementalSignatureMatchPassesNormalize() {
-        // Normalize once (CREATE mode) to learn the computed signature for this plan.
-        JobContext probe = newJobContextForRoot(scan, true);
-        new IvmNormalizeUniqKeysMTMV().normalize(scan, probe);
-        String signature = probe.getCascadesContext().getIvmRewriteResult().orElseThrow()
-                .getPlanSignature().getSha256();
-
-        MTMV mtmv = mockIvmMtmv(signature);
-        JobContext jobContext = newJobContextForRoot(scan, true, Collections.emptySet(),
+    void testIncrementalWithoutSignaturePassesNormalize() {
+        MTMV mtmv = mockIvmMtmv(null);
+        Plan sink = signatureTestSink(mtmv);
+        JobContext jobContext = newJobContextForRoot(sink, true, Collections.emptySet(),
                 Optional.of(IvmRewriteContext.incremental(mtmv)));
 
-        Plan result = new IvmNormalizeUniqKeysMTMV().normalize(scan, jobContext);
+        Plan result = new IvmNormalizeUniqKeysMTMV().normalizeRoot(sink, jobContext);
 
-        Assertions.assertInstanceOf(LogicalProject.class, result);
+        Assertions.assertInstanceOf(LogicalOlapTableSink.class, result);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
+        Assertions.assertNotNull(rewriteResult.getPlanSignature());
+        Assertions.assertNull(mtmv.getIvmInfo().getPlanSignature());
+    }
+
+    @Test
+    void testMowNormalizeRejectsRootWithoutSink() {
+        JobContext jobContext = newJobContextForRoot(scan, true, Collections.emptySet(),
+                Optional.of(IvmRewriteContext.incremental(mockIvmMtmv(null))));
+
+        IvmException exception = Assertions.assertThrows(IvmException.class,
+                () -> new IvmNormalizeUniqKeysMTMV().normalizeRoot(scan, jobContext));
+        Assertions.assertEquals(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, exception.getFailureReason());
+        Assertions.assertTrue(exception.getMessage().contains("requires a table or result sink"));
+    }
+
+    private Plan signatureTestSink(MTMV mtmv) {
+        return new LogicalOlapTableSink<>(new Database(), mtmv, ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.copyOf(scan.getOutput()), false, TPartialUpdateNewRowPolicy.APPEND,
+                DMLCommandType.INSERT, scan);
     }
 
     private static MTMV mockIvmMtmv(String signature) {
@@ -223,7 +244,6 @@ class IvmNormalizeUniqKeysMTMVTest {
         Assertions.assertFalse(rowId.nullable());
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
         Assertions.assertTrue(rewriteResult.isDeterministic(rowId));
-        Assertions.assertNotNull(rewriteResult.getPlanSignature());
     }
 
     @Test
@@ -797,14 +817,17 @@ class IvmNormalizeUniqKeysMTMVTest {
                         IvmUtil.ivmAggHiddenColumnName(0, "COUNT"), IvmUtil.ivmAggHiddenColumnName(0, "SUM"))),
                 Pair.of(new Count(nameSlot), concat(groupCount,
                         IvmUtil.ivmAggHiddenColumnName(0, "COUNT"))),
+                // MIN/MAX no longer carry their old value in the visible column: the top-K state
+                // holds the list and a separate bound column, so dropping the visible column
+                // adds no carrier.
                 Pair.of(new Min(nameSlot), concat(groupCount,
                         IvmUtil.ivmAggHiddenColumnName(0, "COUNT"),
-                        IvmUtil.ivmAggHiddenColumnName(0, "MIN_COUNT"),
-                        IvmUtil.ivmAggHiddenColumnName(0, "MIN"))),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MIN_TOPK"),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MIN_TOPK_BOUND"))),
                 Pair.of(new Max(nameSlot), concat(groupCount,
                         IvmUtil.ivmAggHiddenColumnName(0, "COUNT"),
-                        IvmUtil.ivmAggHiddenColumnName(0, "MAX_COUNT"),
-                        IvmUtil.ivmAggHiddenColumnName(0, "MAX"))),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MAX_TOPK"),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MAX_TOPK_BOUND"))),
                 Pair.of(new CollectList(nameSlot), concat(groupCount,
                         IvmUtil.ivmAggHiddenColumnName(0, "COLLECT_LIST"))),
                 Pair.of(new BitmapUnion(new BitmapFromString(nameSlot)), concat(groupCount,
@@ -1072,7 +1095,8 @@ class IvmNormalizeUniqKeysMTMVTest {
         JobContext jobContext = newJobContextForRoot(agg, true);
         Plan result = new IvmNormalizeUniqKeysMTMV().normalize(agg, jobContext);
 
-        // Normalization should succeed; no hidden MIN column, but COUNT and MIN_COUNT state columns.
+        // Normalization should succeed; no hidden MIN column, but the COUNT and MIN_TOPK state
+        // columns plus its derived bound column.
         Assertions.assertInstanceOf(LogicalProject.class, result);
         IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
         Assertions.assertNotNull(aggMeta);
@@ -1080,18 +1104,50 @@ class IvmNormalizeUniqKeysMTMVTest {
         IvmAggTarget target = aggMeta.getAggTargets().get(0);
         Assertions.assertEquals(IvmAggFunctionKind.MIN, target.getFunctionKind());
         Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.COUNT));
-        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.MIN_COUNT));
+        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK));
+        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK_BOUND));
 
         LogicalProject<?> topProject = (LogicalProject<?>) result;
         Set<String> outputNames = topProject.getOutput().stream()
                 .map(Slot::getName).collect(Collectors.toSet());
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MIN")));
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
-        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MIN_COUNT")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MIN_TOPK")));
+        Assertions.assertTrue(outputNames.contains(
+                IvmUtil.ivmAggHiddenColumnName(0, "MIN_TOPK_BOUND")));
+        // The extreme-only mode does not use the bound, so its state column is a typed NULL.
+        Assertions.assertInstanceOf(NullLiteral.class,
+                ((Alias) projectOutput(topProject, IvmUtil.ivmAggHiddenColumnName(0,
+                        "MIN_TOPK_BOUND"))).child());
     }
 
     @Test
-    void testMaxAggProducesMaxAndCountHiddenColumns() {
+    void testBoundIsDerivedFromTheTopKArray() {
+        IvmRewriteContext rewriteContext = IvmRewriteContext.create("test_mtmv");
+        rewriteContext.setMinMaxTopK(8L);
+        LogicalAggregate<Plan> agg = minAgg(scan);
+        JobContext jobContext = newJobContextForRoot(agg, true, Collections.emptySet(),
+                Optional.of(rewriteContext));
+        Plan result = new IvmNormalizeUniqKeysMTMV().normalize(agg, jobContext);
+
+        // A full refresh initializes the bound from the array it just built: an array shorter than
+        // K is complete (NULL bound), otherwise its K-th value is the truncation point.
+        NamedExpression boundOutput = projectOutput((LogicalProject<?>) result,
+                IvmUtil.ivmAggHiddenColumnName(0, "MIN_TOPK_BOUND"));
+        Assertions.assertTrue(boundOutput.anyMatch(node -> node instanceof CaseWhen));
+        Assertions.assertTrue(boundOutput.anyMatch(node -> node instanceof Cardinality));
+        Assertions.assertTrue(boundOutput.anyMatch(node -> node instanceof ElementAt));
+    }
+
+    private static NamedExpression projectOutput(LogicalProject<?> project, String name) {
+        return project.getProjects().stream()
+                .filter(output -> name.equals(output.getName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("missing project output " + name));
+    }
+
+    @Test
+    void testMaxAggProducesMaxAndTopKHiddenColumns() {
         Slot idSlot = scan.getOutput().get(0);
         Slot nameSlot = scan.getOutput().get(1);
         Alias maxAlias = new Alias(new Max(nameSlot), "mx");
@@ -1110,14 +1166,75 @@ class IvmNormalizeUniqKeysMTMVTest {
         IvmAggTarget target = aggMeta.getAggTargets().get(0);
         Assertions.assertEquals(IvmAggFunctionKind.MAX, target.getFunctionKind());
         Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.COUNT));
-        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.MAX_COUNT));
+        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.MAX_TOPK));
+        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.MAX_TOPK_BOUND));
 
         LogicalProject<?> topProject = (LogicalProject<?>) result;
         Set<String> outputNames = topProject.getOutput().stream()
                 .map(Slot::getName).collect(Collectors.toSet());
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MAX")));
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
-        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MAX_COUNT")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MAX_TOPK")));
+        Assertions.assertTrue(outputNames.contains(
+                IvmUtil.ivmAggHiddenColumnName(0, "MAX_TOPK_BOUND")));
+        // The extreme-only mode does not use the bound, so its state column is a typed NULL.
+        Assertions.assertInstanceOf(NullLiteral.class,
+                ((Alias) projectOutput(topProject, IvmUtil.ivmAggHiddenColumnName(0,
+                        "MAX_TOPK_BOUND"))).child());
+    }
+
+    @Test
+    void testMinMaxCapacityAutoSelectsExtremeModeForAppendOnlyPlan() {
+        // The fixture table is DUP with a changelog and the plan has no join: the extreme alone is
+        // enough, so normalize resolves 0 instead of the default capacity.
+        LogicalAggregate<Plan> agg = minAgg(scan);
+        IvmAggTarget target = normalizeMinAgg(agg, newJobContextForRoot(agg, true));
+        Assertions.assertEquals(0, target.getMinMaxTopK());
+    }
+
+    @Test
+    void testMinMaxCapacityUsesExplicitProperty() {
+        IvmRewriteContext rewriteContext = IvmRewriteContext.create("test_mtmv");
+        rewriteContext.setMinMaxTopK(5L);
+        LogicalAggregate<Plan> agg = minAgg(scan);
+        JobContext jobContext = newJobContextForRoot(agg, true, Collections.emptySet(),
+                Optional.of(rewriteContext));
+        IvmAggTarget target = normalizeMinAgg(agg, jobContext);
+        Assertions.assertEquals(5, target.getMinMaxTopK());
+        Assertions.assertEquals(Long.valueOf(5L), rewriteContext.getResolvedMinMaxTopK());
+    }
+
+    @Test
+    void testMinMaxCapacityUsesDefaultForNonAppendOnlyPlan() {
+        // A merge-on-write base table emits retractions in its changelog, so deleting the current
+        // extreme must stay derivable: the default capacity is used.
+        OlapTable mowTable = PlanConstructor.newOlapTable(60, "minmax_mow", 0, KeysType.UNIQUE_KEYS);
+        TableProperty tableProperty = new TableProperty(new java.util.HashMap<>());
+        tableProperty.setEnableUniqueKeyMergeOnWrite(true);
+        mowTable.setTableProperty(tableProperty);
+        enableChangelog(mowTable);
+        LogicalOlapScan mowScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), mowTable, ImmutableList.of("db"));
+
+        LogicalAggregate<Plan> agg = minAgg(mowScan);
+        IvmAggTarget target = normalizeMinAgg(agg, newJobContextForRoot(agg, true));
+        Assertions.assertEquals(IvmUtil.DEFAULT_MINMAX_TOP_K, target.getMinMaxTopK());
+    }
+
+    private LogicalAggregate<Plan> minAgg(LogicalOlapScan source) {
+        Slot idSlot = source.getOutput().get(0);
+        Slot nameSlot = source.getOutput().get(1);
+        return new LogicalAggregate<>(ImmutableList.of(idSlot),
+                ImmutableList.of(idSlot, new Alias(new Min(nameSlot), "mn")), true,
+                java.util.Optional.empty(), source);
+    }
+
+    private IvmAggTarget normalizeMinAgg(LogicalAggregate<Plan> agg, JobContext jobContext) {
+        new IvmNormalizeUniqKeysMTMV().normalize(agg, jobContext);
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
+        Assertions.assertNotNull(aggMeta);
+        Assertions.assertEquals(1, aggMeta.getAggTargets().size());
+        return aggMeta.getAggTargets().get(0);
     }
 
     @Test

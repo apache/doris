@@ -19,12 +19,15 @@ package org.apache.doris.connector.mongodb;
 
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
+import org.bson.BsonBinary;
 import org.bson.Document;
+import org.bson.UuidRepresentation;
 import org.bson.json.JsonMode;
 import org.bson.json.JsonWriterSettings;
 import org.bson.types.Binary;
 
 import java.util.HexFormat;
+import java.util.UUID;
 
 /** Namespace and frozen metadata values only; no MongoDB clients, sessions, or cursors. */
 final class MongoTableHandle implements ConnectorTableHandle {
@@ -44,7 +47,13 @@ final class MongoTableHandle implements ConnectorTableHandle {
         name = pinned.getString("name");
         objectKind = pinned.getString("type");
         Object identity = pinned.get("info", new Document()).get("uuid");
-        uuid = identity instanceof Binary ? HexFormat.of().formatHex(((Binary) identity).getData()) : "";
+        // Extended JSON decodes subtype-4 binary as UUID. Keep its standard byte order so a
+        // DROP/CREATE replacement cannot bypass BE identity validation after metadata pinning.
+        if (identity instanceof UUID value) {
+            uuid = HexFormat.of().formatHex(new BsonBinary(value, UuidRepresentation.STANDARD).getData());
+        } else {
+            uuid = identity instanceof Binary ? HexFormat.of().formatHex(((Binary) identity).getData()) : "";
+        }
         schema = MongoSchema.resolve(database + "." + name, pinned, properties);
         schemaJson = schema.toPinnedJson();
     }

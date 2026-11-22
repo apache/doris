@@ -28,8 +28,7 @@
 
 namespace doris::segment_v2 {
 
-void ColumnReadAheadPlan::reset(ColumnReadAhead* owner) {
-    column = owner;
+void ColumnReadAheadPlan::reset() {
     new_pages.clear();
     released_pages.clear();
     window_discard_ns = 0;
@@ -42,27 +41,6 @@ void ColumnReadAheadPlan::update_statistics(io::ReadAheadStatistics* statistics)
         COUNTER_UPDATE(&statistics->window_discard_time, window_discard_ns);
         COUNTER_UPDATE(&statistics->current_batch_plan_time, current_batch_plan_ns);
         COUNTER_UPDATE(&statistics->window_extend_time, window_extend_ns);
-    }
-}
-
-const ColumnReadAheadOptions& ColumnReadAheadContext::options(ColumnReadAheadRole role) const {
-    return role == ColumnReadAheadRole::EAGER ? eager_options : lazy_options;
-}
-
-const ColumnReadAheadOptions& ColumnReadAheadRequest::options() const {
-    DORIS_CHECK(context != nullptr);
-    return context->options(role);
-}
-
-void ColumnReadAheadRequest::sanity_check() const {
-    DORIS_CHECK(scan_rowids != nullptr);
-    DORIS_CHECK(context != nullptr);
-    if (page_driven) {
-        DORIS_CHECK(!scan_rowids->isEmpty());
-    } else {
-        DORIS_CHECK(current_rowids != nullptr);
-        DORIS_CHECK(current_rowid_count > 0);
-        DCHECK(std::is_sorted(current_rowids, current_rowids + current_rowid_count));
     }
 }
 
@@ -108,7 +86,7 @@ void ColumnReadAhead::plan(const rowid_t* current_rowids, size_t count,
     DORIS_CHECK(count > 0);
     DORIS_CHECK(output != nullptr);
     DCHECK(std::is_sorted(current_rowids, current_rowids + count));
-    output->reset(this);
+    output->reset();
     _select_candidate_pages(scan_rowids);
     _discard_passed_pages(_page_for_ordinal(current_rowids[_reverse ? count - 1 : 0]).page_index,
                           output);
@@ -148,7 +126,7 @@ void ColumnReadAhead::start(const roaring::Roaring& scan_rowids, ColumnReadAhead
 void ColumnReadAhead::advance(int32_t page_index, ColumnReadAheadPlan* output) {
     DCHECK_GE(page_index, 0);
     DCHECK_LT(page_index, _pages.size());
-    output->reset(this);
+    output->reset();
     if (!_reverse) {
         _discard_passed_pages(page_index, output);
     } else if (page_index < _reverse_low_page_index) {

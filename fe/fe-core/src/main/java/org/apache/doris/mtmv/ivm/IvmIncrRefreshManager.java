@@ -26,6 +26,7 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -123,12 +124,10 @@ public class IvmIncrRefreshManager {
     }
 
     /**
-     * Parse the MV's SELECT query into a logical plan (sink stripped). Used by REFRESH ...
-     * INCREMENTAL WITH DRY RUN, which plans the raw query with an IVM rewrite context so the
-     * analyzer rules turn it into the delta query.
+     * Build the result-producing query for REFRESH ... INCREMENTAL WITH DRY RUN.
      */
     public LogicalPlan buildQueryPlan(MTMV mtmv) {
-        return parseInsertQueryPlan(mtmv);
+        return new UnboundResultSink<>(parseInsertQueryPlan(mtmv));
     }
 
     @VisibleForTesting

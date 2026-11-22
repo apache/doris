@@ -116,6 +116,12 @@ public class Config extends ConfigBase {
     @ConfField(description = "Whether to enable compression for FE audit log files")
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(mutable = true, callback = RegexConfHandler.class, description = "Case-insensitive regex searched in "
+            + "data source property names when masking output. Combined with built-in and provider secret rules. "
+            + "Use (?!) to disable only this additional rule. Applies on each FE without changing connection values.")
+    public static volatile String datasource_sensitive_property_pattern =
+            "password|passwd|secret|token|credential|access[._-]?key|api[._-]?key";
+
     @ConfField(description = "Active lineage plugins. Specify the name returned by LineagePlugin.name()")
     public static String[] activate_lineage_plugin = {};
 
@@ -2583,6 +2589,10 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static long stats_cache_size = 50_0000;
+
+    @ConfField(mutable = false, description = "Maximum queued statistics cache loads. Must be positive. "
+            + "When full, new lookups use unknown statistics. Takes effect after restarting FE.")
+    public static int stats_fetch_queue_size = 100000;
 
     /**
      * This config used for ranger cache data mask/row policy

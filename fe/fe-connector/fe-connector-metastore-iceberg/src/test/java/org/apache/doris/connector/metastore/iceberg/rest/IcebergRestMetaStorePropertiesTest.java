@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.metastore.iceberg.rest;
 
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +30,32 @@ import java.util.Map;
  * verbatim §4 messages + the observable fire order (enum checks → eager body-throws → ParamRules).
  */
 public class IcebergRestMetaStorePropertiesTest {
+
+    @Test
+    public void accessKeyIdentifierIsMaskedWithoutChangingConnectionValues() {
+        IcebergRestMetaStoreProperties properties = IcebergRestMetaStoreProperties.of(
+                Map.of("iceberg.rest.access-key-id", "fixture-rest-access-key"));
+        Assertions.assertEquals("fixture-rest-access-key", properties.getAccessKeyId());
+        Assertions.assertFalse(ConnectorPropertiesUtils.toMaskedString(properties).contains("fixture-rest-access-key"));
+        Assertions.assertTrue(ConnectorPropertiesUtils.getSensitiveKeys(IcebergRestMetaStoreProperties.class)
+                .contains("iceberg.rest.access-key-id"));
+    }
+
+    @Test
+    public void uriDiagnosticsMaskEveryAliasWithoutChangingConnectionValues() {
+        String uri = "https://fixture:fixture-uri-secret@api.example.com/";
+        for (String key : new String[] {"uri", "iceberg.rest.uri"}) {
+            Map<String, String> raw = Map.of(key, uri, "warehouse", "s3://bucket.example.com/warehouse");
+            IcebergRestMetaStoreProperties properties = IcebergRestMetaStoreProperties.of(raw);
+            Assertions.assertEquals(uri, properties.getUri());
+            Assertions.assertEquals(uri, raw.get(key));
+            String rendered = ConnectorPropertiesUtils.toMaskedString(properties);
+            Assertions.assertFalse(rendered.contains("fixture-uri-secret"), rendered);
+            Assertions.assertTrue(rendered.contains("uri=***"), rendered);
+        }
+        Assertions.assertFalse(ConnectorPropertiesUtils.getSensitiveKeys(IcebergRestMetaStoreProperties.class)
+                .contains("uri"), "The shared URI alias must retain value-aware catalog masking");
+    }
 
     private static Map<String, String> raw(String... kv) {
         Map<String, String> m = new HashMap<>();

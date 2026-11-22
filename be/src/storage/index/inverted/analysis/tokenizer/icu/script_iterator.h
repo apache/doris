@@ -18,21 +18,20 @@
 #pragma once
 
 #include <unicode/umachine.h>
-#include <unicode/utext.h>
+#include <unicode/uscript.h>
 
-#include <memory>
-#include <vector>
+#include <cstdint>
 
-#include "storage/index/inverted/analysis/tokenizer/icu/icu_common.h"
+#include "storage/index/inverted/analysis/tokenizer/icu/icu_char_table.h"
 
 namespace doris::segment_v2::inverted_index {
 
+// The runs of one script in a UTF-16 text, by ICUCharTable::script(): characters of the Common
+// and Inherited scripts and combining marks join the run they are in, and a character joins a run
+// of another script when its script extensions name that script.
 class ScriptIterator {
 public:
-    ScriptIterator(bool combine_cj);
-    ~ScriptIterator() = default;
-
-    void initialize();
+    ScriptIterator() : table_(ICUCharTable::instance()) {}
 
     int32_t get_script_start() const { return script_start_; }
     int32_t get_script_limit() const { return script_limit_; }
@@ -42,11 +41,12 @@ public:
     void set_text(const UChar* text, int32_t start, int32_t length);
 
 private:
-    int32_t get_script(UChar32 codepoint) const;
-    static bool is_same_script(int32_t current_script, int32_t script, UChar32 codepoint);
-    static bool is_combining_mark(UChar32 codepoint);
+    // The end of the ASCII units from `index`, a block of 8 at a time, so up to 7 short of it. A
+    // Latin run takes every ASCII character, all of which are Latin or Common, so it may jump over
+    // them: an ASCII value is one run.
+    static int32_t skip_ascii(const UChar* text, int32_t index, int32_t limit);
 
-    static std::vector<int32_t> k_basic_latin;
+    const ICUCharTable& table_;
 
     const UChar* text_ = nullptr;
     int32_t start_ = 0;
@@ -56,9 +56,6 @@ private:
     int32_t script_start_ = 0;
     int32_t script_limit_ = 0;
     int32_t script_code_ = USCRIPT_INVALID_CODE;
-
-    bool combine_cj_ = false;
 };
-using ScriptIteratorPtr = std::unique_ptr<ScriptIterator>;
 
 } // namespace doris::segment_v2::inverted_index

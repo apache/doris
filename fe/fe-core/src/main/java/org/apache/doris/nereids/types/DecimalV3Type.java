@@ -241,6 +241,11 @@ public class DecimalV3Type extends FractionalType {
     }
 
     @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
+    }
+
+    @Override
     public boolean isInjectiveCastTo(DataType target) {
         if (target instanceof DecimalV2Type) {
             // DECIMALV2 is deprecated, and BE does not support every DECIMALV3-to-DECIMALV2 cast

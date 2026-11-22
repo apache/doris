@@ -29,6 +29,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.StringValueContext;
 import org.apache.doris.analysis.ToSqlParams;
+import org.apache.doris.arrowflight.FlightSqlQueryCancellation;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -1529,6 +1530,10 @@ public class StmtExecutor {
         }
         masterOpExecutor.setMoreStmtExists(moreStmtExists);
         masterOpExecutor.execute();
+        // A successful RPC can still carry a failed statement. Do not apply its local changes.
+        if (MysqlStateType.ERR.name().equalsIgnoreCase(masterOpExecutor.getProxyStatus())) {
+            return;
+        }
         if (parsedStmt instanceof LogicalPlanAdapter) {
             // for nereids command
             if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Forward) {
@@ -1588,10 +1593,6 @@ public class StmtExecutor {
                 summaryInfo = getSummaryInfo(isFinished);
             }
             profile.updateSummary(summaryInfo, isFinished, this.planner);
-            if (planner instanceof NereidsPlanner) {
-                NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
-                profile.setPhysicalPlan(nereidsPlanner.getPhysicalPlan());
-            }
         } catch (Throwable t) {
             LOG.warn("failed to update profile, ignore this error", t);
         }
@@ -1907,6 +1908,12 @@ public class StmtExecutor {
 
             if (!context.isReturnResultFromLocal()) {
                 profile.getSummaryProfile().setTempStartTime();
+                if (coordBase == coord) {
+                    // A BE whose DoGet stream the client aborts reports it through cancelFlightQuery;
+                    // keep the query's backends so that call can cancel the query on every one of
+                    // them after the coordinator below is closed.
+                    FlightSqlQueryCancellation.INSTANCE.register(context, coord);
+                }
                 // The client pulls the results from the BE later (Arrow Flight SQL's DoGet). Only a
                 // scan the BE keeps depending on the FE for still needs the coordinator after this
                 // point: an external-table scan in batch mode fetches its splits lazily from the
@@ -1963,6 +1970,10 @@ public class StmtExecutor {
                         isSendFields = true;
                     }
                     for (ByteBuffer row : batch.getBatch().getRows()) {
+                        Status cancelReason = getPendingCancelReason();
+                        if (cancelReason != null) {
+                            throw new UserException(cancelReason.getErrorMsg());
+                        }
                         sender.sendRow(row);
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();

@@ -54,6 +54,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
                 (mock, context) -> {
                     Mockito.doReturn(false).when(mock).isForwardToMaster();
+                    Mockito.doReturn(null).when(mock).getPendingCancelReason();
                     Profile profile = new Profile(false, 0, 0);
                     Deencapsulation.setField(mock, "profile", profile);
                     Mockito.doReturn(profile).when(mock).getProfile();
@@ -161,6 +162,40 @@ public class EncryptSQLTest extends ParserTestBase {
                     + ")";
             parseAndCheck(sql, res);
 
+            // ALTER CATALOG sets the same secrets as CREATE CATALOG, so its audit text is masked the same way.
+            sql = "ALTER CATALOG ctl SET PROPERTIES("
+                    + " \"s3.endpoint\" = \"s3.us-east-1.amazonaws.com\","
+                    + " \"password\" = \"abc\","
+                    + " \"s3.secret_key\" = \"abc\""
+                    + ")";
+
+            res = "ALTER CATALOG ctl SET PROPERTIES("
+                    + " \"s3.endpoint\" = \"s3.us-east-1.amazonaws.com\","
+                    + " \"password\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\""
+                    + ")";
+            parseAndCheck(sql, res);
+
+            sql = "ALTER CATALOG ctl SET PROPERTIES("
+                    + " \"password\" = \"😀😀😀😀😀😀😀secret\","
+                    + " \"s3.secret_key\" = \"second-secret\","
+                    + " \"comment\" = \"visible😀\")";
+            res = "ALTER CATALOG ctl SET PROPERTIES("
+                    + " \"password\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\","
+                    + " \"comment\" = \"visible😀\")";
+            parseAndCheck(sql, res);
+
+            sql = "ALTER /* 😀😀😀😀😀😀😀😀 */ CATALOG ctl SET PROPERTIES("
+                    + " \"comment\" = \"visible😀\","
+                    + " \"password\" = \"first-secret\","
+                    + " \"s3.secret_key\" = \"😀second-secret\")";
+            res = "ALTER /* 😀😀😀😀😀😀😀😀 */ CATALOG ctl SET PROPERTIES("
+                    + " \"comment\" = \"visible😀\","
+                    + " \"password\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\")";
+            parseAndCheck(sql, res);
+
             sql = "CREATE TABLE mysql_tbl("
                     + " k1 DATE,"
                     + " k2 INT,"
@@ -227,9 +262,10 @@ public class EncryptSQLTest extends ParserTestBase {
                     + ")";
             parseAndCheck(sql, res);
 
+            // A valid bucket host exercises ordinary URI visibility rather than malformed-address masking.
             sql = "INSERT INTO test_s3load "
                     + "SELECT * FROM s3_tbl("
-                    + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
+                    + " \"uri\" = \"s3://example-bucket/s3load_example.csv\","
                     + " \"format\" = \"csv\","
                     + " \"provider\" = \"OSS\","
                     + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
@@ -242,7 +278,7 @@ public class EncryptSQLTest extends ParserTestBase {
 
             res = "INSERT INTO test_s3load "
                     + "SELECT * FROM s3_tbl("
-                    + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
+                    + " \"uri\" = \"s3://example-bucket/s3load_example.csv\","
                     + " \"format\" = \"csv\","
                     + " \"provider\" = \"OSS\","
                     + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
@@ -255,7 +291,7 @@ public class EncryptSQLTest extends ParserTestBase {
             parseAndCheck(sql, res);
 
             sql = "SELECT * FROM s3_tbl("
-                    + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
+                    + " \"uri\" = \"s3://example-bucket/s3load_example.csv\","
                     + " \"format\" = \"csv\","
                     + " \"provider\" = \"OSS\","
                     + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
@@ -267,7 +303,7 @@ public class EncryptSQLTest extends ParserTestBase {
                     + ")";
 
             res = "SELECT * FROM s3_tbl("
-                    + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
+                    + " \"uri\" = \"s3://example-bucket/s3load_example.csv\","
                     + " \"format\" = \"csv\","
                     + " \"provider\" = \"OSS\","
                     + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
@@ -365,10 +401,11 @@ public class EncryptSQLTest extends ParserTestBase {
                     + "\"table.create.properties.replication_num\" = \"1\" "
                     + ")";
 
+            // JDBC connection strings remain fully hidden even when a password is supplied separately.
             res = "CREATE JOB my_mysql_job "
                     + "ON STREAMING "
                     + "FROM MYSQL ( "
-                    + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
+                    + "\"jdbc_url\" = \"*XXX\", "
                     + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
                     + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
                     + "\"user\" = \"root\", "
@@ -398,7 +435,7 @@ public class EncryptSQLTest extends ParserTestBase {
 
             res = "ALTER JOB my_mysql_job "
                     + "FROM MYSQL ( "
-                    + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
+                    + "\"jdbc_url\" = \"*XXX\", "
                     + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
                     + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
                     + "\"user\" = \"mysql_job_priv\", "
@@ -450,6 +487,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
                 (mock, context) -> {
                     Mockito.doReturn(false).when(mock).isForwardToMaster();
+                    Mockito.doReturn(null).when(mock).getPendingCancelReason();
                     Profile profile = new Profile(false, 0, 0);
                     Deencapsulation.setField(mock, "profile", profile);
                     Mockito.doReturn(profile).when(mock).getProfile();
@@ -481,6 +519,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
                 (mock, context) -> {
                     Mockito.doReturn(false).when(mock).isForwardToMaster();
+                    Mockito.doReturn(null).when(mock).getPendingCancelReason();
                     Profile profile = new Profile(false, 0, 0);
                     Deencapsulation.setField(mock, "profile", profile);
                     Mockito.doReturn(profile).when(mock).getProfile();
@@ -512,6 +551,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
                 (mock, context) -> {
                     Mockito.doReturn(false).when(mock).isForwardToMaster();
+                    Mockito.doReturn(null).when(mock).getPendingCancelReason();
                     Profile profile = new Profile(false, 0, 0);
                     Deencapsulation.setField(mock, "profile", profile);
                     Mockito.doReturn(profile).when(mock).getProfile();

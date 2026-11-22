@@ -30,6 +30,10 @@ static const std::string CHAR_REPLACE_DEFAULT_PATTERN = ",._";
 class CharReplaceCharFilterFactory : public CharFilterFactory {
 public:
     CharReplaceCharFilterFactory() = default;
+    // Ready to use without initialize(), which checks the settings of a custom char filter: the
+    // index char filter (char_filter_pattern and char_filter_replacement) comes this way.
+    CharReplaceCharFilterFactory(std::string pattern, std::string replacement)
+            : _pattern(std::move(pattern)), _replacement(std::move(replacement)) {}
     ~CharReplaceCharFilterFactory() override = default;
 
     void initialize(const Settings& settings) override {
@@ -61,10 +65,8 @@ public:
         }
     }
 
-    ReaderPtr create(const ReaderPtr& reader) override {
-        auto r = std::make_shared<CharReplaceCharFilter>(reader, _pattern, _replacement);
-        r->initialize();
-        return r;
+    std::unique_ptr<TextCharFilter> create() const override {
+        return std::make_unique<CharReplaceCharFilter>(_pattern, _replacement);
     }
 
 private:

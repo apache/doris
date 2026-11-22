@@ -30,7 +30,11 @@ public:
 
     Status init(TableReadOptions&& options) override;
     Status prepare_split(const SplitReadOptions& options) override;
-    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override;
+    Status refresh_conjuncts(
+            VExprContextSPtrs conjuncts,
+            std::optional<uint64_t> condition_cache_digest = std::nullopt,
+            bool all_runtime_filters_applied = false,
+            std::shared_ptr<const format::PredicateSnapshot> predicate_snapshot = nullptr) override;
     bool current_split_uses_metadata_count() const override { return false; }
     Status abort_split() override;
     Status close() override;

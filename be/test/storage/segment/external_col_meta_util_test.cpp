@@ -26,12 +26,15 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
 #include "core/field.h"
 #include "gtest/gtest.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
+#include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/variant/variant_column_reader.h"
 #include "storage/segment/variant/variant_ext_meta_writer.h"
 #include "storage/segment/variant/variant_external_meta_reader.h"
 #include "storage/segment/vertical_segment_writer.h"
@@ -71,6 +74,7 @@ public:
 
     const std::vector<RecordedRead>& records() const { return _records; }
     void clear_records() { _records.clear(); }
+    void fail_next_read_with_allocation_error() { _fail_next_read = true; }
     void set_cache_key_suffix(std::string_view suffix) {
         _path = io::Path(_delegate->path().native() + std::string(suffix));
     }
@@ -87,6 +91,9 @@ protected:
             record.is_index_data = io_ctx->is_index_data;
         }
         _records.push_back(record);
+        if (std::exchange(_fail_next_read, false)) {
+            throw Exception(ErrorCode::MEM_ALLOC_FAILED, "injected page allocation failure");
+        }
         return _delegate->read_at(offset, result, bytes_read, io_ctx);
     }
 
@@ -94,6 +101,7 @@ private:
     io::FileReaderSPtr _delegate;
     io::Path _path;
     std::vector<RecordedRead> _records;
+    bool _fail_next_read = false;
 };
 
 // Helper to create a clean local test directory and return absolute path + filename.
@@ -412,19 +420,15 @@ TEST(ExternalColMetaUtilTest, VariantExtMetaWriterAndReaderInteropAndCompatibili
     EXPECT_EQ(loaded_meta_legacy.none_null_size(), 123);
     EXPECT_EQ(loaded_meta_legacy.column_path_info().parrent_column_unique_id(), root_uid);
 
-    // 8. Bulk load all external metas once and verify subcolumn tree and statistics.
+    // 8. Bulk load all external metas and verify subcolumn tree and statistics.
     SubcolumnColumnMetaInfo meta_tree;
     VariantStatistics stats;
-    st = reader_new.load_all_once(&meta_tree, &stats);
+    st = reader_new.load_all(&meta_tree, &stats);
     ASSERT_TRUE(st.ok()) << st.to_json();
     EXPECT_FALSE(meta_tree.empty());
     // Non-sparse subcolumn v1.key0 should be recorded as relative path "key0".
     ASSERT_EQ(stats.subcolumns_non_null_size.size(), 1);
     EXPECT_EQ(stats.subcolumns_non_null_size.at("key0"), 123);
-
-    // load_all_once should be idempotent.
-    st = reader_new.load_all_once(&meta_tree, &stats);
-    ASSERT_TRUE(st.ok()) << st.to_json();
 
     // 9. has_prefix should detect existing keys and non-existing prefixes.
     bool has = false;
@@ -442,12 +446,14 @@ TEST(ExternalColMetaUtilTest, VariantExtMetaWriterAndReaderInteropAndCompatibili
     EXPECT_TRUE(has);
 }
 
-TEST(ExternalColMetaUtilTest, VariantExternalMetaReaderPassesCacheLimiterToIndexedColumnReads) {
+TEST(ExternalColMetaUtilTest, VariantColumnReaderRetriesExternalMetaAfterPageAllocationFailure) {
     SegmentFooterPB footer;
+    footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
     const int32_t root_uid = 1;
     ColumnMetaPB* root = footer.add_columns();
     root->set_unique_id(root_uid);
     root->set_type(int(FieldType::OLAP_FIELD_TYPE_VARIANT));
+    root->set_encoding(PLAIN_ENCODING);
     {
         PathInData root_path("v1");
         root_path.to_protobuf(root->mutable_column_path_info(),
@@ -537,13 +543,36 @@ TEST(ExternalColMetaUtilTest, VariantExternalMetaReaderPassesCacheLimiterToIndex
     expect_recorded_reads_with_limiter("lookup_meta_by_path");
     EXPECT_EQ(loaded_meta.none_null_size(), 123);
 
-    SubcolumnColumnMetaInfo meta_tree;
-    VariantStatistics stats;
-    reset_recording("#load_all_once");
-    st = reader.load_all_once(&meta_tree, &stats, &reader_stats, &io_ctx);
+    TabletColumn tablet_column;
+    tablet_column.set_name("v1");
+    tablet_column.set_unique_id(root_uid);
+    tablet_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    ColumnReaderOptions column_opts;
+    column_opts.tablet_schema = std::make_shared<TabletSchema>();
+    column_opts.tablet_schema->append_column(std::move(tablet_column));
+    ColumnMetaAccessor accessor;
+    ASSERT_TRUE(accessor.init(*footer_sp, recording_fr).ok());
+    VariantColumnReader variant_reader;
+    st = variant_reader.init(column_opts, &accessor, footer_sp, root_uid, footer.num_rows(),
+                             recording_fr, &reader_stats, &io_ctx);
+    ASSERT_TRUE(st.ok()) << st;
+
+    reset_recording("#load_external_meta_once");
+    const PathInData key_path("key0");
+    recording_fr->fail_next_read_with_allocation_error();
+    st = variant_reader.load_external_meta_once(&reader_stats, &io_ctx);
+    ASSERT_TRUE(st.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) << st;
+    expect_recorded_reads_with_limiter("failed load_external_meta_once");
+    EXPECT_EQ(variant_reader.get_subcolumn_meta_by_path(key_path), nullptr);
+
+    st = variant_reader.load_external_meta_once(&reader_stats, &io_ctx);
     ASSERT_TRUE(st.ok()) << st.to_json();
-    expect_recorded_reads_with_limiter("load_all_once");
-    EXPECT_EQ(stats.subcolumns_non_null_size.at("key0"), 123);
+    expect_recorded_reads_with_limiter("load_external_meta_once");
+    EXPECT_NE(variant_reader.get_subcolumn_meta_by_path(key_path), nullptr);
+    EXPECT_EQ(variant_reader.get_stats()->subcolumns_non_null_size.at("key0"), 123);
+
+    ASSERT_TRUE(variant_reader.load_external_meta_once(&reader_stats, &io_ctx).ok());
+    EXPECT_TRUE(recording_fr->records().empty());
 
     bool has = false;
     reset_recording("#has_prefix");
