@@ -132,6 +132,26 @@ public class AnyColumnPrivilegeTest extends TestWithFeService {
         Mockito.verifyNoInteractions(otherSource);
     }
 
+    @Test
+    public void sourceThatExtendsTheBuiltInModelIsNotAsked() throws Exception {
+        // A source that extends the built-in model to narrow it decides for its catalog by itself.
+        AccessControllerManager real = Env.getCurrentEnv().getAccessManager();
+        AuthorizationPlugin narrowing = new InternalAuthorizationPlugin(real.getAuth()) {
+        };
+        AccessControllerManager accessManager = Mockito.spy(real);
+        Mockito.doReturn(narrowing).when(accessManager).getAccessControllerOrDefault(CTL);
+        useUser(COLUMN_USER);
+        try {
+            Assertions.assertEquals(Optional.empty(),
+                    accessManager.findColumnWithPriv(connectContext, CTL, DB, "t", COLUMNS, PrivPredicate.SELECT));
+            // and the built-in model itself is
+            Assertions.assertEquals(Optional.of("name"),
+                    real.findColumnWithPriv(connectContext, CTL, DB, "t", COLUMNS, PrivPredicate.SELECT));
+        } finally {
+            connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+        }
+    }
+
     private Optional<String> heldColumn(String user, String table, Set<String> columns, PrivPredicate wanted)
             throws Exception {
         useUser(user);

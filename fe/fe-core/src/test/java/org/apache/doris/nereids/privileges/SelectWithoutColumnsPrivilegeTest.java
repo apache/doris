@@ -18,8 +18,13 @@
 package org.apache.doris.nereids.privileges;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
@@ -30,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -60,6 +66,8 @@ public class SelectWithoutColumnsPrivilegeTest extends TestWithFeService {
     private static final String LOAD_USER = "no_col_read_load_user";
     // holds nothing
     private static final String NO_PRIV_USER = "no_col_read_no_priv_user";
+    // holds SELECT on a column name that t does not have, and on the hidden delete sign of uniq_t
+    private static final String GHOST_USER = "no_col_read_ghost_user";
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -82,6 +90,9 @@ public class SelectWithoutColumnsPrivilegeTest extends TestWithFeService {
         }
         grantRole("grant '" + ROLE + "' to " + ROLE_USER);
         grantPriv("grant load_priv on " + T + " to " + LOAD_USER);
+        addUser(GHOST_USER, true);
+        grantPriv("grant select_priv(no_such_column) on " + T + " to " + GHOST_USER);
+        grantPriv("grant select_priv(" + Column.DELETE_SIGN + ") on " + UNIQ_T + " to " + GHOST_USER);
     }
 
     @Test
@@ -140,6 +151,16 @@ public class SelectWithoutColumnsPrivilegeTest extends TestWithFeService {
                 "select count(*) from (select cast(secret as int) from " + T + ") q",
                 "select count(*) from (select id, secret + 1 as x from " + T + ") q",
                 "select count(*) from (select 1, secret + 1 from " + T + ") q",
+                // the same when the subquery is read, on a column that is computed from nothing
+                "select count(*) from (select 1 as one, secret + 1 as x from " + T + ") q where q.one = 1",
+                "select count(q.one) from (select 1 as one, cast(secret as int) as x from " + T + ") q",
+                "select count(*) from (select 1 as one from " + T + " where secret > 5) q where q.one = 1",
+                // an aggregate function reads its input whether or not its output is read
+                "select c from (select count(*) as c, max(secret) as m from " + T + ") q",
+                "select count(*) from (select count(*) as c, max(secret) as m from " + T + ") q where q.c > 0",
+                // read by a subquery predicate, and by a window that nothing reads
+                "select count(*) from " + T + " a where exists (select 1 from " + UNIQ_T + " b where b.id = a.id)",
+                "select count(*) from (select row_number() over (order by secret) as rn from " + T + ") q",
                 "select count(*) from " + T + " a join " + UNIQ_T + " b on a.id = b.id",
                 "select count(*) from (select distinct id from " + T + ") q",
                 "select count(*) from (select id from " + T + " group by id) q",
@@ -175,7 +196,18 @@ public class SelectWithoutColumnsPrivilegeTest extends TestWithFeService {
         as(LOAD_USER, () -> assertAllDenied(statements));
         as(COLUMN_USER, () -> assertAllDenied(ImmutableList.of(
                 "select count(*) from " + OTHER_T,
-                "select count(*) from " + OTHER_T + " a"
+                "select count(*) from " + OTHER_T + " a",
+                // one table of the statement is let through; the check goes on to the next one
+                "select count(*) from " + T + " a, " + OTHER_T + " b",
+                "select count(*) from " + OTHER_T + " b, " + T + " a",
+                // and to a CTE that is read twice, which is checked through its own plan
+                "with c as (select id from " + OTHER_T + ") select count(*) from " + T + " a, c x, c y"
+        )));
+        // a grant on a column name the table does not have, and one on a hidden column, hold no column
+        as(GHOST_USER, () -> assertAllDenied(ImmutableList.of(
+                "select count(*) from " + T,
+                "select count(*) from " + T + " a",
+                "select count(*) from " + UNIQ_T
         )));
     }
 
@@ -207,6 +239,23 @@ public class SelectWithoutColumnsPrivilegeTest extends TestWithFeService {
         } finally {
             connectContext.getSessionVariable().setEnableSqlCache(false);
         }
+    }
+
+    @Test
+    public void tablesCheckedThroughSomethingElseHoldNoColumn() throws Exception {
+        // a sys table is authorized through its source table
+        Assertions.assertFalse(UserAuthentication.findSelectableColumn(
+                Mockito.mock(PluginDrivenSysExternalTable.class), connectContext).isPresent());
+        // the cluster snapshot tables take a privilege on the instance
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf<?> db = Mockito.mock(DatabaseIf.class);
+        Mockito.doReturn(catalog).when(db).getCatalog();
+        Mockito.doReturn(InfoSchemaDb.DATABASE_NAME).when(db).getFullName();
+        TableIf snapshots = Mockito.mock(TableIf.class);
+        Mockito.doReturn(db).when(snapshots).getDatabase();
+        Mockito.doReturn("cluster_snapshots").when(snapshots).getName();
+        Assertions.assertFalse(UserAuthentication.findSelectableColumn(snapshots, connectContext).isPresent());
+        Mockito.verify(snapshots, Mockito.never()).getBaseSchemaOrEmpty();
     }
 
     private interface Body {

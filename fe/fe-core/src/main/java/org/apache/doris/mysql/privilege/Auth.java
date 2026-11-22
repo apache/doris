@@ -581,8 +581,9 @@ public class Auth implements Writable {
     }
 
     /**
-     * The first of {@code cols} the user holds the column level form of {@code wanted} on, by a grant on the
-     * column itself, if any.
+     * One of {@code cols} that the user holds the column level form of {@code wanted} on, by a grant on the
+     * column itself, if there is one. When the user holds several, through several roles, which of them is
+     * returned is not defined.
      *
      * <p>Asked for a statement that reads rows of a table and none of its columns ({@code COUNT(*)},
      * {@code SELECT 1 FROM t}) once the table level check has refused it. It asks about the columns the

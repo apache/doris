@@ -106,6 +106,14 @@ import java.util.function.Supplier;
  *       {@code LogicalCheckPolicy#findPolicy}. That one is the engine's own and is not offered to a source
  *       to decide.</li>
  * </ul>
+ *
+ * <p><b>One question asked outside the interface.</b> {@link #findColumnWithPriv} - which column of a table a
+ * user holds by a grant on the column itself - is put to the built-in privilege model directly, because the
+ * plugin contract has no question of that shape. It is no exemption: nothing is granted that the source bound
+ * to the catalog did not grant. It is answered only when that source is the built-in model itself, not a
+ * class that extends it, and it is the one place besides {@link #controllerOf} that looks at which source a
+ * catalog is bound to. A catalog bound to any other source gets no answer from it and keeps that source's
+ * own verdict.
  */
 public class AccessControllerManager {
     private static final Logger LOG = LogManager.getLogger(AccessControllerManager.class);
@@ -1235,7 +1243,8 @@ public class AccessControllerManager {
     }
 
     /**
-     * The first of {@code cols} the user holds {@code wanted} on by a grant on the column itself, if any.
+     * One of {@code cols} that the user holds {@code wanted} on by a grant on the column itself, if there is
+     * one; which of several is not defined.
      *
      * <p>Asked for a statement that reads rows of a table and none of its columns - {@code COUNT(*)},
      * {@code SELECT 1 FROM t} - once the check the planner made has refused it. MySQL and PostgreSQL both let
@@ -1253,7 +1262,9 @@ public class AccessControllerManager {
      */
     public Optional<String> findColumnWithPriv(ConnectContext ctx, String ctl, String qualifiedDb, String tbl,
             Set<String> cols, PrivPredicate wanted) {
-        if (!(getAccessControllerOrDefault(ctl) instanceof InternalAuthorizationPlugin)) {
+        // The class itself, not instanceof: a source that extends the built-in model in order to narrow it is
+        // a source of its own, and its refusal is not overridden from the grants it builds on.
+        if (getAccessControllerOrDefault(ctl).getClass() != InternalAuthorizationPlugin.class) {
             return Optional.empty();
         }
         // The identity the built-in model is handed by a routed check on this connection: the account, with

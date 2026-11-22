@@ -51,6 +51,8 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.roaringbitmap.RoaringBitmap;
 
 import java.util.Collections;
@@ -75,18 +77,23 @@ import java.util.Set;
  *
  * A statement that reads rows of a table and none of its columns - COUNT(*), COUNT(1),
  * SELECT 1 FROM t - can run for a user who holds SELECT on some column of the table and not
- * on the table, as it can in MySQL and PostgreSQL. The checks above do not see it that way:
+ * on the table, as it can in MySQL and PostgreSQL. A column that a subquery names and nothing
+ * reads counts as not read, which is how MySQL checks; PostgreSQL asks for every column a
+ * statement names, and refuses that form. The checks above do not see it that way:
  * a bare table nothing is read from is asked for SELECT on the table, and a table written
  * with an alias, a view and a subquery sit under a project in which ColumnPruning keeps one
  * column of its own choosing so that the plan still has a column to produce, so they are
  * asked for that column. When such a check is refused and the user holds some column of the
  * table, the plan is walked a second time without that kept column; a table none of whose
  * columns is then needed passes. A column that an expression is computed from stays needed,
- * read or not. The second walk is used only for a table reached through the plan nodes
- * listed in isPlainNode; anywhere else the refusal stands. A statement that passes the first
- * check never takes the second walk.
+ * whether or not anything reads the expression: in every project and every aggregate on the
+ * way, not only in one nothing is read from. The second walk is used only for a table
+ * reached through the plan nodes listed in isPlainNode; anywhere else the refusal stands. A
+ * statement that passes the first check never takes the second walk.
  */
 public class CheckPrivileges extends ColumnPruning {
+    private static final Logger LOG = LogManager.getLogger(CheckPrivileges.class);
+
     private JobContext jobContext;
     private final Set<CTEId> checkedCteIds = new HashSet<>();
 
@@ -154,43 +161,60 @@ public class CheckPrivileges extends ColumnPruning {
     }
 
     /**
-     * On the second walk, a project nothing is read from asks its child only for what its own expressions
-     * are computed from, instead of for the one column ColumnPruning would keep in it. A column the project
-     * merely passes through is not read. A column an expression is computed from is: the statement may
-     * still evaluate that expression when it runs, and an expression can fail. Only a project is treated
-     * this way: an aggregate that is not read still groups by its keys, and those are read.
+     * On the second walk a project asks its child for what the statement reads through it, and nothing else:
+     * what each of its expressions is computed from, whether or not anything reads that expression's output,
+     * and a column it merely passes through only when the parent reads that output. An expression that
+     * nothing reads may still be evaluated when the statement runs, and an expression can fail; a column
+     * that is passed through and never read is not touched. The one column ColumnPruning would keep in a
+     * project nothing is read from is not asked for. The child is visited directly, so that the project is
+     * never merged into the projects below it and their expressions are all seen.
      */
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, PruneContext context) {
-        if (collectingUnread && context.needPrune && !requiresAnyOf(project.getOutputs(), context)) {
-            RoaringBitmap computedFromIds = new RoaringBitmap();
-            ImmutableList.Builder<Slot> computedFrom = ImmutableList.builder();
-            for (NamedExpression output : project.getProjects()) {
-                Expression computed = output instanceof Alias ? ((Alias) output).child() : output;
-                if (computed instanceof SlotReference) {
-                    continue;
-                }
-                for (Slot slot : computed.getInputSlots()) {
-                    if (!computedFromIds.contains(slot.getExprId().asInt())) {
-                        computedFromIds.add(slot.getExprId().asInt());
-                        computedFrom.add(slot);
-                    }
-                }
-            }
-            project.child().accept(this, new PruneContext(project, computedFromIds, computedFrom.build(), true));
-            // the plan this walk returns is thrown away, like the first one's
-            return project;
+        if (!collectingUnread) {
+            return super.visitLogicalProject(project, context);
         }
-        return super.visitLogicalProject(project, context);
+        RoaringBitmap readIds = new RoaringBitmap();
+        ImmutableList.Builder<Slot> read = ImmutableList.builder();
+        for (NamedExpression output : project.getProjects()) {
+            Expression computed = output instanceof Alias ? ((Alias) output).child() : output;
+            if (computed instanceof SlotReference && context.needPrune
+                    && !context.requiredSlotsIds.contains(output.getExprId().asInt())) {
+                continue;
+            }
+            addInputSlots(computed, readIds, read);
+        }
+        project.child().accept(this, new PruneContext(project, readIds, read.build(), true));
+        // the plan this walk returns is thrown away, like the first one's
+        return project;
     }
 
-    private static boolean requiresAnyOf(List<NamedExpression> outputs, PruneContext context) {
-        for (NamedExpression output : outputs) {
-            if (context.requiredSlotsIds.contains(output.getExprId().asInt())) {
-                return true;
+    /**
+     * On the second walk an aggregate reads the inputs of its group keys and of every aggregate function,
+     * whether or not anything reads that function's output: the project below it holds those inputs as
+     * plain columns, which the rule for a project above would take for columns nothing reads.
+     */
+    @Override
+    public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, PruneContext context) {
+        if (!collectingUnread) {
+            return super.visitLogicalAggregate(aggregate, context);
+        }
+        RoaringBitmap readIds = new RoaringBitmap();
+        ImmutableList.Builder<Slot> read = ImmutableList.builder();
+        for (Expression expression : aggregate.getExpressions()) {
+            addInputSlots(expression, readIds, read);
+        }
+        aggregate.child().accept(this, new PruneContext(aggregate, readIds, read.build(), true));
+        return aggregate;
+    }
+
+    private static void addInputSlots(Expression expression, RoaringBitmap ids, ImmutableList.Builder<Slot> slots) {
+        for (Slot slot : expression.getInputSlots()) {
+            if (!ids.contains(slot.getExprId().asInt())) {
+                ids.add(slot.getExprId().asInt());
+                slots.add(slot);
             }
         }
-        return false;
     }
 
     @Override
@@ -241,6 +265,11 @@ public class CheckPrivileges extends ColumnPruning {
             Optional<String> heldColumn = UserAuthentication.findSelectableColumn(table, connectContext);
             if (!heldColumn.isPresent() || !readsNoColumnOf(relationOrView)) {
                 throw new AnalysisException(e.getMessage(), e);
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("user {} reads no column of {}: allowed on SELECT of its column {}; the check that"
+                        + " was refused asked for {}", connectContext.getQualifiedUser(), table.getName(),
+                        heldColumn.get(), usedColumns);
             }
             // What the SQL cache replays for this table is then the grant that let the statement through.
             usedColumns = ImmutableSet.of(heldColumn.get());

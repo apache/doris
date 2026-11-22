@@ -50,6 +50,18 @@ Four design rules shape everything in this directory:
      `ADMIN_PRIV` — are subject to no row filter and no column mask, dropped by
      `LogicalCheckPolicy.findPolicy` before any source is consulted. A plugin
      cannot give those two accounts a data policy.
+
+   One question is asked outside the interface, and is listed here for the same
+   reason the exemptions are. `AccessControllerManager.findColumnWithPriv` —
+   which column of a table a user holds by a grant on the column itself — is put
+   to the built-in privilege model directly, because the plugin API has no
+   question of that shape. The planner asks it for a statement that reads rows
+   of a table and none of its columns (`COUNT(*)`). It is not an exemption:
+   nothing is granted that the source bound to the catalog did not grant. It is
+   answered only when that source is the built-in model itself, not a class
+   extending it; a catalog bound to any other source gets no answer and keeps
+   that source's own verdict. It is the one place besides `controllerOf` that
+   looks at which source a catalog is bound to.
 2. **Refusing is throwing, and silence refuses.** A check that returns has
    allowed the access; a check that refuses throws `AccessDeniedException`.
    There is no third outcome and no boolean for a caller to ignore. Every check

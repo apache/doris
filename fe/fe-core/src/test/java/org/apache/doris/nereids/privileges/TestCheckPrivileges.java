@@ -117,6 +117,9 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
 
         String user = "test_nereids_privilege_user";
         addUser(user, true);
+        // A grant in the built-in model on a table of this catalog. The catalog is bound to a source of its own,
+        // so the grant decides nothing here; without it the count(*) case below could not tell.
+        grantPriv("grant select_priv(name) on " + catalog + "." + db + ".test_tbl2 to " + user);
         useUser(user);
 
         List<MakeTablePrivileges> privileges = ImmutableList.of(
@@ -163,19 +166,20 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
 
                 // A statement that reads no column of a table. Under the built-in model a holder of one
                 // column may run it (SelectWithoutColumnsPrivilegeTest). A source of its own is asked what
-                // it was asked before and decides: here the question is the column the planner keeps,
-                // `name`, and on test_tbl2 this user holds `id`.
+                // it was asked before and decides: this one refuses test_tbl2 on `name`, the column the
+                // planner keeps, and the built-in grant on that very column does not let it through.
                 {
-                    AnalysisException keptColumn = Assertions.assertThrows(AnalysisException.class, () ->
+                    AnalysisException refused = Assertions.assertThrows(AnalysisException.class, () ->
                             query("select count(*) from custom_catalog.test_db.test_tbl2")
                     );
-                    Assertions.assertTrue(keptColumn.getMessage().contains("Permission denied"),
-                            keptColumn.getMessage());
+                    Assertions.assertTrue(refused.getMessage().contains("Permission denied")
+                            && refused.getMessage().contains("[test_tbl2].[name]"), refused.getMessage());
 
                     // no privilege at all
-                    Assertions.assertThrows(AnalysisException.class, () ->
+                    AnalysisException noPrivilege = Assertions.assertThrows(AnalysisException.class, () ->
                             query("select count(*) from custom_catalog.test_db.test_tbl3")
                     );
+                    Assertions.assertTrue(noPrivilege.getMessage().contains("denied"), noPrivilege.getMessage());
                 }
 
                 // test CTE with JOIN privilege checking
