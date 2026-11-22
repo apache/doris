@@ -3582,8 +3582,9 @@ public class SessionVariable implements Serializable, Writable {
             + " it is recommended to keep this enabled in the production environment.")
     public boolean enableMatchWithoutInvertedIndex = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX, description = "After enabling, it will "
-            + "directly query and report an error if no index is found."
+    @VarAttrDef.VarAttr(name = ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX, description = "When enabled, a predicate "
+            + "whose inverted index file is missing is evaluated without the index."
+            + " When disabled, such a query reports an error."
             + " It is recommended to keep this enabled in the production environment.")
     public boolean enableFallbackOnMissingInvertedIndex = true;
 
