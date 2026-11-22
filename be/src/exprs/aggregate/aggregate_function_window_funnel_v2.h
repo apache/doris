@@ -665,8 +665,7 @@ public:
         // can bypass get()'s check. The internal WINDOW_UNSET state remains valid.
         if (win < 0) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "the sliding time window must be a nonnegative BIGINT, but got: {}",
-                            win);
+                            "the sliding time window must be a positive integer, but got: {}", win);
         }
         StringRef mode = columns[1]->get_data_at(row_num);
         this->data(place).add(columns, row_num, win,
