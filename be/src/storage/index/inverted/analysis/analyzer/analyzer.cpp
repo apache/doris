@@ -30,7 +30,6 @@
 #include "storage/index/inverted/analysis/char_filter/char_replace_char_filter_factory.h"
 #include "storage/index/inverted/analysis/gram/gram_scheme.h"
 #include "storage/index/inverted/analysis/token_filter/lower_case_filter.h"
-#include "storage/index/inverted/analysis/token_filter/lower_case_filter_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/basic/basic_tokenizer_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/byte_classifier.h"
 #include "storage/index/inverted/analysis/tokenizer/english/english_tokenizer.h"
@@ -173,16 +172,6 @@ bool builtin_lowercase(const std::string& lower_case, bool parser_default) {
     return parser_default;
 }
 
-// `tokenizer`, followed by the lowercase filter when `lowercase`.
-TextAnalyzerPtr tokenizer_chain(TokenizerFactoryPtr tokenizer, bool lowercase) {
-    std::vector<TokenFilterFactoryPtr> token_filters;
-    if (lowercase) {
-        token_filters.push_back(std::make_shared<LowerCaseFilterFactory>());
-    }
-    return std::make_shared<ChainAnalyzer>(std::vector<CharFilterFactoryPtr> {},
-                                           std::move(tokenizer), std::move(token_filters));
-}
-
 // The builtin parsers lowercase by default, except chinese; stop_words only applies to the
 // standard tokenizer.
 TextAnalyzerPtr build_builtin_analyzer(InvertedIndexParserType parser_type,
@@ -207,8 +196,11 @@ TextAnalyzerPtr build_builtin_analyzer(InvertedIndexParserType parser_type,
                 std::vector<TokenFilterFactoryPtr> {});
     }
     if (parser_type == InvertedIndexParserType::PARSER_ICU) {
-        return tokenizer_chain(std::make_shared<ICUTokenizerFactory>(),
-                               builtin_lowercase(lower_case, true));
+        // The tokenizer lowercases its own terms as the lowercase filter did.
+        return std::make_shared<ChainAnalyzer>(
+                std::vector<CharFilterFactoryPtr> {},
+                std::make_shared<ICUTokenizerFactory>(builtin_lowercase(lower_case, true)),
+                std::vector<TokenFilterFactoryPtr> {});
     }
     if (parser_type == InvertedIndexParserType::PARSER_BASIC) {
         // The tokenizer lowercases its own tokens, which are all a lowercase filter would change.
