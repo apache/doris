@@ -3673,6 +3673,10 @@ TEST(ColumnVariantV2Test, ETCrossCheckTemporalClassMatrix) {
 
 TEST(ColumnVariantV2Test, TypedComparisonBoundariesMatchEncodedWithoutMaterializing) {
     auto check = [](const ColumnVariantV2::MutablePtr& typed) {
+        // IColumn::compare_at promises only the sign of its result. A typed STRING row compares
+        // with memcmp_small_allow_overflow15, which returns -1/0/1 on SSE2 but the raw byte
+        // difference elsewhere (aarch64), while the encoded comparison returns -1/0/1.
+        auto sign = [](int cmp) { return (cmp > 0) - (cmp < 0); };
         ASSERT_TRUE(typed->is_typed());
         const auto* original = &typed->typed_column();
         auto encoded = encoded_copy_of(*typed);
@@ -3680,10 +3684,10 @@ TEST(ColumnVariantV2Test, TypedComparisonBoundariesMatchEncodedWithoutMaterializ
         for (size_t right = 0; right < typed->size(); ++right) {
             for (int hint : {-1, 1}) {
                 for (size_t left = 0; left < typed->size(); ++left) {
-                    const int expected = encoded->compare_at(left, right, *encoded, hint);
-                    EXPECT_EQ(typed->compare_at(left, right, *typed, hint), expected);
-                    EXPECT_EQ(typed->compare_at(left, right, *encoded, hint), expected);
-                    EXPECT_EQ(encoded->compare_at(left, right, *typed, hint), expected);
+                    const int expected = sign(encoded->compare_at(left, right, *encoded, hint));
+                    EXPECT_EQ(sign(typed->compare_at(left, right, *typed, hint)), expected);
+                    EXPECT_EQ(sign(typed->compare_at(left, right, *encoded, hint)), expected);
+                    EXPECT_EQ(sign(encoded->compare_at(left, right, *typed, hint)), expected);
                 }
                 for (int direction : {-1, 1}) {
                     std::vector<uint8_t> typed_cmp(typed->size(), 0);
