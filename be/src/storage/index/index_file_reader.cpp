@@ -22,8 +22,10 @@
 
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "storage/index/ann/ann_index_storage.h"
 #include "storage/index/index_compound_reader.h"
 #include "storage/index/index_fs_directory.h"
+#include "storage/index/inverted/clucene/lucene_ann_store.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 
@@ -495,6 +497,19 @@ Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::
     auto index_id = index_meta->index_id();
     auto index_suffix = index_meta->get_index_suffix();
     return _open(index_id, index_suffix, io_ctx);
+}
+
+Result<std::unique_ptr<AnnIndexSource>> IndexFileReader::open_ann_source(
+        const TabletIndex* index_meta, const io::IOContext* io_ctx) const {
+    // Every format serves an ANN index through the compound reader of its files:
+    // V1 its per-index file, V2 its entry table over the one index file, and SNII
+    // (until it serves ANN natively) the blob's extents in the container.
+    auto compound_reader = open(index_meta, io_ctx);
+    if (!compound_reader.has_value()) {
+        return ResultError(compound_reader.error());
+    }
+    return std::make_unique<LuceneAnnSource>(
+            std::shared_ptr<lucene::store::Directory>(std::move(compound_reader.value())));
 }
 
 std::string IndexFileReader::get_index_file_cache_key(const TabletIndex* index_meta) const {
