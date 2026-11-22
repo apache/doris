@@ -19,6 +19,7 @@
 
 #include <limits>
 #include <string>
+#include <string_view>
 
 #include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_number.h"
@@ -84,6 +85,53 @@ TEST(FunctionParameterBoundaryTest, BitmapNegativeElement) {
                                                           true);
             EXPECT_NE(status.to_string().find("element must be >= 0"), std::string::npos);
             EXPECT_TRUE(bitmap.contains(std::numeric_limits<UInt64>::max()));
+        }
+    }
+}
+
+namespace {
+void check_bitmap_null_element_payload(const char* name, bool const_bitmap) {
+    auto bitmaps = ColumnBitmap::create();
+    bitmaps->get_data().assign(const_bitmap ? 1 : 2, BitmapValue(1));
+    ColumnPtr bitmap_column = std::move(bitmaps);
+    if (const_bitmap) {
+        bitmap_column = ColumnConst::create(bitmap_column, 2);
+    }
+    auto elements = ColumnInt64::create();
+    elements->get_data() = {-1, 1};
+    auto nulls = ColumnUInt8::create();
+    nulls->get_data() = {1, 0};
+    ColumnPtr nullable_elements = ColumnNullable::create(std::move(elements), std::move(nulls));
+    const bool contains = std::string_view(name) == "bitmap_contains";
+    DataTypePtr result_type = contains ? make_nullable(std::make_shared<DataTypeUInt8>())
+                                       : make_nullable(std::make_shared<DataTypeBitMap>());
+    Block block {{bitmap_column, std::make_shared<DataTypeBitMap>(), "bitmap"},
+                 {nullable_elements, make_nullable(std::make_shared<DataTypeInt64>()), "element"}};
+    auto function = SimpleFunctionFactory::instance().get_function(
+            name, block.get_columns_with_type_and_name(), result_type);
+    ASSERT_NE(function, nullptr);
+    block.insert({nullptr, result_type, "result"});
+    auto status = function->execute(nullptr, block, {0, 1}, 2, 2);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+    EXPECT_TRUE(result.is_null_at(0));
+    EXPECT_FALSE(result.is_null_at(1));
+    if (contains) {
+        EXPECT_EQ(result.get_nested_column().get_int(1), 1);
+    } else {
+        const auto& values =
+                assert_cast<const ColumnBitmap&>(result.get_nested_column()).get_data();
+        EXPECT_TRUE(values[1].empty());
+    }
+}
+} // namespace
+
+TEST(FunctionParameterBoundaryTest, BitmapNullElementPayload) {
+    // Two rows reproduce NULLIF(k, -1): the first -1 is hidden by NULL and the second
+    // element is valid. Check a constant bitmap and a bitmap column for both functions.
+    for (const auto* name : {"bitmap_contains", "bitmap_remove"}) {
+        for (bool const_bitmap : {false, true}) {
+            check_bitmap_null_element_payload(name, const_bitmap);
         }
     }
 }

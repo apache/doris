@@ -1216,10 +1216,20 @@ using FunctionBitmapToBase64 = FunctionUnaryToType<BitmapToBase64, NameBitmapToB
 using FunctionBitmapFromBase64 = FunctionBitmapAlwaysNull<BitmapFromBase64>;
 using FunctionBitmapNot =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapNot, NameBitmapNot>;
-using FunctionBitmapContains =
-        FunctionBinaryToType<DataTypeBitMap, DataTypeInt64, BitmapContains, NameBitmapContains>;
-using FunctionBitmapRemove =
-        FunctionBinaryToType<DataTypeBitMap, DataTypeInt64, BitmapRemove, NameBitmapRemove>;
+
+template <template <typename, typename> typename Impl, typename Name>
+class FunctionBitmapElement
+        : public FunctionBinaryToType<DataTypeBitMap, DataTypeInt64, Impl, Name> {
+public:
+    static FunctionPtr create() { return std::make_shared<FunctionBitmapElement>(); }
+
+    // NULLIF([-1, 1], -1) keeps [-1, 1] under null map [1, 0]. Clear the hidden -1
+    // before the binary implementation validates elements. The wrapper restores NULL.
+    bool need_replace_null_data_to_default() const override { return true; }
+};
+
+using FunctionBitmapContains = FunctionBitmapElement<BitmapContains, NameBitmapContains>;
+using FunctionBitmapRemove = FunctionBitmapElement<BitmapRemove, NameBitmapRemove>;
 
 using FunctionBitmapHasAny =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapHasAny, NameBitmapHasAny>;
