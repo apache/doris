@@ -30,7 +30,7 @@ struct AnnRangeSearchResult;
 class AnnIndexIterator : public IndexIterator {
 public:
     AnnIndexIterator(const IndexReaderPtr& reader);
-    ~AnnIndexIterator() override = default;
+    ~AnnIndexIterator() override;
 
     IndexReaderPtr get_reader(IndexReaderType reader_type) const override {
         return std::static_pointer_cast<IndexReader>(_ann_reader);
@@ -43,8 +43,7 @@ public:
 
     Result<bool> has_null() override { return true; }
 
-    // Try to load index, return true if successful, false if failed
-    // This method should be called before read_from_index or range_search
+    // Try to load before searching; retain the query pin until search or destruction.
     bool try_load_index();
 
     MOCK_FUNCTION Status range_search(const AnnRangeSearchParams& params,
@@ -53,6 +52,8 @@ public:
 
 private:
     std::shared_ptr<AnnIndexReader> _ann_reader;
+    // Pin between load and search only, not for the lifetime of the segment reader.
+    std::unique_ptr<AnnIndexCacheHandle> _index_handle;
 
     ENABLE_FACTORY_CREATOR(AnnIndexIterator);
 };

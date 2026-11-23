@@ -139,6 +139,17 @@ void StoragePageCache::insert(const CacheKey& key, DataPage* data, PageCacheHand
     *handle = PageCacheHandle(cache, lru_handle);
 }
 
+void StoragePageCache::insert_object(const CacheKey& key, std::unique_ptr<LRUCacheValueBase> value,
+                                     size_t charge, size_t tracking_bytes,
+                                     PageCacheHandle* handle) {
+    auto* cache = _get_page_cache(segment_v2::DATA_PAGE);
+    auto* lru_handle =
+            cache->insert(key.encode(), value.get(), charge, tracking_bytes, CachePriority::NORMAL);
+    value.release();
+    DCHECK(lru_handle != nullptr);
+    *handle = PageCacheHandle(cache, lru_handle);
+}
+
 template <typename T>
 void StoragePageCache::insert(const CacheKey& key, T data, size_t size, PageCacheHandle* handle,
                               segment_v2::PageTypePB page_type, bool in_memory) {

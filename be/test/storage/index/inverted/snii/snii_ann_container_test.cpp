@@ -19,6 +19,9 @@
 
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
+
+#include <barrier>
+#include <thread>
 #ifdef ADDRESS_SANITIZER
 #include <sanitizer/allocator_interface.h>
 #endif
@@ -34,13 +37,16 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "exec/scan/vector_search_user_params.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
-#include "storage/cache/ann_index_ivf_list_cache.h"
+#include "storage/cache/page_cache.h"
+#include "storage/index/ann/ann_index_cache.h"
 #include "storage/index/ann/ann_index_files.h"
+#include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_index_storage.h"
 #include "storage/index/ann/ann_index_writer.h"
@@ -180,23 +186,15 @@ protected:
         // wrong entry would then also disagree on the length.
         _synthetic["fake_bkd_data"] = synthetic_bytes(0x11, 4096 + 17);
         _synthetic["fake_bkd_index"] = synthetic_bytes(0x77, 1024 + 3);
-        // IVF-on-disk reads its lists through AnnIndexIVFListCache, which
-        // exec_env_init installs unconditionally at BE startup -- so this is the
-        // production path, not a test convenience. Installed only if nobody else
-        // in this binary already has one, and torn down only by whoever installed
-        // it: create_global_cache DCHECKs on a second install, and clobbering
-        // another fixture's cache is how shared-state bugs start.
-        if (AnnIndexIVFListCache::instance() == nullptr) {
-            (void)AnnIndexIVFListCache::create_global_cache(8 * 1024 * 1024);
-            _owns_ivf_list_cache = true;
-        }
+        // Use the production DATA_PAGE pool, isolated from other test fixtures.
+        _previous_page_cache = StoragePageCache::instance();
+        _page_cache = std::make_unique<StoragePageCache>(8 * 1024 * 1024, 0, 0, 1);
+        ExecEnv::GetInstance()->set_storage_page_cache(_page_cache.get());
     }
 
     void TearDown() override {
-        if (_owns_ivf_list_cache) {
-            AnnIndexIVFListCache::destroy_global_cache();
-            _owns_ivf_list_cache = false;
-        }
+        ExecEnv::GetInstance()->set_storage_page_cache(_previous_page_cache);
+        _page_cache.reset();
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
@@ -271,7 +269,8 @@ protected:
     TabletIndex _meta;
     TabletIndex _fake_bkd_meta;
     TabletIndex _ivf_on_disk_meta;
-    bool _owns_ivf_list_cache = false;
+    StoragePageCache* _previous_page_cache = nullptr;
+    std::unique_ptr<StoragePageCache> _page_cache;
     std::map<std::string, std::vector<uint8_t>> _synthetic;
 };
 
@@ -427,6 +426,125 @@ TEST_F(SniiAnnContainerTest, IvfOnDiskAnswersAQueryThroughTheProductionReader) {
             << "the nearest neighbour of a row's own vector must be that row";
     ASSERT_NE(param.distance, nullptr);
     EXPECT_NEAR(param.distance[0], 0.0F, 1e-4F);
+}
+
+TEST_F(SniiAnnContainerTest, DiskIvfPageCacheLifetimeAcrossFormats) {
+    for (auto format : {InvertedIndexStorageFormatPB::V2, InvertedIndexStorageFormatPB::SNII}) {
+        SCOPED_TRACE(static_cast<int>(format));
+        const std::string prefix = std::string(kTestDir) + "/ivf_cache_" + std::to_string(format);
+        io::FileWriterPtr file_writer;
+        ASSERT_TRUE(io::global_local_filesystem()
+                            ->create_file(InvertedIndexDescriptor::get_index_file_path_v2(prefix),
+                                          &file_writer)
+                            .ok());
+        IndexFileWriter writer(io::global_local_filesystem(), prefix, "ivf_cache_rowset", 0, format,
+                               std::move(file_writer), false, 9913);
+        ASSERT_TRUE(finish_ann_index(&writer, &_ivf_on_disk_meta).ok());
+        ASSERT_TRUE(writer.begin_close().ok());
+        ASSERT_TRUE(writer.finish_close().ok());
+        auto file_reader =
+                std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix, format);
+        auto reader = std::make_shared<AnnIndexReader>(&_ivf_on_disk_meta, file_reader);
+        const StoragePageCache::CacheKey key(
+                file_reader->get_index_file_cache_key(&_ivf_on_disk_meta), 0, 0,
+                StoragePageCache::CacheKey::Kind::ANN_INDEX);
+        auto* policy = _page_cache->_data_page_cache.get();
+        const auto before = DorisMetrics::instance()->ann_index_load_cnt->value();
+        constexpr size_t kThreads = 4;
+        std::array<AnnIndexCacheHandle, kThreads> handles;
+        std::array<Status, kThreads> statuses;
+        std::array<std::thread, kThreads> threads;
+        std::barrier start(kThreads);
+        for (size_t i = 0; i < kThreads; ++i) {
+            threads[i] = std::thread([&, i] {
+                SCOPED_INIT_THREAD_CONTEXT();
+                // Distinct reader objects must still coalesce the same cache key.
+                AnnIndexReader other_reader(&_ivf_on_disk_meta, file_reader);
+                start.arrive_and_wait();
+                statuses[i] = other_reader.load_index(nullptr, &handles[i]);
+            });
+        }
+        for (auto& thread : threads) {
+            thread.join();
+        }
+        for (size_t i = 0; i < kThreads; ++i) {
+            ASSERT_TRUE(statuses[i].ok()) << statuses[i];
+            EXPECT_EQ(handles[i].index(), handles[0].index());
+        }
+        EXPECT_EQ(DorisMetrics::instance()->ann_index_load_cnt->value(), before + 1);
+        EXPECT_EQ(policy->value_mem_consumption(), 4 * kDim * sizeof(float));
+        _page_cache->erase(key, DATA_PAGE);
+        EXPECT_EQ(policy->value_mem_consumption(), 4 * kDim * sizeof(float));
+        for (auto& handle : handles) {
+            handle = AnnIndexCacheHandle();
+        }
+        EXPECT_EQ(policy->value_mem_consumption(), 0);
+
+        AnnIndexIterator iterator(reader);
+        // Mainline's try_load_index skips loading under BE_TEST. Install the
+        // production loader's pin, then exercise the real iterator release paths.
+        auto load_iterator = [&](AnnIndexIterator* target) {
+            target->_index_handle = std::make_unique<AnnIndexCacheHandle>();
+            return reader->load_index(nullptr, target->_index_handle.get());
+        };
+        ASSERT_TRUE(load_iterator(&iterator).ok());
+        EXPECT_EQ(reader->_vector_index, nullptr);
+        EXPECT_EQ(reader->_source, nullptr);
+        EXPECT_EQ(DorisMetrics::instance()->ann_index_load_cnt->value(), before + 2);
+        // Remove lookup visibility while the iterator still owns a pin.
+        _page_cache->erase(key, DATA_PAGE);
+        EXPECT_GT(policy->value_mem_consumption(), 0);
+        const auto vectors = make_vectors();
+        constexpr uint32_t kProbeRow = 17;
+        roaring::Roaring candidates;
+        candidates.addRange(0, kRows);
+        AnnTopNParam param {.query_value = vectors.data() + kProbeRow * kDim,
+                            .query_value_size = kDim,
+                            .limit = 4,
+                            ._user_params = VectorSearchUserParams {},
+                            .roaring = &candidates,
+                            .rows_of_segment = kRows,
+                            .enable_result_cache = false};
+        param.stats = std::make_unique<AnnIndexStats>();
+        ASSERT_TRUE(iterator.read_from_index(&param).ok());
+        ASSERT_NE(param.row_ids, nullptr);
+        ASSERT_FALSE(param.row_ids->empty());
+        EXPECT_EQ((*param.row_ids)[0], kProbeRow);
+        EXPECT_NEAR(param.distance[0], 0.0F, 1e-4F);
+        EXPECT_EQ(policy->value_mem_consumption(), 0);
+
+        ASSERT_TRUE(load_iterator(&iterator).ok());
+        _page_cache->erase(key, DATA_PAGE);
+        candidates.clear();
+        candidates.addRange(0, kRows);
+        AnnRangeSearchParams range;
+        range.query_value = param.query_value;
+        range.radius = 0.01F;
+        range.roaring = &candidates;
+        range.enable_result_cache = false;
+        AnnRangeSearchResult result;
+        AnnIndexStats stats;
+        ASSERT_TRUE(iterator.range_search(range, VectorSearchUserParams {}, &result, &stats).ok());
+        ASSERT_NE(result.roaring, nullptr);
+        EXPECT_EQ(result.roaring->cardinality(), 1);
+        EXPECT_TRUE(result.roaring->contains(kProbeRow));
+        EXPECT_EQ(policy->value_mem_consumption(), 0);
+
+        ASSERT_TRUE(load_iterator(&iterator).ok());
+        _page_cache->erase(key, DATA_PAGE);
+        EXPECT_TRUE(iterator.read_from_index(static_cast<AnnTopNParam*>(nullptr))
+                            .is<ErrorCode::INDEX_INVALID_PARAMETERS>());
+        EXPECT_EQ(policy->value_mem_consumption(), 0);
+        EXPECT_EQ(iterator._index_handle, nullptr);
+        {
+            auto cancelled = AnnIndexIterator::create_unique(reader);
+            ASSERT_TRUE(load_iterator(cancelled.get()).ok());
+            _page_cache->erase(key, DATA_PAGE);
+            EXPECT_GT(policy->value_mem_consumption(), 0);
+        }
+        EXPECT_EQ(policy->value_mem_consumption(), 0);
+        // Reader and iterator both still exist here; neither retains the index.
+    }
 }
 
 // A BKD blob has its own reader. Serving ANN files over it would hand faiss

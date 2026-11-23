@@ -37,6 +37,8 @@ struct IndexSearchResult;
 
 class IndexFileReader;
 class IndexIterator;
+class AnnIndexCacheHandle;
+struct AnnIndexCacheValue;
 
 class AnnIndexReader : public IndexReader {
 public:
@@ -45,17 +47,18 @@ public:
                    uint32_t segment_id = 0, size_t rows_of_segment = 0);
     ~AnnIndexReader() override = default;
 
-    Status load_index(io::IOContext* io_ctx);
+    // IVF_ON_DISK returns a query-scoped pin; the reader retains no loaded index.
+    Status load_index(io::IOContext* io_ctx, AnnIndexCacheHandle* handle = nullptr);
 
-    // Try to load index, return true if successful, false if failed
-    // This method is used to check if index can be loaded before query
-    bool try_load_index(io::IOContext* io_ctx);
+    bool try_load_index(io::IOContext* io_ctx, AnnIndexCacheHandle* handle = nullptr);
 
-    Status query(io::IOContext* io_ctx, AnnTopNParam* param, AnnIndexStats* stats);
+    Status query(io::IOContext* io_ctx, AnnTopNParam* param, AnnIndexStats* stats,
+                 AnnIndexCacheHandle* handle = nullptr);
 
     Status range_search(const AnnRangeSearchParams& params,
                         const VectorSearchUserParams& custom_params, AnnRangeSearchResult* result,
-                        AnnIndexStats* stats, io::IOContext* io_ctx = nullptr);
+                        AnnIndexStats* stats, io::IOContext* io_ctx = nullptr,
+                        AnnIndexCacheHandle* handle = nullptr);
 
     IndexType index_type() override { return IndexType::ANN; }
 
@@ -68,14 +71,12 @@ public:
     size_t get_dimension() const;
 
 private:
+    Status _load_index(io::IOContext* io_ctx, AnnIndexCacheValue* value);
+
     TabletIndex _index_meta;
     std::shared_ptr<IndexFileReader> _index_file_reader;
-    // IMPORTANT: _source MUST be declared before _vector_index so that it is
-    // destroyed AFTER _vector_index (C++ destroys members in reverse declaration order).
-    // For IVF_ON_DISK, the CachedRandomAccessReader inside _vector_index keeps an
-    // AnnIndexInput it opened from _source and reads it on every search. An input may
-    // use what its source holds -- on V1/V2 it reads through the compound reader's one
-    // file stream -- so a source destroyed first would leave that input dangling.
+    // Non-disk indexes retain reader ownership. Disk IVF owns these in its cache
+    // value instead. Source must outlive the inputs kept by the loaded index.
     std::unique_ptr<AnnIndexSource> _source;
     std::unique_ptr<VectorIndex> _vector_index;
     AnnIndexType _index_type;

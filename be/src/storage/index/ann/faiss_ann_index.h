@@ -182,6 +182,10 @@ public:
 
     ~FaissVectorIndex();
 
+    // IVF_ON_DISK resident large buffers: coarse centers and the optional PQ
+    // codebook. Excludes list pages (charged separately) and small metadata.
+    size_t estimated_memory_usage() const;
+
     /**
      * @brief Trains the index with the provided data.
      *

@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "storage/index/ann/ann_index_cache.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_query_context.h"
 
@@ -26,6 +27,8 @@ namespace doris::segment_v2 {
 AnnIndexIterator::AnnIndexIterator(const IndexReaderPtr& reader) : IndexIterator() {
     _ann_reader = std::dynamic_pointer_cast<AnnIndexReader>(reader);
 }
+
+AnnIndexIterator::~AnnIndexIterator() = default;
 
 bool AnnIndexIterator::try_load_index() {
     if (_ann_reader == nullptr) {
@@ -35,10 +38,13 @@ bool AnnIndexIterator::try_load_index() {
 
     // _context may be unset in some test scenarios; pass nullptr IOContext in that case.
     io::IOContext* io_ctx = (_context != nullptr) ? _context->io_ctx : nullptr;
-    return _ann_reader->try_load_index(io_ctx);
+    _index_handle = std::make_unique<AnnIndexCacheHandle>();
+    return _ann_reader->try_load_index(io_ctx, _index_handle.get());
 }
 
 Status AnnIndexIterator::read_from_index(const IndexParam& param) {
+    // Release on success and on every error return, including invalid parameters.
+    auto index_handle = std::move(_index_handle);
     auto* a_param = std::get<segment_v2::AnnTopNParam*>(param);
     if (a_param == nullptr) {
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>("a_param is null");
@@ -49,19 +55,21 @@ Status AnnIndexIterator::read_from_index(const IndexParam& param) {
 
     // _context may be unset in some test scenarios; pass nullptr IOContext in that case.
     io::IOContext* io_ctx = (_context != nullptr) ? _context->io_ctx : nullptr;
-    return _ann_reader->query(io_ctx, a_param, a_param->stats.get());
+    return _ann_reader->query(io_ctx, a_param, a_param->stats.get(), index_handle.get());
 }
 
 Status AnnIndexIterator::range_search(const AnnRangeSearchParams& params,
                                       const VectorSearchUserParams& custom_params,
                                       segment_v2::AnnRangeSearchResult* result,
                                       segment_v2::AnnIndexStats* stats) {
+    auto index_handle = std::move(_index_handle);
     if (_ann_reader == nullptr) {
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>("_ann_reader is null");
     }
 
     // _context may be null when iterator is used in isolation (e.g., unit tests).
     io::IOContext* io_ctx = (_context != nullptr) ? _context->io_ctx : nullptr;
-    return _ann_reader->range_search(params, custom_params, result, stats, io_ctx);
+    return _ann_reader->range_search(params, custom_params, result, stats, io_ctx,
+                                     index_handle.get());
 }
 } // namespace doris::segment_v2

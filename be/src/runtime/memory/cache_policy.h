@@ -56,7 +56,7 @@ public:
         TABLET_COLUMN_OBJECT_POOL = 21,
         SCHEMA_CLOUD_DICTIONARY_CACHE = 22,
         CONDITION_CACHE = 23,
-        ANN_INDEX_IVF_LIST_CACHE = 24,
+        // 24 was the independent ANN IVF list cache (now part of page cache).
         ANN_INDEX_RESULT_CACHE = 25,
         FLUSS_UNION_TAIL_CACHE = 26,
     };
@@ -109,8 +109,6 @@ public:
             return "SchemaCloudDictionaryCache";
         case CacheType::CONDITION_CACHE:
             return "ConditionCache";
-        case CacheType::ANN_INDEX_IVF_LIST_CACHE:
-            return "AnnIndexIVFListCache";
         case CacheType::ANN_INDEX_RESULT_CACHE:
             return "AnnIndexResultCache";
         case CacheType::FLUSS_UNION_TAIL_CACHE:
@@ -145,7 +143,6 @@ public:
             {"QueryCache", CacheType::QUERY_CACHE},
             {"TabletColumnObjectPool", CacheType::TABLET_COLUMN_OBJECT_POOL},
             {"ConditionCache", CacheType::CONDITION_CACHE},
-            {"AnnIndexIVFListCache", CacheType::ANN_INDEX_IVF_LIST_CACHE},
             {"AnnIndexResultCache", CacheType::ANN_INDEX_RESULT_CACHE},
             {"FlussUnionTailCache", CacheType::FLUSS_UNION_TAIL_CACHE}};
 

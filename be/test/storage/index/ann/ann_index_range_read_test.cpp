@@ -47,7 +47,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
-#include "storage/cache/ann_index_ivf_list_cache.h"
+#include "storage/cache/page_cache.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/ann/ann_search_params.h"
@@ -350,18 +350,15 @@ protected:
         config::enable_file_cache = false;
         ASSERT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
         ASSERT_TRUE(io::global_local_filesystem()->create_directory(kTestDir).ok());
-        // IVF_ON_DISK searches read through this cache in production (exec_env_init installs it).
-        // Installed only when nobody has, and torn down only by its installer.
-        if (AnnIndexIVFListCache::instance() == nullptr) {
-            (void)AnnIndexIVFListCache::create_global_cache(64 * 1024 * 1024);
-            _owns_ivf_list_cache = true;
-        }
+        // Use the production DATA_PAGE pool, isolated from other test fixtures.
+        _previous_page_cache = StoragePageCache::instance();
+        _page_cache = std::make_unique<StoragePageCache>(64 * 1024 * 1024, 0, 0, 1);
+        ExecEnv::GetInstance()->set_storage_page_cache(_page_cache.get());
     }
 
     void TearDown() override {
-        if (_owns_ivf_list_cache) {
-            AnnIndexIVFListCache::destroy_global_cache();
-        }
+        ExecEnv::GetInstance()->set_storage_page_cache(_previous_page_cache);
+        _page_cache.reset();
         config::omp_threads_limit = _saved_omp_threads_limit;
         config::enable_file_cache = _saved_enable_file_cache;
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
@@ -377,7 +374,8 @@ protected:
 private:
     int32_t _saved_omp_threads_limit = -1;
     bool _saved_enable_file_cache = true;
-    bool _owns_ivf_list_cache = false;
+    StoragePageCache* _previous_page_cache = nullptr;
+    std::unique_ptr<StoragePageCache> _page_cache;
 };
 
 TEST_F(AnnIndexRangeReadTest, LoadAndSearchIssueTheRecordedReads) {
@@ -441,8 +439,8 @@ TEST_F(AnnIndexRangeReadTest, ACutShortIndexFileFailsTheLoadWithAStatus) {
         Status status;
         {
             // faiss::read_index does not free the objects it built before the failed read: its
-            // raw pointers leak when the reader throws. That cleanup is faiss's own, and a reader
-            // runs a failed load once, so the test does not count those bytes.
+            // raw pointers leak when the reader throws. That cleanup is faiss's own;
+            // this test attempts one load and does not count those bytes.
             doris::debug::ScopedLSANDisabler lsan_disabler;
             EXPECT_NO_THROW(status = reader->load_index(&io_ctx));
         }

@@ -52,7 +52,6 @@
 #include "faiss/impl/IDSelector.h"
 #include "faiss/impl/io.h"
 #include "io/io_common.h"
-#include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/cache/page_cache.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_files.h"
@@ -356,7 +355,7 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
             return nullptr;
         }
 
-        auto* cache = AnnIndexIVFListCache::instance();
+        auto* cache = StoragePageCache::instance();
         if (!cache) {
             // Read it ourselves. NOT RandomAccessReader::borrow(): faiss documents
             // its default as "allocates a buffer and calls read_at()", and read_at()
@@ -372,12 +371,12 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
             return std::make_unique<OwnedReadRef>(std::move(bytes));
         }
 
-        AnnIndexIVFListCache::CacheKey key(_cache_key_prefix, _file_size,
-                                           static_cast<int64_t>(offset));
+        StoragePageCache::CacheKey key(_cache_key_prefix, _file_size, static_cast<int64_t>(offset),
+                                       StoragePageCache::CacheKey::Kind::ANN_IVF_LIST, nbytes);
 
-        // Fast path: cache hit — zero-copy, lock-free.
+        // Fast path: cache hit uses the pinned bytes without taking the input I/O lock.
         PageCacheHandle handle;
-        if (cache->lookup(key, &handle)) {
+        if (cache->lookup(key, &handle, DATA_PAGE)) {
             ++g_ivf_on_disk_cache_stats.hit_cnt;
             return _make_pinned_ref(std::move(handle), nbytes);
         }
@@ -394,14 +393,14 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
 
         // Double-check: a preceding thread may have loaded this key while
         // we waited on _io_mutex.
-        if (cache->lookup(key, &handle)) {
+        if (cache->lookup(key, &handle, DATA_PAGE)) {
             ++g_ivf_on_disk_cache_stats.hit_cnt;
             return _make_pinned_ref(std::move(handle), nbytes);
         }
 
         // Still a miss — we are the first thread to reach here; read from disk.
-        auto page = _fetch_from_disk_locked(offset, nbytes, cache->mem_tracker());
-        cache->insert(key, page.get(), &handle);
+        auto page = _fetch_from_disk_locked(offset, nbytes, cache->mem_tracker(DATA_PAGE));
+        cache->insert(key, page.get(), &handle, DATA_PAGE);
         page.release(); // ownership transferred to cache
         return _make_pinned_ref(std::move(handle), nbytes);
     }
@@ -1139,6 +1138,24 @@ doris::Status FaissVectorIndex::load(AnnIndexSource* source, const io::IOContext
     DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(_index->ntotal);
 
     return doris::Status::OK();
+}
+
+size_t FaissVectorIndex::estimated_memory_usage() const {
+    DORIS_CHECK(_index_type == AnnIndexType::IVF_ON_DISK);
+    const auto* ivf = dynamic_cast<const faiss::IndexIVF*>(_index.get());
+    DORIS_CHECK(ivf != nullptr);
+    // Every Doris IVF coarse quantizer is IndexFlat, including SQ/PQ indexes.
+    // read_index owns the center buffer because this path does not use mmap.
+    const auto* quantizer = dynamic_cast<const faiss::IndexFlat*>(ivf->quantizer);
+    DORIS_CHECK(quantizer != nullptr);
+    DORIS_CHECK(quantizer->codes.is_owned);
+    size_t bytes = quantizer->codes.owned_data.capacity();
+    if (const auto* pq = dynamic_cast<const faiss::IndexIVFPQ*>(ivf)) {
+        // With 1024 centers and 8-bit PQ, the codebook is another 25% of the
+        // center bytes. The much larger precomputed table is disabled on load.
+        bytes += pq->pq.centroids.capacity() * sizeof(float);
+    }
+    return bytes;
 }
 
 } // namespace doris::segment_v2
