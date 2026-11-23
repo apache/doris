@@ -20,9 +20,9 @@ suite("test_variant_values_index_routes", "p0,nonConcurrent") {
     sql "SET enable_query_cache=false"
     sql "SET enable_condition_cache=false"
     sql "SET enable_inverted_index_query_cache=false"
-    sql "SET default_variant_enable_doc_mode=false"
-    sql "SET default_variant_enable_nested_group=false"
-    sql "SET default_variant_max_subcolumns_count=10"
+    sql "SET debug_variant_enable_doc_mode=false"
+    sql "SET debug_variant_enable_nested_group=false"
+    sql "SET debug_variant_max_subcolumns_count=10"
     for (int position : [0,1,2]) {
         def ordinary = [
             'INDEX english_idx(v) USING INVERTED PROPERTIES("parser"="english","lower_case"="false")',

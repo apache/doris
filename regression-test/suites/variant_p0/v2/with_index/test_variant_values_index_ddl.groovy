@@ -25,10 +25,10 @@ suite("test_variant_values_index_ddl", "p0") {
     sql "SET enable_inverted_index_query_cache=false"
     sql "SET enable_prune_nested_column=false"
     sql "SET enable_common_expr_pushdown=true"
-    sql "SET default_variant_enable_doc_mode=false"
-    sql "SET default_variant_max_subcolumns_count=0"
-    sql "SET default_variant_enable_typed_paths_to_sparse=false"
-    sql "SET default_variant_enable_nested_group=false"
+    sql "SET debug_variant_enable_doc_mode=false"
+    sql "SET debug_variant_max_subcolumns_count=0"
+    sql "SET debug_variant_enable_typed_paths_to_sparse=false"
+    sql "SET debug_variant_enable_nested_group=false"
     sql "SET enable_decimal256=true"
     for (String name : ["vvi_ddl_english", "vvi_ddl_unicode", "vvi_ddl_chinese", "vvi_ddl_standard",
                         "vvi_ddl_replay", "vvi_ddl_mow", "vvi_ddl_rejected"]) {

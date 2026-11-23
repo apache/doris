@@ -18,9 +18,9 @@
 import org.awaitility.Awaitility
 import java.util.concurrent.TimeUnit
 suite("test_variant_values_index_sc_concurrent", "p0,nonConcurrent") {
-    sql "SET default_variant_enable_doc_mode=false"
-    sql "SET default_variant_enable_nested_group=false"
-    sql "SET default_variant_max_subcolumns_count=10"
+    sql "SET debug_variant_enable_doc_mode=false"
+    sql "SET debug_variant_enable_nested_group=false"
+    sql "SET debug_variant_max_subcolumns_count=10"
     sql "SET enable_sql_cache=false"
     sql "SET enable_query_cache=false"
     sql "SET enable_condition_cache=false"

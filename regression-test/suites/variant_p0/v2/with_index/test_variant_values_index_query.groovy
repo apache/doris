@@ -24,10 +24,10 @@ suite("test_variant_values_index_query", "p0,nonConcurrent") {
     sql "SET enable_inverted_index_query_cache=false"
     sql "SET enable_prune_nested_column=false"
     sql "SET enable_common_expr_pushdown=true"
-    sql "SET default_variant_enable_doc_mode=false"
-    sql "SET default_variant_max_subcolumns_count=0"
-    sql "SET default_variant_enable_typed_paths_to_sparse=false"
-    sql "SET default_variant_enable_nested_group=false"
+    sql "SET debug_variant_enable_doc_mode=false"
+    sql "SET debug_variant_max_subcolumns_count=0"
+    sql "SET debug_variant_enable_typed_paths_to_sparse=false"
+    sql "SET debug_variant_enable_nested_group=false"
     for (String name : ["vvi_query", "vvi_query_unicode", "vvi_query_no_values", "vvi_query_case"]) {
         sql "DROP TABLE IF EXISTS ${name}"
     }
@@ -50,8 +50,8 @@ suite("test_variant_values_index_query", "p0,nonConcurrent") {
     }
     for (boolean doc : [false, true]) {
         for (int limit : [0, 1]) {
-            sql "SET default_variant_enable_doc_mode=${doc}"
-            sql "SET default_variant_max_subcolumns_count=${limit}"
+            sql "SET debug_variant_enable_doc_mode=${doc}"
+            sql "SET debug_variant_max_subcolumns_count=${limit}"
             sql "DROP TABLE IF EXISTS vvi_query"
             // Doc mode rejects declared DATETIME and DECIMAL paths; those values keep their input types.
             def typedTime = doc ? "" : ", 'typed_time':DATETIME, 'price':DECIMAL(10,2)"
@@ -150,8 +150,8 @@ suite("test_variant_values_index_query", "p0,nonConcurrent") {
             }
         }
     }
-    sql "SET default_variant_enable_doc_mode=false"
-    sql "SET default_variant_max_subcolumns_count=0"
+    sql "SET debug_variant_enable_doc_mode=false"
+    sql "SET debug_variant_max_subcolumns_count=0"
     sql """CREATE TABLE vvi_query_unicode (id INT, v VARIANT,
         INDEX values_idx(v) USING INVERTED PROPERTIES("variant_index_scope"="values","parser"="unicode"))
         DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1

@@ -20,8 +20,8 @@ suite("test_variant_values_index_analyzers", "p0,nonConcurrent") {
     sql "SET enable_query_cache=false"
     sql "SET enable_condition_cache=false"
     sql "SET enable_inverted_index_query_cache=false"
-    sql "SET default_variant_enable_doc_mode=false"
-    sql "SET default_variant_enable_nested_group=false"
+    sql "SET debug_variant_enable_doc_mode=false"
+    sql "SET debug_variant_enable_nested_group=false"
     for (String parser : ["english", "unicode", "chinese", "standard"]) {
         sql "DROP TABLE IF EXISTS vvi_analyzers"
         sql """CREATE TABLE vvi_analyzers (id INT,v VARIANT,

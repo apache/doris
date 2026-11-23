@@ -21,9 +21,9 @@ suite("test_variant_values_index_schema_change", "p0,nonConcurrent") {
     sql "SET enable_condition_cache=false"
     sql "SET enable_inverted_index_query_cache=false"
     sql "SET enable_common_expr_pushdown=true"
-    sql "SET default_variant_enable_doc_mode=false"
-    sql "SET default_variant_enable_nested_group=false"
-    sql "SET default_variant_max_subcolumns_count=10"
+    sql "SET debug_variant_enable_doc_mode=false"
+    sql "SET debug_variant_enable_nested_group=false"
+    sql "SET debug_variant_max_subcolumns_count=10"
     sql "SET enable_add_index_for_new_data=true"
     def waitColumn = { String table ->
         waitForSchemaChangeDone {

@@ -20,8 +20,8 @@ suite("test_variant_values_index_dotted_keys", "p0,nonConcurrent") {
     sql "SET enable_query_cache=false"
     sql "SET enable_condition_cache=false"
     sql "SET enable_inverted_index_query_cache=false"
-    sql "SET default_variant_enable_nested_group=false"
-    sql "SET default_variant_enable_doc_mode=false"
+    sql "SET debug_variant_enable_nested_group=false"
+    sql "SET debug_variant_enable_doc_mode=false"
     for (boolean doc : [false, true]) {
         for (int layoutCase : [0, 1]) {
             // ORDINARY uses unlimited/finite subcolumns; DOC uses doc-only/hybrid materialization.

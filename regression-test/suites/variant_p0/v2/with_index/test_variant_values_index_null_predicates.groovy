@@ -20,7 +20,7 @@ suite("test_variant_values_index_null_predicates", "p0,nonConcurrent") {
     sql "SET enable_query_cache=false"
     sql "SET enable_condition_cache=false"
     sql "SET enable_inverted_index_query_cache=false"
-    sql "SET default_variant_enable_nested_group=false"
+    sql "SET debug_variant_enable_nested_group=false"
     sql "DROP TABLE IF EXISTS vvi_null_predicates"
     sql """CREATE TABLE vvi_null_predicates (id INT,v VARIANT,
         INDEX values_idx(v) USING INVERTED PROPERTIES("variant_index_scope"="values","parser"="unicode"))

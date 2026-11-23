@@ -20,10 +20,10 @@ suite("test_variant_values_index_multi_index", "p0,nonConcurrent") {
     sql "SET enable_query_cache=false"
     sql "SET enable_condition_cache=false"
     sql "SET enable_inverted_index_query_cache=false"
-    sql "SET default_variant_enable_doc_mode=false"
-    sql "SET default_variant_enable_nested_group=false"
-    sql "SET default_variant_max_subcolumns_count=1"
-    sql "SET default_variant_enable_typed_paths_to_sparse=false"
+    sql "SET debug_variant_enable_doc_mode=false"
+    sql "SET debug_variant_enable_nested_group=false"
+    sql "SET debug_variant_max_subcolumns_count=1"
+    sql "SET debug_variant_enable_typed_paths_to_sparse=false"
     def baseline = [:]
     for (boolean nativeMerge : [true, false]) {
         for (boolean vertical : [true, false]) {

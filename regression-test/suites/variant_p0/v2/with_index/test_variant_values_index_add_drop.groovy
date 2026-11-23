@@ -22,7 +22,7 @@ suite("test_variant_values_index_add_drop", "p0,nonConcurrent") {
     sql "SET enable_sql_cache=false"
     sql "SET enable_query_cache=false"
     sql "SET enable_condition_cache=false"
-    sql "SET default_variant_enable_nested_group=false"
+    sql "SET debug_variant_enable_nested_group=false"
     def waitColumn = {
         waitForSchemaChangeDone {
             sql "SHOW ALTER TABLE COLUMN WHERE TableName='vvi_add_drop' ORDER BY CreateTime DESC LIMIT 1"
@@ -39,7 +39,7 @@ suite("test_variant_values_index_add_drop", "p0,nonConcurrent") {
     for (String model : ["DUPLICATE", "UNIQUE"]) {
         for (boolean doc : [false, true]) {
             String tag = "${model.toLowerCase()}_${doc}"
-            sql "SET default_variant_enable_doc_mode=${doc}"
+            sql "SET debug_variant_enable_doc_mode=${doc}"
             sql "DROP TABLE IF EXISTS vvi_add_drop"
             String mow = model == "UNIQUE" ? ',"enable_unique_key_merge_on_write"="true"' : ''
             sql """CREATE TABLE vvi_add_drop(id INT,v VARIANT,

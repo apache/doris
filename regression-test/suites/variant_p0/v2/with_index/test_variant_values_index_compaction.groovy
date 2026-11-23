@@ -25,11 +25,11 @@ suite("test_variant_values_index_compaction", "p0,nonConcurrent") {
     sql "SET enable_inverted_index_query_cache=false"
     sql "SET enable_prune_nested_column=false"
     sql "SET enable_common_expr_pushdown=true"
-    sql "SET default_variant_enable_doc_mode=false"
-    sql "SET default_variant_max_subcolumns_count=0"
-    sql "SET default_variant_enable_typed_paths_to_sparse=false"
-    sql "SET default_variant_enable_nested_group=false"
-    sql "SET default_variant_max_subcolumns_count=1"
+    sql "SET debug_variant_enable_doc_mode=false"
+    sql "SET debug_variant_max_subcolumns_count=0"
+    sql "SET debug_variant_enable_typed_paths_to_sparse=false"
+    sql "SET debug_variant_enable_nested_group=false"
+    sql "SET debug_variant_max_subcolumns_count=1"
     def baseline = null
     for (boolean nativeMerge : [true, false]) {
         for (String mode : ["horizontal", "vertical_root", "vertical_paths"]) {
