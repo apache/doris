@@ -328,27 +328,42 @@ public class NereidsPlanner extends Planner {
                 LOG.info("{}\nMemo is null", ConnectContext.get().getQueryIdentifier());
             }
         }
-        Set<Integer> requiredGroupIds = cascadesContext.getConnectContext()
-                .getSessionVariable().getRequiredGroupIds();
+
+        // USE_MV hint is a hard constraint when the hinted materializations are available: the selected
+        // plan must contain at least one of them. A null result means there is no such materialization
+        // and the regular plan selection below is used.
+        UseMvHintPlanner.PlanWithCost chosenUseMvPlan = UseMvHintPlanner.chooseBestPlanConsideringRequiredUseMv(
+                getRoot(), requireProperties, cascadesContext);
         PhysicalPlan physicalPlan;
-        if (!requiredGroupIds.isEmpty()) {
-            Map<Group, Set<Integer>> reachableCache = new HashMap<>();
-            computeReachableGroupIds(getRoot(), reachableCache);
-            // Validate all required groups are reachable from root
-            Set<Integer> rootReachable = reachableCache.get(getRoot());
-            Set<Integer> unreachable = new HashSet<>(requiredGroupIds);
-            unreachable.removeAll(rootReachable);
-            if (!unreachable.isEmpty()) {
-                throw new AnalysisException("Required group IDs not found in memo: " + unreachable);
-            }
-            physicalPlan = chooseBestPlanWithRequiredGroups(
-                    getRoot(), requireProperties, requiredGroupIds, reachableCache);
+        if (chosenUseMvPlan != null) {
+            physicalPlan = chosenUseMvPlan.getPlan();
+            // Keep the cost of the selected alternative for the EXPLAIN output, the cost based
+            // selection methods are bypassed on this path.
+            cost = chosenUseMvPlan.getCost();
         } else {
-            int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
-            physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+            Set<Integer> requiredGroupIds = cascadesContext.getConnectContext()
+                    .getSessionVariable().getRequiredGroupIds();
+            if (!requiredGroupIds.isEmpty()) {
+                Map<Group, Set<Integer>> reachableCache = new HashMap<>();
+                computeReachableGroupIds(getRoot(), reachableCache);
+                // Validate all required groups are reachable from root
+                Set<Integer> rootReachable = reachableCache.get(getRoot());
+                Set<Integer> unreachable = new HashSet<>(requiredGroupIds);
+                unreachable.removeAll(rootReachable);
+                if (!unreachable.isEmpty()) {
+                    throw new AnalysisException("Required group IDs not found in memo: " + unreachable);
+                }
+                physicalPlan = chooseBestPlanWithRequiredGroups(
+                        getRoot(), requireProperties, requiredGroupIds, reachableCache);
+            } else {
+                int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
+                physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+            }
         }
 
         physicalPlan = postProcess(physicalPlan);
+        // Finalize USE_MV hint status based on actually chosen MVs in the physical plan
+        UseMvHintPlanner.finalizeUseMvHintStatus(statementContext, physicalPlan);
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
             String tree = physicalPlan.treeString();
             LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), tree);

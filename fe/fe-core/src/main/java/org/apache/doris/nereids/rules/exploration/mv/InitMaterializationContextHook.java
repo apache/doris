@@ -52,6 +52,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -121,6 +122,10 @@ public class InitMaterializationContextHook implements PlannerHook {
             }
         }
 
+        // Pre-record sync MV USE_MV qualifiers as "rewrite-success" so that
+        // the hard-constraint plan selector can enforce them later.
+        preRecordSyncMvUseMvHints(cascadesContext);
+
         // Create async materialization context
         for (MaterializationContext context : createAsyncMaterializationContext(cascadesContext,
                 collectedTables)) {
@@ -131,13 +136,54 @@ public class InitMaterializationContextHook implements PlannerHook {
     private List<MaterializationContext> getMvIdWithUseMvHint(List<MaterializationContext> mtmvCtxs,
                                                                 UseMvHint useMvHint) {
         List<MaterializationContext> hintMTMVs = new ArrayList<>();
+        Set<List<String>> matchedQualifiers = new HashSet<>();
         for (MaterializationContext mtmvCtx : mtmvCtxs) {
             List<String> mvQualifier = mtmvCtx.generateMaterializationIdentifier();
-            if (useMvHint.getUseMvTableColumnMap().containsKey(mvQualifier)) {
+            Optional<List<String>> matchedParameter = useMvHint.findUseMvParameter(mvQualifier);
+            if (matchedParameter.isPresent()) {
                 hintMTMVs.add(mtmvCtx);
+                matchedQualifiers.add(matchedParameter.get());
+                if (!matchedParameter.get().equals(mvQualifier)) {
+                    // The sync MV is referenced by its bare name, e.g. USE_MV(mv1) for table.mv1.
+                    // Record the full identifier in addition to the parameter, so that the later
+                    // rewrite-success check and the hint status are computed on the same qualifier.
+                    // The parameter must not be removed: it is also the exact identifier of the async
+                    // MV with the same name, because the sync MV name is table local, and removing it
+                    // would drop that async MV from the USE_MV hint.
+                    useMvHint.getUseMvTableColumnMap().putIfAbsent(mvQualifier, false);
+                    matchedQualifiers.add(mvQualifier);
+                }
             }
         }
+        // Mark USE_MV qualifiers that have no matching materialization context
+        Set<List<String>> allUseMvQualifiers = new HashSet<>(useMvHint.getUseMvTableColumnMap().keySet());
+        allUseMvQualifiers.removeAll(matchedQualifiers);
+        if (!allUseMvQualifiers.isEmpty()) {
+            useMvHint.setStatus(Hint.HintStatus.UNUSED);
+            useMvHint.setErrorMessage("No matching materialized view found for USE_MV: " + allUseMvQualifiers);
+        }
         return hintMTMVs;
+    }
+
+    /**
+     * For sync MVs that match USE_MV hint qualifiers, pre-record them as rewrite-success
+     * so the hard-constraint plan selector can enforce them. Sync MVs selected as the
+     * initial scan plan may not go through a separate "rewrite" step in CBO.
+     */
+    private void preRecordSyncMvUseMvHints(CascadesContext cascadesContext) {
+        Optional<UseMvHint> useMvHint = ConnectContext.get().getStatementContext().getUseMvHint("USE_MV");
+        if (!useMvHint.isPresent()) {
+            return;
+        }
+        // Check each sync MV context against USE_MV qualifiers
+        for (MaterializationContext ctx : cascadesContext.getMaterializationContexts()) {
+            if (ctx instanceof SyncMaterializationContext) {
+                List<String> identifier = ctx.generateMaterializationIdentifier();
+                if (useMvHint.get().findUseMvParameter(identifier).isPresent()) {
+                    cascadesContext.getStatementContext().addMaterializationRewrittenSuccess(identifier);
+                }
+            }
+        }
     }
 
     private List<MaterializationContext> getMvIdWithNoUseMvHint(List<MaterializationContext> mtmvCtxs,
