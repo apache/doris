@@ -218,6 +218,25 @@ class StreamColumnStatisticsTest {
     }
 
     @Test
+    void testExplicitScanEstimateUsesTableFallbackOnlyOnce() {
+        try (ScanFixture fixture = new ScanFixture(OlapChangelogTableWrapper.class, 90)) {
+            Mockito.when(((OlapTableWrapper) fixture.table).hasRowCountEstimates(30L)).thenReturn(true);
+            Mockito.when(fixture.table.getPartitionNum()).thenReturn(3);
+            Mockito.when(fixture.table.getRowCountForPartitionIndex(1L, 30L, true)).thenReturn(10L);
+            Mockito.when(fixture.table.getRowCountForPartitionIndex(2L, 30L, true)).thenReturn(-1L);
+            fixture.tableStatistic(statistic(1000, 100, 900));
+
+            // One known partition contributes 10 rows; the missing one uses 90 / 3 table rows.
+            Statistics result = fixture.compute();
+            ColumnStatistic column = result.findColumnStatistics(fixture.slot);
+            Assertions.assertEquals(40, result.getRowCount());
+            Assertions.assertEquals(40, column.count);
+            Assertions.assertEquals(36, column.numNulls);
+            Assertions.assertEquals(4, column.ndv);
+        }
+    }
+
+    @Test
     void testUnknownRowCountDoesNotBecomeKnownOneRowDistribution() {
         try (ScanFixture fixture = new ScanFixture(OlapChangelogTableWrapper.class, -1)) {
             fixture.tableStatistic(statistic(1000, 100, 100));

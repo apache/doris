@@ -42,9 +42,8 @@ suite("test_stream_column_statistics") {
     sql "DELETE FROM stream_col_stats_unique WHERE id = 2"
     sql "SYNC"
 
-    // The per-column population may predate the current scan estimate. Set v first and
-    // id last: this deliberately keeps v's count/NULL pair at 1000/900, while the table's
-    // injected scan row count is 100. A historical scan estimates 90 NULLs, not 900 or 9.
+    // Keep v's source population at 1000 rows with 900 NULLs. The later injection for id
+    // sets the table-level row-count fallback. A snapshot can use its partition baseline instead.
     sql """ALTER TABLE stream_col_stats_dup MODIFY COLUMN v SET STATS
            ('row_count'='1000', 'ndv'='100', 'num_nulls'='900', 'avg_size'='4',
             'min_value'='1', 'max_value'='100')"""
@@ -58,14 +57,21 @@ suite("test_stream_column_statistics") {
            ('row_count'='100', 'ndv'='100', 'num_nulls'='0', 'avg_size'='4',
             'min_value'='1', 'max_value'='100')"""
 
-    delegate.quickRunTest("snapshot_null_estimate",
-            "EXPLAIN PHYSICAL PLAN SELECT v FROM stream_col_stats_dup_s@snapshot() WHERE v IS NULL",
-            false, { row -> row.collect { value -> value.toString()
-                    .replaceAll(/cost = [^\n]+/, "cost = <cost>")
-                    .replaceAll(/#\d+/, "#")
-                    .replaceAll(/@\d+/, "@")
-                    .replaceAll(/\[\d+\]/, "[]")
-                    .replaceAll(/selectedIndexId=\d+/, "selectedIndexId=<id>") } })
+    def plan = sql_return_maparray """
+        EXPLAIN PHYSICAL PLAN SELECT v FROM stream_col_stats_dup_s@snapshot() WHERE v IS NULL
+    """
+    def rowEstimate = { String operator ->
+        def node = plan.find { it["Explain String(Nereids Planner)"].contains(operator) }
+        assertTrue(node != null, "Missing ${operator} in ${plan}")
+        def stats = node["Explain String(Nereids Planner)"] =~ /stats=([0-9,]+(?:\.[0-9]+)?)/
+        assertTrue(stats.find(), "Missing row estimate for ${operator} in ${node}")
+        return stats.group(1).replace(",", "") as BigDecimal
+    }
+    // Check the column distribution against the estimate chosen for this snapshot.
+    def scanRows = rowEstimate("PhysicalOlapScan")
+    def filterRows = rowEstimate("PhysicalFilter")
+    assertTrue(scanRows > 0, "Expected a positive snapshot scan estimate in ${plan}")
+    qt_snapshot_null_selectivity "SELECT CAST(${filterRows} / ${scanRows} AS DECIMAL(3, 2))"
 
     order_qt_dup_snapshot "SELECT id, v FROM stream_col_stats_dup_s@snapshot()"
     order_qt_dup_delta "SELECT id, v FROM stream_col_stats_dup_s"
