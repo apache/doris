@@ -35,11 +35,12 @@ interface MongoCatalogClient extends AutoCloseable {
         return collections(database).stream().filter(d -> name.equals(d.getString("name"))).findFirst();
     }
 
-    default MongoSnapshot.Source snapshotSource(long timeoutMs) {
+    default MongoSnapshot.Source snapshotSource(long timeoutMs, Runnable checkCancelled) {
         throw new UnsupportedOperationException("MongoDB snapshot source discovery is unavailable");
     }
 
-    default BsonTimestamp selectSnapshot(String database, String collection, String preference, long timeoutMs) {
+    default BsonTimestamp selectSnapshot(String database, String collection, String preference,
+            long timeoutMs, Runnable checkCancelled) {
         throw new UnsupportedOperationException("MongoDB snapshot selection is unavailable");
     }
 

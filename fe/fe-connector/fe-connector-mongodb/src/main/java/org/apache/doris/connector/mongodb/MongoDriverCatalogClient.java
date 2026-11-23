@@ -116,17 +116,19 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
     }
 
     @Override
-    public MongoSnapshot.Source snapshotSource(long timeoutMs) {
+    public MongoSnapshot.Source snapshotSource(long timeoutMs, Runnable checkCancelled) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         try {
             // hello identifies replica-set versus mongos routing and reports protocol capabilities.
-            Document hello = snapshotDatabase("admin", deadline).runCommand(new Document("hello", 1));
+            Document hello = snapshotDatabase("admin", deadline, checkCancelled).runCommand(new Document("hello", 1));
+            checkSnapshot(deadline, checkCancelled);
             int wireVersion = hello.getInteger("maxWireVersion", 0);
             if ("isdbgrid".equals(hello.getString("msg"))) {
                 // config.version._id=1 holds the clusterId shared by all routers of this deployment.
                 // Inclusion projection keeps only that identity; no data rows are used to identify a cluster.
-                Document version = snapshotDatabase("config", deadline).getCollection("version")
+                Document version = snapshotDatabase("config", deadline, checkCancelled).getCollection("version")
                         .find(new Document("_id", 1)).projection(new Document("clusterId", 1)).limit(1).first();
+                checkSnapshot(deadline, checkCancelled);
                 ObjectId identity = version == null ? null : version.getObjectId("clusterId");
                 if (identity == null) {
                     throw new IllegalArgumentException("MongoDB snapshot cluster identity metadata is unavailable");
@@ -138,8 +140,10 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
             }
             // Read the durable replica-set identity and config.version. Neither hello.setName nor
             // hello.topologyVersion alone identifies a deployment/configuration across connections.
-            Document config = snapshotDatabase("admin", deadline).runCommand(new Document("replSetGetConfig", 1))
+            Document config = snapshotDatabase("admin", deadline, checkCancelled)
+                    .runCommand(new Document("replSetGetConfig", 1))
                     .get("config", Document.class);
+            checkSnapshot(deadline, checkCancelled);
             ObjectId identity = config == null ? null : config.get("settings", new Document())
                     .getObjectId("replicaSetId");
             Number version = config == null ? null : config.get("version", Number.class);
@@ -153,8 +157,10 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
     }
 
     @Override
-    public BsonTimestamp selectSnapshot(String database, String collection, String preference, long timeoutMs) {
+    public BsonTimestamp selectSnapshot(String database, String collection, String preference,
+            long timeoutMs, Runnable checkCancelled) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        checkSnapshot(deadline, checkCancelled);
         // A constant projection bounds the probe payload independently of source document size.
         // MongoDB 7 time-series rewrites can ignore singleBatch. The driver's server-bound cursor
         // must close before its snapshot session, including when routers differ or selection fails.
@@ -164,20 +170,25 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
         // with limit=1/batchSize=1, to discover T without transferring a potentially large source row.
         // The driver may request an extra wire batch slot to exhaust a limit-one cursor.
         try (ClientSession session = client.startSession(ClientSessionOptions.builder()
-                .causallyConsistent(false).snapshot(true).build());
-                MongoCursor<Document> cursor = snapshotDatabase(database, deadline).getCollection(collection)
-                        .withReadPreference(properties.readPreferenceForSnapshot(preference)).find(session)
-                        .projection(new Document("_id", 0)
-                                .append("__doris_snapshot_probe__", new Document("$literal", 1)))
-                        .limit(1).batchSize(1).iterator()) {
-            cursor.hasNext();
-            // This is cursor.atClusterTime captured by the driver's snapshot-session protocol;
-            // operationTime, $clusterTime and the local wall clock are not substitutes for T.
-            BsonTimestamp timestamp = session.getSnapshotTimestamp();
-            if (timestamp == null) {
-                throw new DorisConnectorException("MongoDB snapshot probe did not return a snapshot timestamp");
+                .causallyConsistent(false).snapshot(true).build())) {
+            // Each blocking step must observe scan cancellation before starting the next one;
+            // an in-flight synchronous driver call still uses the original CSOT deadline.
+            try (MongoCursor<Document> cursor = snapshotDatabase(database, deadline, checkCancelled)
+                    .getCollection(collection).withReadPreference(properties.readPreferenceForSnapshot(preference))
+                    .find(session).projection(new Document("_id", 0)
+                            .append("__doris_snapshot_probe__", new Document("$literal", 1)))
+                    .limit(1).batchSize(1).iterator()) {
+                checkSnapshot(deadline, checkCancelled);
+                cursor.hasNext();
+                checkSnapshot(deadline, checkCancelled);
+                // This is cursor.atClusterTime captured by the driver's snapshot-session protocol;
+                // operationTime, $clusterTime and the local wall clock are not substitutes for T.
+                BsonTimestamp timestamp = session.getSnapshotTimestamp();
+                if (timestamp == null) {
+                    throw new DorisConnectorException("MongoDB snapshot probe did not return a snapshot timestamp");
+                }
+                return timestamp;
             }
-            return timestamp;
         } catch (MongoException failure) {
             throw failure(failure);
         }
@@ -313,14 +324,22 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
         }
     }
 
-    private MongoDatabase snapshotDatabase(String database, long deadline) {
-        long remaining = deadline - System.nanoTime();
-        if (remaining <= 0) {
+    private static void checkSnapshot(long deadline, Runnable checkCancelled) {
+        checkCancelled.run();
+        if (Thread.currentThread().isInterrupted()) {
+            throw new java.util.concurrent.CancellationException("MongoDB snapshot planning interrupted");
+        }
+        if (System.nanoTime() >= deadline) {
             throw new DorisConnectorException("MongoDB snapshot planning deadline exceeded");
         }
+    }
+
+    private MongoDatabase snapshotDatabase(String database, long deadline, Runnable checkCancelled) {
+        checkSnapshot(deadline, checkCancelled);
         // CSOT covers server selection/network/command time and supplies the wire maxTimeMS;
         // hand-adding maxTimeMS to a raw command would create a duplicate BSON field.
-        return metadataDatabase(database).withTimeout(Math.max(1, TimeUnit.NANOSECONDS.toMillis(remaining)),
+        return metadataDatabase(database).withTimeout(Math.max(1,
+                TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())),
                 TimeUnit.MILLISECONDS);
     }
 

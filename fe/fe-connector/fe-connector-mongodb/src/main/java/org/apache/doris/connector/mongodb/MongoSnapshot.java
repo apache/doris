@@ -21,6 +21,7 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.thrift.TMongoSnapshot;
 
 import org.bson.BsonTimestamp;
@@ -39,10 +40,12 @@ import java.util.function.Supplier;
 final class MongoSnapshot {
     private static final String STATE_KEY = "mongodb.statement.snapshot";
 
-    static TMongoSnapshot prepare(ConnectorSession session, MongoCatalogProperties properties,
-            MongoTableHandle table, Supplier<MongoCatalogClient> client, String concern,
-            String preference, long timeoutMs) {
-        checkQueryCancelled(session);
+    static TMongoSnapshot prepare(ConnectorSession session, ConnectorScanContext scanContext,
+            MongoCatalogProperties properties, MongoTableHandle table, Supplier<MongoCatalogClient> client,
+            String concern, String preference, long timeoutMs) {
+        // Stopping split assignment cancels this scan before the query schedulers necessarily close.
+        Runnable checkCancelled = () -> MongoRangePlanner.checkCancelled(session, scanContext);
+        checkCancelled.run();
         var scope = session.getStatementScope();
         if (!"snapshot".equals(concern)) {
             if (scope != ConnectorStatementScope.NONE) {
@@ -64,11 +67,15 @@ final class MongoSnapshot {
         }
         State state = scope.computeIfAbsent(STATE_KEY, () -> new State(timeoutMs));
         Source source = scope.computeIfAbsent("mongodb.snapshot.source:" + session.getCatalogId()
-                + ":" + properties.configurationVersion(), () -> client.get().snapshotSource(state.remainingMillis()));
-        checkQueryCancelled(session);
-        BsonTimestamp time = state.pin(source, () -> client.get().selectSnapshot(table.getDatabase(), table.getName(),
-                preference, state.remainingMillis()));
-        checkQueryCancelled(session);
+                + ":" + properties.configurationVersion(), () -> {
+                    checkCancelled.run();
+                    return client.get().snapshotSource(state.remainingMillis(), checkCancelled);
+                });
+        checkCancelled.run();
+        BsonTimestamp time = state.pin(checkCancelled, source,
+                () -> client.get().selectSnapshot(table.getDatabase(), table.getName(),
+                        preference, state.remainingMillis(), checkCancelled));
+        checkCancelled.run();
         // Copy plain values into each range. Driver sessions/cursors stay local, and neither BE nor
         // a different catalog should mutate the statement's selected timestamp or source identity.
         TMongoSnapshot result = new TMongoSnapshot();
@@ -157,7 +164,8 @@ final class MongoSnapshot {
             return Math.max(1, TimeUnit.NANOSECONDS.toMillis(remaining));
         }
 
-        BsonTimestamp pin(Source candidate, Supplier<BsonTimestamp> loader) {
+        BsonTimestamp pin(Runnable checkCancelled, Source candidate, Supplier<BsonTimestamp> loader) {
+            checkCancelled.run();
             remainingMillis();
             CompletableFuture<BsonTimestamp> selected;
             boolean owner;
@@ -181,7 +189,10 @@ final class MongoSnapshot {
             // other scan planners still need to validate source identity or reject mixed policies.
             if (owner) {
                 try {
+                    checkCancelled.run();
                     BsonTimestamp value = loader.get();
+                    checkCancelled.run();
+                    remainingMillis();
                     if (value == null || value.getTime() == 0) {
                         throw new DorisConnectorException("MongoDB did not return a usable snapshot timestamp");
                     }
@@ -196,12 +207,22 @@ final class MongoSnapshot {
                 }
             }
             try {
-                return selected.get(remainingMillis(), TimeUnit.MILLISECONDS);
+                // A waiting scan has its own cancellation context. Do not cancel the shared pin
+                // or wait for its owner's full query deadline when just this assignment stops.
+                while (true) {
+                    checkCancelled.run();
+                    long waitMs = Math.min(100, remainingMillis());
+                    try {
+                        BsonTimestamp value = selected.get(waitMs, TimeUnit.MILLISECONDS);
+                        checkCancelled.run();
+                        return value;
+                    } catch (TimeoutException timeout) {
+                        // Recheck scan cancellation and the original deadline before waiting again.
+                    }
+                }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 throw new CancellationException("MongoDB snapshot planning interrupted");
-            } catch (TimeoutException timeout) {
-                throw new DorisConnectorException("MongoDB snapshot planning deadline exceeded");
             } catch (ExecutionException failure) {
                 if (failure.getCause() instanceof Error fatal) {
                     throw fatal;

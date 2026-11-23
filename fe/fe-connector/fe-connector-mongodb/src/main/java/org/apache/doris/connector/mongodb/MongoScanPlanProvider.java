@@ -104,7 +104,7 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
         // snapshot selection below subtracts elapsed FE time before the range is published.
         d.setBatchSize(bounded(policies, "batch_size", 1024, 1, 65536));
         d.setTimeoutMs(1000L * bounded(policies, "query_timeout", 300, 1, Integer.MAX_VALUE / 1000));
-        var snapshot = MongoSnapshot.prepare(session, properties, handle, client,
+        var snapshot = MongoSnapshot.prepare(session, request.getScanContext(), properties, handle, client,
                 d.getReadConcern(), d.getReadPreference(), d.getTimeoutMs());
         if (snapshot != null) {
             // Each range owns a copy of the statement's T/source pins; BE opens an independent session.

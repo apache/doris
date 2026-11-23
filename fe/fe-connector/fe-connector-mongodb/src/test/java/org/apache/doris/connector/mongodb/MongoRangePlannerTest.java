@@ -415,8 +415,8 @@ class MongoRangePlannerTest {
         var properties = properties();
         var scope = new MongoSnapshotPlanTest.Scope();
         var session = session(scope, options("range"));
-        MongoSnapshot.prepare(session, properties, table(properties, "collection"), Client::new,
-                "snapshot", "primary", 30000);
+        MongoSnapshot.prepare(session, new ConnectorScanContext(), properties, table(properties, "collection"),
+                Client::new, "snapshot", "primary", 30000);
         Object state = scope.getIfPresent("mongodb.statement.snapshot");
         var deadline = state.getClass().getDeclaredField("deadlineNanos");
         deadline.setAccessible(true);
