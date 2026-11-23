@@ -150,6 +150,29 @@ Status PythonEnvironment::scan_from_conda_root_path(const fs::path& conda_root_p
     return Status::OK();
 }
 
+static Status inspect_venv_interpreter(const std::string& interpreter_path, std::string* version,
+                                       fs::path* venv_path) {
+    const std::string script =
+            "import json, sys; "
+            "version = '.'.join(map(str, sys.version_info[:3])); "
+            "print(json.dumps([version, sys.prefix if sys.prefix != sys.base_prefix else '']))";
+    const std::string command = fmt::format("{} -c {}", AgentUtils::shell_quote(interpreter_path),
+                                            AgentUtils::shell_quote(script));
+    std::string output;
+    if (!AgentUtils().exec_cmd(command, &output, false)) {
+        return Status::RuntimeError("Failed to inspect Python interpreter: {}", interpreter_path);
+    }
+    rapidjson::Document info;
+    if (info.Parse(output.data(), output.size()).HasParseError() || !info.IsArray() ||
+        info.Size() != 2 || !info[0].IsString() || !info[1].IsString()) {
+        return Status::RuntimeError("Invalid Python interpreter information from {}: {}",
+                                    interpreter_path, output);
+    }
+    version->assign(info[0].GetString(), info[0].GetStringLength());
+    *venv_path = std::string(info[1].GetString(), info[1].GetStringLength());
+    return Status::OK();
+}
+
 Status PythonEnvironment::scan_from_venv_root_path(
         const fs::path& venv_root_path, const std::vector<std::string>& interpreter_paths,
         std::vector<PythonEnvironment>* environments) {
@@ -160,7 +183,9 @@ Status PythonEnvironment::scan_from_venv_root_path(
             return Status::NotFound("Interpreter path not found: {}", interpreter_path);
         }
         std::string python_full_version;
-        RETURN_IF_ERROR(extract_python_version(interpreter_path, &python_full_version));
+        fs::path env_base_path;
+        RETURN_IF_ERROR(
+                inspect_venv_interpreter(interpreter_path, &python_full_version, &env_base_path));
         size_t pos = python_full_version.find_last_of('.');
         if (UNLIKELY(pos == std::string::npos)) {
             return Status::InvalidArgument("Invalid python version: {}", python_full_version);
@@ -168,29 +193,48 @@ Status PythonEnvironment::scan_from_venv_root_path(
         // Extract major.minor version (e.g., "3.12" from "3.12.0")
         std::string python_major_minor_version = python_full_version.substr(0, pos);
 
-        std::string env_name = fmt::format("python{}", python_full_version); // e.g. "python3.9.16"
-        std::string env_base_path = fmt::format("{}/{}", venv_root_path.string(),
-                                                env_name); // e.g. "/opt/venv/python3.9.16"
-        std::string python_path =
-                fmt::format("{}/bin/python", env_base_path); // e.g. "/{venv_base_path}/bin/python"
+        std::string env_name;
+        std::string python_path;
+        if (env_base_path.empty()) {
+            env_name = fmt::format("python{}", python_full_version);
+            env_base_path = venv_root_path / env_name;
+            python_path = (env_base_path / "bin/python").string();
 
-        // A missing interpreter at the versioned path means the configured venv is not ready.
-        if (!fs::is_regular_file(python_path)) {
-            return Status::NotFound(
-                    "Python virtual environment executable not found: {}. "
-                    "Create the environment at {} before starting BE.",
-                    python_path, env_base_path);
+            // A base interpreter may be configured before its versioned venv exists.
+            if (!fs::is_regular_file(python_path)) {
+                const std::string command =
+                        fmt::format("{} -m venv --system-site-packages {}",
+                                    AgentUtils::shell_quote(interpreter_path),
+                                    AgentUtils::shell_quote(env_base_path.string()));
+                std::string output;
+                if (!AgentUtils().exec_cmd(command, &output) || !fs::is_regular_file(python_path)) {
+                    return Status::RuntimeError(
+                            "Failed to create Python virtual environment at {} using {}: {}",
+                            env_base_path.string(), interpreter_path, output);
+                }
+            }
+        } else {
+            // A configured venv keeps its own packages and must reside under the configured root.
+            const auto relative_path = fs::relative(env_base_path, venv_root_path);
+            if (relative_path.empty() || *relative_path.begin() == "..") {
+                return Status::InvalidArgument("Python virtual environment {} is outside root {}",
+                                               env_base_path.string(), venv_root_path.string());
+            }
+            env_name = env_base_path.filename().string();
+            python_path = interpreter_path;
         }
 
         // Use major.minor version for site-packages path (e.g., "python3.12")
-        std::string python_dependency_path = fmt::format("{}/lib/python{}/site-packages",
-                                                         env_base_path, python_major_minor_version);
+        const auto python_dependency_path =
+                env_base_path /
+                fmt::format("lib/python{}/site-packages", python_major_minor_version);
 
         if (!fs::exists(python_dependency_path)) {
-            return Status::NotFound("Python dependency path not found: {}", python_dependency_path);
+            return Status::NotFound("Python dependency path not found: {}",
+                                    python_dependency_path.string());
         }
 
-        PythonVersion python_version(python_full_version, env_base_path, python_path);
+        PythonVersion python_version(python_full_version, env_base_path.string(), python_path);
         PythonEnvironment venv_env(env_name, python_version);
 
         if (UNLIKELY(!venv_env.is_valid())) {
