@@ -134,6 +134,8 @@ suite("test_export_big_data", "p2") {
                 def json = parseJson(res[0][11])
                 assert json instanceof List
                 assertEquals("1", json.fileNumber[0][0])
+                assertFalse(json.url[0][0].contains("*"))
+                assertTrue(json.url[0][0].contains("_0."))
                 log.info("outfile_path: ${json.url[0][0]}")
                 return json.url[0][0];
             } else if (res[0][2] == "CANCELLED") {

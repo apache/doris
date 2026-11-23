@@ -205,12 +205,17 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
             }
         }
         if (!_result_batch_queue.empty()) {
+            bool can_merge = true;
             if constexpr (std::is_same_v<InBlockType, Block>) {
                 sz = cast_set<int>(_result_batch_queue.back()->rows());
             } else if constexpr (std::is_same_v<InBlockType, TFetchDataResult>) {
                 sz = cast_set<int>(_result_batch_queue.back()->result_batch.rows.size());
+                // Parallel outfile writers have distinct SingleFileURLs. Merging only their
+                // rows would lose one writer's metadata or attach it to unrelated plain rows.
+                can_merge = _result_batch_queue.back()->result_batch.attached_infos.empty() &&
+                            result->result_batch.attached_infos.empty();
             }
-            if (sz + num_rows < _buffer_limit &&
+            if (can_merge && sz + num_rows < _buffer_limit &&
                 (batch_size + _last_batch_bytes) <= config::thrift_max_message_size) {
                 if constexpr (std::is_same_v<InBlockType, Block>) {
                     auto last_block = _result_batch_queue.back();

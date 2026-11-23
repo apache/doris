@@ -119,7 +119,9 @@ void VFileResultWriter::_init_profile(RuntimeProfile* parent_profile) {
 Status VFileResultWriter::_create_next_file_writer() {
     std::string file_name;
     RETURN_IF_ERROR(_get_next_file_name(&file_name));
-    return _create_file_writer(file_name);
+    RETURN_IF_ERROR(_create_file_writer(file_name));
+    _file_name = std::move(file_name);
+    return Status::OK();
 }
 
 Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
@@ -351,6 +353,16 @@ Status VFileResultWriter::_send_result() {
             std::make_pair("TotalRows", std::to_string(_written_rows_counter->value())));
     attach_infos.insert(std::make_pair("FileSize", std::to_string(_written_data_bytes->value())));
     attach_infos.insert(std::make_pair("URL", file_url));
+    if (_file_idx == 1) {
+        // SHOW EXPORT can display the actual file, while the MySQL URL keeps its wildcard.
+        // Reuse the name passed to the file writer, including any custom/compression suffix.
+        std::string single_file_url;
+        if (_storage_type == TStorageBackendType::LOCAL) {
+            single_file_url = "file:///" + BackendOptions::get_localhost();
+        }
+        single_file_url += _file_name;
+        attach_infos.insert(std::make_pair("SingleFileURL", single_file_url));
+    }
     attach_infos.insert(std::make_pair("WriteTimeSec", formatted_write_time));
     attach_infos.insert(std::make_pair("WriteSpeedKB", formatted_write_speed));
 

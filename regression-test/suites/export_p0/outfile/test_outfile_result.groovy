@@ -82,6 +82,8 @@ suite("test_outfile_result", "p0") {
                                             """
 
         assertEquals(6, outfile_res[0].size())
+        assertEquals(1, outfile_res[0][0])
+        assertTrue(outfile_res[0][3].endsWith("_*"))
         assertEquals(true, isNumber(outfile_res[0][4]))
         assertEquals(true, isNumber(outfile_res[0][5]))
     } finally {

@@ -87,6 +87,8 @@ suite("test_export_with_role") {
             logger.info("json: ${json}")
             assert json instanceof List
             assertEquals("1", json.fileNumber[0][0])
+            assertFalse(json.url[0][0].contains("*"))
+            assertTrue(json.url[0][0].contains("_0."))
             log.info("outfileUrl: ${json.url[0][0]}")
             outfileUrl = json.url[0][0]
             break;
@@ -103,7 +105,7 @@ suite("test_export_with_role") {
     }
 
     def result = sql """
-        select count(*) from s3("uri" = "s3://${bucket}/${outfileUrl.substring(5 + bucket.length())}0.csv",
+        select count(*) from s3("uri" = "${outfileUrl}",
                     "s3.endpoint" = "${endpoint}",
                     "s3.region" = "${region}",
                     "s3.role_arn"= "${roleArn}",

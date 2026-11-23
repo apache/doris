@@ -86,6 +86,8 @@ suite("test_show_export", "p0") {
                 def json = parseJson(res[0][11])
                 assert json instanceof List
                 assertEquals("1", json.fileNumber[0][0])
+                assertFalse(json.url[0][0].contains("*"))
+                assertTrue(json.url[0][0].contains("_0."))
                 log.info("outfile_path: ${json.url[0][0]}")
                 return json.url[0][0];
             } else if (res[0][2] == "CANCELLED") {
@@ -120,7 +122,7 @@ suite("test_show_export", "p0") {
         def outfile_url = waiting_export.call(label)
         
         order_qt_select_load1 """ select * from s3(
-                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "parquet",
@@ -157,7 +159,7 @@ suite("test_show_export", "p0") {
         def outfile_url = waiting_export.call(label)
         
         order_qt_select_load1 """ select * from s3(
-                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "parquet",
