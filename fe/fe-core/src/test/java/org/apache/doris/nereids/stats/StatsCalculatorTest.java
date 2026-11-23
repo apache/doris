@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -71,6 +72,7 @@ import org.apache.doris.statistics.model.ColumnStatisticBuilder;
 import org.apache.doris.statistics.model.PartitionColumnStatistic;
 import org.apache.doris.statistics.model.PartitionColumnStatisticBuilder;
 import org.apache.doris.statistics.model.Statistics;
+import org.apache.doris.statistics.model.StatisticsBuilder;
 import org.apache.doris.statistics.util.Hll128;
 
 import com.google.common.collect.ImmutableList;
@@ -751,6 +753,36 @@ public class StatsCalculatorTest {
         Statistics outputStats = calculator.computeExcept(exceptAll, child0Stats);
         ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
         Assertions.assertEquals(3, iaStatsOut.getHotValues().size());
+    }
+
+    @Test
+    public void testIntersectOwnsOutputStatistics() {
+        SlotReference leftSlot = new SlotReference("left", IntegerType.INSTANCE);
+        SlotReference rightSlot = new SlotReference("right", IntegerType.INSTANCE);
+        SlotReference outputSlot = new SlotReference("output", IntegerType.INSTANCE);
+        ColumnStatistic leftColumn = new ColumnStatisticBuilder(1_000).setNdv(1_000).build();
+        ColumnStatistic rightColumn = new ColumnStatisticBuilder(100).setNdv(100).build();
+        Statistics left = new StatisticsBuilder().setRowCount(1_000).setWidthInJoinCluster(2)
+                .setDeltaRowCount(25)
+                .putColumnStatistics(leftSlot, leftColumn).build();
+        left.setFromHbo(true);
+        Statistics right = new StatisticsBuilder().setRowCount(100)
+                .putColumnStatistics(rightSlot, rightColumn).build();
+        LogicalIntersect intersect = new LogicalIntersect(Qualifier.DISTINCT, ImmutableList.of(outputSlot),
+                ImmutableList.of(ImmutableList.of(leftSlot), ImmutableList.of(rightSlot)),
+                ImmutableList.of(new DummyPlan(), new DummyPlan()));
+
+        Statistics output = new StatsCalculator(null).computeIntersect(intersect, ImmutableList.of(left, right));
+
+        Assertions.assertEquals(100, output.getRowCount());
+        Assertions.assertEquals(100, output.findColumnStatistics(outputSlot).ndv);
+        Assertions.assertEquals(100, output.findColumnStatistics(leftSlot).ndv);
+        Assertions.assertEquals(ImmutableSet.of(leftSlot, outputSlot), output.columnStatistics().keySet());
+        Assertions.assertEquals(1, output.getWidthInJoinCluster());
+        Assertions.assertEquals(0, output.getDeltaRowCount());
+        Assertions.assertTrue(output.isFromHbo());
+        Assertions.assertEquals(ImmutableMap.of(leftSlot, leftColumn), left.columnStatistics());
+        Assertions.assertEquals(ImmutableMap.of(rightSlot, rightColumn), right.columnStatistics());
     }
 
     @Test

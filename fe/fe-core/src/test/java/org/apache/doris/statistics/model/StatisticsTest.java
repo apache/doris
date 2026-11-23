@@ -69,6 +69,26 @@ public class StatisticsTest {
     }
 
     @Test
+    public void testRowCountDerivationPreservesInputStatistics() {
+        SlotReference slot = SlotReference.of("a", IntegerType.INSTANCE);
+        ColumnStatistic columnStatistic = new ColumnStatisticBuilder(1_000_000)
+                .setNdv(1_000_000).build();
+        Statistics input = statisticsOf(slot, columnStatistic, 1_000_000);
+
+        Statistics derived = input.withRowCountAndEnforceValid(1);
+        Assertions.assertEquals(1, derived.getRowCount());
+        Assertions.assertEquals(1, derived.findColumnStatistics(slot).ndv);
+        Assertions.assertEquals(1_000_000, input.getRowCount());
+        Assertions.assertSame(columnStatistic, input.findColumnStatistics(slot));
+
+        Statistics hbo = input.withRowCountAndHboFlag(10);
+        Assertions.assertEquals(10, hbo.findColumnStatistics(slot).ndv);
+        Assertions.assertTrue(hbo.isFromHbo());
+        Assertions.assertSame(columnStatistic, input.findColumnStatistics(slot));
+        Assertions.assertFalse(input.isFromHbo());
+    }
+
+    @Test
     public void testRescaleNumNulls() {
         SlotReference slot = SlotReference.of("a", IntegerType.INSTANCE);
         ColumnStatistic columnStatistic = new ColumnStatisticBuilder(1000)

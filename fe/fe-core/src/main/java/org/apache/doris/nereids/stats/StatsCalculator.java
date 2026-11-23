@@ -1721,12 +1721,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         rowCount = Math.min(rowCount, minProd);
         List<NamedExpression> outputs = setOperation.getOutputs();
         List<SlotReference> leftChildOutputs = setOperation.getRegularChildOutput(0);
+        StatisticsBuilder result = new StatisticsBuilder(leftChildStats)
+                .setRowCount(rowCount)
+                .setWidthInJoinCluster(1)
+                .setDeltaRowCount(0);
         for (int i = 0; i < outputs.size(); i++) {
-            leftChildStats.addColumnStats(outputs.get(i),
+            result.putColumnStatistics(outputs.get(i),
                     leftChildStats.findColumnStatistics(leftChildOutputs.get(i)));
         }
-        return new StatisticsBuilder(leftChildStats.withRowCountAndEnforceValid(rowCount))
-                .setWidthInJoinCluster(1).build();
+        Statistics outputStats = result.build();
+        outputStats.enforceValid();
+        return outputStats;
     }
 
     /**
