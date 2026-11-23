@@ -264,9 +264,6 @@ struct FileCacheStatistics {
 };
 
 struct IOContext {
-    // Copies share query admission/cancellation, while each reader binds its own file/statistics.
-    std::shared_ptr<const QueryReadAheadResources> query_read_ahead {};
-    std::shared_ptr<const FileReadAheadResources> file_read_ahead {};
     FileReadTraceSource read_trace_source {FileReadTraceSource::NORMAL};
     uint64_t read_trace_id {0}; // read-ahead range or hole-fill task; zero when not traced
     ReaderType reader_type = ReaderType::UNKNOWN;
@@ -311,6 +308,10 @@ struct IOContext {
     // Scanner-local ingestion counters shared by physical decoding and load materialization.
     int64_t load_filtered_rows = 0;
     int64_t load_unselected_rows = 0;
+
+    // Copies share query admission/cancellation, while each reader binds its own file/statistics.
+    std::shared_ptr<const QueryReadAheadResources> query_read_ahead {};
+    std::shared_ptr<const FileReadAheadResources> file_read_ahead {};
 };
 
 } // namespace io

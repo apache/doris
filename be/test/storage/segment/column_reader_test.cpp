@@ -846,8 +846,8 @@ protected:
         ASSERT_TRUE(iterator->init({.use_page_cache = cached,
                                     .file_reader = source.get(),
                                     .stats = &stats,
-                                    .io_ctx = {.file_read_ahead = resources,
-                                               .reader_type = ReaderType::READER_QUERY}})
+                                    .io_ctx = {.reader_type = ReaderType::READER_QUERY,
+                                               .file_read_ahead = resources}})
                             .ok());
         roaring::Roaring rows;
         rows.addRange(0, num_rows);
@@ -953,8 +953,8 @@ protected:
         ASSERT_TRUE(new_read_ahead_iterator(reader, &iterator, resources).ok());
         ASSERT_TRUE(iterator->init({.file_reader = source.get(),
                                     .stats = &stats,
-                                    .io_ctx = {.file_read_ahead = resources,
-                                               .reader_type = ReaderType::READER_QUERY}})
+                                    .io_ctx = {.reader_type = ReaderType::READER_QUERY,
+                                               .file_read_ahead = resources}})
                             .ok());
         if (corrupt) {
             source->corrupt_next_read();
@@ -1028,8 +1028,8 @@ TEST_F(ColumnReaderTest, ReadAheadSubclassPreservesDictionaryInitAndOffsetAccess
         auto status = iterator->init({.is_predicate_column = true,
                                       .file_reader = source.get(),
                                       .stats = &stats,
-                                      .io_ctx = {.file_read_ahead = resources,
-                                                 .reader_type = ReaderType::READER_QUERY}});
+                                      .io_ctx = {.reader_type = ReaderType::READER_QUERY,
+                                                 .file_read_ahead = resources}});
         ASSERT_TRUE(status.ok()) << status;
         EXPECT_TRUE(iterator->is_all_dict_encoding());
         EXPECT_GT(stats.total_pages_num, 0);
@@ -1088,8 +1088,8 @@ TEST_F(ColumnReaderTest, ReadAheadSubclassMaterializesFilteredLazyRows) {
     OlapReaderStatistics stats;
     ASSERT_TRUE(iterator->init({.file_reader = source.get(),
                                 .stats = &stats,
-                                .io_ctx = {.file_read_ahead = resources,
-                                           .reader_type = ReaderType::READER_QUERY}})
+                                .io_ctx = {.reader_type = ReaderType::READER_QUERY,
+                                           .file_read_ahead = resources}})
                         .ok());
     iterator->set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
     roaring::Roaring rows;
@@ -1265,8 +1265,8 @@ TEST_F(ColumnReaderTest, IndependentIteratorsShareBudgetAndOutliveDestroyedContr
     for (auto* iterator : {first.get(), second.get()}) {
         ASSERT_TRUE(iterator->init({.file_reader = source.get(),
                                     .stats = &stats,
-                                    .io_ctx = {.file_read_ahead = resources,
-                                               .reader_type = ReaderType::READER_QUERY}})
+                                    .io_ctx = {.reader_type = ReaderType::READER_QUERY,
+                                               .file_read_ahead = resources}})
                             .ok());
     }
     std::mutex mutex;
@@ -1352,8 +1352,8 @@ TEST_F(ColumnReaderTest, FileColumnIteratorPreparesCompressedPageByteWindow) {
     OlapReaderStatistics stats;
     ASSERT_TRUE(iterator->init({.file_reader = source.get(),
                                 .stats = &stats,
-                                .io_ctx = {.file_read_ahead = resources,
-                                           .reader_type = ReaderType::READER_QUERY}})
+                                .io_ctx = {.reader_type = ReaderType::READER_QUERY,
+                                           .file_read_ahead = resources}})
                         .ok());
     roaring::Roaring rows;
     rows.addRange(0, num_rows);
