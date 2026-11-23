@@ -200,6 +200,9 @@ FE_MODULES=("fe-common" "fe-core")
 # fe-connector-adbc is not upstream of fe-core, so -am cannot discover its tests
 # unless the module is named explicitly.
 FE_MODULES+=("fe-connector/fe-connector-adbc")
+# Delta is a runtime plugin, not a fe-core test dependency. Include it explicitly so CI also
+# runs its connector and metastore tests through -am.
+FE_MODULES+=("fe-connector/fe-connector-deltalake")
 # The fluss connector. The other connectors' tests run because fe-core declares each one as a test
 # dependency (for Legacy413ProviderTypeContractTest) and -am pulls them into the reactor; fluss is
 # not among them, so it has to be named here or its tests never run.

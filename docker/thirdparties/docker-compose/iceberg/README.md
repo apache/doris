@@ -209,3 +209,176 @@ bash docker/thirdparties/docker-compose/iceberg/encryption/test_restart.sh \
 
 The test requires the first reset after restart to succeed and then checks the
 SDK/Spark snapshot results and KMS failure cases again. It never retries reset.
+
+## Delta Lake regression
+
+The optional `deltalake` Compose profile reuses this stack's MinIO and the
+`apache/spark:4.0.0` image. Delta gets a separate Spark service and Hive 3 HMS:
+`DeltaCatalog` must own `spark_catalog`, while the existing Iceberg/Paimon Spark
+configuration has its own session catalog and extensions. Delta uses
+`delta-spark_4.0_2.13:4.4.1`, the artifact for Spark 4.0.
+
+Enable it with the standard runner:
+
+```bash
+ENABLE_DELTALAKE_TEST=1 CONTAINER_UID=delta-test- \
+    bash docker/thirdparties/run-thirdparties-docker.sh -c iceberg
+```
+
+Use Bash 4 or newer on macOS. Pass the same `ENABLE_DELTALAKE_TEST=1` when stopping
+this stack with `--stop`. With the flag omitted, the existing Iceberg/Paimon
+services run without the optional Delta services.
+
+The runner first prepares the existing Iceberg archive, then calls
+`scripts/deltalake/prepare.py`. The Python script downloads and verifies SHA-256
+for all seven Spark jars and the pinned Delta source archive. It caches them in
+`cache/deltalake`, extracts 31 selected golden tables, normalizes table directory
+names to lower-case underscores, and retains upstream `LICENSE.txt`, `NOTICE.txt`
+and a source manifest. A missing table or checksum mismatch fails preparation.
+`MAVEN_REPOSITORY_URL` can select a Maven mirror; pinned hashes remain mandatory.
+
+Golden tables come from Delta Lake v4.4.1, commit
+`cebdc44dc07d331383e72811177af4ffc8638990`, under
+`connectors/golden-tables/src/main/resources/golden/`, licensed under Apache 2.0.
+The archive SHA-256 is
+`a9b81e3e0a10c4b32afec823b5a2803eab57c06f542664478ecd438b2b982339`.
+The exact selection and artifact hashes live in `scripts/deltalake/prepare.py`.
+Golden fixtures are uploaded to the private `delta` bucket under
+`warehouse/delta_golden`; the metadata-only `checkpoint` fixture intentionally
+has no data objects, and `no_delta_log_folder` is an error-path fixture.
+
+The Spark service runs the SQL fixtures in
+`scripts/create_preinstalled_scripts/deltalake/`, followed by the log-compaction,
+golden registration and Parquet pruning helpers. Only after these complete and
+Spark Thrift answers a query does the service become healthy. The first successful
+setup writes `cache/deltalake/spark/FIXTURES_READY`. Restarts reuse those fixtures
+and only restart Spark Thrift. The storage initializer also writes `GOLDEN_READY`
+in that state directory after a successful upload, and skips uploading golden
+objects on subsequent starts. To deliberately regenerate fixtures after changing
+their definitions, explicitly set `DELTALAKE_REGENERATE_FIXTURES=1`; this uploads
+the pinned golden objects again and replaces the Spark fixture tables before
+populating them. Return the flag to `0` for subsequent
+starts. Keep the Spark, HMS and MinIO state directories together when restoring a
+retained environment; the marker assumes their corresponding data is still present.
+Regression suites retain their catalogs/tables for inspection. Spark uses two local cores
+and a 2 GiB driver; allow additional Docker memory when running it alongside the
+full Iceberg stack.
+
+| Compose environment variable | Default | Regression setting |
+| --- | --- | --- |
+| `MINIO_API_PORT` | 19001 | `deltalakeMinioPort` |
+| `DELTALAKE_HMS_PORT` | 19383 | `deltalakeHmsPort` |
+| `DELTALAKE_SPARK_PORT` | 11002 | `deltalakeSparkPort` |
+
+Set these in `regression-test/conf/regression-conf-custom.groovy`, together with
+`enableDeltaLakeTest=true`, `externalEnvIp` and
+`deltalakeWarehouse="s3a://delta/warehouse"`, then run:
+
+```bash
+bash run-regression-test.sh --run -d external_table_p0/deltalake \
+    -s test_deltalake_basic,test_deltalake_skipping,test_deltalake_features,test_deltalake_metadata,test_deltalake_errors,test_deltalake_parquet,test_deltalake_parquet_deletion_vector,test_deltalake_metrics
+```
+
+These tests read Delta through the filesystem catalog. Spark uses HMS to create
+and update the shared fixtures. They cover native reads, mapping/renames, type widening, deletion
+vectors, checkpoints/sidecars/compaction, TTL/REFRESH, streaming, COUNT, pruning
+and profiles. Spark Thrift is required for the refresh tests' new commits.
+The optional million-file fixture is prepared separately; see
+`regression-test/suites/external_table_p2/deltalake/README.md`.
+
+#### Read-only Unity Catalog
+
+Use an open-source Unity Catalog 0.7.0 server on the same host as the test FE and BE.
+Create the UC catalog `doris_delta` with a dedicated `file://` storage root. Spark, UC
+and the test BE must see the same absolute fixture path. The fixture replaces only
+`doris_delta.m1.uc_managed` and retains the data for later runs. With Spark 4.0,
+run the following from the Doris checkout:
+
+```bash
+export UC_TEST_SERVER=http://127.0.0.1:8080
+spark-submit --master 'local[2]' \
+  --packages io.delta:delta-spark_4.0_2.13:4.4.1,io.unitycatalog:unitycatalog-spark_4.0_2.13:0.6.0 \
+  docker/thirdparties/docker-compose/iceberg/scripts/deltalake/uc-managed.py
+```
+
+Set `enableDeltaLakeUcTest=true` and `deltalakeUcUri` to the server origin in
+`regression-conf-custom.groovy`. Run
+`bash run-regression-test.sh --run -d external_table_p0/deltalake -s test_deltalake_uc`.
+The fixture keeps the latest ratified commit in `_staged_commits`, holds the numbered
+copy and its optional CRC aside, and reads the result through a fresh Spark Delta log.
+The Doris suite checks the same rows through both scheduling modes and checks that INSERT fails.
+
+#### Reader correctness fixtures
+
+`scripts/deltalake/delta_reader_edges` contains small, immutable Delta tables.
+Their Parquet footers distinguish an old, missing, or matching field ID under the same
+physical name. The partition fixtures cover an empty string and JSON null, a logical
+column named `p,q`, and a Spark 4.0.1 / Delta 4.4.1 table whose partition type changed
+from DATE to TIMESTAMP_NTZ between writes. The comma and plain-name controls contain
+identical Parquet bytes. On the STRING fixture, `p = ''` selects id 1 and
+`p IS NULL` selects id 2, matching Spark 4.0.1 with Delta 4.4.1. On the DATE
+fixture, `p IS NULL` selects id 1. See the connector's
+[STRING partition value semantics](../../../../fe/fe-connector/fe-connector-deltalake/README.md#string-partition-values).
+
+The Delta storage initializer copies these fixtures to `warehouse/delta_reader_edges`
+in MinIO, including when it reuses the existing Spark fixtures. To expose the same
+files through local read-only UC, run this from the shared checkout with
+`UC_TEST_SERVER` set as above:
+
+```bash
+python3 docker/thirdparties/docker-compose/iceberg/scripts/deltalake/register-reader-edges.py
+```
+
+Run `bash run-regression-test.sh --run -d external_table_p0/deltalake -s test_deltalake_reader_edges`.
+The suite exercises filesystem with `enableDeltaLakeTest` and UC with `enableDeltaLakeUcTest`.
+With both enabled, it checks each result through both catalogs and scheduling modes.
+It compares queries with typed SQL constants so a reader error cannot become a golden output.
+
+`test_deltalake_column_mapping` reads three copies of the retained `id_old_id` Parquet
+file (physical name `physical_x`, field ID 3, value 703). The `id` and `name` table
+schemas associate `physical_x` with ID 7 and `physical_y` with ID 3. The returned
+pair is `(NULL, 703)` in ID mode and `(703, NULL)` in name mode. The third table
+omits the mapping property and reads `(703, NULL)` by its display names.
+
+For the Databricks external-table test, configure the storage owner's Azure Shared Key.
+One Doris catalog corresponds to one UC catalog, and each UC schema appears as a Doris database.
+
+```sql
+CREATE CATALOG delta_uc PROPERTIES (
+    'type' = 'deltalake',
+    'deltalake.catalog.type' = 'uc',
+    'deltalake.uc.uri' = 'https://<workspace-host>',
+    'deltalake.uc.catalog' = '<uc-catalog>',
+    'deltalake.uc.token' = '<uc-token>',
+    'deltalake.uc.storage.mode' = 'configured',
+    'azure.account_name' = '<storage-account>',
+    'azure.account_key' = '<account-key>'
+);
+```
+
+UC must authorize the external table's `READ` operation. The configured mode
+uses the storage account credentials on FE and BE. An access denial stops the query.
+For OAuth M2M, supply `deltalake.uc.oauth.client-id`, `deltalake.uc.oauth.client-secret`
+and `deltalake.uc.oauth.token-uri` in place of the static token. The default storage
+mode, `vended`, supports table-scoped S3 session credentials. Live validation of
+Databricks with a configured ADLS Shared Key is pending. UC-vended Azure SAS
+requires FE and BE support before it can be validated.
+
+For a Delta-only local run, use the same template and preparation script without
+starting the existing Iceberg services or downloading their data archive:
+
+```bash
+python3 docker/thirdparties/docker-compose/iceberg/scripts/deltalake/prepare.py
+cd docker/thirdparties/docker-compose/iceberg
+sed 's/doris--/delta-local-/g' iceberg.yaml.tpl > iceberg.yaml
+ICEBERG_MINIO_DATA_DIR=./cache/deltalake/minio_data \
+    docker compose -p delta-local --env-file iceberg.env -f iceberg.yaml \
+    --profile deltalake up -d --wait spark-deltalake
+```
+
+The MinIO directory override keeps this lightweight run from creating the
+`data/` directory that the full runner uses to detect its Iceberg archive.
+Use a unique container prefix and unused host ports for each worktree, and keep
+the same directory override when restarting this lightweight stack. Its data
+and Hive metastore persist in `cache/deltalake`; stop containers before removing
+that generated state.

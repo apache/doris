@@ -107,6 +107,12 @@ public final class HiveTableFormatDetector {
             return HiveTableType.HUDI;
         }
 
+        // A Delta registration may advertise a generic Parquet input format. Scanning its directory
+        // as Hive would expose obsolete files and rows removed by deletion vectors.
+        if (params != null && "delta".equalsIgnoreCase(params.get("spark.sql.sources.provider"))) {
+            return HiveTableType.UNKNOWN;
+        }
+
         // 3. Hive detection
         if (inputFormat != null && SUPPORTED_HIVE_INPUT_FORMATS.contains(inputFormat)) {
             return HiveTableType.HIVE;

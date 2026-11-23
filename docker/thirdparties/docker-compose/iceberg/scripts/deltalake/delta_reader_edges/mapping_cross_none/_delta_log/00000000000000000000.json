@@ -1,0 +1,3 @@
+{"protocol": {"minReaderVersion": 1, "minWriterVersion": 2}}
+{"metaData": {"id": "6bc28206-530a-52a8-a731-001e0a758989", "format": {"provider": "parquet", "options": {}}, "schemaString": "{\"type\": \"struct\", \"fields\": [{\"name\": \"physical_x\", \"type\": \"long\", \"nullable\": true, \"metadata\": {}}, {\"name\": \"physical_y\", \"type\": \"long\", \"nullable\": true, \"metadata\": {}}]}", "configuration": {}, "partitionColumns": [], "createdTime": 1794553426418}}
+{"add": {"path": "part.parquet", "partitionValues": {}, "size": 608, "modificationTime": 1794553426418, "dataChange": true, "stats": "{\"numRecords\": 1}"}}
