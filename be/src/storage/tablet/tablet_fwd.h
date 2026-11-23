@@ -38,6 +38,7 @@ using DeleteBitmapPtr = std::shared_ptr<DeleteBitmap>;
 
 struct TabletCompactionContext {
     TabletSharedPtr tablet;
+    int disk_slots = 0;
 };
 
 } // namespace doris

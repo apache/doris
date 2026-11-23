@@ -21,9 +21,14 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
 #include <filesystem>
+#include <future>
 #include <memory>
+#include <unordered_map>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
@@ -128,6 +133,113 @@ TEST_F(CompactionTaskTest, TestSubmitCompactionTask) {
             _storage_engine->_compaction_submit_registry.count_executing_cumu_and_base(
                     _data_dir.get());
     EXPECT_EQ(executing_task_num, 2);
+}
+
+TEST_F(CompactionTaskTest, AutomaticCumulativeReachesWorkerWhileBaseIsSaturated) {
+    const auto base = CompactionType::BASE_COMPACTION;
+    const auto cumulative = CompactionType::CUMULATIVE_COMPACTION;
+    const auto old_budget = config::total_permits_for_compaction_score;
+    const auto old_rounds = config::cumulative_compaction_rounds_for_each_base_compaction_round;
+    const auto old_interval = config::generate_compaction_tasks_interval_ms;
+    const bool old_disabled = config::disable_auto_compaction;
+    const bool old_memory_pause = config::enable_compaction_pause_on_high_memory;
+    Defer restore([&] {
+        config::total_permits_for_compaction_score = old_budget;
+        config::cumulative_compaction_rounds_for_each_base_compaction_round = old_rounds;
+        config::generate_compaction_tasks_interval_ms = old_interval;
+        config::disable_auto_compaction = old_disabled;
+        config::enable_compaction_pause_on_high_memory = old_memory_pause;
+    });
+    config::total_permits_for_compaction_score = 4;
+    config::cumulative_compaction_rounds_for_each_base_compaction_round = 1;
+    config::generate_compaction_tasks_interval_ms = 5;
+    config::disable_auto_compaction = false;
+    config::enable_compaction_pause_on_high_memory = false;
+
+    _storage_engine->_compaction_admission = std::make_unique<CompactionAdmission>(2);
+    ASSERT_TRUE(ThreadPoolBuilder("IsolationBasePool")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&_storage_engine->_base_compaction_thread_pool)
+                        .ok());
+    ASSERT_TRUE(ThreadPoolBuilder("IsolationCumulativePool")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&_storage_engine->_cumu_compaction_thread_pool)
+                        .ok());
+
+    const auto make_tablet = [&](int64_t id, int cumulative_point) {
+        auto meta = std::make_shared<TabletMeta>(1, 2, id, 15674, 4, 5, TTabletSchema(), 6,
+                                                 std::unordered_map<uint32_t, uint32_t> {},
+                                                 UniqueId(9, id), TTabletType::TABLET_TYPE_DISK,
+                                                 TCompressionType::LZ4F);
+        auto tablet = std::make_shared<Tablet>(*_storage_engine, meta, _data_dir.get(),
+                                               CUMULATIVE_SIZE_BASED_POLICY);
+        EXPECT_TRUE(tablet->init().ok());
+        for (int i = 2; i < 30; ++i) {
+            auto rowset = create_rowset({i, i}, 1, false, 1024);
+            tablet->_rs_version_map.emplace(rowset->version(), rowset);
+        }
+        tablet->_cumulative_point = cumulative_point;
+        return tablet;
+    };
+    auto slow_base = make_tablet(15673, 25);
+    auto next_base = make_tablet(15674, 25);
+    auto next_cumu = make_tablet(15675, 2);
+
+    std::promise<void> base_started, release_base, cumulative_started;
+    auto base_done = release_base.get_future();
+    std::atomic<int> base_runs {0};
+    bool base_round_seen = false;
+    bool cumulative_scheduled = false;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("StorageEngine::_adjust_compaction_thread_num.return_void",
+                      [](auto&& values) { *try_any_cast<bool*>(values.back()) = true; });
+    sp->set_call_back("olap_server::_generate_compaction_tasks.return_empty", [&](auto&& values) {
+        auto type = try_any_cast<CompactionType>(values.front());
+        auto* ret = try_any_cast_ret<std::vector<TabletCompactionContext>>(values);
+        ret->second = true;
+        if (type == base) {
+            base_round_seen = true;
+            ret->first = {{next_base, 4}};
+        } else if (type == cumulative && base_round_seen && !cumulative_scheduled) {
+            cumulative_scheduled = true;
+            ret->first = {{next_cumu, 4}};
+        }
+    });
+    sp->set_call_back("olap_server::execute_compaction", [&](auto&& values) {
+        auto type = try_any_cast<CompactionType>(values.front());
+        *try_any_cast<bool*>(values.back()) = true; // The fixture has synthetic rowset metadata.
+        if (type == base) {
+            if (++base_runs == 1) {
+                base_started.set_value();
+                base_done.wait();
+            }
+        } else {
+            cumulative_started.set_value();
+        }
+    });
+    sp->enable_processing();
+    Defer cleanup([&] {
+        release_base.set_value();
+        _storage_engine->stop();
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    });
+
+    ASSERT_TRUE(_storage_engine->_submit_compaction_task(slow_base, base, false).ok());
+    ASSERT_EQ(base_started.get_future().wait_for(std::chrono::seconds(10)),
+              std::future_status::ready);
+    ASSERT_TRUE(Thread::create(
+                        "StorageEngine", "isolation_test_producer",
+                        [&] { _storage_engine->_compaction_tasks_producer_callback(); },
+                        &_storage_engine->_compaction_tasks_producer_thread)
+                        .ok());
+    EXPECT_EQ(cumulative_started.get_future().wait_for(std::chrono::seconds(10)),
+              std::future_status::ready);
+    _storage_engine->_cumu_compaction_thread_pool->wait();
+    EXPECT_EQ(_storage_engine->_base_compaction_thread_pool->get_queue_size(), 0);
+    EXPECT_EQ(base_runs.load(), 1);
 }
 
 TEST_F(CompactionTaskTest, ChangelogCompactionProducerIgnoresCcrSwitch) {

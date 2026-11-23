@@ -474,7 +474,8 @@ private:
                                                CompactionType compaction_type);
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                   bool force, TriggerMethod trigger_method = TriggerMethod::AUTO);
+                                   bool force, TriggerMethod trigger_method = TriggerMethod::AUTO,
+                                   int automatic_disk_slots = 0);
 
     void _handle_compaction(TabletSharedPtr tablet, std::shared_ptr<CompactionMixin> compaction,
                             CompactionType compaction_type, int64_t permits, bool force,
@@ -573,6 +574,7 @@ private:
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
 
     CompactionPermitLimiter _permit_limiter;
+    std::unique_ptr<CompactionAdmission> _compaction_admission;
 
     CompactionSubmitRegistry _compaction_submit_registry;
 
