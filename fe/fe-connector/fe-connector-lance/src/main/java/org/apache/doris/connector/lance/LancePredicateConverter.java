@@ -59,6 +59,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -76,11 +77,16 @@ final class LancePredicateConverter {
             + "fe/fe-connector/fe-connector-lance/src/main/resources/substrait/lance_functions.yaml";
     private static final SimpleExtension.ExtensionCollection EXTENSIONS = loadExtensions();
 
-    private final Schema schema;
+    private final Function<Expression, byte[]> serializer;
     private final Map<String, ResolvedField> fieldsByLowerCaseName = new HashMap<>();
 
     LancePredicateConverter(Schema schema) {
-        this.schema = schema;
+        this(schema, new LanceSubstraitSerializer(schema)::serialize);
+    }
+
+    /** Over a serializer of the caller's, which tests count the serializations with. */
+    LancePredicateConverter(Schema schema, Function<Expression, byte[]> serializer) {
+        this.serializer = serializer;
         List<Field> fields = schema.getFields();
         for (int ordinal = 0; ordinal < fields.size(); ordinal++) {
             Field field = fields.get(ordinal);
@@ -114,16 +120,9 @@ final class LancePredicateConverter {
                 notPushedIndices.add(i);
             }
         }
-        if (filters.isEmpty()) {
-            return new ConversionResult(new byte[0], "", pushedConjuncts, notPushedIndices);
-        }
-        Expression combined = filters.size() == 1 ? filters.get(0) : booleanFunction("and:bool", filters);
-        String debugPredicate = pushedConjuncts.stream()
-                .map(LancePredicateConverter::render)
-                .map(sql -> "(" + sql + ")")
-                .collect(Collectors.joining(" AND "));
-        return new ConversionResult(new LanceSubstraitSerializer(schema).serialize(combined), debugPredicate,
-                pushedConjuncts, notPushedIndices);
+        Optional<Expression> combined = filters.isEmpty() ? Optional.empty()
+                : Optional.of(filters.size() == 1 ? filters.get(0) : booleanFunction("and:bool", filters));
+        return new ConversionResult(combined, serializer, pushedConjuncts, notPushedIndices);
     }
 
     private Optional<Expression> convert(ConnectorExpression expr) {
@@ -657,28 +656,37 @@ final class LancePredicateConverter {
         }
     }
 
-    /** The Substrait filter of the pushed conjuncts, which conjuncts those are, and which stay in Doris. */
+    /**
+     * The Substrait filter of the pushed conjuncts, which conjuncts those are, and which stay in Doris. Planning
+     * the ranges needs only which conjuncts are pushed, so the filter and its EXPLAIN text are produced when asked
+     * for, which only the scan properties do.
+     */
     static final class ConversionResult {
-        private final byte[] substraitFilter;
-        private final String debugPredicate;
+        /** The converted conjuncts as one expression; empty when none was converted. */
+        private final Optional<Expression> combined;
+        private final Function<Expression, byte[]> serializer;
         private final List<ConnectorExpression> pushedConjuncts;
         private final Set<Integer> notPushedIndices;
 
-        private ConversionResult(byte[] substraitFilter, String debugPredicate,
+        private ConversionResult(Optional<Expression> combined, Function<Expression, byte[]> serializer,
                 List<ConnectorExpression> pushedConjuncts, Set<Integer> notPushedIndices) {
-            this.substraitFilter = substraitFilter;
-            this.debugPredicate = debugPredicate;
+            this.combined = combined;
+            this.serializer = serializer;
             this.pushedConjuncts = Collections.unmodifiableList(new ArrayList<>(pushedConjuncts));
             this.notPushedIndices = Collections.unmodifiableSet(new TreeSet<>(notPushedIndices));
         }
 
-        /** The serialized ExtendedExpression; empty when no conjunct was converted. */
+        /** The serialized ExtendedExpression, serialized on every call; empty when no conjunct was converted. */
         byte[] getSubstraitFilter() {
-            return substraitFilter;
+            return combined.map(serializer).orElseGet(() -> new byte[0]);
         }
 
+        /** The pushed conjuncts as SQL for EXPLAIN, rendered on every call; empty when none was pushed. */
         String getDebugPredicate() {
-            return debugPredicate;
+            return pushedConjuncts.stream()
+                    .map(LancePredicateConverter::render)
+                    .map(sql -> "(" + sql + ")")
+                    .collect(Collectors.joining(" AND "));
         }
 
         List<ConnectorExpression> getPushedConjuncts() {

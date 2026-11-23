@@ -51,6 +51,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 /**
  * Split planning and the scan-level parameters, from metadata a statement has already read. The catalog
@@ -67,6 +69,11 @@ class LanceScanPlanProviderTest {
     private final LanceTableHandle handle = new LanceTableHandle("default", "all_types").withVersion(3);
 
     private LanceScanPlanProvider provider(Map<String, String> backendStorageProperties) {
+        return provider(backendStorageProperties, LancePredicateConverter::new);
+    }
+
+    private LanceScanPlanProvider provider(Map<String, String> backendStorageProperties,
+            Function<Schema, LancePredicateConverter> converters) {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "lance");
         properties.put("warehouse", "s3://warehouse/lance");
@@ -77,7 +84,7 @@ class LanceScanPlanProviderTest {
                 () -> {
                     throw new AssertionError("the statement already read this version; nothing may read it again");
                 });
-        return new LanceScanPlanProvider(unopenable, "filesystem", () -> backendStorageProperties);
+        return new LanceScanPlanProvider(unopenable, "filesystem", () -> backendStorageProperties, converters);
     }
 
     private void readInThisStatement(LanceTableMetadata metadata) {
@@ -294,6 +301,32 @@ class LanceScanPlanProviderTest {
         TFileScanRangeParams none = new TFileScanRangeParams();
         provider.populateScanLevelParams(none, nothingPushed.getProperties());
         Assertions.assertFalse(none.isSetLanceScanParams());
+    }
+
+    /**
+     * Planning the ranges needs only which conjuncts are pushed, so it never serializes the Substrait filter; the
+     * scan properties, which carry it to BE, serialize it once.
+     */
+    @Test
+    void rangePlanningNeverSerializesTheFilter() {
+        readWithoutIndexes(metadata(Collections.emptyMap(), new LanceFragmentInfo(0, 1, 1)));
+        AtomicInteger serializations = new AtomicInteger();
+        LanceScanPlanProvider provider = provider(Collections.emptyMap(),
+                schema -> new LancePredicateConverter(schema, expression -> {
+                    serializations.incrementAndGet();
+                    return new LanceSubstraitSerializer(schema).serialize(expression);
+                }));
+        Assertions.assertEquals(1, plan(provider, request().filter(Optional.of(ID_IS_5)).limit(10)).size());
+        Assertions.assertEquals(0, serializations.get());
+
+        ScanNodePropertiesResult result = provider.getScanNodePropertiesResult(session, handle,
+                Collections.emptyList(), Optional.of(ID_IS_5));
+        Assertions.assertEquals(1, serializations.get());
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, result.getProperties());
+        Assertions.assertArrayEquals(new LancePredicateConverter(SCHEMA)
+                .convert(Collections.singletonList(ID_IS_5)).getSubstraitFilter(),
+                params.getLanceScanParams().getLanceSubstraitFilter());
     }
 
     /** A range may stop at the LIMIT only when Doris filters nothing after it. */

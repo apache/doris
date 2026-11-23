@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TLanceScanParams;
 
 import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.Base64;
 import java.util.HashMap;
@@ -44,6 +45,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -88,6 +90,7 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
     private final LanceCatalogClient client;
     private final String catalogType;
     private final Supplier<Map<String, String>> backendStorageProperties;
+    private final Function<Schema, LancePredicateConverter> converters;
 
     /**
      * @param backendStorageProperties the catalog's storage keys in BE's spelling. lance-c ignores them -
@@ -96,9 +99,17 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
      */
     LanceScanPlanProvider(LanceCatalogClient client, String catalogType,
             Supplier<Map<String, String>> backendStorageProperties) {
+        this(client, catalogType, backendStorageProperties, LancePredicateConverter::new);
+    }
+
+    /** With the predicate converters of the caller's, which tests count the serializations of. */
+    LanceScanPlanProvider(LanceCatalogClient client, String catalogType,
+            Supplier<Map<String, String>> backendStorageProperties,
+            Function<Schema, LancePredicateConverter> converters) {
         this.client = client;
         this.catalogType = catalogType;
         this.backendStorageProperties = backendStorageProperties;
+        this.converters = converters;
     }
 
     /**
@@ -134,7 +145,8 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
         if (request.isCountPushdown() && conjuncts.isEmpty()) {
             return LanceScanPlanner.countRanges(metadata);
         }
-        LancePredicateConverter converter = new LancePredicateConverter(metadata.getSchema());
+        LancePredicateConverter converter = converters.apply(metadata.getSchema());
+        // Only which conjuncts are pushed matters here; the Substrait filter is serialized for the scan properties.
         LancePredicateConverter.ConversionResult pushdown = converter.convert(conjuncts);
         LanceScanPlan plan = plan(session, handle, metadata, converter, pushdown);
         // A range may stop at the LIMIT only when Doris filters nothing after it. The engine passes no limit when
@@ -165,11 +177,12 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
         props.put(PROP_VERSION, String.valueOf(metadata.getVersion()));
         props.put(PROP_FRAGMENTS, String.valueOf(metadata.getFragments().size()));
 
-        LancePredicateConverter converter = new LancePredicateConverter(metadata.getSchema());
+        LancePredicateConverter converter = converters.apply(metadata.getSchema());
         LancePredicateConverter.ConversionResult pushdown =
                 converter.convert(LancePredicateConverter.conjuncts(filter));
-        if (pushdown.getSubstraitFilter().length > 0) {
-            props.put(PROP_SUBSTRAIT_FILTER, Base64.getEncoder().encodeToString(pushdown.getSubstraitFilter()));
+        byte[] substraitFilter = pushdown.getSubstraitFilter();
+        if (substraitFilter.length > 0) {
+            props.put(PROP_SUBSTRAIT_FILTER, Base64.getEncoder().encodeToString(substraitFilter));
             props.put(PROP_PUSHDOWN_PREDICATE, pushdown.getDebugPredicate());
         }
         plan(session, handle, metadata, converter, pushdown).addExplainProperties(props);
