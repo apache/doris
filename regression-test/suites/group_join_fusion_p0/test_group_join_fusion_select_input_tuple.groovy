@@ -28,9 +28,7 @@
 // that tuple, and the BE rejected the plan with
 //   VSlotRef have invalid slot id: <slot>
 //   slot <slot> belongs to Tuple(id=<projection tuple>), not Tuple(id=<materialization tuple>)
-// The plan shape needs an outer aggregate that consumes the same inner expression more than
-// once (SUM/MIN/MAX of LENGTH(s)) so that aggregate CSE materializes it in a Project above the
-// fused aggregate.
+// A filter on a volatile projected expression keeps the SelectNode above the GroupJoin projection.
 //
 // This suite pins the correct rows (a 4-row join produces GROUP_CONCAT 'z,z,z,z', length 7)
 // together with the structural guarantee that the SelectNode reads the projected tuple, and
@@ -57,22 +55,19 @@ suite("test_group_join_fusion_select_input_tuple") {
     sql "ANALYZE TABLE gj_sel_tuple_l WITH SYNC"
     sql "ANALYZE TABLE gj_sel_tuple_r WITH SYNC"
 
-    // agg_phase = 1 together with eager_agg_broadcast_row_count = 0 keeps the Project that
-    // aggregate CSE extracts above the fused aggregate on the plan; with the default settings
-    // the planner collapses that projection and the Shape under test is not produced.
+    // Use one-phase aggregation to allow GroupJoin fusion.
     sql "SET runtime_filter_mode = 'OFF'"
     sql "SET enable_sql_cache = false"
     sql "SET query_cache_force_refresh = true"
-    // Spill disables GroupJoin fusion by design (the fused operator cannot spill) and the
-    // P0 pipeline runs every session with fuzzy session variables, where enable_spill is
-    // randomized, so pin it to keep the fused plan deterministic.
-    sql "SET enable_spill = false"
     sql "SET agg_phase = 1"
     sql "SET eager_agg_broadcast_row_count = 0"
     sql "SET enable_aggregate_cse = true"
 
+    // P0 fuzzes both spill settings independently.
+    def noSpill = "/*+ SET_VAR(enable_spill=false, enable_force_spill=false) */"
+
     def cseQuery = """
-        SELECT COUNT(*), SUM(LENGTH(s)), MIN(LENGTH(s)), MAX(LENGTH(s))
+        SELECT ${noSpill} COUNT(*), SUM(LENGTH(s)), MIN(LENGTH(s)), MAX(LENGTH(s))
         FROM (
             SELECT l.k, GROUP_CONCAT(r.s, ',') AS s
             FROM gj_sel_tuple_l l JOIN [shuffle] gj_sel_tuple_r r ON l.k = r.k
@@ -87,12 +82,18 @@ suite("test_group_join_fusion_select_input_tuple") {
 
     sql "SET enable_group_join_fusion = true"
 
-    // 2. Regression: fusion + CSE. The fused GROUP JOIN carries the final projections of the
-    //    inner aggregate and the SelectNode that feeds the CSE'd LENGTH(s) sits directly above
-    //    it. That SelectNode must read the tuple the GROUP JOIN projects into, not the raw
-    //    tuple the BE operator materializes its result into.
+    // 2. The filter must consume the projected UUID. Its value varies, but its length is fixed.
+    def projectedTupleQuery = """
+        SELECT ${noSpill} COUNT(*), SUM(n), MIN(n), MAX(n)
+        FROM (
+            SELECT LENGTH(GROUP_CONCAT(r.s, ',')) AS n, UUID() AS token
+            FROM gj_sel_tuple_l l JOIN [shuffle] gj_sel_tuple_r r ON l.k = r.k
+            GROUP BY l.k
+        ) q
+        WHERE LENGTH(token) = 36
+        """
     explain {
-        sql cseQuery
+        sql projectedTupleQuery
         verbose(true)
         contains("VGROUP JOIN")
         contains("VSELECT")
@@ -102,11 +103,13 @@ suite("test_group_join_fusion_select_input_tuple") {
             int joinIdx = lines.findIndexOf { it ==~ /.*\d+:VGROUP JOIN.*/ }
             assertTrue(joinIdx > selectIdx && selectIdx >= 0,
                     "expected a VSELECT above the VGROUP JOIN, explain:\n" + plan)
+            assertTrue(!lines.subList(selectIdx + 1, joinIdx).any { it ==~ /.*\d+:V[A-Z].*/ },
+                    "expected the VSELECT directly above the VGROUP JOIN, explain:\n" + plan)
             def selectInputTupleIds = lines.subList(selectIdx, joinIdx).findResult {
                 def m = it =~ /tuple ids:\s*([0-9 ]+?)\s*$/
                 m.find() ? m.group(1).trim() : null
             }
-            def joinProjectedTupleId = lines.subList(joinIdx, lines.size()).findResult {
+            def joinProjectedTupleId = lines.drop(joinIdx + 1).takeWhile { !(it ==~ /.*\d+:V[A-Z].*/) }.findResult {
                 def m = it =~ /final project output tuple id:\s*(\d+)/
                 m.find() ? m.group(1).trim() : null
             }
@@ -117,6 +120,13 @@ suite("test_group_join_fusion_select_input_tuple") {
                             + "${joinProjectedTupleId} but its input tuples are "
                             + "${selectInputTupleIds}, explain:\n" + plan)
         }
+    }
+    order_qt_fusion_on_projected_tuple projectedTupleQuery
+
+    // The CSE path may attach LENGTH(s) directly to the fused node's final projection.
+    explain {
+        sql cseQuery
+        contains("VGROUP JOIN")
     }
     order_qt_fusion_on_cse_on cseQuery
 
@@ -133,7 +143,7 @@ suite("test_group_join_fusion_select_input_tuple") {
     // 4. Control: a single consumer of the extracted expression needs no projection above the
     //    fused node, and must keep working.
     def singleConsumerQuery = """
-        SELECT SUM(LENGTH(s))
+        SELECT ${noSpill} SUM(LENGTH(s))
         FROM (
             SELECT l.k, GROUP_CONCAT(r.s, ',') AS s
             FROM gj_sel_tuple_l l JOIN [shuffle] gj_sel_tuple_r r ON l.k = r.k
@@ -151,7 +161,7 @@ suite("test_group_join_fusion_select_input_tuple") {
     //    materialization tuple), so the input tuple of that SelectNode must stay the
     //    materialization tuple, and the rows must be filtered correctly.
     def filteredQuery = """
-        SELECT COUNT(*), SUM(LENGTH(s))
+        SELECT ${noSpill} COUNT(*), SUM(LENGTH(s))
         FROM (
             SELECT l.k, GROUP_CONCAT(r.s, ',') AS s
             FROM gj_sel_tuple_l l JOIN [shuffle] gj_sel_tuple_r r ON l.k = r.k

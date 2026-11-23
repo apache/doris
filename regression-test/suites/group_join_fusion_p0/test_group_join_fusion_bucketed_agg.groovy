@@ -76,27 +76,28 @@ suite("test_group_join_fusion_bucketed_agg") {
         sql "SET experimental_use_serial_exchange = false"
         sql "SET runtime_filter_mode = 'OFF'"
         sql "SET parallel_pipeline_task_num = 1"
-        sql "SET enable_spill = false"
         sql "SET enable_sql_cache = false"
         sql "SET query_cache_force_refresh = true"
     }
     bucketedAggSetup()
 
+    // P0 fuzzes both spill settings. Scope the overrides to the statements under test.
+    def noSpill = "/*+ SET_VAR(enable_spill=false, enable_force_spill=false) */"
+    def singleTable = "SELECT ${noSpill} k, SUM(v) FROM gj_bagg_left GROUP BY k ORDER BY k"
+
     // 1. Precondition / positive control: the settings above really do produce bucketed
     //    aggregation, so case 2 is exercising the exchange removal it must suppress.
     explain {
-        sql "SELECT k, SUM(v) FROM gj_bagg_left GROUP BY k ORDER BY k"
+        sql singleTable
         contains("VBUCKETED AGGREGATE")
     }
-    order_qt_single_table_bucketed """
-        SELECT k, SUM(v) FROM gj_bagg_left GROUP BY k ORDER BY k
-    """
+    order_qt_single_table_bucketed singleTable
 
     // 2. Regression: an aggregated sub-query on both join sides, fused into a GroupJoin.
     //    Previously the error above; now the fused plan must keep an exchange per side, i.e.
     //    no bucketed aggregation may appear anywhere below the GroupJoin.
     def bothSidesAgg = """
-        SELECT a.k, SUM(a.sv), SUM(b.sv)
+        SELECT ${noSpill} a.k, SUM(a.sv), SUM(b.sv)
         FROM (SELECT k, SUM(v) AS sv FROM gj_bagg_right GROUP BY k) a
         JOIN (SELECT k, SUM(v) AS sv FROM gj_bagg_left GROUP BY k) b ON a.k = b.k
         GROUP BY a.k
@@ -120,7 +121,7 @@ suite("test_group_join_fusion_bucketed_agg") {
     sql "SET eager_aggregation_mode = 1"
     sql "SET eager_agg_broadcast_row_count = 0"
     def eagerAggQuery = """
-        SELECT l.k, COUNT(*), SUM(l.v), SUM(r.v)
+        SELECT ${noSpill} l.k, COUNT(*), SUM(l.v), SUM(r.v)
         FROM gj_bagg_left l
         JOIN [shuffle] gj_bagg_right r ON l.k = r.k
         GROUP BY l.k
