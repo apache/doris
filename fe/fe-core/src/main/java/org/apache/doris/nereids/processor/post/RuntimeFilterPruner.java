@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -39,7 +41,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.Statistics;
@@ -47,6 +48,7 @@ import org.apache.doris.statistics.model.Statistics;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -65,6 +67,7 @@ import java.util.Set;
  * TODO: item 2 is not used since the estimation is not accurate now.
  */
 public class RuntimeFilterPruner extends PlanPostProcessor {
+    private final Set<CTEId> changelogCteIds = new HashSet<>();
 
     @Override
     public Plan visit(Plan plan, CascadesContext context) {
@@ -83,39 +86,35 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     }
 
     @Override
-    public PhysicalRecursiveUnion visitPhysicalRecursiveUnion(
+    public PhysicalRecursiveUnion<? extends Plan, ? extends Plan> visitPhysicalRecursiveUnion(
             PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveUnion, CascadesContext context) {
-        for (Plan child : recursiveUnion.children()) {
-            child.accept(this, context);
-        }
+        visitChildrenAndPropagateChangelog(recursiveUnion, context);
         return recursiveUnion;
     }
 
     @Override
     public PhysicalSetOperation visitPhysicalSetOperation(PhysicalSetOperation setOperation, CascadesContext context) {
-        for (Plan child : setOperation.children()) {
-            child.accept(this, context);
-        }
+        visitChildrenAndPropagateChangelog(setOperation, context);
         return setOperation;
     }
 
-    @Override
-    public PhysicalUnion visitPhysicalUnion(PhysicalUnion union, CascadesContext context) {
-        visitPhysicalSetOperation(union, context);
+    private void visitChildrenAndPropagateChangelog(Plan plan, CascadesContext context) {
         RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
-        if (union.children().stream()
-                .anyMatch(child -> rfContext.getEffectiveSrcType(child)
-                        == RuntimeFilterContext.EffectiveSrcType.CHANGELOG)) {
-            rfContext.addEffectiveSrcNode(union, RuntimeFilterContext.EffectiveSrcType.CHANGELOG);
+        for (Plan child : plan.children()) {
+            child.accept(this, context);
+            propagateChangelog(plan, child, rfContext);
         }
-        return union;
+    }
+
+    private void propagateChangelog(Plan plan, Plan child, RuntimeFilterContext rfContext) {
+        if (rfContext.getEffectiveSrcType(child) == RuntimeFilterContext.EffectiveSrcType.CHANGELOG) {
+            rfContext.addEffectiveSrcNode(plan, RuntimeFilterContext.EffectiveSrcType.CHANGELOG);
+        }
     }
 
     @Override
     public PhysicalIntersect visitPhysicalIntersect(PhysicalIntersect intersect, CascadesContext context) {
-        for (Plan child : intersect.children()) {
-            child.accept(this, context);
-        }
+        visitPhysicalSetOperation(intersect, context);
         context.getRuntimeFilterContext().addEffectiveSrcNode(intersect, RuntimeFilterContext.EffectiveSrcType.NATIVE);
         return intersect;
     }
@@ -126,10 +125,12 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             CascadesContext context) {
         join.right().accept(this, context);
         join.left().accept(this, context);
-        if (context.getRuntimeFilterContext().isEffectiveSrcNode(join.child(0))) {
-            RuntimeFilterContext.EffectiveSrcType childType = context.getRuntimeFilterContext()
-                    .getEffectiveSrcType(join.child(0));
-            context.getRuntimeFilterContext().addEffectiveSrcNode(join, childType);
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        if (rfContext.isEffectiveSrcNode(join.left())) {
+            rfContext.addEffectiveSrcNode(join, rfContext.getEffectiveSrcType(join.left()));
+        }
+        if (join.getJoinType().isRemainRightJoin()) {
+            propagateChangelog(join, join.right(), rfContext);
         }
         return join;
     }
@@ -138,9 +139,26 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     public PhysicalCTEAnchor<? extends Plan, ? extends Plan> visitPhysicalCTEAnchor(
             PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
             CascadesContext context) {
-        cteAnchor.child(0).accept(this, context);
-        cteAnchor.child(1).accept(this, context);
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        // Visit the producer first so that its source is available to all consumers in the query.
+        cteAnchor.left().accept(this, context);
+        if (rfContext.getEffectiveSrcType(cteAnchor.left()) == RuntimeFilterContext.EffectiveSrcType.CHANGELOG) {
+            changelogCteIds.add(cteAnchor.getCteId());
+        }
+        cteAnchor.right().accept(this, context);
+        propagateChangelog(cteAnchor, cteAnchor.right(), rfContext);
         return cteAnchor;
+    }
+
+    @Override
+    public PhysicalCTEConsumer visitPhysicalCTEConsumer(PhysicalCTEConsumer consumer, CascadesContext context) {
+        if (changelogCteIds.contains(consumer.getCteId())) {
+            context.getRuntimeFilterContext().addEffectiveSrcNode(consumer,
+                    RuntimeFilterContext.EffectiveSrcType.CHANGELOG);
+        } else {
+            visitPhysicalRelation(consumer, context);
+        }
+        return consumer;
     }
 
     @Override

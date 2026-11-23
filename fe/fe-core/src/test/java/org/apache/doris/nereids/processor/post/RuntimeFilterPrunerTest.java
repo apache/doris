@@ -18,14 +18,21 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.CTEContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.ColumnStatisticBuilder;
@@ -155,6 +162,56 @@ class RuntimeFilterPrunerTest extends TestWithFeService {
         Assertions.assertTrue(context.prunedRF.isEmpty());
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testMaterializedCteKeepsStreamRuntimeFilter(boolean knownStats) {
+        assertBuildKeepsRuntimeFilter("WITH s AS ("
+                + "SELECT agent_code FROM rf_prune_stream_base@incr('incrementType'='MIN_DELTA')) "
+                + "SELECT f.id FROM rf_prune_fact f JOIN [broadcast] s ON f.agent_code = s.agent_code "
+                + "UNION ALL SELECT agent_code FROM s", knownStats, PhysicalCTEConsumer.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testExceptKeepsStreamRuntimeFilter(boolean knownStats) {
+        assertBuildKeepsRuntimeFilter("SELECT f.id FROM rf_prune_fact f JOIN [broadcast] ("
+                + "SELECT agent_code FROM rf_prune_stream_base@incr('incrementType'='MIN_DELTA') "
+                + "EXCEPT SELECT agent_code FROM rf_prune_agent) s ON f.agent_code = s.agent_code",
+                knownStats, PhysicalExcept.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testNestedLoopBuildKeepsStreamRuntimeFilter(boolean knownStats) {
+        assertBuildKeepsRuntimeFilter("SELECT f.id FROM rf_prune_fact f JOIN [broadcast] ("
+                + "SELECT s.agent_code FROM rf_prune_agent a "
+                + "JOIN rf_prune_stream_base@incr('incrementType'='MIN_DELTA') s "
+                + "ON COALESCE(a.agent_code, 0) < s.agent_code"
+                + ") b ON f.agent_code = b.agent_code", knownStats, PhysicalNestedLoopJoin.class);
+    }
+
+    @Test
+    void testNestedLoopLeftSemiBuildDoesNotPropagateRightChangelog() {
+        RuntimeFilterContext context = getRuntimeFilterContext(
+                "SELECT f.id FROM rf_prune_fact f JOIN [broadcast] ("
+                        + "SELECT a.agent_code FROM rf_prune_agent a LEFT SEMI JOIN "
+                        + "rf_prune_stream_base@incr('incrementType'='MIN_DELTA') s ON a.agent_code < s.agent_code"
+                        + ") b ON f.agent_code = b.agent_code", true);
+
+        Assertions.assertTrue(context.getNereidsRuntimeFilter().isEmpty());
+        Assertions.assertEquals(1, context.prunedRF.size());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testRecursiveUnionKeepsStreamRuntimeFilter(boolean knownStats) {
+        assertBuildKeepsRuntimeFilter("WITH RECURSIVE s(agent_code) AS ("
+                + "SELECT agent_code FROM rf_prune_stream_base@incr('incrementType'='MIN_DELTA') "
+                + "UNION DISTINCT SELECT CAST(0 AS INT) FROM s) "
+                + "SELECT f.id FROM rf_prune_fact f JOIN [broadcast] s ON f.agent_code = s.agent_code",
+                knownStats, PhysicalRecursiveUnion.class);
+    }
+
     @Test
     void testOrdinaryUnionDoesNotKeepIneffectiveRuntimeFilter() {
         RuntimeFilterContext context = getRuntimeFilterContext(
@@ -177,11 +234,29 @@ class RuntimeFilterPrunerTest extends TestWithFeService {
         Assertions.assertEquals(1, context.prunedRF.size());
     }
 
+    private void assertBuildKeepsRuntimeFilter(String sql, boolean knownStats, Class<? extends Plan> buildType) {
+        RuntimeFilterContext context = getRuntimeFilterContext(sql, knownStats);
+        List<RuntimeFilter> hashJoinFilters = context.getNereidsRuntimeFilter().stream()
+                .filter(filter -> filter.getBuilderNode() instanceof PhysicalHashJoin)
+                .toList();
+        Assertions.assertEquals(1, hashJoinFilters.size());
+        PhysicalHashJoin<?, ?> join = (PhysicalHashJoin<?, ?>) hashJoinFilters.get(0).getBuilderNode();
+        Assertions.assertTrue(join.right().anyMatch(buildType::isInstance), () -> join.right().treeString());
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.CHANGELOG,
+                context.getEffectiveSrcType(join.right()), () -> join.right().treeString());
+        Assertions.assertTrue(context.prunedRF.isEmpty());
+    }
+
     private RuntimeFilterContext getRuntimeFilterContext(String sql, boolean knownStats) {
         PlanChecker checker = PlanChecker.from(connectContext).parse(sql);
-        // PlanChecker bypasses the planner's statement reference initialization for changelog scans.
-        checker.getCascadesContext().getStatementContext().getOrRegisterChangelogReferenceTso(() -> 2000L);
-        checker.analyze().rewrite().optimize();
+        CascadesContext cascadesContext = checker.getCascadesContext();
+        cascadesContext.newTableCollector(true).collect();
+        cascadesContext.getStatementContext().getOrRegisterChangelogReferenceTso(() -> 2000L);
+        // Match the planner's reset before analysis, so recursive references bind to the work table.
+        cascadesContext.setCteContext(new CTEContext());
+        cascadesContext.newAnalyzer().analyze();
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        checker.rewrite().optimize();
         PhysicalPlan plan = checker.getBestPlanTree();
         ColumnStatistic nonSelectiveStats = new ColumnStatisticBuilder(100)
                 .setNdv(100)
@@ -201,8 +276,8 @@ class RuntimeFilterPrunerTest extends TestWithFeService {
                 join.right().getStats().addColumnStats(buildSlot, nonSelectiveStats);
             }
         }
-        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
-        new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
-        return checker.getCascadesContext().getRuntimeFilterContext();
+        plan = new PlanPostProcessors(cascadesContext).process(plan);
+        new PhysicalPlanTranslator(new PlanTranslatorContext(cascadesContext)).translatePlan(plan);
+        return cascadesContext.getRuntimeFilterContext();
     }
 }
