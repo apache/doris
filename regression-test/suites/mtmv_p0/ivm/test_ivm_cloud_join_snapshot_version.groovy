@@ -15,71 +15,75 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_ivm_cloud_join_snapshot_version", "nonConcurrent") {
-    // This test uses the Cloud transaction manager's version-cache debug point.
-    if (!isCloudMode()) {
-        return
-    }
+import org.apache.doris.regression.suite.ClusterOptions
 
-    sql "SET enable_materialized_view_rewrite = false"
-    sql "SET enable_dml_materialized_view_rewrite = false"
+suite("test_ivm_cloud_join_snapshot_version", "docker") {
+    def options = new ClusterOptions(feNum: 1, beNum: 1, cloudMode: true)
+    options.feConfigs.add("enable_debug_points=true")
+    options.feConfigs.add("enable_feature_changelog=true")
+    options.feConfigs.add("enable_table_stream=true")
+    options.feConfigs.add("enable_cloud_snapshot_version=true")
+    // Keep the left partition's FE cache stale until the incremental refresh reads it.
+    options.feConfigs.add("cloud_enable_version_syncer=false")
+    options.beConfigs.add("enable_feature_changelog=true")
 
-    sql "DROP MATERIALIZED VIEW IF EXISTS ivm_cloud_join_snapshot_mv"
-    sql "DROP TABLE IF EXISTS ivm_cloud_join_snapshot_left"
-    sql "DROP TABLE IF EXISTS ivm_cloud_join_snapshot_right"
+    docker(options) {
+        sql "SET enable_materialized_view_rewrite = false"
+        sql "SET enable_dml_materialized_view_rewrite = false"
 
-    sql """
-        CREATE TABLE ivm_cloud_join_snapshot_left (k INT NOT NULL, v INT)
-        UNIQUE KEY(k)
-        DISTRIBUTED BY HASH(k) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "1",
-            "enable_unique_key_merge_on_write" = "true",
-            "changelog.enable" = "true",
-            "changelog.need_historical_value" = "true"
-        )
-    """
-    sql """
-        CREATE TABLE ivm_cloud_join_snapshot_right (k INT NOT NULL, v INT)
-        UNIQUE KEY(k)
-        DISTRIBUTED BY HASH(k) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "1",
-            "enable_unique_key_merge_on_write" = "true",
-            "changelog.enable" = "true",
-            "changelog.need_historical_value" = "true"
-        )
-    """
-    sql "INSERT INTO ivm_cloud_join_snapshot_left VALUES (1, 10)"
-    sql "INSERT INTO ivm_cloud_join_snapshot_right VALUES (1, 20)"
+        sql "DROP MATERIALIZED VIEW IF EXISTS ivm_cloud_join_snapshot_mv"
+        sql "DROP TABLE IF EXISTS ivm_cloud_join_snapshot_left"
+        sql "DROP TABLE IF EXISTS ivm_cloud_join_snapshot_right"
 
-    sql """
-        CREATE MATERIALIZED VIEW ivm_cloud_join_snapshot_mv
-        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 1
-        PROPERTIES ("replication_num" = "1")
-        AS
-        SELECT l.k AS k, COUNT(*) AS cnt, SUM(l.v + r.v) AS total
-        FROM ivm_cloud_join_snapshot_left l JOIN ivm_cloud_join_snapshot_right r ON l.k = r.k
-        GROUP BY l.k
-    """
-    sql "REFRESH MATERIALIZED VIEW ivm_cloud_join_snapshot_mv COMPLETE"
-    waitingMTMVTaskFinishedByMvName("ivm_cloud_join_snapshot_mv")
-    order_qt_baseline "SELECT k, cnt, total FROM ivm_cloud_join_snapshot_mv"
+        sql """
+            CREATE TABLE ivm_cloud_join_snapshot_left (k INT NOT NULL, v INT)
+            UNIQUE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true",
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
+            )
+        """
+        sql """
+            CREATE TABLE ivm_cloud_join_snapshot_right (k INT NOT NULL, v INT)
+            UNIQUE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true",
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
+            )
+        """
+        sql "INSERT INTO ivm_cloud_join_snapshot_left VALUES (1, 10)"
+        sql "INSERT INTO ivm_cloud_join_snapshot_right VALUES (1, 20)"
 
-    def syncer = sql_return_maparray "ADMIN SHOW FRONTEND CONFIG LIKE 'cloud_enable_version_syncer'"
-    def oldSyncer = syncer.first().Value
-    def skipCacheUpdate = "FE.CloudGlobalTransactionMgr.updateVersion.disabled"
-    try {
-        sql "ADMIN SET FRONTEND CONFIG ('cloud_enable_version_syncer' = 'false')"
+        sql """
+            CREATE MATERIALIZED VIEW ivm_cloud_join_snapshot_mv
+            BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+            AS
+            SELECT l.k AS k, COUNT(*) AS cnt, SUM(l.v + r.v) AS total
+            FROM ivm_cloud_join_snapshot_left l JOIN ivm_cloud_join_snapshot_right r ON l.k = r.k
+            GROUP BY l.k
+        """
+        sql "REFRESH MATERIALIZED VIEW ivm_cloud_join_snapshot_mv COMPLETE"
+        waitingMTMVTaskFinishedByMvName("ivm_cloud_join_snapshot_mv")
+        order_qt_baseline "SELECT k, cnt, total FROM ivm_cloud_join_snapshot_mv"
+
+        def skipCacheUpdate = "FE.CloudGlobalTransactionMgr.updateVersion.disabled"
         sql "INSERT INTO ivm_cloud_join_snapshot_right VALUES (7, 200)"
-        GetDebugPoint().enableDebugPointForAllFEs(skipCacheUpdate)
         try {
+            GetDebugPoint().enableDebugPointForAllFEs(skipCacheUpdate)
             sql "INSERT INTO ivm_cloud_join_snapshot_left VALUES (7, 100)"
         } finally {
             GetDebugPoint().disableDebugPointForAllFEs(skipCacheUpdate)
         }
         order_qt_stale_left_partition "SELECT k FROM ivm_cloud_join_snapshot_left"
+        order_qt_right_partition "SELECT k FROM ivm_cloud_join_snapshot_right"
 
         sql "REFRESH MATERIALIZED VIEW ivm_cloud_join_snapshot_mv INCREMENTAL"
         waitingMTMVTaskFinishedByMvName("ivm_cloud_join_snapshot_mv")
@@ -95,7 +99,5 @@ suite("test_ivm_cloud_join_snapshot_version", "nonConcurrent") {
             FROM ivm_cloud_join_snapshot_left l JOIN ivm_cloud_join_snapshot_right r ON l.k = r.k
             GROUP BY l.k
         """
-    } finally {
-        sql "ADMIN SET FRONTEND CONFIG ('cloud_enable_version_syncer' = '${oldSyncer}')"
     }
 }

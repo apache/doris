@@ -5,6 +5,10 @@
 -- !stale_left_partition --
 1
 
+-- !right_partition --
+1
+7
+
 -- !first_refresh --
 1	1	30
 7	1	300
