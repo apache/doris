@@ -92,7 +92,7 @@ public class ShuffleKeyPruneUtils {
         }
         // If any partition slot lacks column stats, skip optimization and use original partitionExprs.
         for (SlotReference slotRef : slotRefs) {
-            ColumnStatistic columnStatistic = childStats.findColumnStatistics(slotRef);
+            ColumnStatistic columnStatistic = childStats.findColumnStatisticsOrNull(slotRef);
             if (columnStatistic == null || columnStatistic.isUnKnown) {
                 return Optional.empty();
             }
@@ -151,7 +151,7 @@ public class ShuffleKeyPruneUtils {
     private static double getStringAvgSizeForSort(Slot slotRef, Statistics childStats) {
         DataType dataType = slotRef.getDataType();
         if (dataType instanceof CharacterType) {
-            ColumnStatistic colStats = childStats.findColumnStatistics(slotRef);
+            ColumnStatistic colStats = childStats.findColumnStatisticsOrNull(slotRef);
             if (colStats != null && !colStats.isUnKnown && colStats.avgSizeByte > 0) {
                 return colStats.avgSizeByte;
             }
@@ -201,8 +201,8 @@ public class ShuffleKeyPruneUtils {
             Statistics leftStats, Statistics rightStats,
             double leftRows, double rightRows, int instanceNum) {
         for (Pair<Slot, Slot> pair : validPairs) {
-            ColumnStatistic firstStats = leftStats.findColumnStatistics(pair.first);
-            ColumnStatistic secondStats = rightStats.findColumnStatistics(pair.second);
+            ColumnStatistic firstStats = leftStats.findColumnStatisticsOrNull(pair.first);
+            ColumnStatistic secondStats = rightStats.findColumnStatisticsOrNull(pair.second);
             if (firstStats == null || secondStats == null || firstStats.isUnKnown || secondStats.isUnKnown
                     || firstStats.hotValues == null || secondStats.hotValues == null) {
                 return Optional.empty();

@@ -145,7 +145,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visit(Expression expr, Statistics context) {
-        ColumnStatistic stats = context.findColumnStatistics(expr);
+        ColumnStatistic stats = context.findColumnStatisticsOrNull(expr);
         if (stats != null) {
             return stats;
         }
@@ -205,7 +205,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visitCast(Cast cast, Statistics context) {
-        ColumnStatistic stats = context.findColumnStatistics(cast);
+        ColumnStatistic stats = context.findColumnStatisticsOrNull(cast);
         if (stats != null) {
             return stats;
         }
@@ -298,11 +298,12 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visitSlotReference(SlotReference slotReference, Statistics context) {
-        ColumnStatistic columnStatistic = context.findColumnStatistics(slotReference);
-        if (columnStatistic == null) {
-            return ColumnStatistic.UNKNOWN;
-        }
-        return columnStatistic;
+        // A slot reference has no child to fall back to. Rules also probe the statistics of slots
+        // that the statistics they hold were never derived for (e.g. a join predicate whose slots
+        // belong to another subtree), so a missing slot is an expected case here and not an error:
+        // it is estimated as unknown statistics, as it always has been.
+        ColumnStatistic columnStatistic = context.findColumnStatisticsOrNull(slotReference);
+        return columnStatistic == null ? ColumnStatistic.UNKNOWN : columnStatistic;
     }
 
     @Override
