@@ -120,6 +120,19 @@ class OrExpansionTest extends TestWithFeService implements MemoPatternMatchSuppo
     }
 
     @ParameterizedTest
+    @EnumSource(value = JoinType.class, names = {
+            "INNER_JOIN", "LEFT_OUTER_JOIN", "RIGHT_OUTER_JOIN", "FULL_OUTER_JOIN",
+            "LEFT_ANTI_JOIN", "RIGHT_ANTI_JOIN"})
+    void testExpansionKeepsVolatileOrNonMovableOnPredicates(JoinType joinType) {
+        for (String predicate : List.of("rand() < 0.5", "assert_true(t1.id1 < t2.id2, 'invalid pair')")) {
+            String sql = "select * from t1 " + joinType.name().replace('_', ' ') + " t2"
+                    + " on (t1.id1 = t2.id1 or t1.id2 = t2.id2) and " + predicate;
+            Plan plan = PlanChecker.from(connectContext).analyze(sql).applyCustom(OrExpansion.INSTANCE).getPlan();
+            Assertions.assertFalse(plan.anyMatch(LogicalUnion.class::isInstance), plan.treeString());
+        }
+    }
+
+    @ParameterizedTest
     @EnumSource(value = JoinType.class, names = {"RIGHT_OUTER_JOIN", "RIGHT_ANTI_JOIN"})
     void testRightExpansionPreservesRightInput(JoinType joinType) {
         String sql = "select * from t1 " + joinType.name().replace('_', ' ') + " t2"

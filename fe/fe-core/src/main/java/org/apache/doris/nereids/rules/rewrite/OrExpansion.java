@@ -223,7 +223,10 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
         if (join.isMarkJoin() || !JoinUtils.shouldNestedLoopJoin(join)) {
             return false;
         }
-        return supportJoinType.contains(join.getJoinType());
+        // OR expansion can evaluate an ON expression in more than one branch or move it into a hash key.
+        return supportJoinType.contains(join.getJoinType())
+                && join.getOtherJoinConjuncts().stream()
+                        .noneMatch(Expression::containsVolatileOrNoneMovableExpression);
     }
 
     private Map<Slot, Slot> constructReplaceMap(LogicalCTEConsumer leftConsumer, Map<Slot, Slot> leftCloneToLeft,

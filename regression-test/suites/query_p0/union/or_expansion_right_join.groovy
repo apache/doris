@@ -78,6 +78,20 @@ suite("or_expansion_right_join", "p0") {
                 "/*+ SET_VAR(disable_nereids_rules='OR_EXPANSION,JOIN_EXTRACT_OR_FROM_CASE_WHEN') */")
     }
 
+    // Matching and unmatched branches must agree on each candidate pair.
+    for (String joinType : ["LEFT OUTER", "RIGHT OUTER"]) {
+        for (String predicate : ["rand() < 0.5", "assert_true(l.id < r.id, 'invalid pair')"]) {
+            explain {
+                sql """SELECT * FROM or_expansion_right_join_l l
+                    ${joinType} JOIN or_expansion_right_join_r r
+                    ON (l.a = r.a OR l.b = r.b) AND ${predicate}"""
+                contains "${joinType} JOIN"
+                contains "VNESTED LOOP JOIN"
+                notContains "VHASH JOIN"
+            }
+        }
+    }
+
     // Exercise the full rewrite pipeline with aggregation above the right join.
     order_qt_aggregate """SELECT r.id, COUNT(l.id), SUM(l.b), SUM(r.v)
         FROM or_expansion_right_join_l l RIGHT OUTER JOIN or_expansion_right_join_r r
