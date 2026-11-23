@@ -22,10 +22,12 @@
 #include <algorithm>
 
 #include "cloud/pb_convert.h"
+#include "cpp/sync_point.h"
 #include "exec/common/variant_util.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/segment/variant/variant_desc_fingerprint.h"
 #include "storage/variant/index_storage_variant_test_base.h"
+#include "util/defer_op.h"
 #include "util/json/path_in_data.h"
 
 namespace doris::index_storage_test {
@@ -33,7 +35,16 @@ namespace doris::index_storage_test {
 class IndexStorageVariantCompactionSchemaTest : public IndexStorageTestFixture {
 protected:
     Status write_desc_fingerprint_rowsets(std::vector<RowsetSharedPtr>& rowsets);
+    void expect_desc_reads_after_incomplete_representative(const char* point,
+                                                           const Status& failure);
 };
+
+static constexpr auto desc_read_counter = "variant_desc_fingerprint_rowsets_read";
+static constexpr auto desc_skip_counter = "variant_desc_fingerprint_rowsets_skipped";
+
+static int64_t desc_metric(const char* name) {
+    return std::stoll(bvar::Variable::describe_exposed(name));
+}
 
 TEST(IndexStorageVariantCompactionUtilTest, DescFingerprintIgnoresFooterColumnOrder) {
     IndexTabletOptions options;
@@ -152,19 +163,59 @@ TEST_F(IndexStorageVariantCompactionSchemaTest, DescFingerprintIgnoresJsonAndSeg
 
 static void expect_desc_deduplication(const std::vector<RowsetSharedPtr>& rowsets,
                                       const TabletSchemaSPtr& schema) {
-    const auto count = [](const char* name) {
-        return std::stoll(bvar::Variable::describe_exposed(name));
-    };
-    constexpr auto read = "variant_desc_fingerprint_rowsets_read";
-    constexpr auto skipped = "variant_desc_fingerprint_rowsets_skipped";
-    const auto before_read = count(read);
-    const auto before_skipped = count(skipped);
+    const auto before_read = desc_metric(desc_read_counter);
+    const auto before_skipped = desc_metric(desc_skip_counter);
     auto result =
             variant_util::VariantCompactionUtil::calculate_variant_extended_schema(rowsets, schema);
     ASSERT_NE(result, nullptr);
     EXPECT_TRUE(schema_has_extracted_variant_path(*result, 2, "extra"));
-    EXPECT_EQ(2, count(read) - before_read);
-    EXPECT_EQ(1, count(skipped) - before_skipped);
+    EXPECT_EQ(2, desc_metric(desc_read_counter) - before_read);
+    EXPECT_EQ(1, desc_metric(desc_skip_counter) - before_skipped);
+}
+
+void IndexStorageVariantCompactionSchemaTest::expect_desc_reads_after_incomplete_representative(
+        const char* point, const Status& failure) {
+    std::vector<RowsetSharedPtr> rowsets;
+    const auto status = write_desc_fingerprint_rowsets(rowsets);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    auto remaining = rowsets.front()->num_segments();
+    auto* sync = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync->set_call_back(
+            point,
+            [&](auto&& args) {
+                if (remaining > 0) {
+                    --remaining;
+                    *try_any_cast<Status*>(args[0]) = failure;
+                }
+            },
+            &guard);
+    sync->enable_processing();
+    Defer cleanup {[&] { sync->disable_processing(); }};
+
+    const auto before_read = desc_metric(desc_read_counter);
+    const auto before_skipped = desc_metric(desc_skip_counter);
+    auto result = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+            rowsets, tablet_schema());
+    ASSERT_NE(result, nullptr);
+    EXPECT_EQ(0, remaining);
+    EXPECT_TRUE(schema_has_extracted_variant_path(*result, 2, "a"));
+    EXPECT_TRUE(schema_has_extracted_variant_path(*result, 2, "b"));
+    EXPECT_TRUE(schema_has_extracted_variant_path(*result, 2, "extra"));
+    EXPECT_EQ(3, desc_metric(desc_read_counter) - before_read);
+    EXPECT_EQ(0, desc_metric(desc_skip_counter) - before_skipped);
+}
+
+TEST_F(IndexStorageVariantCompactionSchemaTest, DescReadsNextRepresentativeAfterMissingRoot) {
+    expect_desc_reads_after_incomplete_representative("VariantDescFingerprint::root_reader_status",
+                                                      Status::NotFound("missing variant root"));
+}
+
+TEST_F(IndexStorageVariantCompactionSchemaTest, DescReadsNextRepresentativeAfterExternalMetaError) {
+    expect_desc_reads_after_incomplete_representative(
+            "VariantDescFingerprint::external_meta_status",
+            Status::IOError("external Variant metadata unavailable"));
 }
 
 TEST_F(IndexStorageVariantCompactionSchemaTest, DescFingerprintSkipsAfterMetadataRoundTrips) {

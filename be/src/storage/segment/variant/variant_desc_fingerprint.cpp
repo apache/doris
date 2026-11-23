@@ -29,6 +29,7 @@
 #include <unordered_set>
 
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "exec/common/variant_util.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_meta.h"
@@ -255,6 +256,7 @@ static Result<bool> read_rowset_desc_schemas(const RowsetSharedPtr& rs,
             OlapReaderStatistics stats;
             StorageReadOptions read_options(stats);
             st = segment->get_variant_root_reader(*column, read_options, &variant_column_reader);
+            TEST_SYNC_POINT_CALLBACK("VariantDescFingerprint::root_reader_status", &st);
             if (st.is<ErrorCode::NOT_FOUND>()) {
                 // Old segments predating an ALTER-added VARIANT have no physical subcolumn
                 // metadata, so only newer segments contribute to the calculated schema.
@@ -272,6 +274,7 @@ static Result<bool> read_rowset_desc_schemas(const RowsetSharedPtr& rs,
             DORIS_CHECK(variant_column_reader != nullptr);
             // load external meta before getting subcolumn meta info
             st = variant_column_reader->load_external_meta_once();
+            TEST_SYNC_POINT_CALLBACK("VariantDescFingerprint::external_meta_status", &st);
             if (!st.ok()) {
                 LOG(WARNING) << "Failed to load external meta for column: " << column->name()
                              << " error: " << st.to_string();
