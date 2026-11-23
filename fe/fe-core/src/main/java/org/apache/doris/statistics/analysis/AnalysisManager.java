@@ -1545,10 +1545,8 @@ public class AnalysisManager implements Writable {
                                 // tablet report replaces this estimate with the retained row count, so
                                 // TTL does not leave a lifetime accumulator behind. The transaction
                                 // visibility path holds the table write lock, excluding tablet stats.
-                                // A report may already include this load; adding it again temporarily
-                                // overestimates the count until the next report.
                                 long deltaRows = entry.getValue() / partitionReplicaNum;
-                                changelogIndex.addChangelogRows(deltaRows);
+                                changelogIndex.addChangelogRowsFromPublish(partition.getVisibleVersion(), deltaRows);
                                 continue;
                             }
                         }

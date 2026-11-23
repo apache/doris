@@ -91,7 +91,7 @@ public class MaterializedIndexTest {
         Assertions.assertFalse(index.getRowCountReported());
         index.setReportedRowCount(2, false, 4);
         index.addChangelogRows(3, 5);
-        Assertions.assertEquals(2, index.getRowCount());
+        Assertions.assertEquals(12, index.getRowCount());
         index.setReportedRowCount(0, true, 4);
         index.addChangelogRows(3, 5);
         Assertions.assertEquals(0, index.getRowCount());
@@ -107,6 +107,22 @@ public class MaterializedIndexTest {
         Assertions.assertFalse(restored.getRowCountReported());
         restored.addChangelogRows(3, 2);
         Assertions.assertEquals(6, restored.getRowCount());
+    }
+
+    @Test
+    public void testStaleReportPreservesVisibleChangelogDelta() {
+        index.setIsChangelog(true);
+        index.setReportedRowCount(0, true, 3);
+        index.addChangelogRows(4, 10);
+        index.setReportedRowCount(0, true, 3);
+        Assertions.assertEquals(10, index.getRowCount());
+        index.setReportedRowCount(0, false, 4);
+        Assertions.assertEquals(10, index.getRowCount());
+
+        index.setReportedRowCount(8, true, 4);
+        index.addChangelogRows(4, 10);
+        index.setReportedRowCount(0, true, 3);
+        Assertions.assertEquals(8, index.getRowCount());
     }
 
     @Test
@@ -126,14 +142,14 @@ public class MaterializedIndexTest {
         index.addChangelogRows(nextVersion, 10);
         Assertions.assertEquals(rangeLimit, index.getRowCount());
 
-        index.setReportedRowCount(rangeLimit, true, 2);
+        index.setReportedRowCount(rangeLimit, true, nextVersion - 2);
         index.addChangelogRows(2, 10);
         index.addChangelogRows(4, 10);
         Assertions.assertEquals(rangeLimit, index.getRowCount());
         index.addChangelogRows(nextVersion, 1);
         Assertions.assertEquals(rangeLimit + 1, index.getRowCount());
         index.addChangelogRows(nextVersion + 2, 10);
-        Assertions.assertEquals(rangeLimit + 1, index.getRowCount());
+        Assertions.assertEquals(rangeLimit + 11, index.getRowCount());
     }
 
     @Test

@@ -70,12 +70,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     private long partitionId = -1;
     @SerializedName(value = "idx")
     private long idx = -1;
-    // A restored/default zero is not an MS row-count report. Re-established by the next
-    // successful fetch or follower synchronization, without persisting new statistics state.
-    @Getter
-    @Setter
-    private transient volatile boolean rowCountReported = false;
-
     // last time to get tablet stats
     @Getter
     @Setter

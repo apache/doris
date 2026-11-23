@@ -94,6 +94,8 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     // this also counts distinct commit responses delivered out of order, e.g. version 4 before 3.
     private transient RangeSet<Long> changelogRowCountVersions;
     private transient long changelogRowCountReportVersion = -1;
+    // A retained count can replace the estimate only when it covers the last additive update.
+    private transient long lastChangelogDeltaVersion = -1;
 
     public MaterializedIndex() {
         this.state = IndexState.NORMAL;
@@ -154,6 +156,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         rowCountReported = false;
         changelogRowCountVersions = null;
         changelogRowCountReportVersion = -1;
+        lastChangelogDeltaVersion = -1;
     }
 
     public void addTablet(Tablet tablet, TabletMeta tabletMeta) {
@@ -226,6 +229,14 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         }
     }
 
+    /** A publish can report multiple tablet deltas for the same partition version. */
+    public void addChangelogRowsFromPublish(long version, long rows) {
+        if (rows > 0 && version > changelogRowCountReportVersion) {
+            addChangelogRows(rows);
+            lastChangelogDeltaVersion = Math.max(lastChangelogDeltaVersion, version);
+        }
+    }
+
     /** Apply a visible cloud commit once, without dividing its logical rowset count by replicas. */
     public void addChangelogRows(long version, long rows) {
         if (version <= changelogRowCountReportVersion) {
@@ -240,16 +251,22 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
             return;
         }
         changelogRowCountVersions.add(Range.closedOpen(version, version + 1));
-        addChangelogRows(rows);
+        addChangelogRowsFromPublish(version, rows);
+    }
+
+    public long getRequiredChangelogReportVersion() {
+        return Math.max(changelogRowCountReportVersion, lastChangelogDeltaVersion);
     }
 
     /** Replace retained stock (which can decrease after TTL), preserving partial-report semantics. */
     public void setReportedRowCount(long rows, boolean reported, long version) {
+        long requiredVersion = getRequiredChangelogReportVersion();
+        if (version < requiredVersion || !reported && requiredVersion >= 0) {
+            return;
+        }
         rowCount = rows;
         rowCountReported = reported;
         if (reported && version > changelogRowCountReportVersion) {
-            // Statistics and visibility need not be synchronized. Skipping a late delta already
-            // covered by this version can briefly undercount; subsequent periodic reports calibrate.
             changelogRowCountReportVersion = version;
             if (changelogRowCountVersions != null) {
                 changelogRowCountVersions.remove(Range.lessThan(version + 1));

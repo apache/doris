@@ -466,6 +466,7 @@ protected:
             auto rowset = create_rowset(txn_id, tablet_id, index_id, partition_id);
             rowset.set_is_changelog(changelog);
             rowset.set_num_rows(changelog ? 1 : rows);
+            rowset.set_num_segments(1);
             CreateRowsetResponse response;
             prepare_rowset(_meta_service.get(), rowset, response);
             ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
@@ -545,6 +546,32 @@ TEST_F(ChangelogCommitStatsTest, ImmediateFinalRowsAndRetry) {
     auto retry = commit(request);
     EXPECT_EQ(retry.status().code(), MetaServiceCode::OK);
     EXPECT_EQ(retry.changelog_stats_size(), 0);
+}
+
+TEST_F(ChangelogCommitStatsTest, TabletStatsReportPartitionVersion) {
+    GetTabletStatsRequest request;
+    request.set_cloud_unique_id("test_cloud_unique_id");
+    auto* tablet = request.add_tablet_idx();
+    tablet->set_db_id(DB_ID);
+    tablet->set_table_id(TABLE_ID);
+    tablet->set_partition_id(10);
+    tablet->set_index_id(200);
+    tablet->set_tablet_id(2001);
+    request.add_tablet_ids_with_row_count_version(2001);
+
+    auto check_stats = [&](int64_t rows, int64_t version) {
+        GetTabletStatsResponse response;
+        brpc::Controller controller;
+        _meta_service->get_tablet_stats(&controller, &request, &response, nullptr);
+        ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(response.tablet_stats_size(), 1);
+        EXPECT_EQ(response.tablet_stats(0).num_rows(), rows);
+        EXPECT_EQ(response.tablet_stats(0).row_count_partition_version(), version);
+    };
+    ASSERT_NO_FATAL_FAILURE(check_stats(0, 1));
+    ASSERT_NO_FATAL_FAILURE(write_rowsets(_txn_id));
+    ASSERT_EQ(commit(commit_request(false)).status().code(), MetaServiceCode::OK);
+    ASSERT_NO_FATAL_FAILURE(check_stats(13, 2));
 }
 
 TEST_F(ChangelogCommitStatsTest, FailedImmediateOmitsRowsThenRetrySucceeds) {

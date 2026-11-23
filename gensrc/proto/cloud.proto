@@ -1021,6 +1021,8 @@ message TabletStatsPB {
     // - Normal case: dynamically filled with ClusterPB.mtime (not persisted)
     // - Deleted case: persisted when first detected as deleted, reused thereafter
     optional int64 last_active_cluster_status_mtime_ms = 19;
+    // Partition version from the same metadata snapshot as num_rows. Set on request.
+    optional int64 row_count_partition_version = 20;
 }
 
 message ObjectFilePB {
@@ -1781,6 +1783,7 @@ message GetTabletStatsRequest {
     optional string cloud_unique_id = 1;
     repeated TabletIndexPB tablet_idx = 2;
     optional string request_ip = 3;
+    repeated int64 tablet_ids_with_row_count_version = 4;
 }
 
 message GetTabletStatsResponse {

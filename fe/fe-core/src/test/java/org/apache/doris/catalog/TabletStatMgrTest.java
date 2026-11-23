@@ -76,25 +76,38 @@ public class TabletStatMgrTest {
             Assertions.assertEquals(12L, changelog.getRowCount());
             Assertions.assertFalse(changelog.getRowCountReported());
 
-            reportedReplica.setLastReportVersion(2L);
+            reportedReplica.updateRowCountReport(8L, 2L);
             manager.runAfterCatalogReady();
             Assertions.assertEquals(8L, changelog.getRowCount());
             Assertions.assertFalse(changelog.getRowCountReported());
             Assertions.assertEquals(10L, base.getRowCount());
 
             // Pick one reported replica per tablet, preserving the existing minimum-row policy.
-            defaultReplica.setRowCount(3L);
-            defaultReplica.setLastReportVersion(2L);
-            otherTabletReplica.setRowCount(4L);
-            otherTabletReplica.setLastReportVersion(2L);
+            defaultReplica.updateRowCountReport(3L, 2L);
+            otherTabletReplica.updateRowCountReport(4L, 2L);
             manager.runAfterCatalogReady();
             Assertions.assertEquals(7L, changelog.getRowCount());
             Assertions.assertTrue(changelog.getRowCountReported());
+            defaultReplica.setRowCount(0L);
+            manager.runAfterCatalogReady();
+            Assertions.assertEquals(7L, changelog.getRowCount());
+
+            // Replica current versions advance at publish, independently of the row-count report.
+            table.getPartition(30L).setVisibleVersionAndTime(3L, 200L);
+            reportedReplica.updateVersion(3L);
+            defaultReplica.updateVersion(3L);
+            otherTabletReplica.updateVersion(3L);
+            changelog.addChangelogRowsFromPublish(3L, 10L);
+            manager.runAfterCatalogReady();
+            Assertions.assertEquals(17L, changelog.getRowCount());
+            reportedReplica.updateRowCountReport(8L, 3L);
+            manager.runAfterCatalogReady();
+            Assertions.assertEquals(17L, changelog.getRowCount());
 
             // A later retained count can decrease after TTL, including a known empty index.
-            reportedReplica.setRowCount(0L);
-            defaultReplica.setRowCount(0L);
-            otherTabletReplica.setRowCount(0L);
+            reportedReplica.updateRowCountReport(0L, 3L);
+            defaultReplica.updateRowCountReport(0L, 3L);
+            otherTabletReplica.updateRowCountReport(0L, 3L);
             manager.runAfterCatalogReady();
             Assertions.assertEquals(0L, changelog.getRowCount());
             Assertions.assertTrue(changelog.getRowCountReported());
@@ -155,8 +168,15 @@ public class TabletStatMgrTest {
             Assertions.assertEquals(12L, changelog.getRowCount());
             Assertions.assertTrue(changelog.getRowCountReported());
 
-            update.invoke(manager, cloudRows(200L, 0L), false);
-            update.invoke(manager, cloudRows(300L, 0L), false);
+            changelog.addChangelogRows(4L, 10L);
+            update.invoke(manager, cloudRows(200L, 0L, 3L), false);
+            update.invoke(manager, cloudRows(300L, 0L, 3L), false);
+            aggregate.invoke(manager, Collections.singletonList(10L));
+            Assertions.assertEquals(22L, changelog.getRowCount());
+            update.invoke(manager, cloudRows(200L, 0L, 4L), false);
+            aggregate.invoke(manager, Collections.singletonList(10L));
+            Assertions.assertEquals(22L, changelog.getRowCount());
+            update.invoke(manager, cloudRows(300L, 0L, 4L), false);
             aggregate.invoke(manager, Collections.singletonList(10L));
             Assertions.assertEquals(0L, changelog.getRowCount());
             Assertions.assertTrue(changelog.getRowCountReported());
@@ -172,10 +192,8 @@ public class TabletStatMgrTest {
         MaterializedIndex changelog = createTable(catalog);
         CloudReplica firstReplica = cloudReplica(200L);
         CloudReplica secondReplica = cloudReplica(201L);
-        firstReplica.setRowCount(8L);
-        secondReplica.setRowCount(9L);
-        firstReplica.setRowCountReported(true);
-        secondReplica.setRowCountReported(true);
+        firstReplica.updateRowCountReport(8L, 2L);
+        secondReplica.updateRowCountReport(9L, 2L);
         Tablet tablet = Mockito.mock(Tablet.class);
         Mockito.when(tablet.getId()).thenReturn(200L);
         Mockito.when(tablet.getReplicas()).thenReturn(Arrays.asList(firstReplica, secondReplica));
@@ -193,8 +211,7 @@ public class TabletStatMgrTest {
     @Test
     public void testCloudReplicaRecoveryDoesNotManufactureReportCompleteness() {
         CloudReplica replica = cloudReplica(200L);
-        replica.setRowCount(8L);
-        replica.setRowCountReported(true);
+        replica.updateRowCountReport(8L, 2L);
         CloudReplica restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(replica), CloudReplica.class);
         Assertions.assertEquals(8L, restored.getRowCount());
         Assertions.assertFalse(restored.isRowCountReported());
@@ -215,7 +232,7 @@ public class TabletStatMgrTest {
         changelogReplica.setStatsIntervalIndex(7); // Also cover an unexpired finite interval.
         for (CloudReplica replica : Arrays.asList(baseReplica, changelogReplica)) {
             replica.setLastGetTabletStatsTime(System.currentTimeMillis());
-            replica.setRowCountReported(true);
+            replica.updateRowCountReport(replica.getRowCount(), 2L);
         }
         CloudReplica restoredBase = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(baseReplica), CloudReplica.class);
         CloudReplica restoredChangelog = GsonUtils.GSON.fromJson(
@@ -248,11 +265,13 @@ public class TabletStatMgrTest {
             Mockito.doAnswer(invocation -> {
                 GetTabletStatsRequest request = invocation.getArgument(0);
                 requests.add(request);
-                if (requests.size() > 1) {
+                if (requests.size() == 2) {
                     update.invoke(manager, GetTabletStatsResponse.newBuilder()
                             .setStatus(MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
                             .addAllTabletStats(cloudRows(100L, 8L).getTabletStatsList())
                             .addAllTabletStats(cloudRows(200L, 13L).getTabletStatsList()).build(), false);
+                } else if (requests.size() == 3) {
+                    update.invoke(manager, cloudRows(200L, 18L, 3L), false);
                 }
                 return CompletableFuture.completedFuture(null);
             }).when(manager).submitGetTabletStatsTask(Mockito.any(), Mockito.anyBoolean());
@@ -267,6 +286,7 @@ public class TabletStatMgrTest {
             manager.runAfterCatalogReady();
             Assertions.assertEquals(2, requests.size());
             Assertions.assertEquals(2, requests.get(1).getTabletIdxCount());
+            Assertions.assertEquals(List.of(200L), requests.get(1).getTabletIdsWithRowCountVersionList());
             Assertions.assertTrue(base.getRowCountReported());
             Assertions.assertTrue(changelog.getRowCountReported());
             Assertions.assertEquals(8L, table.getRowCountForIndex(40L, true));
@@ -274,6 +294,14 @@ public class TabletStatMgrTest {
             // Valid, unchanged replicas resume their persisted backoff instead of polling every cycle.
             manager.runAfterCatalogReady();
             Assertions.assertEquals(2, requests.size());
+
+            changelog.addChangelogRows(3L, 5L);
+            manager.runAfterCatalogReady();
+            Assertions.assertEquals(3, requests.size());
+            Assertions.assertEquals(1, requests.get(2).getTabletIdxCount());
+            Assertions.assertEquals(List.of(200L), requests.get(2).getTabletIdsWithRowCountVersionList());
+            Assertions.assertEquals(18L, changelog.getRowCount());
+            Assertions.assertTrue(changelog.getRowCountReported());
         } finally {
             Config.cloud_get_tablet_stats_version = oldStatsVersion;
         }
@@ -298,9 +326,10 @@ public class TabletStatMgrTest {
 
     private LocalReplica localReplica(long id, long rows, boolean reported) {
         LocalReplica replica = new LocalReplica(id, id, Replica.ReplicaState.NORMAL, 2L, 0);
-        replica.setRowCount(rows);
         if (reported) {
-            replica.setLastReportVersion(2L);
+            replica.updateRowCountReport(rows, 2L);
+        } else {
+            replica.setRowCount(rows);
         }
         return replica;
     }
@@ -310,7 +339,12 @@ public class TabletStatMgrTest {
     }
 
     private GetTabletStatsResponse cloudRows(long tabletId, long rows) {
+        return cloudRows(tabletId, rows, 2L);
+    }
+
+    private GetTabletStatsResponse cloudRows(long tabletId, long rows, long version) {
         return GetTabletStatsResponse.newBuilder().addTabletStats(TabletStatsPB.newBuilder()
-                .setIdx(TabletIndexPB.newBuilder().setTabletId(tabletId)).setNumRows(rows)).build();
+                .setIdx(TabletIndexPB.newBuilder().setTabletId(tabletId)).setNumRows(rows)
+                .setRowCountPartitionVersion(version)).build();
     }
 }
