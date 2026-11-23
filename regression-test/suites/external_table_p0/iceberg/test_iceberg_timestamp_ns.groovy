@@ -29,7 +29,8 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String catalog = "test_iceberg_timestamp_ns"
     def zone = sql("SELECT @@time_zone")[0][0]
-    def scanner = sql("SHOW VARIABLES LIKE 'enable_file_scanner_v2'")[0][1]
+    // Read the deprecated option by its stable name; SHOW VARIABLES prefixes its display name.
+    def scanner = sql("SELECT @@enable_file_scanner_v2")[0][0]
     try {
         sql "SET enable_file_scanner_v2=true"
         sql "DROP CATALOG IF EXISTS ${catalog}"

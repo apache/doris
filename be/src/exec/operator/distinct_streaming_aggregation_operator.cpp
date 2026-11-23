@@ -411,7 +411,9 @@ Status DistinctStreamingAggOperatorX::push(RuntimeState* state, Block* in_block,
     // Pass-through rows are not deduplicated; counting them against a pushed-down limit would let
     // duplicates consume the allowance and stop the child before enough distinct keys reached the
     // global stage (which applies the limit again).
-    if (_limit != -1 && !local_state._stop_emplace_flag &&
+    // With HAVING, apply LIMIT in pull() after filtering. For example, if HAVING rejects
+    // group 1 and keeps group 2, LIMIT 1 must not stop input after group 1.
+    if (_limit != -1 && local_state._conjuncts.empty() && !local_state._stop_emplace_flag &&
         (local_state._num_rows_returned + local_state._aggregated_block->rows()) >= _limit) {
         auto limit_rows = _limit - local_state._num_rows_returned;
         local_state._aggregated_block->set_num_rows(limit_rows);
@@ -433,10 +435,14 @@ Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, Block* block, bo
 
     local_state._make_nullable_output_key(block);
     if (!_is_streaming_preagg) {
-        // dispose the having clause, should not be execute in prestreaming agg
+        // Apply HAVING before LIMIT. Only groups that pass the filter count toward LIMIT.
         RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));
+        local_state.reached_limit(block, &local_state._reach_limit);
+    } else {
+        // Keep the input-stage count separate. Rows that bypass deduplication must not
+        // consume its pushed-down LIMIT; the final aggregate applies LIMIT to distinct groups.
+        local_state.add_num_rows_returned(block->rows());
     }
-    local_state.add_num_rows_returned(block->rows());
     // If the limit is not reached, it is important to ensure that _aggregated_block is empty
     // because it may still contain data.
     // However, if the limit is reached, there is no need to output data even if some exists.

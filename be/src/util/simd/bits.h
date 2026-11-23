@@ -80,6 +80,16 @@ inline uint32_t bytes32_mask_to_bits32_mask(const uint8_t* data) {
                       _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 16)), zero16)))
               << 16) &
              0xffff0000);
+#elif defined(__ARM_NEON) && defined(__aarch64__)
+    // Each set byte keeps its bit weight, and every eight weights add up to one byte of the mask.
+    const uint8x16_t weights = {1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128};
+    const auto bits16 = [&weights](const uint8_t* half) {
+        const uint8x16_t set =
+                vandq_u8(vcgtq_s8(vreinterpretq_s8_u8(vld1q_u8(half)), vdupq_n_s8(0)), weights);
+        return static_cast<uint32_t>(vaddv_u8(vget_low_u8(set))) |
+               (static_cast<uint32_t>(vaddv_u8(vget_high_u8(set))) << 8);
+    };
+    uint32_t mask = bits16(data) | (bits16(data + 16) << 16);
 #else
     uint32_t mask = 0;
     for (std::size_t i = 0; i < 32; ++i) {
@@ -122,6 +132,65 @@ void iterate_through_bits_mask(Func func, decltype(bytes_mask_to_bits_mask(nullp
         mask = mask & (mask - 1);
     }
 #endif
+}
+
+struct FilterCounts {
+    size_t input_rows = 0;
+    size_t output_rows = 0;
+};
+
+// Merge a filter in-place and count nonzero bytes before and after the merge.
+// Nullable filters preserve the scalar expression data[i] &= !null_map[i] & filter[i].
+template <bool nullable = false>
+inline FilterCounts filter_and_count(uint8_t* __restrict data, const uint8_t* __restrict filter,
+                                     size_t size, const uint8_t* __restrict null_map = nullptr) {
+    FilterCounts counts;
+    size_t i = 0;
+#if defined(__SSE2__) || defined(__aarch64__)
+    const __m128i zero = _mm_setzero_si128();
+    __m128i input_sum = zero;
+    __m128i output_sum = zero;
+    const size_t vector_size = size / 64 * 64;
+    for (; i < vector_size; i += 64) {
+        __m128i input_zeros = zero;
+        __m128i output_zeros = zero;
+        for (size_t offset = 0; offset < 64; offset += 16) {
+            const auto before =
+                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + i + offset));
+            const auto filter_values =
+                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(filter + i + offset));
+            auto after = _mm_and_si128(before, filter_values);
+            if constexpr (nullable) {
+                const auto nulls =
+                        _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + i + offset));
+                const auto valid = _mm_and_si128(_mm_cmpeq_epi8(nulls, zero), _mm_set1_epi8(1));
+                after = _mm_and_si128(after, valid);
+            }
+            // Each byte accumulates at most four zeros. Reduce once per 64 rows
+            // without expanding bytes into size_t lanes or emulating movemask on ARM.
+            input_zeros = _mm_sub_epi8(input_zeros, _mm_cmpeq_epi8(before, zero));
+            output_zeros = _mm_sub_epi8(output_zeros, _mm_cmpeq_epi8(after, zero));
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(data + i + offset), after);
+        }
+        input_sum = _mm_add_epi64(input_sum, _mm_sad_epu8(input_zeros, zero));
+        output_sum = _mm_add_epi64(output_sum, _mm_sad_epu8(output_zeros, zero));
+    }
+    counts.input_rows = vector_size - static_cast<size_t>(_mm_cvtsi128_si64(_mm_add_epi64(
+                                              input_sum, _mm_srli_si128(input_sum, 8))));
+    counts.output_rows = vector_size - static_cast<size_t>(_mm_cvtsi128_si64(_mm_add_epi64(
+                                               output_sum, _mm_srli_si128(output_sum, 8))));
+#endif
+    for (; i < size; ++i) {
+        const uint8_t before = data[i];
+        uint8_t after = before & filter[i];
+        if constexpr (nullable) {
+            after &= !null_map[i];
+        }
+        counts.input_rows += before != 0;
+        counts.output_rows += after != 0;
+        data[i] = after;
+    }
+    return counts;
 }
 
 template <typename T>

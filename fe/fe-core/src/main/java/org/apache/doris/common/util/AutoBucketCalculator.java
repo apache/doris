@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.rpc.RpcException;
 
@@ -130,10 +131,14 @@ public class AutoBucketCalculator {
         String partitionName = context.getPartitionName();
         String nowPartitionName = context.getNowPartitionName();
         boolean executeFirstTime = context.isExecuteFirstTime();
-        int defaultBuckets = context.getDefaultBuckets();
+        boolean autoBucket = table.isAutoBucket();
+        int minBuckets = Config.autobucket_min_buckets;
+        // Stored defaults may predate a change to the minimum. Fixed-bucket tables keep their configured count.
+        int defaultBuckets = autoBucket
+                ? Math.max(context.getDefaultBuckets(), minBuckets) : context.getDefaultBuckets();
 
         // if execute first time or not auto bucket, use default buckets
-        if (!table.isAutoBucket() || executeFirstTime) {
+        if (!autoBucket || executeFirstTime) {
             return AutoBucketResult.fallback(defaultBuckets,
                 executeFirstTime ? "executeFirstTime" : "not auto bucket table");
         }
@@ -174,7 +179,8 @@ public class AutoBucketCalculator {
 
         // Calculate buckets based on historical data
         Pair<Integer, Integer> calc = DynamicPartitionScheduler.calculateBuckets(hasDataPartitions);
-        int candidateBuckets = calc.first;
+        // Historical bucket counts may also predate a change to the minimum when size statistics are unavailable.
+        int candidateBuckets = Math.max(calc.first, minBuckets);
         int previousBuckets = calc.second;
 
         return AutoBucketResult.success(candidateBuckets, previousBuckets);

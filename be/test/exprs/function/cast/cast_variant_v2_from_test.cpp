@@ -46,7 +46,6 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
-#include "exprs/function_context.h"
 #include "gtest/gtest.h"
 #include "runtime/runtime_state.h"
 #include "util/jsonb_utils.h"
@@ -68,9 +67,8 @@ CastResult execute_from_variant(const ColumnPtr& source, const DataTypePtr& targ
     Block block {{source, variant_type, "source"}, {initial_result, target_type, "result"}};
     RuntimeState state;
     state.set_timezone(std::string(timezone));
-    auto context = FunctionContext::create_context(&state, {}, {});
-    Status status = create_cast_from_variant_v2_wrapper(target_type)(context.get(), block, {0}, 1,
-                                                                     source->size(), null_map);
+    Status status = create_cast_from_variant_v2_wrapper(target_type, CastOptions {})(
+            &state, block.get_by_position(0), block.get_by_position(1), source->size(), null_map);
     return CastResult {.status = std::move(status),
                        .column = block.get_by_position(1).column,
                        .initial_result = std::move(initial_result)};
@@ -159,8 +157,8 @@ void expect_datetime(const ColumnDateTimeV2& values, size_t row, int year, int m
 } // namespace
 
 TEST(CastVariantV2FromTest, DormantFactoryExists) {
-    EXPECT_TRUE(static_cast<bool>(
-            create_cast_from_variant_v2_wrapper(std::make_shared<DataTypeInt32>())));
+    EXPECT_TRUE(static_cast<bool>(create_cast_from_variant_v2_wrapper(
+            std::make_shared<DataTypeInt32>(), CastOptions {})));
 }
 
 TEST(CastVariantV2FromTest, UnsupportedTargetReturnsAnErrorInsteadOfNullRows) {
@@ -668,7 +666,7 @@ TEST(CastVariantV2FromTest, DeeperArrayElementMismatchNullsTheElement) {
     EXPECT_EQ(assert_cast<const ColumnNullable&>(array.get_data()).get_null_map_data()[0], 1);
 }
 
-TEST(CastVariantV2FromTest, TypedArrayExtractionWithoutFunctionContextRemainsNull) {
+TEST(CastVariantV2FromTest, TypedArrayExtractionWithoutRuntimeStateRemainsNull) {
     auto strings = ColumnString::create();
     strings->insert_data("[]", 2);
     auto typed = ColumnVariantV2::create_typed(
@@ -743,8 +741,8 @@ TEST(CastVariantV2FromTest, NestedArrayRoundTripPreservesNullAndEmptyArray) {
     Block to_block {{source->get_ptr(), outer_type, "source"},
                     {variant_type->create_column(), variant_type, "result"}};
     RuntimeState state;
-    auto context = FunctionContext::create_context(&state, {}, {});
-    ASSERT_TRUE(create_cast_to_variant_v2_wrapper(outer_type)(context.get(), to_block, {0}, 1, 1,
+    ASSERT_TRUE(create_cast_to_variant_v2_wrapper(outer_type)(&state, to_block.get_by_position(0),
+                                                              to_block.get_by_position(1), 1,
                                                               nullptr)
                         .ok());
     ColumnPtr encoded = to_block.get_by_position(1).column;
@@ -783,9 +781,8 @@ TEST(CastVariantV2FromTest, NullOnlyArrayEncodesNonEmptyElements) {
     Block block {{source->get_ptr(), array_type, "source"},
                  {variant_type->create_column(), variant_type, "result"}};
     RuntimeState state;
-    auto context = FunctionContext::create_context(&state, {}, {});
-    Status status =
-            create_cast_to_variant_v2_wrapper(array_type)(context.get(), block, {0}, 1, 1, nullptr);
+    Status status = create_cast_to_variant_v2_wrapper(array_type)(
+            &state, block.get_by_position(0), block.get_by_position(1), 1, nullptr);
     ASSERT_TRUE(status.ok()) << status;
 
     VariantRef encoded =

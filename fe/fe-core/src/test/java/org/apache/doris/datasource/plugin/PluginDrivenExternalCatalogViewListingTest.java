@@ -51,6 +51,7 @@ public class PluginDrivenExternalCatalogViewListingTest {
     public void setUp() {
         connector = Mockito.mock(Connector.class);
         metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.listRelationNames(Mockito.any(), Mockito.anyString())).thenCallRealMethod();
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         catalog = new TestableCatalog(connector, session);

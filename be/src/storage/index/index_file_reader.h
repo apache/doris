@@ -36,6 +36,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
@@ -55,6 +56,7 @@
 namespace doris {
 class TabletIndex;
 namespace segment_v2 {
+class AnnIndexSource;
 class ReaderFileEntry;
 class DorisCompoundReader;
 
@@ -82,8 +84,17 @@ public:
 
     MOCK_FUNCTION Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size,
                               const io::IOContext* io_ctx = nullptr);
+    // The CLucene directory of one V1 or V2 index. SNII has none and is refused
+    // with INVERTED_INDEX_NOT_SUPPORTED.
     MOCK_FUNCTION Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> open(
             const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr) const;
+    // The files of one ANN index, for the ANN reader. Picking the storage behind
+    // them is this class's job, the only one that knows every format: the
+    // compound reader under V1 and V2, the container's blob under SNII. The
+    // caller must keep this IndexFileReader alive for the source's lifetime, and
+    // the source alive for its inputs' lifetime.
+    MOCK_FUNCTION Result<std::unique_ptr<AnnIndexSource>> open_ann_source(
+            const TabletIndex* index_meta, const io::IOContext* io_ctx) const;
     // Opens one BLOB logical index of kind kBkd: resolves its named sub-files
     // (bkd_data / bkd_index / bkd_nulls) into extents through the CONTAINER's own
     // directory and hands back a reader bound to this IndexFileReader's file.
@@ -101,6 +112,10 @@ public:
             doris::snii::reader::LogicalIndexOpenMode open_mode) const;
     // SNII only: every entry of the container directory, text and blob kinds alike.
     Result<std::vector<doris::snii::format::LogicalIndexMetadataRef>> snii_logical_indexes() const;
+    // SNII only: the kind of one directory entry, nothing when the directory has no such entry.
+    // A directory can hold thousands of VARIANT paths, so a lookup does not copy it.
+    Result<std::optional<doris::snii::format::LogicalIndexKind>> snii_logical_index_kind(
+            uint64_t index_id, std::string_view suffix) const;
     // SNII only: reads the CoreMetadata of one text logical index with the caller's IO context.
     Status snii_core_metadata(uint64_t index_id, std::string_view suffix,
                               doris::snii::format::CoreMetadata* out,

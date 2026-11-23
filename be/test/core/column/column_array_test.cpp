@@ -365,15 +365,6 @@ protected:
 };
 
 //////////////////////// basic function from column.h ////////////////////////
-TEST_F(ColumnArrayTest, InsertManyFixLengthDataTest) {
-    auto callback = [&](MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
-        for (auto& col : array_columns) {
-            EXPECT_ANY_THROW(col->insert_many_fix_len_data(nullptr, 0));
-        }
-    };
-    assert_insert_many_fix_len_data(array_columns, serdes, callback);
-}
-
 TEST_F(ColumnArrayTest, InsertManyDictDataTest) {
     auto callback = [&](MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
         for (auto& col : array_columns) {

@@ -93,6 +93,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayShuffle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortedMerge;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayUnion;
@@ -173,6 +174,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutToFirstSignificantSubdomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DamerauLevenshteinDistance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DataSketchesHllDownsample;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
@@ -852,6 +854,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arraySortBy, context);
     }
 
+    default R visitArraySortedMerge(ArraySortedMerge arraySortedMerge, C context) {
+        return visitScalarFunction(arraySortedMerge, context);
+    }
+
     default R visitArraySplit(ArraySplit arraySplit, C context) {
         return visitScalarFunction(arraySplit, context);
     }
@@ -1183,6 +1189,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitCutIpv6(CutIpv6 cutIpv6, C context) {
         return visitScalarFunction(cutIpv6, context);
+    }
+
+    default R visitDataSketchesHllDownsample(DataSketchesHllDownsample function, C context) {
+        return visitScalarFunction(function, context);
     }
 
     default R visitDatabase(Database database, C context) {

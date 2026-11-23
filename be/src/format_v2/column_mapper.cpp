@@ -1882,6 +1882,16 @@ static bool build_variant_projection(const ColumnMapping& mapping, LocalColumnIn
 static Status build_complex_projection(const ColumnMapping& mapping, LocalColumnIndex* projection,
                                        bool enable_variant_leaf_projection = false);
 
+static bool needs_full_map_shape_for_null_value(const DataTypePtr& file_type,
+                                                const std::vector<ColumnMapping>& children) {
+    // A physical MAP must retain its value stream to preserve a valid key/value shape, even
+    // when its table value is UNKNOWN. Materialization replaces that stream with NULLs.
+    return remove_nullable(file_type)->get_primitive_type() == TYPE_MAP &&
+           std::ranges::any_of(children, [](const ColumnMapping& child) {
+               return !child.file_local_id.has_value() && child.table_type->is_null_literal();
+           });
+}
+
 // Build the projected file children/type according to the pruned complex projection. For example,
 // if we have a struct column `s` with children `id` and `name`, and the projection only keeps
 // `s.name`, then the file reader should expose `STRUCT<name ...>`.
@@ -1892,6 +1902,11 @@ static Status rebuild_projected_file_children_and_type(
     DORIS_CHECK(file_type != nullptr);
     DORIS_CHECK(projected_file_children != nullptr);
     DORIS_CHECK(projected_type != nullptr);
+    if (needs_full_map_shape_for_null_value(file_type, child_mappings)) {
+        *projected_file_children = original_file_children;
+        *projected_type = file_type;
+        return Status::OK();
+    }
     ColumnDefinition field;
     field.type = file_type;
     field.children = original_file_children;
@@ -1931,6 +1946,10 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
     projection->timestamp_is_adjusted_to_utc = mapping.timestamp_is_adjusted_to_utc;
     projection->project_all_children = mapping.child_mappings.empty();
     projection->children.clear();
+    if (needs_full_map_shape_for_null_value(mapping.file_type, mapping.child_mappings)) {
+        projection->project_all_children = true;
+        return Status::OK();
+    }
     const auto present_children = present_child_mappings_in_file_order(mapping.child_mappings);
     if (!projection->project_all_children && present_children.empty()) {
         // All requested table children under this complex node are missing/default-only. The file
@@ -1957,9 +1976,9 @@ static bool has_timestamp_semantics(const ColumnDefinition& column) {
            std::ranges::any_of(column.children, has_timestamp_semantics);
 }
 
-static void attach_timestamp_semantics(const std::optional<bool>& timestamp_is_adjusted_to_utc,
-                                       const std::vector<ColumnDefinition>& file_children,
-                                       LocalColumnIndex* projection) {
+void attach_timestamp_semantics(const std::optional<bool>& timestamp_is_adjusted_to_utc,
+                                const std::vector<ColumnDefinition>& file_children,
+                                LocalColumnIndex* projection) {
     DORIS_CHECK(projection != nullptr);
     projection->timestamp_is_adjusted_to_utc = timestamp_is_adjusted_to_utc;
     for (const auto& file_child : file_children) {
@@ -2035,27 +2054,15 @@ static const ColumnDefinition* find_file_child_by_name(
     return child_it == children.end() ? nullptr : &*child_it;
 }
 
-static bool variant_leaf_type_preserves_physical_identity(const ColumnDefinition& leaf) {
+static bool variant_leaf_is_projectable_scalar(const ColumnDefinition& leaf) {
     if (!leaf.children.empty() || leaf.type == nullptr) {
         return false;
     }
-    // ColumnDefinition does not transport Parquet's raw-binary/UUID and timestamp-unit tags.
-    // Limit direct leaves to identities fully described by the Doris scalar type; every ambiguous
-    // identity must retain the complete wrapper so reconstruction can inspect its physical schema.
-    switch (remove_nullable(leaf.type)->get_primitive_type()) {
-    case TYPE_BOOLEAN:
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-    case TYPE_FLOAT:
-    case TYPE_DOUBLE:
-    case TYPE_DECIMAL128I:
-    case TYPE_DATEV2:
-        return true;
-    default:
-        return false;
-    }
+    // Physical identity - raw binary versus UTF-8, UUID, timestamp units - is resolved by the
+    // reader from ParquetColumnSchema::type_descriptor, which the projected schema copies verbatim.
+    // The mapper only decides which columns to read, so every scalar leaf is projectable. Complex
+    // leaves keep the complete wrapper because reconstruction still needs their full shape.
+    return !is_complex_type(remove_nullable(leaf.type)->get_primitive_type());
 }
 
 static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
@@ -2079,6 +2086,15 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
         return false;
     }
     *root_projection = LocalColumnIndex::partial_local(*mapping.file_local_id);
+    // Decoding a residual needs the root key dictionary. The root `value` itself stays unprojected:
+    // it holds every unshredded field, so reading it would give back all the pruned I/O. Shredding
+    // keeps a present typed object's residual keys disjoint from its shredded fields, and a null
+    // typed object means the value is not an object, so the requested path is absent either way.
+    const auto* root_metadata = find_file_child_by_name(mapping.original_file_children, "metadata");
+    if (root_metadata == nullptr) {
+        return false;
+    }
+    root_projection->children.push_back(LocalColumnIndex::local(root_metadata->file_local_id()));
     const auto* root_typed = find_file_child_by_name(mapping.original_file_children, "typed_value");
     if (root_typed == nullptr || root_typed->children.empty() || root_typed->type == nullptr ||
         remove_nullable(root_typed->type)->get_primitive_type() != TYPE_STRUCT) {
@@ -2105,8 +2121,15 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
         if (leaf) {
             // Only primitive typed values can be returned as a direct vector. Complex shredded
             // values still need their wrapper shape and therefore keep the full Variant fallback.
-            if (!variant_leaf_type_preserves_physical_identity(*typed)) {
+            if (!variant_leaf_is_projectable_scalar(*typed)) {
                 return false;
+            }
+            // The residual beside the leaf carries the rows whose value did not match the shredded
+            // type. Reading it lets the reader merge those rows instead of rejecting the batch.
+            if (const auto* residual = find_file_child_by_name(wrapper->children, "value");
+                residual != nullptr) {
+                current_projection->children.push_back(
+                        LocalColumnIndex::local(residual->file_local_id()));
             }
             typed_projection.project_all_children = true;
         } else if (typed->type == nullptr ||
@@ -2345,6 +2368,14 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
     mapping->variant_access_paths = table_column.variant_access_paths;
+    if (table_column.type->is_null_literal()) {
+        // Iceberg V3 unknown is NULL even if a physical field with the same ID/name exists.
+        // Resolve it before partition/physical matching so file values and statistics cannot leak in.
+        DORIS_CHECK(table_column.type->is_nullable());
+        _set_constant_mapping(mapping, VExprContext::create_shared(VLiteral::create_shared(
+                                               table_column.type, Field {})));
+        return Status::OK();
+    }
     const auto iceberg_metadata_type = [&] {
         if (!_options.enable_iceberg_metadata_virtual_columns || !table_column.is_synthesized) {
             return TableVirtualColumnType::INVALID;
@@ -2578,6 +2609,7 @@ Status TableColumnMapper::create_scan_request(
         file_request->non_predicate_positions = *fixed_non_predicate_positions;
     }
     file_request->conjuncts.clear();
+    file_request->residual_predicate_columns.clear();
     file_request->metadata_pruning_safe_conjunct_count = 0;
     file_request->constant_pruning_safe_table_filter_count = 0;
     file_request->delete_conjuncts.clear();
@@ -2878,6 +2910,26 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         }
     }
 
+    for (size_t table_filter_idx = 0; table_filter_idx < table_filters.size(); ++table_filter_idx) {
+        if (localized_table_filters[table_filter_idx]) {
+            continue;
+        }
+        for (const auto global_index : table_filters[table_filter_idx].global_indices) {
+            const auto* mapping = _find_filter_mapping(global_index);
+            if (mapping == nullptr || !mapping->file_local_id.has_value()) {
+                continue;
+            }
+            const auto local_id = LocalColumnId(*mapping->file_local_id);
+            if (std::ranges::find(file_request->residual_predicate_columns, local_id) ==
+                file_request->residual_predicate_columns.end()) {
+                // Scanner re-evaluates every table predicate after materialization. A predicate
+                // that could not be localized therefore proves its input is semantic data, not a
+                // disposable COUNT(*) carrier.
+                file_request->residual_predicate_columns.push_back(local_id);
+            }
+        }
+    }
+
     // Candidate columns are added before expression rewriting because their file-block positions
     // are needed to localize slot refs. If rewriting rejects every filter that references a visible
     // column, merge any independent output/filter subtrees and move the result to the lazy
@@ -3013,6 +3065,12 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                 if (file_child != nullptr) {
                     synthesized_used_file_child_ids.push_back(file_child->file_local_id());
                 }
+            }
+            if (table_child.type->is_null_literal()) {
+                // An unknown child is always synthesized. Keep the physical parent for its null
+                // map and ARRAY/MAP offsets, but never decode this child's value into the result.
+                DORIS_CHECK(table_child.type->is_nullable());
+                file_child = nullptr;
             }
             if (file_child == nullptr) {
                 if (table_child.default_expr == nullptr &&

@@ -43,7 +43,7 @@ ARG ARTIFACT_SOURCE=image
 ARG FE_IMAGE=apache/doris:fe-${DORIS_VERSION}
 ARG BE_IMAGE=apache/doris:be-${DORIS_VERSION}
 ARG MS_IMAGE=apache/doris:ms-${DORIS_VERSION}
-ARG BASE_IMAGE=ubuntu:22.04
+ARG BASE_IMAGE=eclipse-temurin:17.0.21_9-jre-resolute@sha256:2e6cde8b9d2138aa6393216ca79567095d0a63b1907f898a04cb4c2ddfb60e11
 
 # ============================ artifact sources ==============================
 # Two interchangeable ways to get fe/, be/ and ms/ into /artifacts. Everything
@@ -53,12 +53,10 @@ FROM ${FE_IMAGE} AS fe-src
 FROM ${BE_IMAGE} AS be-src
 FROM ${MS_IMAGE} AS ms-src
 
-# strip(1) lives here, so this is ubuntu rather than busybox.
+# Only this intermediate stage needs strip(1).
 FROM ${BASE_IMAGE} AS artifacts-base
-RUN apt-get update -y && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        -o Acquire::Retries=3 binutils && \
-    rm -rf /var/lib/apt/lists/*
+COPY docker/runtime/base-image/install-runtime.sh /tmp/install-runtime.sh
+RUN bash /tmp/install-runtime.sh binutils && rm /tmp/install-runtime.sh
 
 # A. the official component images (default)
 FROM artifacts-base AS artifacts-image
@@ -112,37 +110,20 @@ RUN set -eux; \
 
 # ================================ runtime ===================================
 
-FROM ${BASE_IMAGE} AS runtime
-ARG TARGETARCH
-ARG DORIS_VERSION
-ARG FLAVOR=base
-ARG CTX_PREFIX=docker/runtime/all-in-one/4.1
-ARG JDK_PKG=openjdk-17-jre-headless
-# FE ships -Xmx8192m, far more than a CI runner can spare; BE ships -Xmx2048m
-# for its JNI-side JVM. Both are rewritten in place below, and again at
-# container start when FE_HEAP / BE_HEAP are set.
-ARG FE_HEAP=2048m
-ARG BE_HEAP=1024m
-
+FROM ${BASE_IMAGE} AS runtime-base
 ENV DORIS_HOME=/opt/apache-doris \
     CI_HOME=/opt/doris-ci \
     LANG=C.UTF-8 \
     TZ=UTC
 
+COPY docker/runtime/base-image/install-runtime.sh /tmp/install-runtime.sh
 RUN set -eux; \
-    apt-get update -y; \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        -o Acquire::Retries=3 \
-        ${JDK_PKG} \
-        mysql-client-core-8.0 \
-        curl \
-        tini \
-        procps \
-        tzdata \
-        ca-certificates; \
-    ln -sfn "/usr/lib/jvm/java-17-openjdk-${TARGETARCH:-amd64}" /usr/lib/jvm/java; \
+    bash /tmp/install-runtime.sh mysql-client-core curl tini procps tzdata; \
+    rm /tmp/install-runtime.sh; \
+    mkdir -p /usr/lib/jvm; \
+    ln -sfn "${JAVA_HOME}" /usr/lib/jvm/java; \
     ln -sf /usr/share/zoneinfo/UTC /etc/localtime; \
-    rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*
+    rm -rf /usr/share/man/*
 
 # SKIP_CHECK_ULIMIT: start_be.sh checks vm.max_map_count / swap / ulimit -n and
 # exits 1 when they are too low. vm.max_map_count is not a namespaced sysctl, so
@@ -150,6 +131,14 @@ RUN set -eux; \
 ENV JAVA_HOME=/usr/lib/jvm/java \
     PATH=/usr/lib/jvm/java/bin:/opt/apache-doris/fe/bin:/opt/apache-doris/be/bin:$PATH \
     SKIP_CHECK_ULIMIT=true
+
+FROM runtime-base AS runtime
+ARG DORIS_VERSION
+ARG FLAVOR=base
+ARG CTX_PREFIX=docker/runtime/all-in-one/4.1
+# Keep heap rewriting independent of the shared runtime dependency layers.
+ARG FE_HEAP=2048m
+ARG BE_HEAP=1024m
 
 COPY --from=artifacts /artifacts/fe ${DORIS_HOME}/fe
 COPY --from=artifacts /artifacts/be ${DORIS_HOME}/be

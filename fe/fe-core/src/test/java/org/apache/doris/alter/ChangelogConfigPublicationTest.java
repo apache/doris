@@ -36,9 +36,11 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.mvcc.MvccReadSelector;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
 import org.apache.doris.persist.EditLog;
@@ -194,23 +196,24 @@ public class ChangelogConfigPublicationTest {
         Assertions.assertThrows(DdlException.class, () -> alter(handler, 60));
         ChangelogConfig committed = new ChangelogConfig(published());
         table.setChangelogConfig(original);
-        Env replayEnv = Mockito.mock(Env.class);
+        Env replayEnv = Mockito.mock(Env.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.when(replayEnv.getSortedPartitionsCacheManager())
+                .thenReturn(Mockito.mock(NereidsSortedPartitionsCacheManager.class));
         NereidsSqlCacheManager cache = new NereidsSqlCacheManager();
         SqlCacheContext cachedRead = Mockito.mock(SqlCacheContext.class);
         SqlCacheContext.TableVersion version = new SqlCacheContext.TableVersion(table.getId(), 1, Table.TableType.OLAP);
         Mockito.when(cachedRead.getUsedTables()).thenReturn(ImmutableMap.of(
-                new SqlCacheContext.FullTableName("internal", "db", "tbl"), version));
+                new SqlCacheContext.TableReference(new SqlCacheContext.FullTableName("internal", "db", "tbl"),
+                        MvccReadSelector.LATEST), version));
         cache.getSqlCaches().put("cached-incr-read", cachedRead);
         Mockito.when(replayEnv.getSqlCacheManager()).thenReturn(cache);
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         envMock.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
-        Mockito.when(replayEnv.getInternalCatalog()).thenReturn(catalog);
+        Mockito.doReturn(catalog).when(replayEnv).getInternalCatalog();
         Mockito.when(catalog.getDbOrMetaException(db.getId())).thenReturn(db);
         Mockito.when(db.getTableOrMetaException(table.getId(), Table.TableType.OLAP)).thenReturn(table);
         ModifyTablePropertyOperationLog log = new ModifyTablePropertyOperationLog(
                 db.getId(), table.getId(), table.getName(), committed.toProperties());
-        Mockito.doCallRealMethod().when(replayEnv).replayModifyTableProperty(
-                OperationType.OP_UPDATE_BINLOG_CONFIG, log);
         replayEnv.replayModifyTableProperty(OperationType.OP_UPDATE_BINLOG_CONFIG, log);
         Assertions.assertNull(cache.getSqlCaches().getIfPresent("cached-incr-read"));
         Assertions.assertEquals(committed, table.getChangelogConfig());

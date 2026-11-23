@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.authorization.AccessContext;
 import org.apache.doris.authorization.AccessRequirement;
 import org.apache.doris.authorization.AuthorizedResource;
 import org.apache.doris.authorization.AuthorizedSubject;
@@ -74,7 +75,8 @@ public class EngineAuthorizationContext implements AuthorizationContext {
      */
     @Override
     public Set<String> rolesOf(AuthorizedSubject subject) {
-        return auth.getRolesByUser(AccessTranslation.userIdentityOf(subject), false);
+        return auth.getRoleNamesForAuthorization(
+                AccessTranslation.userIdentityOf(subject, manager.contextOfCheckInFlight()));
     }
 
     @Override
@@ -90,7 +92,8 @@ public class EngineAuthorizationContext implements AuthorizationContext {
         // on the thread: the source that governs instance scope may decide from the client address, and this
         // question is about the same statement. A check can reach here before its connection is installed on
         // the thread - the HTTP cookie path does - where the thread holds another request's, or none.
-        return manager.decide(AccessTranslation.userIdentityOf(subject), AuthorizedResource.global(),
-                requirement, manager.contextOfCheckInFlight());
+        AccessContext context = manager.contextOfCheckInFlight();
+        return manager.decide(AccessTranslation.userIdentityOf(subject, context), AuthorizedResource.global(),
+                requirement, context);
     }
 }

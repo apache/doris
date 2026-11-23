@@ -23,29 +23,26 @@
 #include <unordered_set>
 #include <vector>
 
+#include "storage/index/inverted/analysis/per_token_stream.h"
 #include "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_config.h"
 #include "storage/index/inverted/analysis/tokenizer/pinyin/rune.h"
 #include "storage/index/inverted/analysis/tokenizer/pinyin/term_item.h"
-#include "storage/index/inverted/analysis/tokenizer/tokenizer.h"
 #include "unicode/uchar.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class PinyinTokenizer : public DorisTokenizer {
+class PinyinTokenizer final : public PerTokenTokenizer {
 public:
     PinyinTokenizer();
     PinyinTokenizer(std::shared_ptr<doris::segment_v2::PinyinConfig> config);
     ~PinyinTokenizer() override = default;
 
-    Token* next(Token* token) override;
-    void reset() override;
-    bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const override;
+    // The candidates of the value with their buffers.
+    size_t reserved_bytes() const override;
 
-#ifdef BE_TEST
-    size_t ascii_scratch_capacity_for_test() const {
-        return ascii_buff_rune_starts_.capacity() + ascii_buff_rune_ends_.capacity();
-    }
-#endif
+protected:
+    void on_reset(std::string_view text) override;
+    bool next_token(TokenRef& token) override;
 
 private:
     bool done_;
@@ -76,15 +73,7 @@ private:
 
     std::vector<Rune> runes_;
 
-    // Source range of every letter in the pending ASCII buffer; skipped punctuation leaves gaps.
-    std::vector<int32_t> ascii_buff_rune_starts_;
-    std::vector<int32_t> ascii_buff_rune_ends_;
-    // Conservative provenance of the current candidate when no exact rune map applies.
-    int32_t current_span_end_ = 0;
-    bool has_current_span_ = false;
-
     bool hasMoreTokens() const;
-    void publishCandidateProvenance(std::string_view term, int32_t start, int32_t end);
     void addCandidate(const TermItem& item);
 
     void setTerm(std::string term, int start_offset, int end_offset, int position);

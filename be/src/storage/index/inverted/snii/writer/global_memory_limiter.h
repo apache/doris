@@ -65,73 +65,7 @@ int64_t calc_process_max_snii_build_memory(int64_t process_mem_limit);
 // Doris's system/process memory state.
 BuildMemorySignals read_build_memory_signals();
 
-// Process-wide SNII build-RAM limiter (G09) -- the index-build analogue of
-// Doris's MemTableMemoryLimiter. Every live SPIMI accumulator registers here
-// and forwards its SPILLABLE arena bytes through its existing debounced report
-// path; when SNII's index-build memory as a whole crosses its share of the
-// process limit (or the process itself comes under pressure), the limiter
-// requests spills from the largest-ARENA eligible buffers until the flagged
-// (reclaimable) arena sum covers the overage.
-//
-// WHY: the per-writer gate-2 cap (e.g. 512 MiB) bounds ONE writer, but a load
-// keeps (tablets x concurrency) writers alive at once -- wikipedia at
-// concurrency 16 held 100+ writers at 300-500 MB each (~41 GiB), none of which
-// ever reached its own cap, so per-writer spilling never fired. This registry
-// bounds the SUM.
-//
-// WHERE THE SUM COMES FROM: not from the limiter. The bytes are already
-// counted, twice over -- Doris's allocation hook charges the thread's
-// MemTrackerLimiter, and every MemoryReporter mirrors its live bytes into the
-// SniiIndexBuild observation tracker. The limiter reads that tracker instead of
-// maintaining a third, narrower sum of its own; the registry exists only for
-// what a tracker cannot express: WHICH writer to ask, and how much of its
-// memory is actually reclaimable.
-//
-// ASYNC-SAFE REQUESTS: the SPIMI structures are single-threaded, so the
-// limiter must never spill on the reporting thread. A request is a relaxed
-// atomic FLAG on the target buffer (SpimiTermBuffer::global_spill_requested_)
-// that the OWNER's next add_token / maybe_spill_after_token observes and
-// honors on its own thread (bypassing the G08 per-writer anti-churn floor but
-// still requiring the FORCED-SPILL FLOOR of reclaimable arena -- see below --
-// so every forced run is worth its fixed costs). Flags are ADVISORY: the
-// owner may have just spilled or drained -- the flag is then a (harmless)
-// no-op or one extra floor-sized run. The limiter itself only ever takes its
-// registry mutex and flips atomics; it never blocks a reporting thread beyond
-// that mutex and never calls back into a buffer.
-//
-// LIFETIME: buffers un-register in their destructor. register / report /
-// unregister all serialize on the registry mutex, and flags are only ever set
-// UNDER that mutex, so once unregister_buffer returns no thread can touch the
-// (about-to-die) flag again. The limiter must outlive every attached buffer
-// (trivial for the process singleton; test-local instances are declared before
-// the buffers they serve).
-//
-// SPILLING RECLAIMS ARENA, NOT PERSISTENT MEMORY: a forced spill releases only
-// the buffer's posting ARENA; the persistent vocab / pair-map / slot structures
-// (~100-500 MB per wikipedia writer) survive it. The share is a back-pressure
-// valve over the reclaimable arenas, not a hard cap on resident RSS. Three
-// defenses keep an unreachable target from degenerating into a forced-spill
-// storm (the conc=16 wikipedia field failure: every report re-flagged every
-// buffer, each honoring with one 32 KiB arena block -> thousands of tiny runs
-// per buffer -> EMFILE re-opening them for the k-way merge -> failed loads):
-//   * VICTIMS BY ARENA: victims are selected by their reported SPILLABLE arena
-//     bytes -- the only bytes a forced spill can actually reclaim -- never by
-//     a persistent-dominated resident total, and only buffers whose arena is
-//     at least min_victim_arena_bytes (config snii_forced_spill_min_arena_bytes)
-//     are eligible. Every forced run is therefore at least floor-sized.
-//   * PER-BUFFER COOLDOWN: right after a buffer honors a forced spill its
-//     arena is ~0, below the victim floor, so it is EXEMPT from new flags
-//     until the arena regrows past the floor. No timer state: the eligibility
-//     rule IS the cooldown.
-// Those two defenses -- and NOT any judgement about whether the overage is
-// reachable -- are what bound the work: flagging costs at most one
-// >= floor-sized run per floor of arena growth per buffer. The limiter
-// therefore always flags BEST EFFORT, even when the eligible arenas fall short
-// of the overage. Refusing to flag on a shortfall would make SNII least willing
-// to give memory back exactly when the system is most short of it, and the
-// overage frequently exceeds anything SNII holds simply because two of its
-// three terms measure whole-process pressure. reclaim_shortfall() reports the
-// condition (logged once per episode) instead of acting on it.
+// Requests spills from the largest reclaimable SNII posting arenas when index-build memory exceeds its share or the process is under pressure. Requests are atomic flags handled by each buffer's owner thread; registration protects flag lifetime, and a minimum arena size prevents tiny forced runs.
 class GlobalMemoryLimiter {
 public:
     // Signals provider; swapped out by unit tests. Invoked under the registry

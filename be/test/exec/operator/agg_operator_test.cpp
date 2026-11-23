@@ -389,7 +389,9 @@ TEST_F(BucketedAggOperatorTest, merges_two_sinks) {
 // still destroys it when the failed query is torn down.
 TEST_F(BucketedAggOperatorTest, failed_source_merge_keeps_every_state_for_cleanup) {
     ASSERT_TRUE(sink(0, {1, 2, 3}, true).ok());
-    ASSERT_TRUE(sink(1, {1, 2, 4}, true).ok());
+    // Every non-empty bucket must merge a duplicate before get_block can return output,
+    // independently of the bucket routing and traversal order.
+    ASSERT_TRUE(sink(1, {1, 2, 3}, true).ok());
     ASSERT_EQ(count_live_states(), 6);
 
     DebugPoints::instance()->add(FAIL_MERGE_DEBUG_POINT);

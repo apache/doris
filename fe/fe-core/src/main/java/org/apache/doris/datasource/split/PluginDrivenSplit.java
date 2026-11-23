@@ -38,7 +38,11 @@ public class PluginDrivenSplit extends FileSplit {
     private final String splitIdentity;
 
     public PluginDrivenSplit(ConnectorScanRange scanRange) {
-        super(buildPath(scanRange),
+        this(scanRange, buildPath(scanRange));
+    }
+
+    private PluginDrivenSplit(ConnectorScanRange scanRange, LocationPath path) {
+        super(path,
                 scanRange.getStart(),
                 scanRange.getLength(),
                 scanRange.getFileSize(),
@@ -93,6 +97,16 @@ public class PluginDrivenSplit extends FileSplit {
     private static LocationPath buildPath(ConnectorScanRange scanRange) {
         String pathStr = scanRange.getPath().orElse("connector://virtual");
         return LocationPath.of(pathStr);
+    }
+
+    /** Converts one producer stream while reusing filesystem identities across its files. */
+    public static class Factory {
+        private final LocationPath.Factory paths = new LocationPath.Factory();
+
+        public PluginDrivenSplit create(ConnectorScanRange scanRange) {
+            String location = scanRange.getPath().orElse("connector://virtual");
+            return new PluginDrivenSplit(scanRange, paths.create(location));
+        }
     }
 
     private static List<String> buildPartitionValues(ConnectorScanRange scanRange) {

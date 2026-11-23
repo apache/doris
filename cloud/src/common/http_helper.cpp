@@ -39,7 +39,7 @@
 #include <vector>
 
 #include "common/metric.h"
-#include "cpp/token_bucket_rate_limiter.h"
+#include "cpp/obj-storage/rate_limit/token_bucket_rate_limiter.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_http.h"
@@ -54,9 +54,9 @@ static google::protobuf::util::Status parse_json_message(const std::string& unre
     static_assert(std::is_base_of_v<google::protobuf::Message, Message>);
     auto st = google::protobuf::util::JsonStringToMessage(body, req);
     if (!st.ok()) {
-        std::string msg = "failed to strictly parse http request for '" + unresolved_path +
-                          "' error: " + st.ToString();
-        LOG_WARNING(msg).tag("body", encryt_sk(hide_access_key(body)));
+        LOG_WARNING("failed to strictly parse HTTP request")
+                .tag("path", unresolved_path)
+                .tag("parse_code", static_cast<int>(st.code()));
 
         // ignore unknown fields
         google::protobuf::util::JsonParseOptions json_parse_options;
@@ -66,16 +66,17 @@ static google::protobuf::util::Status parse_json_message(const std::string& unre
     return {};
 }
 
-#define PARSE_MESSAGE_OR_RETURN(ctrl, req)                                                      \
-    do {                                                                                        \
-        std::string body = ctrl->request_attachment().to_string();                              \
-        auto& unresolved_path = ctrl->http_request().unresolved_path();                         \
-        auto st = parse_json_message(unresolved_path, body, &req);                              \
-        if (!st.ok()) {                                                                         \
-            std::string msg = "parse http request '" + unresolved_path + "': " + st.ToString(); \
-            LOG_WARNING(msg).tag("body", encryt_sk(hide_access_key(body)));                     \
-            return http_json_reply(MetaServiceCode::PROTOBUF_PARSE_ERR, msg);                   \
-        }                                                                                       \
+#define PARSE_MESSAGE_OR_RETURN(ctrl, req)                                                \
+    do {                                                                                  \
+        std::string body = ctrl->request_attachment().to_string();                        \
+        auto& unresolved_path = ctrl->http_request().unresolved_path();                   \
+        auto st = parse_json_message(unresolved_path, body, &req);                        \
+        if (!st.ok()) {                                                                   \
+            std::string msg =                                                             \
+                    "parse http request '" + unresolved_path + "': invalid request JSON"; \
+            LOG_WARNING(msg).tag("parse_code", static_cast<int>(st.code()));              \
+            return http_json_reply(MetaServiceCode::PROTOBUF_PARSE_ERR, msg);             \
+        }                                                                                 \
     } while (0)
 
 const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers() {
@@ -354,10 +355,6 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                  {.handler = [](void* s,
                                 brpc::Controller* c) { return process_alter_ram_user((MS*)s, c); },
                   .role = HttpRole::META_SERVICE}},
-                {"alter_iam",
-                 {.handler = [](void* s,
-                                brpc::Controller* c) { return process_alter_iam((MS*)s, c); },
-                  .role = HttpRole::META_SERVICE}},
                 {"adjust_rate_limit",
                  {.handler =
                           [](void* s, brpc::Controller* c) {
@@ -620,14 +617,6 @@ HttpResponse process_alter_ram_user(MetaServiceImpl* service, brpc::Controller* 
     return http_json_reply(resp.status());
 }
 
-HttpResponse process_alter_iam(MetaServiceImpl* service, brpc::Controller* ctrl) {
-    AlterIamRequest req;
-    PARSE_MESSAGE_OR_RETURN(ctrl, req);
-    AlterIamResponse resp;
-    service->alter_iam(ctrl, &req, &resp, nullptr);
-    return http_json_reply(resp.status());
-}
-
 HttpResponse process_adjust_rate_limit(MetaServiceImpl* service, brpc::Controller* cntl) {
     const auto& uri = cntl->http_request().uri();
     auto qps_limit_str = std::string {http_query(uri, "qps_limit")};
@@ -771,7 +760,7 @@ HttpResponse process_recycle_instance(RecyclerServiceImpl* service, brpc::Contro
                                "failed to parse RecycleInstanceRequest");
     }
     RecycleInstanceResponse res;
-    service->recycle_instance(cntl, &req, &res, nullptr);
+    service->recycle_instance(*cntl, req, res);
     return http_text_reply(res.status(), res.status().msg());
 }
 
@@ -868,8 +857,8 @@ HttpResponse process_adjust_rate_limiter(RecyclerServiceImpl*, brpc::Controller*
     auto max_speed = speed->empty() ? 0 : std::stoul(*speed);
     auto max_burst = burst->empty() ? 0 : std::stoul(*burst);
     auto max_limit = limit->empty() ? 0 : std::stoul(*limit);
-    if (reset_s3_rate_limiter(string_to_s3_rate_limit_type(*type_string), max_speed, max_burst,
-                              max_limit) != 0) {
+    if (reset_s3_rate_limiter(string_to_obj_storage_rate_limit_type(*type_string), max_speed,
+                              max_burst, max_limit) != 0) {
         return http_json_reply(MetaServiceCode::UNDEFINED_ERR, "adjust failed");
     }
     return http_json_reply(MetaServiceCode::OK, "");

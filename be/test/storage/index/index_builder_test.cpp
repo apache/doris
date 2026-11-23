@@ -3648,7 +3648,7 @@ TEST_F(IndexBuilderTest, BuildIndexReusesStringDescriptorsAcrossNullRuns) {
 
 TEST_F(IndexBuilderTest, FloatingPointBuildIndexBorrowsCleanRunsAndPreservesSource) {
     auto check = [&]<FieldType FT>() {
-        using Value = typename CppTypeTraits<FT>::CppType;
+        using Value = typename StorageTypeTraits<FT>::StorageType;
         using UInt = std::conditional_t<sizeof(Value) == sizeof(uint32_t), uint32_t, uint64_t>;
         using Column =
                 typename PrimitiveTypeTraits<storage_field_type_to_primitive_type(FT)>::ColumnType;

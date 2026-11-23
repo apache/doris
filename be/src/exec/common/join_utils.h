@@ -24,6 +24,7 @@
 #include "exec/common/hash_table/hash_key_type.h"
 #include "exec/common/hash_table/hash_map_context.h"
 #include "exec/common/hash_table/join_hash_table.h"
+#include "exec/common/hash_table/packed_string_join_key.h"
 #include "exec/common/join_op_utils.h" // IWYU pragma: export (JoinOpVariants/AsofIndexGroup moved there)
 
 namespace doris {
@@ -73,6 +74,67 @@ using SerializedHashTableContext =
 using MethodOneString =
         MethodStringNoCache<JoinHashMap<StringRef, HashCRC32Return32<StringRef>, false>>;
 
+template <typename F>
+decltype(auto) with_join_string_column(const IColumn& column, F&& f) {
+    const auto& nested = is_column_nullable(column)
+                                 ? assert_cast<const ColumnNullable&>(column).get_nested_column()
+                                 : column;
+    if (nested.is_column_string64()) {
+        return f(assert_cast<const ColumnString64&>(nested));
+    }
+    return f(assert_cast<const ColumnString&>(nested));
+}
+
+template <typename Key>
+class PackedStringJoinContext : public PrimaryTypeHashTableContext<Key> {
+    using Base = PrimaryTypeHashTableContext<Key>;
+    using Table = typename Base::HashMapType;
+
+public:
+    explicit PackedStringJoinContext(size_t max_length) : _max_length(max_length) {}
+
+    size_t serialized_keys_size(bool is_build) const override {
+        return (is_build ? _build_keys.size() : _probe_keys.size()) * sizeof(Key);
+    }
+
+    size_t estimated_size(const ColumnRawPtrs& key_columns, uint32_t rows, bool is_join,
+                          bool is_build, uint32_t bucket_size) override {
+        return sizeof(Key) * rows +
+               Base::estimated_size(key_columns, rows, is_join, is_build, bucket_size);
+    }
+
+    void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t rows,
+                              const uint8_t* null_map, bool is_join, bool is_build,
+                              uint32_t bucket_size) override {
+        DCHECK(is_join);
+        auto& keys = is_build ? _build_keys : _probe_keys;
+        keys.resize(rows);
+        Base::keys = keys.data();
+        Base::bucket_nums.resize(rows);
+
+        with_join_string_column(*key_columns[0], [&](const auto& column) {
+            const auto* offsets = column.get_offsets().data() - 1;
+            const auto* chars = column.get_chars().data();
+            auto prepare = [&]<bool Build>() {
+                packed_string_join::prepare<Build>(offsets, chars, null_map, rows, bucket_size,
+                                                   Table::no_match_bucket(bucket_size), _max_length,
+                                                   keys.data(), Base::bucket_nums.data(),
+                                                   HashCRC32Return32<Key> {});
+            };
+            if (is_build) {
+                prepare.template operator()<true>();
+            } else {
+                prepare.template operator()<false>();
+            }
+        });
+    }
+
+private:
+    size_t _max_length;
+    DorisVector<Key> _build_keys;
+    DorisVector<Key> _probe_keys;
+};
+
 using HashTableVariants = std::variant<
         std::monostate, SerializedHashTableContext, PrimaryTypeHashTableContext<UInt8>,
         PrimaryTypeHashTableContext<UInt16>, PrimaryTypeHashTableContext<UInt32>,
@@ -83,7 +145,8 @@ using HashTableVariants = std::variant<
         FixedKeyHashTableContext<UInt64>, FixedKeyHashTableContext<UInt72>,
         FixedKeyHashTableContext<UInt96>, FixedKeyHashTableContext<UInt104>,
         FixedKeyHashTableContext<UInt128>, FixedKeyHashTableContext<UInt136>,
-        FixedKeyHashTableContext<UInt256>, MethodOneString>;
+        FixedKeyHashTableContext<UInt256>, MethodOneString, PackedStringJoinContext<UInt32>,
+        PackedStringJoinContext<UInt64>, PackedStringJoinContext<UInt128>>;
 
 struct JoinDataVariants {
     HashTableVariants method_variant;

@@ -116,6 +116,12 @@ public class Config extends ConfigBase {
     @ConfField(description = "Whether to enable compression for FE audit log files")
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(mutable = true, callback = RegexConfHandler.class, description = "Case-insensitive regex searched in "
+            + "data source property names when masking output. Combined with built-in and provider secret rules. "
+            + "Use (?!) to disable only this additional rule. Applies on each FE without changing connection values.")
+    public static volatile String datasource_sensitive_property_pattern =
+            "password|passwd|secret|token|credential|access[._-]?key|api[._-]?key";
+
     @ConfField(description = "Active lineage plugins. Specify the name returned by LineagePlugin.name()")
     public static String[] activate_lineage_plugin = {};
 
@@ -2209,6 +2215,15 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static int max_external_cache_loader_thread_pool_size = 64;
 
+    @ConfField(description = "Workers for fair split production")
+    public static int external_scan_split_threads = 64;
+
+    @ConfField(description = "Workers for independent metadata tasks")
+    public static int external_scan_metadata_threads = 64;
+
+    @ConfField(description = "Maximum queued tasks per query in each external scan scheduler")
+    public static int external_scan_task_queue_capacity = 128;
+
     /**
      * Max cache num of external catalog's file
      * Decrease this value if FE's memory is small
@@ -2393,6 +2408,66 @@ public class Config extends ConfigBase {
     public static int hbo_plan_info_cache_num = 1000;
 
     /**
+     * Threshold of the "extremely small filter estimate" guard used by pinned entries injected with
+     * {@code TYPE FILTER_SMALL}: such an entry is only applied while the optimizer's own filter
+     * estimate E satisfies {@code E <= 1} or {@code E <= inputRows * hbo_filter_small_ratio}, i.e.
+     * while the pathological regime that motivated the injection still holds. Hot mutable.
+     */
+    @ConfField(mutable = true, description = "The default setting is 0.001. Relative threshold below which "
+            + "the optimizer's own filter estimate counts as 'extremely small' for HBO FILTER_SMALL "
+            + "pinned entries.")
+    public static double hbo_filter_small_ratio = 0.001;
+
+    /**
+     * Tolerance of a hbo entry against data growth. A hbo key no longer contains the visible version
+     * or the row count of its tables, so an entry keeps matching while a table grows; the read side
+     * applies an entry while the row count of the data it was measured on changed by at most this
+     * ratio (|now - recorded| / recorded). Beyond it the entry is not applied and the query falls
+     * back to the optimizer estimation. A non-positive value disables the tolerance, i.e. an entry
+     * is only applied while the recorded data state is exactly the current one. Hot mutable.
+     */
+    @ConfField(mutable = true, description = "The default setting is 0.1. Relative row count change of the data "
+            + "an injected HBO entry was measured on, up to which the entry may still be applied; 0 or "
+            + "less means the recorded data state has to match exactly.")
+    public static double hbo_row_count_change_ratio = 0.1;
+
+    /**
+     * Maximum number of manually injected (pinned) hbo statistics entries kept per FE. When the
+     * limit is exceeded the least recently used pinned entry is evicted (LRU); pinned entries are
+     * otherwise not expired automatically. A non-positive value disables the LRU bound
+     * (unbounded), matching the other hbo caches. Takes effect at FE start (not hot-mutable).
+     */
+    @ConfField(description = "The default setting is 5000. Maximum number of manually injected "
+            + "(pinned) hbo statistics entries kept per FE; exceeding the limit evicts the least "
+            + "recently used entry; a non-positive value disables the bound (unbounded). Takes "
+            + "effect at FE start (not hot-mutable).")
+    public static int hbo_pinned_stats_cache_num = 5000;
+
+    /**
+     * Persist manually injected (pinned) hbo statistics into the internal database table
+     * __internal_schema.hbo_statistics, so that they survive FE restarts. In-memory pinned
+     * statistics stay authoritative; changes are written through synchronously (best effort)
+     * and each FE loads the table in the background at start-up (HboPinnedStatisticsLoader).
+     * Persistence applies to SET/DELETE issued
+     * while this config is true: entries SET while it is false are not persisted, and entries
+     * DELETEd while it is false keep their stored rows. A FE loads the table into memory at most
+     * once per process (in the background at start-up, retried until it succeeds), so rows deleted
+     * while it is false reappear only for a FE whose one-time load is still pending (e.g. right after
+     * FE start). On that load, existing in-memory entries win over the stored
+     * snapshot; deletions issued while this config is true during the pending load are honored —
+     * rows of theirs that the load sees are best-effort removed from the table again, and they
+     * reappear after a FE restart only if that removal also fails. In general, rows whose
+     * best-effort removal from the table fails (during or after the one-time load, e.g. because
+     * the internal table is temporarily unreachable) reappear after a FE restart; re-issue the
+     * DELETE once the table is reachable. A FE never refreshes entries SET by other FEs during
+     * its lifetime.
+     */
+    @ConfField(mutable = true, description = "The default setting is true. When true, HBO SET/DELETE STATISTICS "
+            + "entries are persisted into __internal_schema.hbo_statistics and reloaded after FE "
+            + "restart.")
+    public static boolean hbo_persist_pinned_to_internal_db = true;
+
+    /**
      * Maximum number of events to poll in each RPC.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -2524,7 +2599,7 @@ public class Config extends ConfigBase {
      * This is to solve the case that user forgot the password.
      */
     @ConfField(mutable = false)
-    public static boolean skip_localhost_auth_check  = true;
+    public static boolean skip_localhost_auth_check = false;
 
     @ConfField(mutable = true)
     public static boolean enable_round_robin_create_tablet = true;
@@ -2574,6 +2649,10 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static long stats_cache_size = 50_0000;
+
+    @ConfField(mutable = false, description = "Maximum queued statistics cache loads. Must be positive. "
+            + "When full, new lookups use unknown statistics. Takes effect after restarting FE.")
+    public static int stats_fetch_queue_size = 100000;
 
     /**
      * This config used for ranger cache data mask/row policy
@@ -3375,8 +3454,9 @@ public class Config extends ConfigBase {
             + "whether to enable the active tablet priority scheduling strategy. " + "Default is true.")
     public static boolean enable_cloud_active_tablet_priority_scheduling = true;
 
-    @ConfField(masterOnly = true, description = "Whether to enable active tablet sliding window access statistics "
-            + "feature. Default is true.")
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Whether to enable active tablet sliding window access statistics "
+                    + "feature. Default is true.")
     public static boolean enable_active_tablet_sliding_window_access_stats = true;
 
     @ConfField(mutable = true, masterOnly = true, description = "Time window size in seconds for active tablet "
@@ -3387,7 +3467,10 @@ public class Config extends ConfigBase {
             + "partition-level scheduling processes TopN active "
             + "partitions first, then other active partitions, then "
             + "inactive partitions, and internal databases last. "
-            + "Default is 10000. <=0 disables TopN segmentation.")
+            + "Default is 10000. <=0 disables TopN segmentation. "
+            + "A BE reports at most report_active_tablet_max_num tablets per dimension, so a BE holding "
+            + "a concentrated hot set cannot fill this budget on its own unless that be config is >= this "
+            + "value; watch the BE bvar report.active_tablet_truncated before raising this one.")
     public static int cloud_active_partition_scheduling_topn = 10000;
 
     @ConfField(mutable = true, masterOnly = true, description = "Refresh interval in seconds for the active-tablet "
@@ -3746,7 +3829,7 @@ public class Config extends ConfigBase {
     public static boolean enable_tso_forward_when_counter_full = true;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_notify_be_after_load_txn_commit = false;
+    public static boolean enable_notify_be_after_load_txn_commit = true;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

@@ -82,7 +82,7 @@ public class RowLevelDmlCommand {
     public void run(ConnectContext ctx, StmtExecutor stmtExecutor) throws Exception {
         TableIf table = args.getTable();
         transform.checkMode(table, op);
-        ConnectorWriteSchemaUtils.pinAndGet(ctx, (ExternalTable) table);
+        pinWriteSchema(ctx, table);
         long previousTargetTableId = ctx.getSyntheticWriteColTargetTableId();
         ctx.setSyntheticWriteColTargetTableId(table.getId());
         try {
@@ -154,13 +154,24 @@ public class RowLevelDmlCommand {
     public Plan getExplainPlan(ConnectContext ctx) {
         TableIf table = args.getTable();
         transform.checkMode(table, op);
-        ConnectorWriteSchemaUtils.pinAndGet(ctx, (ExternalTable) table);
+        pinWriteSchema(ctx, table);
         long previousTargetTableId = ctx.getSyntheticWriteColTargetTableId();
         ctx.setSyntheticWriteColTargetTableId(table.getId());
         try {
             return transform.synthesize(ctx, args, op);
         } finally {
             ctx.setSyntheticWriteColTargetTableId(previousTargetTableId);
+        }
+    }
+
+    /**
+     * Pin the target's writer schema for the statement. A DELETE needs it for its delete sink but writes no row
+     * values, so its target is also marked: DEFAULT(column) there gets no write-only default from the schema.
+     */
+    private void pinWriteSchema(ConnectContext ctx, TableIf table) {
+        ConnectorWriteSchemaUtils.pinAndGet(ctx, (ExternalTable) table);
+        if (op == RowLevelDmlOp.DELETE) {
+            ctx.getStatementContext().addConnectorDeleteTarget(table.getId());
         }
     }
 

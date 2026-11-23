@@ -35,11 +35,14 @@ import org.apache.doris.nereids.rules.rewrite.UnCorrelatedApplyProjectFilter;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
@@ -124,12 +127,13 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
             try {
                 StatementScopeIdGenerator.clear();
                 StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
-                PhysicalPlan plan = new NereidsPlanner(statementContext).planWithLock(
+                NereidsPlanner planner = new NereidsPlanner(statementContext);
+                PhysicalPlan plan = planner.planWithLock(
                         parser.parseSingle(sql),
                         PhysicalProperties.ANY
                 );
                 // Just to check whether translate will throw exception
-                new PhysicalPlanTranslator(new PlanTranslatorContext()).translatePlan(plan);
+                new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext())).translatePlan(plan);
             } catch (Throwable t) {
                 throw new IllegalStateException("Test sql failed: " + t.getMessage() + ", sql:\n" + sql, t);
             }
@@ -268,6 +272,27 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                         new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("test", "t6")))))
                 );
+    }
+
+    @Test
+    public void testBitmapInMaterializesVolatileProbe() {
+        // The signed-domain guard and bitmap lookup must read one value. Duplicating RAND
+        // can make the guard accept one value while the lookup tests a different value.
+        // No table rows are needed: inspect the rewrite before later optimizer rules run.
+        for (String operator : ImmutableList.of("in", "not in")) {
+            PlanChecker.from(connectContext)
+                    .analyze("select k1 from t6 where cast(rand() * 2 as bigint) - 1 "
+                            + operator + " (select to_bitmap(1))")
+                    .applyBottomUp(new InApplyToJoin())
+                    .matches(logicalJoin(
+                            logicalProject().when(project -> project.getProjects().stream()
+                                    .filter(expression -> expression.containsVolatileExpression()).count() == 1),
+                            logicalAggregate())
+                            .when(join -> !join.getOtherJoinConjuncts().get(0).containsVolatileExpression())
+                            .when(join -> join.getOtherJoinConjuncts().get(0).containsType(GreaterThanEqual.class))
+                            .when(join -> join.getOtherJoinConjuncts().get(0).containsType(BitmapContains.class))
+                            .when(join -> join.getOtherJoinConjuncts().get(0).containsType(If.class)));
+        }
     }
 
     @Test

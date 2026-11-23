@@ -50,7 +50,6 @@ import java.util.Set;
 final class PaimonRustReaderSelector {
     static final String BACKEND_CAPABILITY = "paimon-rust-reader";
     private static final String ENABLE_PAIMON_RUST_READER = "enable_paimon_rust_reader";
-    private static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
     private static final String DELETION_VECTORS_MERGE_ON_READ = "deletion-vectors.merge-on-read";
     private static final Set<String> VERIFIED_LOCATION_SCHEMES =
@@ -86,8 +85,6 @@ final class PaimonRustReaderSelector {
         String location = table.location().toString();
         boolean enabled = session != null && "true".equalsIgnoreCase(
                 session.getSessionProperties().get(ENABLE_PAIMON_RUST_READER));
-        boolean fileScannerV2 = session != null && "true".equalsIgnoreCase(
-                session.getSessionProperties().get(ENABLE_FILE_SCANNER_V2));
         boolean forceJniScanner = session != null && "true".equalsIgnoreCase(
                 session.getSessionProperties().get(FORCE_JNI_SCANNER));
         boolean restTokenTable = table.fileIO() instanceof RESTTokenFileIO;
@@ -100,7 +97,7 @@ final class PaimonRustReaderSelector {
                 .options().get(CoreOptions.SCAN_MODE.key());
         boolean scanModeSupported = scanMode == null || "default".equalsIgnoreCase(scanMode);
 
-        scanCompatible = enabled && fileScannerV2 && !forceJniScanner
+        scanCompatible = enabled && !forceJniScanner
                 && backendsSupportRust
                 && !usesFallbackRead && !incrementalRead && !projectedVariant
                 && !options.queryAuthEnabled() && !restTokenTable

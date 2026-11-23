@@ -198,7 +198,6 @@ public class IcebergConnectorCacheTest {
         IcebergConnector connector = new IcebergConnector(session, new RecordingConnectorContext());
         Assertions.assertNull(connector.latestSnapshotCacheForTest());
         Assertions.assertNull(connector.partitionCacheForTest());
-        Assertions.assertNull(connector.formatCacheForTest());
         Assertions.assertDoesNotThrow(() -> connector.invalidateTable("db1", "t1"));
         Assertions.assertDoesNotThrow(() -> connector.invalidateDb("db1"));
         Assertions.assertDoesNotThrow(connector::invalidateAll);
@@ -214,7 +213,7 @@ public class IcebergConnectorCacheTest {
         Table table = tableWithOneManifest();
         ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
         IcebergManifestCache manifestCache = connector.manifestCacheForTest();
-        manifestCache.getManifestCacheValue(manifest, table, table.specs());
+        manifestCache.getManifestCacheValue(manifest, table);
         Assertions.assertEquals(1, manifestCache.size(), "the manifest is cached after a load");
 
         // REFRESH TABLE must NOT drop the manifest cache (path-keyed immutable content; legacy parity).
@@ -255,7 +254,7 @@ public class IcebergConnectorCacheTest {
         long oneMb = 1024L * 1024L;
         Map<String, Long> catalogLimited = maxWeightsOf(props("meta.cache.max-weight", "1MB"));
         for (String cache : new String[] {"iceberg-table", "iceberg-latest-snapshot", "iceberg-partition",
-                "iceberg-format", "iceberg-manifest", "iceberg-equality-delete-field-ids",
+                "iceberg-manifest", "iceberg-equality-delete-field-ids",
                 "iceberg.mvcc-partition-view", "iceberg.list-partitions-view"}) {
             Assertions.assertEquals(Long.valueOf(oneMb), catalogLimited.get(cache),
                     "a catalog limit must bound " + cache);
@@ -351,8 +350,8 @@ public class IcebergConnectorCacheTest {
     }
 
     @Test
-    public void disabledTableEntryReadsSnapshotFormatAndCommentLive() throws Exception {
-        // table.enable=false and capacity=0 turn the table entry off, like ttl-second<=0. The latest-snapshot, format
+    public void disabledTableEntryReadsSnapshotAndCommentLive() throws Exception {
+        // table.enable=false and capacity=0 turn the table entry off, like ttl-second<=0. The latest-snapshot
         // and comment caches take the table entry's keys, so they read live too, and the latest schema bypasses the
         // name-keyed schema cache. MUTATION: building them from ttl-second alone -> the first pin stays cached -> red.
         for (String[] off : new String[][] {
@@ -368,7 +367,6 @@ public class IcebergConnectorCacheTest {
                 Assertions.assertEquals(2L, snapshots.getOrLoad(id, loader).snapshotId, off[0]);
                 Assertions.assertEquals(0, snapshots.size());
                 Assertions.assertFalse(connector.tableCacheForTest().isEnabled(), off[0]);
-                Assertions.assertFalse(connector.formatCacheForTest().isEnabled(), off[0]);
                 Assertions.assertEquals(OptionalLong.of(0L), connector.schemaCacheTtlSecondOverride(), off[0]);
             }
             Map<String, String> vended = restProps(true, false);
@@ -381,7 +379,7 @@ public class IcebergConnectorCacheTest {
     }
 
     @Test
-    public void tableEntryKeysExceptMaxWeightSizeSnapshotFormatAndCommentCaches() throws Exception {
+    public void tableEntryKeysExceptMaxWeightSizeSnapshotAndCommentCaches() throws Exception {
         // The table entry's ttl-second and capacity also size these caches. Its max-weight bounds the table cache
         // only; the catalog and FE-global limits still bound them. MUTATION: the fixed default capacity -> red;
         // handing them the whole table spec, max-weight included -> red.
@@ -391,7 +389,6 @@ public class IcebergConnectorCacheTest {
         properties.put("meta.cache.iceberg.table.max-weight", "1MB");
         try (IcebergConnector connector = new IcebergConnector(properties, new RecordingConnectorContext())) {
             List.of(connector.latestSnapshotCacheForTest().cacheSpecForTest(),
-                    connector.formatCacheForTest().cacheSpecForTest(),
                     connector.commentCacheForTest().cacheSpecForTest()).forEach(spec -> {
                         Assertions.assertTrue(spec.isCacheEnabled());
                         Assertions.assertEquals(600L, spec.getTtlSecond());
@@ -566,60 +563,6 @@ public class IcebergConnectorCacheTest {
         cache.getOrLoad(partKey("db1", "t1", 2L), Collections::emptyList);
         cache.getOrLoad(partKey("db1", "t2", 1L), Collections::emptyList);
         cache.getOrLoad(partKey("db2", "t1", 1L), Collections::emptyList);
-        Assertions.assertEquals(4, cache.size());
-
-        connector.invalidateTable("db1", "t1");
-        Assertions.assertEquals(2, cache.size(), "REFRESH TABLE drops both snapshot entries of db1.t1");
-
-        connector.invalidateDb("db1");
-        Assertions.assertEquals(1, cache.size(), "REFRESH DATABASE drops db1's remaining table");
-
-        connector.invalidateAll();
-        Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
-    }
-
-    private static IcebergFormatCache.Key fmtKey(String db, String tbl, long snapshotId) {
-        return new IcebergFormatCache.Key(TableIdentifier.of(db, tbl), snapshotId);
-    }
-
-    @Test
-    public void formatCacheBuiltUnlessSessionUser() {
-        // The inferred-format cache stores a pure metadata format-name string (no FileIO/credential), so like the
-        // partition cache it stays built for a REST vended-credentials catalog. But under iceberg.rest.session=user
-        // it is an AUTHORIZATION-sensitive projection, so it is disabled (null) there (same treatment as the
-        // partition cache). MUTATION: dropping the session=user gate -> non-null for session -> red; gating on the
-        // vended flag -> null for vended -> red.
-        Assertions.assertNotNull(
-                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext()).formatCacheForTest(),
-                "a plain catalog builds the format cache");
-        Map<String, String> vended = new HashMap<>();
-        vended.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
-        vended.put("iceberg.rest.vended-credentials-enabled", "true");
-        Assertions.assertNotNull(
-                new IcebergConnector(vended, new RecordingConnectorContext()).formatCacheForTest(),
-                "a vended-credentials catalog still builds the format cache (a format name carries no credentials)");
-        Map<String, String> session = new HashMap<>();
-        session.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
-        session.put("iceberg.rest.session", "user");
-        Assertions.assertNull(
-                new IcebergConnector(session, new RecordingConnectorContext()).formatCacheForTest(),
-                "a session=user catalog must NOT build the format cache (per-user authz must not be bypassed)");
-    }
-
-    @Test
-    public void refreshHooksInvalidateFormatCache() {
-        // The REFRESH hooks must clear the inferred-format cache too (else a rewrite that changed the write format
-        // would stay invisible beyond the pin): REFRESH TABLE drops that table's snapshot entries, REFRESH DATABASE
-        // that db's, REFRESH CATALOG everything. MUTATION: an invalidate* hook not touching formatCache -> a stale
-        // entry survives -> a size assert below red.
-        IcebergConnector connector =
-                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
-        IcebergFormatCache cache = connector.formatCacheForTest();
-        Assertions.assertNotNull(cache);
-        cache.getOrLoad(fmtKey("db1", "t1", 1L), () -> "parquet");
-        cache.getOrLoad(fmtKey("db1", "t1", 2L), () -> "orc");
-        cache.getOrLoad(fmtKey("db1", "t2", 1L), () -> "parquet");
-        cache.getOrLoad(fmtKey("db2", "t1", 1L), () -> "parquet");
         Assertions.assertEquals(4, cache.size());
 
         connector.invalidateTable("db1", "t1");

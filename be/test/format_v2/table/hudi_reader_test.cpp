@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/field.h"
+#include "format/format_common.h"
 #include "format_v2/column_data.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
@@ -146,9 +147,15 @@ class RefreshTrackingTableReader final : public TableReader {
 public:
     Status prepare_split(const SplitReadOptions&) override { return Status::OK(); }
 
-    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override {
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts,
+                             std::optional<uint64_t> condition_cache_digest = std::nullopt,
+                             bool all_runtime_filters_applied = false,
+                             std::shared_ptr<const format::PredicateSnapshot> predicate_snapshot =
+                                     nullptr) override {
         ++refresh_count;
-        return TableReader::refresh_conjuncts(std::move(conjuncts));
+        return TableReader::refresh_conjuncts(std::move(conjuncts), condition_cache_digest,
+                                              all_runtime_filters_applied,
+                                              std::move(predicate_snapshot));
     }
 
     int refresh_count = 0;
@@ -157,6 +164,13 @@ public:
 // Scenario: FileScannerV2 Hudi native reader uses the split schema id to annotate the physical
 // file schema before TableColumnMapper runs. This keeps schema-evolved Hudi files on field-id
 // mapping, including renamed nested children.
+TEST(HudiReaderTest, NativeReaderRejectsUnmergedDeltaLogs) {
+    hudi::HudiReader reader;
+    SplitReadOptions split;
+    split.current_range.table_format_params.hudi_params.__set_delta_logs({"delta.log"});
+    EXPECT_TRUE(reader.prepare_split(split).is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+}
+
 TEST(HudiReaderTest, CustomParquetFactoryReusesScannerCounters) {
     RuntimeProfile profile("hudi");
     parquet::ParquetProfileCache cache(&profile);
@@ -360,7 +374,11 @@ TEST(HudiHybridReaderTest, ForwardsLatePredicatesToActiveChild) {
     split.current_range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     ASSERT_TRUE(reader.prepare_split(split).ok());
     ASSERT_NE(child, nullptr);
-    ASSERT_TRUE(reader.refresh_conjuncts({}).ok());
+    const auto snapshot = reader._predicate_snapshot;
+    ASSERT_NE(snapshot, nullptr);
+    EXPECT_EQ(child->_predicate_snapshot, snapshot);
+    ASSERT_TRUE(reader.refresh_conjuncts({}, std::nullopt, false, snapshot).ok());
+    EXPECT_EQ(child->_predicate_snapshot, snapshot);
     EXPECT_EQ(child->refresh_count, 1);
 }
 

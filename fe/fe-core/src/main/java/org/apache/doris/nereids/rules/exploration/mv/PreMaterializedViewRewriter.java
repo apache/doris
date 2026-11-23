@@ -24,7 +24,13 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import org.apache.commons.lang3.EnumUtils;
@@ -170,7 +176,24 @@ public class PreMaterializedViewRewriter {
         PreRewriteStrategy preRewriteStrategy = PreRewriteStrategy.getEnum(
                 statementContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy());
         boolean shouldPreRewrite = !needPreRewriteRuleSet.isEmpty()
-                || PreRewriteStrategy.FORCE_IN_RBO.equals(preRewriteStrategy);
+                || PreRewriteStrategy.FORCE_IN_RBO.equals(preRewriteStrategy)
+                // ANN pushdown runs in RBO, so discover an MV's index before that stage finishes.
+                || cascadesContext.getRewritePlan().anyMatch(node -> {
+                    if (!(node instanceof LogicalTopN)) {
+                        return false;
+                    }
+                    LogicalTopN<?> topN = (LogicalTopN<?>) node;
+                    if (topN.getOrderKeys().size() != 1 || !(topN.child() instanceof LogicalProject)
+                            || !(topN.getOrderKeys().get(0).getExpr() instanceof SlotReference)) {
+                        return false;
+                    }
+                    SlotReference orderKey = (SlotReference) topN.getOrderKeys().get(0).getExpr();
+                    // Only the order-key alias can enable ANN pushdown and justify another optimizer pass.
+                    return ((LogicalProject<?>) topN.child()).getProjects().stream().anyMatch(project ->
+                            project instanceof Alias && project.getExprId().equals(orderKey.getExprId())
+                                    && (((Alias) project).child() instanceof L2DistanceApproximate
+                                            || ((Alias) project).child() instanceof InnerProductApproximate));
+                });
         if (!shouldPreRewrite && LOG.isDebugEnabled()) {
             LOG.debug("does not need pre rewrite, because needPreRewriteRuleSet is empty or "
                             + "preRewriteStrategy is not FORCE_IN_RBO, query id is {}",

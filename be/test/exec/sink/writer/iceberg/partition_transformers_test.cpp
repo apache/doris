@@ -17,9 +17,14 @@
 
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 
+#include <fast_float/fast_float.h>
 #include <gtest/gtest.h>
 
+#include <bit>
+#include <cmath>
 #include <limits>
+#include <system_error>
+#include <type_traits>
 
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_timestamp_ns.h"
@@ -34,6 +39,41 @@ class PartitionTransformersTest : public testing::Test {
 public:
     PartitionTransformersTest() = default;
     virtual ~PartitionTransformersTest() = default;
+
+    template <typename T>
+    void check_floating_point_partition_round_trip(PrimitiveType primitive_type) {
+        auto type = DataTypeFactory::instance().create_data_type(primitive_type, false);
+        IdentityPartitionColumnTransform transform(type);
+        const std::vector<T> values = {T(1.0000001),
+                                       T(1.0000002),
+                                       std::nextafter(T(1), T(2)),
+                                       T(-1.0000001),
+                                       T(1e-8),
+                                       T(-1e-8),
+                                       std::numeric_limits<T>::min(),
+                                       -std::numeric_limits<T>::min(),
+                                       std::numeric_limits<T>::max(),
+                                       -std::numeric_limits<T>::max(),
+                                       std::numeric_limits<T>::denorm_min(),
+                                       -std::numeric_limits<T>::denorm_min(),
+                                       T(0.0),
+                                       T(-0.0)};
+        using Bits = std::conditional_t<sizeof(T) == sizeof(UInt32), UInt32, UInt64>;
+        for (T value : values) {
+            const auto serialized = transform.get_partition_value(type, value);
+            SCOPED_TRACE(serialized);
+            T parsed;
+            const auto result = fast_float::from_chars(
+                    serialized.data(), serialized.data() + serialized.size(), parsed);
+            ASSERT_EQ(std::errc {}, result.ec);
+            ASSERT_EQ(serialized.data() + serialized.size(), result.ptr);
+            EXPECT_EQ(std::bit_cast<Bits>(value), std::bit_cast<Bits>(parsed));
+            EXPECT_EQ(serialized, transform.to_human_string(type, value));
+        }
+
+        EXPECT_NE(transform.to_human_string(type, T(1.0000001)),
+                  transform.to_human_string(type, T(1.0000002)));
+    }
 };
 
 TEST_F(PartitionTransformersTest, human_hour_floors_negative_ordinals) {
@@ -218,7 +258,7 @@ TEST_F(PartitionTransformersTest, date_partitions_before_epoch_use_calendar_ordi
 TEST_F(PartitionTransformersTest, test_integer_truncate_transform) {
     const std::vector<int32_t> values({1, -1});
     auto column = ColumnInt32::create();
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_int(column->get_ptr(), std::make_shared<DataTypeInt32>(),
                                    "test_int");
 
@@ -239,7 +279,7 @@ TEST_F(PartitionTransformersTest, test_integer_truncate_transform) {
 TEST_F(PartitionTransformersTest, test_bigint_truncate_transform) {
     const std::vector<int64_t> values({1, -1});
     auto column = ColumnInt64::create();
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_bigint(column->get_ptr(), std::make_shared<DataTypeInt64>(),
                                       "test_bigint");
 
@@ -261,7 +301,7 @@ TEST_F(PartitionTransformersTest, test_bigint_truncate_transform) {
 TEST_F(PartitionTransformersTest, test_decimal32_truncate_transform) {
     const std::vector<int32_t> values({1065});
     auto column = ColumnDecimal32::create(0, 2);
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_decimal32(
             column->get_ptr(), std::make_shared<DataTypeDecimal32>(4, 2), "test_decimal32");
 
@@ -301,6 +341,14 @@ TEST_F(PartitionTransformersTest, test_string_truncate_transform) {
     }
 }
 
+TEST_F(PartitionTransformersTest, test_float_partition_value_round_trip) {
+    check_floating_point_partition_round_trip<Float32>(TYPE_FLOAT);
+}
+
+TEST_F(PartitionTransformersTest, test_double_partition_value_round_trip) {
+    check_floating_point_partition_round_trip<Float64>(TYPE_DOUBLE);
+}
+
 TEST_F(PartitionTransformersTest, test_floating_point_special_partition_value) {
     auto float_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_FLOAT, false);
@@ -326,7 +374,7 @@ TEST_F(PartitionTransformersTest, test_floating_point_special_partition_value) {
 TEST_F(PartitionTransformersTest, test_integer_bucket_transform) {
     const std::vector<int32_t> values({34, -123}); // 2017239379, -471378254
     auto column = ColumnInt32::create();
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_int(column->get_ptr(), std::make_shared<DataTypeInt32>(),
                                    "test_int");
 
@@ -347,7 +395,7 @@ TEST_F(PartitionTransformersTest, test_integer_bucket_transform) {
 TEST_F(PartitionTransformersTest, test_bigint_bucket_transform) {
     const std::vector<int64_t> values({34, -123}); // 2017239379, -471378254
     auto column = ColumnInt64::create();
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_bigint(column->get_ptr(), std::make_shared<DataTypeInt64>(),
                                       "test_bigint");
 
@@ -369,7 +417,7 @@ TEST_F(PartitionTransformersTest, test_bigint_bucket_transform) {
 TEST_F(PartitionTransformersTest, test_decimal32_bucket_transform) {
     const std::vector<int32_t> values({1420}); // -500754589
     auto column = ColumnDecimal32::create(0, 2);
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_decimal32(
             column->get_ptr(), std::make_shared<DataTypeDecimal32>(4, 2), "test_decimal32");
 
@@ -649,7 +697,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_hour_transform) {
 TEST_F(PartitionTransformersTest, test_void_transform) {
     const std::vector<int32_t> values({1, -1});
     auto column = ColumnInt32::create();
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_int(column->get_ptr(), std::make_shared<DataTypeInt32>(),
                                    "test_int");
 
@@ -671,7 +719,7 @@ TEST_F(PartitionTransformersTest, test_nullable_column_integer_truncate_transfor
     const std::vector<int32_t> values({1, -1});
     auto column = ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create());
     column->insert_data(nullptr, 0);
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_int(
             column->get_ptr(),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "test_int");

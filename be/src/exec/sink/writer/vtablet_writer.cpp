@@ -604,8 +604,12 @@ Status VNodeChannel::init(RuntimeState* state) {
     _row_desc = std::make_unique<RowDescriptor>(_tuple_desc);
     _batch_size = state->batch_size();
 
-    _stub = state->exec_env()->brpc_internal_client_cache()->get_client(_node_info.host,
-                                                                        _node_info.brpc_port);
+    // Remote catalog writes retain the remote cluster's transport policy, independently of
+    // whether private RPC TLS is enabled in this cluster.
+    _stub = state->exec_env()->brpc_internal_client_cache()->get_client(
+            _node_info.host, _node_info.brpc_port,
+            _parent->_t_sink.olap_table_sink.remote_endpoint ? client::RpcPurpose::EXTERNAL_SERVICE
+                                                             : client::RpcPurpose::INTERNAL_RPC);
     if (_stub == nullptr) {
         _cancelled = true;
         _is_closed = true;
@@ -715,10 +719,10 @@ void VNodeChannel::_set_adaptive_random_bucket_open_request(PTabletWriterOpenReq
                 }
                 auto tablet_id = full_ordered_tablets[bucket_seq];
                 if (!partition_to_local_tablets[partition_id].contains(tablet_id)) {
-                    LOG(WARNING) << "skip non-local tablet selected by local bucket seq, load_id="
-                                 << _parent->_load_id << ", partition_id=" << partition_id
-                                 << ", bucket_seq=" << bucket_seq << ", tablet_id=" << tablet_id
-                                 << ", node_id=" << _node_id;
+                    VLOG_DEBUG << "skip non-local tablet selected by local bucket seq, load_id="
+                               << _parent->_load_id << ", partition_id=" << partition_id
+                               << ", bucket_seq=" << bucket_seq << ", tablet_id=" << tablet_id
+                               << ", node_id=" << _node_id;
                     continue;
                 }
                 selected_ordered_tablets.push_back(tablet_id);
@@ -836,8 +840,12 @@ Status VNodeChannel::open_wait() {
         if (open_callback->cntl_->Failed()) {
             if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
                         _stub, _node_info.host, _node_info.brpc_port)) {
+                // Evict the failed endpoint policy without discarding the other cluster's channel.
                 ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                        open_callback->cntl_->remote_side());
+                        _node_info.host, _node_info.brpc_port,
+                        _parent->_t_sink.olap_table_sink.remote_endpoint
+                                ? client::RpcPurpose::EXTERNAL_SERVICE
+                                : client::RpcPurpose::INTERNAL_RPC);
             }
             _cancelled = true;
             auto error_code = open_callback->cntl_->ErrorCode();
@@ -1183,9 +1191,13 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
         }
         //format an ipv6 address
         std::string brpc_url = get_brpc_http_url(host, _node_info.brpc_port);
+        // Large HTTP batches target the same remote or internal endpoint as ordinary BRPC writes.
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
-                _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
-                                                                                          "http");
+                _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(
+                        brpc_url, "http", "", "", 2000, 10,
+                        _parent->_t_sink.olap_table_sink.remote_endpoint
+                                ? client::RpcPurpose::EXTERNAL_SERVICE
+                                : client::RpcPurpose::INTERNAL_RPC);
         if (_brpc_http_stub == nullptr) {
             cancel(fmt::format("{}, failed to open brpc http client to {}", channel_info(),
                                brpc_url));
@@ -1616,6 +1628,7 @@ Status VTabletWriter::_init_row_distribution() {
                             .vpartition = _vpartition,
                             .add_partition_request_timer = _add_partition_request_timer,
                             .txn_id = _txn_id,
+                            .remote_endpoint = _t_sink.olap_table_sink.remote_endpoint,
                             .pool = _pool,
                             .location = _location,
                             .vec_output_expr_ctxs = &_vec_output_expr_ctxs,

@@ -205,9 +205,6 @@ public:
         try {
             *out = inverted_index::InvertedIndexAnalyzer::normalize(value,
                                                                     binding->index_properties);
-        } catch (const CLuceneError& e) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                    "search: normalizing '{}' failed: {}", value, e.what());
         } catch (const Exception& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                     "search: normalizing '{}' failed: {}", value, e.what());
@@ -556,6 +553,12 @@ Status FunctionSearch::_evaluate_search_param(
         top_k = index_query_context->query_limit;
     }
 
+    // A SEARCH that is a whole conjunct reads only the rows the scan still holds. Scored, it
+    // keeps every match, as the scores of the rows it returns do not depend on them.
+    const roaring::Roaring* root_candidates = !enable_scoring && index_query_context != nullptr
+                                                      ? index_query_context->search_root_candidates
+                                                      : nullptr;
+
     auto weight = root_query->weight(enable_scoring);
     if (!weight) {
         LOG(WARNING) << "search: Failed to build query weight";
@@ -592,7 +595,7 @@ Status FunctionSearch::_evaluate_search_param(
             query_v2::collect_multi_segment_doc_set(
                     weight, exec_ctx, root_binding_key, roaring,
                     index_query_context ? index_query_context->collection_similarity : nullptr,
-                    enable_scoring);
+                    enable_scoring, nullptr, root_candidates);
         }
     }
 
@@ -602,7 +605,8 @@ Status FunctionSearch::_evaluate_search_param(
     bitmap_result =
             InvertedIndexResultBitmap(std::move(roaring), std::make_shared<roaring::Roaring>());
 
-    if (dsl_cache && cache_usable) {
+    // A result read within candidates is partial and stays out of the cache.
+    if (dsl_cache && cache_usable && root_candidates == nullptr) {
         insert_dsl_result(dsl_cache, seg_prefix, dsl_sig, bitmap_result);
     }
 

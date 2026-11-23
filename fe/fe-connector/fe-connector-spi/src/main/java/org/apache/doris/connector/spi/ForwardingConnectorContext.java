@@ -20,6 +20,7 @@ package org.apache.doris.connector.spi;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import java.util.concurrent.RunnableFuture;
 
 /**
  * Base class for a {@link ConnectorContext} decorator: forwards every method to the wrapped context.
@@ -98,6 +99,16 @@ public abstract class ForwardingConnectorContext implements ConnectorContext {
     @Override
     public String sanitizeOutboundUrl(String url) {
         return delegate.sanitizeOutboundUrl(url);
+    }
+
+    @Override
+    public ConnectorTaskScheduler getMetadataTaskScheduler(ConnectorSession session) {
+        return delegate.getMetadataTaskScheduler(session);
+    }
+
+    @Override
+    public <T> RunnableFuture<T> submitMetadataTask(Callable<T> task) {
+        return delegate.submitMetadataTask(task);
     }
 
     @Override

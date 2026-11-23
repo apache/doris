@@ -44,7 +44,10 @@ import org.apache.doris.qe.runtime.LoadProcessor;
 import org.apache.doris.qe.runtime.QueryProcessor;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.BackendServiceProxy.BackendRpcTarget;
 import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TExternalScanRange;
@@ -75,6 +78,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -83,7 +87,7 @@ public class CoordinatorContext {
     private static final Logger LOG = LogManager.getLogger(CoordinatorContext.class);
 
     // these are some constant parameters
-    public final NereidsCoordinator coordinator;
+    public final Coordinator coordinator;
     public final List<PlanFragment> fragments;
     public final DataSink dataSink;
     public final ExecutionProfile executionProfile;
@@ -94,7 +98,8 @@ public class CoordinatorContext {
     public final TQueryGlobals queryGlobals;
     public final TQueryOptions queryOptions;
     public final TDescriptorTable descriptorTable;
-    public final TNetworkAddress coordinatorAddress = new TNetworkAddress(Coordinator.localIP, Config.rpc_port);
+    public final TNetworkAddress coordinatorAddress
+            = new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port);
     // public final TNetworkAddress directConnectFrontendAddress;
     public final List<RuntimeFilter> runtimeFilters;
     public final List<TopnFilter> topnFilters;
@@ -116,10 +121,17 @@ public class CoordinatorContext {
 
     // query or load processor
     private volatile JobProcessor jobProcessor;
+    private final Map<DistributedPlanWorker, BackendRpcTarget> rpcTargets = new ConcurrentHashMap<>();
+
+    public BackendRpcTarget getBackendRpcTarget(DistributedPlanWorker worker) {
+        // Execution and result fetching must share one policy and shard, including failure eviction.
+        return rpcTargets.computeIfAbsent(worker, target -> BackendServiceProxy.bindTarget(
+                new TNetworkAddress(target.host(), target.brpcPort()), target.getCatalogId()));
+    }
 
     // for sql execution
     private CoordinatorContext(
-            NereidsCoordinator coordinator,
+            Coordinator coordinator,
             ConnectContext connectContext,
             List<PipelineDistributedPlan> distributedPlans,
             List<PlanFragment> fragments,
@@ -149,7 +161,7 @@ public class CoordinatorContext {
 
     // for broker load
     private CoordinatorContext(
-            NereidsCoordinator coordinator,
+            Coordinator coordinator,
             long jobId,
             List<PlanFragment> fragments,
             List<PipelineDistributedPlan> distributedPlans,
@@ -220,6 +232,10 @@ public class CoordinatorContext {
         return jobProcessor instanceof QueryProcessor && coordinator.isEos();
     }
 
+    public void stopSplitGeneration() {
+        coordinator.stopSplitGeneration();
+    }
+
     public void cancelSchedule(Status cancelReason) {
         coordinator.cancelInternal(cancelReason);
     }
@@ -274,7 +290,7 @@ public class CoordinatorContext {
         return (QueryProcessor) jobProcessor;
     }
 
-    public static CoordinatorContext buildForSql(NereidsPlanner planner, NereidsCoordinator coordinator) {
+    public static CoordinatorContext buildForSql(NereidsPlanner planner, Coordinator coordinator) {
         ConnectContext connectContext = planner.getCascadesContext().getConnectContext();
         TQueryOptions queryOptions = initQueryOptions(
                 connectContext, planner.getQueryOptions().getBeExecVersion());
@@ -297,7 +313,7 @@ public class CoordinatorContext {
     }
 
     public static CoordinatorContext buildForLoad(
-            NereidsCoordinator coordinator,
+            Coordinator coordinator,
             long jobId, TUniqueId queryId,
             List<PlanFragment> fragments,
             List<PipelineDistributedPlan> distributedPlans,

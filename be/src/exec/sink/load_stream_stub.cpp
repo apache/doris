@@ -170,7 +170,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const NodeInfo& node_info, int64_t txn_id,
                             const OlapTableSchemaParam& schema,
                             const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                            int64_t idle_timeout_ms, bool enable_profile) {
+                            int64_t idle_timeout_ms, bool enable_profile, bool remote_endpoint) {
     std::unique_lock<bthread::Mutex> lock(_open_mutex);
     if (_is_init.load()) {
         return _status;
@@ -209,7 +209,11 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     }
     POpenLoadStreamResponse response;
     // set connection_group "streaming" to distinguish with non-streaming connections
-    const auto& stub = client_cache->get_client(node_info.host, node_info.brpc_port);
+    // Streaming writes to an independent Doris cluster must not inherit this cluster's TLS policy.
+    const auto& stub =
+            client_cache->get_client(node_info.host, node_info.brpc_port,
+                                     remote_endpoint ? client::RpcPurpose::EXTERNAL_SERVICE
+                                                     : client::RpcPurpose::INTERNAL_RPC);
     if (stub == nullptr) {
         return Status::InternalError("failed to init brpc client to {}:{}", node_info.host,
                                      node_info.brpc_port);
@@ -591,7 +595,7 @@ Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache
                              const NodeInfo& node_info, int64_t txn_id,
                              const OlapTableSchemaParam& schema,
                              const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                             int64_t idle_timeout_ms, bool enable_profile) {
+                             int64_t idle_timeout_ms, bool enable_profile, bool remote_endpoint) {
     bool get_schema = true;
     auto status = Status::OK();
     bool first_stream = true;
@@ -599,10 +603,10 @@ Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache
         Status st;
         if (get_schema) {
             st = stream->open(client_cache, node_info, txn_id, schema, tablets_for_schema,
-                              total_streams, idle_timeout_ms, enable_profile);
+                              total_streams, idle_timeout_ms, enable_profile, remote_endpoint);
         } else {
             st = stream->open(client_cache, node_info, txn_id, schema, {}, total_streams,
-                              idle_timeout_ms, enable_profile);
+                              idle_timeout_ms, enable_profile, remote_endpoint);
         }
         // Simulate one stream open failure within LoadStreamStubs.
         // This causes the successfully opened streams to be cancelled,

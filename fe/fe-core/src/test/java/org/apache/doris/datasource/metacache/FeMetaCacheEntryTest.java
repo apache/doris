@@ -25,7 +25,9 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -283,6 +285,44 @@ public class FeMetaCacheEntryTest {
         } finally {
             continueAction.countDown();
             worker.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testBulkInvalidationOrdersNewObjectAndIdPublication() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        CountDownLatch indexClearStarted = new CountDownLatch(1);
+        CountDownLatch finishIndexClear = new CountDownLatch(1);
+        CountDownLatch newLookupStarted = new CountDownLatch(1);
+        Map<String, Integer> ids = new ConcurrentHashMap<>();
+        try {
+            FeMetaCacheEntry<String, Integer> entry = new FeMetaCacheEntry<>(
+                    "objects", String::length, ENABLED, refreshExecutor, false);
+            entry.getAndRunIfCurrent("old", (key, value) -> ids.put(key, value));
+
+            Future<?> invalidate = workers.submit(() -> entry.invalidateAllAndRun(() -> {
+                indexClearStarted.countDown();
+                await(finishIndexClear);
+                ids.clear();
+            }));
+            await(indexClearStarted);
+            Future<Integer> newLookup = workers.submit(() -> {
+                newLookupStarted.countDown();
+                return entry.getAndRunIfCurrent("new", (key, value) -> ids.put(key, value));
+            });
+            await(newLookupStarted);
+            finishIndexClear.countDown();
+
+            invalidate.get(3L, TimeUnit.SECONDS);
+            Assertions.assertEquals(Integer.valueOf(3), newLookup.get(3L, TimeUnit.SECONDS));
+            Assertions.assertEquals(Integer.valueOf(3), entry.getIfPresent("new"));
+            Assertions.assertEquals(Integer.valueOf(3), ids.get("new"));
+            Assertions.assertFalse(ids.containsKey("old"));
+        } finally {
+            finishIndexClear.countDown();
+            workers.shutdownNow();
             refreshExecutor.shutdownNow();
         }
     }

@@ -23,44 +23,19 @@
 #include <memory>
 
 #include "common/cast_set.h"
-#include "core/assert_cast.h"
-#include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_map.h"
-#include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_struct.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/scan_operator.h"
-#include "exec/scan/file_scanner.h"
+#include "exec/scan/file_scan_range_utils.h"
 #include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/scanner_context.h"
 #include "format/format_common.h"
-#include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/parquet/parquet_profile.h"
+#include "storage/id_manager.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 
 namespace doris {
 namespace {
-
-bool contains_variant_type(const DataTypePtr& input) {
-    const auto type = remove_nullable(input);
-    switch (type->get_primitive_type()) {
-    case TYPE_VARIANT:
-        return true;
-    case TYPE_ARRAY:
-        return contains_variant_type(assert_cast<const DataTypeArray&>(*type).get_nested_type());
-    case TYPE_MAP: {
-        const auto& map = assert_cast<const DataTypeMap&>(*type);
-        return contains_variant_type(map.get_key_type()) ||
-               contains_variant_type(map.get_value_type());
-    }
-    case TYPE_STRUCT:
-        return std::ranges::any_of(assert_cast<const DataTypeStruct&>(*type).get_elements(),
-                                   contains_variant_type);
-    default:
-        return false;
-    }
-}
 
 // The most file scanners one instance of a file scan node runs: the max_file_scanners_concurrency
 // session variable, 16 when it is not set.
@@ -85,11 +60,9 @@ PushDownType FileScanLocalState::_should_push_down_binary_predicate(
     DCHECK(children.size() == 2);
     DCHECK_EQ(children[0]->node_type(), TExprNodeType::SLOT_REF);
     if (children[1]->is_constant()) {
-        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+        std::shared_ptr<ConstantExprResult> const_col_wrapper;
         THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
-        const auto* const_column =
-                assert_cast<const ColumnConst*>(const_col_wrapper->column_ptr.get());
-        constant_val = const_column->operator[](0);
+        constant_val = const_col_wrapper->column()[0];
         return PushDownType::PARTIAL_ACCEPTABLE;
     } else {
         // only handle constant value
@@ -144,58 +117,33 @@ ScannerScheduler* FileScanLocalState::scan_scheduler(RuntimeState* state) const 
     return state->get_query_ctx()->get_remote_scan_scheduler();
 }
 
-#ifdef BE_TEST
-bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& query_options,
-                                                         bool is_load,
-                                                         const TFileScanRangeParams& scan_params) {
-    return should_use_file_scanner_v2(query_options, is_load, scan_params);
-}
-#endif
-
-bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_options,
-                                                    bool is_load,
-                                                    const TFileScanRangeParams& scan_params) {
-    // ADBC only has a FileScannerV2 reader, and enable_file_scanner_v2 is a session variable marked
-    // fuzzy=true, so the regression harness flips it to false at random. Without letting adbc
-    // through unconditionally, those queries land in v1, which has no "adbc" branch, and come back
-    // with an undiagnosable NotSupported -- showing up in CI as a random failure. This is the same
-    // mechanism as is_transactional_hive below, pointed the other way. Loads are left alone: there
-    // is no ADBC load path, so widening the rule to cover them would only route them somewhere they
-    // still cannot run.
-    // Fluss is in the same position, and reaches this the same way: FlussScanPlanProvider stamps the
-    // scan-level format so the choice can be made here, before any range is fetched. Every range of a
-    // fluss scan carries that same format -- log ranges and wrapped lake splits alike -- and is
-    // dispatched inside FlussHybridReader, which only FileScannerV2 builds. Loads are left alone for
-    // the same reason as adbc: there is no fluss load path.
-    if (!is_load && scan_params.__isset.table_format_params &&
-        (scan_params.table_format_params.table_format_type == "adbc" ||
-         scan_params.table_format_params.table_format_type == "fluss")) {
-        return true;
+bool FileScanLocalState::_can_generate_physical_splits(bool is_load,
+                                                       const TFileScanRangeParams& scan_params,
+                                                       const TFileRangeDesc& range) {
+    if (is_load || (scan_params.__isset.table_format_params &&
+                    scan_params.table_format_params.table_format_type == "transactional_hive")) {
+        return false;
     }
-    const bool is_transactional_hive =
-            scan_params.__isset.table_format_params &&
-            scan_params.table_format_params.table_format_type == "transactional_hive";
-    // Hybrid scans advertise native Parquet at scan level because ranges can arrive after the
-    // scanner is selected; FORMAT_JNI alone does not imply that every range uses JNI.
-    const bool is_hybrid_native_parquet = scan_params.format_type == TFileFormatType::FORMAT_JNI &&
-                                          scan_params.__isset.contains_native_parquet &&
-                                          scan_params.contains_native_parquet;
-    // Version 1 introduces the explicit wall-clock/instant contract that scanner V1 cannot honor.
-    const bool requires_parquet_timestamp_contract =
-            (scan_params.format_type == TFileFormatType::FORMAT_PARQUET ||
-             is_hybrid_native_parquet || supports_iceberg_scan_semantics_v1(&scan_params)) &&
-            (scan_params.__isset.hive_parquet_time_zone ||
-             (scan_params.__isset.parquet_timestamp_semantics_version &&
-              scan_params.parquet_timestamp_semantics_version >= 1));
-    const bool scanner_v2_requested = (query_options.__isset.enable_file_scanner_v2 &&
-                                       query_options.enable_file_scanner_v2) ||
-                                      requires_parquet_timestamp_contract;
-    // Iceberg's default write format does not describe retained files, and remote splits arrive
-    // after scanner construction. Keep versioned Iceberg scans on V2 without eagerly listing
-    // every file.
-    return scanner_v2_requested && !is_load &&
-           scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP &&
-           scan_params.format_type != TFileFormatType::FORMAT_LANCE && !is_transactional_hive;
+    const auto format = range.__isset.format_type ? range.format_type : scan_params.format_type;
+    if (format == TFileFormatType::FORMAT_PARQUET || format == TFileFormatType::FORMAT_ORC) {
+        // Keep scanner creation aligned with the downstream refinement guard. Otherwise an
+        // Iceberg delete split creates idle scanners even though it can never publish children.
+        return FileScannerV2::can_refine_source_split(range);
+    }
+    if (format != TFileFormatType::FORMAT_JNI || !range.__isset.table_format_params ||
+        range.table_format_params.table_format_type != "paimon" ||
+        !range.table_format_params.__isset.paimon_params) {
+        return false;
+    }
+    const auto& paimon = range.table_format_params.paimon_params;
+    return paimon.__isset.file_format &&
+           (paimon.file_format == "parquet" || paimon.file_format == "orc") &&
+           !paimon.__isset.paimon_split;
+}
+
+int FileScanLocalState::_adjust_scanner_count(int requested, int initial_ranges,
+                                              bool can_generate_physical_splits) {
+    return can_generate_physical_splits ? requested : std::min(requested, initial_ranges);
 }
 
 Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
@@ -218,41 +166,13 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     } else {
         scan_params = _split_source->get_params();
     }
-    const bool is_load =
-            state()->desc_tbl().get_tuple_descriptor(scan_params->src_tuple_id) != nullptr;
-    // TODO: Use scanner v2 for all queries.
-    const bool use_file_scanner_v2 =
-            should_use_file_scanner_v2(state()->query_options(), is_load, *scan_params);
-    _operator_profile->add_info_string("UseScannerV2", use_file_scanner_v2 ? "true" : "false");
-    const auto* output_tuple_desc = state()->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-    DORIS_CHECK(output_tuple_desc != nullptr);
-    const bool metadata_only_count =
-            is_count_star_pushdown() && _split_source->all_ranges_have_table_level_row_count();
-    if (!is_load && !use_file_scanner_v2 && !metadata_only_count &&
-        std::ranges::any_of(output_tuple_desc->slots(), [](const SlotDescriptor* slot) {
-            return contains_variant_type(slot->type());
-        })) {
-        // A syntactic COUNT(*) alone is insufficient: every assigned range must prove that the
-        // legacy scanner will emit metadata counts without decoding a Variant carrier.
-        return Status::NotSupported(
-                "External VARIANT columns require FileScannerV2; the legacy file scanner does "
-                "not support VARIANT");
-    }
-    if (use_file_scanner_v2) {
-        _parquet_profile_cache =
-                std::make_unique<format::parquet::ParquetProfileCache>(_scanner_profile.get());
-    }
+    RETURN_IF_ERROR(validate_file_scan_support(*scan_params));
+    _parquet_profile_cache =
+            std::make_unique<format::parquet::ParquetProfileCache>(_scanner_profile.get());
     for (int i = 0; i < _max_scanners; ++i) {
-        ScannerSPtr scanner;
-        if (use_file_scanner_v2) {
-            scanner = FileScannerV2::create_shared(state(), this, p._limit, _split_source,
-                                                   _scanner_profile.get(), p._kv_cache.get(),
-                                                   &p._colname_to_slot_id);
-        } else {
-            scanner = FileScanner::create_shared(state(), this, p._limit, _split_source,
-                                                 _scanner_profile.get(), p._kv_cache.get(),
-                                                 &p._colname_to_slot_id);
-        }
+        ScannerSPtr scanner = FileScannerV2::create_shared(
+                state(), this, p._limit, _split_source, _scanner_profile.get(), p._kv_cache.get(),
+                &p._colname_to_slot_id);
         RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
         scanners->push_back(std::move(scanner));
     }
@@ -305,9 +225,36 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
         if (_split_source == nullptr) {
             _split_source = std::make_shared<LocalSplitSourceConnector>(scan_ranges, _max_scanners);
         }
-        // currently the total number of splits in the bach split mode cannot be accurately obtained,
-        // so we don't do it in the batch split mode.
-        _max_scanners = std::min(_max_scanners, _split_source->num_scan_ranges());
+        // One FE columnar split can publish many format-local children after metadata planning.
+        // Keep the requested scanner concurrency so those children do not run serially.
+        bool can_generate_physical_splits = false;
+        const TFileScanRangeParams* common_params = nullptr;
+        if (state->get_query_ctx() != nullptr &&
+            state->get_query_ctx()->file_scan_range_params_map.contains(parent_id())) {
+            common_params = &state->get_query_ctx()->file_scan_range_params_map[parent_id()];
+        }
+        for (const auto& scan_range_params : scan_ranges) {
+            const auto& file_scan_range =
+                    scan_range_params.scan_range.ext_scan_range.file_scan_range;
+            const auto* params =
+                    file_scan_range.__isset.params ? &file_scan_range.params : common_params;
+            if (params == nullptr) {
+                continue;
+            }
+            const bool is_load =
+                    state->desc_tbl().get_tuple_descriptor(params->src_tuple_id) != nullptr;
+            can_generate_physical_splits =
+                    std::ranges::any_of(file_scan_range.ranges, [&](const auto& range) {
+                        return _can_generate_physical_splits(is_load, *params, range);
+                    });
+            if (can_generate_physical_splits) {
+                break;
+            }
+        }
+        // Currently the total number of remote splits cannot be accurately obtained, so batch
+        // mode already skips this cap.
+        _max_scanners = _adjust_scanner_count(_max_scanners, _split_source->num_scan_ranges(),
+                                              can_generate_physical_splits);
     }
 
     if (!scan_ranges.empty() &&

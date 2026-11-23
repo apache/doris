@@ -30,14 +30,7 @@ namespace doris::snii::bkd {
 
 namespace {
 
-// The field types a native BKD index can be built for: exactly the non-string
-// instantiations of InvertedIndexColumnWriter. A string type is excluded because
-// it has no fixed-width sortable-bytes representation (INV-2).
-//
-// field_type is read from disk, so an unrecognised value must be rejected HERE
-// and never cast into FieldType and passed to field_type_size(), which
-// LOG(FATAL)s on anything outside its own switch -- that would turn a
-// recoverable index downgrade into a node crash (design 8).
+// Accept only numeric field types with fixed-width sortable bytes. Validate the disk value before converting it to FieldType.
 constexpr FieldType kIndexableFieldTypes[] = {
         FieldType::OLAP_FIELD_TYPE_BOOL,         FieldType::OLAP_FIELD_TYPE_TINYINT,
         FieldType::OLAP_FIELD_TYPE_SMALLINT,     FieldType::OLAP_FIELD_TYPE_INT,
@@ -67,9 +60,7 @@ bool resolve_field_type(uint32_t raw, FieldType* type, uint32_t* bytes_per_dim) 
     return true;
 }
 
-// Every rejection of untrusted bytes funnels through here. Disk data is NOT an
-// invariant, so none of these may be a DORIS_CHECK: the caller downgrades to a
-// scan, it does not abort the process (design 8).
+// Report invalid disk bytes as corruption so the caller can fall back safely.
 Status corrupted(std::string_view what) {
     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bkd_index: {}", what);
 }
@@ -80,10 +71,7 @@ constexpr size_t kMaxLeafDirectoryRowBytes = 10 + 5;
 // Upper bound on the encoded header: fixed32 magic plus eight varints.
 constexpr size_t kMaxHeaderBytes = 4 + 8 * 10;
 
-// Decodes the fixed header and establishes its self-consistency (design 5.1).
-// Everything downstream -- array strides, allocation sizes, the KeyCoder the
-// query side resolves -- is derived from these fields, so they are checked before
-// a single array byte is touched.
+// Validate header fields before using them to size or decode the directory.
 Status decode_header(ByteSource* src, BkdIndexHeader* header) {
     uint32_t magic = 0;
     RETURN_IF_ERROR(src->get_fixed32(&magic));
@@ -96,8 +84,7 @@ Status decode_header(ByteSource* src, BkdIndexHeader* header) {
     uint32_t format_version = 0;
     RETURN_IF_ERROR(src->get_varint32(&format_version));
     if (format_version > kSupportedVersion) {
-        // A capability boundary, NOT damage: the caller reports "index
-        // unavailable" and falls back to a scan (design 3).
+        // An unsupported version requires a scan fallback.
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
                 "bkd_index: format_version {} is above the supported {}", format_version,
                 kSupportedVersion);
@@ -157,9 +144,7 @@ bool value_order_is_valid(Slice min_value, Slice max_value, Slice splits, size_t
     return std::memcmp(previous, max_value.data(), bytes_per_dim) <= 0;
 }
 
-// Leaf directory: delta-varint64 offsets, then varint32 counts (design 5.1).
-// Both arrays are validated against the header here so the query path can index
-// them unchecked.
+// Decode leaf offsets and counts, then validate them against the header.
 Status decode_leaf_directory(ByteSource* src, const BkdIndexHeader& header, uint64_t data_length,
                              std::vector<LeafRef>* leaves) {
     std::vector<LeafRef> decoded(header.leaf_count);
@@ -236,7 +221,7 @@ void encode_bkd_index_block(const BkdIndexHeader& header, Slice min_value, Slice
     payload.put_varint32(header.points_per_leaf);
 
     if (header.leaf_count == 0) {
-        // The empty index is header-only (design 5.3).
+        // An empty index contains only the header.
         DORIS_CHECK_EQ(header.point_count, 0);
         DORIS_CHECK(min_value.empty());
         DORIS_CHECK(max_value.empty());
@@ -295,7 +280,7 @@ Status BkdIndexBlockReader::decode_payload(Slice payload, uint64_t data_length) 
     RETURN_IF_ERROR(decode_header(&src, &header));
 
     if (header.leaf_count == 0) {
-        // The empty index (design 5.3): legal, explicit, header-only.
+        // An empty index contains only the header.
         if (header.point_count != 0) {
             return corrupted("empty index carries a non-zero point_count");
         }

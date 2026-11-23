@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstddef>
 
+#include "common/check.h"
 #include "core/block/block.h"
 
 namespace doris {
@@ -44,6 +45,12 @@ void AdaptiveBlockSizePredictor::update(const Block& block) {
     } else {
         _bytes_per_row = kAlpha * _bytes_per_row + kBeta * cur;
     }
+}
+
+void AdaptiveBlockSizePredictor::seed_history(double bytes_per_row) {
+    DORIS_CHECK(bytes_per_row > 0);
+    _bytes_per_row = bytes_per_row;
+    _has_history = true;
 }
 
 size_t AdaptiveBlockSizePredictor::predict_next_rows() const {

@@ -63,6 +63,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -200,7 +201,10 @@ public class NereidsParser {
                 return Optional.empty();
             }
             ExplainOptions explainOptions = new ExplainOptions(explainLevel, showPlanProcess);
-            return Optional.of(Pair.of(explainOptions, sql.substring(explainPlanBody.getStartIndex())));
+            // The parser counts a supplementary character such as an emoji as one character, while sql
+            // counts it as two.
+            return Optional.of(Pair.of(explainOptions,
+                    sql.substring(sql.offsetByCodePoints(0, explainPlanBody.getStartIndex()))));
         } catch (Throwable t) {
             return Optional.empty();
         }
@@ -349,7 +353,7 @@ public class NereidsParser {
         CommonTokenStream tokenStream = parseLeanTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, parseFunction);
         LogicalPlanBuilder realLogicalPlanBuilder = logicalPlanBuilder == null
-                    ? new LogicalPlanBuilder(getHintMap(sql, tokenStream, DorisParser::selectHint))
+                    ? new LogicalPlanBuilder(getHintMap(tokenStream, DorisParser::selectHint))
                     : logicalPlanBuilder;
         return (T) realLogicalPlanBuilder.visit(tree);
     }
@@ -358,19 +362,40 @@ public class NereidsParser {
         CommonTokenStream tokenStream = parseLeanTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView(
-                getHintMap(sql, tokenStream, DorisParser::selectHint));
+                getHintMap(tokenStream, DorisParser::selectHint));
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
-    /** Parse SQL for masking without applying execution hints to the session. */
+    /** Parse SQL for masking without applying execution hints; output ranges use inclusive UTF-16 offsets. */
     public LogicalPlan parseForEncryption(String sql, Map<Pair<Integer, Integer>, String> indexInSqlToString) {
+        return parseForEncryption(sql, indexInSqlToString, false);
+    }
+
+    /** Parse SQL for masking with inclusive UTF-16 output ranges, optionally preserving property-list layout. */
+    public LogicalPlan parseForEncryption(String sql, Map<Pair<Integer, Integer>, String> indexInSqlToString,
+            boolean preserveFormatting) {
         CommonTokenStream tokenStream = parseLeanTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
         // SQL masking must not apply SET_VAR hints to the current session.
         // The original SQL, including its hints, is preserved by the property replacements.
+        TreeMap<Pair<Integer, Integer>, String> codePointRanges = new TreeMap<>(new Pair.PairComparator<>());
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForEncryption(
-                ImmutableMap.of(), indexInSqlToString);
-        return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
+                ImmutableMap.of(), codePointRanges, preserveFormatting);
+        LogicalPlan plan = (LogicalPlan) realLogicalPlanBuilder.visit(tree);
+        // ANTLR indexes code points, while SQL rewriting uses Java UTF-16 offsets. Normalize both
+        // masking modes here so audit, FE logs and direct parser callers share the same contract.
+        // Walk sorted ranges once rather than rescanning the prefix for every replacement.
+        int codePointOffset = 0;
+        int charOffset = 0;
+        for (Map.Entry<Pair<Integer, Integer>, String> entry : codePointRanges.entrySet()) {
+            Pair<Integer, Integer> range = entry.getKey();
+            int start = sql.offsetByCodePoints(charOffset, range.first - codePointOffset);
+            int end = sql.offsetByCodePoints(start, range.second - range.first + 1);
+            indexInSqlToString.put(Pair.of(start, end - 1), entry.getValue());
+            codePointOffset = range.second + 1;
+            charOffset = end;
+        }
+        return plan;
     }
 
     /** parseForSyncMv */
@@ -378,13 +403,13 @@ public class NereidsParser {
         CommonTokenStream tokenStream = parseLeanTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
         LogicalPlanBuilderForSyncMv logicalPlanBuilderForSyncMv = new LogicalPlanBuilderForSyncMv(
-                getHintMap(sql, tokenStream, DorisParser::selectHint));
+                getHintMap(tokenStream, DorisParser::selectHint));
         logicalPlanBuilderForSyncMv.visit(tree);
         return logicalPlanBuilderForSyncMv.getQuerySql();
     }
 
     /** get hint map */
-    public static Map<Integer, ParserRuleContext> getHintMap(String sql, CommonTokenStream hintTokenStream,
+    public static Map<Integer, ParserRuleContext> getHintMap(CommonTokenStream hintTokenStream,
                                                              Function<DorisParser, ParserRuleContext> parseFunction) {
         // parse hint first round
         Map<Integer, ParserRuleContext> selectHintMap = Maps.newHashMap();
@@ -392,8 +417,10 @@ public class NereidsParser {
         Iterator<Token> tokenIterator = hintTokenStream.getTokens().iterator();
         Token hintToken = tokenIterator.hasNext() ? tokenIterator.next() : null;
         while (hintToken != null && hintToken.getType() != DorisLexer.EOF) {
-            if (hintToken.getChannel() == 2 && sql.charAt(hintToken.getStartIndex() + 2) == '+') {
-                String hintSql = sql.substring(hintToken.getStartIndex() + 3, hintToken.getStopIndex() + 1);
+            // Token positions count a supplementary character such as an emoji as one character, so read
+            // the hint from the token instead of cutting the SQL string.
+            if (hintToken.getChannel() == 2 && hintToken.getText().startsWith("/*+")) {
+                String hintSql = hintToken.getText().substring(3);
                 DorisLexer newHintLexer = new DorisLexer(CaseInsensitiveStream.fromString(hintSql));
                 CommonTokenStream newHintTokenStream = new CommonTokenStream(newHintLexer);
                 DorisParser hintParser = new DorisParser(newHintTokenStream);

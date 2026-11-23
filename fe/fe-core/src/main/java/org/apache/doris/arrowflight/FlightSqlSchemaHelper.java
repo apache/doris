@@ -17,12 +17,15 @@
 
 package org.apache.doris.arrowflight;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrow.DorisArrowTypeMapping;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -61,21 +64,30 @@ import java.nio.channels.Channels;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class FlightSqlSchemaHelper {
     private static final Logger LOG = LogManager.getLogger(FlightSqlSchemaHelper.class);
+    private static final List<String> TABLE_TYPES = Arrays.stream(TableType.values())
+            .map(TableType::toMysqlType)
+            .filter(Objects::nonNull)
+            .distinct()
+            .sorted()
+            .collect(Collectors.toList());
     private final ConnectContext ctx;
     private final FrontendServiceImpl impl;
     private boolean includeSchema;
     private String catalogFilterPattern = null;
     private String dbSchemaFilterPattern = null;
     private String tableNameFilterPattern = null;
-    private List<String> tableTypesList = null;
+    private Set<String> tableTypeFilter = null;
 
     public FlightSqlSchemaHelper(ConnectContext context) {
         ctx = context;
@@ -161,7 +173,28 @@ public class FlightSqlSchemaHelper {
         catalogFilterPattern = command.hasCatalog() ? command.getCatalog() : "internal";
         dbSchemaFilterPattern = command.hasDbSchemaFilterPattern() ? command.getDbSchemaFilterPattern() : null;
         tableNameFilterPattern = command.hasTableNameFilterPattern() ? command.getTableNameFilterPattern() : null;
-        tableTypesList = command.getTableTypesList().isEmpty() ? null : command.getTableTypesList();
+        tableTypeFilter = command.getTableTypesList().isEmpty() ? null
+                : command.getTableTypesList().stream().map(FlightSqlSchemaHelper::toDorisTableType)
+                        .collect(Collectors.toSet());
+    }
+
+    /**
+     * Maps a type a GetTables request filters on to the name GetTableTypes advertises. Flight SQL leaves the
+     * names to the server but calls TABLE, VIEW and SYSTEM TABLE the commonly supported ones, and clients send
+     * those in either case: the ADBC Flight SQL driver asks for "table", JDBC tools for "TABLE". So a type
+     * matches case-insensitively, and TABLE and SYSTEM TABLE select BASE TABLE and SYSTEM VIEW. Any other name
+     * matches only a type of that name.
+     */
+    private static String toDorisTableType(String requestedType) {
+        String type = requestedType.toUpperCase(Locale.ROOT);
+        switch (type) {
+            case "TABLE":
+                return "BASE TABLE";
+            case "SYSTEM TABLE":
+                return "SYSTEM VIEW";
+            default:
+                return type;
+        }
     }
 
     /**
@@ -183,7 +216,7 @@ public class FlightSqlSchemaHelper {
         if (dbSchemaFilterPattern != null) {
             getDbsParams.setPattern(dbSchemaFilterPattern);
         }
-        getDbsParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        getDbsParams.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
         return impl.getDbNames(getDbsParams);
     }
 
@@ -199,10 +232,9 @@ public class FlightSqlSchemaHelper {
         if (tableNameFilterPattern != null) {
             getTablesParams.setPattern(tableNameFilterPattern);
         }
-        if (tableTypesList != null) {
-            getTablesParams.setType(tableTypesList.get(0)); // currently only one type is supported.
-        }
-        getTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        // Flight SQL only consumes names and types, not the potentially expensive table statistics.
+        getTablesParams.setRequiredColumns(Set.of("TABLE_NAME", "TABLE_TYPE"));
+        getTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
         return impl.listTableStatus(getTablesParams);
     }
 
@@ -217,7 +249,7 @@ public class FlightSqlSchemaHelper {
             describeTablesParams.setCatalog(catalogName);
         }
         describeTablesParams.setTablesName(tablesName);
-        describeTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        describeTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
         return impl.describeTables(describeTablesParams);
     }
 
@@ -287,18 +319,28 @@ public class FlightSqlSchemaHelper {
     public void getCatalogs(VectorSchemaRoot vectorSchemaRoot) throws TException {
         VarCharVector catalogNameVector = (VarCharVector) vectorSchemaRoot.getVector("catalog_name");
 
-        Set<String> catalogsSet = new LinkedHashSet<>();
-        catalogsSet.add("internal"); // An ordered Set with "internal" first.
-        for (CatalogIf catalog : Env.getCurrentEnv().getCatalogMgr().listCatalogs()) {
-            catalogsSet.add(catalog.getName());
-        }
+        // Use SHOW CATALOGS visibility with the session's authenticated roles, without initializing catalogs.
+        List<String> catalogs = Env.getCurrentEnv().getCatalogMgr()
+                .listCatalogsWithCheckPriv(UserIdentity.fromThrift(ctx.getCurrentUserIdentityForRpc())).stream()
+                .map(CatalogIf::getName).sorted().collect(Collectors.toList());
 
         int catalogIndex = 0;
-        for (String catalog : catalogsSet) {
+        for (String catalog : catalogs) {
             catalogNameVector.setSafe(catalogIndex, new Text(catalog));
             catalogIndex++;
         }
         vectorSchemaRoot.setRowCount(catalogIndex);
+    }
+
+    private List<Pair<String, String>> getSortedDbs() throws TException {
+        TGetDbsResult result = getDbNames();
+        List<Pair<String, String>> databases = new ArrayList<>(result.getDbsSize());
+        for (int i = 0; i < result.getDbsSize(); i++) {
+            databases.add(Pair.of(result.isSetCatalogs() ? result.getCatalogs().get(i) : "", result.getDbs().get(i)));
+        }
+        // Keep catalog/schema pairs together: the service returns them as parallel lists.
+        databases.sort(Comparator.comparing((Pair<String, String> db) -> db.first).thenComparing(db -> db.second));
+        return databases;
     }
 
     /**
@@ -308,14 +350,24 @@ public class FlightSqlSchemaHelper {
         VarCharVector catalogNameVector = (VarCharVector) vectorSchemaRoot.getVector("catalog_name");
         VarCharVector schemaNameVector = (VarCharVector) vectorSchemaRoot.getVector("db_schema_name");
 
-        TGetDbsResult getDbsResult = getDbNames();
-        for (int dbIndex = 0; dbIndex < getDbsResult.getDbs().size(); dbIndex++) {
-            String dbName = getDbsResult.getDbs().get(dbIndex);
-            String catalogName = getDbsResult.isSetCatalogs() ? getDbsResult.getCatalogs().get(dbIndex) : "";
-            catalogNameVector.setSafe(dbIndex, new Text(catalogName));
-            schemaNameVector.setSafe(dbIndex, new Text(dbName));
+        List<Pair<String, String>> databases = getSortedDbs();
+        for (int dbIndex = 0; dbIndex < databases.size(); dbIndex++) {
+            Pair<String, String> database = databases.get(dbIndex);
+            catalogNameVector.setSafe(dbIndex, new Text(database.first));
+            schemaNameVector.setSafe(dbIndex, new Text(database.second));
         }
-        vectorSchemaRoot.setRowCount(getDbsResult.getDbs().size());
+        vectorSchemaRoot.setRowCount(databases.size());
+    }
+
+    /**
+     * for FlightSqlProducer Schemas.GET_TABLE_TYPES_SCHEMA
+     */
+    public static void getTableTypes(VectorSchemaRoot vectorSchemaRoot) {
+        VarCharVector tableTypeVector = (VarCharVector) vectorSchemaRoot.getVector("table_type");
+        for (int i = 0; i < TABLE_TYPES.size(); i++) {
+            tableTypeVector.setSafe(i, new Text(TABLE_TYPES.get(i)));
+        }
+        vectorSchemaRoot.setRowCount(TABLE_TYPES.size());
     }
 
     /**
@@ -329,16 +381,22 @@ public class FlightSqlSchemaHelper {
         VarBinaryVector schemaVector = (VarBinaryVector) vectorSchemaRoot.getVector("table_schema");
 
         int tablesCount = 0;
-        TGetDbsResult getDbsResult = getDbNames();
-        for (int dbIndex = 0; dbIndex < getDbsResult.getDbs().size(); dbIndex++) {
-            String dbName = getDbsResult.getDbs().get(dbIndex);
-            String catalogName = getDbsResult.isSetCatalogs() ? getDbsResult.getCatalogs().get(dbIndex) : "";
-            TListTableStatusResult listTableStatusResult = listTableStatus(dbName, catalogName);
+        for (Pair<String, String> database : getSortedDbs()) {
+            String catalogName = database.first;
+            String dbName = database.second;
+            // Filter authorized tables and order them before collecting their optional schemas.
+            List<TTableStatus> tables = listTableStatus(dbName, catalogName).getTables().stream()
+                    .filter(table -> tableTypeFilter == null || tableTypeFilter.contains(table.getType()))
+                    .sorted(Comparator.comparing(TTableStatus::getName).thenComparing(TTableStatus::getType))
+                    .collect(Collectors.toList());
+            if (tables.isEmpty()) {
+                continue;
+            }
 
             Map<String, List<Field>> tableToFields;
             if (includeSchema) {
                 List<String> tablesName = new ArrayList<>();
-                for (TTableStatus tableStatus : listTableStatusResult.getTables()) {
+                for (TTableStatus tableStatus : tables) {
                     tablesName.add(tableStatus.getName());
                 }
                 TDescribeTablesResult describeTablesResult = describeTables(dbName, catalogName, tablesName);
@@ -347,7 +405,7 @@ public class FlightSqlSchemaHelper {
                 tableToFields = null;
             }
 
-            for (TTableStatus tableStatus : listTableStatusResult.getTables()) {
+            for (TTableStatus tableStatus : tables) {
                 catalogNameVector.setSafe(tablesCount, new Text(catalogName));
                 schemaNameVector.setSafe(tablesCount, new Text(dbName));
                 tableNameVector.setSafe(tablesCount, new Text(tableStatus.getName()));

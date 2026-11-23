@@ -22,6 +22,7 @@
 #  Optional options:
 #     --clean            clean and build ut
 #     --run              build and run all ut
+#     --jemalloc-hook    build standalone jemalloc hook tests without sanitizers
 #     --run --filter=xx  build and run specified ut
 #     --gdb              debug with gdb, does not take effect if --run is not specified
 #     --coverage         generate coverage report, does not take effect if --gdb is specified
@@ -117,6 +118,7 @@ Usage: $0 <options>
   Optional options:
      --clean            clean and build ut
      --run              build and run all ut
+     --jemalloc-hook    build standalone Linux jemalloc hook tests without sanitizers
      --run --filter=xx  build and run specified ut
      --run --gen_out    generate expected check data for test
      --run --gen_regression_case    generate regression test cases corrresponding to ut cases for ut cases that support it
@@ -145,7 +147,7 @@ Usage: $0 <options>
     exit 1
 }
 
-if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,gen_regression_case,coverage,benchmark,run,gdb,clean,filter: -- "$@")"; then
+if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,gen_regression_case,coverage,benchmark,run,gdb,clean,jemalloc-hook,filter: -- "$@")"; then
     usage
 fi
 
@@ -153,6 +155,7 @@ eval set -- "${OPTS}"
 
 CLEAN=0
 RUN=0
+JEMALLOC_HOOK=0
 GDB=0
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
@@ -168,6 +171,10 @@ if [[ "$#" != 1 ]]; then
             ;;
         --run)
             RUN=1
+            shift
+            ;;
+        --jemalloc-hook)
+            JEMALLOC_HOOK=1
             shift
             ;;
         --gdb)
@@ -207,6 +214,29 @@ fi
 
 if [[ -z "${PARALLEL}" ]]; then
     PARALLEL="$(($(nproc) / 5 + 1))"
+fi
+
+# The regular BE UT uses ASAN and disables jemalloc. Exercise allocator
+# interposition in a separate native executable, before initializing BE's
+# unrelated submodules or configuring the sanitizer build.
+if [[ "${JEMALLOC_HOOK}" -eq 1 ]]; then
+    # These modes belong to the sanitizer BE UT, not the native allocator test.
+    if [[ "${GDB}" -eq 1 || "${DENABLE_CLANG_COVERAGE}" == 'ON' || -n "${GEN_OUT}${GEN_REGRESSION_CASE}" ]]; then
+        echo "--jemalloc-hook supports --run, --filter, --clean and -j"
+        exit 1
+    fi
+    JEMALLOC_TEST_BUILD_DIR="${DORIS_HOME}/be/ut_build_JEMALLOC"
+    if [[ "${CLEAN}" -eq 1 ]]; then
+        rm -rf "${JEMALLOC_TEST_BUILD_DIR}"
+    fi
+    "${CMAKE_CMD}" -S "${DORIS_HOME}/be/test/jemalloc_hook" \
+        -B "${JEMALLOC_TEST_BUILD_DIR}" -G "${GENERATOR}"
+    "${CMAKE_CMD}" --build "${JEMALLOC_TEST_BUILD_DIR}" --parallel "${PARALLEL}"
+    if [[ "${RUN}" -eq 1 ]]; then
+        "${JEMALLOC_TEST_BUILD_DIR}/jemalloc_hook_test" "${FILTER:---gtest_filter=*}" \
+            "--gtest_output=xml:${JEMALLOC_TEST_BUILD_DIR}/gtest_output/jemalloc_hook_test.xml"
+    fi
+    exit 0
 fi
 
 CMAKE_BUILD_TYPE="${BUILD_TYPE_UT:-ASAN}"

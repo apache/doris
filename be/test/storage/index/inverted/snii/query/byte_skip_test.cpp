@@ -214,9 +214,7 @@ void WriteCorpus(const Corpus& c, const std::string& path) {
     ASSERT_TRUE(cw.finish().ok());
 }
 
-// Grouped-block byte totals of a windowed term (design 1.6): docs = dd-block
-// length (sum of per-window dd_disk_len). Also returns prelude_len and window
-// count.
+// Sum dd-block lengths across windows and return the prelude length and window count.
 struct FrqByteTotals {
     uint64_t docs = 0; // dd-block on-disk bytes (the contiguous docs-only run)
     uint64_t prelude_len = 0;

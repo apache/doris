@@ -28,16 +28,25 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 
 public class VariableMgrTest extends TestWithFeService {
 
@@ -143,23 +152,19 @@ public class VariableMgrTest extends TestWithFeService {
     }
 
     @Test
-    public void testEnableNereidsDistributePlannerAfterUpgrade() {
+    public void testVariableVersionAfterUpgrade() {
         SessionVariable defaultSessionVariable = VariableMgr.getDefaultSessionVariable();
-        boolean originalValue = defaultSessionVariable.isEnableNereidsDistributePlanner();
         boolean originalEnableSqlCache = defaultSessionVariable.isEnableSqlCache();
         boolean originalAnsiBehavior = GlobalVariable.enable_ansi_query_organization_behavior;
         boolean originalTypeCoercionBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
         int originalVersion = GlobalVariable.variableVersion;
         try {
-            defaultSessionVariable.setEnableNereidsDistributePlanner(false);
             GlobalVariable.variableVersion = GlobalVariable.VARIABLE_VERSION_300;
 
             VariableMgr.forceUpdateVariables();
 
-            Assertions.assertTrue(VariableMgr.newSessionVariable().isEnableNereidsDistributePlanner());
             Assertions.assertEquals(GlobalVariable.CURRENT_VARIABLE_VERSION, GlobalVariable.variableVersion);
         } finally {
-            defaultSessionVariable.setEnableNereidsDistributePlanner(originalValue);
             defaultSessionVariable.setEnableSqlCache(originalEnableSqlCache);
             GlobalVariable.enable_ansi_query_organization_behavior = originalAnsiBehavior;
             GlobalVariable.enableNewTypeCoercionBehavior = originalTypeCoercionBehavior;
@@ -216,6 +221,106 @@ public class VariableMgrTest extends TestWithFeService {
             Literal literal = VariableMgr.getLiteral(sessionVariable, name.toUpperCase(), SetType.SESSION);
             Assertions.assertNotNull(literal);
             Assertions.assertEquals("", literal.getStringValue());
+        }
+    }
+
+    @Test
+    public void testDebugVariantVariablesOnlyForTesting() throws Exception {
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        try {
+            for (String name : new String[] {SessionVariable.DEBUG_VARIANT_MAX_SUBCOLUMNS_COUNT,
+                    SessionVariable.DEBUG_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+                    SessionVariable.DEBUG_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
+                    SessionVariable.DEBUG_VARIANT_SPARSE_HASH_SHARD_COUNT,
+                    SessionVariable.DEBUG_VARIANT_ENABLE_DOC_MODE,
+                    SessionVariable.DEBUG_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
+                    SessionVariable.DEBUG_VARIANT_DOC_HASH_SHARD_COUNT,
+                    SessionVariable.DEBUG_VARIANT_ENABLE_NESTED_GROUP}) {
+                Assertions.assertNull(VariableMgr.getShownVarContext(name), name);
+
+                SessionVariable sessionVariable = new SessionVariable();
+                String defaultValue = sessionVariable.getForwardVariables().get(name);
+                Config.enable_debug_points = false;
+                for (SetType setType : new SetType[] {SetType.SESSION, SetType.GLOBAL}) {
+                    SetVar setVar = new SetVar(setType, name, new StringLiteral("1"));
+                    DdlException e = Assertions.assertThrows(DdlException.class,
+                            () -> VariableMgr.setVar(sessionVariable, setVar));
+                    Assertions.assertTrue(e.getMessage().contains("only for testing"), e.getMessage());
+                }
+                Assertions.assertEquals(defaultValue, sessionVariable.getForwardVariables().get(name));
+                Assertions.assertEquals(defaultValue, VariableMgr.newSessionVariable().getForwardVariables().get(name));
+
+                // A statement forwarded by another FE carries the value of its session
+                SessionVariable forwarded = new SessionVariable();
+                forwarded.setForwardedSessionVariables(ImmutableMap.of(name, "1"));
+                String value = forwarded.getForwardVariables().get(name);
+                Assertions.assertNotEquals(defaultValue, value, name);
+
+                Config.enable_debug_points = true;
+                VariableMgr.setVar(sessionVariable, new SetVar(SetType.SESSION, name, new StringLiteral("1")));
+                Assertions.assertEquals(value, sessionVariable.getForwardVariables().get(name));
+            }
+        } finally {
+            Config.enable_debug_points = originalEnableDebugPoints;
+        }
+    }
+
+    @Test
+    public void testPersistedDebugVariantVariableDroppedOnReplay() throws Exception {
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        try {
+            Config.enable_debug_points = false;
+            // A value set by SET GLOBAL while debug points were enabled
+            SessionVariable persisted = new SessionVariable();
+            persisted.defaultVariantEnableDocMode = true;
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            new GlobalVarPersistInfo(persisted, Lists.newArrayList(SessionVariable.DEBUG_VARIANT_ENABLE_DOC_MODE))
+                    .write(new DataOutputStream(bytes));
+            GlobalVarPersistInfo info = GlobalVarPersistInfo.read(
+                    new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+
+            VariableMgr.replayGlobalVariableV2(info, false);
+            Assertions.assertFalse(VariableMgr.newSessionVariable().defaultVariantEnableDocMode);
+        } finally {
+            Config.enable_debug_points = originalEnableDebugPoints;
+        }
+    }
+
+    @Test
+    public void testOldDefaultVariantNamesIgnored() throws Exception {
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        try {
+            // Values stored under the old default_variant_* names, such as a SET GLOBAL before the upgrade or the
+            // built-in subcolumn count 0 of 3.1, no longer reach a session, from an image or from an edit log.
+            String oldValues = "{\"default_variant_enable_doc_mode\":true,\"default_variant_max_subcolumns_count\":0}";
+            SessionVariable builtIn = new SessionVariable();
+            SessionVariable fromImage = new SessionVariable();
+            fromImage.readFromJson(oldValues);
+            Assertions.assertEquals(builtIn.defaultVariantEnableDocMode, fromImage.defaultVariantEnableDocMode);
+            Assertions.assertEquals(builtIn.defaultVariantMaxSubcolumnsCount,
+                    fromImage.defaultVariantMaxSubcolumnsCount);
+
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            Text.writeString(new DataOutputStream(bytes), oldValues);
+            GlobalVarPersistInfo info = GlobalVarPersistInfo.read(
+                    new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+            VariableMgr.replayGlobalVariableV2(info, false);
+            Assertions.assertEquals(builtIn.defaultVariantEnableDocMode,
+                    VariableMgr.newSessionVariable().defaultVariantEnableDocMode);
+            Assertions.assertEquals(builtIn.defaultVariantMaxSubcolumnsCount,
+                    VariableMgr.newSessionVariable().defaultVariantMaxSubcolumnsCount);
+
+            // Setting an old name fails like any unknown variable
+            for (boolean enableDebugPoints : new boolean[] {false, true}) {
+                Config.enable_debug_points = enableDebugPoints;
+                SetVar setVar = new SetVar(SetType.SESSION, "default_variant_enable_doc_mode",
+                        new StringLiteral("true"));
+                DdlException e = Assertions.assertThrows(DdlException.class,
+                        () -> VariableMgr.setVar(new SessionVariable(), setVar));
+                Assertions.assertTrue(e.getMessage().contains("Unknown system variable"), e.getMessage());
+            }
+        } finally {
+            Config.enable_debug_points = originalEnableDebugPoints;
         }
     }
 

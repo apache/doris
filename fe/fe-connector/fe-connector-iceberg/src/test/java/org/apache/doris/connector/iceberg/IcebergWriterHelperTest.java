@@ -26,6 +26,7 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -33,13 +34,17 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.protocol.TJSONProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -210,6 +215,55 @@ public class IcebergWriterHelperTest {
         Assertions.assertEquals(100L, df.recordCount());
         Assertions.assertEquals(4096L, df.fileSizeInBytes());
         Assertions.assertEquals(FileFormat.PARQUET, df.format());
+    }
+
+    @Test
+    public void convertToWriterResultCarriesSplitOffsetsFromCommitProtocol() throws Exception {
+        Table table = tableWith("write.format.default", "parquet", "write.metadata.metrics.default", "none");
+        TIcebergCommitData commit = new TIcebergCommitData();
+        // Decode the optional field on the wire so this also exercises compatibility with older BE fragments.
+        String fragment = "{\"1\":{\"str\":\"data.parquet\"},\"2\":{\"i64\":100},"
+                + "\"3\":{\"i64\":4096},\"15\":{\"lst\":[\"i64\",2,4,2048]}}";
+        new TDeserializer(new TJSONProtocol.Factory()).deserialize(commit, fragment.getBytes(StandardCharsets.UTF_8));
+        DataFile file = IcebergWriterHelper.convertToWriterResult(
+                table, Collections.singletonList(commit), ZoneOffset.UTC).dataFiles()[0];
+        Assertions.assertEquals(Arrays.asList(4L, 2048L), file.splitOffsets());
+        table.newAppend().appendFile(file).commit();
+        try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+            Assertions.assertEquals(Arrays.asList(4L, 2048L), tasks.iterator().next().file().splitOffsets());
+        }
+    }
+
+    @Test
+    public void convertToWriterResultKeepsOffsetsPerFileAndSupportsOldFragments() {
+        Table table = tableWith("write.format.default", "parquet");
+        List<TIcebergCommitData> commits = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            TIcebergCommitData commit = new TIcebergCommitData();
+            commit.setFilePath("data-" + i + ".parquet");
+            commit.setRowCount(10);
+            commit.setFileSize(4096);
+            if (i < 2) {
+                commit.setSplitOffsets(i == 0 ? Arrays.asList(4L, 1024L) : Collections.singletonList(4L));
+            }
+            commits.add(commit);
+        }
+        DataFile[] files = IcebergWriterHelper.convertToWriterResult(table, commits, ZoneOffset.UTC).dataFiles();
+        Assertions.assertEquals(Arrays.asList(4L, 1024L), files[0].splitOffsets());
+        Assertions.assertEquals(Collections.singletonList(4L), files[1].splitOffsets());
+        Assertions.assertNull(files[2].splitOffsets());
+    }
+
+    @Test
+    public void convertToWriterResultDoesNotApplyParquetOffsetsToOrc() {
+        TIcebergCommitData commit = new TIcebergCommitData();
+        commit.setFilePath("data.orc");
+        commit.setRowCount(10);
+        commit.setFileSize(4096);
+        commit.setSplitOffsets(Collections.singletonList(4L));
+        DataFile file = IcebergWriterHelper.convertToWriterResult(tableWith("write.format.default", "orc"),
+                Collections.singletonList(commit), ZoneOffset.UTC).dataFiles()[0];
+        Assertions.assertNull(file.splitOffsets());
     }
 
     @Test
@@ -590,83 +644,12 @@ public class IcebergWriterHelperTest {
                 () -> IcebergWriterHelper.getFileFormat(tableWith("write.format.default", "avro")));
     }
 
-    // ─────────────────── getFileFormat: PERF-03 cross-query inference cache ───────────────────
-
-    /** Unpartitioned table carrying one data file of {@code fileFormat} and the given extra properties. */
-    private Table tableWithDataFile(FileFormat fileFormat, String... props) {
-        Table table = tableWith(props);
+    @Test
+    public void writeFormatStillInfersOrcFromExistingFiles() {
+        Table table = tableWith();
         table.newAppend().appendFile(DataFiles.builder(unpartitionedSpec)
-                .withPath("s3://b/db1/t/f0." + fileFormat.name().toLowerCase())
-                .withFileSizeInBytes(100)
-                .withRecordCount(1)
-                .withFormat(fileFormat)
-                .build()).commit();
-        return table;
-    }
-
-    @Test
-    public void getFileFormatInferenceIsCachedAcrossQueriesAtSameSnapshot() {
-        // A table with NO write-format / write.format.default (migrated / engine-default table) resolves the scan
-        // level file_format_type via an unfiltered whole-table planFiles() inference (the #64134 heavy op). PERF-03
-        // memoizes that inference per (table, currentSnapshotId): repeated getScanNodeProperties computes across
-        // queries collapse onto ONE remote inference. MUTATION: not threading the cache into the call -> each query
-        // re-scans -> loadCountForTest > 1 -> red.
-        Table table = tableWithDataFile(FileFormat.ORC);
-        TableIdentifier id = TableIdentifier.of("db1", "t");
-        IcebergFormatCache cache = new IcebergFormatCache(100, 1000);
-
-        FileFormat f1 = IcebergWriterHelper.getFileFormat(table, id, cache);
-        FileFormat f2 = IcebergWriterHelper.getFileFormat(table, id, cache);
-        FileFormat f3 = IcebergWriterHelper.getFileFormat(table, id, cache);
-
-        Assertions.assertEquals(FileFormat.ORC, f1);
-        Assertions.assertEquals(FileFormat.ORC, f2);
-        Assertions.assertEquals(FileFormat.ORC, f3);
-        Assertions.assertEquals(1, cache.loadCountForTest(),
-                "the whole-table inference must run exactly once across repeated queries at one snapshot");
-        Assertions.assertEquals(1, cache.size(), "one (table, snapshot) entry");
-        // Parity: the cached resolution matches the uncached (live) resolution.
-        Assertions.assertEquals(IcebergWriterHelper.getFileFormat(table), f1,
-                "cached format must equal a live (uncached) inference");
-    }
-
-    @Test
-    public void getFileFormatPropertyPathIsNeverCached() {
-        // When the table carries a format property, resolution is a cheap property read that must NOT touch the
-        // cache (only the inference fallback is memoized). MUTATION: caching the property path -> size > 0 -> red.
-        Table table = tableWithDataFile(FileFormat.ORC, "write.format.default", "parquet");
-        TableIdentifier id = TableIdentifier.of("db1", "t");
-        IcebergFormatCache cache = new IcebergFormatCache(100, 1000);
-
-        Assertions.assertEquals(FileFormat.PARQUET, IcebergWriterHelper.getFileFormat(table, id, cache));
-        Assertions.assertEquals(0, cache.size(), "the property path must never populate the inference cache");
-        Assertions.assertEquals(0, cache.loadCountForTest());
-    }
-
-    @Test
-    public void getFileFormatNullCacheResolvesLive() {
-        // Offline / pre-cache paths pass a null cache: resolution stays live and correct (no NPE).
-        Table table = tableWithDataFile(FileFormat.ORC);
-        Assertions.assertEquals(FileFormat.ORC,
-                IcebergWriterHelper.getFileFormat(table, TableIdentifier.of("db1", "t"), null));
-    }
-
-    @Test
-    public void getFileFormatUnsupportedFirstFileCachesInferenceButRethrowsEachCall() {
-        // R3: an unsupported first data-file format (e.g. avro) is a SUCCESSFUL inference (the loader returns
-        // "avro"); the unsupported-format throw happens in the format mapping OUTSIDE getOrLoad. So the inference is
-        // cached once (loadCount == 1) yet every call re-throws (parity with legacy, which inferred + threw every
-        // query) without re-scanning. MUTATION: caching the mapped value / caching the throw -> loadCount != 1.
-        Table table = tableWithDataFile(FileFormat.AVRO);
-        TableIdentifier id = TableIdentifier.of("db1", "t");
-        IcebergFormatCache cache = new IcebergFormatCache(100, 1000);
-
-        Assertions.assertThrows(RuntimeException.class,
-                () -> IcebergWriterHelper.getFileFormat(table, id, cache));
-        Assertions.assertThrows(RuntimeException.class,
-                () -> IcebergWriterHelper.getFileFormat(table, id, cache));
-        Assertions.assertEquals(1, cache.loadCountForTest(),
-                "the inference runs once; the unsupported-format throw is in the mapping, not the loader");
-        Assertions.assertEquals(1, cache.size());
+                .withPath("s3://b/db1/t/f0.orc").withFileSizeInBytes(100)
+                .withRecordCount(1).withFormat(FileFormat.ORC).build()).commit();
+        Assertions.assertEquals(FileFormat.ORC, IcebergWriterHelper.getFileFormat(table));
     }
 }

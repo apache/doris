@@ -175,4 +175,9 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
         // equals compares byte contents independently of the declared length, never array identity.
         return Arrays.hashCode(byteValues);
     }
+
+    @Override
+    public int fastChildrenHashCode() {
+        return computeHashCode();
+    }
 }

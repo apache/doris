@@ -22,7 +22,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
+#include <numeric>
 #include <roaring/roaring.hh>
 #include <string>
 #include <thread>
@@ -82,10 +84,7 @@ private:
     std::vector<uint8_t> bytes_;
 };
 
-// A whole container image, with a call counter. The counter is what makes
-// design 7.2's "zero IO" claim for the global-bounds fast reject and its
-// "O(touched leaves) positioned reads" cost model observable rather than
-// asserted in prose.
+// A counting FileReader measures reads for each query path.
 class CountingFileReader final : public io::FileReader {
 public:
     explicit CountingFileReader(std::vector<uint8_t> bytes) : bytes_(std::move(bytes)) {}
@@ -97,6 +96,8 @@ public:
 
     Status read_into(uint64_t offset, uint8_t* out, size_t out_len) override {
         reads_.fetch_add(1);
+        bytes_read_.fetch_add(out_len);
+        last_offset_.store(offset);
         if (out_len == 0) {
             return Status::OK();
         }
@@ -110,10 +111,14 @@ public:
     uint64_t size() const override { return bytes_.size(); }
 
     uint64_t reads() const { return reads_.load(); }
+    uint64_t bytes_read() const { return bytes_read_.load(); }
+    uint64_t last_offset() const { return last_offset_.load(); }
 
 private:
     std::vector<uint8_t> bytes_;
     mutable std::atomic<uint64_t> reads_ {0};
+    mutable std::atomic<uint64_t> bytes_read_ {0};
+    mutable std::atomic<uint64_t> last_offset_ {0};
 };
 
 // ---------------------------------------------------------------------------
@@ -168,9 +173,7 @@ Status build_container(const std::vector<Point>& points, uint32_t points_per_lea
     return Status::OK();
 }
 
-// One opened index plus the reader it was opened over, kept together because the
-// FileReader must outlive the BkdReader (design 9: no reference counting, the
-// SNII segment reader owns the file).
+// Keep the FileReader alive for the borrowed BkdReader.
 struct OpenedIndex {
     std::unique_ptr<CountingFileReader> file;
     std::unique_ptr<BkdReader> reader;
@@ -249,6 +252,10 @@ std::vector<uint32_t> to_sorted_vector(const roaring::Roaring& bitmap) {
     if (!status.ok()) {
         return ::testing::AssertionFailure() << describe(interval) << " failed: " << status;
     }
+    const char* reason = "";
+    if (!roaring::api::roaring_bitmap_internal_validate(&hits.roaring, &reason)) {
+        return ::testing::AssertionFailure() << describe(interval) << " built: " << reason;
+    }
     const std::vector<uint32_t> got = to_sorted_vector(hits);
     const std::vector<uint32_t> expected = brute_force(points, interval);
     if (got != expected) {
@@ -310,7 +317,7 @@ TEST(BkdReaderTest, OpenReportsTheHeaderAndTheGlobalBounds) {
     // five leaves plus four split values cannot be free.
     EXPECT_GT(reader.memory_usage(), sizeof(BkdReader));
 
-    // bkd_index is read in full exactly once at open and never again (design 5.1).
+    // Opening reads bkd_index once.
     EXPECT_EQ(opened.file->reads(), 1U);
 }
 
@@ -319,9 +326,7 @@ TEST(BkdReaderTest, OpenRejectsSectionsThatRunPastTheEndOfTheFile) {
     ASSERT_TRUE(build_container({{1, 0}, {2, 1}}, 4, &container).ok());
     CountingFileReader file(container.image);
 
-    // The section table is on-disk metadata, so an impossible extent is damage to
-    // report (design 8) -- not something to assert on, and not something to hand
-    // to read_into as a multi-gigabyte allocation.
+    // Reject invalid on-disk section extents before reading.
     BkdSections beyond = container.sections;
     beyond.index_length = container.image.size() + 1;
     std::unique_ptr<BkdReader> reader;
@@ -496,9 +501,7 @@ TEST(BkdReaderTest, LowerAboveUpperIsAnEmptyIntervalNotAnError) {
     EXPECT_EQ(opened.file->reads(), reads_after_open);
 }
 
-// ---------------------------------------------------------------------------
-// IO cost (design 7.2)
-// ---------------------------------------------------------------------------
+// Leaf-read cost tests.
 
 TEST(BkdReaderTest, IntervalsEntirelyOutsideTheGlobalBoundsCostNoIo) {
     std::vector<Point> points;
@@ -517,12 +520,11 @@ TEST(BkdReaderTest, IntervalsEntirelyOutsideTheGlobalBoundsCostNoIo) {
             matches_brute_force(*opened.reader, points, Interval {false, 0, true, true, 0, false}));
     EXPECT_TRUE(matches_brute_force(*opened.reader, points,
                                     Interval {true, 39, false, false, 0, true}));
-    // Design 7.2: the global-bounds check is answered from the resident header,
-    // so a miss touches bkd_data zero times.
+    // A range outside global bounds reads no bkd_data.
     EXPECT_EQ(opened.file->reads(), reads_after_open);
 }
 
-TEST(BkdReaderTest, ReadsExactlyOnePositionedReadPerTouchedLeaf) {
+TEST(BkdReaderTest, ReadsOnlyTheTouchedLeavesAndWholeLeafHitsInOneRead) {
     std::vector<Point> points;
     for (uint32_t i = 0; i < 40; ++i) {
         points.push_back(Point {static_cast<int64_t>(i), i});
@@ -531,16 +533,211 @@ TEST(BkdReaderTest, ReadsExactlyOnePositionedReadPerTouchedLeaf) {
     ASSERT_TRUE(open_index(points, 4, &opened).ok());
     ASSERT_EQ(opened.reader->leaf_count(), 10U);
 
-    // Leaf j holds values [4j, 4j+3], so [10, 25] spans leaves 2..6 -- two
-    // boundary leaves plus three whole-leaf hits.
-    const uint64_t before = opened.file->reads();
-    EXPECT_TRUE(matches_brute_force(*opened.reader, points, closed(10, 25)));
-    EXPECT_EQ(opened.file->reads() - before, 5U);
-
     // One leaf, one read.
-    const uint64_t before_single = opened.file->reads();
-    EXPECT_TRUE(matches_brute_force(*opened.reader, points, closed(13, 14)));
-    EXPECT_EQ(opened.file->reads() - before_single, 1U);
+    uint64_t touched_bytes = 0;
+    for (int64_t leaf = 2; leaf <= 6; ++leaf) {
+        const uint64_t reads_before = opened.file->reads();
+        const uint64_t bytes_before = opened.file->bytes_read();
+        EXPECT_TRUE(
+                matches_brute_force(*opened.reader, points, closed(4 * leaf + 1, 4 * leaf + 2)));
+        EXPECT_EQ(opened.file->reads() - reads_before, 1U);
+        touched_bytes += opened.file->bytes_read() - bytes_before;
+    }
+
+    // Leaf j holds values [4j, 4j+3], so [10, 25] spans leaves 2..6 -- two
+    // boundary leaves plus three whole-leaf hits, which take one read together.
+    const uint64_t reads_before = opened.file->reads();
+    const uint64_t bytes_before = opened.file->bytes_read();
+    EXPECT_TRUE(matches_brute_force(*opened.reader, points, closed(10, 25)));
+    EXPECT_EQ(opened.file->reads() - reads_before, 3U);
+    EXPECT_EQ(opened.file->bytes_read() - bytes_before, touched_bytes);
+}
+
+// One read takes at most about 1 MiB of whole-leaf hits, and all of them are still read.
+TEST(BkdReaderTest, ReadsOfWholeLeafHitsAreBounded) {
+    Rng rng(7);
+    std::vector<Point> points;
+    for (uint32_t i = 0; i < 400000; ++i) {
+        points.push_back(Point {.value = rng.next_in(0, int64_t {1} << 40), .doc_id = i});
+    }
+    OpenedIndex opened;
+    ASSERT_TRUE(open_index(points, 512, &opened).ok());
+    const uint64_t data_length = opened.container.sections.data_length;
+    ASSERT_GT(data_length, 2U << 20);
+
+    const uint64_t reads_before = opened.file->reads();
+    const uint64_t bytes_before = opened.file->bytes_read();
+    EXPECT_TRUE(matches_brute_force(*opened.reader, points, Interval {}));
+    const uint64_t reads = opened.file->reads() - reads_before;
+    EXPECT_EQ(opened.file->bytes_read() - bytes_before, data_length);
+    EXPECT_GE(reads, 2U + data_length / (1U << 20));
+    EXPECT_LE(reads, 4U + data_length / (1U << 20));
+}
+
+// Doc ids of whole-leaf hits go through a flat bitmap when the range is wide and through a sort
+// when it is narrow, or when a doc id is too large for the bitmap.
+TEST(BkdReaderTest, WideAndNarrowRangesMatchBruteForceForEveryShapeOfDocIds) {
+    constexpr uint32_t kDocs = 60000;
+    constexpr int64_t kValues = 100000;
+    constexpr uint32_t kBitmapLimit = 1U << 28;
+    Rng rng(20261030);
+    const auto with_values = [&rng](const std::vector<uint32_t>& doc_ids) {
+        std::vector<Point> points;
+        for (const uint32_t doc_id : doc_ids) {
+            points.push_back(Point {.value = rng.next_in(0, kValues), .doc_id = doc_id});
+        }
+        return points;
+    };
+
+    std::vector<std::vector<Point>> shapes;
+    std::vector<uint32_t> dense(kDocs);
+    std::iota(dense.begin(), dense.end(), 0U);
+    shapes.push_back(with_values(dense));
+    std::vector<uint32_t> sparse;
+    for (uint32_t i = 0; i < kDocs; ++i) {
+        sparse.push_back(i * 97);
+    }
+    shapes.push_back(with_values(sparse));
+    std::vector<uint32_t> many_values_per_doc;
+    for (uint32_t i = 0; i < kDocs / 3; ++i) {
+        many_values_per_doc.insert(many_values_per_doc.end(), 3, i);
+    }
+    shapes.push_back(with_values(many_values_per_doc));
+    // Doc ids on both sides of the bitmap's limit, in the same leaves.
+    std::vector<uint32_t> around_limit = dense;
+    for (uint32_t i = 0; i < 2000; ++i) {
+        around_limit.push_back(kBitmapLimit - 2000 + i);
+    }
+    for (uint32_t i = 0; i < 2000; ++i) {
+        around_limit.push_back(kBitmapLimit + i);
+    }
+    for (uint32_t i = 2000; i > 0; --i) {
+        around_limit.push_back(std::numeric_limits<uint32_t>::max() - i + 1);
+    }
+    shapes.push_back(with_values(around_limit));
+
+    for (size_t shape = 0; shape < shapes.size(); ++shape) {
+        SCOPED_TRACE("shape " + std::to_string(shape));
+        OpenedIndex opened;
+        ASSERT_TRUE(open_index(shapes[shape], 64, &opened).ok());
+        for (const Interval& interval :
+             {Interval {}, closed(0, kValues / 2), closed(kValues / 4, kValues),
+              closed(kValues / 3, kValues / 3 + 40), closed(kValues / 3, kValues / 3 + 400),
+              closed(kValues / 3, kValues / 3 + 2000)}) {
+            EXPECT_TRUE(matches_brute_force(*opened.reader, shapes[shape], interval));
+        }
+    }
+}
+
+// Few points at high doc ids would make a long bitmap with hardly a bit set, however wide the range
+// and however few documents the index counts, so they take the sort.
+TEST(BkdReaderTest, SparseDocIdsStayOutOfTheFlatBitmap) {
+    constexpr size_t kBytesPerPoint = 32;
+    constexpr size_t kContainerBytes = 8192;
+    constexpr uint32_t kBitmapLimit = 1U << 28;
+    Rng rng(20261031);
+    std::vector<std::vector<Point>> shapes;
+    // One document just below the bitmap's limit, its values spanning three leaves.
+    std::vector<Point> one_document;
+    for (int64_t value = 0; value < 3 * 8; ++value) {
+        one_document.push_back(Point {.value = value, .doc_id = kBitmapLimit - 1});
+    }
+    shapes.push_back(one_document);
+    // A column with a value in one row of a thousand.
+    std::vector<Point> mostly_null;
+    for (uint32_t i = 0; i < 6000; ++i) {
+        mostly_null.push_back(Point {.value = rng.next_in(0, 100000), .doc_id = i * 1000});
+    }
+    shapes.push_back(mostly_null);
+
+    for (size_t shape = 0; shape < shapes.size(); ++shape) {
+        SCOPED_TRACE("shape " + std::to_string(shape));
+        OpenedIndex opened;
+        ASSERT_TRUE(open_index(shapes[shape], 8, &opened).ok());
+        EXPECT_TRUE(matches_brute_force(*opened.reader, shapes[shape], Interval {}));
+        BkdQueryScratch scratch;
+        roaring::Roaring hits;
+        ASSERT_TRUE(opened.reader->range(Slice(), true, Slice(), true, &hits, &scratch).ok());
+        EXPECT_LE(scratch.doc_bits.size() * sizeof(uint64_t),
+                  shapes[shape].size() * kBytesPerPoint + kContainerBytes);
+    }
+}
+
+// However many points pay for it, the bitmap stops at its limit. Values follow doc ids here, so
+// whole leaves lie below the limit and whole leaves above it.
+TEST(BkdReaderTest, FlatBitmapStopsAtItsLimit) {
+    constexpr uint32_t kBitmapLimit = 1U << 28;
+    constexpr uint32_t kPoints = kBitmapLimit / 256 + 50000;
+    std::vector<Point> points;
+    points.reserve(kPoints);
+    for (uint32_t i = 0; i < kPoints; ++i) {
+        points.push_back(Point {.value = i, .doc_id = i * 256});
+    }
+    OpenedIndex opened;
+    ASSERT_TRUE(open_index(points, 512, &opened).ok());
+    EXPECT_TRUE(matches_brute_force(*opened.reader, points, Interval {}));
+    BkdQueryScratch scratch;
+    roaring::Roaring hits;
+    ASSERT_TRUE(opened.reader->range(Slice(), true, Slice(), true, &hits, &scratch).ok());
+    EXPECT_FALSE(scratch.doc_bits.empty());
+    EXPECT_LE(scratch.doc_bits.size() * sizeof(uint64_t), kBitmapLimit / 8);
+}
+
+// A container holds up to 4096 doc ids as an array and more as a bitset.
+TEST(BkdReaderTest, WideRangesBuildBothKindsOfContainer) {
+    std::vector<Point> points;
+    const auto add_docs = [&points](uint32_t first, uint32_t count, int64_t value) {
+        for (uint32_t i = 0; i < count; ++i) {
+            points.push_back(Point {.value = value + i, .doc_id = first + i * 3});
+        }
+    };
+    // These containers fill from whole leaves alone: exactly an array's limit, one past it, a single
+    // document and many.
+    add_docs(0, 4096, 1000);
+    add_docs(1U << 16, 4097, 10000);
+    add_docs(2U << 16, 1, 20000);
+    add_docs(3U << 16, 20000, 30000);
+    // The lowest and highest values, so that the boundary leaves hold nothing but these.
+    add_docs(5U << 16, 32, 0);
+    add_docs(6U << 16, 64, 100000);
+    OpenedIndex opened;
+    ASSERT_TRUE(open_index(points, 32, &opened).ok());
+    EXPECT_TRUE(matches_brute_force(*opened.reader, points, Interval {}));
+
+    roaring::Roaring hits;
+    ASSERT_TRUE(opened.reader->range(Slice(), true, Slice(), true, &hits).ok());
+    roaring::api::roaring_statistics_t stats;
+    roaring::api::roaring_bitmap_statistics(&hits.roaring, &stats);
+    EXPECT_EQ(stats.n_array_containers, 4U);
+    EXPECT_EQ(stats.n_bitset_containers, 2U);
+    EXPECT_EQ(hits.cardinality(), points.size());
+}
+
+// A damaged leaf in the middle of one read is found like any other.
+TEST(BkdReaderTest, DamagedWholeLeafHitIsReportedFromInsideARead) {
+    std::vector<Point> points;
+    for (uint32_t i = 0; i < 400; ++i) {
+        points.push_back(Point {.value = static_cast<int64_t>(i), .doc_id = i});
+    }
+    OpenedIndex opened;
+    ASSERT_TRUE(open_index(points, 4, &opened).ok());
+    // Measures one leaf: value 201 is inside leaf 50.
+    const uint64_t bytes_before = opened.file->bytes_read();
+    ASSERT_TRUE(matches_brute_force(*opened.reader, points, closed(201, 202)));
+    const uint64_t leaf_length = opened.file->bytes_read() - bytes_before;
+    const uint64_t leaf_offset = opened.file->last_offset();
+
+    Container damaged = opened.container;
+    damaged.image[leaf_offset + leaf_length - 1] = 0xFF;
+    CountingFileReader file(damaged.image);
+    std::unique_ptr<BkdReader> reader;
+    ASSERT_TRUE(BkdReader::open(&file, damaged.sections, &reader).ok());
+
+    const std::vector<uint8_t> lower = sortable_bigint(0);
+    const std::vector<uint8_t> upper = sortable_bigint(399);
+    roaring::Roaring hits;
+    const Status status = reader->range(Slice(lower), true, Slice(upper), true, &hits);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
 }
 
 // ---------------------------------------------------------------------------
@@ -601,9 +798,7 @@ TEST(BkdReaderTest, DamagedLeafBytesDowngradeToAStatusInsteadOfCrashing) {
     }
     Container container;
     ASSERT_TRUE(build_container(points, 4, &container).ok());
-    // Leaves are read lazily, so they are outside the open-time validation: the
-    // damage can only be caught by the leaf decoder, and it must come back as a
-    // Status (design 8.3).
+    // A malformed leaf returns corruption when the leaf is read.
     for (size_t i = 0; i < 8; ++i) {
         container.image[container.data_begin + i] = 0xFF;
     }
@@ -644,9 +839,7 @@ TEST(BkdReaderTest, ScratchIsReusedAcrossQueriesWithoutChangingResults) {
     OpenedIndex opened;
     ASSERT_TRUE(open_index(points, 5, &opened).ok());
 
-    // Design 9: the per-query state is the caller's, so one scratch serves an
-    // arbitrary sequence of queries and the answers are unaffected by what ran
-    // before.
+    // Reusing scratch must not change later query results.
     BkdQueryScratch scratch;
     for (int64_t low = 0; low < 37; ++low) {
         const Interval interval = closed(low, low + 4);
@@ -667,9 +860,7 @@ TEST(BkdReaderTest, ConcurrentQueriesShareOneImmutableReader) {
     OpenedIndex opened;
     ASSERT_TRUE(open_index(points, 9, &opened).ok());
 
-    // Design 9: range() is const, every query keeps its state on its own stack, and
-    // there is no clone() -- so a searcher cache may hand the same object to
-    // concurrent queries with no locking at all.
+    // Concurrent range queries share one immutable reader.
     std::vector<std::thread> threads;
     std::atomic<int> failures {0};
     for (int t = 0; t < 4; ++t) {
@@ -694,9 +885,7 @@ TEST(BkdReaderTest, ConcurrentQueriesShareOneImmutableReader) {
     EXPECT_EQ(failures.load(), 0);
 }
 
-// ---------------------------------------------------------------------------
-// lookup_many (design 7.3)
-// ---------------------------------------------------------------------------
+// Multi-value lookup tests.
 
 namespace {
 
@@ -733,10 +922,7 @@ std::vector<Slice> slices_of(const std::vector<std::vector<uint8_t>>& encoded) {
 
 } // namespace
 
-// lookup_many exists to answer IN (...) in ONE pass instead of the N full
-// traversals the old implementation ran (design 7.3). It must agree exactly with
-// the union of the equality ranges it replaces -- that equivalence is the whole
-// contract, and the union is computed by the already-tested range().
+// Multi-value lookup must equal the union of equality ranges.
 TEST(BkdReaderTest, LookupManyEqualsTheUnionOfEqualityRanges) {
     for (const uint32_t points_per_leaf : {1U, 4U, 32U, 1024U}) {
         SCOPED_TRACE("points_per_leaf " + std::to_string(points_per_leaf));
@@ -831,9 +1017,7 @@ TEST(BkdReaderTest, LookupManyOnAnEmptyIndexIsEmpty) {
     EXPECT_EQ(opened.file->reads(), before);
 }
 
-// ---------------------------------------------------------------------------
-// estimate_cardinality (design 7.4)
-// ---------------------------------------------------------------------------
+// Cardinality estimate tests.
 
 // The estimate feeds inverted_index_skip_threshold's bypass decision, so being
 // cheap matters as much as being close: it must read NOTHING.
@@ -852,15 +1036,7 @@ TEST(BkdReaderTest, EstimateReadsNoData) {
     EXPECT_GT(estimate, 0U);
 }
 
-// Only the two boundary leaves are guessed at, and only when a bound actually
-// cuts into them. The old implementation estimated whole subtrees as FULL
-// leaves, which over-counted a sparse tail by multiples.
-//
-// The bound is 2 x ceil(points_per_leaf / 2), not points_per_leaf as design 7.4
-// states: halving is integer division, so a partial leaf of c points can be off
-// by ceil(c / 2) -- for c == 1 the guess is 0 while the truth is 1. With two
-// partial leaves that is 2 for a one-point leaf, which exceeds points_per_leaf.
-// The doc's figure is right only for even capacities.
+// Each partial boundary leaf contributes half its recorded count. For a one-point leaf, integer division gives zero, so two such leaves can each add one to the error.
 TEST(BkdReaderTest, EstimateErrorIsBoundedByOneLeaf) {
     for (const uint32_t points_per_leaf : {1U, 8U, 64U}) {
         SCOPED_TRACE("points_per_leaf " + std::to_string(points_per_leaf));

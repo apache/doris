@@ -45,6 +45,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/file_reader.h"
@@ -584,6 +585,26 @@ TEST(RemoteDorisV2ReaderTest, RejectsUnknownReturnedColumnAndMissingRequestedCol
         size_t rows = 0;
         bool eof = false;
         EXPECT_FALSE(reader->get_block(&block, &rows, &eof).ok());
+    }
+}
+
+TEST(RemoteDorisV2ReaderTest, RejectsVariantBeforeOpeningFlightStream) {
+    const auto variant = make_nullable(std::make_shared<DataTypeVariantV2>());
+    const auto string_type = std::make_shared<DataTypeString>();
+    for (const DataTypePtr& type :
+         DataTypes {variant, std::make_shared<DataTypeArray>(variant),
+                    std::make_shared<DataTypeMap>(string_type, variant),
+                    std::make_shared<DataTypeStruct>(DataTypes {variant}, Strings {"value"})}) {
+        SlotDescriptor slot(remote_complex_slot_descriptor(0, type, "payload"));
+        std::vector<SlotDescriptor*> slots {&slot};
+        RuntimeState state;
+        RuntimeProfile profile("remote_doris_variant");
+        auto close_count = std::make_shared<int>(0);
+        auto reader = create_reader(&profile, remote_doris_range(), slots, {}, close_count);
+        const auto status = reader->init(&state);
+        EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+        EXPECT_NE(status.to_string().find("do not support Variant columns"), std::string::npos);
+        EXPECT_EQ(*close_count, 0);
     }
 }
 

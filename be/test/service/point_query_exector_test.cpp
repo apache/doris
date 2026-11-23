@@ -21,17 +21,354 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
+#include <array>
+#include <atomic>
+
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
+#include "common/config.h"
 #include "common/object_pool.h"
+#include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
+#include "core/field.h"
+#include "cpp/sync_point.h"
 #include "exprs/vexpr.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/local_file_system.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/cache_manager.h"
 #include "runtime/runtime_state.h"
 #include "service/point_query_executor.h"
+#include "storage/iterators.h"
+#include "storage/mow/mow_transform_test_base.h"
+#include "storage/options.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/beta_rowset_writer.h"
+#include "storage/schema.h"
+#include "storage/segment/column_read_ahead_resources.h"
+#include "storage/segment/mock/mock_segment.h"
+#include "storage/segment/page_io.h"
+#include "storage/segment/segment.h"
+#include "storage/segment/segment_loader.h"
+#include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
+#include "util/threadpool.h"
+#include "util/thrift_util.h"
 
 namespace doris {
+
+namespace segment_v2 {
+namespace {
+
+class TestFileReader final : public io::FileReader {
+public:
+    explicit TestFileReader(std::string data) : _data(std::move(data)) {}
+
+    Status close() override {
+        _closed = true;
+        return Status::OK();
+    }
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return _data.size(); }
+    bool closed() const override { return _closed; }
+    int64_t mtime() const override { return 0; }
+
+    size_t read_calls() const { return _read_calls; }
+
+protected:
+    Status read_at_impl(size_t, Slice, size_t*, const io::IOContext*) override {
+        ++_read_calls;
+        return Status::IOError("unexpected file read for a constant column");
+    }
+
+private:
+    const io::Path _path {"test-segment.dat"};
+    const std::string _data;
+    size_t _read_calls {0};
+    bool _closed {false};
+};
+
+TEST(PointQueryRowIdReadTest, ReadsSlotDefaultBeforeNewColumnReachesTabletSchema) {
+    auto source = std::make_shared<TestFileReader>(std::string(256, 'x'));
+    auto schema = std::make_shared<TabletSchema>();
+    testing::NiceMock<MockSegment> segment(schema);
+    segment.set_file_reader_for_test(source);
+    ON_CALL(segment, file_reader()).WillByDefault(testing::Return(source));
+    auto footer = std::make_shared<SegmentFooterPB>();
+    footer->set_num_rows(3);
+    EXPECT_CALL(segment, _get_segment_footer(testing::_, testing::_, testing::_))
+            .WillOnce([&](std::shared_ptr<SegmentFooterPB>& result, OlapReaderStatistics*,
+                          const io::IOContext*) {
+                result = footer;
+                return Status::OK();
+            });
+
+    auto slot_data = TSlotDescriptorBuilder()
+                             .type(TYPE_INT)
+                             .column_name("new_column")
+                             .set_nullIndicatorBit(-1)
+                             .build();
+    slot_data.__set_col_unique_id(123);
+    slot_data.__set_col_default_value("42");
+    SlotDescriptor slot(slot_data);
+    MutableColumnPtr result = ColumnInt32::create();
+    OlapReaderStatistics stats;
+    StorageReadOptions options(stats);
+    RowIdColumnRead column {.slot = &slot, .result = &result};
+    const std::vector<uint32_t> row_ids {0, 2};
+    ASSERT_TRUE(segment.read_columns_by_rowids(*schema, row_ids,
+                                               std::span<const RowIdColumnRead>(&column, 1),
+                                               options)
+                        .ok());
+    const auto& values = assert_cast<const ColumnInt32&>(*result).get_data();
+    ASSERT_EQ(values.size(), 2);
+    EXPECT_EQ(values[0], 42);
+    EXPECT_EQ(values[1], 42);
+    EXPECT_EQ(source->read_calls(), 0);
+}
+
+} // namespace
+} // namespace segment_v2
+
+class PointQueryReadAheadTest : public MowTransformTestBase {
+protected:
+    enum class ReadMode { NORMAL, READ_AHEAD, RESOURCE_ERROR, DATA_ERROR };
+
+    void check_column_read(ReadMode mode) {
+        auto schema = create_row_store_schema();
+        TabletSharedPtr tablet;
+        auto rowset = write_rowset(schema, 5201, 2, {{1, 11}, {2, 22}}, &tablet);
+        ASSERT_NE(rowset, nullptr);
+        SegmentCacheHandle segments;
+        ASSERT_TRUE(SegmentLoader::instance()
+                            ->load_segments(std::static_pointer_cast<BetaRowset>(rowset), &segments)
+                            .ok());
+        ASSERT_EQ(segments.get_segments().size(), 1);
+        const auto& segment = segments.get_segments().front();
+        std::unique_ptr<ThreadPool> executor;
+        ASSERT_TRUE(
+                ThreadPoolBuilder("PointReadBatchTest").set_max_threads(2).build(&executor).ok());
+        std::unique_ptr<io::FileRangeReadScheduler> scheduler;
+        ASSERT_TRUE(io::FileRangeReadScheduler::create({.max_bytes_per_query = 1024 * 1024,
+                                                        .max_bytes_per_be = 2 * 1024 * 1024},
+                                                       executor.get(), &scheduler)
+                            .ok());
+        auto* env = ExecEnv::GetInstance();
+        auto old_scheduler = std::move(env->_file_range_read_scheduler);
+        env->_file_range_read_scheduler = std::move(scheduler);
+        const auto old_cloud_id = config::cloud_unique_id;
+        const bool old_read_ahead = config::enable_query_read_ahead;
+        const bool old_async_write = config::enable_async_file_cache_write;
+        const bool old_page_cache = config::disable_storage_page_cache;
+        const auto old_window = config::read_ahead_eager_window_bytes;
+        auto* sync = SyncPoint::get_instance();
+        Defer restore {[&] {
+            sync->disable_processing();
+            executor->wait();
+            env->_file_range_read_scheduler = std::move(old_scheduler);
+            config::cloud_unique_id = old_cloud_id;
+            config::enable_query_read_ahead = old_read_ahead;
+            config::enable_async_file_cache_write = old_async_write;
+            config::disable_storage_page_cache = old_page_cache;
+            config::read_ahead_eager_window_bytes = old_window;
+        }};
+        config::cloud_unique_id = "PointReadBatchTest";
+        config::enable_query_read_ahead = true;
+        config::enable_async_file_cache_write = true;
+        config::disable_storage_page_cache = true;
+        if (mode == ReadMode::RESOURCE_ERROR) {
+            config::read_ahead_eager_window_bytes = 0;
+        }
+        auto key_data = TSlotDescriptorBuilder()
+                                .type(TYPE_INT)
+                                .column_name("k")
+                                .set_nullIndicatorBit(-1)
+                                .build();
+        key_data.__set_col_unique_id(0);
+        SlotDescriptor key_slot(key_data);
+        auto value_data = TSlotDescriptorBuilder()
+                                  .type(TYPE_INT)
+                                  .column_name("v")
+                                  .set_nullIndicatorBit(0)
+                                  .build();
+        value_data.__set_col_unique_id(1);
+        SlotDescriptor value_slot(value_data);
+        auto version_data = TSlotDescriptorBuilder()
+                                    .type(TYPE_BIGINT)
+                                    .column_name(VERSION_COL)
+                                    .set_nullIndicatorBit(-1)
+                                    .build();
+        version_data.__set_col_unique_id(1001);
+        SlotDescriptor version_slot(version_data);
+        MutableColumnPtr keys = key_slot.type()->create_column();
+        MutableColumnPtr values = value_slot.type()->create_column();
+        MutableColumnPtr versions = version_slot.type()->create_column();
+        const std::array<segment_v2::RowIdColumnRead, 3> columns {
+                {{.slot = &key_slot, .result = &keys},
+                 {.slot = &value_slot, .result = &values},
+                 {.slot = &version_slot, .result = &versions}}};
+        size_t submissions = 0;
+        SyncPoint::CallbackGuard range_guard;
+        SyncPoint::CallbackGuard crc_guard;
+        sync->set_call_back(
+                "FileRangeRead::create:inject_failure",
+                [&](auto&&) {
+                    // Every initial submission, including the second column, must precede the
+                    // first decoded value. A per-column prepare/read loop breaks this contract.
+                    ++submissions;
+                    EXPECT_TRUE(keys->empty());
+                    EXPECT_TRUE(values->empty());
+                    EXPECT_TRUE(versions->empty());
+                },
+                &range_guard);
+        if (mode == ReadMode::DATA_ERROR) {
+            sync->set_call_back(
+                    "PageIO::read_and_decompress_page:crc_failure_inj",
+                    [&](auto&& args) {
+                        auto* ctx = try_any_cast<segment_v2::InjectionContext*>(args[0]);
+                        // Keep preparation/index reads intact; inject only once both columns'
+                        // initial ranges exist, so this exercises an actual decode-time error.
+                        if (submissions >= 2 && ctx->opts->type == segment_v2::DATA_PAGE) {
+                            *ctx->crc ^= 1;
+                        }
+                    },
+                    &crc_guard);
+        }
+        sync->enable_processing();
+        OlapReaderStatistics stats;
+        StorageReadOptions options(stats);
+        options.use_page_cache = false;
+        options.io_ctx.reader_type = ReaderType::READER_QUERY;
+        options.io_ctx.file_cache_stats = &stats.file_cache_stats;
+        options.version = rowset->version();
+        options.commit_tso = rowset->commit_tso();
+        auto context = mode == ReadMode::NORMAL
+                               ? nullptr
+                               : env->file_range_read_scheduler()->create_context();
+        const auto status =
+                segment->read_columns_by_rowids(*schema, {0, 1}, columns, options, context);
+        if (mode == ReadMode::DATA_ERROR) {
+            EXPECT_FALSE(status.ok());
+            EXPECT_TRUE(keys->empty());
+            EXPECT_TRUE(values->empty());
+            EXPECT_TRUE(versions->empty());
+        } else {
+            ASSERT_TRUE(status.ok()) << status;
+            ASSERT_EQ(keys->size(), 2);
+            ASSERT_EQ(values->size(), 2);
+            ASSERT_EQ(versions->size(), 2);
+            EXPECT_EQ(keys->get_int(0), 1);
+            EXPECT_EQ(keys->get_int(1), 2);
+            const auto& nested = assert_cast<const ColumnNullable&>(*values).get_nested_column();
+            EXPECT_EQ(nested.get_int(0), 11);
+            EXPECT_EQ(nested.get_int(1), 22);
+            EXPECT_EQ(versions->get_int(0), rowset->version().second);
+            EXPECT_EQ(versions->get_int(1), rowset->version().second);
+        }
+        if (mode == ReadMode::NORMAL || mode == ReadMode::RESOURCE_ERROR) {
+            EXPECT_EQ(submissions, 0);
+        } else {
+            EXPECT_GE(submissions, 2);
+        }
+        if (mode == ReadMode::RESOURCE_ERROR) {
+            std::string row;
+            const RowLocation location {rowset->rowset_id(), segment->id(), 0};
+            EXPECT_FALSE(tablet->lookup_row_data({}, location, segment, rowset, stats, row, false,
+                                                 nullptr, context)
+                                 .ok());
+            EXPECT_TRUE(row.empty());
+        }
+        executor->wait();
+        if (context != nullptr) {
+            EXPECT_EQ(context->resident_bytes(), 0);
+        }
+    }
+};
+
+TEST_F(PointQueryReadAheadTest, UnifiedColumnReadsWithoutReadAheadContext) {
+    check_column_read(ReadMode::NORMAL);
+}
+
+TEST_F(PointQueryReadAheadTest, UnifiedColumnReadsSubmitAllColumnsBeforeDecoding) {
+    check_column_read(ReadMode::READ_AHEAD);
+}
+
+TEST_F(PointQueryReadAheadTest, ColumnResourceErrorsFallBackAndRowStoreResourceErrorsPropagate) {
+    check_column_read(ReadMode::RESOURCE_ERROR);
+}
+
+TEST_F(PointQueryReadAheadTest, UnifiedColumnReadsPropagateDataErrors) {
+    check_column_read(ReadMode::DATA_ERROR);
+}
+
+TEST_F(PointQueryReadAheadTest, RowStoreFallsBackWhenReadAheadSwitchChanges) {
+    auto schema = create_row_store_schema();
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 5101, 2, {{1, 11}, {2, 22}}, &tablet);
+    ASSERT_NE(rowset, nullptr);
+    const RowLocation location {rowset->rowset_id(), 0, 1};
+    const std::string key = "key";
+    OlapReaderStatistics expected_stats;
+    std::string expected;
+    ASSERT_TRUE(
+            tablet->lookup_row_data(Slice(key), location, rowset, expected_stats, expected).ok());
+    SegmentCacheHandle segment_cache;
+    ASSERT_TRUE(
+            SegmentLoader::instance()
+                    ->load_segments(std::static_pointer_cast<BetaRowset>(rowset), &segment_cache)
+                    .ok());
+    ASSERT_EQ(segment_cache.get_segments().size(), 1);
+    const auto& segment = segment_cache.get_segments().front();
+
+    const auto old_cloud_unique_id = config::cloud_unique_id;
+    const bool old_read_ahead = config::enable_query_read_ahead;
+    const bool old_async_write = config::enable_async_file_cache_write;
+    auto* sync_point = SyncPoint::get_instance();
+    Defer restore {[&] {
+        sync_point->disable_processing();
+        config::cloud_unique_id = old_cloud_unique_id;
+        config::enable_query_read_ahead = old_read_ahead;
+        config::enable_async_file_cache_write = old_async_write;
+    }};
+    config::cloud_unique_id = "PointQueryReadAheadTest";
+
+    for (int switch_index = 0; switch_index < 2; ++switch_index) {
+        SCOPED_TRACE(switch_index);
+        config::enable_query_read_ahead = true;
+        config::enable_async_file_cache_write = true;
+        ASSERT_TRUE(segment_v2::ColumnReadAheadResources::enabled());
+        auto context = std::make_shared<io::FileRangeReadContext>(1024 * 1024);
+
+        // Model a switch closing after the request created its context and resolved the segment.
+        // Both the read-ahead and fallback paths must reuse that segment without loading it again.
+        if (switch_index == 0) {
+            config::enable_query_read_ahead = false;
+        } else {
+            config::enable_async_file_cache_write = false;
+        }
+        size_t segment_loads = 0;
+        SyncPoint::CallbackGuard guard;
+        sync_point->set_call_back(
+                "SegmentLoader::load_segments", [&](auto&&) { ++segment_loads; }, &guard);
+        sync_point->enable_processing();
+        OlapReaderStatistics stats;
+        std::string actual;
+        const auto status = tablet->lookup_row_data(Slice(key), location, segment, rowset, stats,
+                                                    actual, false, nullptr, context);
+        sync_point->disable_processing();
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(segment_loads, 0);
+        EXPECT_EQ(actual, expected);
+        EXPECT_EQ(context->resident_bytes(), 0);
+    }
+}
 
 // Helper class for setting up Reusable objects to test LookupConnectionCache
 class ReusableTestHelper {
@@ -152,7 +489,7 @@ public:
         return dtb.desc_tbl();
     }
 
-    static std::shared_ptr<Reusable> create_reusable() {
+    static std::shared_ptr<Reusable> create_reusable(const std::string& timezone = "+08:00") {
         auto obj_pool = std::make_unique<ObjectPool>();
         auto runtime_state = RuntimeState::create_unique();
         auto reusable = std::make_shared<Reusable>();
@@ -161,7 +498,8 @@ public:
         TDescriptorTable t_desc_tbl = create_descriptor_tablet();
 
         // Initialize Reusable
-        Status st = reusable->init(t_desc_tbl, output_exprs, query_options, *tablet_schema, 2);
+        Status st = reusable->init(t_desc_tbl, output_exprs, query_options, timezone,
+                                   *tablet_schema, 2);
         if (!st.ok()) {
             return nullptr;
         }
@@ -387,19 +725,26 @@ TEST_F(LookupConnectionCacheTest, PQTestInvalidKeys) {
     cache.add(1, large_reusable);
 }
 
-// Test key collision handling
+// A prepared statement can replace its cached context after SET time_zone.
 TEST_F(LookupConnectionCacheTest, PQTestDuplicateAdd) {
     LookupConnectionCache cache(1024 * 1024);
-    auto reusable1 = ReusableTestHelper::create_reusable();
-    auto reusable2 = ReusableTestHelper::create_reusable();
+    auto reusable1 = ReusableTestHelper::create_reusable("UTC");
+    auto reusable2 = ReusableTestHelper::create_reusable("+06:00");
+    ASSERT_NE(reusable1, nullptr);
+    ASSERT_NE(reusable2, nullptr);
 
     // Overwrite existing key
     cache.add(123, reusable1);
+    auto previous = cache.get(123);
     cache.add(123, reusable2);
 
     auto entry = cache.get(123);
     ASSERT_NE(entry, nullptr);
     EXPECT_EQ(entry.get(), reusable2.get()) << "Last write should win in key collision";
+    ASSERT_NE(previous, nullptr);
+    EXPECT_EQ(previous.get(), reusable1.get());
+    EXPECT_EQ(previous->runtime_state()->timezone(), "UTC");
+    EXPECT_EQ(entry->runtime_state()->timezone(), "+06:00");
 }
 
 // Test reference counting mechanism
@@ -418,5 +763,340 @@ TEST_F(LookupConnectionCacheTest, PQTestEntryLifetime) {
     ASSERT_NE(entry, nullptr);
     EXPECT_EQ(entry.use_count(), 2) << "Cache should maintain sole ownership after scope exit";
 }
+
+// Exercise the executor's key/data stages with real MoW segments. The parameters cover
+// local contiguous IDs and cloud segment-list IDs.
+class PointQuerySegmentReuseTest : public testing::TestWithParam<bool> {
+protected:
+    void SetUp() override {
+        _saved_disable_row_cache = config::disable_storage_row_cache;
+        _saved_disable_segment_cache = config::disable_segment_cache;
+        config::disable_storage_row_cache = true;
+        config::disable_segment_cache = false;
+        auto* env = ExecEnv::GetInstance();
+        _saved_cache_manager = env->get_cache_manager();
+        _cache_manager.reset(CacheManager::create_global_instance());
+        env->set_cache_manager(_cache_manager.get());
+        _saved_row_cache = env->get_row_cache();
+        _saved_segment_loader = env->segment_loader();
+        _row_cache.reset(new RowCache(1024 * 1024, 1));
+        _segment_loader = std::make_unique<SegmentLoader>(64 * 1024 * 1024, 1024);
+        env->_row_cache = _row_cache.get();
+        env->set_segment_loader(_segment_loader.get());
+        EngineOptions options;
+        options.backend_uid = UniqueId::gen_uid();
+        _engine = std::make_unique<StorageEngine>(options);
+        ASSERT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
+        ASSERT_TRUE(io::global_local_filesystem()->create_directory(kTestDir).ok());
+    }
+
+    void TearDown() override {
+        auto* sync_point = SyncPoint::get_instance();
+        sync_point->clear_call_back("SegmentLoader::load_segments");
+        sync_point->disable_processing();
+        evict_segments();
+        _tablet.reset();
+        _rowsets.clear();
+        _cloud_engine.reset();
+        _engine.reset();
+        auto* env = ExecEnv::GetInstance();
+        env->_row_cache = _saved_row_cache;
+        env->set_segment_loader(_saved_segment_loader);
+        _row_cache.reset();
+        _segment_loader.reset();
+        env->set_cache_manager(_saved_cache_manager);
+        _cache_manager.reset();
+        config::disable_storage_row_cache = _saved_disable_row_cache;
+        config::disable_segment_cache = _saved_disable_segment_cache;
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
+    }
+
+    Status create_tablet() {
+        TabletMetaPB meta_pb;
+        meta_pb.set_tablet_id(987654);
+        meta_pb.set_enable_unique_key_merge_on_write(true);
+        meta_pb.set_tablet_state(PB_RUNNING);
+        auto* schema_pb = meta_pb.mutable_schema();
+        schema_pb->set_keys_type(UNIQUE_KEYS);
+        schema_pb->set_num_short_key_columns(1);
+        schema_pb->set_num_rows_per_row_block(1024);
+        schema_pb->set_next_column_unique_id(5);
+        schema_pb->set_delete_sign_idx(3);
+        schema_pb->set_store_row_column(true);
+        auto add_column = [&](int uid, const std::string& name, const std::string& type, int length,
+                              bool nullable) {
+            auto* column = schema_pb->add_column();
+            column->set_unique_id(uid);
+            column->set_name(name);
+            column->set_type(type);
+            column->set_length(length);
+            column->set_index_length(type == "STRING" ? 4 : length);
+            column->set_is_key(uid == 0);
+            column->set_is_nullable(nullable);
+            column->set_aggregation("NONE");
+        };
+        add_column(0, "k", "INT", 4, false);
+        add_column(1, "v1", "INT", 4, false);
+        add_column(2, "v2", "INT", 4, true);
+        add_column(3, DELETE_SIGN, "TINYINT", 1, false);
+        add_column(4, BeConsts::ROW_STORE_COL, "STRING", 2147483643, false);
+        auto meta = std::make_shared<TabletMeta>();
+        meta->init_from_pb(meta_pb);
+        if (GetParam()) {
+            _cloud_engine = std::make_unique<CloudStorageEngine>(EngineOptions {});
+            _tablet = std::make_shared<CloudTablet>(*_cloud_engine, meta);
+        } else {
+            _tablet = std::make_shared<Tablet>(*_engine, meta, nullptr);
+        }
+        RETURN_IF_ERROR(write_rowset(1, {{10, 11}, {20}, {30}}));
+        RETURN_IF_ERROR(write_rowset(2, {{40}}));
+        // Key 20 still has a primary-index entry but is invisible through the delete bitmap.
+        const auto& rowset = _rowsets.front();
+        meta->delete_bitmap().add({rowset->rowset_id(), rowset->segment(1).id(), 1}, 0);
+        auto* sync_point = SyncPoint::get_instance();
+        sync_point->set_call_back("SegmentLoader::load_segments", [&](auto&& args) {
+            if (try_any_cast<BetaRowset*>(args[0])->rowset_meta()->tablet_id() ==
+                _tablet->tablet_id()) {
+                _segment_load_calls.fetch_add(1, std::memory_order_relaxed);
+            }
+        });
+        sync_point->enable_processing();
+        return Status::OK();
+    }
+
+    Status write_rowset(int64_t version, const std::vector<std::vector<int32_t>>& keys) {
+        RowsetWriterContext context;
+        context.rowset_id = _engine->next_rowset_id();
+        context.tablet_id = _tablet->tablet_id();
+        context.tablet_schema = _tablet->tablet_schema();
+        context.tablet_path = kTestDir;
+        context.rowset_state = VISIBLE;
+        context.version = {version, version};
+        context.enable_unique_key_merge_on_write = true;
+        context.enable_segcompaction = false;
+        context.write_type = DataWriteType::TYPE_DIRECT;
+        BetaRowsetWriter writer(*_engine);
+        RETURN_IF_ERROR(writer.init(context));
+        for (const auto& segment_keys : keys) {
+            Block block = context.tablet_schema->create_storage_block();
+            {
+                auto guard = block.mutate_columns_scoped();
+                auto& columns = guard.mutable_columns();
+                for (int32_t key : segment_keys) {
+                    columns[0]->insert(Field::create_field<TYPE_INT>(key));
+                    columns[1]->insert(Field::create_field<TYPE_INT>(key * 10));
+                    if (key == 11) {
+                        columns[2]->insert_default();
+                    } else {
+                        columns[2]->insert(Field::create_field<TYPE_INT>(key * 100));
+                    }
+                    columns[3]->insert_default();
+                    columns[4]->insert_default();
+                }
+            }
+            RETURN_IF_ERROR(writer.flush_single_block(&block));
+        }
+        RowsetSharedPtr rowset;
+        RETURN_IF_ERROR(writer.build(rowset));
+        if (GetParam()) {
+            // Model a cloud segment-list rowset using local files, without a remote service.
+            // Each rowset can use the same physical IDs; its rowset ID distinguishes the files.
+            std::vector<int64_t> segment_ids;
+            for (auto segment : rowset->segments()) {
+                auto path = DORIS_TRY(segment.path());
+                int64_t physical_id = 7 + segment.pos() * 13;
+                RETURN_IF_ERROR(io::global_local_filesystem()->rename(
+                        path, std::string(kTestDir) + "/" + rowset->rowset_id().to_string() + "_" +
+                                      std::to_string(physical_id) + ".dat"));
+                segment_ids.push_back(physical_id);
+            }
+            rowset->rowset_meta()->set_segment_ids(segment_ids);
+        }
+        {
+            std::unique_lock lock(_tablet->get_header_lock());
+            _tablet->_rs_version_map.emplace(rowset->version(), rowset);
+        }
+        _rowsets.push_back(std::move(rowset));
+        return Status::OK();
+    }
+
+    Status prepare_executor(PointQueryExecutor* executor, const std::vector<int32_t>& keys) {
+        TDescriptorTableBuilder descriptor_builder;
+        TTupleDescriptorBuilder tuple_builder;
+        for (int pos = 0; pos < 4; ++pos) {
+            const auto& column = _tablet->tablet_schema()->column(pos);
+            auto slot = TSlotDescriptorBuilder()
+                                .type(pos == 3 ? TYPE_TINYINT : TYPE_INT)
+                                .column_name(column.name())
+                                .column_pos(pos)
+                                .nullable(column.is_nullable())
+                                .build();
+            slot.__set_col_unique_id(column.unique_id());
+            tuple_builder.add_slot(slot);
+        }
+        tuple_builder.build(&descriptor_builder);
+        auto descriptor = descriptor_builder.desc_tbl();
+        std::vector<TExpr> output_exprs;
+        for (int pos = 0; pos < 3; ++pos) {
+            TExprNode node;
+            node.__set_node_type(TExprNodeType::SLOT_REF);
+            node.__set_type(descriptor.slotDescriptors[pos].slotType);
+            node.__set_is_nullable(_tablet->tablet_schema()->column(pos).is_nullable());
+            node.__set_num_children(0);
+            TSlotRef slot_ref;
+            slot_ref.__set_slot_id(descriptor.slotDescriptors[pos].id);
+            slot_ref.__set_tuple_id(0);
+            node.__set_slot_ref(slot_ref);
+            TExpr expr;
+            expr.nodes.push_back(node);
+            output_exprs.push_back(expr);
+        }
+        TQueryOptions options;
+        executor->_tablet = _tablet;
+        executor->_reusable = std::make_shared<Reusable>();
+        RETURN_IF_ERROR(executor->_reusable->init(descriptor, output_exprs, options, "+08:00",
+                                                  *_tablet->tablet_schema(), 1));
+        PTabletKeyLookupRequest request;
+        ThriftSerializer serializer(false, 128);
+        for (int32_t key : keys) {
+            TExprNode literal;
+            literal.__set_node_type(TExprNodeType::INT_LITERAL);
+            literal.__set_type(descriptor.slotDescriptors[0].slotType);
+            literal.__set_is_nullable(false);
+            literal.__set_num_children(0);
+            TIntLiteral int_literal;
+            int_literal.__set_value(key);
+            literal.__set_int_literal(int_literal);
+            RETURN_IF_ERROR(serializer.serialize(
+                    &literal, request.add_key_tuples()->add_key_column_literals()));
+        }
+        RETURN_IF_ERROR(executor->_init_keys(&request));
+        executor->_result_block = executor->_reusable->get_block();
+        return Status::OK();
+    }
+
+    void evict_segments() {
+        for (const auto& rowset : _rowsets) {
+            SegmentLoader::instance()->erase_segments(*rowset->rowset_meta());
+        }
+    }
+
+    static void check_rows(const Block& block) {
+        ASSERT_EQ(block.rows(), 4);
+        const std::vector<int32_t> expected_keys {30, 10, 40, 11};
+        const auto& v2 = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+        for (size_t row = 0; row < expected_keys.size(); ++row) {
+            EXPECT_EQ(block.get_by_position(0).column->get_int(row), expected_keys[row]);
+            EXPECT_EQ(block.get_by_position(1).column->get_int(row), expected_keys[row] * 10);
+            EXPECT_EQ(v2.is_null_at(row), expected_keys[row] == 11);
+            if (expected_keys[row] != 11) {
+                EXPECT_EQ(v2.get_nested_column().get_int(row), expected_keys[row] * 100);
+            }
+            EXPECT_EQ(block.get_by_position(3).column->get_int(row), 0);
+        }
+    }
+
+    static constexpr const char* kTestDir = "./point_query_segment_reuse_test";
+    std::unique_ptr<StorageEngine> _engine;
+    std::unique_ptr<CloudStorageEngine> _cloud_engine;
+    BaseTabletSPtr _tablet;
+    std::vector<RowsetSharedPtr> _rowsets;
+    std::atomic<int> _segment_load_calls = 0;
+    std::unique_ptr<RowCache> _row_cache;
+    std::unique_ptr<SegmentLoader> _segment_loader;
+    std::unique_ptr<CacheManager> _cache_manager;
+    CacheManager* _saved_cache_manager = nullptr;
+    RowCache* _saved_row_cache = nullptr;
+    SegmentLoader* _saved_segment_loader = nullptr;
+    bool _saved_disable_row_cache = true;
+    bool _saved_disable_segment_cache = false;
+};
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): gtest assertions expand to branches; keep the key/data lifetime checks together.
+TEST_P(PointQuerySegmentReuseTest, ReuseAfterKeyLookupAndCacheEviction) {
+    ASSERT_EQ(Status::OK(), create_tablet());
+    std::vector<std::weak_ptr<segment_v2::Segment>> retained_segments;
+    {
+        PointQueryExecutor executor;
+        ASSERT_EQ(Status::OK(), prepare_executor(&executor, {30, 10, 40, 11, 99, 20}));
+        ASSERT_EQ(Status::OK(), executor._lookup_row_key());
+        ASSERT_EQ(executor._row_hits, 4);
+        ASSERT_EQ(_segment_load_calls.load(), 2);
+        const auto& contexts = executor._row_read_ctxs;
+        for (size_t row = 0; row < 4; ++row) {
+            const auto& context = contexts[row];
+            ASSERT_TRUE(context._row_location.has_value());
+            ASSERT_NE(context._segment, nullptr);
+            ASSERT_NE(context._rowset_ptr, nullptr);
+            EXPECT_EQ(context._segment->id(), context._row_location->segment_id);
+            EXPECT_EQ((*context._rowset_ptr)->rowset_id(), context._row_location->rowset_id);
+            retained_segments.emplace_back(context._segment);
+        }
+        EXPECT_EQ(contexts[0]._segment->id(), _rowsets[0]->segment(2).id());
+        EXPECT_EQ(contexts[1]._segment.get(), contexts[3]._segment.get());
+        EXPECT_NE(contexts[1]._segment.get(), contexts[2]._segment.get());
+        EXPECT_EQ(contexts[3]._row_location->row_id, 1);
+        for (size_t row : {4, 5}) {
+            EXPECT_FALSE(contexts[row]._row_location.has_value());
+            EXPECT_EQ(contexts[row]._segment, nullptr);
+            EXPECT_EQ(contexts[row]._rowset_ptr, nullptr);
+        }
+        ASSERT_GT(_segment_loader->_segment_cache->get_element_count(), 0);
+        evict_segments();
+        ASSERT_EQ(_segment_loader->_segment_cache->get_element_count(), 0);
+        for (const auto& segment : retained_segments) {
+            EXPECT_FALSE(segment.expired());
+        }
+        ASSERT_EQ(Status::OK(), executor._lookup_row_data());
+        check_rows(*executor._result_block);
+        // This fails if the executor switches back to the overload that reloads segments.
+        EXPECT_EQ(_segment_load_calls.load(), 2);
+        EXPECT_EQ(_rowsets[0]->_refs_by_reader.load(), 3);
+        EXPECT_EQ(_rowsets[1]->_refs_by_reader.load(), 1);
+    }
+    for (const auto& segment : retained_segments) {
+        EXPECT_TRUE(segment.expired());
+    }
+    for (const auto& rowset : _rowsets) {
+        EXPECT_EQ(rowset->_refs_by_reader.load(), 0);
+    }
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): compare cold and cached execution using the same request and expected result.
+TEST_P(PointQuerySegmentReuseTest, LookupUpAndRowCacheHit) {
+    ASSERT_EQ(Status::OK(), create_tablet());
+    config::disable_storage_row_cache = false;
+    // MySQL text rows: length-prefixed cells, with 0xfb for SQL NULL.
+    const std::vector<std::string> expected_rows {"\00230\003300\0043000", "\00210\003100\0041000",
+                                                  "\00240\003400\0044000", "\00211\003110\373"};
+    for (bool cached : {false, true}) {
+        PointQueryExecutor executor;
+        PTabletKeyLookupResponse response;
+        // Only existing keys: the warm request must not need an index lookup for a missing key.
+        ASSERT_EQ(Status::OK(), prepare_executor(&executor, {30, 10, 40, 11}));
+        executor._response = &response;
+        _segment_load_calls = 0;
+        ASSERT_EQ(Status::OK(), executor.lookup_up());
+        EXPECT_FALSE(response.empty_batch());
+        TResultBatch batch;
+        auto length = static_cast<uint32_t>(response.row_batch().size());
+        ASSERT_TRUE(deserialize_thrift_msg(
+                            reinterpret_cast<const uint8_t*>(response.row_batch().data()), &length,
+                            false, &batch)
+                            .ok());
+        EXPECT_EQ(batch.rows, expected_rows);
+        EXPECT_EQ(_segment_load_calls.load(), cached ? 0 : 2);
+        EXPECT_EQ(executor._profile_metrics.row_cache_hits, cached ? 4 : 0);
+        if (cached) {
+            for (const auto& context : executor._row_read_ctxs) {
+                EXPECT_EQ(context._segment, nullptr);
+                EXPECT_EQ(context._rowset_ptr, nullptr);
+            }
+        }
+        evict_segments();
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(SegmentLayouts, PointQuerySegmentReuseTest, testing::Bool());
 
 } // namespace doris

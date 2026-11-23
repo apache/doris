@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_local_tvf_csv_enclose_consistency", "p0,external") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
     def backends = sql "show backends"
     assertTrue(backends.size() > 0)
     def beId = backends[0][0]

@@ -60,6 +60,8 @@ public:
     size_t serialize(uint8_t* dst) const;
     void merge(const QuantileState& other);
     void add_value(const double& value);
+    // Clear samples while retaining explicit capacity for the next aggregate frame.
+    void reset();
     void clear();
     bool is_valid(const Slice& slice);
     size_t get_serialized_size() const;

@@ -188,8 +188,7 @@ public class MetaServiceProxy {
         String address = Config.meta_service_endpoint;
         address = address.replaceAll("^[\"']|[\"']$", "");
         MetaServiceClient service = serviceMap.get(address);
-        if (service != null && service.isNormalState() && !service.isConnectionAgeExpired()
-                && service.isUsingLatestChannelConfig()) {
+        if (service != null && service.isNormalState() && !service.isConnectionAgeExpired()) {
             return service;
         }
 
@@ -209,11 +208,6 @@ public class MetaServiceProxy {
                 service = null;
             }
             if (service != null && service.isConnectionAgeExpired()) {
-                serviceMap.remove(address);
-                removedClient = service;
-                service = null;
-            }
-            if (service != null && !service.isUsingLatestChannelConfig()) {
                 serviceMap.remove(address);
                 removedClient = service;
                 service = null;
@@ -668,8 +662,8 @@ public class MetaServiceProxy {
                 Cloud.GetPrepareTxnByCoordinatorResponse::getStatus);
     }
 
-    public Cloud.CreateInstanceResponse createInstance(Cloud.CreateInstanceRequest request) throws RpcException {
-        return executeWithMetrics("createInstance", (client) -> client.createInstance(request),
+    public Cloud.CreateInstanceResponse bootstrapInstance(Cloud.BootstrapInstanceRequest request) throws RpcException {
+        return executeWithMetrics("bootstrapInstance", (client) -> client.bootstrapInstance(request),
                 Cloud.CreateInstanceResponse::getStatus);
     }
 

@@ -83,6 +83,8 @@ public:
     SniiPostingReadContext& operator=(SniiPostingReadContext&&) = delete;
 
     Status init();
+    // Reserve before writing output, and reuse the block across this source's terms.
+    Status reserve_rowid_cursor() { return rowid_cursor_.reserve(); }
 
     const reader::LogicalIndexReader* index() const { return index_; }
     bool initialized() const { return initialized_; }
@@ -161,6 +163,7 @@ private:
     format::RegionRef posting_region_;
     std::unique_ptr<SharedAlignedRegionCache> posting_cache_;
     DecoderWorkspace decoder_workspace_;
+    CompressedRowIdMap::Cursor rowid_cursor_;
 
     uint64_t last_docs_end_ = 0;
     uint64_t last_prx_end_ = 0;
@@ -183,7 +186,8 @@ class SniiPostingCursor {
 public:
     SniiPostingCursor(SniiPostingReadContext* read_context, format::DictEntry entry,
                       uint64_t frq_base, uint64_t prx_base, uint32_t source_ordinal,
-                      const ValidatedRowIdConversion* rowid_conversion)
+                      const ValidatedRowIdConversion* rowid_conversion,
+                      CompressedRowIdMap::DecodeWorkspace* rowid_workspace = nullptr)
             : read_context_(read_context),
               index_(read_context == nullptr ? nullptr : read_context->index()),
               entry_(std::move(entry)),
@@ -191,6 +195,7 @@ public:
               prx_base_(prx_base),
               source_ordinal_(source_ordinal),
               rowid_conversion_(rowid_conversion),
+              rowid_workspace_(rowid_workspace),
               term_has_positions_(posting_entry_has_positions(entry_)) {}
 
     // Validates index capability, posting locators and fixed entry geometry,
@@ -230,7 +235,8 @@ private:
     uint64_t prx_base_ = 0;
     uint32_t source_ordinal_ = 0;
     const ValidatedRowIdConversion* rowid_conversion_ = nullptr;
-    std::span<const std::pair<uint32_t, uint32_t>> source_mapping_;
+    CompressedRowIdMap::DecodeWorkspace* rowid_workspace_ = nullptr;
+    RowIdConversionSource source_mapping_;
     bool source_has_deletions_ = false;
     bool term_has_positions_ = true;
 

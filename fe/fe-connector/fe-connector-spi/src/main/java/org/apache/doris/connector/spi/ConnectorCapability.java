@@ -205,6 +205,16 @@ public enum ConnectorCapability {
      */
     SUPPORTS_STORAGE_PREDICATE_PRUNING,
     /**
+     * Indicates that the connector can materialize a partitioned table's selected partition view directly from
+     * a connector predicate during Nereids partition pruning. The engine defers eager full partition
+     * materialization for such tables and asks the connector for the filtered view instead; when the connector
+     * cannot apply a predicate it must retain its existing full-list fallback.
+     *
+     * <p><b>Scope: per-table only.</b> A heterogeneous connector such as Hive can support this for plain HMS
+     * tables while delegating sibling table formats to connectors with different partition semantics.</p>
+     */
+    SUPPORTS_CONNECTOR_PARTITION_PRUNING,
+    /**
      * Indicates the connector's external metadata (schema / partitions / snapshot) can be pre-warmed
      * asynchronously by the planner before it takes the internal read lock, rather than loaded lazily
      * during binding.
@@ -304,5 +314,20 @@ public enum ConnectorCapability {
      * data tables while declining it on the subset of system tables whose readers cannot observe a
      * selected snapshot.</p>
      */
-    SUPPORTS_SCAN_PARAM_OPTIONS
+    SUPPORTS_SCAN_PARAM_OPTIONS,
+    /**
+     * Indicates the connector's column defaults apply to writes only: they are carried by the
+     * request-scoped writer schema ({@code ConnectorWritePlanProvider.getWriteColumns}), not by the read
+     * schema (e.g. Iceberg {@code write-default}).
+     *
+     * <p>fe-core then resolves {@code DEFAULT(column)} against the writer schema a statement pinned for its
+     * write target: in INSERT VALUES, by name against the target in INSERT ... SELECT, and in the
+     * predicates of UPDATE / MERGE on the target. Anywhere else, e.g. in a plain SELECT, {@code
+     * DEFAULT(column)} on such a table is rejected instead of answering NULL from the read schema.
+     * Connectors whose read schema carries the column defaults (hive) must NOT declare it.</p>
+     *
+     * <p><b>Scope: catalog-wide OR per-table.</b> An iceberg-on-HMS table inherits it through the per-table
+     * set the gateway reflects from its sibling, exactly like {@link #SUPPORTS_NESTED_COLUMN_PRUNE}.</p>
+     */
+    SUPPORTS_WRITE_ONLY_DEFAULTS
 }

@@ -20,6 +20,9 @@ suite("scalar_agg_pushdown") {
     sql "set disable_nereids_rules='SALT_JOIN';"
     sql "set runtime_filter_mode=OFF;"
     sql 'set ignore_shape_nodes="PhysicalProject, PhysicalDistribute";'
+    // Keep the join order of the shape plans below independent of the estimated
+    // row counts, so a change of the collected table statistics cannot rewrite them.
+    sql "set disable_join_reorder=true"
 
     // Test: scalar aggregation (no GROUP BY) must not be pushed below a join,
     // because scalar agg on empty input returns 1 NULL row (SQL standard),

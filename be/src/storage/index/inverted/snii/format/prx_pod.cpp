@@ -23,6 +23,7 @@
 #include <chrono>
 #include <cstddef>
 #include <limits>
+#include <numeric>
 #include <span>
 #include <vector>
 
@@ -59,6 +60,10 @@ Status validate_prx_window_limits(const PrxWindowLimits& limits) {
         limits.max_uncomp_bytes > kReaderPrxWindowLimits.max_uncomp_bytes) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "prx: writer window limits exceed reader limits");
+    }
+    if (limits.zstd_min_saving_percent > 100) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "prx: zstd minimum saving is a percentage");
     }
     return Status::OK();
 }
@@ -451,7 +456,8 @@ size_t zstd_frame_size(size_t plain_size, size_t compressed_size) {
 // before PFOR materialization in build_prx_window_auto_from_flat.
 AutoPrxCodecChoice select_auto_prx_codec(size_t pfor_payload_size, size_t plain_payload_size,
                                          size_t compressed_payload_size, bool has_compressed,
-                                         uint32_t max_uncomp_bytes) {
+                                         uint32_t max_uncomp_bytes,
+                                         uint32_t zstd_min_saving_percent) {
     const bool pfor_readable = pfor_payload_size <= max_uncomp_bytes;
     const bool plain_readable = plain_payload_size <= max_uncomp_bytes;
     AutoPrxCodecChoice choice;
@@ -462,7 +468,14 @@ AutoPrxCodecChoice select_auto_prx_codec(size_t pfor_payload_size, size_t plain_
     }
     if (has_compressed && plain_readable) {
         const size_t frame_size = zstd_frame_size(plain_payload_size, compressed_payload_size);
-        if (!choice.readable || frame_size < selected_frame_size) {
+        // Against a PFOR frame ZSTD must save the configured share; without one it only has to win.
+        const bool saves_enough =
+                !choice.readable ||
+                (frame_size < selected_frame_size &&
+                 static_cast<uint64_t>(frame_size) * 100 <=
+                         static_cast<uint64_t>(selected_frame_size) *
+                                 (100 - std::min<uint32_t>(zstd_min_saving_percent, 100)));
+        if (saves_enough) {
             choice = {.codec = PrxCodec::kZstd, .readable = true};
             selected_frame_size = frame_size;
         }
@@ -474,6 +487,88 @@ AutoPrxCodecChoice select_auto_prx_codec(size_t pfor_payload_size, size_t plain_
         }
     }
     return choice;
+}
+
+void PrxZstdBudget::add(uint64_t smallest_frame_bytes) {
+    _smallest_bytes += smallest_frame_bytes;
+    count_window();
+}
+
+bool PrxZstdBudget::trade(uint64_t zstd_frame_bytes, uint64_t faster_extra_bytes,
+                          uint32_t saving_percent) {
+    _smallest_bytes += zstd_frame_bytes;
+    const bool faster =
+            saving_percent < _min_saving_percent &&
+            (_spent_bytes + faster_extra_bytes) * 100 <= _smallest_bytes * kPrxZstdBudgetPercent;
+    if (faster) {
+        _spent_bytes += faster_extra_bytes;
+    }
+    _extra_by_saving[std::min<uint32_t>(saving_percent, 100)] += faster_extra_bytes;
+    count_window();
+    return faster;
+}
+
+void PrxZstdBudget::count_window() {
+    if (++_windows < kPrxZstdBudgetWarmupWindows) {
+        return;
+    }
+    // The largest share whose trades, over the windows seen so far, fit the budget. A window whose
+    // saving is p percent is traded under every share above p, so the trades of share s are the
+    // buckets below s.
+    const uint64_t allowed = _smallest_bytes * kPrxZstdBudgetPercent / 100;
+    uint64_t extra = 0;
+    uint32_t share = 0;
+    while (share < 100 && extra + _extra_by_saving[share] <= allowed) {
+        extra += _extra_by_saving[share];
+        ++share;
+    }
+    _min_saving_percent = share;
+}
+
+namespace {
+
+uint64_t chosen_frame_size(PrxCodec codec, size_t pfor_payload_size, size_t plain_payload_size,
+                           size_t compressed_payload_size) {
+    switch (codec) {
+    case PrxCodec::kPfor:
+        return pfor_frame_size(pfor_payload_size);
+    case PrxCodec::kZstd:
+        return zstd_frame_size(plain_payload_size, compressed_payload_size);
+    default:
+        return raw_frame_size(plain_payload_size);
+    }
+}
+
+} // namespace
+
+AutoPrxCodecChoice choose_auto_prx_codec(const PrxWindowLimits& limits, size_t pfor_payload_size,
+                                         size_t plain_payload_size, size_t compressed_payload_size,
+                                         bool has_compressed) {
+    const auto select = [&](uint32_t zstd_min_saving_percent) {
+        return select_auto_prx_codec(pfor_payload_size, plain_payload_size, compressed_payload_size,
+                                     has_compressed, limits.max_uncomp_bytes,
+                                     zstd_min_saving_percent);
+    };
+    PrxZstdBudget* const budget = limits.zstd_budget;
+    if (budget == nullptr) {
+        return select(limits.zstd_min_saving_percent);
+    }
+    const auto bytes = [&](AutoPrxCodecChoice choice) {
+        return chosen_frame_size(choice.codec, pfor_payload_size, plain_payload_size,
+                                 compressed_payload_size);
+    };
+    const AutoPrxCodecChoice smallest = select(0);
+    if (smallest.codec != PrxCodec::kZstd || pfor_payload_size > limits.max_uncomp_bytes) {
+        budget->add(bytes(smallest));
+        return smallest;
+    }
+    // Never zstd: PFOR, or raw when that is smaller still.
+    const AutoPrxCodecChoice faster = select(100);
+    const uint64_t zstd_bytes = bytes(smallest);
+    const uint64_t pfor_bytes = pfor_frame_size(pfor_payload_size);
+    const auto saving_percent = static_cast<uint32_t>((pfor_bytes - zstd_bytes) * 100 / pfor_bytes);
+    return budget->trade(zstd_bytes, bytes(faster) - zstd_bytes, saving_percent) ? faster
+                                                                                 : smallest;
 }
 
 namespace {
@@ -543,9 +638,8 @@ Status build_prx_window_auto_from_flat(std::span<const uint32_t> positions_flat,
             testing::note_prx_raw_build();
             RETURN_IF_ERROR(zstd_compress(plain.view(), zstd_level, &compressed));
         }
-        const AutoPrxCodecChoice choice =
-                select_auto_prx_codec(payload.size(), plain.size(), compressed.size(),
-                                      has_compressed, limits.max_uncomp_bytes);
+        const AutoPrxCodecChoice choice = choose_auto_prx_codec(
+                limits, payload.size(), plain.size(), compressed.size(), has_compressed);
         DCHECK(choice.readable);
         if (choice.codec == PrxCodec::kZstd) {
             write_zstd_compressed(plain.view(), Slice(compressed), sink);
@@ -726,6 +820,9 @@ bool should_decode_full_prx_positions(std::span<const SelectedRange> selected,
     return covered_runs * 4 >= total_runs * 3;
 }
 
+// The count of every document of the window is decoded to find where the selected documents' deltas
+// start, and a sparse candidate set selects none in most runs. So a run is added up whole, with no
+// branch per document, and then walked from one selected document to the next.
 Status decode_selected_pfor_count_ranges(ByteSource* src, uint32_t doc_count,
                                          std::span<const uint32_t> doc_ordinals,
                                          std::vector<SelectedRange>& selected,
@@ -739,7 +836,6 @@ Status decode_selected_pfor_count_ranges(ByteSource* src, uint32_t doc_count,
     pos_off.push_back(0);
 
     *selected_pos_count = 0;
-    uint32_t delta_begin = 0;
     size_t next_doc = 0;
     *total_pos_count = 0;
     *max_frequency = 0;
@@ -748,24 +844,34 @@ Status decode_selected_pfor_count_ranges(ByteSource* src, uint32_t doc_count,
     for (uint32_t run_begin = 0; run_begin < doc_count; run_begin += kFrqBaseUnit) {
         const uint32_t run_len = std::min<uint32_t>(kFrqBaseUnit, doc_count - run_begin);
         RETURN_IF_ERROR(pfor_decode(src, run_len, run_buf.data()));
+        uint64_t run_sum = 0;
+        uint32_t run_max = 0;
+        uint32_t run_min = std::numeric_limits<uint32_t>::max();
         for (uint32_t i = 0; i < run_len; ++i) {
-            const uint32_t d = run_begin + i;
-            const uint32_t count = run_buf[i];
-            *max_frequency = std::max(*max_frequency, count);
-            *has_zero_frequency |= count == 0;
-            *total_pos_count += count;
-            if (*total_pos_count > kMaxWindowPositions) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                        "prx: pos_count sum exceeds sane cap");
-            }
-            if (next_doc < doc_ordinals.size() && doc_ordinals[next_doc] == d) {
-                selected.emplace_back(delta_begin, delta_begin + count, *selected_pos_count);
-                *selected_pos_count += count;
-                pos_off.push_back(*selected_pos_count);
-                ++next_doc;
-            }
-            delta_begin += count;
+            run_sum += run_buf[i];
+            run_max = std::max(run_max, run_buf[i]);
+            run_min = std::min(run_min, run_buf[i]);
         }
+        *max_frequency = std::max(*max_frequency, run_max);
+        *has_zero_frequency |= run_min == 0;
+        if (*total_pos_count + run_sum > kMaxWindowPositions) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "prx: pos_count sum exceeds sane cap");
+        }
+        // Under the cap, so every sum below fits 32 bits.
+        auto delta_begin = static_cast<uint32_t>(*total_pos_count);
+        const uint32_t* walked = run_buf.data();
+        for (; next_doc < doc_ordinals.size() && doc_ordinals[next_doc] - run_begin < run_len;
+             ++next_doc) {
+            const uint32_t* doc = run_buf.data() + (doc_ordinals[next_doc] - run_begin);
+            delta_begin = std::accumulate(walked, doc, delta_begin);
+            selected.emplace_back(delta_begin, delta_begin + *doc, *selected_pos_count);
+            *selected_pos_count += *doc;
+            pos_off.push_back(*selected_pos_count);
+            delta_begin += *doc;
+            walked = doc + 1;
+        }
+        *total_pos_count += run_sum;
     }
     if (next_doc != doc_ordinals.size()) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
@@ -964,9 +1070,22 @@ Status decode_payload_csr_selective(Slice plain, std::span<const uint32_t> doc_o
     uint64_t total_pos = 0;
     uint32_t decoded_max_frequency = 0;
     bool decoded_zero_frequency = false;
+    // The loop below runs once per document of the window, selected or not, so it keeps the cursor
+    // in a register and builds no Status on the usual path: a single-byte count, a skipped run of
+    // short varints, a selected run of single-byte deltas. Anything else -- a multi-byte value, a
+    // run that does not fit, a prefix sum that would overflow -- is handed to the checked decoders
+    // with the cursor where it was, so they decide and report exactly as they always did.
+    const uint8_t* const end = src.end();
+    const uint8_t* p = src.cursor();
     for (uint32_t d = 0; d < doc_count; ++d) {
         uint32_t pos_count = 0;
-        RETURN_IF_ERROR(src.get_varint32_fast(&pos_count));
+        if (p < end && *p < 0x80) {
+            pos_count = *p++;
+        } else {
+            src.set_cursor(p);
+            RETURN_IF_ERROR(src.get_varint32(&pos_count));
+            p = src.cursor();
+        }
         decoded_max_frequency = std::max(decoded_max_frequency, pos_count);
         decoded_zero_frequency |= pos_count == 0;
         total_pos += pos_count;
@@ -976,24 +1095,54 @@ Status decode_payload_csr_selective(Slice plain, std::span<const uint32_t> doc_o
         }
         const bool selected = next_doc < doc_ordinals.size() && doc_ordinals[next_doc] == d;
         if (!selected) {
-            // Skip this doc's position deltas without decoding them -- the CSR
-            // layout is sequential so we must advance past them, but only the
-            // candidate (selected) docs' positions are ever used. With a sparse
-            // candidate set (the common phrase / phrase-prefix case after docid
-            // narrowing) most docs in a window are skipped, so this avoids the
-            // dominant varint-decode cost.
-            RETURN_IF_ERROR(src.skip_varints(pos_count));
+            // The CSR layout is sequential, so a skipped doc's deltas are walked past without being
+            // decoded. With a sparse candidate set most docs of a window are skipped.
+            const uint8_t* q = p;
+            uint32_t skipped = 0;
+            for (; skipped < pos_count && q < end; ++skipped) {
+                while (q < end && (*q & 0x80) != 0) {
+                    ++q;
+                }
+                if (q >= end) {
+                    break;
+                }
+                ++q;
+            }
+            if (skipped != pos_count) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "byte_source: varint skip past end");
+            }
+            p = q;
             continue;
         }
-        // Selected doc: decode its `pos_count` ascending position deltas with a
-        // tight inline prefix-sum decoder (single-byte fast path, no per-value
-        // get_varint32/Status call chain). This is the CPU hotspot for narrowed
-        // phrase/phrase-prefix candidate sets, where each selected doc's varint
-        // run dominates after non-selected docs are skipped.
-        RETURN_IF_ERROR(src.decode_delta_run(pos_count, pos_flat));
+        // Selected doc: its `pos_count` ascending deltas become positions. A single-byte delta is
+        // below 0x80, so the running sum cannot overflow unless it is checked.
+        const size_t flat_before = pos_flat->size();
+        const uint8_t* q = p;
+        uint32_t position = 0;
+        uint32_t decoded = 0;
+        if (static_cast<size_t>(end - q) >= pos_count) {
+            for (; decoded < pos_count; ++decoded) {
+                const uint8_t byte = *q;
+                if (byte >= 0x80 || __builtin_add_overflow(position, uint32_t {byte}, &position)) {
+                    break;
+                }
+                pos_flat->push_back(position);
+                ++q;
+            }
+        }
+        if (decoded == pos_count) {
+            p = q;
+        } else {
+            pos_flat->resize(flat_before);
+            src.set_cursor(p);
+            RETURN_IF_ERROR(src.decode_delta_run(pos_count, pos_flat));
+            p = src.cursor();
+        }
         pos_off->push_back(static_cast<uint32_t>(pos_flat->size()));
         ++next_doc;
     }
+    src.set_cursor(p);
     if (!src.eof())
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: trailing bytes after payload");
@@ -1055,7 +1204,7 @@ Status decode_csr_frame(const PrxFrameView& encoded, std::span<const uint32_t> d
                         bool decode_all_docs, bool all_docs_selected,
                         std::vector<uint32_t>* pos_flat, std::vector<uint32_t>* pos_off,
                         PrxDecodeStats* stats, PrxDecodedShape* shape,
-                        PrxCsrAllocationGate* allocation_gate) {
+                        PrxCsrAllocationGate* allocation_gate, ZstdDecompressor* zstd) {
     if (!decode_all_docs && allocation_gate != nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "prx: selective decode cannot use an allocation gate");
@@ -1070,7 +1219,9 @@ Status decode_csr_frame(const PrxFrameView& encoded, std::span<const uint32_t> d
 
     std::vector<uint8_t> local_decompressed;
     Slice plain = encoded.payload;
-    if (encoded.codec == PrxCodec::kZstd) {
+    if (encoded.codec == PrxCodec::kZstd && allocation_gate == nullptr && zstd != nullptr) {
+        RETURN_IF_ERROR(zstd->decompress(encoded.payload, encoded.uncompressed_length, &plain));
+    } else if (encoded.codec == PrxCodec::kZstd) {
         std::vector<uint8_t>* decompressed = &local_decompressed;
         if (allocation_gate != nullptr) {
             RETURN_IF_ERROR(allocation_gate->reserve_decompression(encoded.uncompressed_length,
@@ -1145,7 +1296,8 @@ Status read_prx_window_csr_impl(ByteSource* source, std::span<const uint32_t> do
     RETURN_IF_ERROR(decode_csr_frame(encoded, doc_ordinals, decode_all_docs, all_docs_selected,
                                      pos_flat, pos_off, stats,
                                      context == nullptr ? nullptr : context->shape,
-                                     context == nullptr ? nullptr : context->allocation_gate));
+                                     context == nullptr ? nullptr : context->allocation_gate,
+                                     context == nullptr ? nullptr : context->zstd));
     if (collect_stats) {
         // Exclude the logical-selection scan from decode timing.
         frame_stats.decode_ns = elapsed_ns(decode_start);
@@ -1207,7 +1359,7 @@ Status build_prx_window(std::span<const std::vector<uint32_t>> per_doc_positions
         freqs.push_back(static_cast<uint32_t>(doc.size()));
         flat.insert(flat.end(), doc.begin(), doc.end());
     }
-    // G16-h: level < -1 is auto mode at zstd level |level| (-1 stays the default).
+    // Level < -1 is auto mode at zstd level |level| (-1 stays the default).
     const int auto_level = zstd_level_or_negative_for_auto == -1 ? kPrxPodDefaultZstdLevel
                                                                  : -zstd_level_or_negative_for_auto;
     PrxWindowBuildOutcome outcome = PrxWindowBuildOutcome::kBuilt;
@@ -1292,7 +1444,7 @@ Status try_build_prx_window_flat(std::span<const uint32_t> positions_flat,
     }
     // Auto mode: shared path with a direct singleton RAW fast path, then PFOR,
     // with raw plaintext materialized only for zstd or a tightened-limit fallback.
-    // G16-h: level < -1 is auto mode at zstd level |level| (-1 stays the default).
+    // Level < -1 is auto mode at zstd level |level| (-1 stays the default).
     const int auto_level = zstd_level_or_negative_for_auto == -1 ? kPrxPodDefaultZstdLevel
                                                                  : -zstd_level_or_negative_for_auto;
     return build_prx_window_auto_from_flat(positions_flat, freqs, auto_level, limits, sink,
@@ -1405,10 +1557,11 @@ void note_prx_delta_materialization() {
 }
 
 uint8_t select_auto_prx_codec_for_test(size_t pfor_payload_size, size_t plain_payload_size,
-                                       size_t compressed_payload_size, uint32_t max_uncomp_bytes) {
-    const AutoPrxCodecChoice choice =
-            select_auto_prx_codec(pfor_payload_size, plain_payload_size, compressed_payload_size,
-                                  plain_payload_size >= kPrxAutoZstdMinBytes, max_uncomp_bytes);
+                                       size_t compressed_payload_size, uint32_t max_uncomp_bytes,
+                                       uint32_t zstd_min_saving_percent) {
+    const AutoPrxCodecChoice choice = select_auto_prx_codec(
+            pfor_payload_size, plain_payload_size, compressed_payload_size,
+            plain_payload_size >= kPrxAutoZstdMinBytes, max_uncomp_bytes, zstd_min_saving_percent);
     DCHECK(choice.readable);
     return static_cast<uint8_t>(choice.codec);
 }

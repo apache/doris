@@ -36,6 +36,23 @@ import java.util.function.Supplier;
 public class ConnectorStatementScopesTest {
 
     @Test
+    public void lookupUsesTheSameCoordinateWithoutLoadingOnMiss() {
+        RecordingMemoScope scope = new RecordingMemoScope();
+        TestSession session = new TestSession(7L, "q1", scope);
+        Assertions.assertNull(ConnectorStatementScopes.getIfPresent(session, "x.table", "db", "t"));
+        Assertions.assertTrue(scope.cache.isEmpty());
+        Object table = ConnectorStatementScopes.resolveInStatement(session, "x.table", "db", "t", Object::new);
+        Assertions.assertSame(table, ConnectorStatementScopes.getIfPresent(session, "x.table", "db", "t"));
+        Assertions.assertNull(ConnectorStatementScopes.getIfPresent(
+                new TestSession(8L, "q1", scope), "x.table", "db", "t"));
+        Assertions.assertNull(ConnectorStatementScopes.getIfPresent(
+                new TestSession(7L, "q2", scope), "x.table", "db", "t"));
+        Assertions.assertNull(ConnectorStatementScopes.getIfPresent(session, "x.table", "other", "t"));
+        Assertions.assertNull(ConnectorStatementScopes.getIfPresent(session, "other.table", "db", "t"));
+        Assertions.assertNull(ConnectorStatementScopes.getIfPresent(null, "x.table", "db", "t"));
+    }
+
+    @Test
     public void sameCoordinateResolvesOncePerStatement() {
         // Same (namespace, catalog, db, table, queryId) within one scope -> loader runs once, one shared instance.
         // MUTATION: not memoizing -> two loads / two instances -> red.
@@ -148,6 +165,12 @@ public class ConnectorStatementScopesTest {
     private static final class RecordingMemoScope implements ConnectorStatementScope {
         private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
         private String lastKey;
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> T getIfPresent(String key) {
+            return (T) cache.get(key);
+        }
 
         @Override
         @SuppressWarnings("unchecked")

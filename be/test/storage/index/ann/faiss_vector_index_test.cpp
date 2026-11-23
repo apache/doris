@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <faiss/IndexFlat.h>
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexIVFFlat.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <omp.h>
 
 #include <algorithm>
 #include <atomic>
@@ -35,12 +37,14 @@
 
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
+#include "faiss/impl/FaissException.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/faiss_ann_index.h"
 // metrics.h not used directly here
 #include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/index/ann/vector_search_utils.h"
+#include "util/cpu_info.h"
 #include "util/defer_op.h"
 
 using namespace doris::segment_v2;
@@ -79,14 +83,14 @@ TEST_F(VectorSearchTest, TestSaveAndLoad) {
         std::ignore = index1->add(num_vectors, vectors.data());
 
         // Step 4: Save the index
-        auto save_status = index1->save(_ram_dir.get());
+        auto save_status = vector_search_utils::save_to_directory(index1.get(), _ram_dir);
         ASSERT_TRUE(save_status.ok()) << "Failed to save index: " << save_status.to_string();
 
         // Step 5: Create a new index instance
         auto index2 = std::make_unique<FaissVectorIndex>();
 
         // Step 6: Load the index
-        auto load_status = index2->load(_ram_dir.get());
+        auto load_status = vector_search_utils::load_from_directory(index2.get(), _ram_dir);
         ASSERT_TRUE(load_status.ok()) << "Failed to load index: " << load_status.to_string();
 
         // Step 7: Verify the loaded index works by searching
@@ -166,7 +170,7 @@ TEST_F(VectorSearchTest, TestSaveAndLoadIVF) {
         std::ignore = index1->add(num_vectors, vectors.data());
 
         // Step 4: Save the index
-        auto save_status = index1->save(_ram_dir.get());
+        auto save_status = vector_search_utils::save_to_directory(index1.get(), _ram_dir);
         ASSERT_TRUE(save_status.ok()) << "Failed to save index: " << save_status.to_string();
 
         // Step 5: Create a new index instance
@@ -174,7 +178,7 @@ TEST_F(VectorSearchTest, TestSaveAndLoadIVF) {
         index2->set_type(segment_v2::AnnIndexType::IVF);
 
         // Step 6: Load the index
-        auto load_status = index2->load(_ram_dir.get());
+        auto load_status = vector_search_utils::load_from_directory(index2.get(), _ram_dir);
         ASSERT_TRUE(load_status.ok()) << "Failed to load index: " << load_status.to_string();
 
         // Step 7: Verify the loaded index works by searching
@@ -299,6 +303,200 @@ TEST_F(VectorSearchTest, OmpThreadBudgetNeverExceedsLimit) {
     EXPECT_EQ(finished.load(std::memory_order_acquire), kWorkers);
     EXPECT_LE(observed_peak, 1);
     EXPECT_EQ(budget_metric->value(), 0);
+}
+
+namespace {
+
+class MockFaissBuildIndex : public faiss::IndexFlatL2 {
+public:
+    MockFaissBuildIndex() : faiss::IndexFlatL2(1) {}
+    MOCK_METHOD(void, train, (faiss::idx_t, const float*), (override));
+    MOCK_METHOD(void, add, (faiss::idx_t, const float*), (override));
+};
+
+class AnnOmpThreadBudgetTest : public VectorSearchTest {
+public:
+    void SetUp() override {
+        VectorSearchTest::SetUp();
+        _old_limit = config::omp_threads_limit;
+        _old_threads_per_task = config::ann_index_build_threads_per_task;
+        _old_num_cores = CpuInfo::num_cores_;
+        _old_omp_threads = omp_get_max_threads();
+    }
+
+    void TearDown() override {
+        EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(), 0);
+        config::omp_threads_limit = _old_limit;
+        config::ann_index_build_threads_per_task = _old_threads_per_task;
+        CpuInfo::num_cores_ = _old_num_cores;
+        omp_set_num_threads(_old_omp_threads);
+        VectorSearchTest::TearDown();
+    }
+
+private:
+    int _old_limit = 0;
+    int _old_threads_per_task = 0;
+    int _old_num_cores = 0;
+    int _old_omp_threads = 0;
+};
+
+} // namespace
+
+TEST_F(AnnOmpThreadBudgetTest, ConfigurationRejectsInvalidReservations) {
+    const auto& field = config::Register::_s_field_map->at("ann_index_build_threads_per_task");
+    EXPECT_FALSE(field.valmutable);
+    const auto& validate = config::RegisterConfValidator::_s_field_validator->at(
+            "ann_index_build_threads_per_task");
+    for (int value : {-2, 0}) {
+        config::ann_index_build_threads_per_task = value;
+        EXPECT_FALSE(validate()) << value;
+    }
+    for (int value : {-1, 1, 4}) {
+        config::ann_index_build_threads_per_task = value;
+        EXPECT_TRUE(validate()) << value;
+    }
+}
+
+TEST_F(AnnOmpThreadBudgetTest, FixedAndAutomaticReservations) {
+    struct TestCase {
+        int total;
+        int per_task;
+        int expected;
+    };
+    const int auto_threads = CpuInfo::num_cores() < 32 ? 1 : 4;
+    const TestCase cases[] = {{10, 4, 4},
+                              {2, 8, 2},
+                              {100, -1, auto_threads},
+                              {2, -1, std::min(2, auto_threads)},
+                              {-1, -1, auto_threads}};
+    float value = 0;
+    for (const auto& test : cases) {
+        SCOPED_TRACE(testing::Message()
+                     << "total=" << test.total << ", per_task=" << test.per_task);
+        config::omp_threads_limit = test.total;
+        config::ann_index_build_threads_per_task = test.per_task;
+        FaissVectorIndex index;
+        auto mock = std::make_unique<testing::StrictMock<MockFaissBuildIndex>>();
+        auto check_budget = [&](faiss::idx_t, const float*) {
+            EXPECT_EQ(omp_get_max_threads(), test.expected);
+            EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(),
+                      test.expected);
+        };
+        EXPECT_CALL(*mock, train(0, &value)).WillOnce(check_budget);
+        EXPECT_CALL(*mock, add(0, &value)).WillOnce(check_budget);
+        index._index = std::move(mock);
+        EXPECT_TRUE(index.train(0, &value).ok());
+        EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(), 0);
+        EXPECT_TRUE(index.add(0, &value).ok());
+        EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(), 0);
+    }
+}
+
+TEST_F(AnnOmpThreadBudgetTest, AutomaticReservationsKeepFirstCpuSnapshot) {
+    config::omp_threads_limit = -1;
+    config::ann_index_build_threads_per_task = -1;
+    const int expected_threads = CpuInfo::num_cores() < 32 ? 1 : 4;
+    const int expected_limit = std::max(1, CpuInfo::num_cores() * 4 / 5);
+    float value = 0;
+    FaissVectorIndex index;
+    auto mock = std::make_unique<testing::StrictMock<MockFaissBuildIndex>>();
+    EXPECT_CALL(*mock, train(0, &value)).Times(3).WillRepeatedly([&](faiss::idx_t, const float*) {
+        EXPECT_EQ(omp_get_max_threads(), expected_threads);
+        EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(),
+                  expected_threads);
+    });
+    EXPECT_CALL(*mock, add(0, &value)).Times(2).WillRepeatedly([&](faiss::idx_t, const float*) {
+        EXPECT_EQ(omp_get_max_threads(), expected_limit);
+        EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(), expected_limit);
+    });
+    index._index = std::move(mock);
+    ASSERT_TRUE(index.train(0, &value).ok());
+    // Cross the 32-core default boundary in both directions after the first reservation.
+    // Also request the whole budget to verify that auto total sizing uses the same snapshot.
+    for (int cores : {1, 64}) {
+        CpuInfo::num_cores_ = cores;
+        config::ann_index_build_threads_per_task = -1;
+        EXPECT_TRUE(index.train(0, &value).ok());
+        config::ann_index_build_threads_per_task = std::numeric_limits<int>::max();
+        EXPECT_TRUE(index.add(0, &value).ok());
+    }
+}
+
+TEST_F(AnnOmpThreadBudgetTest, ConcurrentCallsKeepFixedReservations) {
+    config::ann_index_build_threads_per_task = 4;
+    float value = 0;
+    auto* metric = DorisMetrics::instance()->ann_index_build_index_threads;
+    // Two calls fit in 10 slots. With 7 slots, the second must wait rather than take 3.
+    for (int total : {10, 7}) {
+        SCOPED_TRACE(total);
+        config::omp_threads_limit = total;
+        std::promise<void> first_entered;
+        auto first_entered_future = first_entered.get_future();
+        std::promise<void> release_first;
+        auto release_first_future = release_first.get_future();
+        std::promise<void> second_started;
+        auto second_started_future = second_started.get_future();
+        std::promise<void> second_entered;
+        auto second_entered_future = second_entered.get_future();
+
+        FaissVectorIndex first;
+        auto first_mock = std::make_unique<testing::StrictMock<MockFaissBuildIndex>>();
+        EXPECT_CALL(*first_mock, train(0, &value)).WillOnce([&](faiss::idx_t, const float*) {
+            EXPECT_EQ(omp_get_max_threads(), 4);
+            EXPECT_EQ(metric->value(), 4);
+            first_entered.set_value();
+            release_first_future.wait();
+        });
+        first._index = std::move(first_mock);
+        auto first_result = std::async(std::launch::async, [&] { return first.train(0, &value); });
+        EXPECT_EQ(first_entered_future.wait_for(std::chrono::seconds(5)),
+                  std::future_status::ready);
+
+        FaissVectorIndex second;
+        auto second_mock = std::make_unique<testing::StrictMock<MockFaissBuildIndex>>();
+        EXPECT_CALL(*second_mock, add(0, &value)).WillOnce([&](faiss::idx_t, const float*) {
+            EXPECT_EQ(omp_get_max_threads(), 4);
+            EXPECT_EQ(metric->value(), total == 10 ? 8 : 4);
+            second_entered.set_value();
+        });
+        second._index = std::move(second_mock);
+        auto second_result = std::async(std::launch::async, [&] {
+            second_started.set_value();
+            return second.add(0, &value);
+        });
+        second_started_future.wait();
+        if (total == 10) {
+            EXPECT_EQ(second_entered_future.wait_for(std::chrono::seconds(5)),
+                      std::future_status::ready);
+        } else {
+            EXPECT_EQ(second_entered_future.wait_for(std::chrono::milliseconds(100)),
+                      std::future_status::timeout);
+            EXPECT_EQ(metric->value(), 4);
+        }
+        release_first.set_value();
+        EXPECT_TRUE(first_result.get().ok());
+        EXPECT_TRUE(second_result.get().ok());
+        EXPECT_EQ(metric->value(), 0);
+    }
+}
+
+TEST_F(AnnOmpThreadBudgetTest, FailedTrainingReleasesReservation) {
+    config::omp_threads_limit = 4;
+    config::ann_index_build_threads_per_task = 4;
+    float value = 0;
+    FaissVectorIndex index;
+    auto mock = std::make_unique<testing::StrictMock<MockFaissBuildIndex>>();
+    EXPECT_CALL(*mock, train(0, &value)).WillOnce([](faiss::idx_t, const float*) {
+        throw faiss::FaissException("injected training failure");
+    });
+    EXPECT_CALL(*mock, add(0, &value)).WillOnce([](faiss::idx_t, const float*) {
+        EXPECT_EQ(omp_get_max_threads(), 4);
+        EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(), 4);
+    });
+    index._index = std::move(mock);
+    EXPECT_FALSE(index.train(0, &value).ok());
+    EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(), 0);
+    EXPECT_TRUE(index.add(0, &value).ok());
 }
 
 TEST_F(VectorSearchTest, CompareResultWithNativeFaiss1) {
@@ -450,11 +648,11 @@ TEST_F(VectorSearchTest, SearchAllVectors) {
         ASSERT_EQ(index1->add(500, vectors.data()).ok(), true);
 
         // Save index
-        ASSERT_TRUE(index1->save(_ram_dir.get()).ok());
+        ASSERT_TRUE(vector_search_utils::save_to_directory(index1.get(), _ram_dir).ok());
 
         // Step 2: Load index
         auto index2 = std::make_unique<FaissVectorIndex>();
-        ASSERT_TRUE(index2->load(_ram_dir.get()).ok());
+        ASSERT_TRUE(vector_search_utils::load_from_directory(index2.get(), _ram_dir).ok());
 
         // Step 3: Search all vectors
         HNSWSearchParameters search_params;
@@ -756,11 +954,11 @@ TEST_F(VectorSearchTest, RangeSearchAllRowsAsCandidates) {
 
         float radius = distances[num_vectors / 4].second;
         // Save index
-        ASSERT_TRUE(index1->save(_ram_dir.get()).ok());
+        ASSERT_TRUE(vector_search_utils::save_to_directory(index1.get(), _ram_dir).ok());
 
         // Step 2: Load index
         auto index2 = std::make_unique<FaissVectorIndex>();
-        ASSERT_TRUE(index2->load(_ram_dir.get()).ok());
+        ASSERT_TRUE(vector_search_utils::load_from_directory(index2.get(), _ram_dir).ok());
 
         // Step 3: Range search
         // Use a vector we know is in the index
@@ -1445,12 +1643,12 @@ TEST_F(VectorSearchTest, IVFOnDiskSaveLoadAndSearch) {
     ASSERT_TRUE(index1->add(num_vectors, vectors.data()).ok());
 
     auto dir = std::make_shared<lucene::store::RAMDirectory>();
-    ASSERT_TRUE(index1->save(dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::save_to_directory(index1.get(), dir).ok());
 
     auto index2 = std::make_unique<FaissVectorIndex>();
     index2->set_type(AnnIndexType::IVF_ON_DISK);
     index2->set_ivfdata_cache_key_prefix("ut_stampede_test");
-    ASSERT_TRUE(index2->load(dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::load_from_directory(index2.get(), dir).ok());
 
     auto query_vec = vector_search_utils::generate_random_vector(params.dim);
     IVFSearchParameters search_params;
@@ -1507,12 +1705,12 @@ TEST_F(VectorSearchTest, IVFOnDiskSearchWithoutTheListCacheStillReads) {
     ASSERT_TRUE(builder->add(num_vectors, vectors.data()).ok());
 
     auto dir = std::make_shared<lucene::store::RAMDirectory>();
-    ASSERT_TRUE(builder->save(dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::save_to_directory(builder.get(), dir).ok());
 
     auto index = std::make_shared<FaissVectorIndex>();
     index->set_type(AnnIndexType::IVF_ON_DISK);
     index->set_ivfdata_cache_key_prefix("ut_no_list_cache");
-    ASSERT_TRUE(index->load(dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::load_from_directory(index.get(), dir).ok());
 
     auto query_vec = std::make_shared<std::vector<float>>(
             vector_search_utils::generate_random_vector(params.dim));
@@ -1569,12 +1767,12 @@ TEST_F(VectorSearchTest, IVFOnDiskConcurrentSearchStampedeProtection) {
     ASSERT_TRUE(index_builder->add(num_vectors, vectors.data()).ok());
 
     auto dir = std::make_shared<lucene::store::RAMDirectory>();
-    ASSERT_TRUE(index_builder->save(dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::save_to_directory(index_builder.get(), dir).ok());
 
     auto shared_index = std::make_shared<FaissVectorIndex>();
     shared_index->set_type(AnnIndexType::IVF_ON_DISK);
     shared_index->set_ivfdata_cache_key_prefix("ut_stampede_shared");
-    ASSERT_TRUE(shared_index->load(dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::load_from_directory(shared_index.get(), dir).ok());
 
     constexpr int kThreads = 8;
     auto query_vec = vector_search_utils::generate_random_vector(params.dim);
@@ -1648,10 +1846,10 @@ TEST_F(VectorSearchTest, NprobeClampedToNlist) {
     ASSERT_TRUE(index->train(num_vectors, vecs.data()).ok());
     ASSERT_TRUE(index->add(num_vectors, vecs.data()).ok());
 
-    ASSERT_TRUE(index->save(_ram_dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::save_to_directory(index.get(), _ram_dir).ok());
     auto loaded = std::make_unique<FaissVectorIndex>();
     loaded->set_type(AnnIndexType::IVF);
-    ASSERT_TRUE(loaded->load(_ram_dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::load_from_directory(loaded.get(), _ram_dir).ok());
 
     auto roaring = std::make_unique<roaring::Roaring>();
     for (int i = 0; i < num_vectors; ++i) roaring->add(i);
@@ -1700,10 +1898,10 @@ TEST_F(VectorSearchTest, EfSearchLinkedToK) {
     // HNSW does not need explicit train
     ASSERT_TRUE(index->add(num_vectors, vecs.data()).ok());
 
-    ASSERT_TRUE(index->save(_ram_dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::save_to_directory(index.get(), _ram_dir).ok());
     auto loaded = std::make_unique<FaissVectorIndex>();
     loaded->set_type(AnnIndexType::HNSW);
-    ASSERT_TRUE(loaded->load(_ram_dir.get()).ok());
+    ASSERT_TRUE(vector_search_utils::load_from_directory(loaded.get(), _ram_dir).ok());
 
     auto roaring = std::make_unique<roaring::Roaring>();
     for (int i = 0; i < num_vectors; ++i) roaring->add(i);

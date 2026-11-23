@@ -62,6 +62,9 @@
 -- !maxdel_after_safe_incremental --
 10	30	4
 
+-- !maxdel_after_max_delete --
+10	25	4
+
 -- !maxdel_after_recovery --
 10	25	4
 

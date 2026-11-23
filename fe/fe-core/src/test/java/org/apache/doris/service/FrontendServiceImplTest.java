@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TCheckAuthRequest;
@@ -68,13 +70,17 @@ import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStreamLoadPutRequest;
+import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TTabletLocation;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.WriteBlockAllocatingTransaction;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.Level;
 import org.apache.thrift.TException;
@@ -516,6 +522,60 @@ public class FrontendServiceImplTest extends TestWithFeService {
             db.unregisterTable(spyTable.getName());
             db.registerTable(table);
         }
+    }
+
+    /**
+     * On a follower in cloud mode, listing a table refreshes its partition versions from the meta service, which
+     * only UPDATE_TIME reads. A listing that asks for names and types, as Flight SQL GetTables does, must not
+     * depend on that RPC: when it fails, the enumeration stops and the caller gets only the rows before it.
+     */
+    @Test
+    public void testListTableStatusRefreshesCloudFollowerVersionsOnlyForUpdateTime() throws Exception {
+        createTable("CREATE TABLE test.follower_status_table(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");");
+        createView("CREATE VIEW test.follower_status_view AS SELECT k1 FROM test.follower_status_table");
+        TGetTablesParams namesAndTypes = followerStatusParams("TABLE_NAME", "TABLE_TYPE");
+        TGetTablesParams updateTimes = followerStatusParams("UPDATE_TIME");
+        Env followerEnv = Mockito.spy(Env.getCurrentEnv());
+        Mockito.doReturn(false).when(followerEnv).isMaster();
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<CloudPartition> versions = Mockito.mockStatic(CloudPartition.class)) {
+            env.when(Env::getCurrentEnv).thenReturn(followerEnv);
+            config.when(Config::isCloudMode).thenReturn(true);
+            // The meta service is down: every partition version refresh fails.
+            versions.when(() -> CloudPartition.getSnapshotVisibleVersion(Mockito.anyList()))
+                    .thenThrow(new RpcException("", "injected meta service failure"));
+
+            TListTableStatusResult listed = impl.listTableStatus(namesAndTypes);
+
+            Assertions.assertEquals(
+                    ImmutableMap.of("follower_status_table", "BASE TABLE", "follower_status_view", "VIEW"),
+                    listed.getTables().stream()
+                            .collect(Collectors.toMap(TTableStatus::getName, TTableStatus::getType)));
+            versions.verify(() -> CloudPartition.getSnapshotVisibleVersion(Mockito.anyList()), Mockito.never());
+
+            // UPDATE_TIME reads the partitions' visible version time, so it still refreshes them first.
+            impl.listTableStatus(updateTimes);
+
+            versions.verify(() -> CloudPartition.getSnapshotVisibleVersion(Mockito.anyList()));
+        }
+    }
+
+    private TGetTablesParams followerStatusParams(String... requiredColumns) {
+        TGetTablesParams params = new TGetTablesParams();
+        params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+        params.setDb("test");
+        params.setPattern("follower_status_%");
+        params.setRequiredColumns(Sets.newHashSet(requiredColumns));
+        params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+        return params;
     }
 
 
@@ -1157,6 +1217,59 @@ public class FrontendServiceImplTest extends TestWithFeService {
         } finally {
             closeTransactionValidationMock();
         }
+    }
+
+    @Test
+    public void testGroupCommitStreamLoadPutChecksAuthenticationAndLoadPrivilege() throws Exception {
+        String noLoadUser = "group_commit_no_load_user";
+        String noLoadPassword = "group_commit_test_password";
+        boolean originalForwardSetting = Config.enable_forward_group_commit_stream_load_to_follower;
+        Config.enable_forward_group_commit_stream_load_to_follower = false;
+        executeCommand("DROP USER IF EXISTS " + noLoadUser);
+        executeCommand("CREATE USER " + noLoadUser + " IDENTIFIED BY '" + noLoadPassword + "'");
+
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+
+            TStreamLoadPutResult badPassword = impl.streamLoadPut(
+                    groupCommitStreamLoadRequest("root", "wrong_password", "missing_table"));
+            Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, badPassword.getStatus().getStatusCode());
+            Assertions.assertTrue(badPassword.getStatus().getErrorMsgs().get(0).contains("Access denied"));
+
+            TStreamLoadPutResult missingLoad = impl.streamLoadPut(
+                    groupCommitStreamLoadRequest(noLoadUser, noLoadPassword, "missing_table"));
+            Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, missingLoad.getStatus().getStatusCode());
+            String missingLoadError = missingLoad.getStatus().getErrorMsgs().get(0);
+            Assertions.assertTrue(missingLoadError.contains("Load_priv"), missingLoadError);
+
+            FrontendServiceImpl tokenCheckingImpl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+            TStreamLoadPutRequest badTokenRequest = groupCommitStreamLoadRequest("", "", "missing_table");
+            badTokenRequest.setToken("bad-token");
+            Mockito.doReturn(false).when(tokenCheckingImpl).checkToken("bad-token");
+            TStreamLoadPutResult badToken = tokenCheckingImpl.streamLoadPut(badTokenRequest);
+            Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, badToken.getStatus().getStatusCode());
+            Assertions.assertTrue(badToken.getStatus().getErrorMsgs().get(0).contains("Invalid token"));
+
+            TStreamLoadPutResult authorized = impl.streamLoadPut(
+                    groupCommitStreamLoadRequest("root", "", "missing_table"));
+            Assertions.assertEquals(TStatusCode.NOT_FOUND, authorized.getStatus().getStatusCode());
+            Assertions.assertTrue(authorized.getStatus().getErrorMsgs().get(0).contains("missing_table"));
+        } finally {
+            connectContext.setThreadLocalInfo();
+            executeCommand("DROP USER IF EXISTS " + noLoadUser);
+            Config.enable_forward_group_commit_stream_load_to_follower = originalForwardSetting;
+        }
+    }
+
+    private static TStreamLoadPutRequest groupCommitStreamLoadRequest(String user, String password, String table) {
+        return new TStreamLoadPutRequest()
+                .setUser(user)
+                .setPasswd(password)
+                .setDb("test")
+                .setTbl(table)
+                .setUserIp("127.0.0.1")
+                .setLoadId(new TUniqueId(1L, 1L))
+                .setGroupCommitMode("async_mode");
     }
 
     private MockedStatic<Env> transactionValidationEnvMock;

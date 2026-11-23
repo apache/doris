@@ -17,13 +17,18 @@
 
 #pragma once
 
+#include <utility>
+#include <variant>
+
+#include "common/config.h"
 #include "io/file_factory.h"
 #include "io/fs/benchmark/base_benchmark.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/s3_file_reader.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_reader.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/object_storage/be_obj_storage_config_parser.h"
 #include "runtime/exec_env.h"
 #include "util/s3_uri.h"
 #include "util/slice.h"
@@ -37,13 +42,13 @@ public:
             : BaseBenchmark(name, threads, iterations, file_size, conf_map) {}
     virtual ~S3Benchmark() = default;
 
-    Status get_fs(const std::string& path, std::shared_ptr<io::S3FileSystem>* fs) {
+    Status get_fs(const std::string& path, std::shared_ptr<io::ObjStorageFileSystem>* fs) {
         S3URI s3_uri(path);
         RETURN_IF_ERROR(s3_uri.parse());
-        S3Conf s3_conf;
-        RETURN_IF_ERROR(
-                S3ClientFactory::convert_properties_to_s3_conf(_conf_map, s3_uri, &s3_conf));
-        *fs = DORIS_TRY(io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID));
+        auto storage_config =
+                DORIS_TRY(parse_be_obj_storage_config(_conf_map, s3_uri.get_bucket()));
+        *fs = DORIS_TRY(io::ObjStorageFileSystem::create(std::move(storage_config),
+                                                         io::FileSystem::TMP_FS_ID));
         return Status::OK();
     }
 };
@@ -63,7 +68,7 @@ public:
 
     Status run(benchmark::State& state) override {
         auto file_path = get_file_path(state);
-        std::shared_ptr<io::S3FileSystem> fs;
+        std::shared_ptr<io::ObjStorageFileSystem> fs;
         RETURN_IF_ERROR(get_fs(file_path, &fs));
 
         io::FileReaderSPtr reader;
@@ -134,7 +139,7 @@ public:
         if (_file_size <= 0) {
             _file_size = 10 * 1024 * 1024; // default 10MB
         }
-        std::shared_ptr<io::S3FileSystem> fs;
+        std::shared_ptr<io::ObjStorageFileSystem> fs;
         RETURN_IF_ERROR(get_fs(file_path, &fs));
 
         io::FileWriterPtr writer;
@@ -156,7 +161,7 @@ public:
 
     Status run(benchmark::State& state) override {
         auto file_path = get_file_path(state);
-        std::shared_ptr<io::S3FileSystem> fs;
+        std::shared_ptr<io::ObjStorageFileSystem> fs;
         RETURN_IF_ERROR(get_fs(file_path, &fs));
 
         auto start = std::chrono::high_resolution_clock::now();
@@ -200,7 +205,7 @@ public:
     Status run(benchmark::State& state) override {
         auto file_path = get_file_path(state);
         auto new_file_path = file_path + "_new";
-        std::shared_ptr<io::S3FileSystem> fs;
+        std::shared_ptr<io::ObjStorageFileSystem> fs;
         RETURN_IF_ERROR(get_fs(file_path, &fs));
 
         auto start = std::chrono::high_resolution_clock::now();
@@ -225,7 +230,7 @@ public:
 
     Status run(benchmark::State& state) override {
         auto file_path = get_file_path(state);
-        std::shared_ptr<io::S3FileSystem> fs;
+        std::shared_ptr<io::ObjStorageFileSystem> fs;
         RETURN_IF_ERROR(get_fs(file_path, &fs));
 
         auto start = std::chrono::high_resolution_clock::now();

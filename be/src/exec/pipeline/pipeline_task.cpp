@@ -48,6 +48,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_profile_counter_names.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/defer_op.h"
 #include "util/mem_info.h"
@@ -967,8 +968,6 @@ std::string PipelineTask::debug_string() {
     fmt::memory_buffer debug_string_buffer;
 
     fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(_query_id));
-    fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
-                   print_id(_state->fragment_instance_id()));
 
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[id = {}, open = {}, eos = {}, state = {}, dry run = "
@@ -984,6 +983,9 @@ std::string PipelineTask::debug_string() {
         fmt::format_to(debug_string_buffer, " pipeline name = {}", _pipeline_name);
         return fmt::to_string(debug_string_buffer);
     }
+    // Access RuntimeState only while the fragment is kept alive.
+    fmt::format_to(debug_string_buffer, "\nInstanceId: {}\n",
+                   print_id(_state->fragment_instance_id()));
     auto elapsed = fragment->elapsed_time() / NANOS_PER_SEC;
     fmt::format_to(debug_string_buffer, " elapse time = {}s, block dependency = [{}]\n", elapsed,
                    cur_blocked_dep && !is_finalized() ? cur_blocked_dep->debug_string() : "NULL");

@@ -50,16 +50,9 @@ enum class SectionType : uint8_t {
     kSampledTermIndex = 2,
     kDictBlockDirectory = 3,
     kCoreMetadataPB = 6,
-    // G13: zstd-compressed carriers for the two large metadata blobs
-    // (they are highly compressible sorted string/offset tables and dominate the
-    // metadata group fetched serially at open). Payload = varint64
-    // uncomp_len followed by zstd(original full frame), where "original full
-    // frame" is the byte-exact kSampledTermIndex / kDictBlockDirectory frame
-    // (type+len+payload+crc32c) used by the raw layout. Decompression
-    // therefore reproduces the raw frame verbatim and the sub-module readers
-    // (which re-verify the inner crc) stay unchanged. The writer emits these ONLY
-    // when the raw frame reaches kMetaSectionCompressMinBytes AND compression
-    // shrinks it; otherwise it emits the raw frame.
+    // Compressed metadata stores the original framed section after its uncompressed
+    // length, so readers can validate the inner CRC. Writers use compression only
+    // when the frame meets the size threshold and shrinks.
     kSampledTermIndexZstd = 11,
     kDictBlockDirectoryZstd = 12,
     // Per-document one-byte BM25 norms. This must remain distinct from
@@ -165,7 +158,7 @@ inline constexpr uint32_t kDefaultInlineThreshold = 256; // slim encoded bytes â
 inline constexpr uint32_t kAdaptiveWindowDfThreshold = 8192; // df >= this -> larger windows
 inline constexpr uint32_t kAdaptiveWindowDocs = 1024;        // larger window size (4 * base unit)
 inline constexpr uint32_t kDefaultTargetDictBlockBytes = 64 * 1024;
-// G13: SampledTermIndex / DictBlockDirectory metadata frames
+// SampledTermIndex / DictBlockDirectory metadata frames
 // at or above this raw size are emitted zstd-compressed (kSampledTermIndexZstd /
 // kDictBlockDirectoryZstd); smaller ones stay raw -- compression overhead is not
 // worth it below a few KB. A build-time parameter, not format semantics: readers

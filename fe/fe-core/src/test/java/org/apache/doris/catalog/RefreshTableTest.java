@@ -97,20 +97,23 @@ public class RefreshTableTest extends TestWithFeService {
         TableNameInfo tableNameInfo = new TableNameInfo("test1", "db1", "tbl11");
         try {
             Env.getCurrentEnv().getRefreshManager()
-                    .handleRefreshTable(tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl(), false);
+                    .handleRefreshTable(tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl());
         } catch (Exception e) {
             // Do nothing
         }
         Assertions.assertFalse(table.isObjectCreated());
         long l3 = table.getUpdateTime();
         Assertions.assertTrue(l3 >= l2);
-        table.getFullSchema();
-        // only table.getFullSchema() can change table.lastUpdateTime
-        long l4 = table.getUpdateTime();
-        Assertions.assertTrue(l4 > l3);
-        // updateTime is equal to schema update time as default
-        long l5 = table.getUpdateTime();
-        Assertions.assertTrue(l5 >= l4);
+        TestExternalTable refreshed = (TestExternalTable) test1.getDbNullable("db1").getTable("tbl11").get();
+        Assertions.assertNotSame(table, refreshed);
+        // information_schema reads UPDATE_TIME without forcing schema loading.
+        Assertions.assertTrue(refreshed.getUpdateTime() >= l3);
+        Assertions.assertSame(refreshed, test1.getDbNullable("db1").getTableNullable(refreshed.getId()));
+        refreshed.getFullSchema();
+        // Schema loading updates the replacement table, not the invalidated table object.
+        long l4 = refreshed.getUpdateTime();
+        Assertions.assertTrue(l4 >= l3);
+        Assertions.assertEquals(l3, table.getUpdateTime());
 
         // external info schema db
         ExternalInfoSchemaDatabase infoDb = (ExternalInfoSchemaDatabase) test1.getDbNullable(InfoSchemaDb.DATABASE_NAME);

@@ -110,6 +110,7 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean disableAutoCompaction = false;
 
+    private boolean variantEscapeDotsInKeys = false;
     private boolean variantEnableFlattenNested = false;
 
     private int verticalCompactionNumColumnsPerGroup = 5;
@@ -375,6 +376,19 @@ public class TableProperty implements GsonPostProcessable {
 
     public boolean disableAutoCompaction() {
         return disableAutoCompaction;
+    }
+
+    public TableProperty buildVariantEscapeDotsInKeys() {
+        variantEscapeDotsInKeys = Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "false"));
+        if (!variantEscapeDotsInKeys) {
+            properties.remove(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS);
+        }
+        return this;
+    }
+
+    public boolean getVariantEscapeDotsInKeys() {
+        return variantEscapeDotsInKeys;
     }
 
     public TableProperty buildVariantEnableFlattenNested() {
@@ -828,6 +842,38 @@ public class TableProperty implements GsonPostProcessable {
                 + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL);
     }
 
+    public String getRowTtlCol() {
+        return properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL_COL);
+    }
+
+    public long getRowTtlDurationMicros() {
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL);
+        if (value == null) {
+            return -1;
+        }
+        try {
+            return PropertyAnalyzer.parseRowTtlDurationMicros(value);
+        } catch (AnalysisException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    // DDL requires a fixed offset for naive temporal sources; other schemas use UTC (0).
+    public int getRowTtlTimeZoneOffsetSeconds() {
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL_TIME_ZONE);
+        if (value == null) {
+            return 0;
+        }
+        try {
+            return PropertyAnalyzer.parseRowTtlTimeZoneOffsetSeconds(value);
+        } catch (AnalysisException e) {
+            throw new IllegalStateException("invalid persisted row ttl time zone: " + value, e);
+        }
+    }
+
     public void setGroupCommitIntervalMs(int groupCommitIntervalMs) {
         properties.put(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS, Integer.toString(groupCommitIntervalMs));
     }
@@ -994,6 +1040,7 @@ public class TableProperty implements GsonPostProcessable {
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();
         buildTTLSeconds();
+        buildVariantEscapeDotsInKeys();
         buildVariantEnableFlattenNested();
         buildInAtomicRestore();
         buildPartitionRetentionCount();

@@ -80,6 +80,12 @@ public class IcebergConnectorMetadataSysTableTest {
         return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), ctx);
     }
 
+    private static IcebergConnectorMetadata restMetadataWith(RecordingIcebergCatalogOps ops) {
+        Map<String, String> props = new HashMap<>();
+        props.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(props), new RecordingConnectorContext());
+    }
+
     private static IcebergTableHandle baseHandle() {
         return new IcebergTableHandle("db1", "t1");
     }
@@ -576,5 +582,49 @@ public class IcebergConnectorMetadataSysTableTest {
                 metadataWith(new RecordingIcebergCatalogOps())
                         .getSysTableHandle(null, baseHandle(), "").isPresent(),
                 "an empty sys name must yield Optional.empty()");
+    }
+
+    // ---------------------------------------------------------------------
+    // $labels (REST catalog labels, not a MetadataTableType)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void listSupportedSysTablesAddsLabelsForRestCatalogOnly() {
+        // WHY: only a REST catalog returns labels with the table load; elsewhere t$labels would always be
+        // empty, so it is not offered. MUTATION: listing labels unconditionally -> non-REST list grows -> red.
+        List<String> expectedRest = expectedSupported();
+        expectedRest.add("labels");
+        Assertions.assertEquals(expectedRest,
+                restMetadataWith(new RecordingIcebergCatalogOps()).listSupportedSysTables(null, baseHandle()));
+        Assertions.assertEquals(expectedSupported(),
+                metadataWith(new RecordingIcebergCatalogOps()).listSupportedSysTables(null, baseHandle()));
+    }
+
+    @Test
+    public void getSysTableHandleResolvesLabelsForRestCatalogOnly() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Optional<ConnectorTableHandle> rest = restMetadataWith(ops).getSysTableHandle(null, baseHandle(), "LABELS");
+
+        Assertions.assertTrue(rest.isPresent());
+        Assertions.assertEquals("labels", ((IcebergTableHandle) rest.get()).getSysTableName());
+        Assertions.assertTrue(ops.log.isEmpty(), "resolving t$labels must not touch the catalog seam");
+        Assertions.assertFalse(metadataWith(new RecordingIcebergCatalogOps())
+                .getSysTableHandle(null, baseHandle(), "labels").isPresent());
+    }
+
+    @Test
+    public void getTableSchemaForLabelsHandleIsFixedAndLoadsNothing() {
+        // WHY: labels has no iceberg metadata table, so the generic sys path (MetadataTableType.from -> null)
+        // cannot build its schema; the schema is fixed and needs no base load. MUTATION: falling through to
+        // loadSysTable -> NPE / a catalog round-trip -> red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        IcebergConnectorMetadata md = restMetadataWith(ops);
+        IcebergTableHandle sysHandle = (IcebergTableHandle) md.getSysTableHandle(null, baseHandle(), "labels").get();
+
+        Assertions.assertEquals(Arrays.asList("scope", "field_id", "field_name", "key", "value"),
+                columnNames(md.getTableSchema(null, sysHandle)));
+        Assertions.assertEquals(Arrays.asList("scope", "field_id", "field_name", "key", "value"),
+                new ArrayList<>(md.getColumnHandles(null, sysHandle).keySet()));
+        Assertions.assertTrue(ops.log.isEmpty(), "t$labels schema must not load the base table");
     }
 }

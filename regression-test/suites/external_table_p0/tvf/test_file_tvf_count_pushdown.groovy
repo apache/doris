@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_file_tvf_count_pushdown", "p0,external") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
     def backends = sql "show backends"
     def backendId = backends[0][0]
     def dataPath = context.config.dataPath + "/external_table_p0/tvf"

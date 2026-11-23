@@ -34,6 +34,7 @@ import org.apache.doris.statistics.analysis.AnalysisManager;
 import org.apache.doris.statistics.analysis.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.text.StringSubstitutor;
@@ -140,11 +141,48 @@ public class StatisticsCleaner extends MasterDaemon {
                 }
                 LOG.info("Table {}.{}.{} with id {} not exist, remove its table stats record.",
                         stats.ctlName, stats.dbName, stats.tblName, id);
+                TableIf recycledTable = Env.getCurrentRecycleBin().getRecycledTable(id);
+                if (recycledTable instanceof OlapTable) {
+                    removeRecycledTableStats((OlapTable) recycledTable, analysisManager, internalCatalog);
+                    continue;
+                }
+                // No table lock: the table is gone and cannot be recovered, so no load can recreate the record
+                // of this id while the deletion is journaled.
                 analysisManager.removeTableStats(id);
                 Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(id));
             } catch (Exception e) {
                 LOG.info("Fail to remove table stats for table {}", id, e);
             }
+        }
+    }
+
+    /**
+     * Remove the record of a table which is in the recycle bin and journal the deletion, under the table write
+     * lock.
+     *
+     * <p>`RECOVER TABLE` registers the recycled table again with its original id, and the load which then
+     * recreates the record of that id is published under the table write lock (`finishTransaction` holds it
+     * until `updateCatalogAfterVisible` returned). Removing and journaling the deletion under the same lock
+     * orders it either before the recovery and the load, which journal the creation after this deletion, or
+     * after them, in which case the record of that load is the one which is removed: the master and its
+     * followers then apply the mutations in the order of the journal. Without the lock the deletion could be
+     * journaled after a load recreated the record, and a follower would replay "remove" after "create" while
+     * the master applied it before, which leaves the master with a record that its followers removed.
+     */
+    @VisibleForTesting
+    void removeRecycledTableStats(OlapTable recycledTable, AnalysisManager analysisManager,
+            InternalCatalog internalCatalog) {
+        recycledTable.writeLock();
+        try {
+            if (tableExistInInternalCatalog(internalCatalog, recycledTable.getId())) {
+                // The table was recovered after its record was found orphaned, keep its statistics.
+                return;
+            }
+            analysisManager.removeTableStats(recycledTable.getId());
+            Env.getCurrentEnv().getEditLog().logDeleteTableStats(
+                    new TableStatsDeletionLog(recycledTable.getId()));
+        } finally {
+            recycledTable.writeUnlock();
         }
     }
 

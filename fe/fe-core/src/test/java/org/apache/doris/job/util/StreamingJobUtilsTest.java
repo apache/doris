@@ -27,14 +27,22 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
+import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.jdbc.client.JdbcMySQLClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
@@ -55,6 +63,70 @@ public class StreamingJobUtilsTest {
     @BeforeEach
     public void setUp() {
         MockitoAnnotations.initMocks(this);
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "MYSQL | jdbc:mysql://localhost/test | jdbc:mysql://localhost/test?useInformationSchema=true",
+            "MYSQL | jdbc:mysql://localhost/test? | jdbc:mysql://localhost/test?useInformationSchema=true",
+            "MYSQL | jdbc:mysql://localhost/test?useSSL=false"
+                    + " | jdbc:mysql://localhost/test?useSSL=false&useInformationSchema=true",
+            "MYSQL | jdbc:mysql://localhost/test?useSSL=false&"
+                    + " | jdbc:mysql://localhost/test?useSSL=false&useInformationSchema=true",
+            "MYSQL | jdbc:mysql://localhost/test?useInformationSchema=true"
+                    + " | jdbc:mysql://localhost/test?useInformationSchema=true",
+            "MYSQL | jdbc:mysql://localhost/test?useInformationSchema=false"
+                    + " | jdbc:mysql://localhost/test?useInformationSchema=false",
+            "MYSQL | jdbc:mysql://localhost/test?custom=useInformationSchema=false"
+                    + " | jdbc:mysql://localhost/test?custom=useInformationSchema=false&useInformationSchema=true",
+            "OCEANBASE | jdbc:mysql://localhost/test | jdbc:mysql://localhost/test",
+            "POSTGRES | jdbc:postgresql://localhost/test | jdbc:postgresql://localhost/test"
+    })
+    public void testMetadataJdbcUrlDoesNotChangeSourceProperties(
+            DataSourceType sourceType, String sourceUrl, String metadataUrl) {
+        Map<String, String> properties = Map.of(DataSourceConfigKeys.JDBC_URL, sourceUrl);
+        JdbcClient expectedClient = sourceType == DataSourceType.MYSQL
+                ? Mockito.mock(JdbcMySQLClient.class) : jdbcClient;
+        try (MockedStatic<JdbcClient> factory = Mockito.mockStatic(JdbcClient.class)) {
+            factory.when(() -> JdbcClient.createJdbcClient(ArgumentMatchers.any(JdbcClientConfig.class)))
+                    .thenAnswer(invocation -> {
+                        JdbcClientConfig config = invocation.getArgument(0);
+                        Assertions.assertEquals(metadataUrl, config.getJdbcUrl());
+                        return expectedClient;
+                    });
+
+            Assertions.assertSame(expectedClient, StreamingJobUtils.getJdbcClient(sourceType, properties));
+            Assertions.assertEquals(sourceUrl, properties.get(DataSourceConfigKeys.JDBC_URL));
+            if (sourceType == DataSourceType.MYSQL) {
+                Mockito.verify((JdbcMySQLClient) expectedClient).enableVectorMapping();
+            }
+        }
+    }
+
+    @Test
+    public void testCdcDriverPrivilege() {
+        Env env = Mockito.mock(Env.class);
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            List<String> remoteDrivers = List.of("http://example.invalid/driver.jar",
+                    "https://example.invalid/driver.jar");
+            for (String driver : remoteDrivers) {
+                AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                        () -> StreamingJobUtils.checkCdcDriverPrivilege(ctx, driver));
+                Assertions.assertTrue(error.getMessage().contains("ADMIN"));
+            }
+            Mockito.when(accessManager.checkGlobalPriv(ctx, PrivPredicate.ADMIN)).thenReturn(true);
+            for (String driver : remoteDrivers) {
+                Assertions.assertDoesNotThrow(() -> StreamingJobUtils.checkCdcDriverPrivilege(ctx, driver));
+            }
+            Mockito.when(accessManager.checkGlobalPriv(ctx, PrivPredicate.ADMIN)).thenReturn(false);
+            for (String driver : Arrays.asList(null, "driver.jar", "file:///opt/doris/driver.jar")) {
+                Assertions.assertDoesNotThrow(() -> StreamingJobUtils.checkCdcDriverPrivilege(ctx, driver));
+            }
+        }
     }
 
     @Test

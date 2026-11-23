@@ -68,8 +68,8 @@ constexpr int kRawFrqRegion = 0;
 // zstd level for whole-DICT-block compression comes from
 // SniiIndexInput::dict_block_zstd_level (default 3: ~40% on the 64KiB
 // front-coded blocks at ~120 MiB/s encode / ~600 MiB/s decode; higher levels
-// trade import CPU for size, decode speed unchanged). G16-h made it (and the
-// .prx auto level) caller-tunable.
+// trade import CPU for size, decode speed unchanged). The level and the
+// .prx auto level are caller-tunable.
 
 using format::FrqRegionMeta;
 
@@ -522,9 +522,6 @@ uint32_t high_df_floor_for(const SniiIndexInput& in) {
                                  format::kHighDfDigestDivisor);
 }
 
-LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
-        : LogicalIndexWriter(in, TrackedNullDocids(std::vector<uint32_t>(in.null_docids))) {}
-
 LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDocids null_docids)
         : index_id_(in.index_id),
           index_suffix_(in.index_suffix),
@@ -559,7 +556,9 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDoci
                                            : in.mem_reporter->make_reservation()),
           bsbf_bytes_reservation_(in.mem_reporter == nullptr
                                           ? MemoryReporter::Reservation()
-                                          : in.mem_reporter->make_reservation()) {}
+                                          : in.mem_reporter->make_reservation()) {
+    prx_window_limits_.zstd_budget = in.prx_zstd_budget ? &prx_zstd_budget_ : nullptr;
+}
 
 Status LogicalIndexWriter::reserve_term_hash_for_append() {
     if (memory_reporter_ == nullptr || term_hashes_.size() < term_hashes_.capacity()) {

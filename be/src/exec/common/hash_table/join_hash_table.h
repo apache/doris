@@ -60,7 +60,7 @@ public:
         } else {
             bucket_size = hash_join_table_calc_bucket_size(num_elem + 1);
         }
-        first.resize(bucket_size + 1);
+        first.resize(no_match_bucket(bucket_size) + 1);
         next.resize(num_elem);
 
         if constexpr (JoinOpType == TJoinOp::FULL_OUTER_JOIN ||
@@ -72,6 +72,10 @@ public:
     }
 
     uint32_t get_bucket_size() const { return bucket_size; }
+
+    // A non-null probe key that cannot match any build key uses an empty bucket.
+    // bucket_size itself is reserved for NULL and may contain build rows.
+    static uint32_t no_match_bucket(uint32_t bucket_size) { return bucket_size + 1; }
 
     size_t size() const { return next.size(); }
 
@@ -463,6 +467,8 @@ private:
             if (!build_idx) {
                 probe_idxs[matched_cnt] = probe_idx;
                 build_idxs[matched_cnt] = 0;
+                // A previous NULL-key probe may leave 1 here; the no-match sentinel is not NULL.
+                null_flags[matched_cnt] = 0;
                 picking_null_keys = false;
                 matched_cnt++;
             }

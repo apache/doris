@@ -692,7 +692,7 @@ set(DORIS_LINK_LIBS
 )
 
 set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
-find_package(absl)
+find_package(absl CONFIG REQUIRED PATHS ${absl_DIR} NO_DEFAULT_PATH)
 
 # COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
 # When adding new dependencies, If you don’t know if it can run on all platforms,
@@ -722,6 +722,14 @@ add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
+        # Public dependencies of the statically linked google-cloud-cpp common library.
+        absl::base
+        absl::memory
+        absl::optional
+        absl::span
+        absl::str_format
+        absl::time
+        absl::variant
         absl::cord
         absl::cord_internal
         absl::cordz_functions
@@ -894,6 +902,8 @@ else()
         "-framework Foundation"
         "-framework SystemConfiguration"
         "-framework Security"
+        # liblance_c.a pulls in the Rust `sysinfo` crate, whose macOS backend calls IOKit.
+        "-framework IOKit"
     )
     if (USE_JEMALLOC OR (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG" AND NOT CMAKE_BUILD_TYPE STREQUAL "RELEASE"))
         set(DORIS_LINK_LIBS
@@ -1196,6 +1206,10 @@ if (BUILD_BENCHMARK)
         # without tcmalloc (see the MALLOCLIB branch above).
         ${BASE_DIR}/test/testutil/gperftools_stubs.cpp)
     set_target_properties(benchmark_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
+    if (DEFINED ENV{DORIS_BENCHMARK_HEADER} AND NOT "$ENV{DORIS_BENCHMARK_HEADER}" STREQUAL "")
+        target_compile_definitions(benchmark_test PRIVATE
+            DORIS_BENCHMARK_HEADER="$ENV{DORIS_BENCHMARK_HEADER}")
+    endif()
     target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})
     message(STATUS "Add benchmark to build")
     install(TARGETS benchmark_test DESTINATION ${OUTPUT_DIR}/lib)

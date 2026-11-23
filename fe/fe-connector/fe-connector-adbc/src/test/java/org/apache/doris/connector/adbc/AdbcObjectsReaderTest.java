@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -232,12 +233,12 @@ class AdbcObjectsReaderTest {
     // ========= fixture =========
 
     /** One catalog row: the name the source reported, and its schema entries (null at depth CATALOGS). */
-    private static Object[] catalog(String name, Object[]... schemas) {
+    static Object[] catalog(String name, Object[]... schemas) {
         return new Object[] {name, schemas == null ? null : List.of(schemas)};
     }
 
     /** One schema entry: the name the source reported (SQLite's is the empty string) and its tables. */
-    private static Object[] schema(String name, Object[]... tables) {
+    static Object[] schema(String name, Object[]... tables) {
         return new Object[] {name, tables == null ? null : List.of(tables)};
     }
 
@@ -249,9 +250,9 @@ class AdbcObjectsReaderTest {
     /**
      * Builds the getObjects response these rows describe and returns it as the reader a driver would have
      * handed over -- written to an IPC stream and read back, so the reader sees real Arrow vectors rather
-     * than the fixture's own objects.
+     * than the fixture's own objects. {@link AdbcClientTest} hands it out as a driver's {@code getObjects} result.
      */
-    private static ArrowReader response(BufferAllocator allocator, Object[]... rows) throws Exception {
+    static ArrowReader response(BufferAllocator allocator, Object[]... rows) throws IOException {
         VectorSchemaRoot root = VectorSchemaRoot.create(GET_OBJECTS_SCHEMA, allocator);
         VarCharVector catalogs = (VarCharVector) root.getVector(CATALOG_NAME);
         ListVector schemas = (ListVector) root.getVector(CATALOG_DB_SCHEMAS);

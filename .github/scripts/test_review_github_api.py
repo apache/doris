@@ -45,6 +45,7 @@ def trace(status=502, body='{"message":', path="/repos/apache/doris/statuses/abc
         f"< HTTP/2.0 {status} Example\n"
         "< Content-Type: application/json\n"
         "< X-Github-Request-Id: REQUEST-123\n"
+        "< X-Accepted-Github-Permissions: pull_requests=write\n"
         "< X-Ratelimit-Remaining: 0\n"
         "< Retry-After: 10\n"
         "< Set-Cookie: response-cookie\n"
@@ -82,6 +83,7 @@ class GitHubDiagnosticsTest(unittest.TestCase):
         self.assertEqual(502, record["http"]["status"])
         self.assertEqual('{"message":', record["http"]["body_excerpt"])
         self.assertEqual("REQUEST-123", record["http"]["headers"]["x-github-request-id"])
+        self.assertEqual("pull_requests=write", record["http"]["headers"]["x-accepted-github-permissions"])
         self.assertEqual("10", record["http"]["headers"]["retry-after"])
         self.assertEqual(1, record["returncode"])
         self.assertIn("unexpected end of JSON input", error.stderr)

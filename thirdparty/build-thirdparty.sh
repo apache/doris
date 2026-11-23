@@ -1034,6 +1034,40 @@ build_cyrus_sasl() {
     fi
 }
 
+# MongoDB C Driver: keep libbson and libmongoc at the same release and ABI.
+build_mongo_c_driver() {
+    check_if_source_exist "${MONGO_C_DRIVER_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${MONGO_C_DRIVER_SOURCE}"
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    # Re-root relocatable pkg-config files from prebuilt archives, and exclude host packages.
+    PKG_CONFIG_PATH="${TP_LIB_DIR}/pkgconfig" \
+        PKG_CONFIG_LIBDIR="${TP_LIB_DIR}/pkgconfig" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -C "${TP_DIR}/cmake/mongo-c-driver-cache.cmake" \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_INSTALL_LIBDIR=lib64 \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DPKG_CONFIG_ARGN="--define-variable=prefix=${TP_INSTALL_DIR}" \
+        -DENABLE_STATIC=ON -DENABLE_SHARED=OFF -DENABLE_PIC=ON \
+        -DENABLE_TESTS=OFF -DENABLE_EXAMPLES=OFF \
+        -DENABLE_MAN_PAGES=OFF -DENABLE_HTML_DOCS=OFF -DENABLE_UNINSTALL=OFF \
+        -DENABLE_SSL=OPENSSL -DENABLE_SASL=CYRUS -DENABLE_SRV=ON \
+        -DENABLE_SNAPPY=ON -DENABLE_ZSTD=ON -DENABLE_ZLIB=SYSTEM \
+        -DUSE_BUNDLED_UTF8PROC=ON \
+        -DENABLE_CLIENT_SIDE_ENCRYPTION=OFF -DENABLE_MONGODB_AWS_AUTH=OFF \
+        -DENABLE_SHM_COUNTERS=OFF -DENABLE_MAINTAINER_FLAGS=OFF \
+        -DBSON_INSTALL_INCLUDEDIR=include/bson-2.0 \
+        -DMONGOC_INSTALL_INCLUDEDIR=include/mongoc-2.0 ..
+    "${CMAKE_CMD}" --build . --parallel "${PARALLEL}"
+    "${CMAKE_CMD}" --install .
+    strip_lib libbson2.a
+    strip_lib libmongoc2.a
+}
+
 # librdkafka
 build_librdkafka() {
     check_if_source_exist "${LIBRDKAFKA_SOURCE}"
@@ -1165,6 +1199,16 @@ build_arrow() {
     check_if_source_exist "${ARROW_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}/cpp"
 
+    # CMake otherwise accepts a host OpenSSL when this dependency is missing.
+    # Keep both headers and static libraries in the same Doris third-party prefix.
+    local openssl_file
+    for openssl_file in include/openssl/ssl.h lib/libssl.a lib/libcrypto.a; do
+        if [[ ! -f "${TP_INSTALL_DIR}/${openssl_file}" ]]; then
+            echo "Missing Arrow OpenSSL dependency: ${TP_INSTALL_DIR}/${openssl_file}"
+            exit 1
+        fi
+    done
+
     mkdir -p release
     cd release
 
@@ -1187,10 +1231,17 @@ build_arrow() {
         ldflags="-L${TP_LIB_DIR}"
     fi
 
+    # Without this option Parquet links encryption stubs that throw at runtime,
+    # even when the BE itself already links OpenSSL.
     LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
+        -DPARQUET_REQUIRE_ENCRYPTION=ON -DARROW_OPENSSL_USE_SHARED=OFF \
+        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}" \
+        -DOPENSSL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DOPENSSL_SSL_LIBRARY="${TP_INSTALL_DIR}/lib/libssl.a" \
+        -DOPENSSL_CRYPTO_LIBRARY="${TP_INSTALL_DIR}/lib/libcrypto.a" \
         -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON -DARROW_USE_GLOG=ON \
         -DARROW_WITH_SNAPPY=ON -DARROW_WITH_ZLIB=ON -DARROW_WITH_ZSTD=ON -DARROW_JSON=ON \
         -DARROW_WITH_UTF8PROC=OFF -DARROW_WITH_RE2=ON -DARROW_ORC=ON \
@@ -1239,6 +1290,12 @@ build_arrow() {
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
+
+    # Arrow excludes internal headers from installation, but the native Parquet
+    # reader needs these module decryptors instead of replacing its scan path.
+    install -m 644 ../src/parquet/encryption/encryption_internal.h \
+        ../src/parquet/encryption/internal_file_decryptor.h \
+        "${TP_INSTALL_DIR}/include/parquet/encryption/"
 
     #copy dep libs
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${TP_INSTALL_DIR}/lib64/libbrotlienc.a"
@@ -1605,6 +1662,22 @@ build_tsan_header() {
 
     mkdir -p "${TP_INSTALL_DIR}/include/sanitizer"
     cp "${TSAN_HEADER_FILE}" "${TP_INSTALL_DIR}/include/sanitizer/"
+}
+
+build_oss_sdk() {
+    check_if_source_exist "${OSS_SDK_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${OSS_SDK_SOURCE}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" -S . -B "${BUILD_DIR}" \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_LIBDIR=lib64 -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -DCMAKE_FIND_ROOT_PATH="${TP_INSTALL_DIR}" -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+        -DUSE_SYSTEM_CURL=ON -DCURL_NO_CURL_CMAKE=ON -DCURL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DUSE_SYSTEM_OPENSSL=ON \
+        -DOPENSSL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" -DOPENSSL_SSL_LIBRARY="${TP_INSTALL_DIR}/lib/libssl.a" \
+        -DOPENSSL_CRYPTO_LIBRARY="${TP_INSTALL_DIR}/lib/libcrypto.a" -DENABLE_RTTI=ON
+    "${CMAKE_CMD}" --build "${BUILD_DIR}" -j "${PARALLEL}"
+    "${CMAKE_CMD}" --install "${BUILD_DIR}"
 }
 
 # aws_sdk
@@ -2449,7 +2522,7 @@ build_lance_c() {
 
     local cargo_bin="${LANCE_C_CARGO:-${CARGO:-cargo}}"
     if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
-        echo "cargo is required to build lance-c. Install Rust 1.94.0 or set LANCE_C_CARGO."
+        echo "cargo is required to build lance-c. Install Rust 1.95.0 or set LANCE_C_CARGO."
         exit 1
     fi
     if [[ ! -x "${TP_INSTALL_DIR}/bin/protoc" ]]; then
@@ -2457,7 +2530,7 @@ build_lance_c() {
         exit 1
     fi
 
-    local required_rust_version="1.94.0"
+    local required_rust_version="1.95.0"
     local cargo_env=(
         "CARGO_BUILD_JOBS=${PARALLEL}"
         "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
@@ -2481,7 +2554,7 @@ build_lance_c() {
         echo "failed to get cargo version for lance-c. Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    # Rust 1.94.0 is the minimum supported version. Allow newer toolchains when
+    # Use Paimon's Rust 1.95.0 baseline for both static libraries. Allow newer toolchains when
     # callers explicitly select one or rustup is unavailable on the system.
     if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
             split(required, r, ".");
@@ -2526,14 +2599,15 @@ build_paimon_rust() {
 
     local cargo_bin="${PAIMON_RUST_CARGO:-${CARGO:-cargo}}"
     if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
-        echo "cargo is required to build paimon-rust. Install Rust 1.94.0 or set PAIMON_RUST_CARGO."
+        echo "cargo is required to build paimon-rust. Install Rust 1.95.0 or set PAIMON_RUST_CARGO."
         exit 1
     fi
 
-    local required_rust_version="1.94.0"
+    local required_rust_version="1.95.0"
     local cargo_env=(
         "CARGO_BUILD_JOBS=${PARALLEL}"
         "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
+        "OPENSSL_DIR=${TP_INSTALL_DIR}"
     )
     if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
         # The presence check must look for the toolchain the minimum actually
@@ -2553,7 +2627,7 @@ build_paimon_rust() {
         echo "failed to get cargo version for paimon-rust. Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    # Rust 1.94.0 is the minimum supported version. Allow newer toolchains when
+    # Rust 1.95.0 is the minimum supported version. Allow newer toolchains when
     # callers explicitly select one or rustup is unavailable on the system.
     # NOTE: paimon_c and lance_c are both Rust staticlibs linked into the same
     # BE binary; they must be built with the SAME rustc toolchain so the linker
@@ -2672,6 +2746,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         rocksdb
         krb5 # before cyrus_sasl
         cyrus_sasl
+        mongo_c_driver # after OpenSSL, zlib, zstd, Snappy and Cyrus SASL
         librdkafka
         flatbuffers
         orc
@@ -2692,6 +2767,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         tsan_header
         mysql
         aws_sdk
+        oss_sdk
         js_and_css
         xml2
         idn
@@ -2770,6 +2846,7 @@ cleanup_package_source() {
         brpc)            src_var="BRPC_SOURCE" ;;
         rocksdb)         src_var="ROCKSDB_SOURCE" ;;
         cyrus_sasl)      src_var="CYRUS_SASL_SOURCE" ;;
+        mongo_c_driver)  src_var="MONGO_C_DRIVER_SOURCE" ;;
         librdkafka)      src_var="LIBRDKAFKA_SOURCE" ;;
         flatbuffers)     src_var="FLATBUFFERS_SOURCE" ;;
         arrow)           src_var="ARROW_SOURCE" ;;
@@ -2829,6 +2906,7 @@ cleanup_package_source() {
         pugixml)         src_var="PUGIXML_SOURCE" ;;
         lance_c)         src_var="LANCE_C_SOURCE" ;;
         paimon_rust)     src_var="PAIMON_RUST_SOURCE" ;;
+        oss_sdk)         src_var="OSS_SDK_SOURCE" ;;
         aws_sdk)         src_var="AWS_SDK_SOURCE" ;;
         lzma)            src_var="LZMA_SOURCE" ;;
         xml2)            src_var="XML2_SOURCE" ;;

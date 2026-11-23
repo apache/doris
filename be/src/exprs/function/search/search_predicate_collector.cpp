@@ -241,6 +241,7 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
     auto iter = collect_infos->find(ws_field_name);
     if (iter == collect_infos->end()) {
         CollectInfo collect_info;
+        collect_info.lucene_field = ws_field_name;
         RETURN_IF_ERROR(append_scoring_leaf(&collect_info, term_infos));
         preserve_selected_index_metadata(candidates, index_meta, &collect_info);
         (*collect_infos)[ws_field_name] = std::move(collect_info);

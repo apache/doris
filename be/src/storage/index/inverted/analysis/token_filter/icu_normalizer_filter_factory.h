@@ -74,16 +74,12 @@ public:
         _normalizer = std::make_shared<icu::FilteredNormalizer2>(*base, *_unicode_set);
     }
 
-    TokenFilterPtr create(const TokenStreamPtr& in) override {
+    std::unique_ptr<TextTokenStream> create(std::unique_ptr<TextTokenStream> in) const override {
         if (!_normalizer) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "ICUNormalizerFilterFactory not initialized. Call initialize() first.");
         }
-        return std::make_shared<ICUNormalizerFilter>(in, _normalizer);
-    }
-
-    PositionCapability position_capability() const override {
-        return PositionCapability::kAlwaysUnitIncrement;
+        return std::make_unique<ICUNormalizerFilter>(std::move(in), _normalizer);
     }
 
 private:

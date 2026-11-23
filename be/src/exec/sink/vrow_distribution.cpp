@@ -136,13 +136,16 @@ Status VRowDistribution::automatic_create_partition() {
         } else {
             master_addr = _vpartition->get_master_address();
         }
+        // Remote partition callbacks must use the same external policy as their write channels.
         int time_out = _state->execution_timeout() * 1000;
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr->hostname, master_addr->port,
                 [&request, &result](FrontendServiceConnection& client) {
                     client->createPartition(result, request);
                 },
-                time_out));
+                time_out,
+                _remote_endpoint ? ExecEnv::GetInstance()->remote_frontend_client_cache()
+                                 : nullptr));
     }
 
     Status status(Status::create(result.status));
@@ -238,13 +241,16 @@ Status VRowDistribution::_replace_overwriting_partition() {
         } else {
             master_addr = _vpartition->get_master_address();
         }
+        // Remote partition callbacks must use the same external policy as their write channels.
         int time_out = _state->execution_timeout() * 1000;
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr->hostname, master_addr->port,
                 [&request, &result](FrontendServiceConnection& client) {
                     client->replacePartition(result, request);
                 },
-                time_out));
+                time_out,
+                _remote_endpoint ? ExecEnv::GetInstance()->remote_frontend_client_cache()
+                                 : nullptr));
     }
 
     Status status(Status::create(result.status));

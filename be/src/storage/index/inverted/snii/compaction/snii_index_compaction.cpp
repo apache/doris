@@ -187,6 +187,8 @@ Status SniiPlainT2MergePlan::prepare(std::vector<const reader::LogicalIndexReade
                                                         : memory_reporter->make_reservation());
     }
     std::vector<std::vector<uint32_t>> destination_null_docids(destination_segment_num_rows.size());
+    CompressedRowIdMap::Cursor rowid_cursor;
+    CompressedRowIdMap::DecodeWorkspace rowid_workspace;
     for (size_t source_ordinal = 0; source_ordinal < source_indexes.size(); ++source_ordinal) {
         reader::NullDocidsScanMemory scan_memory;
         RETURN_IF_ERROR(source_indexes[source_ordinal]->null_docids_scan_memory(&scan_memory));
@@ -219,7 +221,10 @@ Status SniiPlainT2MergePlan::prepare(std::vector<const reader::LogicalIndexReade
         const auto source_mapping = rowid_conversion.source_mapping(source_ordinal);
         for (uint32_t source_docid : source_null_docids) {
             DCHECK_LT(source_docid, source_mapping.size());
-            const auto [destination_segment, destination_docid] = source_mapping[source_docid];
+            RowIdConversionSource::Pair destination;
+            RETURN_IF_ERROR(
+                    source_mapping.get(source_docid, rowid_cursor, rowid_workspace, &destination));
+            const auto [destination_segment, destination_docid] = destination;
             const bool segment_deleted =
                     destination_segment == std::numeric_limits<uint32_t>::max();
             const bool doc_deleted = destination_docid == std::numeric_limits<uint32_t>::max();
@@ -265,10 +270,14 @@ Status SniiPlainT2MergePlan::prepare(std::vector<const reader::LogicalIndexReade
 
     std::vector<std::unique_ptr<SniiPostingReadContext>> read_contexts;
     read_contexts.reserve(source_indexes.size());
-    for (const reader::LogicalIndexReader* source : source_indexes) {
+    for (size_t source_id = 0; source_id < source_indexes.size(); ++source_id) {
+        const auto* source = source_indexes[source_id];
         auto context = std::make_unique<SniiPostingReadContext>(
                 source, per_source_read_ahead_budget, memory_reporter.get());
         RETURN_IF_ERROR(context->init());
+        if (!rowid_conversion.source_mapping(source_id).is_dense()) {
+            RETURN_IF_ERROR(context->reserve_rowid_cursor());
+        }
         read_contexts.push_back(std::move(context));
     }
 
@@ -349,9 +358,9 @@ Status SniiPlainT2MergePlan::take_front_source(TermMergeFrontier* frontier, Curr
                 "same term has inconsistent position shape across sources");
     }
 
-    auto cursor = std::make_unique<SniiPostingCursor>(read_contexts_[source_ordinal].get(),
-                                                      std::move(entry), frq_base, prx_base,
-                                                      source_ordinal, rowid_conversion_);
+    auto cursor = std::make_unique<SniiPostingCursor>(
+            read_contexts_[source_ordinal].get(), std::move(entry), frq_base, prx_base,
+            source_ordinal, rowid_conversion_, &rowid_workspace_);
     RETURN_IF_ERROR(cursor->init());
     current->posting_cursors.push_back(std::move(cursor));
     return frontier->advance_front();

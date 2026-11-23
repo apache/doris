@@ -17,6 +17,7 @@
 
 #include "storage/index/ann/ann_index_writer.h"
 
+#include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/store/RAMDirectory.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gmock/gmock.h>
@@ -59,8 +60,9 @@ public:
                  const segment_v2::IndexSearchParameters& params,
                  segment_v2::IndexSearchResult& result),
                 (override));
-    MOCK_METHOD(doris::Status, save, (lucene::store::Directory * dir), (override));
-    MOCK_METHOD(doris::Status, load, (lucene::store::Directory * dir), (override));
+    MOCK_METHOD(doris::Status, save, (AnnIndexSink * sink), (override));
+    MOCK_METHOD(doris::Status, load, (AnnIndexSource * source, const io::IOContext* io_ctx),
+                (override));
     MOCK_METHOD(Int64, get_min_train_rows, (), (const, override));
 };
 
@@ -207,7 +209,7 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesSuccess) {
             9.0f, 10.0f, 11.0f, 12.0f // Row 2
     };
 
-    std::vector<size_t> offsets = {0, 4, 8, 12}; // Each row has 4 elements
+    std::vector<uint64_t> offsets = {0, 4, 8, 12}; // Each row has 4 elements
 
     Status status = writer->add_array_values(sizeof(float),
                                              reinterpret_cast<const uint8_t*>(vectors.data()),
@@ -310,7 +312,7 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesWrongDimension) {
             4.0f, 5.0f, 6.0f  // Row 1: 3 elements (wrong)
     };
 
-    std::vector<size_t> offsets = {0, 3, 6}; // Each row has 3 elements instead of 4
+    std::vector<uint64_t> offsets = {0, 3, 6}; // Each row has 3 elements instead of 4
 
     Status status = writer->add_array_values(sizeof(float),
                                              reinterpret_cast<const uint8_t*>(vectors.data()),
@@ -405,7 +407,7 @@ TEST_F(AnnIndexWriterTest, TestFinish) {
             5.0f, 6.0f, 7.0f, 8.0f  // Row 1
     };
 
-    std::vector<size_t> offsets = {0, 4, 8};
+    std::vector<uint64_t> offsets = {0, 4, 8};
 
     ASSERT_TRUE(writer->add_array_values(sizeof(float),
                                          reinterpret_cast<const uint8_t*>(vectors.data()), nullptr,
@@ -436,7 +438,7 @@ TEST_F(AnnIndexWriterTest, TestFullWorkflow) {
     {
         const size_t num_rows = 2;
         std::vector<float> vectors = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
-        std::vector<size_t> offsets = {0, 4, 8};
+        std::vector<uint64_t> offsets = {0, 4, 8};
 
         ASSERT_TRUE(writer->add_array_values(sizeof(float),
                                              reinterpret_cast<const uint8_t*>(vectors.data()),
@@ -449,7 +451,7 @@ TEST_F(AnnIndexWriterTest, TestFullWorkflow) {
         const size_t num_rows = 3;
         std::vector<float> vectors = {9.0f,  10.0f, 11.0f, 12.0f, 13.0f, 14.0f,
                                       15.0f, 16.0f, 17.0f, 18.0f, 19.0f, 20.0f};
-        std::vector<size_t> offsets = {0, 4, 8, 12};
+        std::vector<uint64_t> offsets = {0, 4, 8, 12};
 
         ASSERT_TRUE(writer->add_array_values(sizeof(float),
                                              reinterpret_cast<const uint8_t*>(vectors.data()),
@@ -525,7 +527,7 @@ TEST_F(AnnIndexWriterTest, TestNoTrainIndexAddsAtFinish) {
         for (size_t i = 0; i < vectors.size(); ++i) {
             vectors[i] = static_cast<float>(batch * vectors.size() + i);
         }
-        std::vector<size_t> offsets;
+        std::vector<uint64_t> offsets;
         for (size_t row = 0; row <= batch_rows; ++row) {
             offsets.push_back(row * dim);
         }
@@ -582,7 +584,7 @@ TEST_F(AnnIndexWriterTest, TestNoTrainIndexSkipsWhenRowsLessThanMinSegmentRows) 
     for (size_t i = 0; i < vectors.size(); ++i) {
         vectors[i] = static_cast<float>(i);
     }
-    std::vector<size_t> offsets;
+    std::vector<uint64_t> offsets;
     for (size_t row = 0; row <= num_rows; ++row) {
         offsets.push_back(row * dim);
     }
@@ -626,7 +628,7 @@ TEST_F(AnnIndexWriterTest, TestTrainRequiredIndexUsesEffectiveMinSegmentRows) {
     for (size_t i = 0; i < vectors.size(); ++i) {
         vectors[i] = static_cast<float>(i);
     }
-    std::vector<size_t> offsets;
+    std::vector<uint64_t> offsets;
     for (size_t row = 0; row <= num_rows; ++row) {
         offsets.push_back(row * dim);
     }
@@ -684,7 +686,7 @@ TEST_F(AnnIndexWriterTest, TestCreateFromIndexColumnWriter) {
             9.0f, 10.0f, 11.0f, 12.0f // Row 2
     };
 
-    std::vector<size_t> offsets = {0, 4, 8, 12}; // Each row has 4 elements
+    std::vector<uint64_t> offsets = {0, 4, 8, 12}; // Each row has 4 elements
 
     status = column_writer->add_array_values(sizeof(float),
                                              reinterpret_cast<const uint8_t*>(vectors.data()),
@@ -722,7 +724,7 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesIVF) {
             9.0f, 10.0f, 11.0f, 12.0f // Row 2
     };
 
-    std::vector<size_t> offsets = {0, 4, 8, 12}; // Each row has 4 elements
+    std::vector<uint64_t> offsets = {0, 4, 8, 12}; // Each row has 4 elements
 
     Status status = writer->add_array_values(sizeof(float),
                                              reinterpret_cast<const uint8_t*>(vectors.data()),
@@ -762,7 +764,7 @@ TEST_F(AnnIndexWriterTest, TestSmallTrainRequiredIndexUsesMemoryBuffer) {
     for (size_t i = 0; i < vectors.size(); ++i) {
         vectors[i] = static_cast<float>(i);
     }
-    std::vector<size_t> offsets;
+    std::vector<uint64_t> offsets;
     for (size_t row = 0; row <= num_rows; ++row) {
         offsets.push_back(row * dim);
     }
@@ -829,7 +831,7 @@ TEST_F(AnnIndexWriterTest, TestTrainRequiredIndexTrainsOnceAndAddsAllRows) {
                 17.0f, 18.0f, 19.0f, 20.0f, // Row 4
                 21.0f, 22.0f, 23.0f, 24.0f  // Row 5
         };
-        std::vector<size_t> offsets = {0, 4, 8, 12, 16, 20, 24};
+        std::vector<uint64_t> offsets = {0, 4, 8, 12, 16, 20, 24};
 
         Status status = writer->add_array_values(sizeof(float),
                                                  reinterpret_cast<const uint8_t*>(vectors.data()),
@@ -847,7 +849,7 @@ TEST_F(AnnIndexWriterTest, TestTrainRequiredIndexTrainsOnceAndAddsAllRows) {
                 41.0f, 42.0f, 43.0f, 44.0f, // Row 10
                 45.0f, 46.0f, 47.0f, 48.0f  // Row 11
         };
-        std::vector<size_t> offsets = {0, 4, 8, 12, 16, 20, 24};
+        std::vector<uint64_t> offsets = {0, 4, 8, 12, 16, 20, 24};
 
         Status status = writer->add_array_values(sizeof(float),
                                                  reinterpret_cast<const uint8_t*>(vectors.data()),
@@ -899,7 +901,7 @@ TEST_F(AnnIndexWriterTest, TestTrainRequiredIndexTrainsWithAllBufferedRows) {
             vectors[row * dim + col] = static_cast<float>(row);
         }
     }
-    std::vector<size_t> offsets;
+    std::vector<uint64_t> offsets;
     for (size_t row = 0; row <= num_rows; ++row) {
         offsets.push_back(row * dim);
     }
@@ -957,7 +959,7 @@ TEST_F(AnnIndexWriterTest, TestSkipIndexWhenTotalRowsLessThanMinTrainRows) {
     for (size_t i = 0; i < vectors.size(); ++i) {
         vectors[i] = static_cast<float>(i);
     }
-    std::vector<size_t> offsets;
+    std::vector<uint64_t> offsets;
     for (size_t row = 0; row <= num_rows; ++row) {
         offsets.push_back(row * dim);
     }

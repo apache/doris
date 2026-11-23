@@ -33,6 +33,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <set>
 #include <string>
 #include <string_view>
@@ -45,6 +46,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_dictionary.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -848,42 +850,30 @@ std::vector<std::string> storage_cells(FieldType type, const IColumn& data) {
     return cells;
 }
 
-// Reads the column back the way a Segment reads it and checks that it holds the rows written.
-Status verify_read_back(const CaseInput& input, const WrittenColumn& written,
-                        const std::string& path) {
-    io::FileReaderSPtr file_reader;
-    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(path, &file_reader));
-    ColumnReaderOptions reader_options;
-    reader_options.be_exec_version = BeExecVersionManager::get_newest_version();
-    std::shared_ptr<ColumnReader> reader;
-    RETURN_IF_ERROR(ColumnReader::create(reader_options, written.meta, written.meta.num_rows(),
-                                         file_reader, &reader));
-    ColumnIteratorUPtr iterator;
-    RETURN_IF_ERROR(reader->new_iterator(&iterator, &input.column));
-    OlapReaderStatistics stats;
-    ColumnIteratorOptions iterator_options;
-    iterator_options.stats = &stats;
-    iterator_options.file_reader = file_reader.get();
-    RETURN_IF_ERROR(iterator->init(iterator_options));
-    RETURN_IF_ERROR(iterator->seek_to_ordinal(0));
-    MutableColumnPtr read = input.data.column->clone_empty();
-    size_t rows = written.meta.num_rows();
-    bool has_null = false;
-    RETURN_IF_ERROR(iterator->next_batch(&rows, read, &has_null));
-    if (read->size() != input.rows()) {
-        return Status::InternalError("read {} rows back, wrote {}", read->size(), input.rows());
+// Checks that `read` holds the rows written at `rowids`.
+Status check_rows_read(const CaseInput& input, const WrittenColumn& written,
+                       const std::vector<rowid_t>& rowids, const IColumn& read) {
+    if (read.size() != rowids.size()) {
+        return Status::InternalError("read {} rows back, wanted {}", read.size(), rowids.size());
     }
-
     if (input.column.is_nullable()) {
-        const auto& read_null_map = assert_cast<const ColumnNullable&>(*read).get_null_map_data();
+        const auto& read_null_map = assert_cast<const ColumnNullable&>(read).get_null_map_data();
         const auto& null_map =
                 assert_cast<const ColumnNullable&>(*input.data.column).get_null_map_data();
-        if (!std::equal(read_null_map.begin(), read_null_map.end(), null_map.begin())) {
-            return Status::InternalError("the NULL rows read back differ from the ones written");
+        for (size_t i = 0; i < rowids.size(); ++i) {
+            if (read_null_map[i] != null_map[rowids[i]]) {
+                return Status::InternalError("row {} reads back as {}NULL", rowids[i],
+                                             read_null_map[i] != 0 ? "" : "not ");
+            }
         }
     }
-    auto expected = storage_cells(input.column.type(), *input.data.column);
-    auto actual = storage_cells(input.column.type(), *read);
+    const auto written_cells = storage_cells(input.column.type(), *input.data.column);
+    std::vector<std::string> expected;
+    expected.reserve(rowids.size());
+    for (const auto row : rowids) {
+        expected.push_back(written_cells[row]);
+    }
+    auto actual = storage_cells(input.column.type(), read);
     // Reading turns a single-value bitmap into a one-value set, which is written differently, so
     // bitmaps are compared by value.
     if (check_and_get_column<ColumnBitmap>(*remove_nullable(input.data.column)) != nullptr) {
@@ -902,9 +892,9 @@ Status verify_read_back(const CaseInput& input, const WrittenColumn& written,
         written.meta.encoding() == PREFIX_ENCODING) {
         const auto& null_map =
                 assert_cast<const ColumnNullable&>(*input.data.column).get_null_map_data();
-        for (size_t row = 0; row < expected.size(); ++row) {
-            if (null_map[row] == 0) {
-                expected[row].resize(input.column.length(), '\0');
+        for (size_t i = 0; i < rowids.size(); ++i) {
+            if (null_map[rowids[i]] == 0) {
+                expected[i].resize(input.column.length(), '\0');
             }
         }
     }
@@ -919,10 +909,64 @@ Status verify_read_back(const CaseInput& input, const WrittenColumn& written,
             return text;
         };
         return Status::InternalError("row {} reads back as {} instead of {}",
-                                     std::distance(actual.begin(), actual_cell), hex(*actual_cell),
-                                     hex(*expected_cell));
+                                     rowids[std::distance(actual.begin(), actual_cell)],
+                                     hex(*actual_cell), hex(*expected_cell));
     }
     return Status::OK();
+}
+
+// Reads the column back the way a Segment reads it, into columns like `prototype`: every row by
+// batch, then two rows of every three by row id, so that the reads start and stop inside NULL
+// runs. Checks that both hold the rows written.
+Status verify_read_back(const CaseInput& input, const WrittenColumn& written,
+                        const std::string& path, const IColumn& prototype) {
+    io::FileReaderSPtr file_reader;
+    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(path, &file_reader));
+    ColumnReaderOptions reader_options;
+    reader_options.be_exec_version = BeExecVersionManager::get_newest_version();
+    std::shared_ptr<ColumnReader> reader;
+    RETURN_IF_ERROR(ColumnReader::create(reader_options, written.meta, written.meta.num_rows(),
+                                         file_reader, &reader));
+    ColumnIteratorUPtr iterator;
+    RETURN_IF_ERROR(reader->new_iterator(&iterator, &input.column));
+    OlapReaderStatistics stats;
+    ColumnIteratorOptions iterator_options;
+    iterator_options.stats = &stats;
+    iterator_options.file_reader = file_reader.get();
+    RETURN_IF_ERROR(iterator->init(iterator_options));
+    RETURN_IF_ERROR(iterator->seek_to_ordinal(0));
+    std::vector<rowid_t> rowids(input.rows());
+    std::iota(rowids.begin(), rowids.end(), rowid_t {0});
+    MutableColumnPtr read = prototype.clone_empty();
+    size_t rows = written.meta.num_rows();
+    bool has_null = false;
+    RETURN_IF_ERROR(iterator->next_batch(&rows, read, &has_null));
+    // A ColumnDictI32 holds codes: compare the strings they stand for.
+    read = read->convert_to_predicate_column_if_dictionary();
+    RETURN_IF_ERROR(check_rows_read(input, written, rowids, *read));
+
+    // BinaryPrefixPageDecoder does not read by row id.
+    if (written.meta.encoding() == PREFIX_ENCODING) {
+        return Status::OK();
+    }
+    std::erase_if(rowids, [](rowid_t row) { return row % 3 == 1; });
+    MutableColumnPtr picked = prototype.clone_empty();
+    // A ColumnDictI32 appends codes only into room reserved beforehand, as SegmentIterator
+    // reserves the columns it reads into.
+    picked->reserve(rowids.size());
+    RETURN_IF_ERROR(iterator->read_by_rowids(rowids.data(), rowids.size(), picked));
+    picked = picked->convert_to_predicate_column_if_dictionary();
+    return check_rows_read(input, written, rowids, *picked);
+}
+
+// The column a query that filters a string column reads it into, as
+// ReadSchema::get_predicate_column_ptr makes it.
+MutableColumnPtr dictionary_column(const CaseInput& input) {
+    MutableColumnPtr column = ColumnDictI32::create();
+    if (input.column.is_nullable()) {
+        column = ColumnNullable::create(std::move(column), ColumnUInt8::create());
+    }
+    return column;
 }
 
 // A page ends with its PageFooterPB, the footer length and the checksum.
@@ -1143,8 +1187,16 @@ TEST_F(PageFormatTest, RegisteredEncodingsKeepTheirPageBytes) {
             EXPECT_TRUE(written.value().data_pages == rewritten.value().data_pages &&
                         written.value().dict_page == rewritten.value().dict_page)
                     << "page bytes are not deterministic";
-            const auto read_back = verify_read_back(input.value(), written.value(), path);
+            const auto read_back = verify_read_back(input.value(), written.value(), path,
+                                                    *input.value().data.column);
             EXPECT_TRUE(read_back.ok()) << read_back;
+            if (page_case.encoding == DICT_ENCODING) {
+                // The pages that fall back to plain encoding make the dictionary page decoder
+                // replace the ColumnDictI32 it appends to with a ColumnString.
+                const auto dictionary_read_back = verify_read_back(
+                        input.value(), written.value(), path, *dictionary_column(input.value()));
+                EXPECT_TRUE(dictionary_read_back.ok()) << dictionary_read_back;
+            }
             add_goldens(&goldens, page_case, written.value());
         }
     }

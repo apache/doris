@@ -68,9 +68,9 @@
 #include "exprs/vliteral.h"
 #include "exprs/vmatch_predicate.h"
 #include "exprs/vslot_ref.h"
-#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
+#include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
@@ -98,7 +98,10 @@
 #include "storage/olap_common.h"
 #include "storage/predicate/bloom_filter_predicate.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/predicate/shared_predicate.h"
 #include "storage/schema.h"
+#include "storage/segment/column_read_ahead.h"
+#include "storage/segment/column_read_ahead_resources.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/condition_cache.h"
@@ -114,6 +117,7 @@
 #include "util/concurrency_stats.h"
 #include "util/defer_op.h"
 #include "util/simd/bits.h"
+#include "util/simd/selection.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -384,6 +388,30 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     return status;
 }
 
+Status SegmentIterator::_init_query_read_ahead() {
+    if (!ColumnReadAheadResources::enabled() ||
+        _opts.io_ctx.reader_type != ReaderType::READER_QUERY) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(_opts.runtime_state != nullptr);
+    auto* exec_env = _opts.runtime_state->exec_env();
+    DORIS_CHECK(exec_env != nullptr);
+    auto* scheduler = exec_env->file_range_read_scheduler();
+    DORIS_CHECK(scheduler != nullptr);
+    auto* query_context = _opts.runtime_state->get_query_ctx();
+    DORIS_CHECK(query_context != nullptr);
+    auto read_context = query_context->get_or_create_file_range_read_context(scheduler);
+    const auto status = ColumnReadAheadResources::create_for_query(
+            _file_reader, exec_env, std::move(read_context), _opts, &_read_ahead_resources);
+    if (!status.ok()) {
+        LOG_EVERY_N(WARNING, 100)
+                << "failed to initialize query read-ahead; use the original read path: " << status;
+        return Status::OK();
+    }
+    return Status::OK();
+}
+
 std::unique_ptr<AdaptiveBlockSizePredictor> SegmentIterator::_make_block_size_predictor() const {
     if (!config::enable_adaptive_batch_size || _opts.preferred_block_size_bytes == 0) {
         return nullptr;
@@ -419,6 +447,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_timer_ns);
     _inited = true;
     _file_reader = _segment->_file_reader;
+    RETURN_IF_ERROR(_init_query_read_ahead());
     _col_predicates.clear();
 
     for (const auto& predicate : opts.column_predicates) {
@@ -427,6 +456,11 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             continue;
         }
         _col_predicates.emplace_back(predicate);
+        if (auto shared = std::dynamic_pointer_cast<SharedPredicate>(predicate)) {
+            const auto version = shared->version();
+            _topn_runtime_filters.push_back(
+                    {.predicate = std::move(shared), .applied_version = version});
+        }
     }
     _init_column_states();
     _tablet_id = opts.tablet_id;
@@ -584,18 +618,14 @@ Status SegmentIterator::_lazy_init(Block* block) {
 
     RETURN_IF_ERROR(_apply_ann_topn_predicate());
 
-    if (_opts.read_orderby_key_reverse) {
-        _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
-    } else {
-        _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
-    }
+    _reset_range_iterator();
+    _topn_read_position = _opts.read_orderby_key_reverse ? num_rows() : 0;
 
     // Reserve columns for _initial_block_row_max (the original max before any adaptive
     // prediction) because the predictor may increase block_row_max on subsequent batches
     // up to this ceiling. Using the current (possibly reduced) _opts.block_row_max would
     // cause heap-buffer-overflow if a later prediction is larger.
-    auto nrows_reserve_limit =
-            std::min(_row_bitmap.cardinality(), uint64_t(_initial_block_row_max));
+    auto nrows_reserve_limit = std::min(_row_bitmap_cardinality, uint64_t(_initial_block_row_max));
     _current_columns.resize(_schema->num_read_columns());
 
     for (size_t i = 0; i < _schema->num_read_columns(); i++) {
@@ -619,7 +649,9 @@ Status SegmentIterator::_lazy_init(Block* block) {
     // shortcut only changes how fast those default rows are produced.
     _count_emit_shortcut = _should_engage_count_emit_shortcut(block);
     if (_count_emit_shortcut) {
-        _count_emit_rows_remaining = _row_bitmap.cardinality();
+        _count_emit_rows_remaining = _row_bitmap_cardinality;
+    } else {
+        _prepare_scan_read_ahead();
     }
 
     return Status::OK();
@@ -711,6 +743,48 @@ void SegmentIterator::_init_segment_prefetchers() {
                 }
             }
         }
+    }
+}
+
+void SegmentIterator::_prepare_scan_read_ahead() {
+    if (_read_ahead_resources == nullptr || _row_bitmap.isEmpty()) {
+        return;
+    }
+    const auto prepare_columns = [&](const std::vector<ColumnId>& ordinals,
+                                     ColumnReadAheadRole role) {
+        for (ColumnId cid : ordinals) {
+            DORIS_CHECK_LT(cid, _column_iterators.size());
+            if (_no_need_read_key_data_eligible(cid) || !_need_read_data(cid)) {
+                continue;
+            }
+            auto* column_iterator = _column_iterators[cid].get();
+            DORIS_CHECK(column_iterator != nullptr);
+            const ScanReadAheadHint request {
+                    .candidate_rows = &_row_bitmap,
+                    .role = role,
+                    .reverse = _opts.read_orderby_key_reverse,
+            };
+            const auto status = column_iterator->prepare_read_ahead(request);
+            if (!status.ok()) {
+                LOG_EVERY_N(WARNING, 100)
+                        << "failed to prepare column read-ahead; use the original read path: "
+                        << status;
+            }
+        }
+    };
+
+    const bool need_predicate_eval = _is_need_vec_eval || _is_need_short_eval;
+    if (need_predicate_eval) {
+        prepare_columns(_predicate_ordinals, ColumnReadAheadRole::EAGER);
+        prepare_columns(_common_expr_ordinals, ColumnReadAheadRole::LAZY);
+    } else if (_is_need_expr_eval) {
+        prepare_columns(_common_expr_ordinals, ColumnReadAheadRole::EAGER);
+    }
+
+    if (need_predicate_eval || _is_need_expr_eval) {
+        prepare_columns(_output_ordinals, ColumnReadAheadRole::LAZY);
+    } else {
+        prepare_columns(_output_ordinals, ColumnReadAheadRole::EAGER);
     }
 }
 
@@ -834,6 +908,10 @@ static bool can_consume_candidate_rows(const VExprContextSPtr& expr_ctx) {
                 assert_cast<const VirtualSlotRef*>(root.get())->get_virtual_column_expr();
         DORIS_CHECK(virtual_expr != nullptr);
         effective_root = virtual_expr.get();
+    }
+    // A filtering SEARCH starts from the candidate rows at its root.
+    if (!root->is_virtual_slot_ref() && root->node_type() == TExprNodeType::SEARCH_EXPR) {
+        return true;
     }
     if (effective_root->node_type() != TExprNodeType::MATCH_PRED) {
         return false;
@@ -1169,6 +1247,75 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     return Status::OK();
 }
 
+void SegmentIterator::_reset_range_iterator() {
+    // TopN pruning can replace the bitmap between batches. Refresh the cached cardinality with
+    // the cursor so batch sizing does not use the larger range from before the bound arrived.
+    _row_bitmap_cardinality = _row_bitmap.cardinality();
+    if (_opts.read_orderby_key_reverse) {
+        _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
+    } else {
+        _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
+    }
+}
+
+Status SegmentIterator::_update_topn_runtime_filter_ranges() {
+    // Apply the first bound immediately and throttle later changes by raw rows read.
+    // A 40960-row delta is not enough; it must exceed the limit.
+    constexpr uint64_t update_threshold = 4096 * 10;
+    auto needs_update = [&](const TopNRuntimeFilter& filter) {
+        return filter.predicate->version() > filter.applied_version &&
+               (filter.applied_version == 0 ||
+                _topn_rows_read - filter.last_update_rows > update_threshold);
+    };
+    if (std::ranges::none_of(_topn_runtime_filters, needs_update)) {
+        return Status::OK();
+    }
+
+    SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_zonemap_ns);
+    roaring::Roaring remaining = _row_bitmap;
+    // Exclude already consumed rows BEFORE intersecting page ranges. For example, after reading
+    // [0,100), a surviving page [50,150) may only add [100,150) to the rebuilt forward iterator.
+    if (_opts.read_orderby_key_reverse) {
+        remaining.removeRange(_topn_read_position, num_rows());
+    } else {
+        remaining.removeRange(0, _topn_read_position);
+    }
+    const auto before = remaining.cardinality();
+    // The last returned batch may have exhausted the cursor before the producer publishes a
+    // tighter bound. There are no unread rows to test against page metadata in that case.
+    if (before == 0) {
+        return Status::OK();
+    }
+    for (auto& filter : _topn_runtime_filters) {
+        if (!needs_update(filter)) {
+            continue;
+        }
+        const auto snapshot = filter.predicate->snapshot();
+        DCHECK(snapshot.predicate != nullptr);
+        AndBlockColumnPredicate predicate;
+        predicate.add_column_predicate(
+                SingleColumnBlockPredicate::create_unique(snapshot.predicate));
+        RowRanges ranges = RowRanges::create_single(num_rows());
+        RETURN_IF_ERROR(
+                _column_iterators[filter.predicate->column_id()]->get_row_ranges_by_zone_map(
+                        &predicate, nullptr, &ranges));
+        remaining &= RowRanges::ranges_to_roaring(ranges);
+        filter.applied_version = snapshot.version;
+        filter.last_update_rows = _topn_rows_read;
+    }
+    const auto filtered = before - remaining.cardinality();
+    if (filtered != 0) {
+        // Roaring iterators borrow bitmap containers. Destroy the old cursor before replacing
+        // its bitmap, then bind a new cursor to the remaining rows in the same read direction.
+        _range_iter.reset();
+        _row_bitmap = std::move(remaining);
+        _reset_range_iterator();
+        _opts.stats->rows_stats_filtered += filtered;
+        _opts.stats->rows_stats_rp_filtered += filtered;
+    }
+    return Status::OK();
+}
+
 Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row_ranges) {
     std::set<int32_t> cids;
     for (auto& entry : _opts.col_id_to_predicates) {
@@ -1362,7 +1509,10 @@ Status SegmentIterator::_apply_index_expr() {
     // a compound predicate or a SEARCH, which combines its own leaf bitmaps the
     // same way, are therefore evaluated without the candidate; the top-level
     // single-predicate consumption stays exact within the candidate.
-    auto evaluate_with_candidate_policy = [&](const VExprContextSPtr& expr_ctx) {
+    // A filtering conjunct that is a SEARCH by itself still gets the candidate, at its root
+    // only: SEARCH answers two-valued, and the conjunct reads its result only within the
+    // candidate.
+    auto evaluate_with_candidate_policy = [&](const VExprContextSPtr& expr_ctx, bool filters) {
         // Earlier expression conjuncts may have crossed the engage threshold.
         // Refresh for both subsequent conjuncts and virtual-column projections.
         _refresh_candidate_pushdown();
@@ -1379,12 +1529,20 @@ Status SegmentIterator::_apply_index_expr() {
                               _index_query_context->candidate_rows != nullptr &&
                               combines_index_results(*effective_root);
         const roaring::Roaring* saved = suppress ? _index_query_context->candidate_rows : nullptr;
+        const bool search_root = suppress && filters && !root->is_virtual_slot_ref() &&
+                                 root->node_type() == TExprNodeType::SEARCH_EXPR;
         if (suppress) {
             _index_query_context->candidate_rows = nullptr;
+        }
+        if (search_root) {
+            _index_query_context->search_root_candidates = saved;
         }
         Status st = expr_ctx->evaluate_inverted_index(num_rows());
         if (suppress) {
             _index_query_context->candidate_rows = saved;
+        }
+        if (search_root) {
+            _index_query_context->search_root_candidates = nullptr;
         }
         return st;
     };
@@ -1412,7 +1570,7 @@ Status SegmentIterator::_apply_index_expr() {
         // answer approximately then knows its work will be used. The virtual column loop
         // further down consumes none, and deliberately names none.
         expr_ctx->set_approx_index_result_consumer(expr_ctx->root().get());
-        if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
+        if (Status st = evaluate_with_candidate_policy(expr_ctx, /*filters=*/true); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
             } else {
@@ -1462,7 +1620,7 @@ Status SegmentIterator::_apply_index_expr() {
             if (expr_ctx->get_index_context() == nullptr) {
                 continue;
             }
-            if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
+            if (Status st = evaluate_with_candidate_policy(expr_ctx, /*filters=*/false); !st.ok()) {
                 if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                     continue;
                 } else {
@@ -1944,6 +2102,7 @@ Status SegmentIterator::_init_column_iterators() {
                     .file_reader = _file_reader.get(),
                     .stats = _opts.stats,
                     .io_ctx = _opts.io_ctx,
+                    .read_ahead = _read_ahead_resources,
             };
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
@@ -2550,6 +2709,11 @@ Status SegmentIterator::_read_columns_by_index(const std::vector<ColumnId>& read
     SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_ns);
 
     nrows_read = (uint16_t)_range_iter->read_batch_rowids(_block_rowids.data(), nrows_read_limit);
+    if (nrows_read > 0) {
+        _topn_read_position = _opts.read_orderby_key_reverse
+                                      ? _block_rowids[0]
+                                      : uint64_t(_block_rowids[nrows_read - 1]) + 1;
+    }
     bool is_continuous = (nrows_read > 1) &&
                          (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
     VLOG_DEBUG << fmt::format(
@@ -2702,11 +2866,20 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
                 sel_rowid_idx[new_size++] = sel_pos + i;
             }
         } else {
-            simd::iterate_through_bits_mask(
-                    [&](const int bit_pos) {
-                        sel_rowid_idx[new_size++] = sel_pos + (uint16_t)bit_pos;
-                    },
-                    mask);
+#if defined(__x86_64__)
+            // Sparse masks need fewer stores with the original bit iteration.
+            if (__builtin_popcount(mask) > 2) {
+                // Fixed-width stores fit: new_size <= sel_pos and a complete SIMD block remains.
+                new_size += simd::append_selected_indices(mask, sel_pos, sel_rowid_idx + new_size);
+            } else
+#endif
+            {
+                simd::iterate_through_bits_mask(
+                        [&](const int bit_pos) {
+                            sel_rowid_idx[new_size++] = sel_pos + static_cast<uint16_t>(bit_pos);
+                        },
+                        mask);
+            }
         }
         sel_pos += SIMD_BYTES;
     }
@@ -3024,6 +3197,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     DCHECK(is_mem_reuse);
 
     RETURN_IF_ERROR(_lazy_init(block));
+    RETURN_IF_ERROR(_update_topn_runtime_filter_ranges());
 
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
 
@@ -3041,7 +3215,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
     // If the row bitmap size is smaller than nrows_read_limit, there's no need to reserve that many column rows.
     uint32_t nrows_read_limit =
-            std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), _opts.block_row_max);
+            std::min(cast_set<uint32_t>(_row_bitmap_cardinality), _opts.block_row_max);
     if (_can_opt_limit_reads()) {
         // No SegmentIterator-side conjunct remains to be evaluated, so LIMIT is equivalent before
         // and after filtering. Cap the first read directly; this is the no-conjunct fast path that
@@ -3073,6 +3247,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += _selected_size;
+    _topn_rows_read += _selected_size;
 
     if (_selected_size == 0) {
         return _process_eof(block);

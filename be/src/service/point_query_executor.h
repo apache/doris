@@ -72,8 +72,8 @@ public:
     }
 
     Status init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
-                const TQueryOptions& query_options, const TabletSchema& schema,
-                size_t block_size = 1);
+                const TQueryOptions& query_options, const std::string& timezone,
+                const TabletSchema& schema, size_t block_size = 1);
 
     std::unique_ptr<Block> get_block();
 
@@ -335,6 +335,8 @@ private:
         // rowset will be aquired during read
         // and released after used
         std::unique_ptr<RowsetSharedPtr, decltype(&release_rowset)> _rowset_ptr;
+        // Reuse the segment loaded during key lookup; release it before its acquired rowset.
+        segment_v2::SegmentSharedPtr _segment;
     };
 
     PTabletKeyLookupResponse* _response = nullptr;

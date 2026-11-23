@@ -35,8 +35,8 @@
 #include "io/file_factory.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/obj_storage_file_reader.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_reader.h"
 #include "io/io_common.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
@@ -288,7 +288,7 @@ public:
         _range_cached_data.resize(random_access_ranges.size());
         _size = _reader->size();
         _remaining = TOTAL_BUFFER_SIZE;
-        _is_oss = typeid_cast<io::S3FileReader*>(_reader.get()) != nullptr;
+        _is_oss = typeid_cast<io::ObjStorageFileReader*>(_reader.get()) != nullptr;
         _max_amplified_ratio = config::max_amplified_read_ratio;
         // Equivalent min size of each IO that can reach the maximum storage speed limit:
         // 1MB for oss, 8KB for hdfs
@@ -469,6 +469,11 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     io::FileReaderSPtr _reader;
     std::shared_ptr<const IOContext> _io_ctx_holder;
     const IOContext* _io_ctx = nullptr;
+    // Only the worker writes these statistics. The consumer merges them after observing
+    // completion under _lock, before reusing or closing the buffer.
+    IOContext _prefetch_io_ctx;
+    FileCacheStatistics _file_cache_stats;
+    bool _has_unmerged_cache_stats = false;
     PODArray<char> _buf;
     BufferStatus _buffer_status {BufferStatus::RESET};
     std::mutex _lock;
@@ -515,6 +520,9 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     void _collect_profile_at_runtime() override {}
 
     void _collect_profile_before_close() override;
+
+private:
+    void _merge_file_cache_stats();
 };
 
 constexpr int64_t s_max_pre_buffer_size = 4 * 1024 * 1024; // 4MB

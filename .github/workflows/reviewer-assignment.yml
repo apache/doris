@@ -1,0 +1,409 @@
+name: Assign Reviewer Candidates
+
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to classify without changing assignees, comments or labels
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# Keep every pending label event and serialize reviewer-assignment runs.
+# A new labeled event has a new run ID, even when reviewers-assigned already exists.
+concurrency:
+  group: reviewer-assignment-${{ github.repository }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  select:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.label.name == 'need-reviewers' && github.event.pull_request.state == 'open')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # pull_request_target defaults to trusted base code. Never check out the PR head.
+      - name: Checkout trusted routing tools
+        timeout-minutes: 2
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+            .github/workflows
+            tools/reviewer-routing
+
+      - name: Check the assignment helper
+        timeout-minutes: 1
+        run: |
+          python3 tools/reviewer-routing/routing_config.py --check
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+            -s .github/scripts -p 'test_reviewer_assignment*.py'
+
+      - name: Prepare authoritative PR data
+        id: prepare
+        timeout-minutes: 15
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_GITHUB_DIAGNOSTICS_DIR: ${{ runner.temp }}/reviewer-assignment-diagnostics/github
+        run: |
+          assignment_workspace="$RUNNER_TEMP/reviewer-assignment-workspace"
+          python3 .github/scripts/reviewer_assignment.py prepare --workspace "$assignment_workspace"
+          echo "ASSIGNMENT_WORKSPACE=$assignment_workspace" >> "$GITHUB_ENV"
+
+      - name: Install ossutil
+        if: steps.prepare.outputs.reuse_selection != 'true'
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          package_dir="$(mktemp -d)"
+          trap 'rm -rf "$package_dir"' EXIT
+          curl -fsSL -o "$package_dir/ossutil.zip" https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil-v1.7.19-linux-amd64.zip
+          unzip -q "$package_dir/ossutil.zip" -d "$package_dir"
+          sudo install -m 0755 "$package_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
+
+      - name: Install the pinned Codex package
+        if: steps.prepare.outputs.reuse_selection != 'true'
+        timeout-minutes: 4
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/codex-exec-goal.tar.gz"
+          package="$RUNNER_TEMP/codex-exec-goal"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
+            oss://doris-community-ci/codex/releases/codex-exec-goal-0.166.0-217b6e00e031-x86_64-unknown-linux-gnu.tar.gz "$archive"
+          echo "19fe4ad3224b4c1bfb90952fd2054b63029bb9ffab6b9e8db3269039193f071c  $archive" | sha256sum --check
+          mkdir -p "$package"
+          tar -xzf "$archive" -C "$package"
+          (cd "$package" && sha256sum --check SHA256SUMS)
+          test "$(jq -r .version "$package/codex-package.json")" = 0.166.0
+          echo "9346ee98398cb7240702e45eed4cbe38c7fb990d9e031dba4e7525383c415deb  $package/bin/codex" | sha256sum --check
+          "$package/bin/codex" exec --help | grep -q -- '--output-schema'
+          echo "CODEX_ASSIGNMENT_BIN=$package/bin/codex" >> "$GITHUB_ENV"
+          echo "$package/codex-path" >> "$GITHUB_PATH"
+
+      - name: Configure Codex auth
+        id: auth
+        if: steps.prepare.outputs.reuse_selection != 'true'
+        timeout-minutes: 5
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+        run: |
+          set -euo pipefail
+          umask 077
+
+          install -m 700 -d "$RUNNER_TEMP/codex-home"
+          printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
+
+          auth_prefix='oss://doris-community-ci/codex/auth.json.'
+          auth_listing="$(mktemp "$RUNNER_TEMP/codex-auth-objects.XXXXXX")"
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" ls "$auth_prefix" -s > "$auth_listing"; then
+            auth_failure_reason="Failed to list Codex review auth objects from OSS."
+            echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
+            echo "::error::$auth_failure_reason"
+            exit 1
+          fi
+
+          auth_candidates="$(mktemp "$RUNNER_TEMP/codex-auth-candidates.XXXXXX")"
+          awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/auth\.json\.[0-9]+$/ { print }' \
+            "$auth_listing" > "$auth_candidates"
+          if [ ! -s "$auth_candidates" ]; then
+            auth_failure_reason="No numbered Codex review auth objects were found in OSS."
+            echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
+            echo "::error::$auth_failure_reason"
+            exit 1
+          fi
+
+          auth_object=""
+          earliest_retry_after_epoch=""
+          now_epoch="$(date +%s)"
+          while IFS= read -r candidate; do
+            context_file="$(mktemp "$RUNNER_TEMP/codex-auth-context.XXXXXX")"
+            if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+              cp -f "${candidate}.context" "$context_file" >/dev/null 2>&1; then
+              if raw_retry_after_epoch="$(jq -ser '
+                select(length == 1)
+                | .[0]
+                | select(type == "object"
+                    and .version == 1
+                    and .state == "usage_limited"
+                    and (.retry_after_epoch | type == "number" and floor == .))
+                | .retry_after_epoch
+              ' "$context_file" 2>/dev/null)" && \
+                 retry_after_epoch="$(date -u -d "@$raw_retry_after_epoch" +%s 2>/dev/null)"; then
+                if [ "$retry_after_epoch" -gt "$now_epoch" ]; then
+                  retry_at="$(date -u -d "@$retry_after_epoch" +%Y-%m-%dT%H:%M:%SZ)"
+                  echo "Skipping usage-limited Codex auth ${candidate##*/} until $retry_at."
+                  if [ -z "$earliest_retry_after_epoch" ] || \
+                     [ "$retry_after_epoch" -lt "$earliest_retry_after_epoch" ]; then
+                    earliest_retry_after_epoch="$retry_after_epoch"
+                  fi
+                  continue
+                fi
+              else
+                echo "::warning::Ignoring unusable Codex auth context for ${candidate##*/}; the account remains eligible."
+              fi
+            fi
+
+            candidate_auth="$(mktemp "$RUNNER_TEMP/codex-home/candidate-auth.XXXXXX")"
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$candidate" "$candidate_auth"
+            jq -e '
+              .auth_mode == "chatgpt"
+              and (.tokens.access_token | type == "string" and length > 0)
+              and (.tokens.refresh_token | type == "string" and length > 0)
+            ' "$candidate_auth" >/dev/null
+            refresh_token_hash="$(jq -rj '.tokens.refresh_token' "$candidate_auth" | sha256sum | awk '{print $1}')"
+
+            # Quarantine the refresh token, not the slot or the entire auth file:
+            # replacing the token restores eligibility; changing metadata does not.
+            invalid_object="${candidate}.invalid.${refresh_token_hash}"
+            invalid_listing="$(mktemp "$RUNNER_TEMP/codex-auth-invalid.XXXXXX")"
+            if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+              ls "$invalid_object" -s > "$invalid_listing"; then
+              auth_failure_reason="Failed to check invalid-token marker for ${candidate##*/}."
+              echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
+              echo "::error::$auth_failure_reason"
+              exit 1
+            fi
+            if grep -Fxq "$invalid_object" "$invalid_listing"; then
+              echo "Skipping Codex auth ${candidate##*/}: refresh token is marked invalid."
+              rm -f "$candidate_auth"
+              continue
+            fi
+
+            auth_object="$candidate"
+            # Use the checked snapshot; downloading it again could select a different token.
+            mv "$candidate_auth" "$RUNNER_TEMP/codex-home/auth.json"
+            printf '%s\n' "$refresh_token_hash" > "$RUNNER_TEMP/codex-auth-refresh-token.sha256"
+            break
+          done < <(shuf "$auth_candidates")
+
+          if [ -z "$auth_object" ]; then
+            auth_failure_reason="No eligible Codex review credentials: all are usage-limited or have an invalid refresh token."
+            if [ -n "$earliest_retry_after_epoch" ]; then
+              retry_at="$(date -u -d "@$earliest_retry_after_epoch" +%Y-%m-%dT%H:%M:%SZ)"
+              auth_failure_reason="$auth_failure_reason Earliest usage-limit retry is $retry_at."
+            fi
+            auth_failure_reason="$auth_failure_reason Credentials with invalid refresh tokens must be replaced."
+            echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
+            echo "::error::$auth_failure_reason"
+            exit 1
+          fi
+
+          printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$auth_object" >> "$GITHUB_ENV"
+          echo "Selected Codex auth object: ${auth_object##*/}"
+          chmod 600 "$RUNNER_TEMP/codex-home/auth.json"
+          sha256sum "$RUNNER_TEMP/codex-home/auth.json" \
+            | awk '{print $1}' \
+            > "$RUNNER_TEMP/codex-auth-original.sha256"
+
+          cat > "$RUNNER_TEMP/codex-home/config.toml" <<'EOF'
+          cli_auth_credentials_store = "file"
+          approval_policy = "never"
+          [shell_environment_policy]
+          inherit = "none"
+          EOF
+          chmod 600 "$RUNNER_TEMP/codex-home/config.toml"
+          while IFS= read -r token_value; do
+            echo "::add-mask::$token_value"
+          done < <(jq -r '.tokens | .access_token, .refresh_token, (.id_token // empty)' "$RUNNER_TEMP/codex-home/auth.json")
+
+      - name: Enable the read-only Codex sandbox on Ubuntu
+        if: steps.prepare.outputs.reuse_selection != 'true'
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y bubblewrap apparmor-profiles apparmor-utils
+          sudo install -m 0644 /usr/share/apparmor/extra-profiles/bwrap-userns-restrict \
+            /etc/apparmor.d/bwrap-userns-restrict
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
+          bwrap --unshare-user --ro-bind / / -- /usr/bin/true
+
+      - name: Ask Codex to identify at most two modules
+        id: codex
+        if: steps.prepare.outputs.reuse_selection != 'true'
+        timeout-minutes: 9
+        run: |
+          python3 .github/scripts/reviewer_assignment_model.py \
+            --workspace "$ASSIGNMENT_WORKSPACE" \
+            --codex "$CODEX_ASSIGNMENT_BIN" \
+            --output-dir "$RUNNER_TEMP"
+
+      - name: Summarize Codex usage
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CODEX_STEP_OUTCOME: ${{ steps.codex.outcome }}
+          CODEX_ELAPSED_SECONDS: ${{ steps.codex.outputs.elapsed_seconds }}
+          CODEX_EXIT_CODE: ${{ steps.codex.outputs.exit_code }}
+          REUSE_SELECTION: ${{ steps.prepare.outputs.reuse_selection }}
+        run: |
+          python3 .github/scripts/reviewer_assignment_usage.py \
+            --events "$RUNNER_TEMP/reviewer-assignment-codex.jsonl" \
+            --output "$RUNNER_TEMP/reviewer-assignment-metrics/usage.json" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish Codex usage metrics
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewer-assignment-usage
+          path: ${{ runner.temp }}/reviewer-assignment-metrics/usage.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Sync refreshed Codex auth
+        if: always() && steps.auth.outcome == 'success'
+        timeout-minutes: 8
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+        run: |
+          set -o pipefail
+
+          if ! jq -e '
+            .auth_mode == "chatgpt"
+            and (.tokens.access_token | type == "string" and length > 0)
+            and (.tokens.refresh_token | type == "string" and length > 0)
+          ' "$CODEX_HOME/auth.json" >/dev/null; then
+            echo "::error::Refreshed Codex auth is invalid; refusing OSS auth sync."
+            exit 1
+          fi
+
+          original_hash="$(<"$RUNNER_TEMP/codex-auth-original.sha256")"
+          local_hash="$(sha256sum "$CODEX_HOME/auth.json" | awk '{print $1}')"
+          if [ "$local_hash" = "$original_hash" ]; then
+            echo "Codex auth was not refreshed; skipping OSS auth sync."
+            exit 0
+          fi
+
+          umask 077
+          remote_auth="$(mktemp "$RUNNER_TEMP/codex-auth-current.XXXXXX")"
+          trap 'rm -f "$remote_auth" "${remote_auth}.temp"' EXIT
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+            --retry-times=3 --connect-timeout=10 --read-timeout=30 \
+            cp -f "$CODEX_AUTH_OSS_OBJECT" "$remote_auth"; then
+            echo "::error::Could not verify the current OSS auth after 3 attempts."
+            exit 1
+          fi
+
+          remote_hash="$(sha256sum "$remote_auth" | awk '{print $1}')"
+          if [ "$remote_hash" != "$original_hash" ]; then
+            echo "::warning::OSS auth changed during this job; skipping stale auth sync."
+            exit 0
+          fi
+
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+            --retry-times=3 --connect-timeout=10 --read-timeout=30 \
+            cp -f "$CODEX_HOME/auth.json" "$CODEX_AUTH_OSS_OBJECT"; then
+            echo "::error::Could not persist the refreshed Codex auth after 3 attempts."
+            exit 1
+          fi
+          echo "Uploaded refreshed Codex auth: ${CODEX_AUTH_OSS_OBJECT##*/}"
+
+      - name: Randomly sample and validate reviewer IDs
+        timeout-minutes: 1
+        run: |
+          python3 .github/scripts/reviewer_assignment.py validate --workspace "$ASSIGNMENT_WORKSPACE"
+
+      - name: Collect reviewer selection diagnostics
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          REUSE_SELECTION: ${{ steps.prepare.outputs.reuse_selection }}
+        run: |
+          python3 .github/scripts/reviewer_assignment_diagnostics.py \
+            --workspace "$RUNNER_TEMP/reviewer-assignment-workspace" \
+            --events "$RUNNER_TEMP/reviewer-assignment-codex.jsonl" \
+            --stderr "$RUNNER_TEMP/reviewer-assignment-codex.stderr" \
+            --version "$RUNNER_TEMP/reviewer-assignment-codex.version" \
+            --output "$RUNNER_TEMP/reviewer-assignment-diagnostics/selection.json"
+
+      - name: Publish reviewer selection diagnostics
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewer-assignment-diagnostics-select-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/reviewer-assignment-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Publish the validated assignment plan
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewer-assignment-plan
+          path: |
+            ${{ runner.temp }}/reviewer-assignment-workspace/context.json
+            ${{ runner.temp }}/reviewer-assignment-workspace/selection.json
+          if-no-files-found: error
+          retention-days: 7
+
+  assign:
+    needs: select
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout trusted assignment helper
+        timeout-minutes: 2
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+            tools/reviewer-routing
+
+      - name: Download the validated assignment plan
+        timeout-minutes: 2
+        uses: actions/download-artifact@v4
+        with:
+          name: reviewer-assignment-plan
+          path: ${{ runner.temp }}/reviewer-assignment-plan
+
+      - name: Add assignees, post mentions and finalize labels
+        timeout-minutes: 6
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_GITHUB_DIAGNOSTICS_DIR: ${{ runner.temp }}/reviewer-assignment-diagnostics/github
+        run: |
+          python3 .github/scripts/reviewer_assignment.py apply \
+            --workspace "$RUNNER_TEMP/reviewer-assignment-plan"
+
+      - name: Publish assignment API diagnostics
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewer-assignment-diagnostics-assign-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/reviewer-assignment-diagnostics/github/*.json
+          if-no-files-found: ignore
+          retention-days: 7

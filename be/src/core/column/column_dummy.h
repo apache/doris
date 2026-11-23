@@ -145,8 +145,6 @@ public:
         for (size_t i = begin; i < end; ++i) res->insert_from(*this, selector[i]);
     }
 
-    void addSize(size_t delta) { s += delta; }
-
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "should not call the method in column dummy");

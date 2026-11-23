@@ -895,7 +895,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
      * Default is false; only operators that truly need hash for correctness override
      * (finalize AggSink with group keys, HashJoin PARTITIONED/BUCKET_SHUFFLE, Intersect,
      * Except, analytic SortNode, partition-by AnalyticEvalNode).  Operators that request
-     * hash for performance only (StreamingAgg pre-agg with enable_local_exchange_before_agg)
+     * hash for performance only (the pre-aggregations: StreamingAgg with
+     * enable_local_exchange_before_streaming_agg, the LOCAL phase of AggSink with
+     * enable_local_exchange_before_agg)
      * MUST NOT override — that would cause SetOperationNode to over-insert HASH LE on
      * every union branch even when nothing downstream actually needs correctness shuffling.
      *

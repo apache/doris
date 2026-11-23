@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -110,6 +111,8 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 catalogRelation.withRelationId(StatementScopeIdGenerator.newRelationId());
         if (context.shouldInvalidatePartitionPruning() && newRelation instanceof LogicalOlapScan) {
             newRelation = ((LogicalOlapScan) newRelation).withPartitionPruned(false);
+        } else if (context.shouldInvalidatePartitionPruning() && newRelation instanceof LogicalFileScan) {
+            newRelation = ((LogicalFileScan) newRelation).withPartitionPruned(false);
         }
         updateReplaceMapWithOutput(catalogRelation, newRelation, context.exprIdReplaceMap);
         if (!catalogRelation.getVirtualColumns().isEmpty()) {

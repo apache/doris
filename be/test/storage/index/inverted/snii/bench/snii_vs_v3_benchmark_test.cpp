@@ -102,7 +102,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_manager.h"
@@ -168,7 +168,7 @@ const std::vector<QueryCase> kQueryCases = {
 };
 
 // Which storage the rowset lives on. Local is the fast iteration loop; RemoteS3 is the shape a
-// real deployment has -- S3FileSystem -> CachedRemoteFileReader -> BlockFileCache -> query -- and is
+// real deployment has -- ObjStorageFileSystem -> CachedRemoteFileReader -> BlockFileCache -> query -- and is
 // the only mode where the read-amplification counters mean anything.
 enum class IoMode { kLocal, kRemoteS3 };
 
@@ -550,7 +550,7 @@ protected:
             ExecEnv::GetInstance()->_file_cache_factory = _origin_file_cache_factory;
             _origin_file_cache_factory_saved = false;
             // Deliberately leaked, never destroyed. FileWriter::init_cache_builder hands the S3
-            // write path a raw BlockFileCache* (file_writer.h), and S3FileWriter fills the cache
+            // write path a raw BlockFileCache* (file_writer.h), and ObjStorageFileWriter fills the cache
             // from its upload threads -- its own comment notes the writer may already be gone by
             // then. The cache's own GC/monitor threads are likewise only stopped by ~BlockFileCache.
             // In a real BE the factory is a process-lifetime singleton so none of that can dangle;
@@ -715,7 +715,7 @@ protected:
                 std::cout << "  reuse: RowsetMeta::init failed, re-importing" << std::endl;
                 return false;
             }
-            // The S3FileSystem object is rebuilt every run; the meta only carries a resource id,
+            // The ObjStorageFileSystem object is rebuilt every run; the meta only carries a resource id,
             // so rebind it or every read would go through a null filesystem.
             if (storage_resource.has_value()) {
                 meta->set_remote_storage_resource(*storage_resource);
@@ -848,7 +848,7 @@ protected:
         ASSERT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     }
 
-    // Stand up the real deployment chain: S3FileSystem -> CachedRemoteFileReader -> BlockFileCache.
+    // Stand up the real deployment chain: ObjStorageFileSystem -> CachedRemoteFileReader -> BlockFileCache.
     // Credentials come from the environment so they never live in the source tree; the endpoint is
     // a real S3 service, so this measures genuine remote behaviour rather than a local stand-in.
     // Returns false (and skips) when the environment is not configured.
@@ -957,7 +957,7 @@ protected:
             }
         }
 
-        if (ExecEnv::GetInstance()->s3_file_upload_thread_pool() == nullptr) {
+        if (ExecEnv::GetInstance()->obj_storage_upload_thread_pool() == nullptr) {
             std::unique_ptr<ThreadPool> pool;
             if (!ThreadPoolBuilder("snii_bench_s3_upload")
                          .set_min_threads(1)
@@ -966,22 +966,23 @@ protected:
                          .ok()) {
                 return false;
             }
-            ExecEnv::GetInstance()->_s3_file_upload_thread_pool = std::move(pool);
+            ExecEnv::GetInstance()->_obj_storage_upload_thread_pool = std::move(pool);
         }
 
-        S3Conf s3_conf;
-        s3_conf.client_conf.ak = ak;
-        s3_conf.client_conf.sk = sk;
-        s3_conf.client_conf.endpoint = endpoint;
-        s3_conf.client_conf.region = region;
-        s3_conf.bucket = bucket;
+        ObjStorageResourceConfig s3_conf {
+                .bucket = bucket,
+                .client = AwsObjStorageConfig {
+                        .connection = {.endpoint = endpoint},
+                        .auth = {.source = AccessKeyObjStorageAuth {.access_key = ak,
+                                                                    .secret_key = sk}},
+                        .region = region}};
         // A per-pid prefix cannot be reused across runs, so reuse mode pins a stable one. It is
         // also why teardown must not delete it -- see _teardown_remote.
         s3_conf.prefix = _reuse_rowsets() ? std::string(kS3Prefix) + "reuse"
                                           : kS3Prefix + std::to_string(::getpid());
         _reuse_bucket = bucket;
         _reuse_prefix = s3_conf.prefix;
-        auto fs = io::S3FileSystem::create(std::move(s3_conf), "snii-bench-s3-fs");
+        auto fs = io::ObjStorageFileSystem::create(std::move(s3_conf), "snii-bench-s3-fs");
         if (!fs.has_value()) {
             std::cout << "  S3FileSystem::create failed: " << fs.error() << std::endl;
             return false;
@@ -1160,7 +1161,7 @@ protected:
                 io_mode == IoMode::kRemoteS3 && policy == BenchCachePolicy::kWriteBack;
         const bool local_warm = io_mode == IoMode::kLocal;
         // Held for the whole run so load, compaction and query all see the same policy. With the
-        // cache off, S3FileSystem hands out a plain reader instead of a CachedRemoteFileReader, so
+        // cache off, ObjStorageFileSystem hands out a plain reader instead of a CachedRemoteFileReader, so
         // every read is a real GET.
         const bool saved_enable_file_cache = config::enable_file_cache;
         config::enable_file_cache = write_back;
@@ -1178,7 +1179,7 @@ protected:
         }
 
         std::cout << "  rows per segment: " << _rows_per_segment() << std::endl;
-        // --- Phase 1: load + build the index ---
+        // Load data and build the index.
         std::optional<StorageResource> storage_resource;
         if (io_mode == IoMode::kRemoteS3) {
             storage_resource = StorageResource(_remote_fs);
@@ -1204,15 +1205,7 @@ protected:
             }
         }
 
-        // --- Phase 2: index compaction ---
-        // Cloud load leaves the file cache warm for the data it just wrote (write_file_cache above),
-        // so compaction there reads local SSD rather than S3. The S3 upload path fills the cache
-        // asynchronously, so drain it before timing compaction, otherwise the first compaction read
-        // races the upload and still goes to S3.
-        // Reuse skips the load, so there is nothing to populate the cache with -- this checks a
-        // property of an import that did not run. The cold query clears the cache before every
-        // iteration regardless, so its measurement is unaffected (proven: every deterministic
-        // counter is identical between an importing run and a reusing one).
+        // Time index compaction after the asynchronous cache upload finishes. Reused indexes skip cache warmup because they did not run the load step.
         if (write_back && !reused) {
             const int64_t cached = _cache_dir_bytes();
             std::cout << "  load populated file cache with " << cached - cache_bytes_before_load
@@ -1271,7 +1264,7 @@ protected:
             result.index_bytes = -1;
         }
 
-        // --- Phase 3: cold match_phrase_prefix ---
+        // Measure cold match_phrase_prefix queries.
         std::vector<double> cpu_samples;
         std::vector<double> wall_samples;
         result.profile_iterations = query_iterations;
@@ -1358,10 +1351,7 @@ protected:
         result.cold_wall_min = result.cold_wall_samples.front();
         result.cold_wall_max = result.cold_wall_samples.back();
 
-        // --- Phase 3b: hot query ---
-        // The cold pass above ended by pulling everything it touched into the active cache layer.
-        // Repeating the same queries without dropping anything measures the steady state: the
-        // block cache for remote write-back, or the OS page cache for a local run.
+        // Repeat queries against the warm cache to measure steady-state latency.
         if (write_back || local_warm) {
             std::vector<double> hot_cpu;
             std::vector<double> hot_wall;
@@ -1873,7 +1863,7 @@ protected:
     std::unique_ptr<segment_v2::InvertedIndexQueryCache> _query_cache;
     segment_v2::InvertedIndexSearcherCache* _previous_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _previous_query_cache = nullptr;
-    std::shared_ptr<io::S3FileSystem> _remote_fs;
+    std::shared_ptr<io::ObjStorageFileSystem> _remote_fs;
     std::unique_ptr<io::FileCacheFactory> _owned_file_cache_factory;
     io::FileCacheFactory* _origin_file_cache_factory = nullptr;
     bool _origin_file_cache_factory_saved = false;

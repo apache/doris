@@ -63,6 +63,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -92,6 +93,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     // record the table update time, like insert/alter/delete
     protected volatile long updateTime = 0;
+    // Fences missing-table responses across the full metadata refresh interval.
+    private transient volatile long metadataRefreshGeneration;
+    // Guarded by catalog. Refreshes may overlap without holding the monitor across provider IO.
+    private transient int activeMetadataRefreshes;
 
     protected long dbId;
     protected boolean objectCreated;
@@ -338,6 +343,33 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         this.updateTime = updateTime;
     }
 
+    public long getMetadataRefreshGeneration() {
+        return metadataRefreshGeneration;
+    }
+
+    /** Only an idle metadata generation can authorize later missing-table cleanup. */
+    public OptionalLong observeMetadataRefreshGeneration() {
+        synchronized (catalog) {
+            return activeMetadataRefreshes == 0
+                    ? OptionalLong.of(metadataRefreshGeneration) : OptionalLong.empty();
+        }
+    }
+
+    /** Ordered with guarded cleanup; the caller releases this fence in its outermost finally. */
+    public void beginMetadataRefresh() {
+        synchronized (catalog) {
+            activeMetadataRefreshes++;
+            metadataRefreshGeneration++;
+        }
+    }
+
+    public void endMetadataRefresh() {
+        synchronized (catalog) {
+            activeMetadataRefreshes--;
+            metadataRefreshGeneration++;
+        }
+    }
+
     @Override
     public long getLastCheckTime() {
         return 0;
@@ -540,9 +572,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     /**
      * Cross-query cache of the pre-built {@link SortedPartitionRanges} for binary-search partition
-     * pruning. Tables that implement {@link SupportBinarySearchFilteringPartitions} (external MVCC:
-     * iceberg/paimon) route through the shared {@link NereidsSortedPartitionsCacheManager}, keyed by the
-     * pinned connector snapshot; others return empty (the caller falls back to building ranges fresh).
+     * pruning. The default implementation delegates tables implementing
+     * {@link SupportBinarySearchFilteringPartitions} to {@link NereidsSortedPartitionsCacheManager}.
+     * Plugin MVCC tables override this to return the index owned by their pinned partition view;
+     * other tables return empty (the caller falls back to building ranges fresh).
      *
      * @param scan the catalog relation
      * @return sorted partition ranges, or empty if not supported

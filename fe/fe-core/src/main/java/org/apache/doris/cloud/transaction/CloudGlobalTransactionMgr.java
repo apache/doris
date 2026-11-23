@@ -29,6 +29,9 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.TableStreamManager;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
@@ -68,6 +71,9 @@ import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockRequest;
 import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockResponse;
 import org.apache.doris.cloud.proto.Cloud.SubTxnInfo;
 import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
+import org.apache.doris.cloud.proto.Cloud.TableStreamIdentityPB;
+import org.apache.doris.cloud.proto.Cloud.TableStreamPartitionUpdatePB;
+import org.apache.doris.cloud.proto.Cloud.TableStreamUpdatePB;
 import org.apache.doris.cloud.proto.Cloud.TabletIndexPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
@@ -536,6 +542,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         long dbId = commitTxnResponse.getTxnInfo().getDbId();
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();
         // 1. update rowCountfor AnalysisManager
+        // The partitions the rows were loaded into are handed over as well: a report can arrive after those
+        // partitions are gone (a stream load queues its statistics report and can return before the frontend
+        // received it, and a whole table TRUNCATE replaces the partitions while it keeps the table id), and the
+        // rows of such a report are the rows which were removed.
+        Map<Long, List<Long>> reportedPartitions = Maps.newHashMap();
+        for (int idx = 0; idx < commitTxnResponse.getPartitionIdsCount(); ++idx) {
+            reportedPartitions.computeIfAbsent(commitTxnResponse.getTableIds(idx), tableId -> Lists.newArrayList())
+                    .add(commitTxnResponse.getPartitionIds(idx));
+        }
         Map<Long, Long> updatedRows = new HashMap<>();
         for (TableStatsPB tableStats : commitTxnResponse.getTableStatsList()) {
             if (tableStats.hasUpdatedRowCount()) {
@@ -545,7 +560,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
         Env env = Env.getCurrentEnv();
-        env.getAnalysisManager().updateUpdatedRows(updatedRows);
+        env.getAnalysisManager().updateUpdatedRows(updatedRows, dbId, reportedPartitions);
         // 2. update table and partition version
         Map<Long, List<Long>> tablePartitionMap = updateVersion(commitTxnResponse);
         // 3. notify partition first load
@@ -823,6 +838,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         long callbackId = 0L;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
+        prepareStreamUpdates(builder);
         try {
             txnState = commitTxn(builder, tableList, transactionId, is2PC, tabletCommitInfos, tabletIds);
             txnOperated = true;
@@ -860,6 +876,26 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (commitCostTimeStatisticMap.containsKey(transactionId)) {
                 commitCostTimeStatisticMap.get(transactionId).setCommitToMsCostTimeMs(costTime);
             }
+        }
+    }
+
+    private static void prepareStreamUpdates(CommitTxnRequest.Builder builder) {
+        TableStreamManager manager = Env.getCurrentEnv().getTableStreamManager();
+        for (int i = 0; i < builder.getTableStreamUpdatesCount(); i++) {
+            TableStreamUpdatePB update = builder.getTableStreamUpdates(i);
+            Map<Long, Long> offsets = update.getPartitionUpdatesList().stream()
+                    .collect(Collectors.toMap(TableStreamPartitionUpdatePB::getPartitionId,
+                            TableStreamPartitionUpdatePB::getNextOffsetTso));
+            TableStreamIdentityPB identity = update.getIdentity();
+            OlapTableStreamUpdate next = manager.prepareStreamUpdate(
+                    identity.getStreamDbId(), identity.getStreamId(), offsets);
+            TableStreamUpdatePB.Builder serialized = update.toBuilder();
+            for (TableStreamPartitionUpdatePB.Builder partition : serialized.getPartitionUpdatesBuilderList()) {
+                PartitionStreamState state = next.getPartitionUpdates().get(partition.getPartitionId()).getNextState();
+                partition.setBaseRowCount(state.getBaseRowCount());
+                partition.setChangelogRowCount(state.getChangelogRowCount());
+            }
+            builder.setTableStreamUpdates(i, serialized);
         }
     }
 

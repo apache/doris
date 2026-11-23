@@ -517,7 +517,7 @@ private:
     // Return 1 if the versioned delete bitmap should be deleted,
     // Return 0 if it can be skipped,
     // negative on error.
-    int should_delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id);
+    int may_have_versioned_delete_bitmap(int64_t partition_id, int64_t tablet_id);
 
     int delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id,
                                            const std::string& rowset_id);

@@ -651,12 +651,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        QuerySource query_source, const FinishCallback& cb,
                                        const TPipelineFragmentParamsList& parent,
                                        std::shared_ptr<bool> is_prepare_success) {
-    VLOG_ROW << "Query: " << print_id(params.query_id) << " exec_plan_fragment params is "
-             << apache::thrift::ThriftDebugString(params).c_str();
-    // sometimes TPipelineFragmentParams debug string is too long and glog
-    // will truncate the log line, so print query options seperately for debuggin purpose
-    VLOG_ROW << "Query: " << print_id(params.query_id) << "query options is "
-             << apache::thrift::ThriftDebugString(params.query_options).c_str();
+    VLOG_ROW << "exec_plan_fragment " << print_fragment_params_summary(params);
 
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_or_create_query_ctx(params, parent, query_source, query_ctx));
@@ -1074,8 +1069,8 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     RETURN_IF_ERROR(_build_external_scan_selected_columns(t_query_plan_info.plan_fragment,
                                                           *desc_tbl, selected_columns));
 
-    VLOG_QUERY << "BackendService execute open()  TQueryPlanInfo: "
-               << apache::thrift::ThriftDebugString(t_query_plan_info);
+    VLOG_QUERY << "BackendService execute open() query_id=" << print_id(query_id)
+               << ", fragment_instance_id=" << print_id(fragment_instance_id);
     // assign the param used to execute PlanFragment
     TPipelineFragmentParams exec_fragment_params;
     exec_fragment_params.protocol_version = (PaloInternalServiceVersion::type)0;
@@ -1131,8 +1126,8 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     query_options.query_type = TQueryType::EXTERNAL;
     query_options.be_exec_version = BeExecVersionManager::get_newest_version();
     exec_fragment_params.__set_query_options(query_options);
-    VLOG_ROW << "external exec_plan_fragment params is "
-             << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();
+    VLOG_ROW << "external exec_plan_fragment "
+             << print_fragment_params_summary(exec_fragment_params);
 
     TPipelineFragmentParamsList mocked;
     return exec_plan_fragment(exec_fragment_params, QuerySource::EXTERNAL_CONNECTOR, mocked);

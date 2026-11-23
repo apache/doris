@@ -83,6 +83,13 @@ TEST(TabletMetaTest, SaveAsBufferAndParse) {
     }
 }
 
+TEST(TabletMetaTest, PreserveLz4hcCompressionType) {
+    TabletMeta tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                           TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4HC);
+
+    EXPECT_EQ(segment_v2::LZ4HC, tablet_meta.tablet_schema()->compression_type());
+}
+
 TEST(TabletMetaTest, ChangelogTtlMetadataRoundTrip) {
     TabletMeta tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
                            TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);

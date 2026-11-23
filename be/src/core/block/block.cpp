@@ -151,6 +151,7 @@ Status Block::deserialize(const PBlock& pblock, size_t* uncompressed_bytes,
     RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(be_exec_version));
 
     const char* buf = nullptr;
+    const char* buf_end = nullptr;
     std::string compression_scratch;
     if (pblock.compressed()) {
         // Decompress
@@ -167,20 +168,29 @@ Status Block::deserialize(const PBlock& pblock, size_t* uncompressed_bytes,
             Slice decompressed_slice(compression_scratch);
             RETURN_IF_ERROR(codec->decompress(Slice(compressed_data, compressed_size),
                                               &decompressed_slice));
-            DCHECK(uncompressed_size == decompressed_slice.size);
+            if (decompressed_slice.size != uncompressed_size) {
+                return Status::Corruption("Decompressed block size mismatch: expected {}, got {}",
+                                          uncompressed_size, decompressed_slice.size);
+            }
         } else {
             bool success = snappy::GetUncompressedLength(compressed_data, compressed_size,
                                                          &uncompressed_size);
-            DCHECK(success) << "snappy::GetUncompressedLength failed";
+            if (!success) {
+                return Status::Corruption("snappy::GetUncompressedLength failed");
+            }
             compression_scratch.resize(uncompressed_size);
             success = snappy::RawUncompress(compressed_data, compressed_size,
                                             compression_scratch.data());
-            DCHECK(success) << "snappy::RawUncompress failed";
+            if (!success) {
+                return Status::Corruption("snappy::RawUncompress failed");
+            }
         }
         *uncompressed_bytes = uncompressed_size;
         buf = compression_scratch.data();
+        buf_end = buf + compression_scratch.size();
     } else {
         buf = pblock.column_values().data();
+        buf_end = buf + pblock.column_values().size();
     }
 
     for (const auto& pcol_meta : pblock.column_metas()) {
@@ -188,7 +198,10 @@ Status Block::deserialize(const PBlock& pblock, size_t* uncompressed_bytes,
         MutableColumnPtr data_column = type->create_column();
         // Here will try to allocate large memory, should return error if failed.
         RETURN_IF_CATCH_EXCEPTION(
-                buf = type->deserialize(buf, &data_column, pblock.be_exec_version()));
+                buf = type->deserialize(buf, buf_end, &data_column, pblock.be_exec_version()));
+        if (buf == nullptr || buf > buf_end) {
+            return Status::Corruption("Column deserializer advanced beyond the input buffer");
+        }
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
 
@@ -985,8 +998,9 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
     if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         const auto& nested_column = nullable_column->get_nested_column_ptr();
 
+        // Another block can own the same nullable wrapper without increasing the nested count.
         MutableColumnPtr mutable_holder =
-                nested_column->use_count() == 1
+                nullable_column->is_exclusive()
                         ? nested_column->assert_mutable()
                         : nested_column->clone_resized(nested_column->size());
 
