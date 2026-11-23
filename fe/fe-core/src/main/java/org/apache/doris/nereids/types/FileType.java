@@ -28,7 +28,7 @@ import java.util.Locale;
 import java.util.Optional;
 
 /** The logical FILE leaf; its fixed physical children do not add SQL nesting depth. */
-public final class FileType extends DataType implements ComplexDataType, NestedColumnPrunable {
+public final class FileType extends DataType implements ComplexDataType, NamedFieldType {
     public static final FileType INSTANCE = new FileType();
 
     private final List<StructField> fields;
@@ -39,11 +39,13 @@ public final class FileType extends DataType implements ComplexDataType, NestedC
                 .collect(ImmutableList.toImmutableList());
     }
 
+    @Override
     public List<StructField> getFields() {
         return fields;
     }
 
     /** Get a canonical field by its case-insensitive name. */
+    @Override
     public StructField getField(String name) {
         String normalized = name.toLowerCase(Locale.ROOT);
         for (StructField field : fields) {

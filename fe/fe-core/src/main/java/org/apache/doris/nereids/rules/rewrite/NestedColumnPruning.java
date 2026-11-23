@@ -35,8 +35,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.NamedFieldType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructField;
@@ -651,7 +651,7 @@ public class NestedColumnPruning implements CustomRewriter {
 
             accessPartialChild = true;
 
-            if (this.type.isStructType() || this.type.isFileType()) {
+            if (this.type instanceof NamedFieldType) {
                 String fieldName = path.get(accessIndex).toLowerCase(Locale.ROOT);
                 DataTypeAccessTree child = children.get(fieldName);
                 if (child != null) {
@@ -740,21 +740,16 @@ public class NestedColumnPruning implements CustomRewriter {
         /** of */
         public static DataTypeAccessTree of(DataType type, ColumnAccessPathType pathType) {
             DataTypeAccessTree root = new DataTypeAccessTree(type, pathType);
-            if (type instanceof StructType) {
-                StructType structType = (StructType) type;
-                for (Entry<String, StructField> kv : structType.getNameToFields().entrySet()) {
-                    root.children.put(kv.getKey().toLowerCase(Locale.ROOT),
-                            of(kv.getValue().getDataType(), pathType));
+            if (type instanceof NamedFieldType) {
+                for (StructField field : ((NamedFieldType) type).getFields()) {
+                    root.children.put(field.getName().toLowerCase(Locale.ROOT),
+                            of(field.getDataType(), pathType));
                 }
             } else if (type instanceof ArrayType) {
                 root.children.put(AccessPathInfo.ACCESS_ALL, of(((ArrayType) type).getItemType(), pathType));
             } else if (type instanceof MapType) {
                 root.children.put(AccessPathInfo.ACCESS_MAP_KEYS, of(((MapType) type).getKeyType(), pathType));
                 root.children.put(AccessPathInfo.ACCESS_MAP_VALUES, of(((MapType) type).getValueType(), pathType));
-            } else if (type instanceof FileType) {
-                for (StructField field : ((FileType) type).getFields()) {
-                    root.children.put(field.getName(), of(field.getDataType(), pathType));
-                }
             }
             return root;
         }
@@ -873,8 +868,8 @@ public class NestedColumnPruning implements CustomRewriter {
         DataType current = slotType;
         for (int i = 1; i < path.size(); i++) {
             String component = path.get(i);
-            if (current.isStructType()) {
-                StructField field = ((StructType) current).getField(component);
+            if (current instanceof NamedFieldType) {
+                StructField field = ((NamedFieldType) current).getField(component);
                 if (field == null) {
                     break;
                 }
@@ -896,14 +891,6 @@ public class NestedColumnPruning implements CustomRewriter {
                 } else {
                     current = mapType.getValueType();
                 }
-            } else if (current.isFileType()) {
-                StructField field = ((FileType) current).getFields().stream()
-                        .filter(candidate -> candidate.getName().equals(component))
-                        .findFirst().orElse(null);
-                if (field == null) {
-                    break;
-                }
-                current = field.getDataType();
             } else {
                 break;
             }

@@ -38,6 +38,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.NamedFieldType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
@@ -70,6 +71,10 @@ public class FileAccessPathTest {
                 new ArrayList<>(tree.getChildren().keySet()));
         Assertions.assertEquals(6, ((FileType) tree.getType()).getFields().size());
         Assertions.assertTrue(FileType.INSTANCE.getFields().stream().allMatch(StructField::isNullable));
+        NamedFieldType fileNamedType = FileType.INSTANCE;
+        NamedFieldType structNamedType = FileType.INSTANCE.publicStructType();
+        Assertions.assertEquals("uri", fileNamedType.getField("URI").getName());
+        Assertions.assertEquals("size", structNamedType.getField("SIZE").getName());
     }
 
     @Test
