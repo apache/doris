@@ -23,6 +23,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.proc.TransProcDir;
@@ -182,6 +183,13 @@ public class ShowTransactionCommand extends ShowCommand {
 
     @Override
     public RedirectStatus toRedirectStatus() {
+        // In cloud mode transactions live in the meta service, which any FE can read, so a session that sets
+        // forward_to_master=false is served locally. The only master-only state is the in-memory map of
+        // sub-transaction ids of open explicit transactions, so `id = <sub txn id>` may not resolve then.
+        // Compute-storage coupled followers do not replay PREPARE transactions of loads, so they always forward.
+        if (Config.isCloudMode() && !ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.NO_FORWARD;
+        }
         return RedirectStatus.FORWARD_NO_SYNC;
     }
 }

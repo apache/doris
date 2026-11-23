@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -76,5 +78,39 @@ public class ShowTransactionCommandTest extends TestWithFeService {
         Expression equalTo4 = new EqualTo(new UnboundSlot(Lists.newArrayList("STATUS")), new StringLiteral("unknow"));
         ShowTransactionCommand command5 = new ShowTransactionCommand("test", equalTo4);
         Assertions.assertThrows(AnalysisException.class, () -> command5.validate(connectContext));
+    }
+
+    @Test
+    public void testRedirectStatus() throws Exception {
+        runBefore();
+        String savedDeployMode = Config.deploy_mode;
+        String savedCloudUniqueId = Config.cloud_unique_id;
+        boolean savedForwardToMaster = connectContext.getSessionVariable().forwardToMaster;
+        Expression byLabel = new EqualTo(new UnboundSlot(Lists.newArrayList("LABEL")), new StringLiteral("l1"));
+        try {
+            Config.cloud_unique_id = "";
+
+            // shared-nothing: always forwarded, whatever the session asks for
+            Config.deploy_mode = "";
+            connectContext.getSessionVariable().forwardToMaster = true;
+            Assertions.assertEquals(RedirectStatus.FORWARD_NO_SYNC,
+                    new ShowTransactionCommand("test", byLabel).toRedirectStatus());
+            connectContext.getSessionVariable().forwardToMaster = false;
+            Assertions.assertEquals(RedirectStatus.FORWARD_NO_SYNC,
+                    new ShowTransactionCommand("test", byLabel).toRedirectStatus());
+
+            // cloud: forwarded by default, served locally when the session opts out
+            Config.deploy_mode = "cloud";
+            connectContext.getSessionVariable().forwardToMaster = true;
+            Assertions.assertEquals(RedirectStatus.FORWARD_NO_SYNC,
+                    new ShowTransactionCommand("test", byLabel).toRedirectStatus());
+            connectContext.getSessionVariable().forwardToMaster = false;
+            Assertions.assertEquals(RedirectStatus.NO_FORWARD,
+                    new ShowTransactionCommand("test", byLabel).toRedirectStatus());
+        } finally {
+            Config.deploy_mode = savedDeployMode;
+            Config.cloud_unique_id = savedCloudUniqueId;
+            connectContext.getSessionVariable().forwardToMaster = savedForwardToMaster;
+        }
     }
 }
