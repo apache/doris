@@ -414,12 +414,18 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         if (originalType.equals(targetType)) {
             return true;
         }
-        // for plan, we will first add a cast on AggStateType, and then apply a rule to remove cast if could be.
-        // so here, we should only check function name and parameters list size.
-        if (looseAggState && originalType instanceof AggStateType && targetType instanceof AggStateType) {
+        if (originalType instanceof AggStateType && targetType instanceof AggStateType) {
             AggStateType originalAggState = (AggStateType) originalType;
             AggStateType targetAggState = (AggStateType) targetType;
-            if (originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
+            // Keep a compatible stored-state cast. The BE can reuse its storage column;
+            // the source slot and the target descriptor must keep their own codec versions.
+            if (targetAggState.canUpgradeStoredStateFrom(originalAggState)) {
+                return true;
+            }
+            // During planning, allow a cast that ConvertAggStateCast can resolve by
+            // rebuilding a STATE producer. Final validation does not use this loose check.
+            if (looseAggState
+                    && originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
                     && originalAggState.getSubTypes().size() == targetAggState.getSubTypes().size()) {
                 return true;
             }

@@ -111,6 +111,26 @@ public class AggStateType extends DataType {
         return beExecVersion;
     }
 
+    /**
+     * Allow the version 19 to 20 storage cast without changing its state bytes.
+     * Version 20 keeps the version 19 AGG_STATE storage columns and accepts their payloads.
+     * For example, nullable SUM still stores a flag followed by the nested SUM state.
+     * This contract does not apply to native aggregation intermediate columns.
+     *
+     * Only allow the known forward transition with the same aggregate signature. Do not
+     * infer reverse compatibility: version 20 can write a Bitmap no-input marker that the
+     * old writer never produced. Keep equals version-aware so direct STATE producers still
+     * get a cast and can use the sink's codec.
+     */
+    public boolean canUpgradeStoredStateFrom(AggStateType source) {
+        return beExecVersion == Config.UNIFIED_NULLABLE_AGGREGATION_MIN_BE_EXEC_VERSION
+                && source.beExecVersion == Config.UNIFIED_NULLABLE_AGGREGATION_MIN_BE_EXEC_VERSION - 1
+                && functionName.equals(source.functionName)
+                && subTypes.equals(source.subTypes)
+                && subTypeNullables.equals(source.subTypeNullables)
+                && returnNullable == source.returnNullable;
+    }
+
     @Override
     public Type toCatalogDataType() {
         List<Type> types = subTypes.stream().map(DataType::toCatalogDataType).collect(Collectors.toList());

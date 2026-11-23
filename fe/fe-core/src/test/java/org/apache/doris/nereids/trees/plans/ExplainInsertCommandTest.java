@@ -26,6 +26,8 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -210,6 +212,48 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         } finally {
             Config.be_exec_version = version;
             connectContext.getSessionVariable().enableAggState = enabled;
+        }
+    }
+
+    @Test
+    public void testInsertStoredStateIntoNewCodec() throws Exception {
+        int version = Config.be_exec_version;
+        boolean enabled = connectContext.getSessionVariable().enableAggState;
+        String disabled = String.join(",", connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        try {
+            connectContext.getSessionVariable().enableAggState = true;
+            // Mock tables have no rowsets. Keep the scan so the plan still contains
+            // the stored slot and its version cast, rather than an empty relation.
+            connectContext.getSessionVariable().setDisableNereidsRules(disabled + ",PRUNE_EMPTY_PARTITION");
+            Config.be_exec_version = 19;
+            createTable("create table copy_state_old (k int, s agg_state<sum(bigint null)> generic) "
+                    + "aggregate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            Config.be_exec_version = 20;
+            createTable("create table copy_state_new (k int, s agg_state<sum(bigint null)> generic) "
+                    + "aggregate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            for (String source : new String[] {"select k, s from copy_state_old",
+                    "select k, sum_union(s) from copy_state_old group by k"}) {
+                String sql = "insert into copy_state_new " + source;
+                StatementContext context = MemoTestUtils.createStatementContext(connectContext, sql);
+                LogicalPlan logical = (LogicalPlan) ((Explainable) parser.parseSingle(sql))
+                        .getExplainPlan(connectContext);
+                PhysicalPlan plan = new NereidsPlanner(context).planWithLock(logical, PhysicalProperties.ANY);
+                List<Cast> casts = plan.<Plan>collectToList(node -> true).stream()
+                        .flatMap(node -> node.getExpressions().stream())
+                        .flatMap(expr -> expr.<Cast>collectToList(Cast.class::isInstance).stream())
+                        .filter(cast -> cast.getDataType() instanceof AggStateType)
+                        .collect(Collectors.toList());
+                Assertions.assertEquals(1, casts.size());
+                Cast cast = casts.get(0);
+                Assertions.assertInstanceOf(SlotReference.class, cast.child());
+                // The source keeps its stored codec. The sink cast has the new type.
+                Assertions.assertEquals(19, ((AggStateType) cast.child().getDataType()).getBeExecVersion());
+                Assertions.assertEquals(20, ((AggStateType) cast.getDataType()).getBeExecVersion());
+            }
+        } finally {
+            Config.be_exec_version = version;
+            connectContext.getSessionVariable().enableAggState = enabled;
+            connectContext.getSessionVariable().setDisableNereidsRules(disabled);
         }
     }
 
