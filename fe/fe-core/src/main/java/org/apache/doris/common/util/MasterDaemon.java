@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.qe.ShutdownGate;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -55,7 +56,15 @@ public class MasterDaemon extends Daemon {
             }
         }
 
-        runAfterCatalogReady();
+        // A master that hands its mastership over fences its daemons first and waits for running cycles to end.
+        if (!ShutdownGate.enterMasterWork()) {
+            return;
+        }
+        try {
+            runAfterCatalogReady();
+        } finally {
+            ShutdownGate.exitMasterWork();
+        }
     }
 
     // override by derived classes

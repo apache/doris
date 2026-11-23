@@ -19,6 +19,7 @@ package org.apache.doris.job.executor;
 
 import org.apache.doris.job.disruptor.ExecuteTaskEvent;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.qe.ShutdownGate;
 
 import com.lmax.disruptor.WorkHandler;
 import lombok.extern.log4j.Log4j2;
@@ -40,6 +41,11 @@ public class DefaultTaskExecutorHandler<T extends AbstractTask> implements WorkH
             T task = executeTaskEvent.getTask();
             if (null == task) {
                 log.warn("task is null, ignore,maybe task has been canceled");
+                return;
+            }
+            // A master that hands its mastership over starts no task; the new master schedules the job again.
+            if (ShutdownGate.isMasterWorkFenced()) {
+                log.info("master work is fenced for a mastership handover, skip task {}", task.getTaskId());
                 return;
             }
             if (task.isCancelled()) {

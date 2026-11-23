@@ -47,9 +47,15 @@ public final class ShutdownGate {
     public static final long MASTER_CHANGE_HOLD_MS = 30_000L;
     // The last drain before a handover. Forwarded statements are held meanwhile, so it takes a sixth of the hold.
     public static final long FINAL_DRAIN_MS = MASTER_CHANGE_HOLD_MS / 6;
-    // The transferMaster timeout: half of what the hold leaves after the last drain, so the new master has the
-    // other half to start before the forwarding FEs give up.
-    public static final int TRANSFER_TIMEOUT_SECOND = (int) ((MASTER_CHANGE_HOLD_MS - FINAL_DRAIN_MS) / 2 / 1000);
+    // How long the master waits, after the last drain, for the master-only work already running (daemon cycles,
+    // report processing) to end before it hands over. Work still running then makes it shut down as master.
+    public static final long FENCE_WAIT_MS = 3000L;
+    // How long the master waits for the journal entries already queued to become durable before it hands over.
+    public static final long JOURNAL_FLUSH_WAIT_MS = 2000L;
+    // The transferMaster timeout: half of what the hold leaves after the last drain and the fence, so the new
+    // master has the other half to start before the forwarding FEs give up.
+    public static final int TRANSFER_TIMEOUT_SECOND = (int) ((MASTER_CHANGE_HOLD_MS - FINAL_DRAIN_MS - FENCE_WAIT_MS
+            - JOURNAL_FLUSH_WAIT_MS) / 2 / 1000);
     // How long the old master stays up after the handover. Forwards that still reach it are refused at once and
     // sent again to the new master, instead of timing out against an address that is gone.
     public static final long SETTLE_MS = 2000L;
@@ -59,6 +65,11 @@ public final class ShutdownGate {
     private static volatile boolean shuttingDown = false;
     private static volatile boolean refusingForwards = false;
     private static final AtomicInteger inFlightForwards = new AtomicInteger();
+    // Set once the master stops its master-only work before it hands mastership over. From then on that work
+    // must not start: what it changes in memory or tells the backends could be lost with the journal entries the
+    // transfer blocks, while the new master never learns of it.
+    private static volatile boolean masterWorkFenced = false;
+    private static final AtomicInteger runningMasterWork = new AtomicInteger();
 
     private ShutdownGate() {
     }
@@ -91,6 +102,55 @@ public final class ShutdownGate {
         return true;
     }
 
+    /**
+     * Registers one unit of master-only work, such as a master daemon cycle or a backend report, before it runs.
+     * Returns false once the master work is fenced; the caller then skips the work and must not call
+     * {@link #exitMasterWork()}.
+     */
+    public static boolean enterMasterWork() {
+        runningMasterWork.incrementAndGet();
+        if (masterWorkFenced) {
+            runningMasterWork.decrementAndGet();
+            return false;
+        }
+        return true;
+    }
+
+    public static void exitMasterWork() {
+        runningMasterWork.decrementAndGet();
+    }
+
+    /** Whether master-only work that is not tracked, such as scheduled jobs, must not start. */
+    public static boolean isMasterWorkFenced() {
+        return masterWorkFenced;
+    }
+
+    /**
+     * Stops new master-only work and waits up to timeoutMs for the work already running to end. Returns whether it
+     * ended. The fence stays in place either way: this FE is shutting down.
+     */
+    public static boolean fenceMasterWork(long timeoutMs) throws InterruptedException {
+        masterWorkFenced = true;
+        long deadlineMs = System.currentTimeMillis() + timeoutMs;
+        while (runningMasterWork.get() > 0) {
+            if (System.currentTimeMillis() >= deadlineMs) {
+                LOG.warn("{} units of master work still run after {} ms", runningMasterWork.get(), timeoutMs);
+                return false;
+            }
+            Thread.sleep(10);
+        }
+        return true;
+    }
+
+    static void resetMasterWorkFence() {
+        masterWorkFenced = false;
+    }
+
+    /** Whether this master refuses forwarded requests, including journal syncs and group commit requests. */
+    public static boolean refusesForwards() {
+        return refusingForwards;
+    }
+
     static void setRefusingForwards(boolean refuse) {
         refusingForwards = refuse;
     }
@@ -121,13 +181,16 @@ public final class ShutdownGate {
      * dispatcher sets the command before it checks the gate, so a command that arrives concurrently is either
      * refused or seen here as running, never cut off.
      */
-    static boolean closesIdleConnection(boolean isProxy, MysqlCommand command) {
-        return !isProxy && command == MysqlCommand.COM_SLEEP;
+    static boolean closesIdleConnection(boolean isProxy, ConnectContext.ConnectType type, MysqlCommand command) {
+        // An Arrow Flight SQL session is idle between its commands while its client still fetches results, so it
+        // is never closed here: it gets UNAVAILABLE on its next statement instead.
+        return !isProxy && type == ConnectContext.ConnectType.MYSQL && command == MysqlCommand.COM_SLEEP;
     }
 
     /**
-     * The answer to a statement another FE forwards here while this master hands its mastership over: error 1053.
-     * The statement did not run, so there is no journal to wait for, and the forwarding FE sends it again.
+     * The answer to a statement another FE forwards here while this master hands its mastership over, or while
+     * this FE is not ready to run it: error 1053. The statement did not run, so there is no journal to wait for,
+     * and the forwarding FE sends it again.
      */
     public static TMasterOpResult refusedForwardResult() {
         QueryState state = new QueryState();
@@ -155,7 +218,7 @@ public final class ShutdownGate {
                 ExecuteEnv.getInstance().getScheduler().getConnectPoolMgr().getConnectionMap().values());
         int closed = 0;
         for (ConnectContext ctx : contexts) {
-            if (closesIdleConnection(ctx.isProxy(), ctx.getCommand())) {
+            if (closesIdleConnection(ctx.isProxy(), ctx.getConnectType(), ctx.getCommand())) {
                 ctx.kill(true);
                 closed++;
             }

@@ -157,7 +157,8 @@ public class BDBHA implements HAProtocol {
 
     /**
      * Hands mastership to the first of {@code replicas} that catches up with this master within the timeout,
-     * and returns its node name. New writes on this master block until the transfer finishes.
+     * and returns its node name. Commits on this master keep going while the replicas catch up, block once one of
+     * them is nearly current, and fail after the handover, when this node is a replica.
      */
     public String transferMaster(Set<String> replicas, int timeoutSecond) {
         ReplicatedEnvironment replicatedEnvironment = environment.getReplicatedEnvironment();
@@ -180,6 +181,15 @@ public class BDBHA implements HAProtocol {
             }
         }
         return targets;
+    }
+
+    /**
+     * Whether the electable nodes other than the departing master, of which {@code answering} are reachable, still
+     * form a majority of all {@code electable} nodes. Without one, the group can neither elect a master nor
+     * acknowledge its journal commits.
+     */
+    public static boolean keepsQuorumWithout(int electable, int answering) {
+        return answering >= electable / 2 + 1;
     }
 
     /**

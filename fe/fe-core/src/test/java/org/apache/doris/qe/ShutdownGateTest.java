@@ -90,16 +90,36 @@ public class ShutdownGateTest {
     @Test
     public void testFinalDrainAndTransferStayWithinTheHoldWindow() {
         Assertions.assertEquals(5000L, ShutdownGate.FINAL_DRAIN_MS);
-        // (30 s - 5 s) / 2 = 12 s.
-        Assertions.assertEquals(12, ShutdownGate.TRANSFER_TIMEOUT_SECOND);
-        Assertions.assertTrue(ShutdownGate.FINAL_DRAIN_MS + ShutdownGate.TRANSFER_TIMEOUT_SECOND * 1000L
+        // (30 s - 5 s - 3 s - 2 s) / 2 = 10 s.
+        Assertions.assertEquals(10, ShutdownGate.TRANSFER_TIMEOUT_SECOND);
+        Assertions.assertTrue(ShutdownGate.FINAL_DRAIN_MS + ShutdownGate.FENCE_WAIT_MS
+                + ShutdownGate.JOURNAL_FLUSH_WAIT_MS + ShutdownGate.TRANSFER_TIMEOUT_SECOND * 1000L
                 + ShutdownGate.SETTLE_MS < ShutdownGate.MASTER_CHANGE_HOLD_MS);
     }
 
     @Test
+    public void testFenceStopsNewMasterWorkAndWaitsForRunningWork() throws Exception {
+        try {
+            Assertions.assertTrue(ShutdownGate.enterMasterWork());
+            // One unit still runs, so the fence does not report the master work as stopped.
+            Assertions.assertFalse(ShutdownGate.fenceMasterWork(50));
+            Assertions.assertTrue(ShutdownGate.isMasterWorkFenced());
+            Assertions.assertFalse(ShutdownGate.enterMasterWork());
+            ShutdownGate.exitMasterWork();
+            Assertions.assertTrue(ShutdownGate.fenceMasterWork(50));
+        } finally {
+            ShutdownGate.resetMasterWorkFence();
+        }
+    }
+
+    @Test
     public void testClosesOnlyIdleClientConnections() {
-        Assertions.assertTrue(ShutdownGate.closesIdleConnection(false, MysqlCommand.COM_SLEEP));
-        Assertions.assertFalse(ShutdownGate.closesIdleConnection(false, MysqlCommand.COM_QUERY));
-        Assertions.assertFalse(ShutdownGate.closesIdleConnection(true, MysqlCommand.COM_SLEEP));
+        ConnectContext.ConnectType mysql = ConnectContext.ConnectType.MYSQL;
+        Assertions.assertTrue(ShutdownGate.closesIdleConnection(false, mysql, MysqlCommand.COM_SLEEP));
+        Assertions.assertFalse(ShutdownGate.closesIdleConnection(false, mysql, MysqlCommand.COM_QUERY));
+        Assertions.assertFalse(ShutdownGate.closesIdleConnection(true, mysql, MysqlCommand.COM_SLEEP));
+        // An Arrow Flight SQL session between commands may still be fetching results.
+        Assertions.assertFalse(ShutdownGate.closesIdleConnection(false, ConnectContext.ConnectType.ARROW_FLIGHT_SQL,
+                MysqlCommand.COM_SLEEP));
     }
 }

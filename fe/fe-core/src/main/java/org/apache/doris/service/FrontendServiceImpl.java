@@ -1203,6 +1203,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
         Frontend requester = validateForwardRequester(params);
+        boolean isCancel = params.isSetCancelQeury() && params.isCancelQeury();
+        // A master that hands its mastership over answers no journal sync or group commit request either: once
+        // demoted its journal id is stale. An FE that is not ready, such as a new master still starting, runs
+        // nothing. Either way the request did not run, and the forwarding FE sends it again.
+        if (!isCancel && ((ShutdownGate.refusesForwards() && (params.isSyncJournalOnly()
+                || params.getGroupCommitInfo() != null)) || !Env.getCurrentEnv().isReady())) {
+            return ShutdownGate.refusedForwardResult();
+        }
         TMasterOpResult shortcut = handleForwardShortcut(params);
         if (shortcut != null) {
             return shortcut;

@@ -3297,11 +3297,33 @@ public class Env {
      * Hands mastership to an alive follower when this master shuts down gracefully, so the followers do not wait
      * for the BDBJE heartbeat to time out before they elect a new master. Returns whether mastership moved; the
      * caller must then exit without serving further requests. On any failure this FE stays master.
+     *
+     * <p>Before the transfer, the master-only work is fenced and the journal entries already submitted are made
+     * durable. The transfer blocks journal commits on this master and then demotes it, so an entry still in flight
+     * is lost; with the fence, no daemon publishes a version, sends a backend task or acts on a backend report
+     * based on such an entry, and the new master sees everything this master acted on.
      */
     public boolean transferMasterOnShutdown(Set<String> targets) {
         if (targets.isEmpty() || !isMaster() || !(haProtocol instanceof BDBHA)) {
             return false;
         }
+        long fenceStartMs = System.currentTimeMillis();
+        try {
+            if (!ShutdownGate.fenceMasterWork(ShutdownGate.FENCE_WAIT_MS)) {
+                LOG.warn("master work did not stop in {} ms, shut down as master", ShutdownGate.FENCE_WAIT_MS);
+                return false;
+            }
+            if (!editLog.waitForSubmittedEdits(ShutdownGate.JOURNAL_FLUSH_WAIT_MS)) {
+                LOG.warn("submitted journal entries are not durable after {} ms, shut down as master",
+                        ShutdownGate.JOURNAL_FLUSH_WAIT_MS);
+                return false;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+        LOG.info("fenced master work and flushed the journal before the handover in {} ms",
+                System.currentTimeMillis() - fenceStartMs);
         int timeoutSecond = ShutdownGate.TRANSFER_TIMEOUT_SECOND;
         masterTransferOnShutdown = true;
         long startMs = System.currentTimeMillis();
@@ -3322,7 +3344,8 @@ public class Env {
      * The followers this master can hand its mastership to on shutdown: alive followers that answer a heartbeat
      * now and have replayed the journal to within ShutdownGate.MAX_TRANSFER_JOURNAL_LAG of this master.
      * A frozen or lagging follower is left out, so the handover never waits on it. Empty when this FE does not
-     * hand over.
+     * hand over, which includes the case where the followers that answer do not form a majority of the electable
+     * nodes without this one: a new master could not then commit journal entries.
      */
     public Set<String> chooseReadyMasterTransferTargets() {
         if (!isMaster() || !(haProtocol instanceof BDBHA)) {
@@ -3363,6 +3386,12 @@ public class Env {
             } catch (Exception e) {
                 LOG.info("follower {} does not answer a heartbeat, leave it out of the handover", probe.getKey());
             }
+        }
+        int electable = getFrontends(FrontendNodeType.FOLLOWER).size();
+        if (!BDBHA.keepsQuorumWithout(electable, replayedJournalIds.size())) {
+            LOG.warn("only {} of {} electable frontends besides this one answer, no quorum without it,"
+                    + " shut down as master", replayedJournalIds.size(), electable);
+            return Collections.emptySet();
         }
         long journalId = getMaxJournalId();
         Set<String> targets = BDBHA.chooseReadyTransferTargets(replayedJournalIds, journalId,

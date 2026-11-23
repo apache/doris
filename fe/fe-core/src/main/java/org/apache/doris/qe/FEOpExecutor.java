@@ -137,7 +137,7 @@ public class FEOpExecutor {
         // just make the protocol happy
         request.setSql("");
         rememberAuditStatisticsBackendIds();
-        result = forward(request, false);
+        result = forward(request);
     }
 
     private void rememberAuditStatisticsBackendIds() {
@@ -148,12 +148,16 @@ public class FEOpExecutor {
 
     // Send request to specific fe
     protected TMasterOpResult forward(TMasterOpRequest params) throws Exception {
-        return forward(params, followsMaster());
+        // A cancel is sent once. A group commit request is not held either: its caller holds table read locks.
+        boolean isCancel = params.isSetCancelQeury() && params.isCancelQeury();
+        return forward(params, followsMaster() && !isCancel && params.getGroupCommitInfo() == null);
     }
 
     // With holdDuringMasterChange, a request that never reached a master that accepted it is held and sent again
     // while the master changes: this FE is not ready, the master cannot be reached, or the departing master
     // refused it. Anything that may have run on a master is not resent here, nor is a cancelled statement.
+    // A request the hold gives up on fails with an exception, like any forward that never reached a master, so
+    // the session keeps its state, such as its explicit transaction.
     private TMasterOpResult forward(TMasterOpRequest params, boolean holdDuringMasterChange) throws Exception {
         long deadlineMs = System.currentTimeMillis() + ShutdownGate.MASTER_CHANGE_HOLD_MS;
         // When this FE turned not ready, counted from the first of a run of not-ready attempts.
@@ -168,7 +172,8 @@ public class FEOpExecutor {
                 ClientPool.frontendPool.clearPool(feAddr);
                 notReadySinceMs = -1;
                 if (!holdDuringMasterChange || !waitForMasterChange(deadlineMs)) {
-                    return result;
+                    throw holdEnded(new Exception(ShutdownGate.FORWARD_REJECT_MESSAGE
+                            + "; the statement did not run"));
                 }
             } catch (NotSentException e) {
                 long holdUntilMs = deadlineMs;
@@ -182,7 +187,7 @@ public class FEOpExecutor {
                     notReadySinceMs = -1;
                 }
                 if (!holdDuringMasterChange || !waitForMasterChange(holdUntilMs)) {
-                    throw e.getCause() instanceof Exception ? (Exception) e.getCause() : e;
+                    throw holdEnded(e.getCause() instanceof Exception ? (Exception) e.getCause() : e);
                 }
             }
         }
@@ -195,7 +200,26 @@ public class FEOpExecutor {
         Thread.sleep(MASTER_CHANGE_POLL_MS);
         refreshTarget();
         // A cancel during the sleep found nothing to cancel on any master, so the statement must not be sent.
-        return !isCancelled();
+        // Nor is it sent to this FE once it became the master itself: the result would wait for a journal replay
+        // that a master never does.
+        return !isCancelled() && !targetIsSelf();
+    }
+
+    // The exception a held request fails with once the hold ends without a master running it.
+    private Exception holdEnded(Exception lastError) {
+        if (isCancelled()) {
+            return new Exception("the statement was cancelled before any master ran it");
+        }
+        if (targetIsSelf()) {
+            return new Exception("this frontend became the master while the statement waited for it and did not"
+                    + " run it; run the statement again");
+        }
+        return lastError;
+    }
+
+    // Whether the request would go to this FE itself because it became the master.
+    protected boolean targetIsSelf() {
+        return false;
     }
 
     private boolean isCancelled() {

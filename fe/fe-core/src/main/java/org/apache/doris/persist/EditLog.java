@@ -170,6 +170,9 @@ public class EditLog {
     }
 
     private final BlockingQueue<EditLogItem> logEditQueue = new LinkedBlockingQueue<>();
+    // Marks a point in the edit log queue. The flusher journals nothing for it and releases it once every entry
+    // queued before it is durable.
+    private static final short OP_FLUSH_BARRIER = Short.MIN_VALUE;
     private final Thread flushThread;
 
     private EditLogOutputStream editStream = null;
@@ -215,6 +218,8 @@ public class EditLog {
             }
             batch.add(first);
             logEditQueue.drainTo(batch, Config.batch_edit_log_max_item_num - 1);
+            List<EditLogItem> barriers = new ArrayList<>();
+            batch.removeIf(req -> req.op == OP_FLUSH_BARRIER && barriers.add(req));
 
             int itemNum = Math.max(1, Math.min(Config.batch_edit_log_max_item_num, batch.size()));
             JournalBatch journalBatch = new JournalBatch(itemNum);
@@ -260,6 +265,12 @@ public class EditLog {
                     }
                 }
             }
+            for (EditLogItem barrier : barriers) {
+                synchronized (barrier.lock) {
+                    barrier.finished = true;
+                    barrier.lock.notifyAll();
+                }
+            }
         } catch (Throwable t) {
             // Throwable contains all Exception and Error, such as IOException and
             // OutOfMemoryError
@@ -286,6 +297,38 @@ public class EditLog {
 
     public long getMaxJournalId() {
         return journal.getMaxJournalId();
+    }
+
+    /**
+     * Waits up to timeoutMs until every edit log entry submitted before this call is durable. Returns whether
+     * they all are. Entries submitted later are not waited for.
+     */
+    public boolean waitForSubmittedEdits(long timeoutMs) throws InterruptedException {
+        long deadlineMs = System.currentTimeMillis() + timeoutMs;
+        if (!Config.enable_batch_editlog) {
+            // Direct writes run under this object's monitor, so once it is free no earlier write is in flight.
+            Thread waiter = new Thread(() -> {
+                synchronized (this) {
+                    LOG.debug("no direct edit log write in flight");
+                }
+            }, "edit-log-flush-wait");
+            waiter.setDaemon(true);
+            waiter.start();
+            waiter.join(timeoutMs);
+            return !waiter.isAlive();
+        }
+        EditLogItem barrier = new EditLogItem(OP_FLUSH_BARRIER, null);
+        logEditQueue.put(barrier);
+        synchronized (barrier.lock) {
+            while (!barrier.finished) {
+                long remainingMs = deadlineMs - System.currentTimeMillis();
+                if (remainingMs <= 0) {
+                    return false;
+                }
+                barrier.lock.wait(remainingMs);
+            }
+        }
+        return true;
     }
 
     public long getMinJournalId() {

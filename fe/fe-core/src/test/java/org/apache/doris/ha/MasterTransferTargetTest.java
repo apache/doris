@@ -79,4 +79,16 @@ public class MasterTransferTargetTest {
                         fe(FrontendNodeType.FOLLOWER, "fe_dead", false)), "fe_master").isEmpty());
         Assertions.assertTrue(BDBHA.chooseMasterTransferTargets(Collections.emptyList(), "fe_master").isEmpty());
     }
+
+    @Test
+    public void testQuorumWithoutTheDepartingMaster() {
+        // Three electable nodes: both other followers must answer, one of them alone cannot form a majority.
+        Assertions.assertTrue(BDBHA.keepsQuorumWithout(3, 2));
+        Assertions.assertFalse(BDBHA.keepsQuorumWithout(3, 1));
+        // Five electable nodes: three of the other four are enough.
+        Assertions.assertTrue(BDBHA.keepsQuorumWithout(5, 3));
+        Assertions.assertFalse(BDBHA.keepsQuorumWithout(5, 2));
+        // Two electable nodes never keep a quorum without one of them.
+        Assertions.assertFalse(BDBHA.keepsQuorumWithout(2, 1));
+    }
 }

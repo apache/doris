@@ -19,6 +19,7 @@ package org.apache.doris.job.executor;
 
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.disruptor.TaskDisruptor;
+import org.apache.doris.qe.ShutdownGate;
 
 import io.netty.util.Timeout;
 import io.netty.util.TimerTask;
@@ -39,6 +40,11 @@ public class TimerJobSchedulerTask<T extends AbstractJob> implements TimerTask {
     @Override
     public void run(Timeout timeout) {
         try {
+            // A master that hands its mastership over starts no job; the new master schedules it.
+            if (ShutdownGate.isMasterWorkFenced()) {
+                log.info("master work is fenced for a mastership handover, skip dispatch of job {}", job.getJobId());
+                return;
+            }
             if (!job.isJobRunning()) {
                 log.info("job status is not running, job id is {}, skip dispatch", this.job.getJobId());
                 return;
