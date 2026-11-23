@@ -255,6 +255,9 @@ public:
                 }
                 break;
             }
+            default: {
+                return Status::InvalidArgument("unknown JSON value type");
+            }
             }
             if (!root_number_validated_from_raw_token && !doc.at_end()) {
                 return Status::InvalidArgument("JSON document was not fully consumed");

@@ -1454,7 +1454,7 @@ The Apache Software License, Version 2.0
     * cctz: 2.3
     * aws sdk: 1.9.211
     * benchmark: 1.8.0
-    * simdjson: 3.0.1
+    * simdjson: 5.2.0
     * simdutf: 9.2.0
         - includes BSD-3-Clause code: simdutf/internal/isadetection.h
         - additional license: licenses/LICENSE-simdutf-isadetection.txt
