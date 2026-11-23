@@ -149,7 +149,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
             // at the infinite interval must fetch a valid count before backoff can apply again.
             RowCountReport report = cloudReplica.getRowCountReport();
             if (report == null || materializedIndex.isChangelog()
-                    && report.version() < materializedIndex.getRequiredChangelogReportVersion()) {
+                    && report.version() < materializedIndex.getChangelogStatsRefreshVersion()) {
                 return true;
             }
             int index = cloudReplica.getStatsIntervalIndex();
@@ -378,7 +378,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             long indexRowCount = 0L;
                             long indexReportVersion = Long.MAX_VALUE;
-                            long requiredReportVersion = index.getRequiredChangelogReportVersion();
+                            long maxReportVersion = -1;
+                            long requiredReportVersion = index.getChangelogRowCountReportVersion();
                             boolean indexReported = true;
                             boolean anyTabletReported = false;
                             List<Tablet> tablets = index.getTablets();
@@ -414,7 +415,9 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                         tabletRowCount = Math.max(tabletRowCount, replica.getRowCount());
                                         tabletReported |= report != null;
                                     } else if (report != null && report.version() >= requiredReportVersion
-                                            && (!tabletReported || report.rows() > tabletRowCount)) {
+                                            && (!tabletReported || report.version() > tabletReportVersion
+                                                    || report.version() == tabletReportVersion
+                                                            && report.rows() > tabletRowCount)) {
                                         tabletRowCount = Math.max(0, report.rows());
                                         tabletReportVersion = report.version();
                                         tabletReported = true;
@@ -442,6 +445,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
                                 indexRowCount += tabletRowCount;
                                 indexReportVersion = Math.min(indexReportVersion, tabletReportVersion);
+                                maxReportVersion = Math.max(maxReportVersion, tabletReportVersion);
                                 indexReported &= tabletReported;
                                 anyTabletReported |= tabletReported;
                                 if (!index.isChangelog()) {
@@ -457,9 +461,11 @@ public class CloudTabletStatMgr extends MasterDaemon {
                             }
                             // A failed/absent MS fetch must not overwrite a positive immediate
                             // changelog estimate with the replica's initial zero.
-                            if (!index.isChangelog() || anyTabletReported || indexReported) {
-                                index.setReportedRowCount(indexRowCount, indexReported,
-                                        index.isChangelog() && !tablets.isEmpty() ? indexReportVersion : -1);
+                            if (!index.isChangelog()) {
+                                index.setReportedRowCount(indexRowCount, indexReported);
+                            } else if (anyTabletReported || indexReported) {
+                                index.setChangelogReportedRowCount(indexRowCount, indexReported,
+                                        tablets.isEmpty() ? -1 : indexReportVersion, maxReportVersion);
                             } else {
                                 index.setRowCountReported(false);
                             }

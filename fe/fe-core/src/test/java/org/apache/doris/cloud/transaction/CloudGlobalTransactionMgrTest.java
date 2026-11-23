@@ -1058,7 +1058,7 @@ public class CloudGlobalTransactionMgrTest {
         ((CloudGlobalTransactionMgr) masterTransMgr).updateChangelogRowCounts(response.toBuilder()
                 .clearChangelogStats().addChangelogStats(changelogStats(first, firstIndex, 4, 2)).build());
         Assertions.assertEquals(15, firstIndex.getRowCount());
-        firstIndex.setReportedRowCount(1, true, 5);
+        firstIndex.setChangelogReportedRowCount(1, true, 5, 5);
         masterTransMgr.afterCommitTxnResp(response, null, List.of());
         Assertions.assertEquals(1, firstIndex.getRowCount());
         // The changelog path never creates base-table analysis statistics.

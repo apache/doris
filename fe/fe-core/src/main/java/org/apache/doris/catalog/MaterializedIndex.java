@@ -19,9 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
-import com.google.common.collect.Range;
-import com.google.common.collect.RangeSet;
-import com.google.common.collect.TreeRangeSet;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
@@ -30,12 +27,14 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 
 /**
  * The OlapTraditional table is a materialized table which stored as rowcolumnar file or columnar file
  */
 public class MaterializedIndex extends MetaObject implements GsonPostProcessable {
-    private static final int MAX_CHANGELOG_ROW_COUNT_RANGES = 1_024;
+    private static final int MAX_CHANGELOG_ROW_COUNT_DELTAS = 1_024;
 
     public enum IndexState {
         NORMAL,
@@ -89,12 +88,11 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
 
     private boolean rowCountReported = false;
 
-    // Local estimates need no replay. Consecutive partition versions coalesce into a single range;
-    // a complete periodic report retires the versions it supersedes. Unlike a last-version check,
-    // this also counts distinct commit responses delivered out of order, e.g. version 4 before 3.
-    private transient RangeSet<Long> changelogRowCountVersions;
+    // A complete periodic report supersedes the deltas it covers. The exact versions also
+    // deduplicate Cloud commit responses, including responses delivered out of order.
+    private transient NavigableMap<Long, Long> changelogRowCountDeltas;
     private transient long changelogRowCountReportVersion = -1;
-    // A retained count can replace the estimate only when it covers the last additive update.
+    private transient long changelogRowCountMaxReportVersion = -1;
     private transient long lastChangelogDeltaVersion = -1;
 
     public MaterializedIndex() {
@@ -154,8 +152,9 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         idToTablets = new HashMap<>();
         rowCount = -1;
         rowCountReported = false;
-        changelogRowCountVersions = null;
+        changelogRowCountDeltas = null;
         changelogRowCountReportVersion = -1;
+        changelogRowCountMaxReportVersion = -1;
         lastChangelogDeltaVersion = -1;
     }
 
@@ -221,57 +220,72 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         this.rowCount = rowCount;
     }
 
-    /** Caller holds the owning table's write lock, as for periodic statistics. */
-    public void addChangelogRows(long rows) {
-        // Empty writes (including a replica-normalized zero) cannot turn unknown into known zero.
+    /** Under the table write lock, accumulate multiple tablet deltas for the same publish version. */
+    public void addChangelogRowsFromPublish(long version, long rows) {
         if (rows > 0) {
-            rowCount = Math.max(0, rowCount) + rows;
+            recordChangelogDelta(version, rows, false);
         }
     }
 
-    /** A publish can report multiple tablet deltas for the same partition version. */
-    public void addChangelogRowsFromPublish(long version, long rows) {
-        if (rows > 0 && version > changelogRowCountReportVersion) {
-            addChangelogRows(rows);
+    /** Under the table write lock, apply each visible Cloud commit once. */
+    public void addChangelogRows(long version, long rows) {
+        recordChangelogDelta(version, Math.max(0, rows), true);
+    }
+
+    private void recordChangelogDelta(long version, long rows, boolean deduplicate) {
+        if (version <= changelogRowCountMaxReportVersion) {
+            return;
+        }
+        if (changelogRowCountDeltas == null) {
+            changelogRowCountDeltas = new TreeMap<>();
+        }
+        Long previous = changelogRowCountDeltas.get(version);
+        // Bound the history of unapplied reports. At capacity, periodic counts still include writes
+        // whose deltas were skipped here.
+        if (previous == null && changelogRowCountDeltas.size() >= MAX_CHANGELOG_ROW_COUNT_DELTAS
+                || previous != null && deduplicate) {
+            return;
+        }
+        changelogRowCountDeltas.put(version, previous == null ? rows : previous + rows);
+        // An empty write cannot turn unknown into a known zero.
+        if (rows > 0) {
+            rowCount = Math.max(0, rowCount) + rows;
             lastChangelogDeltaVersion = Math.max(lastChangelogDeltaVersion, version);
         }
     }
 
-    /** Apply a visible cloud commit once, without dividing its logical rowset count by replicas. */
-    public void addChangelogRows(long version, long rows) {
-        if (version <= changelogRowCountReportVersion) {
-            return;
-        }
-        if (changelogRowCountVersions == null) {
-            changelogRowCountVersions = TreeRangeSet.create();
-        }
-        // At capacity, wait for a complete report to free ranges without losing deduplication history.
-        if (changelogRowCountVersions.asRanges().size() >= MAX_CHANGELOG_ROW_COUNT_RANGES
-                || changelogRowCountVersions.contains(version)) {
-            return;
-        }
-        changelogRowCountVersions.add(Range.closedOpen(version, version + 1));
-        addChangelogRowsFromPublish(version, rows);
-    }
-
-    public long getRequiredChangelogReportVersion() {
+    long getChangelogStatsRefreshVersion() {
         return Math.max(changelogRowCountReportVersion, lastChangelogDeltaVersion);
     }
 
-    /** Replace retained stock (which can decrease after TTL), preserving partial-report semantics. */
-    public void setReportedRowCount(long rows, boolean reported, long version) {
-        long requiredVersion = getRequiredChangelogReportVersion();
-        if (version < requiredVersion || !reported && requiredVersion >= 0) {
-            return;
-        }
+    long getChangelogRowCountReportVersion() {
+        return changelogRowCountReportVersion;
+    }
+
+    void setReportedRowCount(long rows, boolean reported) {
         rowCount = rows;
         rowCountReported = reported;
-        if (reported && version > changelogRowCountReportVersion) {
-            changelogRowCountReportVersion = version;
-            if (changelogRowCountVersions != null) {
-                changelogRowCountVersions.remove(Range.lessThan(version + 1));
+    }
+
+    /** Replace retained stock, then add only writes newer than all tablet reports in the sum. */
+    public void setChangelogReportedRowCount(long rows, boolean reported, long minVersion, long maxVersion) {
+        if (minVersion < changelogRowCountReportVersion || maxVersion < changelogRowCountMaxReportVersion
+                || ((!reported || minVersion < 0) && getChangelogStatsRefreshVersion() >= 0)) {
+            return;
+        }
+        if (reported && minVersion >= 0) {
+            changelogRowCountReportVersion = minVersion;
+            // With mixed coverage, an index-wide delta through maxVersion may already be included
+            // by some tablets. Leave any remainder to the next report to avoid counting twice.
+            changelogRowCountMaxReportVersion = maxVersion;
+            if (changelogRowCountDeltas != null) {
+                changelogRowCountDeltas.headMap(maxVersion, true).clear();
+                for (long delta : changelogRowCountDeltas.values()) {
+                    rows += delta;
+                }
             }
         }
+        setReportedRowCount(rows, reported);
     }
 
     public void setRollupIndexInfo(long rollupIndexId, long rollupFinishedVersion) {

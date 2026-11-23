@@ -193,7 +193,8 @@ public class TabletStatMgr extends MasterDaemon {
                                 : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             long indexRowCount = 0L;
                             long indexReportVersion = Long.MAX_VALUE;
-                            long requiredReportVersion = index.getRequiredChangelogReportVersion();
+                            long maxReportVersion = -1;
+                            long requiredReportVersion = index.getChangelogRowCountReportVersion();
                             boolean indexReported = true;
                             boolean anyTabletReported = false;
                             List<Tablet> tablets = index.getTablets();
@@ -225,10 +226,14 @@ public class TabletStatMgr extends MasterDaemon {
                                             ? report.rows() : replica.getRowCount();
                                     // An unreported changelog replica still has the default zero. Choosing it
                                     // over a reported replica would erase a useful positive estimate.
+                                    boolean selectReplica = index.isChangelog()
+                                            ? replicaReported && reportVersion >= requiredReportVersion
+                                                    && (!tabletReported || reportVersion > tabletReportVersion
+                                                            || reportVersion == tabletReportVersion
+                                                                    && replicaRows < tabletRowCount)
+                                            : replicaRows < tabletRowCount;
                                     if (replica.checkVersionCatchUp(version, false)
-                                            && (!index.isChangelog()
-                                                    || replicaReported && reportVersion >= requiredReportVersion)
-                                            && replicaRows >= 0 && replicaRows < tabletRowCount) {
+                                            && replicaRows >= 0 && selectReplica) {
                                         tabletReported = replicaReported;
                                         tabletRowCount = replicaRows;
                                         tabletReportVersion = reportVersion;
@@ -274,6 +279,7 @@ public class TabletStatMgr extends MasterDaemon {
                                 }
                                 indexRowCount += tabletRowCount;
                                 indexReportVersion = Math.min(indexReportVersion, tabletReportVersion);
+                                maxReportVersion = Math.max(maxReportVersion, tabletReportVersion);
                                 if (!index.isChangelog()) {
                                     tableRowCount += tabletRowCount;
                                 }
@@ -290,9 +296,11 @@ public class TabletStatMgr extends MasterDaemon {
                             }
                             // No report is different from an empty report: keep immediate changelog
                             // estimates until at least one tablet has supplied a valid retained count.
-                            if (!index.isChangelog() || anyTabletReported || indexReported) {
-                                index.setReportedRowCount(indexRowCount, indexReported,
-                                        index.isChangelog() && !tablets.isEmpty() ? indexReportVersion : -1);
+                            if (!index.isChangelog()) {
+                                index.setReportedRowCount(indexRowCount, indexReported);
+                            } else if (anyTabletReported || indexReported) {
+                                index.setChangelogReportedRowCount(indexRowCount, indexReported,
+                                        tablets.isEmpty() ? -1 : indexReportVersion, maxReportVersion);
                             } else {
                                 index.setRowCountReported(false);
                             }

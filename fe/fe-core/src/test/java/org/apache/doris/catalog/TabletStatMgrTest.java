@@ -102,7 +102,9 @@ public class TabletStatMgrTest {
             Assertions.assertEquals(17L, changelog.getRowCount());
             reportedReplica.updateRowCountReport(8L, 3L);
             manager.runAfterCatalogReady();
-            Assertions.assertEquals(17L, changelog.getRowCount());
+            // Select the freshest report for the first tablet. Its version-3 rows already
+            // include part of the publish, so the mixed aggregate cannot add that delta again.
+            Assertions.assertEquals(12L, changelog.getRowCount());
 
             // A later retained count can decrease after TTL, including a known empty index.
             reportedReplica.updateRowCountReport(0L, 3L);
@@ -172,10 +174,10 @@ public class TabletStatMgrTest {
             update.invoke(manager, cloudRows(200L, 0L, 3L), false);
             update.invoke(manager, cloudRows(300L, 0L, 3L), false);
             aggregate.invoke(manager, Collections.singletonList(10L));
-            Assertions.assertEquals(22L, changelog.getRowCount());
+            Assertions.assertEquals(10L, changelog.getRowCount());
             update.invoke(manager, cloudRows(200L, 0L, 4L), false);
             aggregate.invoke(manager, Collections.singletonList(10L));
-            Assertions.assertEquals(22L, changelog.getRowCount());
+            Assertions.assertEquals(0L, changelog.getRowCount());
             update.invoke(manager, cloudRows(300L, 0L, 4L), false);
             aggregate.invoke(manager, Collections.singletonList(10L));
             Assertions.assertEquals(0L, changelog.getRowCount());
