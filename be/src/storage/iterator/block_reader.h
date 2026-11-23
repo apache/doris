@@ -71,6 +71,8 @@ private:
     enum class BlockIterMode {
         NONE,
         TOPN,
+        CHANGELOG_MIN_DELTA,
+        CHANGELOG_DETAIL,
         DIRECT,
         KEY_ORDERED,
         UNIQUE_NEWEST,
@@ -115,6 +117,7 @@ private:
     Status _validate_merge_schema(int32_t tie_breaker_ordinal) const;
     Status _collect_key_ordered_children(const ReaderParams& read_params,
                                          std::vector<RowwiseIteratorUPtr>* children);
+    Status _init_changelog_iter(const ReaderParams& read_params, bool is_min_delta);
     Status _init_direct_iter(const ReaderParams& read_params,
                              std::unique_ptr<BlockIterator>* out_iter);
     Status _init_key_ordered_iter(const ReaderParams& read_params,

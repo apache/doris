@@ -49,6 +49,7 @@
 #include "storage/changelog.h"
 #include "storage/iterator/agg_key_block_iterator.h"
 #include "storage/iterator/block_iterator.h"
+#include "storage/iterator/changelog_block_iterator.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
 #include "storage/iterator/direct_iterator.h"
 #include "storage/iterator/heap_merge_iterator.h"
@@ -594,9 +595,11 @@ BlockReader::BlockIterMode BlockReader::_block_iter_mode(const ReaderParams& rea
     if (read_params.read_orderby_key_limit > 0) {
         return BlockIterMode::TOPN;
     }
-    if (read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA ||
-        read_params.changelog_scan_type == TChangelogScanType::DETAIL) {
-        return BlockIterMode::NONE;
+    if (read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA) {
+        return BlockIterMode::CHANGELOG_MIN_DELTA;
+    }
+    if (read_params.changelog_scan_type == TChangelogScanType::DETAIL) {
+        return BlockIterMode::CHANGELOG_DETAIL;
     }
     if (_direct_mode || _tablet_schema->keys_type() == KeysType::DUP_KEYS ||
         (read_params.reader_type == ReaderType::READER_QUERY &&
@@ -633,6 +636,10 @@ Status BlockReader::_init_block_iter(const ReaderParams& read_params, BlockIterM
     switch (mode) {
     case BlockIterMode::TOPN:
         return _init_topn_iter(read_params);
+    case BlockIterMode::CHANGELOG_MIN_DELTA:
+        return _init_changelog_iter(read_params, /*is_min_delta=*/true);
+    case BlockIterMode::CHANGELOG_DETAIL:
+        return _init_changelog_iter(read_params, /*is_min_delta=*/false);
     case BlockIterMode::DIRECT:
         return _init_direct_iter(read_params, &_block_iter);
     case BlockIterMode::KEY_ORDERED:
@@ -645,6 +652,20 @@ Status BlockReader::_init_block_iter(const ReaderParams& read_params, BlockIterM
         return _init_agg_key_iter(read_params);
     case BlockIterMode::NONE:
         DORIS_CHECK(false);
+    }
+    return Status::OK();
+}
+
+Status BlockReader::_init_changelog_iter(const ReaderParams& read_params, bool is_min_delta) {
+    _reader_context.use_insert_order_when_same = true;
+    std::unique_ptr<BlockIterator> input;
+    RETURN_IF_ERROR(_init_key_ordered_iter(read_params, &input));
+    if (is_min_delta) {
+        _block_iter = std::make_unique<ChangelogMinDeltaBlockIterator>(
+                std::move(input), batch_max_rows(), _read_schema);
+    } else {
+        _block_iter = std::make_unique<ChangelogDetailBlockIterator>(
+                std::move(input), batch_max_rows(), _read_schema);
     }
     return Status::OK();
 }
@@ -688,7 +709,6 @@ Status BlockReader::_init_key_ordered_iter(const ReaderParams& read_params,
     const int32_t tso_ordinal = _read_schema->tso_ordinal();
     const int32_t seq_ordinal = _read_schema->sequence_ordinal();
     if (tso_ordinal >= 0) {
-        DCHECK_EQ(seq_ordinal, -1);
         order.tie_breaker_ordinal = tso_ordinal;
         order.tie_breaker_ascending = true;
     } else if (seq_ordinal >= 0) {
