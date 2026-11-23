@@ -863,6 +863,78 @@ TEST(MetaServiceVersionedReadTest, GetTablet) {
     }
 }
 
+static void check_stats_with_malformed_row_count_version(bool versioned_read) {
+    auto meta_service = get_meta_service(false);
+    const std::string instance_id = "tablet_stats_version_failure";
+    MOCK_GET_INSTANCE_ID(instance_id);
+    if (versioned_read) {
+        ASSERT_NO_FATAL_FAILURE(create_and_refresh_instance(meta_service.get(), instance_id));
+    }
+    ASSERT_EQ(meta_service->resource_mgr()->is_version_read_enabled(instance_id), versioned_read);
+
+    constexpr int64_t db_id = 1, table_id = 10001, index_id = 10002;
+    constexpr int64_t partition_id = 10003, tablet_id = 10004;
+    constexpr int64_t other_partition_id = 10005, other_tablet_id = 10006;
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id,
+                                          other_partition_id, other_tablet_id));
+    ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), db_id, "ordinary_tablet_load",
+                                          table_id, other_partition_id, other_tablet_id));
+
+    GetTabletStatsRequest req;
+    req.set_cloud_unique_id(fmt::format("1:{}:1", instance_id));
+    auto add_tablet_index = [&](int64_t part_id, int64_t id) {
+        auto* idx = req.add_tablet_idx();
+        idx->set_db_id(db_id);
+        idx->set_table_id(table_id);
+        idx->set_index_id(index_id);
+        idx->set_partition_id(part_id);
+        idx->set_tablet_id(id);
+    };
+    add_tablet_index(partition_id, tablet_id);
+    add_tablet_index(other_partition_id, other_tablet_id);
+    req.add_tablet_ids_with_row_count_version(tablet_id);
+
+    GetTabletStatsResponse initial;
+    brpc::Controller initial_cntl;
+    meta_service->get_tablet_stats(&initial_cntl, &req, &initial, nullptr);
+    ASSERT_EQ(initial.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(initial.tablet_stats_size(), 2);
+    EXPECT_EQ(initial.tablet_stats(0).row_count_partition_version(), 1);
+    EXPECT_EQ(initial.tablet_stats(1).num_rows(), 100);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    if (versioned_read) {
+        versioned_put(txn.get(), versioned::partition_version_key({instance_id, partition_id}),
+                      "\xff");
+    } else {
+        txn->put(partition_version_key({instance_id, db_id, table_id, partition_id}), "\xff");
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    GetTabletStatsResponse response;
+    brpc::Controller cntl;
+    meta_service->get_tablet_stats(&cntl, &req, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK) << response.status().msg();
+    ASSERT_EQ(response.tablet_stats_size(), 2);
+    EXPECT_EQ(response.tablet_stats(0).idx().tablet_id(), tablet_id);
+    EXPECT_FALSE(response.tablet_stats(0).has_row_count_partition_version());
+    EXPECT_EQ(response.tablet_stats(0).num_rowsets(), 1);
+    EXPECT_EQ(response.tablet_stats(1).idx().tablet_id(), other_tablet_id);
+    EXPECT_FALSE(response.tablet_stats(1).has_row_count_partition_version());
+    EXPECT_EQ(response.tablet_stats(1).num_rows(), 100);
+}
+
+TEST(MetaServiceVersionedReadTest, GetTabletStatsWithMalformedRowCountVersionLegacyRead) {
+    check_stats_with_malformed_row_count_version(false);
+}
+
+TEST(MetaServiceVersionedReadTest, GetTabletStatsWithMalformedRowCountVersionVersionedRead) {
+    check_stats_with_malformed_row_count_version(true);
+}
+
 TEST(MetaServiceVersionedReadTest, GetTabletStats) {
     auto meta_service = get_meta_service(false);
 
