@@ -23,6 +23,8 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.thrift.TMongoSnapshot;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.bson.BsonValue;
 
 import java.util.HashMap;
@@ -41,6 +43,7 @@ import java.util.function.Supplier;
 
 /** Complete planning precedes publication. Statement memos retain either that plan or its failure. */
 final class MongoRangePlanner {
+    private static final Logger LOG = LogManager.getLogger(MongoRangePlanner.class);
     static final int SAMPLE_ROWS = 4096;
     static final int PROBE_TIMEOUT_MS = 2000;
     private static final long MAX_PLAN_DESCRIPTOR_BYTES = 8L * 1024 * 1024;
@@ -146,6 +149,9 @@ final class MongoRangePlanner {
         } catch (PlanningLimit limit) {
             checkCancelled(session, context);
             MongoSnapshot.remainingMillis(session);
+            // Keep diagnostics independent of connection settings and sampled source values.
+            LOG.debug("MongoDB range planning reached probe_budget: query_id={}, strategy={}, requested={}",
+                    session.getQueryId(), strategy, requested);
             // Only optional pre-publication tuning can fall back. Cancellation, authorization,
             // history and source errors must never be converted into a successful full scan.
             return fallback(strategy, requested, "probe_budget", source, descriptorBytes, budget);
