@@ -31,25 +31,17 @@ public class ShutdownGateTest {
 
     @Test
     public void testAcceptsEverythingBeforeShutdown() {
-        Assertions.assertFalse(ShutdownGate.rejectsNewStatements(false, true));
         for (MysqlCommand command : MysqlCommand.values()) {
-            Assertions.assertFalse(ShutdownGate.rejectsMysqlCommand(command, false, true));
+            Assertions.assertFalse(ShutdownGate.rejectsMysqlCommand(command, false));
         }
     }
 
     @Test
     public void testRejectsNewCommandsButQuitDuringShutdown() {
-        Assertions.assertTrue(ShutdownGate.rejectsNewStatements(true, true));
-        Assertions.assertTrue(ShutdownGate.rejectsMysqlCommand(MysqlCommand.COM_QUERY, true, true));
-        Assertions.assertTrue(ShutdownGate.rejectsMysqlCommand(MysqlCommand.COM_STMT_EXECUTE, true, true));
-        Assertions.assertTrue(ShutdownGate.rejectsMysqlCommand(MysqlCommand.COM_PING, true, true));
-        Assertions.assertFalse(ShutdownGate.rejectsMysqlCommand(MysqlCommand.COM_QUIT, true, true));
-    }
-
-    @Test
-    public void testDisabledByConfig() {
-        Assertions.assertFalse(ShutdownGate.rejectsNewStatements(true, false));
-        Assertions.assertFalse(ShutdownGate.rejectsMysqlCommand(MysqlCommand.COM_QUERY, true, false));
+        Assertions.assertTrue(ShutdownGate.rejectsMysqlCommand(MysqlCommand.COM_QUERY, true));
+        Assertions.assertTrue(ShutdownGate.rejectsMysqlCommand(MysqlCommand.COM_STMT_EXECUTE, true));
+        Assertions.assertTrue(ShutdownGate.rejectsMysqlCommand(MysqlCommand.COM_PING, true));
+        Assertions.assertFalse(ShutdownGate.rejectsMysqlCommand(MysqlCommand.COM_QUIT, true));
     }
 
     @Test
@@ -96,17 +88,12 @@ public class ShutdownGateTest {
     }
 
     @Test
-    public void testFinalWaitAndTransferStayWithinTheHoldWindow() {
-        Assertions.assertEquals(5000L, ShutdownGate.finalWaitMs(30));
-        Assertions.assertEquals(1000L, ShutdownGate.finalWaitMs(0));
-        // (30 s - 5 s) / 2 = 12 s, below the configured 30 s.
-        Assertions.assertEquals(12, ShutdownGate.transferTimeoutSecond(30, 30));
-        Assertions.assertEquals(5, ShutdownGate.transferTimeoutSecond(5, 30));
-        Assertions.assertTrue(ShutdownGate.finalWaitMs(30) + ShutdownGate.transferTimeoutSecond(30, 30) * 1000L
-                < 30 * 1000L);
-        // Without a hold window, the configured timeout applies.
-        Assertions.assertEquals(30, ShutdownGate.transferTimeoutSecond(30, 0));
-        Assertions.assertEquals(1, ShutdownGate.transferTimeoutSecond(30, 2));
+    public void testFinalDrainAndTransferStayWithinTheHoldWindow() {
+        Assertions.assertEquals(5000L, ShutdownGate.FINAL_DRAIN_MS);
+        // (30 s - 5 s) / 2 = 12 s.
+        Assertions.assertEquals(12, ShutdownGate.TRANSFER_TIMEOUT_SECOND);
+        Assertions.assertTrue(ShutdownGate.FINAL_DRAIN_MS + ShutdownGate.TRANSFER_TIMEOUT_SECOND * 1000L
+                + ShutdownGate.SETTLE_MS < ShutdownGate.MASTER_CHANGE_HOLD_MS);
     }
 
     @Test

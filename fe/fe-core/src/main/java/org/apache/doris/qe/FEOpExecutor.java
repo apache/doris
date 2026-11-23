@@ -155,7 +155,7 @@ public class FEOpExecutor {
     // while the master changes: this FE is not ready, the master cannot be reached, or the departing master
     // refused it. Anything that may have run on a master is not resent here, nor is a cancelled statement.
     private TMasterOpResult forward(TMasterOpRequest params, boolean holdDuringMasterChange) throws Exception {
-        long deadlineMs = System.currentTimeMillis() + Config.master_change_wait_timeout_second * 1000L;
+        long deadlineMs = System.currentTimeMillis() + ShutdownGate.MASTER_CHANGE_HOLD_MS;
         // When this FE turned not ready, counted from the first of a run of not-ready attempts.
         long notReadySinceMs = -1;
         while (true) {

@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -43,6 +42,20 @@ public final class ShutdownGate {
     public static final String REJECT_MESSAGE = "frontend is shutting down, reconnect";
     public static final String FORWARD_REJECT_MESSAGE = "master frontend is shutting down, retry on the next master";
 
+    // How long an FE holds a statement it forwards to the master while the master changes, before it fails it.
+    // A graceful handover fits well inside it: the last drain, the transfer and the new master's start.
+    public static final long MASTER_CHANGE_HOLD_MS = 30_000L;
+    // The last drain before a handover. Forwarded statements are held meanwhile, so it takes a sixth of the hold.
+    public static final long FINAL_DRAIN_MS = MASTER_CHANGE_HOLD_MS / 6;
+    // The transferMaster timeout: half of what the hold leaves after the last drain, so the new master has the
+    // other half to start before the forwarding FEs give up.
+    public static final int TRANSFER_TIMEOUT_SECOND = (int) ((MASTER_CHANGE_HOLD_MS - FINAL_DRAIN_MS) / 2 / 1000);
+    // How long the old master stays up after the handover. Forwards that still reach it are refused at once and
+    // sent again to the new master, instead of timing out against an address that is gone.
+    public static final long SETTLE_MS = 2000L;
+    // How far, in journal ids, a follower's replay may trail the master's for the follower to take mastership.
+    public static final long MAX_TRANSFER_JOURNAL_LAG = 1000L;
+
     private static volatile boolean shuttingDown = false;
     private static volatile boolean refusingForwards = false;
     private static final AtomicInteger inFlightForwards = new AtomicInteger();
@@ -57,9 +70,6 @@ public final class ShutdownGate {
     public static void begin(boolean refuseForwards) {
         refusingForwards = refuseForwards;
         shuttingDown = true;
-        if (!Config.enable_reject_new_statements_on_shutdown) {
-            return;
-        }
         try {
             LOG.info("refuse new statements during shutdown, closed {} idle MySQL connections",
                     closeIdleMysqlConnections());
@@ -81,27 +91,6 @@ public final class ShutdownGate {
         return true;
     }
 
-    /**
-     * How long the last drain before a handover waits for statements in flight. Forwarded statements are held
-     * meanwhile, so the wait takes a sixth of master_change_wait_timeout_second, and at least one second.
-     */
-    public static long finalWaitMs(int holdSecond) {
-        return Math.max(1000L, holdSecond * 1000L / 6);
-    }
-
-    /**
-     * The timeout of the handover itself: the configured one, cut so that the last drain and the handover end
-     * within master_change_wait_timeout_second, with room left for the new master to start.
-     */
-    public static int transferTimeoutSecond(int configuredSecond, int holdSecond) {
-        int timeout = Math.max(1, configuredSecond);
-        if (holdSecond <= 0) {
-            return timeout;
-        }
-        long budgetMs = (holdSecond * 1000L - finalWaitMs(holdSecond)) / 2;
-        return (int) Math.max(1, Math.min(timeout, budgetMs / 1000));
-    }
-
     static void setRefusingForwards(boolean refuse) {
         refusingForwards = refuse;
     }
@@ -115,20 +104,16 @@ public final class ShutdownGate {
     }
 
     public static boolean rejectsNewStatements() {
-        return rejectsNewStatements(shuttingDown, Config.enable_reject_new_statements_on_shutdown);
+        return shuttingDown;
     }
 
     public static boolean rejectsMysqlCommand(MysqlCommand command) {
-        return rejectsMysqlCommand(command, shuttingDown, Config.enable_reject_new_statements_on_shutdown);
-    }
-
-    static boolean rejectsNewStatements(boolean shuttingDown, boolean enabled) {
-        return shuttingDown && enabled;
+        return rejectsMysqlCommand(command, shuttingDown);
     }
 
     /** Every command is refused during the shutdown except COM_QUIT, which still closes the connection cleanly. */
-    static boolean rejectsMysqlCommand(MysqlCommand command, boolean shuttingDown, boolean enabled) {
-        return rejectsNewStatements(shuttingDown, enabled) && command != MysqlCommand.COM_QUIT;
+    static boolean rejectsMysqlCommand(MysqlCommand command, boolean shuttingDown) {
+        return shuttingDown && command != MysqlCommand.COM_QUIT;
     }
 
     /**

@@ -208,7 +208,7 @@ public class DorisFE {
                 // get the rest of the drain timeout.
                 long finalWaitMs = transferTargets.isEmpty()
                         ? Math.max(0, DRAIN_TIMEOUT_MS - (System.currentTimeMillis() - drainStartMs))
-                        : ShutdownGate.finalWaitMs(Config.master_change_wait_timeout_second);
+                        : ShutdownGate.FINAL_DRAIN_MS;
                 gracefulShutdown(null, finalWaitMs);
 
                 boolean masterTransferred = false;
@@ -221,7 +221,7 @@ public class DorisFE {
                     // The other FEs learn the new master from the journal within about a second. Until then they
                     // keep forwarding here and get a fast error, instead of timing out on an address that is gone.
                     try {
-                        Thread.sleep(Math.max(0, Config.master_transfer_on_shutdown_settle_ms));
+                        Thread.sleep(ShutdownGate.SETTLE_MS);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     }

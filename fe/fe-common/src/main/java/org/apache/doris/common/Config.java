@@ -277,41 +277,6 @@ public class Config extends ConfigBase {
             + "can try to increase this value to decrease the chances of false timeouts")
     public static int bdbje_heartbeat_timeout_second = 30;
 
-    @ConfField(mutable = true, description = "Whether a master FE hands its mastership to an alive follower with "
-            + "BDBJE transferMaster when it shuts down gracefully, after its running queries finish, and then exits. "
-            + "The followers then get a new master without waiting for the BDBJE heartbeat to time out. When the "
-            + "transfer fails or times out, the FE shuts down as master.")
-    public static boolean enable_master_transfer_on_shutdown = true;
-
-    @ConfField(mutable = true, description = "The timeout, in seconds, of the mastership transfer a master FE makes "
-            + "when it shuts down gracefully. Metadata writes on the master block while the transfer runs. It is cut "
-            + "so that the last drain and the transfer end within master_change_wait_timeout_second.")
-    public static int master_transfer_on_shutdown_timeout_second = 30;
-
-    @ConfField(mutable = true, description = "How far, in journal ids, a follower's replayed journal may trail the "
-            + "master's for the master to hand its mastership to it on graceful shutdown. A follower further behind, "
-            + "or one that does not answer a heartbeat, is not a target.")
-    public static long master_transfer_on_shutdown_max_journal_lag = 1000;
-
-    @ConfField(mutable = true, description = "How long, in milliseconds, a master FE keeps running after it hands its "
-            + "mastership over on graceful shutdown. Statements other FEs forward to it in that time are refused at "
-            + "once and those FEs send them again to the new master, instead of timing out against its address "
-            + "after it exits.")
-    public static int master_transfer_on_shutdown_settle_ms = 2000;
-
-    @ConfField(mutable = true, description = "Whether an FE that shuts down gracefully refuses new statements on its "
-            + "existing MySQL connections and Arrow Flight SQL sessions once the queries running at shutdown have "
-            + "finished, and closes its idle MySQL connections, so clients reconnect to another FE. Statements "
-            + "already running are not affected. MySQL clients get error 1053 and the connection closes; Arrow "
-            + "Flight SQL clients get UNAVAILABLE.")
-    public static boolean enable_reject_new_statements_on_shutdown = true;
-
-    @ConfField(mutable = true, description = "How long, in seconds, an FE holds and resends a statement it forwards "
-            + "to the master while the master changes, as long as no master accepted it: the master cannot be "
-            + "reached, or the departing master refused it. While this FE itself is not ready, it holds the "
-            + "statement for at most 5 seconds. 0 disables the retry.")
-    public static int master_change_wait_timeout_second = 30;
-
     @ConfField(description = "The lock timeout of bdbje operation, in seconds. If there are many LockTimeoutException "
             + "in FE WARN log, you can try to increase this value")
     public static int bdbje_lock_timeout_second = 5;

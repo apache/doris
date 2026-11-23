@@ -3302,8 +3302,7 @@ public class Env {
         if (targets.isEmpty() || !isMaster() || !(haProtocol instanceof BDBHA)) {
             return false;
         }
-        int timeoutSecond = ShutdownGate.transferTimeoutSecond(Config.master_transfer_on_shutdown_timeout_second,
-                Config.master_change_wait_timeout_second);
+        int timeoutSecond = ShutdownGate.TRANSFER_TIMEOUT_SECOND;
         masterTransferOnShutdown = true;
         long startMs = System.currentTimeMillis();
         LOG.info("transfer mastership to one of {} before shutdown, timeout {} s", targets, timeoutSecond);
@@ -3321,12 +3320,12 @@ public class Env {
 
     /**
      * The followers this master can hand its mastership to on shutdown: alive followers that answer a heartbeat
-     * now and have replayed the journal to within master_transfer_on_shutdown_max_journal_lag of this master.
+     * now and have replayed the journal to within ShutdownGate.MAX_TRANSFER_JOURNAL_LAG of this master.
      * A frozen or lagging follower is left out, so the handover never waits on it. Empty when this FE does not
      * hand over.
      */
     public Set<String> chooseReadyMasterTransferTargets() {
-        if (!Config.enable_master_transfer_on_shutdown || !isMaster() || !(haProtocol instanceof BDBHA)) {
+        if (!isMaster() || !(haProtocol instanceof BDBHA)) {
             return Collections.emptySet();
         }
         Set<String> candidates = BDBHA.chooseMasterTransferTargets(getFrontends(FrontendNodeType.FOLLOWER),
@@ -3367,7 +3366,7 @@ public class Env {
         }
         long journalId = getMaxJournalId();
         Set<String> targets = BDBHA.chooseReadyTransferTargets(replayedJournalIds, journalId,
-                Config.master_transfer_on_shutdown_max_journal_lag);
+                ShutdownGate.MAX_TRANSFER_JOURNAL_LAG);
         LOG.info("ready followers to transfer mastership to: {}, candidates {}, replayed journal ids {}, ours {}",
                 targets, candidates, replayedJournalIds, journalId);
         return targets;
