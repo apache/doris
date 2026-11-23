@@ -113,7 +113,10 @@ suite("test_variant_tuning_properties") {
         WHERE CAST(payload['source'] AS STRING) = 'collector-a'"""
 
     // the shard count of older versions without doc mode is accepted and ignored: variant_doc_hash_shard_count sets
-    // the shard count in either mode
+    // the shard count in either mode; pin the fuzzy defaults that this column leaves out
+    sql "SET debug_variant_enable_doc_mode = false"
+    sql "SET debug_variant_doc_materialization_min_rows = 0"
+    sql "SET debug_variant_doc_hash_shard_count = 0"
     sql "DROP TABLE IF EXISTS test_variant_sparse_hash_shard_count"
     sql """
         CREATE TABLE test_variant_sparse_hash_shard_count (

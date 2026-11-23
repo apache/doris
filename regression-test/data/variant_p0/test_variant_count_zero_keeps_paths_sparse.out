@@ -61,3 +61,6 @@ v	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_max_sparse_c
 -- !read_ctas_expr --
 1	{"a":1,"b":"x"}	1
 
+-- !show_create --
+test_variant_count_zero	  `k` int NULL,\n  `zero` variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_max_sparse_column_statistics_size" = "10","variant_doc_materialization_min_rows" = "0","variant_doc_hash_shard_count" = "1")> /* variant_serialize_type = v2 */ NULL,\n  `typed` variant<'t':bigint,PROPERTIES ("variant_max_subcolumns_count" = "0","variant_max_sparse_column_statistics_size" = "10","variant_doc_materialization_min_rows" = "0","variant_doc_hash_shard_count" = "1")> /* variant_serialize_type = v2 */ NULL,\n  `counted` variant<PROPERTIES ("variant_max_subcolumns_count" = "2048","variant_max_sparse_column_statistics_size" = "10","variant_doc_materialization_min_rows" = "0","variant_doc_hash_shard_count" = "1")> /* variant_serialize_type = v2 */ NULL,\n  `added` variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_max_sparse_column_statistics_size" = "10","variant_doc_materialization_min_rows" = "0","variant_doc_hash_shard_count" = "1")> /* variant_serialize_type = v2 */ NULL
+

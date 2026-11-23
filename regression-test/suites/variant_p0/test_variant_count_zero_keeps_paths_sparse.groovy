@@ -94,8 +94,11 @@ suite("test_variant_count_zero_keeps_paths_sparse") {
         exception "only support for"
     }
 
-    // SHOW CREATE TABLE shows it in a comment, which the parser skips
-    def zeroDdl = sql("SHOW CREATE TABLE test_variant_count_zero")[0][1]
-    assertTrue(zeroDdl.contains("`zero` variant<PROPERTIES (\"variant_max_subcolumns_count\" = \"0\","), zeroDdl)
-    assertTrue(zeroDdl.contains(")> /* variant_serialize_type = v2 */ NULL"), zeroDdl)
+    // SHOW CREATE TABLE shows it in a comment, which the parser skips. Only compare column definitions;
+    // table properties depend on the deployment mode and FE configuration.
+    def columnDefinitions = { row ->
+        def ddl = row[1].toString()
+        [row[0], ddl.substring(ddl.indexOf("(\n") + 2, ddl.indexOf("\n) ENGINE="))]
+    }
+    quickRunTest("show_create", "SHOW CREATE TABLE test_variant_count_zero", false, columnDefinitions)
 }
