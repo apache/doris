@@ -16,10 +16,11 @@
 // under the License.
 
 suite("test_routine_load_interval_bounds") {
-    // The first overflowing second count and Long.MAX_VALUE must fail during FE analysis.
+    // Zero would make BE stop before consuming any records. FE must reject it and negative
+    // intervals, as well as the first overflowing second count and Long.MAX_VALUE.
     // Multi-table CREATE needs no table or rows. The source must not be contacted because
     // job properties are checked first. ALTER must also fail before it looks up a stored job.
-    for (String seconds : ["9223372036854776", "9223372036854775807"]) {
+    for (String seconds : ["-1", "0", "9223372036854776", "9223372036854775807"]) {
         test {
             sql """
                 CREATE ROUTINE LOAD interval_bounds_job

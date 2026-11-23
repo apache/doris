@@ -102,12 +102,15 @@ TEST_F(RoutineLoadTaskExecutorTest, KafkaExpiredDeadlineCannotBecomePositive) {
 TEST_F(RoutineLoadTaskExecutorTest, RejectIntervalsOutsideMillisecondRange) {
     RoutineLoadTaskExecutor executor(_env);
     ASSERT_TRUE(executor.init(1024 * 1024).ok());
-    // Reject the request before a consumer is created. No broker, partition, or row is needed.
-    for (int64_t seconds : {int64_t(-1), std::numeric_limits<int64_t>::max() / 1000 + 1}) {
+    // Zero makes the consumer loop exit before it reads any records. Reject it, negative
+    // intervals, and millisecond overflow before creating a consumer. No broker or row is needed.
+    for (int64_t seconds :
+         {int64_t(-1), int64_t(0), std::numeric_limits<int64_t>::max() / 1000 + 1}) {
+        SCOPED_TRACE(seconds);
         TRoutineLoadTask task;
         task.__set_max_interval_s(seconds);
         auto status = executor.submit_task(task);
-        EXPECT_FALSE(status.ok());
+        EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
         EXPECT_NE(status.to_string().find("Routine load interval out of range"), std::string::npos)
                 << status;
         EXPECT_TRUE(executor._task_map.empty());
