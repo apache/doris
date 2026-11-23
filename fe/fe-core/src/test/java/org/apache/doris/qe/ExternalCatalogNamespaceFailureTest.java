@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.ExternalView;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.CascadesContext;
@@ -214,8 +215,9 @@ public class ExternalCatalogNamespaceFailureTest extends TestWithFeService {
         connectContext.setStatementContext(statement);
         CascadesContext cascadesContext = CascadesContext.initContext(statement,
                 new NereidsParser().parseSingle("SELECT 1"), PhysicalProperties.ANY);
-        return Deencapsulation.invoke(new BindRelation(), "parseAndAnalyzeExternalView", viewTable,
-                viewCatalog.getName(), DATABASE, sql, cascadesContext);
+        ExternalView view = new ExternalView(viewTable, sql);
+        return Deencapsulation.invoke(new BindRelation(), "parseAndAnalyzeExternalView", view,
+                viewCatalog.getName(), DATABASE, cascadesContext);
     }
 
     private void assertNamespace(NameSpaceContext saved) {
