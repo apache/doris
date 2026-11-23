@@ -239,6 +239,9 @@ TEST_F(OlapFileCacheProfileTest, MultiBatchRealtimeAndFinal) {
     ASSERT_TRUE(scanner->_open_impl(&state).ok());
     auto& stats = *scanner->_tablet_reader->mutable_stats();
     auto* io = state.get_query_ctx()->resource_ctx()->io_context();
+    const auto local_bytes_before = DorisMetrics::instance()->query_scan_bytes_from_local->value();
+    const auto remote_bytes_before =
+            DorisMetrics::instance()->query_scan_bytes_from_remote->value();
     stats.file_cache_stats.bytes_read_from_local += 7;
     stats.file_cache_stats.bytes_read_from_remote += 13;
     stats.file_cache_stats.bytes_write_into_cache += 4;
@@ -253,9 +256,9 @@ TEST_F(OlapFileCacheProfileTest, MultiBatchRealtimeAndFinal) {
     EXPECT_EQ(value("BytesScannedFromRemote"), 18);
     EXPECT_EQ(value("BytesWriteIntoCache"), 6);
     EXPECT_EQ(local->_segment_profile->num_counters(), counters_before);
-    EXPECT_EQ(stats.file_cache_stats.bytes_read_from_local, 0);
-    EXPECT_EQ(stats.file_cache_stats.bytes_read_from_remote, 0);
-    EXPECT_EQ(stats.file_cache_stats.bytes_write_into_cache, 0);
+    EXPECT_EQ(stats.file_cache_stats.bytes_read_from_local, 10);
+    EXPECT_EQ(stats.file_cache_stats.bytes_read_from_remote, 18);
+    EXPECT_EQ(stats.file_cache_stats.bytes_write_into_cache, 6);
     EXPECT_EQ(stats.file_cache_stats.num_local_io_total, 3);
     EXPECT_EQ(stats.file_cache_stats.local_io_timer, 31);
     EXPECT_EQ(stats.file_cache_stats.segment_footer_index_bytes_read_from_remote, 11);
@@ -278,13 +281,35 @@ TEST_F(OlapFileCacheProfileTest, MultiBatchRealtimeAndFinal) {
     EXPECT_EQ(io->scan_bytes(), 135);
     EXPECT_EQ(io->bytes_write_into_cache(), 6);
 
-    // The existing terminal reporter only adds bytes that were not published by a batch.
-    stats.file_cache_stats.bytes_read_from_remote = 17;
-    stats.file_cache_stats.bytes_write_into_cache = 6;
+    // Another cache-reading batch must report only its new bytes, not the cumulative totals.
+    stats.file_cache_stats.bytes_read_from_local += 2;
+    stats.file_cache_stats.bytes_read_from_remote += 4;
+    stats.file_cache_stats.bytes_write_into_cache += 3;
+    scanner->update_realtime_counters();
+    scanner->update_realtime_counters();
+    EXPECT_EQ(value("BytesScannedFromCache"), 12);
+    EXPECT_EQ(value("BytesScannedFromRemote"), 22);
+    EXPECT_EQ(value("BytesWriteIntoCache"), 9);
+    EXPECT_EQ(io->scan_bytes_from_local_storage(), 20);
+    EXPECT_EQ(io->scan_bytes_from_remote_storage(), 22);
+    EXPECT_EQ(io->bytes_write_into_cache(), 9);
+    EXPECT_EQ(DorisMetrics::instance()->query_scan_bytes_from_local->value(),
+              local_bytes_before + 20);
+    EXPECT_EQ(DorisMetrics::instance()->query_scan_bytes_from_remote->value(),
+              remote_bytes_before + 22);
+    EXPECT_EQ(local->_segment_profile->num_counters(), counters_before);
+
+    // Terminal reporting adds only unpublished bytes and leaves the reader totals intact.
+    stats.file_cache_stats.bytes_read_from_local += 5;
+    stats.file_cache_stats.bytes_read_from_remote += 17;
+    stats.file_cache_stats.bytes_write_into_cache += 6;
     scanner->_collect_profile_before_close();
-    EXPECT_EQ(value("BytesScannedFromCache"), 10);
-    EXPECT_EQ(value("BytesScannedFromRemote"), 35);
-    EXPECT_EQ(value("BytesWriteIntoCache"), 12);
+    EXPECT_EQ(value("BytesScannedFromCache"), 17);
+    EXPECT_EQ(value("BytesScannedFromRemote"), 39);
+    EXPECT_EQ(value("BytesWriteIntoCache"), 15);
+    EXPECT_EQ(stats.file_cache_stats.bytes_read_from_local, 17);
+    EXPECT_EQ(stats.file_cache_stats.bytes_read_from_remote, 39);
+    EXPECT_EQ(stats.file_cache_stats.bytes_write_into_cache, 15);
     EXPECT_EQ(value("BytesScannedFromPeer"), 9);
     EXPECT_EQ(value("NumLocalIOTotal"), 8);
     EXPECT_EQ(value("FileCache"), 38);
@@ -295,10 +320,48 @@ TEST_F(OlapFileCacheProfileTest, MultiBatchRealtimeAndFinal) {
     scanner->_collect_profile_before_close();
     ASSERT_TRUE(scanner->close(&state).ok());
     ASSERT_TRUE(scanner->close(&state).ok());
-    EXPECT_EQ(value("BytesScannedFromRemote"), 35);
+    EXPECT_EQ(value("BytesScannedFromRemote"), 39);
     EXPECT_EQ(value("NumLocalIOTotal"), 8);
-    EXPECT_EQ(io->bytes_write_into_cache(), 12);
+    EXPECT_EQ(io->bytes_write_into_cache(), 15);
     EXPECT_EQ(static_cast<ProfileReader*>(scanner->_tablet_reader.get())->profile_updates, 1);
+}
+
+TEST_F(OlapFileCacheProfileTest, TerminalCollectionWithoutRealtimeUpdate) {
+    auto scanner = make_scanner();
+    auto& stats = scanner->_tablet_reader->mutable_stats()->file_cache_stats;
+    stats.bytes_read_from_local = 7;
+    stats.bytes_read_from_remote = 13;
+    stats.bytes_write_into_cache = 4;
+    stats.num_local_io_total = 2;
+    stats.local_io_timer = 31;
+    scanner->_collect_profile_before_close();
+    scanner->_collect_profile_before_close();
+    expect_byte_counters(7, 13, 4);
+    EXPECT_EQ(value("NumLocalIOTotal"), 2);
+    EXPECT_EQ(value("FileCache"), 31);
+    EXPECT_EQ(stats.bytes_read_from_local, 7);
+    EXPECT_EQ(stats.bytes_read_from_remote, 13);
+    EXPECT_EQ(stats.bytes_write_into_cache, 4);
+    EXPECT_EQ(state.get_query_ctx()->resource_ctx()->io_context()->bytes_write_into_cache(), 4);
+}
+
+TEST_F(OlapFileCacheProfileTest, TerminalCollectionAfterAllBytesPublished) {
+    auto scanner = make_scanner();
+    auto& stats = scanner->_tablet_reader->mutable_stats()->file_cache_stats;
+    stats.bytes_read_from_local = 7;
+    stats.bytes_read_from_remote = 13;
+    stats.bytes_write_into_cache = 4;
+    const int counters_before = local->_segment_profile->num_counters();
+    scanner->update_realtime_counters();
+    scanner->update_realtime_counters();
+    scanner->_collect_profile_before_close();
+    scanner->_collect_profile_before_close();
+    expect_byte_counters(7, 13, 4);
+    EXPECT_EQ(stats.bytes_read_from_local, 7);
+    EXPECT_EQ(stats.bytes_read_from_remote, 13);
+    EXPECT_EQ(stats.bytes_write_into_cache, 4);
+    EXPECT_EQ(state.get_query_ctx()->resource_ctx()->io_context()->bytes_write_into_cache(), 4);
+    EXPECT_EQ(local->_segment_profile->num_counters(), counters_before);
 }
 
 TEST_F(OlapFileCacheProfileTest, ConcurrentScannersAndIsolatedState) {
@@ -432,7 +495,7 @@ TEST_F(OlapFileCacheFinalProfileTest, LateCollectionDoesNotReplaceSavedFragmentP
     auto original = state._query_ctx_uptr->_profile_map.at(8).front();
     EXPECT_EQ(saved(8, "BytesScannedFromRemote"), 5);
     EXPECT_EQ(saved(8, "NumLocalIOTotal"), -1);
-    stats.bytes_read_from_remote = 12;
+    stats.bytes_read_from_remote += 12;
     scanner->_collect_profile_before_close();
     ASSERT_TRUE(scanner->close(&state).ok());
     EXPECT_EQ(value("BytesScannedFromRemote"), 17);
