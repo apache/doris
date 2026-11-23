@@ -797,7 +797,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                             value -> IcebergConnector.cachedTableCleanup(value, catalogProps.getFlavor()));
         }
         IcebergEncryptionRead.check(table, catalogProps, context);
-        return table;
+        return IcebergSnapshotTableOperations.v4ReadTable(table);
     }
 
     /**

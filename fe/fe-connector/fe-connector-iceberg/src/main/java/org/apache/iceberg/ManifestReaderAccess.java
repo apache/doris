@@ -20,6 +20,7 @@ package org.apache.iceberg;
 import org.apache.iceberg.avro.AvroIterable;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.parquet.ManifestMetadataAccess;
 import org.apache.iceberg.util.JsonUtil;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -36,14 +37,20 @@ public final class ManifestReaderAccess {
     public static PartitionSpec readPartitionSpec(ManifestFile manifest, FileIO io) throws IOException {
         // A rewritten manifest can carry the current table schema and an older partition spec. The SDK's
         // header reader binds strictly, unlike table metadata loading, and rejects that valid combination.
-        try (CloseableIterable<?> header = InternalData.read(FileFormat.AVRO, io.newInputFile(manifest))
-                .project(new Schema(ManifestEntry.STATUS)).build()) {
-            Map<String, String> metadata = ((AvroIterable<?>) header).getMetadata();
-            ObjectNode specJson = JsonUtil.mapper().createObjectNode();
-            specJson.put("spec-id", manifest.partitionSpecId());
-            specJson.set("fields", JsonUtil.mapper().readTree(metadata.get("partition-spec")));
-            return PartitionSpecParser.fromJson(specJson).bind(SchemaParser.fromJson(metadata.get("schema")), true);
+        Map<String, String> metadata;
+        if (FileFormat.fromFileName(manifest.path()) == FileFormat.PARQUET) {
+            // V4 moves these header keys to the Parquet footer; an Avro reader cannot recover them.
+            metadata = ManifestMetadataAccess.read(io.newInputFile(manifest));
+        } else {
+            try (CloseableIterable<?> header = InternalData.read(FileFormat.AVRO, io.newInputFile(manifest))
+                    .project(new Schema(ManifestEntry.STATUS)).build()) {
+                metadata = ((AvroIterable<?>) header).getMetadata();
+            }
         }
+        ObjectNode specJson = JsonUtil.mapper().createObjectNode();
+        specJson.put("spec-id", manifest.partitionSpecId());
+        specJson.set("fields", JsonUtil.mapper().readTree(metadata.get("partition-spec")));
+        return PartitionSpecParser.fromJson(specJson).bind(SchemaParser.fromJson(metadata.get("schema")), true);
     }
 
     /**

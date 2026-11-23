@@ -24,6 +24,7 @@ import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.Table;
 
@@ -206,10 +207,14 @@ final class IcebergManifestCache {
 
     /** Cached-only probe: avoids futures and executor traffic on the warm planning path. */
     ManifestCacheValue getCachedManifestValue(ManifestFile manifest, String queryId) {
+        return getCachedManifestValue(manifest, null, queryId);
+    }
+
+    ManifestCacheValue getCachedManifestValue(ManifestFile manifest, Table table, String queryId) {
         if (manifest.keyMetadata() != null) {
             return null;
         }
-        ManifestCacheValue value = entry.getIfPresent(IcebergManifestEntryKey.of(manifest));
+        ManifestCacheValue value = entry.getIfPresent(manifestKey(manifest, table));
         if (value != null && queryId != null && !queryId.isEmpty()) {
             touch(queryId).hits.increment();
         }
@@ -230,14 +235,23 @@ final class IcebergManifestCache {
 
     /** Uses one stable statement identity while retaining only values classified as plaintext. */
     ManifestCacheValue readForStatement(ManifestFile manifest, Table table, Object loadScope, boolean privateRead) {
-        IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
+        IcebergManifestEntryKey key = manifestKey(manifest, table);
         return privateRead ? IcebergManifestLoader.read(manifest, table, manifest.content(), false)
                 : entry.getForLoadScope(key, loadScope, k -> IcebergManifestLoader.read(
                         manifest, table, k.getContent(), entry.isWeightBounded()));
     }
 
-    void recordStatementAccess(ManifestFile manifest, String queryId, boolean allowCacheHit) {
-        recordAccess(IcebergManifestEntryKey.of(manifest), queryId, allowCacheHit);
+    void recordStatementAccess(ManifestFile manifest, Table table, String queryId, boolean allowCacheHit) {
+        recordAccess(manifestKey(manifest, table), queryId, allowCacheHit);
+    }
+
+    private static IcebergManifestEntryKey manifestKey(ManifestFile manifest, Table table) {
+        if (table instanceof BaseTable && ((BaseTable) table).operations().current().formatVersion() >= 4) {
+            // The same relative manifest name can describe different bytes in different table locations.
+            return new IcebergManifestEntryKey(IcebergV4FileIO.resolve(table.location(), manifest.path()),
+                    manifest.content());
+        }
+        return IcebergManifestEntryKey.of(manifest);
     }
 
     private void recordAccess(IcebergManifestEntryKey key, String queryId, boolean allowCacheHit) {

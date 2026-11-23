@@ -137,6 +137,17 @@ public final class IcebergEncryptionFixture {
                 reply(request, 500, "{\"error\":\"Fixture verification failed\"}");
             }
         });
+        server.createContext("/v4/reset", request -> {
+            try (HiveCatalog catalog = fixture.catalog(fixture.properties()); S3FileIO cleanup = new S3FileIO()) {
+                check("POST".equals(request.getRequestMethod()), "POST required");
+                cleanup.initialize(fixture.properties());
+                IcebergV4Fixture.reset(catalog, cleanup);
+                reply(request, 200, "{\"created\":true}");
+            } catch (Exception | LinkageError e) {
+                e.printStackTrace(System.err);
+                reply(request, 500, "{\"error\":\"V4 fixture creation failed\"}");
+            }
+        });
         server.createContext("/native-deletes/reset", request -> {
             try (HiveCatalog catalog = fixture.catalog(fixture.properties()); S3FileIO cleanup = new S3FileIO()) {
                 check("POST".equals(request.getRequestMethod()), "POST required");

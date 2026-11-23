@@ -41,12 +41,18 @@ under the License.
     </description>
 
     <dependencies>
+        <!-- Tests also load provided FE Thrift classes. Put the SDK's Parquet classes first, as the
+             isolated connector does at runtime, rather than the FE's generated Parquet protocol classes. -->
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-filesystem-gcs-common</artifactId>
             <version>${revision}</version>
         </dependency>
-        <!-- Share the serializable GCP FileIO factory with the BE metadata scanner. -->
+        <!-- Share serializable FileIO helpers with the BE metadata scanner. -->
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-iceberg-common</artifactId>
@@ -126,6 +132,12 @@ under the License.
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
+            <version>${iceberg.version}</version>
+        </dependency>
+        <!-- Format v4 uses Parquet manifests in both planning and metadata-table scans. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-parquet</artifactId>
             <version>${iceberg.version}</version>
         </dependency>
 
@@ -341,16 +353,17 @@ under the License.
             <scope>test</scope>
         </dependency>
 
-        <!-- TEST ONLY: the assembleHiveConf parity test instantiates a real org.apache.hadoop.hive.conf.HiveConf,
-             whose static init touches org.apache.hadoop.mapred.JobConf (hadoop-mapreduce-client-core). That
-             artifact reaches the module only transitively (and is <optional> in hive-catalog-shade), so it is
-             absent from the unit-test classpath. The PRODUCTION hms path runs inside the assembled plugin (full
-             hadoop closure), so this is test-scope only — NOT bundled. Mirrors fe-connector-paimon. Version from
-             dependencyManagement (${hadoop.version}). -->
+        <!-- Parquet manifests require FileInputFormat in the isolated runtime, not just in tests.
+             Filesystem and Jackson dependencies are declared separately; no YARN client is needed. -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-mapreduce-client-core</artifactId>
-            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- TEST ONLY: org.apache.hadoop.hive.conf.HiveConf static init references commons-lang 2.x

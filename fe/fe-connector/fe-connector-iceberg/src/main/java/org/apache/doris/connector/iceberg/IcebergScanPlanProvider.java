@@ -48,6 +48,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import org.apache.iceberg.BaseFileScanTask;
+import org.apache.iceberg.BaseMetadataTable;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.BatchScan;
 import org.apache.iceberg.ContentFile;
@@ -600,7 +601,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         boolean partitioned = IcebergPartitionUtils.hasPartitionedSpec(table);
         Map<String, String> vendedToken = context != null
                 ? extractVendedToken(table, restVendedCredentialsEnabled()) : Collections.emptyMap();
-        UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
+        UnaryOperator<String> uriNormalizer = newUriNormalizer(table, vendedToken);
         long fileSplitSize = sessionLong(session, FILE_SPLIT_SIZE, 0L);
         long sliceSize = fileSplitSize > 0 ? fileSplitSize
                 : sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE);
@@ -972,7 +973,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 ? extractVendedToken(table, restVendedCredentialsEnabled()) : Collections.emptyMap();
         // Derive the vended storage config ONCE per scan (the token is scan-invariant) and reuse it for every
         // per-file path normalization below, instead of rebuilding it per data/delete file (C3).
-        UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
+        UnaryOperator<String> uriNormalizer = newUriNormalizer(table, vendedToken);
 
         // COUNT(*) pushdown (T05): derive an exact count from the current manifest list and collapse the scan to
         // a single whole-file range. Snapshot summary fields are optional writer-provided metadata and must never
@@ -1326,7 +1327,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         ZoneId zone = resolveSessionZone(session);
         Map<String, String> vendedToken = context != null
                 ? extractVendedToken(metadataTable, restVendedCredentialsEnabled()) : Collections.emptyMap();
-        UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
+        UnaryOperator<String> uriNormalizer = newUriNormalizer(metadataTable, vendedToken);
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
         for (PositionDeletesScanTask task : tasks) {
@@ -1361,7 +1362,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         IcebergFileEncryption encryption = deleteFileEncryption(deleteFile);
         String originalPath = deleteFile.path().toString();
         IcebergScanRange.Builder builder = new IcebergScanRange.Builder()
-                .path(uriNormalizer.apply(originalPath))
+                .path(normalizeFileLocation(deleteFile, uriNormalizer))
                 .start(task.start())
                 .length(task.length())
                 .fileSize(deleteFile.fileSizeInBytes())
@@ -2131,7 +2132,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         file.firstRowId = firstRowId;
         file.lastUpdatedSequenceNumber = lastUpdatedSequenceNumber;
         file.rawDataPath = rawDataPath;
-        file.normalizedPath = uriNormalizer.apply(rawDataPath);
+        file.normalizedPath = normalizeFileLocation(dataFile, uriNormalizer);
         file.deleteCarriers = buildDeleteFiles(task, uriNormalizer);
         file.encryption = encryption;
         return file;
@@ -2181,7 +2182,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     IcebergScanRange.DeleteFile convertDelete(DeleteFile delete, UnaryOperator<String> uriNormalizer) {
         IcebergFileEncryption encryption = deleteFileEncryption(delete);
-        String path = uriNormalizer.apply(delete.path().toString());
+        String path = normalizeFileLocation(delete, uriNormalizer);
         FileContent content = delete.content();
         if (content == FileContent.POSITION_DELETES) {
             Long lowerBound = readPositionBound(delete.lowerBounds());
@@ -2235,6 +2236,42 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return TFileFormatType.FORMAT_ORC;
         }
         return null;
+    }
+
+    /** Resolve table-relative physical locations before storage-scheme normalization. */
+    private UnaryOperator<String> newUriNormalizer(Table table, Map<String, String> vendedToken) {
+        UnaryOperator<String> normalize = newUriNormalizer(vendedToken);
+        // Metadata-table properties omit the format version; native delete-table ranges use the base version.
+        Table base = table instanceof BaseMetadataTable ? ((BaseMetadataTable) table).table() : table;
+        if (getFormatVersion(base) < 4) {
+            return normalize;
+        }
+        return new V4UriNormalizer(new IcebergV4FileIO(table.io(), table.location()), normalize);
+    }
+
+    private static String normalizeFileLocation(ContentFile<?> file, UnaryOperator<String> normalizer) {
+        return normalizer instanceof V4UriNormalizer ? ((V4UriNormalizer) normalizer).apply(file)
+                : normalizer.apply(file.location());
+    }
+
+    private static final class V4UriNormalizer implements UnaryOperator<String> {
+        private final IcebergV4FileIO paths;
+        private final UnaryOperator<String> delegate;
+
+        private V4UriNormalizer(IcebergV4FileIO paths, UnaryOperator<String> delegate) {
+            this.paths = paths;
+            this.delegate = delegate;
+        }
+
+        @Override
+        public String apply(String path) {
+            return delegate.apply(paths.resolveLocation(path));
+        }
+
+        private String apply(ContentFile<?> file) {
+            // Keep original_file_path raw while resolving physical opens using the producing manifest's version.
+            return delegate.apply(paths.resolveContentFile(file));
+        }
     }
 
     /**
@@ -2299,7 +2336,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         FileIO fileIO = table.io();
         Map<String, String> ioProps = new HashMap<>(fileIO.properties());
         // REST credentials live outside properties(). Authentication decorators must not hide them from BE.
-        while (fileIO instanceof IcebergAuthenticatedFileIO || fileIO instanceof IcebergRestEncryptionFileIO) {
+        while (fileIO instanceof IcebergAuthenticatedFileIO || fileIO instanceof IcebergRestEncryptionFileIO
+                || fileIO instanceof IcebergV4FileIO) {
+            if (fileIO instanceof IcebergV4FileIO) {
+                fileIO = ((IcebergV4FileIO) fileIO).delegate();
+                continue;
+            }
             fileIO = fileIO instanceof IcebergAuthenticatedFileIO
                     ? ((IcebergAuthenticatedFileIO) fileIO).delegate()
                     : ((IcebergRestEncryptionFileIO) fileIO).delegate();
@@ -3960,6 +4002,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * thread-level wrap in {@link #planSystemTableScan} instead. Package-private for unit testing.
      */
     Table wrapTableForScan(Table table) {
+        table = IcebergSnapshotTableOperations.v4ReadTable(table);
         if (!(context instanceof TcclPinningConnectorContext) || !(table instanceof BaseTable)) {
             return table;
         }
@@ -4020,7 +4063,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // JNI serializes SDK tasks beyond the native key/transport contract; keep that path closed.
             throw new DorisConnectorException("Iceberg encryption [UNSUPPORTED_METADATA_TABLE]");
         }
-        return base;
+        return IcebergSnapshotTableOperations.v4ReadTable(base);
     }
 
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */

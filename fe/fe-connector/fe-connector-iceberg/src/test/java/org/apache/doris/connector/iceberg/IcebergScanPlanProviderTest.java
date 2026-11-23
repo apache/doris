@@ -7473,8 +7473,8 @@ public class IcebergScanPlanProviderTest {
     // --- T09: vended credentials (extractVendedToken + static/vended location.* + URI threading) ---
 
     @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    public void extractVendedTokenMergesIoPropsAndStorageCredentials(boolean encryptedRest) {
+    @CsvSource({"false, false", "true, false", "false, true", "true, true"})
+    public void extractVendedTokenMergesIoPropsAndStorageCredentials(boolean encryptedRest, boolean v4) {
         FakeIcebergTable table = fakeTable("t1");
         Map<String, String> ioProps = new HashMap<>();
         ioProps.put("s3.endpoint", "ep");
@@ -7484,7 +7484,7 @@ public class IcebergScanPlanProviderTest {
         if (encryptedRest) {
             io = new IcebergRestEncryptionFileIO(io, new java.util.concurrent.atomic.AtomicReference<>(), false);
         }
-        table.setIo(io);
+        table.setIo(v4 ? new IcebergV4FileIO(io, "s3://example-bucket/table") : io);
 
         Map<String, String> token = IcebergScanPlanProvider.extractVendedToken(table, true);
 

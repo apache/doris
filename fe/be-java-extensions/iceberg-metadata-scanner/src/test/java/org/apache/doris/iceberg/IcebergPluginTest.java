@@ -32,6 +32,7 @@ import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
@@ -307,6 +308,39 @@ public class IcebergPluginTest {
             Assertions.assertEquals(0, scanner.getNextBatchMeta(), "0 means end of stream");
         } finally {
             scanner.close();
+        }
+    }
+
+    @Test
+    public void scansV4FilesFromASerializedTask(@TempDir Path warehouse) throws IOException {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        Table table = new HadoopTables(new Configuration()).create(schema, PartitionSpec.unpartitioned(),
+                Map.of(TableProperties.FORMAT_VERSION, "4"), warehouse.resolve("v4").toUri().toString());
+        table.newFastAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("data/first.parquet").withFileSizeInBytes(100).withRecordCount(7).build()).commit();
+        Table files = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.FILES);
+        TableScan scan = files.newScan().select("record_count");
+        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
+            int totalRows = 0;
+            for (FileScanTask task : tasks) {
+                Map<String, String> params = new HashMap<>();
+                params.put("serialized_split", SerializationUtil.serializeToBase64(task));
+                params.put("required_fields", "record_count");
+                params.put("required_types", "bigint");
+                params.put("time_zone", "UTC");
+                JniScanner scanner = loadPlugin().getScannerFactories().iterator().next().create(16, params);
+                scanner.open();
+                try {
+                    Assertions.assertNotEquals(0, scanner.getNextBatchMeta());
+                    Assertions.assertEquals(7L, scanner.getTable().getColumn(0).getLong(0));
+                    totalRows += scanner.getTable().getNumRows();
+                    scanner.releaseTable();
+                    Assertions.assertEquals(0, scanner.getNextBatchMeta());
+                } finally {
+                    scanner.close();
+                }
+            }
+            Assertions.assertEquals(1, totalRows, "the Parquet manifest must be opened after deserialization");
         }
     }
 
