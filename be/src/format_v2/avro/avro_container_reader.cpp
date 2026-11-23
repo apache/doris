@@ -850,13 +850,28 @@ struct AvroContainerReader::Impl {
                 if (datum) {
                     growth(0, count, std::max(size_t(1), datum_size(projected_child)));
                     auto admit = [&](auto& values) {
-                        require(static_cast<uint64_t>(count) <= values.max_size() - values.size(),
+                        using Value =
+                                typename std::remove_reference_t<decltype(values)>::value_type;
+                        static_assert(std::is_nothrow_move_constructible_v<Value>);
+                        const auto maximum = std::min(
+                                values.max_size(),
+                                size_t(std::numeric_limits<int64_t>::max()) / 2 / sizeof(Value));
+                        require(static_cast<uint64_t>(count) <= maximum - values.size(),
                                 "Avro collection count overflows");
                         const auto size = values.size() + count;
-                        growth(values.capacity(), size,
-                               sizeof(typename std::remove_reference_t<
-                                       decltype(values)>::value_type));
-                        values.reserve(size);
+                        // Thousands of one-item blocks must not copy and admit the entire prefix
+                        // on each append. Retain only the capacity delta; the temporary old-buffer
+                        // lease covers overlap during reallocation and expires when it is freed.
+                        if (size > values.capacity()) {
+                            const auto capacity =
+                                    values.capacity() +
+                                    std::min(values.capacity(), maximum - values.capacity());
+                            const auto target = std::max(size, capacity);
+                            const auto old_bytes = values.capacity() * sizeof(Value);
+                            auto old_buffer = old_bytes == 0 ? nullptr : workspace(old_bytes);
+                            reserve((target - values.capacity()) * sizeof(Value));
+                            values.reserve(target);
+                        }
                     };
                     if (map) {
                         admit(datum->value<::avro::GenericMap>().value());

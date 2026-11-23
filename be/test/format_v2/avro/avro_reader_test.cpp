@@ -1766,6 +1766,124 @@ TEST_F(AvroReaderTest, HugeArrayCountsFailTheBudgetBeforeAllocatingElements) {
     EXPECT_TRUE(input->close().ok());
 }
 
+TEST_F(AvroReaderTest, ManyCollectionContinuationBlocksFitASmallMemoryBudget) {
+    for (bool map : {false, true}) {
+        for (bool negative : {false, true}) {
+            SCOPED_TRACE(testing::Message() << "map=" << map << " negative=" << negative);
+            const auto avro_schema = ::avro::compileJsonSchemaFromString(
+                    map ? R"({"type":"record","name":"r","fields":[{"name":"value","type":{"type":"map","values":"int"}}]})"
+                        : R"({"type":"record","name":"r","fields":[{"name":"value","type":{"type":"array","items":"int"}}]})");
+            std::vector<uint8_t> payload;
+            auto append_long = [](std::vector<uint8_t>& output, uint64_t value) {
+                value *= 2;
+                while (value >= 128) {
+                    output.push_back((value & 127) | 128);
+                    value >>= 7;
+                }
+                output.push_back(value);
+            };
+            std::vector<std::string> expected;
+            for (size_t count : {size_t(2048), size_t(4096), size_t(1)}) {
+                std::string value = map ? "{" : "[";
+                for (size_t i = 0; i < count; ++i) {
+                    std::vector<uint8_t> entry;
+                    const auto key = "k" + std::to_string(i);
+                    if (map) {
+                        append_long(entry, key.size());
+                        entry.insert(entry.end(), key.begin(), key.end());
+                    }
+                    append_long(entry, i % 32);
+                    // A negative one-item block also carries its encoded byte length.
+                    payload.push_back(negative ? 1 : 2);
+                    if (negative) {
+                        append_long(payload, entry.size());
+                    }
+                    payload.insert(payload.end(), entry.begin(), entry.end());
+                    value += (i == 0 ? "" : ", ");
+                    if (map) {
+                        value += "\"" + key + "\":";
+                    }
+                    value += std::to_string(i % 32);
+                }
+                payload.push_back(0);
+                expected.push_back(value + (map ? "}" : "]"));
+            }
+            write_raw_block(avro_schema, ::avro::NULL_CODEC, payload, expected.size());
+            auto tracker = MemTrackerLimiter::create_shared(
+                    MemTrackerLimiter::Type::QUERY, "avro_continuation_blocks", 8 * 1024 * 1024);
+            SCOPED_ATTACH_TASK(tracker);
+            thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+            const auto baseline = tracker->consumption();
+            auto input = reader();
+            ASSERT_TRUE(initialize(input.get()).ok());
+            auto request = std::make_shared<FileScanRequest>();
+            auto block = block_for({0}, request.get());
+            ASSERT_TRUE(input->open(request).ok());
+            input->set_batch_size(1);
+            for (const auto& value : expected) {
+                block.clear_column_data();
+                size_t rows = 0;
+                bool eof = false;
+                const auto status = input->get_block(&block, &rows, &eof);
+                ASSERT_TRUE(status.ok()) << status;
+                ASSERT_EQ(rows, 1);
+                const auto& field = block.get_by_position(0);
+                EXPECT_EQ(field.type->to_string(*field.column, 0), value);
+            }
+            block = Block();
+            EXPECT_TRUE(input->close().ok());
+            input.reset();
+            thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+            EXPECT_EQ(tracker->consumption(), baseline);
+        }
+    }
+}
+
+TEST_F(AvroReaderTest, CollectionGrowthFailureReleasesReservationsOnClose) {
+    constexpr size_t count = 4096;
+    const auto avro_schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"r","fields":[{"name":"value","type":{"type":"array","items":"int"}}]})");
+    std::vector<uint8_t> payload;
+    for (size_t size : {count, count + 1}) {
+        for (size_t i = 0; i < size; ++i) {
+            payload.insert(payload.end(), {2, 0});
+        }
+        payload.push_back(0);
+    }
+    write_raw_block(avro_schema, ::avro::NULL_CODEC, payload, 2);
+    auto tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::QUERY, "avro_collection_growth_failure", 8 * 1024 * 1024);
+    SCOPED_ATTACH_TASK(tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const auto baseline = tracker->consumption();
+    const auto reserved_baseline = tracker->reserved_consumption();
+    auto input = reader();
+    ASSERT_TRUE(initialize(input.get()).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    auto block = block_for({0}, request.get());
+    ASSERT_TRUE(input->open(request).ok());
+    input->set_batch_size(1);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(input->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    block.clear_column_data();
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    // The second row fits the retained capacity until its last item. Admit the overlap lease,
+    // then fail the capacity delta to verify lease unwinding and retained-admission cleanup.
+    tracker->set_limit(tracker->consumption() + 2 * count * sizeof(::avro::GenericDatum) - 1);
+    const auto status = input->get_block(&block, &rows, &eof);
+    EXPECT_EQ(status.code(), ErrorCode::QUERY_MEMORY_EXCEEDED) << status;
+    EXPECT_EQ(rows, 0);
+    block = Block();
+    EXPECT_TRUE(input->close().ok());
+    EXPECT_TRUE(input->close().ok());
+    input.reset();
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(tracker->reserved_consumption(), reserved_baseline);
+    EXPECT_EQ(tracker->consumption(), baseline);
+}
+
 TEST_F(AvroReaderTest, FixedAndCompressedBlocksReserveBeforeMaterializing) {
     for (bool compressed : {false, true}) {
         const auto avro_schema = ::avro::compileJsonSchemaFromString(
