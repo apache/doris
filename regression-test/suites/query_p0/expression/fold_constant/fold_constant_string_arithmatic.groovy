@@ -1384,6 +1384,23 @@ suite("fold_constant_string_arithmatic") {
 
     // substring_index
     testFoldConst("select substring_index('a,b,c', ',', 2)")
+    testFoldConst("select substring_index('', ',', -1)")
+    testFoldConst("select substring_index('aaa', 'aa', -1)")
+    testFoldConst("select substring_index('aaaaa', 'aa', -1)")
+    testFoldConst("select substring_index('aaaaa', 'aa', -2)")
+    testFoldConst("select substring_index('aaaaa', 'aa', 2)")
+    testFoldConst("select substring_index('aaaaa', 'aa', -6)")
+
+    def substringIndexResult = sql """
+        SELECT substring_index('', ',', -1),
+               substring_index('aaa', 'aa', -1),
+               substring_index('aaaaa', 'aa', -1),
+               substring_index('aaaaa', 'aa', -2),
+               substring_index('aaaaa', 'aa', 2),
+               substring_index('aaaaa', 'aa', -6)
+    """
+    assertEquals([["", "", "", "aa", "aa", "aaaaa"]], substringIndexResult)
+
     testFoldConst("select substring_index('a,b,c', '', 2)")
     testFoldConst("select substring_index(cast('a,b,c' as string), cast(',' as string), 2)")
     testFoldConst("select substring_index(CAST('hello world' AS STRING), CAST(' ' AS STRING), -1)")
