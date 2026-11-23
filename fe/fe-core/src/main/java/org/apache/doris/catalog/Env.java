@@ -4930,8 +4930,8 @@ public class Env {
                 Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
                 while (iterator.hasNext()) {
                     Entry<String, String> property = iterator.next();
-                    String value = hidePassword && PrintableMap.SENSITIVE_KEY.contains(property.getKey())
-                            ? PrintableMap.PASSWORD_MASK : String.valueOf(property.getValue());
+                    String value = hidePassword ? PrintableMap.redactProperty(property.getKey(), property.getValue())
+                            : String.valueOf(property.getValue());
                     sb.append("  ").append(SqlLiteralUtils.quoteStringLiteral(property.getKey()))
                             .append(" = ").append(SqlLiteralUtils.quoteStringLiteral(value));
                     if (iterator.hasNext()) {

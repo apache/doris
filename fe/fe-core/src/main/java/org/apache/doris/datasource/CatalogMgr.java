@@ -698,11 +698,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     if (PrintableMap.HIDDEN_KEY.contains(key)) {
                         return;
                     }
-                    if (PrintableMap.SENSITIVE_KEY.contains(key)) {
-                        sortedMap.put(key, PrintableMap.PASSWORD_MASK);
-                    } else {
-                        sortedMap.put(key, value);
-                    }
+                    sortedMap.put(key, PrintableMap.redactProperty(key, value));
                 }
         );
         return sortedMap;
