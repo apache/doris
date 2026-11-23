@@ -45,6 +45,94 @@ public class TVFScanNodeTest {
     private static final long MB = 1024L * 1024L;
 
     @Test
+    public void largeAvroTvfsUseConfiguredFineByteRangesOnFe() throws Exception {
+        for (TFileType type : List.of(TFileType.FILE_S3, TFileType.FILE_HDFS)) {
+            String path = type == TFileType.FILE_S3 ? "s3://bucket/large.avro" : "hdfs://host/large.avro";
+            for (long explicitSize : new long[] {0, 16 * MB}) {
+                for (long fineSize : new long[] {64 * MB, 128 * MB}) {
+                    SessionVariable sv = new SessionVariable();
+                    sv.setFileSplitSize(explicitSize);
+                    sv.setFileSplitSizeOnFe(512 * MB);
+                    sv.setFileSplitSizeOnBe(fineSize);
+                    TBrokerFileStatus file = splittableFile(path, 1024 * MB);
+                    file.setModificationTime(17);
+                    List<Split> splits = fileScanNode(sv, type, TFileFormatType.FORMAT_AVRO, file).getSplits(2);
+                    Assertions.assertEquals(1024 * MB / fineSize, splits.size());
+                    long offset = 0;
+                    for (Split split : splits) {
+                        Assertions.assertEquals(offset, split.getStart());
+                        Assertions.assertEquals(fineSize, split.getLength());
+                        offset += split.getLength();
+                    }
+                    Assertions.assertEquals(1024 * MB, offset);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void avroFineFeRangesPreserveMaxSplitAndCountPolicies() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSizeOnBe(64 * MB);
+        TBrokerFileStatus file = splittableFile("s3://bucket/large.avro", 1024 * MB);
+        for (int maxSplits : new int[] {1, 2}) {
+            sv.setMaxFileSplitNum(maxSplits);
+            Assertions.assertEquals(maxSplits,
+                    fileScanNode(sv, TFileType.FILE_S3, TFileFormatType.FORMAT_AVRO, file).getSplits(2).size());
+        }
+
+        sv = new SessionVariable();
+        sv.setFileSplitSize(16 * MB);
+        sv.setFileSplitSizeOnBe(64 * MB);
+        TVFScanNode count = fileScanNode(sv, TFileType.FILE_S3, TFileFormatType.FORMAT_AVRO, file);
+        count.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        count.setPushDownCountSlotIds(List.of(new SlotId(7)));
+        Assertions.assertEquals(16, count.getSplits(2).size());
+        count.setPushDownCountSlotIds(Collections.emptyList());
+        sv.parallelExecInstanceNum = 1;
+        Assertions.assertEquals(1, count.getSplits(1).size());
+        Assertions.assertEquals(64, count.getSplits(2).size());
+    }
+
+    @Test
+    public void avroFineFeSizingPreservesHttpAndSerialFallbacks() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSize(16 * MB);
+        sv.setFileSplitSizeOnBe(64 * MB);
+        TBrokerFileStatus httpFile = splittableFile("http://example.test/large.avro", 1024 * MB);
+        Assertions.assertEquals(64,
+                fileScanNode(sv, TFileType.FILE_HTTP, TFileFormatType.FORMAT_AVRO, httpFile).getSplits(2).size());
+        TBrokerFileStatus file = splittableFile("s3://bucket/large.avro", 1024 * MB);
+        TVFScanNode limited = fileScanNode(sv, TFileType.FILE_S3, TFileFormatType.FORMAT_AVRO, file);
+        limited.setLimit(100);
+        Assertions.assertEquals(64, limited.getSplits(2).size());
+        sv.maxFileScannersConcurrency = 1;
+        Assertions.assertEquals(64,
+                fileScanNode(sv, TFileType.FILE_S3, TFileFormatType.FORMAT_AVRO, file).getSplits(2).size());
+    }
+
+    @Test
+    public void avroExplicitFallbackKeepsTheFeDescriptorLimit() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSize(16);
+        sv.setFileSplitSizeOnFe(512);
+        sv.setFileSplitSizeOnBe(1);
+        sv.setMaxFileSplitNum(1);
+        TBrokerFileStatus file = splittableFile("s3://bucket/bounded.avro", 32);
+        List<Split> bounded = fileScanNode(sv, TFileType.FILE_S3, TFileFormatType.FORMAT_AVRO, file).getSplits(2);
+        Assertions.assertEquals(1, bounded.size());
+        Assertions.assertEquals(32, bounded.get(0).getLength());
+        sv.setMaxFileSplitNum(0);
+        Assertions.assertEquals(32,
+                fileScanNode(sv, TFileType.FILE_S3, TFileFormatType.FORMAT_AVRO, file).getSplits(2).size());
+        sv.setMaxFileSplitNum(1);
+        sv.setFileSplitSizeOnFe(0);
+        for (TFileFormatType format : List.of(TFileFormatType.FORMAT_PARQUET, TFileFormatType.FORMAT_ORC)) {
+            Assertions.assertEquals(2, fileScanNode(sv, TFileType.FILE_S3, format, file).getSplits(2).size());
+        }
+    }
+
+    @Test
     public void testCoarseRangesHonorMaxFileSplitNum() throws Exception {
         for (TFileFormatType format : List.of(TFileFormatType.FORMAT_PARQUET, TFileFormatType.FORMAT_ORC)) {
             SessionVariable sv = new SessionVariable();

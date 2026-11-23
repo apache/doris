@@ -201,6 +201,39 @@ public class FileQueryScanNodeTest {
     }
 
     @Test
+    public void avroUsesFineFeByteRangesWithoutAdvertisingBeRefinement() {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSizeOnFe(512 * MB);
+        sv.setFileSplitSizeOnBe(96 * MB);
+        TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
+        Assertions.assertEquals(96 * MB,
+                node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_AVRO, true));
+        TFileRangeDesc range = new TFileRangeDesc();
+        range.setFormatType(TFileFormatType.FORMAT_AVRO);
+        FileQueryScanNode.setTargetSplitSize(range, sv);
+        Assertions.assertFalse(range.isSetTargetSplitSize());
+        Assertions.assertEquals(16 * MB,
+                node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_AVRO, false));
+        sv.maxFileScannersConcurrency = 1;
+        Assertions.assertEquals(16 * MB,
+                node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_AVRO, true));
+        sv.maxFileScannersConcurrency = 16;
+        for (long value : new long[] {0, -1}) {
+            sv.setFileSplitSizeOnBe(value);
+            Assertions.assertEquals(16 * MB,
+                    node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_AVRO, true));
+            sv.setFileSplitSizeOnBe(96 * MB);
+            sv.setFileSplitSizeOnFe(value);
+            Assertions.assertEquals(16 * MB,
+                    node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_AVRO, true));
+            sv.setFileSplitSizeOnFe(512 * MB);
+        }
+        node.setLimit(100);
+        Assertions.assertEquals(16 * MB,
+                node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_AVRO, true));
+    }
+
+    @Test
     public void testIneligibleFileKeepsLegacyFeSplitSize() {
         SessionVariable sv = new SessionVariable();
         sv.setFileSplitSizeOnFe(512 * MB);

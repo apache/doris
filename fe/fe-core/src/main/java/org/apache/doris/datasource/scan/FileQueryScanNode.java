@@ -556,6 +556,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected long selectFeSplitSizeForBe(long fallbackSize, TFileFormatType format, boolean supportsBeSplit) {
         long coarseSize = coarseSplitSizeForBeRefinement();
+        if (supportsBeSplit && coarseSize > 0 && format == TFileFormatType.FORMAT_AVRO) {
+            // Avro aligns byte ranges in its reader and has no BE physical-granule planner.
+            // Apply the final target in FE so coarse ranges do not reduce parallelism.
+            return sessionVariable.getFileSplitSizeOnBe();
+        }
         return supportsBeSplit && isColumnarFormat(format) && coarseSize > 0 ? coarseSize : fallbackSize;
     }
 
