@@ -219,8 +219,12 @@ final class LanceConnectorMetadata implements ConnectorMetadata {
     // ========= internals =========
 
     private LanceTableMetadata metadata(ConnectorSession session, LanceTableHandle handle) {
+        // Looked up before the memo's loader runs: a loader may not use the statement scope itself.
+        LanceMetadataMetrics metrics = LanceMetadataMetrics.forTable(session, handle.getDbName(),
+                handle.getTableName());
         return LanceStatementScope.sharedMetadata(session, handle,
-                () -> client.loadTableMetadata(handle.getDbName(), handle.getTableName(), handle.getVersion()));
+                () -> client.loadTableMetadata(handle.getDbName(), handle.getTableName(), handle.getVersion(),
+                        metrics));
     }
 
     private LanceTableMetadata metadataAtOrBefore(ConnectorSession session, LanceTableHandle handle,
@@ -232,7 +236,8 @@ final class LanceConnectorMetadata implements ConnectorMetadata {
                     + "', expected " + LanceSnapshotResolver.TIMESTAMP_FORMATS);
         }
         LanceTableMetadata metadata = client.loadTableMetadataAtOrBefore(handle.getDbName(),
-                handle.getTableName(), timestamp.getAsLong(), requestedText);
+                handle.getTableName(), timestamp.getAsLong(), requestedText,
+                LanceMetadataMetrics.forTable(session, handle.getDbName(), handle.getTableName()));
         // Remembered under the version it resolved to, which is what the pinned reads that follow ask for.
         return LanceStatementScope.sharedMetadata(session, handle.withVersion(metadata.getVersion()),
                 () -> metadata);
