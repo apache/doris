@@ -3525,10 +3525,13 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = SPILL_BUFFER_SIZE_BYTES, fuzzy = true, needForward = true,
             description = "Maximum block size for spill writes (in bytes). Blocks larger than this threshold are "
                     + "split before writing to disk. Also controls per-file read buffer size during merge sort. "
-                    + "Default is 8MB.")
+                    + "Default is 8 MiB. Range is [1 MiB, 256 MiB]; "
+                    + "out-of-range values are clamped to the nearest bound.")
     public long spillBufferSizeBytes = 8L * 1024L * 1024L;
 
-    @VarAttrDef.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, needForward = true, fuzzy = true)
+    @VarAttrDef.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, needForward = true, fuzzy = true,
+            description = "Number of partitions for aggregation spill. Default is 4. Range is [2, 32]; "
+                    + "out-of-range values are clamped to the nearest bound.")
     public int spillAggregationPartitionCount = 4;
 
     @VarAttrDef.VarAttr(name = LOW_MEMORY_MODE_BUFFER_LIMIT, needForward = true, fuzzy = false)
@@ -3541,12 +3544,14 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, needForward = true, fuzzy = false)
     public long spillStreamingAggMemLimit = 268435456; //256MB
 
-    @VarAttrDef.VarAttr(name = SPILL_HASH_JOIN_PARTITION_COUNT, needForward = true, fuzzy = true)
+    @VarAttrDef.VarAttr(name = SPILL_HASH_JOIN_PARTITION_COUNT, needForward = true, fuzzy = true,
+            description = "Number of partitions for hash join spill. Default is 4. Range is [2, 32]; "
+                    + "out-of-range values are clamped to the nearest bound.")
     public int spillHashJoinPartitionCount = 4;
 
     @VarAttrDef.VarAttr(name = SPILL_REPARTITION_MAX_DEPTH, fuzzy = true, needForward = true,
             description = "Maximum depth for repartition recursion. When exceeded, repartitioning will stop. Default "
-                    + "is 8.")
+                    + "is 8. Range is [1, 128]; out-of-range values are clamped to the nearest bound.")
     public int spillRepartitionMaxDepth = 8;
 
     @VarAttrDef.VarAttr(name = SPILL_JOIN_BUILD_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
@@ -3555,9 +3560,11 @@ public class SessionVariable implements Serializable, Writable {
     public long spillJoinBuildSinkMemLimitBytes = 64L * 1024L * 1024L;
 
     @VarAttrDef.VarAttr(name = SPILL_AGGREGATION_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
-            description = "After spill is triggered, aggregation sink will proactively spill when revocable memory "
-                    + "exceeds this threshold (in bytes). Default is 64GB.")
-    public long spillAggregationSinkMemLimitBytes = 64L * 1024L * 1024L * 1024L;
+            description = "After aggregation starts spilling, the sink proactively spills when revocable memory "
+                    + "reaches this threshold (in bytes), not a query memory limit or the initial spill trigger. "
+                    + "Default is 64 MiB. Range is [1 MiB, 4 GiB]; "
+                    + "out-of-range values are clamped to the nearest bound.")
+    public long spillAggregationSinkMemLimitBytes = 64L * 1024L * 1024L;
 
     @VarAttrDef.VarAttr(name = SPILL_SORT_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
             description = "After spill is triggered, sort sink will proactively spill when revocable memory "
@@ -3570,9 +3577,10 @@ public class SessionVariable implements Serializable, Writable {
     public long spillAnalyticSinkMemLimitBytes = 64L * 1024L * 1024L;
 
     @VarAttrDef.VarAttr(name = SPILL_SORT_MERGE_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
-            description = "After spill is triggered, total memory budget for the sort merge phase (in bytes). "
-                    + "Divided by spill_buffer_size_bytes gives the number of files that can be merged "
-                    + "in parallel. Default is 64MB.")
+            description = "Budget used to derive spill sort merge fan-in (in bytes), not a hard memory limit. "
+                    + "Query sort merges up to max(8, floor(budget / spill_buffer_size_bytes)) files at a time. "
+                    + "Default is 64 MiB. Range is [1 MiB, 4 GiB]; "
+                    + "out-of-range values are clamped to the nearest bound.")
     public long spillSortMergeMemLimitBytes = 64L * 1024L * 1024L;
 
     @VarAttrDef.VarAttr(name = SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT, fuzzy = true)
@@ -6167,7 +6175,7 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, normalizeIntValue(attr.name(), root.get(attr.name()).toString()));
                         break;
                     case "long":
-                        field.set(this, (Long) root.get(attr.name()));
+                        field.set(this, normalizeLongValue(attr.name(), (Long) root.get(attr.name())));
                         break;
                     case "float":
                         field.set(this, root.get(attr.name()));
@@ -6221,7 +6229,8 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, normalizeIntValue(attr.name(), sessionVarMap.get(attr.name())));
                         break;
                     case "long":
-                        field.set(this, Long.valueOf(sessionVarMap.get(attr.name())));
+                        field.set(this, normalizeLongValue(attr.name(),
+                                Long.parseLong(sessionVarMap.get(attr.name()))));
                         break;
                     case "float":
                         field.set(this, Float.valueOf(sessionVarMap.get(attr.name())));
@@ -6249,6 +6258,12 @@ public class SessionVariable implements Serializable, Writable {
         switch (name.toLowerCase(Locale.ROOT)) {
             case RUNTIME_FILTER_TYPE:
                 return (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+            // Match the spill ranges enforced by RuntimeState getters.
+            case SPILL_HASH_JOIN_PARTITION_COUNT:
+            case SPILL_AGGREGATION_PARTITION_COUNT:
+                return Math.max(2, Math.min(intValue, 32));
+            case SPILL_REPARTITION_MAX_DEPTH:
+                return Math.max(1, Math.min(intValue, 128));
             // Historical and forwarded values bypass statement-time validation. Keep them valid
             // before SET_VAR saves the original value for restoration through the strict setters.
             case PARALLEL_PIPELINE_TASK_NUM:
@@ -6266,6 +6281,19 @@ public class SessionVariable implements Serializable, Writable {
                 return Math.min(intValue, 256);
             default:
                 return intValue;
+        }
+    }
+
+    static long normalizeLongValue(String name, long value) {
+        // Match the spill ranges enforced by RuntimeState getters.
+        switch (name.toLowerCase(Locale.ROOT)) {
+            case SPILL_BUFFER_SIZE_BYTES:
+                return Math.max(1024L * 1024, Math.min(value, 256L * 1024 * 1024));
+            case SPILL_AGGREGATION_SINK_MEM_LIMIT_BYTES:
+            case SPILL_SORT_MERGE_MEM_LIMIT_BYTES:
+                return Math.max(1024L * 1024, Math.min(value, 4L * 1024 * 1024 * 1024));
+            default:
+                return value;
         }
     }
 
