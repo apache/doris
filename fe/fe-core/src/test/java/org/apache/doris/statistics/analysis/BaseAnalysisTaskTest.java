@@ -20,17 +20,48 @@ package org.apache.doris.statistics.analysis;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.repository.ColStatsData;
 import org.apache.doris.statistics.repository.ResultRow;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 
 public class BaseAnalysisTaskTest {
+
+    @Test
+    void onlyOlapStatisticsOverrideCtePlanning() {
+        for (BaseAnalysisTask task : List.of(new ExternalAnalysisTask(), new OlapAnalysisTask())) {
+            var ctx = new ConnectContext();
+            var session = ctx.getSessionVariable();
+            session.enableCTEMaterialize = false;
+            session.inlineCTEReferencedThreshold = 7;
+            session.cteInlineMode = 1;
+            var stopped = new IllegalStateException("stop after recording planner settings");
+            try (var util = Mockito.mockStatic(StatisticsUtil.class);
+                    var executor = Mockito.mockConstruction(StmtExecutor.class, (stmt, construction) -> {
+                        boolean olap = task instanceof OlapAnalysisTask;
+                        Assertions.assertSame(ctx, construction.arguments().get(0));
+                        Assertions.assertEquals(olap, session.enableCTEMaterialize);
+                        Assertions.assertEquals(olap ? 1 : 7, session.inlineCTEReferencedThreshold);
+                        Assertions.assertEquals(olap ? -1 : 1, session.cteInlineMode);
+                        Mockito.when(stmt.executeInternalQuery()).thenThrow(stopped);
+                    })) {
+                util.when(() -> StatisticsUtil.buildConnectContext(false)).thenReturn(new AutoCloseConnectContext(ctx));
+                Assertions.assertSame(stopped, Assertions.assertThrows(IllegalStateException.class,
+                        () -> task.runQuery("SELECT 1")));
+                Assertions.assertEquals(1, executor.constructed().size());
+            }
+        }
+    }
 
     @Test
     public void testGetFunctions() {

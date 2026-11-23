@@ -33,6 +33,15 @@ import java.util.List;
 
 public class ColStatsDataTest {
     @Test
+    public void testCountsRetainIntegerPrecisionAndAcceptLegacyEstimates() {
+        ColStatsData data = new ColStatsData(new ResultRow(List.of("id", "1", "2", "3", "0", "col",
+                "0", "9007199254740993", "9007199254740993", "1.99e2", "min", "max", "0", "now", "")));
+        Assertions.assertEquals(9007199254740993L, data.count);
+        Assertions.assertEquals(data.count, data.ndv);
+        Assertions.assertEquals(199, data.nullCount);
+    }
+
+    @Test
     public void testConstructNotNull() {
         List<String> values = Lists.newArrayList();
         values.add("id");

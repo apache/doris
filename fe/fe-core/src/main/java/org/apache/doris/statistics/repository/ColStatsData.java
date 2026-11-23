@@ -96,11 +96,21 @@ public class ColStatsData {
         hotValues = null;
     }
 
+    // Fixed-block estimates arrive as integers. Preserve every bit of N, including above 2^53.
+    // Legacy and external estimators can return floating-point strings.
+    private static long parseCount(String value) {
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return (long) Double.parseDouble(value);
+        }
+    }
+
     public ColStatsData(ResultRow row) {
         this.statsId = new StatsId(row);
-        this.count = (long) Double.parseDouble(row.getWithDefault(7, "0"));
-        this.ndv = (long) Double.parseDouble(row.getWithDefault(8, "0"));
-        this.nullCount = (long) Double.parseDouble(row.getWithDefault(9, "0"));
+        this.count = parseCount(row.getWithDefault(7, "0"));
+        this.ndv = parseCount(row.getWithDefault(8, "0"));
+        this.nullCount = parseCount(row.getWithDefault(9, "0"));
         this.minLit = row.get(10);
         this.maxLit = row.get(11);
         this.dataSizeInBytes = (long) Double.parseDouble(row.getWithDefault(12, "0"));

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -51,7 +52,6 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -200,38 +200,21 @@ class ColumnMinMaxBatchCollectorTest {
     }
 
     @Test
-    void fullSampleRendersExactlyTheSameLiteralsAsIndividualQueries() {
+    void fullSampleCollectsBoundsInTheStatisticsScan() {
         OlapAnalysisTask a = task("a", -1);
         OlapAnalysisTask b = task("b", -1);
-        ResultRow first = new ResultRow(Arrays.asList(null, "NULL"));
-        ResultRow second = new ResultRow(List.of("a'b", "c\\d"));
-        Mockito.when(table.getRowCount()).thenReturn(10L); // Less than the requested 100 sample rows.
-        Mockito.doReturn(first).when(a).collectMinMax();
-        Mockito.doReturn(second).when(b).collectMinMax();
-        Mockito.doNothing().when(a).runQuery(Mockito.anyString());
-        Mockito.doNothing().when(b).runQuery(Mockito.anyString());
-        a.doSample();
-        b.doSample();
-
-        new ColumnMinMaxBatchCollector(List.of(a, b), 64);
-        try (MockedConstruction<StmtExecutor> executors = Mockito.mockConstruction(StmtExecutor.class, (e, c) ->
-                Mockito.when(e.executeInternalQuery()).thenReturn(List.of(
-                        new ResultRow(Arrays.asList(null, "NULL", "a'b", "c\\d")))))) {
-            a.doSample();
-            b.doSample();
-            Assertions.assertEquals(1, executors.constructed().size());
+        Mockito.when(table.getRowCountForIndex(10, false)).thenReturn(10L);
+        new AnalysisJob(a.info, List.of(a, b));
+        for (OlapAnalysisTask task : List.of(a, b)) {
+            Mockito.doNothing().when(task).runQuery(Mockito.anyString());
+            task.doSample();
+            Mockito.verify(task, Mockito.never()).getSampleMinMax();
+            ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+            Mockito.verify(task).runQuery(sql.capture());
+            String id = "`" + task.col.getName() + "`";
+            Assertions.assertTrue(sql.getValue().contains("SUBSTRING(CAST(MIN(" + id + ") AS STRING)"));
+            Assertions.assertTrue(sql.getValue().contains("SUBSTRING(CAST(MAX(" + id + ") AS STRING)"));
         }
-        assertRenderedBounds(a, "'null'", "'NULL'");
-        assertRenderedBounds(b, "'a''b'", "'c\\\\d'");
-    }
-
-    private static void assertRenderedBounds(OlapAnalysisTask task, String min, String max) {
-        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-        Mockito.verify(task, Mockito.times(2)).runQuery(sql.capture());
-        Assertions.assertEquals(sql.getAllValues().get(0), sql.getAllValues().get(1));
-        Assertions.assertTrue(sql.getValue().contains("SUBSTRING(CAST(" + min + " AS STRING), 1, 1024) AS `min`"));
-        Assertions.assertTrue(sql.getValue().contains("SUBSTRING(CAST(" + max + " AS STRING), 1, 1024) AS `max`"));
-        Mockito.verify(task).collectMinMax();
     }
 
     @ParameterizedTest
@@ -259,6 +242,7 @@ class ColumnMinMaxBatchCollectorTest {
         task.info = new AnalysisInfoBuilder(task.info).setRowCount(0).build();
         new ColumnMinMaxBatchCollector(List.of(task), 64);
         task.job = Mockito.mock(AnalysisJob.class);
+        Mockito.when(task.job.getJobInfo()).thenReturn(task.info);
         try (MockedConstruction<StmtExecutor> sql = Mockito.mockConstruction(StmtExecutor.class)) {
             task.doExecute();
             Mockito.verify(task.job).appendBuf(Mockito.eq(task), Mockito.argThat(rows -> rows.size() == 1));
@@ -278,6 +262,17 @@ class ColumnMinMaxBatchCollectorTest {
         Mockito.when(table.getPartition("p")).thenReturn(partition);
         Mockito.when(partition.getBaseIndex()).thenReturn(index);
         Mockito.when(index.getRowCount()).thenReturn(Long.MAX_VALUE);
+        Mockito.when(table.getRowCountForIndex(10, false)).thenReturn(Long.MAX_VALUE);
+        Mockito.doReturn(List.of(partition)).when(table).getPartitions();
+        Mockito.when(partition.getName()).thenReturn("p");
+        Mockito.when(partition.getVisibleVersion()).thenReturn(2L);
+        Mockito.when(partition.getIndex(10L)).thenReturn(index);
+        LocalTablet tablet = Mockito.mock(LocalTablet.class);
+        Mockito.when(tablet.getId()).thenReturn(12L);
+        Mockito.when(tablet.getMinReplicaRowCount(Mockito.anyLong())).thenReturn(500_000_000L);
+        Mockito.when(index.getTablets()).thenReturn(List.of(tablet));
+        Mockito.when(index.getTabletIdsInOrder()).thenReturn(List.of(12L));
+        Mockito.when(index.getTablet(12L)).thenReturn(tablet);
         Mockito.doReturn(new ResultRow(List.of("1", "2"))).when(task).collectMinMax();
         Mockito.doNothing().when(task).runQuery(Mockito.anyString());
         task.doPartitionTable();

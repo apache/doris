@@ -671,6 +671,18 @@ public class StatisticsUtil {
         return false;
     }
 
+    public static boolean enableFixedBlockStatsSampling() {
+        return VariableMgr.getDefaultSessionVariable().enableFixedBlockStatsSampling;
+    }
+
+    public static int getStatisticsSampleUnitRows() {
+        return VariableMgr.getDefaultSessionVariable().statisticsSampleUnitRows;
+    }
+
+    public static int getStatisticsMaxSampleTablets() {
+        return VariableMgr.getDefaultSessionVariable().statisticsMaxSampleTablets;
+    }
+
     public static int getMinMaxBatchColumns() {
         return VariableMgr.getDefaultSessionVariable().statisticsMinMaxBatchColumns;
     }

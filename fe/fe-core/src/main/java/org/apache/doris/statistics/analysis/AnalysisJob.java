@@ -18,6 +18,7 @@
 package org.apache.doris.statistics.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
@@ -26,8 +27,11 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.repository.ColStatsData;
+import org.apache.doris.statistics.sampling.IndexSamplingSnapshot;
+import org.apache.doris.statistics.sampling.IndexSamplingSnapshot.ReportState;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.base.Suppliers;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -37,13 +41,48 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 public class AnalysisJob {
 
     public static final Logger LOG = LogManager.getLogger(AnalysisJob.class);
+
+    private final long samplingSeed = ThreadLocalRandom.current().nextLong() & Long.MAX_VALUE;
+    private final Map<Long, Long> reportedRows = new ConcurrentHashMap<>();
+    private final Map<Long, Long> indexRows = new ConcurrentHashMap<>();
+    private final Map<Long, ReportState> reportStates = new ConcurrentHashMap<>();
+    private final Map<Long, Supplier<IndexSamplingSnapshot>> samplingFrames = new ConcurrentHashMap<>();
+
+    long reportedIndexRows(OlapTable table, long indexId) {
+        return reportedRows.computeIfAbsent(indexId, id -> IndexSamplingSnapshot.reportedIndexRows(table, id, false));
+    }
+
+    void requireIndexReports(OlapTable table, long indexId) {
+        ReportState state = reportStates.computeIfAbsent(indexId, id -> IndexSamplingSnapshot.reportState(table, id));
+        if (state == ReportState.PENDING || (state == ReportState.READY && reportedIndexRows(table, indexId) <= 0)) {
+            throw new AnalyzeSkipException("Written partitions have no usable row count for index " + indexId);
+        }
+    }
+
+    long samplingSeed(long seek) {
+        return seek >= 0 ? seek : samplingSeed;
+    }
+
+    long freezeIndexRows(long indexId, LongSupplier rows) {
+        return indexRows.computeIfAbsent(indexId, ignored -> rows.getAsLong());
+    }
+
+    IndexSamplingSnapshot samplingFrame(OlapTable table, long indexId) {
+        return samplingFrames.computeIfAbsent(indexId,
+                id -> Suppliers.memoize(() -> IndexSamplingSnapshot.read(table, id))).get();
+    }
 
     private final ColumnMinMaxBatchCollector minMaxCollector;
 

@@ -727,6 +727,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
+    public static final String ENABLE_FIXED_BLOCK_STATS_SAMPLING = "enable_fixed_block_stats_sampling";
+    public static final String STATISTICS_SAMPLE_UNIT_ROWS = "statistics_sample_unit_rows";
+    public static final String STATISTICS_MAX_SAMPLE_TABLETS = "statistics_max_sample_tablets";
     public static final String STATISTICS_MINMAX_BATCH_COLUMNS = "statistics_minmax_batch_columns";
 
     public static final String STATS_INSERT_MERGE_ITEM_COUNT = "stats_insert_merge_item_count";
@@ -2995,6 +2998,24 @@ public class SessionVariable implements Serializable, Writable {
             description = "the runtime filter id in IGNORE_RUNTIME_FILTER_IDS list will not be generated")
 
     public String ignoreRuntimeFilterIds = "";
+
+    @VarAttrDef.VarAttr(name = ENABLE_FIXED_BLOCK_STATS_SAMPLING, flag = VarAttrDef.GLOBAL,
+            description = "Enable fixed-block sampling for internal OLAP statistics.")
+    public volatile boolean enableFixedBlockStatsSampling = false;
+
+    @VarAttrDef.VarAttr(name = STATISTICS_SAMPLE_UNIT_ROWS, flag = VarAttrDef.GLOBAL,
+            description = "Number of physical rows per sampling block.", checker = "checkPositiveSamplingValue")
+    public volatile int statisticsSampleUnitRows = 1024;
+
+    @VarAttrDef.VarAttr(name = STATISTICS_MAX_SAMPLE_TABLETS, flag = VarAttrDef.GLOBAL,
+            description = "Maximum tablets in a fixed-block statistics sample.", checker = "checkPositiveSamplingValue")
+    public volatile int statisticsMaxSampleTablets = 512;
+
+    public void checkPositiveSamplingValue(String value) {
+        if (Integer.parseInt(value) <= 0) {
+            throw new IllegalArgumentException("Sampling configuration must be positive");
+        }
+    }
 
     @VarAttrDef.VarAttr(name = STATISTICS_MINMAX_BATCH_COLUMNS, flag = VarAttrDef.GLOBAL,
             description = "Maximum columns per min/max query for sampled OLAP statistics. "

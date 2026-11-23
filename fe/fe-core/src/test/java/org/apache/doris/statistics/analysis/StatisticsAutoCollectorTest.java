@@ -20,7 +20,10 @@ package org.apache.doris.statistics.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalTablet;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -239,6 +242,16 @@ public class StatisticsAutoCollectorTest {
         Mockito.when(table.getRowCountForIndex(Mockito.anyLong(), Mockito.anyBoolean())).thenReturn(100L);
         // Row count is 0
         Assertions.assertFalse(collector.readyToSample(table, 0, null, null, true));
+        Partition part = Mockito.mock(Partition.class);
+        MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
+        LocalTablet tablet = Mockito.mock(LocalTablet.class);
+        Mockito.doReturn(List.of(part)).when(table).getPartitions();
+        Mockito.when(part.getVisibleVersion()).thenReturn(2L);
+        Mockito.when(part.getIndex(Mockito.anyLong())).thenReturn(index);
+        Mockito.when(index.getTablets()).thenReturn(List.of(tablet));
+        // A stale index aggregate cannot stand in for positive individual tablet reports.
+        Assertions.assertFalse(collector.readyToSample(table, 100, null, null, true));
+        Mockito.when(tablet.getMinReplicaRowCount(2)).thenReturn(100L);
         // ready to sample
         Assertions.assertTrue(collector.readyToSample(table, 100, null, null, true));
 

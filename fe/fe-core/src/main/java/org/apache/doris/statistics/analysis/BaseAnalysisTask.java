@@ -34,11 +34,13 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.repository.ColStatsData;
+import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TStatusCode;
@@ -67,21 +69,6 @@ public abstract class BaseAnalysisTask {
 
     public static final long LIMIT_SIZE = 1024 * 1024 * 1024; // 1GB
     public static final double LIMIT_FACTOR = 1.2;
-
-    /**
-     * The statistics collection algorithm chosen for a sampled analyze task. It determines
-     * both the SQL template used to collect stats and the params rendered into it, so callers
-     * must derive the template and the params from the same algorithm decision.
-     */
-    public enum AnalyzeSampleAlgorithm {
-        // Full table scan without sampling, used when the table is small or the sample
-        // tablets contain too few rows. Statistics are computed with the LINEAR template.
-        FULL,
-        // Linear estimator, used for single unique key column / single distribution column.
-        LINEAR,
-        // DUJ1 estimator, based on the PostgreSQL analyze algorithm.
-        DUJ1
-    }
 
     /**
      * Marker string embedded in {@code assert_true} inside statistics collection SQL.
@@ -140,7 +127,7 @@ public abstract class BaseAnalysisTask {
             +     "NOW() AS `update_time`, "
             +     "null as `hot_value` "
             + "FROM (SELECT ${colName}${lengthAssert} "
-            +     "FROM ${catalogName}.${dbName}.${tblName} ${index}) __lc_t";
+            +     "FROM ${catalogName}.${dbName}.${tblName} ${index}) __lc_t${lengthFilter:-}";
 
     // Hot values are intentionally NOT collected by the linear estimator. The extra
     // GROUP BY over the sampled column re-reads the whole sample and is the dominant cost
@@ -169,7 +156,7 @@ public abstract class BaseAnalysisTask {
             +     "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
             +     "NOW() AS `update_time`, "
             +     "null as `hot_value` "
-            +     "FROM cte1) "
+            +     "FROM cte1${lengthFilter:-}) "
             + "SELECT * FROM cte2";
 
     protected static final String DUJ1_ANALYZE_TEMPLATE = "WITH cte1 AS ("
@@ -660,12 +647,17 @@ public abstract class BaseAnalysisTask {
             String quotedColName = SqlUtils.getIdentSql(String.valueOf(info.colName));
             // The StringSubstitutor used by callers already has ${colName} populated,
             // so we inline the quoted column name directly here.
+            String guard = configureLengthGuard(params);
             params.put("lengthAssert",
                     ", assert_true(" + quotedColName + " IS NULL OR LENGTH(" + quotedColName + ") <= "
-                            + maxLen + ", '" + ANALYZE_SKIP_LONG_STRING_COLUMN_MARKER + "') AS `__lc`");
+                            + maxLen + ", '" + ANALYZE_SKIP_LONG_STRING_COLUMN_MARKER + "') AS " + guard);
         } else {
             params.put("lengthAssert", "");
         }
+    }
+
+    protected String configureLengthGuard(Map<String, String> params) {
+        return "`__lc`";
     }
 
     protected String castToNumeric(String colName) {
@@ -677,13 +669,26 @@ public abstract class BaseAnalysisTask {
         }
     }
 
+    static void configureStatsCte(SessionVariable variables) {
+        variables.enableCTEMaterialize = true;
+        variables.inlineCTEReferencedThreshold = 1;
+        variables.cteInlineMode = -1;
+    }
+
     protected void runQuery(String sql) {
         long startTime = System.currentTimeMillis();
         String queryId = "";
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext(false)) {
             a.connectContext.getState().setPlanWithUnKnownColumnStats(true);
+            if (this instanceof OlapAnalysisTask) {
+                configureStatsCte(a.connectContext.getSessionVariable());
+            }
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
-            ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
+            ResultRow row = stmtExecutor.executeInternalQuery().get(0);
+            if (this instanceof OlapAnalysisTask olap) {
+                row = olap.freezeResultCount(row);
+            }
+            ColStatsData colStatsData = new ColStatsData(row);
             if (!colStatsData.isValid()) {
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STATISTICS_INVALID_STATS.increase(1L);

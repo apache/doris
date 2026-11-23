@@ -31,6 +31,8 @@ import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.analysis.AnalysisInfo.JobType;
 import org.apache.doris.statistics.analysis.AnalysisInfo.ScheduleType;
+import org.apache.doris.statistics.sampling.IndexSamplingSnapshot;
+import org.apache.doris.statistics.sampling.IndexSamplingSnapshot.ReportState;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -194,17 +196,25 @@ public class StatisticsAutoCollector extends MasterDaemon {
 
     protected boolean readyToSample(TableIf table, long rowCount, AnalysisManager manager,
             TableStatsMeta tableStatsStatus, boolean isSample) {
+        if (table instanceof OlapTable olap) {
+            long indexId = olap.getBaseIndexId();
+            if (isSample && rowCount > 0 && !StatisticsUtil.enableFixedBlockStatsSampling()
+                    && IndexSamplingSnapshot.reportedIndexRows(olap, indexId, true) == TableIf.UNKNOWN_ROW_COUNT) {
+                return false;
+            }
+            ReportState state = IndexSamplingSnapshot.reportState(olap, indexId);
+            if (state == ReportState.PENDING || (state == ReportState.READY && rowCount <= 0)) {
+                LOG.info("Table {} has written partitions without a usable row count, deferring analyze",
+                        table.getName());
+                return false;
+            }
+            if (isSample && rowCount > 0) {
+                return state == ReportState.READY;
+            }
+        }
         if (!isSample) {
             return true;
         }
-        OlapTable olapTable = table instanceof OlapTable ? (OlapTable) table : null;
-        if (olapTable != null
-                && olapTable.getRowCountForIndex(olapTable.getBaseIndexId(), true) == TableIf.UNKNOWN_ROW_COUNT) {
-            LOG.info("Table {} row count is not fully reported, skip auto analyzing it.", olapTable.getName());
-            return false;
-        }
-        // We don't auto analyze empty table to avoid all 0 stats.
-        // Because all 0 is more dangerous than unknown stats when row count report is delayed.
         if (rowCount <= 0) {
             LOG.info("Table {} is empty, remove its old stats and skip auto analyze it.", table.getName());
             // Remove the table's old stats if exists.
