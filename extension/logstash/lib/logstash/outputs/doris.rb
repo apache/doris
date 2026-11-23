@@ -41,6 +41,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    java_import 'org.apache.http.impl.NoConnectionReuseStrategy'
    java_import 'org.apache.http.protocol.HttpRequestExecutor'
    java_import 'org.apache.http.client.config.RequestConfig'
+   java_import 'org.apache.http.config.SocketConfig'
 
    # support multi thread concurrency for performance
    # so multi_receive() and function it calls are all stateless and thread safe
@@ -88,6 +89,17 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    # max retry queue size in MB, default is 20% max memory of JVM
    config :max_retry_queue_mb, :validate => :number, :default => java.lang.Runtime.get_runtime.max_memory / 1024 / 1024 / 5
 
+   # HTTP connect timeout in milliseconds (time to establish TCP connection)
+   config :connect_timeout_ms, :validate => :number, :default => 60_000
+
+   # HTTP connection request timeout in milliseconds (time to lease a connection from the pool)
+   config :connection_request_timeout_ms, :validate => :number, :default => 60_000
+
+   # HTTP socket / read timeout in milliseconds (time waiting for response data).
+   # Without this, a TCP half-open connection can block the worker thread forever.
+   # Default 600s to leave headroom for large stream loads.
+   config :socket_timeout_ms, :validate => :number, :default => 600_000
+
    def print_plugin_info()
       @plugins = Gem::Specification.find_all{|spec| spec.name =~ /logstash-output-doris/ }
       @plugin_name = @plugins[0].name
@@ -122,7 +134,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    end
 
    def register
-      # HttpClient 4.5.13 sync — same setup as Doris Flink connector (HttpUtil.java)
+      # HttpClient 4.5.13 sync — same setup as Doris Flink / Kettle connectors (HttpUtil.java)
       # Key points:
       #   - setRequestExecutor(60s)        : long wait for 100-continue, FE may delay 307 under load
       #   - setRedirectStrategy            : follow 307 on PUT (default DefaultRedirectStrategy refuses)
@@ -130,13 +142,30 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       #   - NoConnectionReuseStrategy      : one connection per request, dodge keep-alive half-close
       #   - setExpectContinueEnabled(true) : critical -> HC4 waits for 100, FE 307s before body is sent,
       #                                      entity stays unconsumed, RedirectExec follows successfully
+      #   - RequestConfig timeouts         : prevent worker threads from hanging forever on TCP
+      #                                      half-open connections (connect / pool / socket read)
+      #   - SocketConfig SO_KEEPALIVE      : let the kernel probe dead peers even without reuse
+      request_config = RequestConfig.custom
+         .setConnectTimeout(@connect_timeout_ms)
+         .setConnectionRequestTimeout(@connection_request_timeout_ms)
+         .setSocketTimeout(@socket_timeout_ms)
+         .setExpectContinueEnabled(true)
+         .build
+      socket_config = SocketConfig.custom
+         .setSoKeepAlive(true)
+         .build
       @client = HttpClients.custom
          .setRequestExecutor(HttpRequestExecutor.new(60_000))
          .setRedirectStrategy(DorisRedirectStrategy.new)
          .setRetryHandler(DefaultHttpRequestRetryHandler.new(0, false))
          .setConnectionReuseStrategy(NoConnectionReuseStrategy::INSTANCE)
-         .setDefaultRequestConfig(RequestConfig.custom.setExpectContinueEnabled(true).build)
+         .setDefaultRequestConfig(request_config)
+         .setDefaultSocketConfig(socket_config)
          .build
+
+      @logger.info("http timeouts (ms): connect=#{@connect_timeout_ms}, " \
+                   "connection_request=#{@connection_request_timeout_ms}, " \
+                   "socket=#{@socket_timeout_ms}; so_keepalive=true")
 
       @request_headers = make_request_headers
       @logger.info("request headers: ", @request_headers)
