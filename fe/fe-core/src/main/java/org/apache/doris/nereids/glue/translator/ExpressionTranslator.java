@@ -86,6 +86,7 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
+import org.apache.doris.nereids.trees.expressions.functions.RequiresQueryResources;
 import org.apache.doris.nereids.trees.expressions.functions.RequiresShortCircuitEvaluation;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
@@ -107,7 +108,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ToFile;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
@@ -132,6 +132,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -785,13 +786,12 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
-    public Expr visitToFile(ToFile toFile, PlanTranslatorContext context) {
-        context.registerS3Resource(toFile.getResourceName());
-        return visitScalarFunction(toFile, context);
-    }
-
-    @Override
     public Expr visitScalarFunction(ScalarFunction function, PlanTranslatorContext context) {
+        if (function instanceof RequiresQueryResources) {
+            ((RequiresQueryResources) function).registerQueryResources(
+                    Objects.requireNonNull(context,
+                            "PlanTranslatorContext is required for " + function.getName()));
+        }
         List<Expr> arguments = function.getArguments().stream()
                 .map(arg -> arg.accept(this, context))
                 .collect(Collectors.toList());

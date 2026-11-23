@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.RequiresQueryResources;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AIFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DataSketchesHllDownsample;
@@ -261,8 +262,8 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             return true;
         }
 
-        // TableGeneratingFunction need pass PlanTranslatorContext value
-        if (expr instanceof TableGeneratingFunction) {
+        // Functions needing PlanTranslatorContext or query-level resources cannot fold via standalone BE constant eval
+        if (expr instanceof TableGeneratingFunction || expr instanceof RequiresQueryResources) {
             return true;
         }
 

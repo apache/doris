@@ -26,6 +26,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.QueryResourceResolver;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
@@ -66,7 +67,7 @@ import java.util.stream.Collectors;
 /**
  * Context of physical plan.
  */
-public class PlanTranslatorContext {
+public class PlanTranslatorContext implements QueryResourceResolver {
     private final ConnectContext connectContext;
     private final StatementContext statementContext;
     private final ScanContext scanContext;
@@ -216,9 +217,15 @@ public class PlanTranslatorContext {
         this.descTable = descTable;
     }
 
+    @Override
     public void registerS3Resource(String resourceName) {
         s3Resources.computeIfAbsent(resourceName,
                 name -> S3Resource.checkResource(name, connectContext).toThrift());
+    }
+
+    @Override
+    public TS3Resource resolveS3Resource(String resourceName) {
+        return getOrRegisterS3Resource(resourceName);
     }
 
     public TS3Resource getOrRegisterS3Resource(String resourceName) {

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FileType;
+import org.apache.doris.catalog.QueryResourceResolver;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -106,7 +107,10 @@ public class ListFilesTableValuedFunction extends DataGenTableValuedFunction {
         return resourceName;
     }
 
-    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv, TS3Resource resource) {
+    @Override
+    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv,
+            QueryResourceResolver resourceResolver) {
+        TS3Resource resource = resourceResolver.resolveS3Resource(resourceName);
         return new DataGenScanNode(id, desc, this,
                 ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build()) {
             @Override

@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.QueryResourceResolver;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.RequiresQueryResources;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -39,7 +41,7 @@ import java.util.List;
 
 /** Resolve S3 file metadata through a named resource at execution time. */
 public class ToFile extends UniqueFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable, RequiresQueryResources {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(FileType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE));
 
@@ -79,6 +81,11 @@ public class ToFile extends UniqueFunction
         // Bind the name and check USAGE without capturing properties in an
         // expression that can be retained by PREPARE.
         S3Resource.checkResource(getResourceName(), ConnectContext.get());
+    }
+
+    @Override
+    public void registerQueryResources(QueryResourceResolver resourceResolver) {
+        resourceResolver.registerS3Resource(getResourceName());
     }
 
     @Override

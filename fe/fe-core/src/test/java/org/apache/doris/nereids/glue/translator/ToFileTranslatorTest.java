@@ -116,7 +116,7 @@ class ToFileTranslatorTest extends TestWithFeService {
                 Map.of("resource", resource.getName(), "uri", "s3://bucket/"));
         DescriptorTable descriptors = new DescriptorTable();
         ScanNode scan = function.getScanNode(new PlanNodeId(0), descriptors.createTupleDescriptor(),
-                connectContext.getSessionVariable(), translation.getOrRegisterS3Resource(resource.getName()));
+                connectContext.getSessionVariable(), translation);
         resource.modifyProperties(new HashMap<>(Map.of("s3.secret_key", "second", "s3_validity_check", "false")));
         scan.finalizeForNereids();
         TTVFListFileScanRange first = scan.getScanRangeLocations(0).get(0)
