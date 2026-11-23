@@ -45,6 +45,12 @@ MutableColumns make_file_children() {
     return children;
 }
 
+ColumnNullable::MutablePtr assert_mutable_nullable_column(MutableColumnPtr&& column) {
+    auto typed = ColumnNullable::cast_to_column_mutptr(&assert_cast<ColumnNullable&>(*column));
+    column = nullptr;
+    return typed;
+}
+
 } // namespace
 
 ColumnFile::ColumnFile() : ColumnFile(make_file_children()) {}
@@ -52,15 +58,15 @@ ColumnFile::ColumnFile() : ColumnFile(make_file_children()) {}
 ColumnFile::ColumnFile(MutableColumns&& columns) {
     DCHECK_EQ(columns.size(), NUM_CHILDREN);
     for (size_t i = 0; i < NUM_CHILDREN; ++i) {
-        _columns[i] = std::move(columns[i]);
+        _columns[i] = assert_mutable_nullable_column(std::move(columns[i]));
     }
     check_const_only_in_top_level();
 }
 
 void ColumnFile::sanity_check() const {
     for (size_t i = 0; i < NUM_CHILDREN; ++i) {
-        const auto* child = assert_cast<const ColumnNullable*>(_columns[i].get());
-        const auto& nested = child->get_nested_column();
+        const auto& child = *_columns[i];
+        const auto& nested = child.get_nested_column();
         bool expected_type;
         if (i == DataTypeFile::OFFSET_FIELD_INDEX || i == DataTypeFile::SIZE_FIELD_INDEX) {
             expected_type = dynamic_cast<const ColumnInt64*>(&nested) != nullptr;
@@ -71,8 +77,8 @@ void ColumnFile::sanity_check() const {
             expected_type = nested.is_column_string();
         }
         DCHECK(expected_type);
-        child->sanity_check();
-        DCHECK_EQ(child->size(), size());
+        child.sanity_check();
+        DCHECK_EQ(child.size(), size());
     }
 }
 
@@ -218,7 +224,7 @@ size_t ColumnFile::filter(const Filter& filter) {
         const size_t child_size = _columns[i]->filter(filter);
         DCHECK_EQ(child_size, result_size);
     }
-    auto& inline_column = assert_cast<ColumnNullable&>(*_columns[DataTypeFile::INLINE_FIELD_INDEX]);
+    auto& inline_column = *_columns[DataTypeFile::INLINE_FIELD_INDEX];
     if (result_size == 0) {
         inline_column.clear();
         return 0;
@@ -261,7 +267,9 @@ MutableColumnPtr ColumnFile::permute(const Permutation& permutation, size_t limi
 
 ColumnPtr ColumnFile::convert_column_if_overflow() {
     for (auto& column : _columns) {
-        column = column->convert_column_if_overflow();
+        ColumnPtr converted = column->convert_column_if_overflow();
+        column =
+                ColumnNullable::cast_to_column_ptr(&assert_cast<const ColumnNullable&>(*converted));
     }
     return IColumn::convert_column_if_overflow();
 }
@@ -294,7 +302,7 @@ bool ColumnFile::has_enough_capacity(const IColumn& src) const {
 
 void ColumnFile::mutate_subcolumns() {
     for (auto& column : _columns) {
-        mutate_subcolumn(column);
+        mutate_subcolumn<ColumnNullable>(column);
     }
 }
 

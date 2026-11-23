@@ -24,6 +24,7 @@
 
 #include "core/column/column_const.h"
 #include "core/column/column_file.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -160,7 +161,10 @@ const char* DataTypeFile::deserialize(const char* buf, MutableColumnPtr* column,
     for (size_t i = 0; i < FIELD_COUNT; ++i) {
         auto child = std::move(*file.get_column_ptr(i)).mutate();
         buf = _elements[i]->deserialize(buf, &child, version);
-        file.get_column_ptr(i) = std::move(child);
+        auto typed_child =
+                ColumnNullable::cast_to_column_mutptr(&assert_cast<ColumnNullable&>(*child));
+        child = nullptr;
+        file.get_column_ptr(i) = std::move(typed_child);
     }
     return buf;
 }

@@ -82,7 +82,7 @@ void DataTypeFileSerDe::_write_json(const IColumn& column, int64_t row, BufferWr
         }
         bw.write_json_string(_names[i].data(), _names[i].size());
         bw.write(':');
-        const auto& child = assert_cast<const ColumnNullable&>(file.get_column(i));
+        const auto& child = file.get_column(i);
         if (child.is_null_at(index)) {
             bw.write("null", 4);
         } else if (i == DataTypeFile::OFFSET_FIELD_INDEX || i == DataTypeFile::SIZE_FIELD_INDEX) {
@@ -197,7 +197,7 @@ Status DataTypeFileSerDe::serialize_column_to_jsonb(const IColumn& column, int64
             return Status::InternalError("Cannot write FILE JSON key");
         }
         if (i == INLINE_FIELD_INDEX) {
-            const auto& child = assert_cast<const ColumnNullable&>(file.get_column(i));
+            const auto& child = file.get_column(i);
             if (child.is_null_at(index)) {
                 if (!writer.writeNull()) {
                     return Status::InternalError("Cannot write FILE inline NULL");

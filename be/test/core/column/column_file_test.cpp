@@ -178,6 +178,7 @@ TEST_F(ColumnFileTest, OwnedInlineRemainsTrackedUntilLastFieldCopyIsReleased) {
 
 TEST_F(ColumnFileTest, FixedNullableShapeAndIndependentIdentity) {
     static_assert(!std::is_base_of_v<ColumnStruct, ColumnFile>);
+    static_assert(std::is_same_v<ColumnFile::FileColumns::value_type, ColumnNullable::WrappedPtr>);
     auto column = ColumnFile::create(children());
     EXPECT_EQ(column->tuple_size(), 6);
     EXPECT_EQ(column->get_columns().size(), 6);
@@ -185,12 +186,11 @@ TEST_F(ColumnFileTest, FixedNullableShapeAndIndependentIdentity) {
     auto wide_children = children();
     wide_children[0] = ColumnNullable::create(ColumnString64::create(), ColumnUInt8::create());
     auto wide = ColumnFile::create(std::move(wide_children));
-    EXPECT_NE(dynamic_cast<const ColumnString64*>(
-                      &assert_cast<const ColumnNullable&>(wide->get_column(0)).get_nested_column()),
+    EXPECT_NE(dynamic_cast<const ColumnString64*>(&wide->get_column(0).get_nested_column()),
               nullptr);
     column->insert_default();
     for (size_t i = 0; i < 6; ++i) {
-        const auto& child = assert_cast<const ColumnNullable&>(column->get_column(i));
+        const auto& child = column->get_column(i);
         EXPECT_TRUE(child.is_null_at(0));
         if (i == 5) {
             EXPECT_NE(dynamic_cast<const ColumnVarbinary*>(&child.get_nested_column()), nullptr);
@@ -326,7 +326,7 @@ TEST_F(ColumnFileTest, InPlaceFilterReusesInlineArenaAcrossRepeatedFilters) {
     source->insert(file(&empty));
     source->insert(file(&small_bytes));
     source->insert(file(&payload));
-    auto& inline_column = assert_cast<ColumnNullable&>(source->get_column(5));
+    auto& inline_column = source->get_column(5);
     auto& binary = assert_cast<ColumnVarbinary&>(inline_column.get_nested_column());
     const auto* first = binary.get_data()[0].data();
     const auto* last = binary.get_data()[4].data();
@@ -371,8 +371,7 @@ TEST_F(ColumnFileTest, InPlaceFilterPreservesCopyOnWriteAndIndependentOutput) {
     ColumnPtr original = std::move(source);
     auto detached = IColumn::mutate(original);
     auto& binary = assert_cast<ColumnVarbinary&>(
-            assert_cast<ColumnNullable&>(assert_cast<ColumnFile&>(*detached).get_column(5))
-                    .get_nested_column());
+            assert_cast<ColumnFile&>(*detached).get_column(5).get_nested_column());
     const auto* payload = binary.get_data()[0].data();
     const auto allocated = binary.allocated_bytes();
     auto independent = detached->filter(IColumn::Filter {1, 0, 0}, -1);

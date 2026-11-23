@@ -182,8 +182,8 @@ TEST_F(FileExprTest, BinaryGetterPreservesParentNullsAndSharesPayload) {
     auto& source = assert_cast<ColumnNullable&>(*values);
     source.get_null_map_data()[0] = 1;
     ColumnWithTypeAndName input {std::move(values), make_nullable(file_type), "input"};
-    const auto& inline_column = assert_cast<const ColumnNullable&>(
-            assert_cast<const ColumnFile&>(source.get_nested_column()).get_column(5));
+    const auto& inline_column =
+            assert_cast<const ColumnFile&>(source.get_nested_column()).get_column(5);
     auto function = SimpleFunctionFactory::instance().get_function("fl_get_binary", {input},
                                                                    make_nullable(binary));
     ASSERT_NE(function, nullptr);
@@ -209,8 +209,8 @@ TEST_F(FileExprTest, BinaryGetterSharesPayloadWithMissingInline) {
     values->insert(value);
     values->insert(value);
     values->insert(empty);
-    auto& inline_column = assert_cast<ColumnNullable&>(
-            assert_cast<ColumnFile&>(*values).get_column(DataTypeFile::INLINE_FIELD_INDEX));
+    auto& inline_column =
+            assert_cast<ColumnFile&>(*values).get_column(DataTypeFile::INLINE_FIELD_INDEX);
     inline_column.get_null_map_data()[1] = 1;
     ColumnWithTypeAndName input {std::move(values), file_type, "input"};
     auto function = SimpleFunctionFactory::instance().get_function("fl_get_binary", {input},
@@ -461,8 +461,7 @@ void project_constant_fields_with_protected_payload() {
     column->insert(Field::create_field<TYPE_FILE>(
             File {Field::create_field<TYPE_STRING>("urn:constant"), Field(),
                   Field::create_field<TYPE_BIGINT>(7), Field(), Field(), Field()}));
-    auto& inline_column =
-            assert_cast<ColumnNullable&>(assert_cast<ColumnFile&>(*column).get_column(5));
+    auto& inline_column = assert_cast<ColumnFile&>(*column).get_column(5);
     auto& payloads = assert_cast<ColumnVarbinary&>(inline_column.get_nested_column()).get_data();
     payloads[0] = StringView(bytes, static_cast<uint32_t>(payload_size));
     inline_column.get_null_map_data()[0] = 0;

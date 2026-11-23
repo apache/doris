@@ -19,7 +19,7 @@
 
 #include <array>
 
-#include "core/column/column.h"
+#include "core/column/column_nullable.h"
 #include "core/cow.h"
 
 namespace doris {
@@ -37,7 +37,7 @@ private:
 
 public:
     static constexpr size_t NUM_CHILDREN = 6;
-    using FileColumns = std::array<IColumn::WrappedPtr, NUM_CHILDREN>;
+    using FileColumns = std::array<ColumnNullable::WrappedPtr, NUM_CHILDREN>;
 
     std::string get_name() const override { return "File"; }
     size_t size() const override { return _columns[0]->size(); }
@@ -49,12 +49,11 @@ public:
                            [](const auto& column) { return column->is_exclusive(); });
     }
     void sanity_check() const override;
-    const IColumn& get_column(size_t i) const { return *_columns[i]; }
-    IColumn& get_column(size_t i) { return *_columns[i]; }
+    const ColumnNullable& get_column(size_t i) const { return *_columns[i]; }
+    ColumnNullable& get_column(size_t i) { return *_columns[i]; }
     const FileColumns& get_columns() const { return _columns; }
-    Columns get_columns_copy() const { return {_columns.begin(), _columns.end()}; }
-    const ColumnPtr& get_column_ptr(size_t i) const { return _columns[i]; }
-    ColumnPtr& get_column_ptr(size_t i) { return _columns[i]; }
+    const ColumnNullable::Ptr& get_column_ptr(size_t i) const { return _columns[i]; }
+    ColumnNullable::Ptr& get_column_ptr(size_t i) { return _columns[i]; }
 
     MutableColumnPtr clone_resized(size_t size) const override;
     Field operator[](size_t n) const override;
