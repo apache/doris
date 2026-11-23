@@ -15,9 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <bvar/variable.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
+#include "cloud/pb_convert.h"
 #include "exec/common/variant_util.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/segment/variant/variant_desc_fingerprint.h"
@@ -75,14 +79,21 @@ TEST(IndexStorageVariantCompactionUtilTest, DescFingerprintCoversPhysicalSegment
     const std::string second(64, 'b');
     variant_util::set_rowset_desc_fingerprint(rowset, {{90, second}, {7, first}});
     const auto fingerprint = rowset.variant_desc_fingerprint();
-    ASSERT_TRUE(fingerprint.has_layout_sha256());
+    ASSERT_EQ(4, fingerprint.layout_sha256_words_size());
 
     variant_util::set_rowset_desc_fingerprint(rowset, {{7, first}, {90, second}});
     EXPECT_EQ(fingerprint.SerializeAsString(),
               rowset.variant_desc_fingerprint().SerializeAsString());
 
+    std::string json;
+    ASSERT_TRUE(rowset.json_rowset_meta(&json));
+    RowsetMeta restored;
+    ASSERT_TRUE(restored.init_from_json(json));
+    EXPECT_EQ(fingerprint.SerializeAsString(),
+              restored.variant_desc_fingerprint().SerializeAsString());
+
     variant_util::set_rowset_desc_fingerprint(rowset, {{0, first}, {1, second}});
-    EXPECT_FALSE(rowset.variant_desc_fingerprint().has_layout_sha256());
+    EXPECT_EQ(0, rowset.variant_desc_fingerprint().layout_sha256_words_size());
 }
 
 Status IndexStorageVariantCompactionSchemaTest::write_desc_fingerprint_rowsets(
@@ -113,7 +124,8 @@ Status IndexStorageVariantCompactionSchemaTest::write_desc_fingerprint_rowsets(
             return rowset.error();
         }
         if (rowset.value()->num_segments() != documents[i].size() ||
-            !rowset.value()->rowset_meta()->variant_desc_fingerprint().has_layout_sha256()) {
+            rowset.value()->rowset_meta()->variant_desc_fingerprint().layout_sha256_words_size() !=
+                    4) {
             return Status::InternalError("Missing segment coverage or fingerprint for rowset {}",
                                          i);
         }
@@ -128,12 +140,54 @@ TEST_F(IndexStorageVariantCompactionSchemaTest, DescFingerprintIgnoresJsonAndSeg
     ASSERT_TRUE(status.ok()) << status.to_string();
 
     const auto& fingerprint = rowsets[0]->rowset_meta()->variant_desc_fingerprint();
-    EXPECT_EQ(fingerprint.layout_sha256(),
-              rowsets[1]->rowset_meta()->variant_desc_fingerprint().layout_sha256());
-    EXPECT_NE(fingerprint.segment_set_sha256(),
-              rowsets[1]->rowset_meta()->variant_desc_fingerprint().segment_set_sha256());
-    EXPECT_NE(fingerprint.layout_sha256(),
-              rowsets[2]->rowset_meta()->variant_desc_fingerprint().layout_sha256());
+    const auto& reordered = rowsets[1]->rowset_meta()->variant_desc_fingerprint();
+    const auto& changed = rowsets[2]->rowset_meta()->variant_desc_fingerprint();
+    EXPECT_TRUE(
+            std::ranges::equal(fingerprint.layout_sha256_words(), reordered.layout_sha256_words()));
+    EXPECT_FALSE(std::ranges::equal(fingerprint.segment_set_sha256_words(),
+                                    reordered.segment_set_sha256_words()));
+    EXPECT_FALSE(
+            std::ranges::equal(fingerprint.layout_sha256_words(), changed.layout_sha256_words()));
+}
+
+static void expect_desc_deduplication(const std::vector<RowsetSharedPtr>& rowsets,
+                                      const TabletSchemaSPtr& schema) {
+    const auto count = [](const char* name) {
+        return std::stoll(bvar::Variable::describe_exposed(name));
+    };
+    constexpr auto read = "variant_desc_fingerprint_rowsets_read";
+    constexpr auto skipped = "variant_desc_fingerprint_rowsets_skipped";
+    const auto before_read = count(read);
+    const auto before_skipped = count(skipped);
+    auto result =
+            variant_util::VariantCompactionUtil::calculate_variant_extended_schema(rowsets, schema);
+    ASSERT_NE(result, nullptr);
+    EXPECT_TRUE(schema_has_extracted_variant_path(*result, 2, "extra"));
+    EXPECT_EQ(2, count(read) - before_read);
+    EXPECT_EQ(1, count(skipped) - before_skipped);
+}
+
+TEST_F(IndexStorageVariantCompactionSchemaTest, DescFingerprintSkipsAfterMetadataRoundTrips) {
+    std::vector<RowsetSharedPtr> rowsets;
+    const auto status = write_desc_fingerprint_rowsets(rowsets);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    for (const auto& rowset : rowsets) {
+        auto meta = rowset->rowset_meta();
+        std::string serialized;
+        ASSERT_TRUE(meta->serialize(&serialized));
+        ASSERT_TRUE(meta->init(serialized));
+    }
+    expect_desc_deduplication(rowsets, tablet_schema());
+
+    for (const auto& rowset : rowsets) {
+        auto meta = rowset->rowset_meta();
+        auto cloud_meta = cloud::doris_rowset_meta_to_cloud(meta->get_rowset_pb());
+        auto restored = cloud::cloud_rowset_meta_to_doris(std::move(cloud_meta));
+        // The Cloud converter materializes resource_id. These files live in the local fixture.
+        restored.clear_resource_id();
+        ASSERT_TRUE(meta->init_from_pb(restored));
+    }
+    expect_desc_deduplication(rowsets, tablet_schema());
 }
 
 TEST_F(IndexStorageVariantCompactionSchemaTest, DescFingerprintMatchesLegacyReader) {

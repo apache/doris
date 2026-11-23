@@ -188,13 +188,19 @@ auto set_diff = [](auto a, auto b) {
 TEST(PbConvert, VariantDescFingerprintRoundTrip) {
     RowsetMetaPB local;
     local.set_rowset_id(0);
+    const auto legacy_size = local.ByteSizeLong();
+    const auto legacy_cloud_size = doris_rowset_meta_to_cloud(local).ByteSizeLong();
     auto* fingerprint = local.mutable_variant_desc_fingerprint();
-    fingerprint->set_format_version(1);
-    fingerprint->set_layout_sha256(std::string(64, 'a'));
-    fingerprint->set_segment_set_sha256(std::string(64, 'b'));
+    fingerprint->set_format_version(2);
+    for (uint64_t word : {0ULL, 1ULL, 0x8000000000000000ULL, 0xffffffffffffffffULL}) {
+        fingerprint->add_layout_sha256_words(word);
+        fingerprint->add_segment_set_sha256_words(~word);
+    }
     const auto expected = fingerprint->SerializeAsString();
+    EXPECT_EQ(73, local.ByteSizeLong() - legacy_size);
 
     auto cloud = doris_rowset_meta_to_cloud(local);
+    EXPECT_EQ(73, cloud.ByteSizeLong() - legacy_cloud_size);
     EXPECT_EQ(expected, cloud.variant_desc_fingerprint().SerializeAsString());
     EXPECT_EQ(expected, cloud_rowset_meta_to_doris(cloud).variant_desc_fingerprint().SerializeAsString());
 

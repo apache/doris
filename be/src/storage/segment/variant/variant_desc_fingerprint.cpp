@@ -19,8 +19,10 @@
 
 #include <bvar/bvar.h>
 #include <gen_cpp/segment_v2.pb.h>
+#include <openssl/sha.h>
 
 #include <algorithm>
+#include <array>
 #include <set>
 #include <string_view>
 #include <unordered_map>
@@ -43,8 +45,11 @@ namespace doris::variant_util {
 
 namespace {
 
-constexpr uint32_t fingerprint_format_version = 1;
+constexpr uint32_t segment_layout_version = 1;
+constexpr uint32_t fingerprint_format_version = 2;
 constexpr size_t sha256_hex_size = 2 * SHA256_DIGEST_LENGTH;
+constexpr int sha256_word_count = SHA256_DIGEST_LENGTH / sizeof(uint64_t);
+using Sha256Words = std::array<uint64_t, sha256_word_count>;
 
 bvar::Adder<int64_t> desc_rowsets_read("variant_desc_fingerprint_rowsets_read");
 bvar::Adder<int64_t> desc_rowsets_skipped("variant_desc_fingerprint_rowsets_skipped");
@@ -59,6 +64,14 @@ bool is_sha256_hex(std::string_view value) {
     return value.size() == sha256_hex_size && std::ranges::all_of(value, [](char c) {
                return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
            });
+}
+
+Sha256Words sha256_words(std::string_view input) {
+    std::array<unsigned char, SHA256_DIGEST_LENGTH> digest;
+    SHA256(reinterpret_cast<const unsigned char*>(input.data()), input.size(), digest.data());
+    Sha256Words words;
+    decode_fixed64_le_array(words.data(), digest.data(), words.size());
+    return words;
 }
 
 // Keep the type information used by DataTypeFactory and the physical Variant
@@ -82,7 +95,7 @@ void project_column(const segment_v2::ColumnMetaPB& input, segment_v2::ColumnMet
     }
 }
 
-std::string physical_segment_set_digest(const RowsetMeta& rowset) {
+Sha256Words physical_segment_set_digest(const RowsetMeta& rowset) {
     std::string input;
     put_length_prefixed_slice(&input, Slice(rowset.rowset_id().to_string()));
     put_length_prefixed_slice(&input, Slice(rowset.resource_id()));
@@ -91,17 +104,20 @@ std::string physical_segment_set_digest(const RowsetMeta& rowset) {
     for (auto segment : rowset.segments()) {
         put_fixed64_le(&input, segment.id());
     }
-    return sha256(input);
+    return sha256_words(input);
 }
 
 std::string_view validated_rowset_digest(const RowsetMeta& rowset) {
     const auto& fingerprint = rowset.variant_desc_fingerprint();
     if (fingerprint.format_version() != fingerprint_format_version ||
-        !is_sha256_hex(fingerprint.layout_sha256()) ||
-        fingerprint.segment_set_sha256() != physical_segment_set_digest(rowset)) {
+        fingerprint.layout_sha256_words_size() != sha256_word_count ||
+        fingerprint.segment_set_sha256_words_size() != sha256_word_count ||
+        !std::ranges::equal(fingerprint.segment_set_sha256_words(),
+                            physical_segment_set_digest(rowset))) {
         return {};
     }
-    return fingerprint.layout_sha256();
+    return {reinterpret_cast<const char*>(fingerprint.layout_sha256_words().data()),
+            SHA256_DIGEST_LENGTH};
 }
 
 } // namespace
@@ -167,7 +183,7 @@ std::string build_segment_desc_fingerprint(const segment_v2::SegmentFooterPB& fo
 
     std::ranges::sort(entries);
     std::string input;
-    put_fixed32_le(&input, fingerprint_format_version);
+    put_fixed32_le(&input, segment_layout_version);
     put_fixed32_le(&input, static_cast<uint32_t>(schema.storage_format()));
     for (const auto& entry : entries) {
         put_length_prefixed_slice(&input, Slice(entry));
@@ -212,8 +228,11 @@ void set_rowset_desc_fingerprint(RowsetMeta& rowset,
     }
     auto* fingerprint = rowset.mutable_variant_desc_fingerprint();
     fingerprint->set_format_version(fingerprint_format_version);
-    fingerprint->set_layout_sha256(sha256(input));
-    fingerprint->set_segment_set_sha256(physical_segment_set_digest(rowset));
+    const auto layout_digest = sha256_words(input);
+    fingerprint->mutable_layout_sha256_words()->Assign(layout_digest.begin(), layout_digest.end());
+    const auto segment_set_digest = physical_segment_set_digest(rowset);
+    fingerprint->mutable_segment_set_sha256_words()->Assign(segment_set_digest.begin(),
+                                                            segment_set_digest.end());
 }
 
 static Result<bool> read_rowset_desc_schemas(const RowsetSharedPtr& rs,

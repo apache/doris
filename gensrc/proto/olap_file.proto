@@ -336,10 +336,12 @@ message RowsetMetaCloudPB {
 }
 
 message RowsetVariantDescFingerprintPB {
+    reserved 2, 3;
+    reserved "layout_sha256", "segment_set_sha256";
     optional uint32 format_version = 1;
-    optional string layout_sha256 = 2;
-    // Binds this fingerprint to the writer's finalized physical segment set.
-    optional string segment_set_sha256 = 3;
+    // Each SHA-256 digest is stored as four little-endian 64-bit words.
+    repeated fixed64 layout_sha256_words = 4 [packed = true];
+    repeated fixed64 segment_set_sha256_words = 5 [packed = true];
 }
 
 message SegmentStatisticsPB {
