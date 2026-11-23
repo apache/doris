@@ -6589,6 +6589,10 @@ public final class SPMPlanTreeSupport {
             List<Plan> subqueries) {
         if (expression instanceof SubqueryExpr) {
             subqueries.add(((SubqueryExpr) expression).getQueryPlan());
+        } else if (expression instanceof UnboundStar) {
+            for (NamedExpression replacement : ((UnboundStar) expression).getReplacedAlias()) {
+                collectExpressionSubqueryPlans(replacement, subqueries);
+            }
         }
         for (Expression child : expression.children()) {
             collectExpressionSubqueryPlans(child, subqueries);
@@ -6648,7 +6652,8 @@ public final class SPMPlanTreeSupport {
      * names, literal VALUES) stays in the rendered text.
      */
     private static String boundaryPreservingDeepText(Expression expression) {
-        Expression rendered = expression.anyMatch(node -> node instanceof SubqueryExpr)
+        Expression rendered = expression.anyMatch(node -> node instanceof SubqueryExpr
+                || node instanceof UnboundStar && !((UnboundStar) node).getReplacedAlias().isEmpty())
                 ? expression.rewriteUp(SPMPlanTreeSupport::renderSubqueryIdentity) : expression;
         StringBuilder text = new StringBuilder(rendered.toSql());
         List<String> slots = new ArrayList<>();
@@ -6666,6 +6671,20 @@ public final class SPMPlanTreeSupport {
      * The topology comparison checks the nested plans separately, including literal values.
      */
     private static Expression renderSubqueryIdentity(Expression expression) {
+        if (expression instanceof UnboundStar) {
+            // The REPLACE aliases are outside the star's expression children.
+            UnboundStar star = (UnboundStar) expression;
+            List<NamedExpression> rewritten = new ArrayList<>();
+            boolean changed = false;
+            for (NamedExpression replacement : star.getReplacedAlias()) {
+                NamedExpression rendered = (NamedExpression) replacement.rewriteUp(
+                        SPMPlanTreeSupport::renderSubqueryIdentity);
+                rewritten.add(rendered);
+                changed |= rendered != replacement;
+            }
+            return changed ? new UnboundStar(star.getQualifier(), star.getExceptedSlots(), rewritten,
+                    star.getIndexInSqlString()) : star;
+        }
         if (!(expression instanceof SubqueryExpr)) {
             return expression;
         }

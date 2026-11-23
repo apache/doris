@@ -44,6 +44,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 
@@ -973,7 +974,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 markerPayload(literal, parent, currentProjectItem() >= 0,
                         booleanConditionalDepth > 0 && isConditionalResultPosition(parent),
                         booleanConditionalDepth > 0 && (containerPosition || conditionalContainer),
-                        isContainerElementPosition(parent) && !containerPosition));
+                        isContainerElementPosition(parent) && !containerPosition, mapKeyDependency));
         placeholderIndex.put(key, placeholder);
         return placeholder;
     }
@@ -1024,7 +1025,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      */
     private static Literal markerPayload(Literal literal, Expression parent,
             boolean projectionItem, boolean booleanConditionalResult,
-            boolean booleanElementContainer, boolean containerElement) {
+            boolean booleanElementContainer, boolean containerElement, boolean mapKeyDependency) {
         if (containerElement && literal.isNullLiteral()) {
             // array(NULL) builds its container from the ELEMENTS, so an all-NULL element list is
             // exactly what makes the constructor NullType. The NULL marker is a CHILD of the
@@ -1036,34 +1037,18 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             // TYPE changes.
             return NullLiteral.BOOLEAN_INSTANCE;
         }
-        if (projectionItem && (literal instanceof ArrayLiteral || literal instanceof MapLiteral)
-                && isAllNullContainer(literal)) {
-            // A DERIVED OUTPUT carrying an all-NULL container: the container is one
-            // leaf marker whose type is ARRAY<NULL_TYPE> / MAP<..., NULL_TYPE>, and the upper
-            // block that consumes it (k > 0 OR element_at(a, 1) over SELECT [NULL] AS a) is a
-            // DIFFERENT query block - the Boolean context never reaches this projection, so the
-            // payload was left NullType, the consumer erased the outer call together with its
-            // markers, and the [TRUE] variant replayed NULL. Retyping the payload to a BOOLEAN
-            // element / value type removes the NullType from the tree while keeping the shape; a
-            // non-container projection keeps its own typing below.
-            Literal derivedPayload = booleanContainerPayload(literal, parent);
-            if (derivedPayload != null) {
-                return derivedPayload;
+        if (booleanElementContainer) {
+            Literal payload = booleanContainerPayload(literal, parent, mapKeyDependency);
+            if (payload != null) {
+                return payload;
             }
         }
-        if (booleanElementContainer) {
-            // A bracket ARRAY literal keeps its elements as LITERALS (ArrayLiteral.getValue), so
-            // the ELEMENT markers the function spelling gets (see isContainerElementPosition)
-            // cannot exist here: the whole literal is ONE marker, its type is the literal's own
-            // ARRAY<NULL_TYPE> and element_at on it is still NullType - the Boolean consumer
-            // replaced the whole call and the marker with it, so the element_at([TRUE], 1)
-            // variant had no id left to substitute. Retyping the marker's payload
-            // to ARRAY<BOOLEAN> removes the NullType from the tree while staying an array value;
-            // the frozen text carries the id only, so the replay still substitutes the caller's
-            // own value and keeps its own (correct) type.
-            Literal containerPayload = booleanContainerPayload(literal, parent);
-            if (containerPayload != null) {
-                return containerPayload;
+        if (projectionItem && (literal instanceof ArrayLiteral || literal instanceof MapLiteral)
+                && isAllNullContainer(literal)) {
+            // A consumer can read the NULL-typed element or value through a derived-table slot.
+            Literal payload = booleanContainerPayload(literal, parent, false);
+            if (payload != null) {
+                return payload;
             }
         }
         boolean booleanOperand = parent instanceof And || parent instanceof Or
@@ -1116,104 +1101,57 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
-     * The non-NullType payload of a NullType-producing CONTAINER marker (see markerPayload).
-     *
-     * An all-NULL bracket array literal is repaired to a Boolean array of the same shape: its
-     * elements are all NULL, and a NULL value is NULL whatever its type, so only the marker's TYPE
-     * changes.
-     *
-     * A BARE NULL container is repaired the same way when the call can only be the ARRAY overload
-     * : element_at(NULL, 1) resolves through ElementAt's dedicated
-     * NullType-input signature (which returns NullType), so the Boolean consumer replaced the whole
-     * call and BOTH markers with it - the element_at([TRUE], 1) variant then had no id to
-     * substitute and the replay returned NULL for k = -1. The INDEX argument decides the overload:
-     * a STRING index is the MAP lookup, whose container must stay a map, so only a non-string index
-     * is retyped. A one-element Boolean array of NULLs keeps the ARRAY overload and removes the
-     * NullType from the tree.
-     *
-     * Parameter literal: the captured container literal
-     * Parameter parent: the call the literal is a container of
-     * Returns: the retyped payload, or null when the literal is not repairable here
+     * Gives a whole-container marker a Boolean leaf type along the dependency followed by the consumer.
+     * Retyping preserves the container's shape and all values, including the unrelated map component.
      */
-    private static Literal booleanContainerPayload(Literal literal, Expression parent) {
+    private static Literal booleanContainerPayload(Literal literal, Expression parent, boolean mapKeyDependency) {
         if (literal.isNullLiteral()) {
             if (containerIsArray(parent)) {
                 return new ArrayLiteral(List.of(NullLiteral.BOOLEAN_INSTANCE),
                         ArrayType.of(BooleanType.INSTANCE));
             }
             if (containerIsMap(parent)) {
-                // A bare NULL container under the MAP overload / under map_values:
-                // element_at(NULL, 'x') resolved through ElementAt's NullType-input signature
-                // and stayed NullType, so the Boolean consumer erased the call and BOTH markers -
-                // the element_at({'x': TRUE}, 'x') caller (same scalar-literal digest) had
-                // nothing left to substitute. A NULL typed MAP<key, BOOLEAN> keeps the MAP
-                // overload and removes the NullType from the tree; the KEY type is the written
-                // index's own type (STRING for 'x'), and a NULL value stays NULL whatever its
-                // type.
-                return new NullLiteral(MapType.of(mapKeyTypeOf(parent), BooleanType.INSTANCE));
+                DataType keyType = mapKeyDependency ? BooleanType.INSTANCE : mapKeyTypeOf(parent);
+                return new NullLiteral(MapType.of(keyType, BooleanType.INSTANCE));
             }
             return null;
         }
+        DataType type = literal.getDataType();
+        DataType targetType;
         if (literal instanceof MapLiteral) {
-            // A whole-map LITERAL container: the MAP overload of element_at reads
-            // the map's VALUE type, so an all-NULL-valued literal has to be retyped to
-            // MAP<key, BOOLEAN> for the same reason the array literal is - the keys keep their
-            // own type (a BOOLEAN key would change the map's key type).
-            return booleanMapPayload((MapLiteral) literal);
-        }
-        if (!(literal instanceof ArrayLiteral)) {
+            MapType mapType = (MapType) type;
+            DataType key = mapType.getKeyType();
+            DataType value = mapType.getValueType();
+            if (mapKeyDependency) {
+                targetType = MapType.of(booleanArrayLeafType(key), value);
+            } else {
+                DataType booleanValue = booleanArrayLeafType(value);
+                if (booleanValue.equals(value)) {
+                    return null;
+                }
+                // Keep a usable key type when the capture has no typed key.
+                targetType = MapType.of(key.isNullType() ? StringType.INSTANCE : key, booleanValue);
+            }
+        } else if (literal instanceof ArrayLiteral) {
+            targetType = booleanArrayLeafType(type);
+        } else {
             return null;
         }
-        List<Literal> items = new ArrayList<>(((ArrayLiteral) literal).getValue().size());
-        for (Literal item : ((ArrayLiteral) literal).getValue()) {
-            if (!item.isNullLiteral()) {
-                // a partly non-NULL array keeps its own element type: element_at on it is not
-                // a NullType producer in the first place
-                return null;
-            }
-            items.add(NullLiteral.BOOLEAN_INSTANCE);
-        }
-        // An EMPTY array literal is ARRAY<NULL_TYPE> as well: element_at([], 1) is
-        // a NullType producer, so the Boolean consumer replaced the call and its markers and the
-        // element_at([TRUE], 1) caller had nothing to substitute. Retyping the EMPTY container
-        // to ARRAY<BOOLEAN> keeps the shape (no element is added) and removes the NullType.
-        return new ArrayLiteral(items, ArrayType.of(BooleanType.INSTANCE));
+        // The parser has already coerced the literal's elements to their common types.
+        return targetType.equals(type) ? null : (Literal) literal.checkedCastWithStrictChecking(targetType, true);
     }
 
-    /**
-     * The BOOLEAN-valued form of an all-NULL-valued MAP literal (see booleanContainerPayload).
-     *
-     * Only the VALUES are retyped: a NULL value is NULL whatever its type, so the marker's TYPE is
-     * all that changes, and the keys keep the type the user wrote.
-     *
-     * Parameter literal: the captured container literal
-     * Returns: the retyped payload, or null when the literal is not an all-NULL-valued map
-     */
-    private static Literal booleanMapPayload(MapLiteral literal) {
-        Map<Literal, Literal> entries = literal.getValue();
-        DataType mapType = literal.getDataType();
-        DataType keyType = mapType instanceof MapType
-                ? ((MapType) mapType).getKeyType()
-                : org.apache.doris.nereids.types.StringType.INSTANCE;
-        if (keyType.isNullType()) {
-            // an EMPTY map literal carries no key to inherit a type from
-            keyType = org.apache.doris.nereids.types.StringType.INSTANCE;
+    /** Replaces a NullType leaf through any number of array layers. */
+    private static DataType booleanArrayLeafType(DataType type) {
+        if (type.isNullType()) {
+            return BooleanType.INSTANCE;
         }
-        if (entries.isEmpty()) {
-            // an EMPTY map literal is MAP<..., NULL_TYPE> much like the empty array:
-            // retyping the VALUE type of the (still empty) container removes the NullType from
-            // element_at({}, 'x') without adding any entry
-            return new MapLiteral(new java.util.LinkedHashMap<>(),
-                    MapType.of(keyType, BooleanType.INSTANCE));
+        if (type instanceof ArrayType) {
+            DataType item = ((ArrayType) type).getItemType();
+            DataType booleanItem = booleanArrayLeafType(item);
+            return item.equals(booleanItem) ? type : ArrayType.of(booleanItem);
         }
-        Map<Literal, Literal> retyped = new java.util.LinkedHashMap<>();
-        for (Map.Entry<Literal, Literal> entry : entries.entrySet()) {
-            if (!entry.getValue().isNullLiteral()) {
-                return null; // a real value keeps the map's own value type
-            }
-            retyped.put(entry.getKey(), NullLiteral.BOOLEAN_INSTANCE);
-        }
-        return new MapLiteral(retyped, MapType.of(keyType, BooleanType.INSTANCE));
+        return type;
     }
 
     /**
@@ -1234,7 +1172,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             // transformations only accept an array
             return true;
         }
-        if (isMapValuesCall(parent)) {
+        if (isMapValuesCall(parent) || isMapKeysCall(parent)) {
             return false; // map_values takes a MAP
         }
         if (!(parent instanceof Function) || parent.children().size() < 2) {
@@ -1255,7 +1193,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * Returns: whether the call can only be the MAP overload
      */
     private static boolean containerIsMap(Expression parent) {
-        if (isMapValuesCall(parent)) {
+        if (isMapValuesCall(parent) || isMapKeysCall(parent)) {
             return true;
         }
         if (!(parent instanceof Function) || parent.children().size() < 2) {
@@ -1273,7 +1211,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 return ((Literal) index).getDataType();
             }
         }
-        return org.apache.doris.nereids.types.StringType.INSTANCE;
+        return StringType.INSTANCE;
     }
 
     // IN (constant list) -> list placeholder.

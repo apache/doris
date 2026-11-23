@@ -205,6 +205,36 @@ suite("test_spm_replay_semantics", "spm") {
             " FROM spm_replay_semantics_t"
     verify("nested_array", nested, nested.replace("array(NULL)", "array(TRUE)"))
 
+    def wholeContainers = [
+        whole_map_key: "element_at(map_keys({NULL:1}), 1)",
+        whole_nested_array: "element_at(element_at([[NULL]], 1), 1)"
+    ]
+    wholeContainers.each { tag, payload ->
+        String bind = "SELECT k, k > 0 OR ${payload} AS c FROM spm_replay_semantics_t"
+        String variant = bind.replace("NULL", "TRUE")
+        withBaseline(bind) { long id ->
+            quickTest(tag + "_frozen", "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}")
+            quickTest(tag + "_bind_rows", bind, true)
+            quickTest(tag + "_variant_rows", variant, true)
+            quickTest(tag + "_hit", "SELECT ${explainHit(bind, id)}, ${explainHit(variant, id)}")
+        }
+    }
+
+    String starSubquery = "SELECT * REPLACE((SELECT max(k) + 1 FROM spm_replay_semantics_u) AS k)" +
+            " FROM spm_replay_ids"
+    long starId = create(starSubquery, starSubquery + " ")
+    try {
+        order_qt_star_subquery_whitespace starSubquery
+        qt_star_subquery_hit "SELECT ${explainHit(starSubquery, starId)}"
+    } finally {
+        sql "DROP BASELINE PLAN IF EXISTS ${starId}"
+    }
+    String differentStarSubquery = starSubquery.replace("max(k) + 1", "max(k) + 2")
+    test {
+        sql """CREATE GLOBAL BASELINE PLAN "${starSubquery}" WITH "${differentStarSubquery}" """
+        exception "cannot align the plan SQL with the bind SQL"
+    }
+
     String window = "SELECT k, k > 0 OR first_value(NULL) OVER (ORDER BY k) AS c FROM spm_replay_semantics_t"
     verify("window", window, window.replace("first_value(NULL)", "first_value(TRUE)"))
 

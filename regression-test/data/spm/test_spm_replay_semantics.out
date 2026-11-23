@@ -112,6 +112,52 @@ true
 -- !nested_array_hit --
 true
 
+-- !whole_map_key_frozen --
+true
+
+-- !whole_map_key_bind_rows --
+-1	\N
+-1	\N
+-1	\N
+-1	\N
+1	true
+
+-- !whole_map_key_variant_rows --
+-1	true
+-1	true
+-1	true
+-1	true
+1	true
+
+-- !whole_map_key_hit --
+true	true
+
+-- !whole_nested_array_frozen --
+true
+
+-- !whole_nested_array_bind_rows --
+-1	\N
+-1	\N
+-1	\N
+-1	\N
+1	true
+
+-- !whole_nested_array_variant_rows --
+-1	true
+-1	true
+-1	true
+-1	true
+1	true
+
+-- !whole_nested_array_hit --
+true	true
+
+-- !star_subquery_whitespace --
+3	2
+
+-- !star_subquery_hit --
+true
+
 -- !window_rows --
 -1	true
 -1	true

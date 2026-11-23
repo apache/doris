@@ -4224,10 +4224,6 @@ public class BaselineManager {
             // returns (the generation check discards the in-flight load instead).
             storeGeneration.incrementAndGet();
             syncJournalWithMaster(ConnectContext.get());
-            Map<Long, BaselinePlan> initialSnapshot = ensureLoadedOrThrow();
-            if (initialSnapshot != null) {
-                return sortedRows(initialSnapshot.values());
-            }
             final Map<Long, BaselinePlan> snapshot;
             try {
                 snapshot = readPersistedSnapshot();
@@ -4236,9 +4232,9 @@ public class BaselineManager {
                         + " (SHOW must not report a stale table); please retry later: "
                         + t.getMessage(), t);
             }
-            // No writer can interleave (writerLock is held) and loads return early while
-            // loaded, so the snapshot is authoritative for this instant.
-            return sortedRows(applyRefreshedBaselines(snapshot).values());
+            // Publish the confirmed read even on a cold cache. The background load can need
+            // writerLock to settle DROP fences, so do not wait for its load slot here.
+            return sortedRows(applyRefreshedBaselines(snapshot, true).values());
         }
     }
 
@@ -5102,39 +5098,10 @@ public class BaselineManager {
                         + " master after the forwarded GLOBAL DDL; the local baseline cache"
                         + " was invalidated (please retry later): " + t.getMessage(), t);
             }
-            if (!loaded) {
-                // Wait (bounded) for the in-flight load to finish and discard itself,
-                // then load once against the CURRENT table content.
-                long deadline = System.currentTimeMillis() + MANAGEMENT_LOAD_WAIT_MILLIS;
-                while (!loaded && System.currentTimeMillis() < deadline) {
-                    if (loadInProgress.compareAndSet(false, true)) {
-                        readAndPublishPossessingLoadSlot();
-                        break;
-                    }
-                    synchronized (loadMonitor) {
-                        try {
-                            loadMonitor.wait(50L);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                    }
-                }
-                if (!loaded) {
-                    throw new IllegalStateException("SPM baseline store is not ready yet"
-                            + " (the baseline table has not been loaded); please retry later");
-                }
-                if (expected == null) {
-                    // the inline load above just published the CURRENT table content;
-                    // nothing further to confirm
-                    return;
-                }
-            }
             // The journal sync orders THIS FE's metadata AFTER the master's DDL, but the
             // internal table's VISIBILITY of the DDL's own row write lags it: the expected
-            // outcome is confirmed with bounded re-reads. No writer can
-            // interleave (writerLock is held) and loads return early while loaded, so an
-            // accepted snapshot is authoritative for this instant.
+            // outcome is confirmed with bounded re-reads. Publish the accepted snapshot
+            // directly even on a cold cache, since a background load can need writerLock.
             for (int attempt = 0; ; attempt++) {
                 final Map<Long, BaselinePlan> snapshot;
                 try {
@@ -5156,7 +5123,7 @@ public class BaselineManager {
                     if (expected != null) {
                         retireSupersededMutationFence(expected.getId(), snapshot);
                     }
-                    applyRefreshedBaselines(snapshot);
+                    applyRefreshedBaselines(snapshot, true);
                     return;
                 }
                 if (attempt >= FORWARDED_DDL_CONFIRM_ATTEMPTS) {
@@ -5262,6 +5229,11 @@ public class BaselineManager {
      * was in flight (see refreshFromInternalTable). Public for unit tests.
      */
     public Map<Long, BaselinePlan> applyRefreshedBaselines(Map<Long, BaselinePlan> persisted) {
+        return applyRefreshedBaselines(persisted, false);
+    }
+
+    /** A confirmed management snapshot can also initialize the store while a background load is pending. */
+    private Map<Long, BaselinePlan> applyRefreshedBaselines(Map<Long, BaselinePlan> persisted, boolean initialize) {
         // Converge the same-key twins outside the lock (the repair I/O must not run under
         // the state lock; see collapseDuplicateKeyRows), then settle the fence obligations
         // (see publishLoadedSnapshot) and rebuild the replacement SQL trees BEFORE any lock
@@ -5271,6 +5243,11 @@ public class BaselineManager {
         Set<Long> fenced = resolvePendingMutationFences(persisted);
         stateLock.writeLock().lock();
         try {
+            if (initialize && !loaded) {
+                Map<Long, BaselinePlan> visible = publishLoadedSnapshot(persisted, fenced);
+                loaded = true;
+                return visible;
+            }
             return applyRefreshedBaselinesLocked(persisted, fenced);
         } finally {
             stateLock.writeLock().unlock();

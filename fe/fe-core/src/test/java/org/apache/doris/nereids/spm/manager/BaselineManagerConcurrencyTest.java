@@ -25,6 +25,8 @@ import org.apache.doris.statistics.repository.ResultRow;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -2611,6 +2613,72 @@ public class BaselineManagerConcurrencyTest {
             Assertions.assertTrue(store.dropped.stream()
                     .anyMatch(marker -> marker.startsWith(id + "|" + created.getBindSqlDigest() + "|")));
         } finally {
+            doubles.idAllocatorStore = null;
+            BaselineManagerTestAccess.clear(manager);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testConfirmedManagementReadWhileLoadSettlesDrop(boolean show) throws Exception {
+        manager = newManager();
+        BaselineManagerTestAccess.clear(manager);
+        IdentityStoreSimulator store = new IdentityStoreSimulator();
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoad = new CountDownLatch(1);
+        Thread loader = new Thread(manager::loadFromInternalTable, "spm-test-load-with-drop");
+        try {
+            long id = manager.createBaseline(baseline("d-drop", "p-drop"));
+            store.rows.put(id, manager.getBaseline(id));
+            doubles.idAllocatorStore = store;
+            store.failDelete = true;
+            store.failRead = true;
+            Assertions.assertThrows(RuntimeException.class, () -> manager.dropBaseline(id));
+            Assertions.assertTrue(BaselineManagerTestAccess.hasPendingMutationFence(manager, id));
+
+            gateway.leaderProbe = () -> false;
+            store.failRead = false;
+            store.rows.clear();
+            BaselineManagerTestAccess.invalidatePublishedStore(manager);
+            BaselinePlan fresh = withId(baseline("d-fresh", "p-fresh"), id + 2);
+            AtomicInteger reads = new AtomicInteger();
+            doubles.snapshotReader = () -> {
+                if (reads.getAndIncrement() == 0) {
+                    loadStarted.countDown();
+                    try {
+                        if (!releaseLoad.await(10, TimeUnit.SECONDS)) {
+                            throw new AssertionError("management read has not reached journal sync");
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(e);
+                    }
+                    BaselinePlan stale = withId(baseline("d-stale", "p-stale"), id + 1);
+                    return Map.of(stale.getId(), stale);
+                }
+                return Map.of(fresh.getId(), fresh);
+            };
+            gateway.forwardedDdlSync = releaseLoad::countDown;
+            loader.start();
+            Assertions.assertTrue(loadStarted.await(10, TimeUnit.SECONDS));
+            if (show) {
+                Assertions.assertEquals(List.of(fresh), manager.getConfirmedGlobalRowsForShow());
+            } else {
+                manager.refreshAfterForwardedDdl();
+            }
+            loader.join(10_000);
+            Assertions.assertFalse(loader.isAlive(), "the background load must finish DROP settlement");
+            Assertions.assertFalse(BaselineManagerTestAccess.hasPendingMutationFence(manager, id));
+            Assertions.assertTrue(store.dropped.contains(id + "||0"));
+            Assertions.assertSame(fresh, manager.getBaseline(fresh.getId()));
+            Assertions.assertNull(manager.getBaseline(id + 1));
+            Assertions.assertEquals(2, reads.get());
+        } finally {
+            releaseLoad.countDown();
+            loader.join(10_000);
+            gateway.leaderProbe = null;
+            gateway.forwardedDdlSync = null;
+            doubles.snapshotReader = null;
             doubles.idAllocatorStore = null;
             BaselineManagerTestAccess.clear(manager);
         }
