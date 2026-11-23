@@ -20,6 +20,7 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
@@ -42,13 +43,14 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 
 import java.math.BigInteger;
-import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -78,9 +80,9 @@ class IvmDeltaRewriteState {
      * needs: its sequence column orders the rows a delta writes against the rows the MV holds.
      */
     static IvmDeltaRewriteState forUniqueKeys(Plan plan, IvmIncrRefreshContext ctx, long sequencePrefix,
-            Map<BaseTableInfo, Set<Long>> scopePartitionIds) {
+            IvmRewriteContext rewriteContext) {
         DataType sequenceType = DataType.fromCatalogType(ctx.getMtmv().getColumn(Column.SEQUENCE_COL).getType());
-        return create(plan, ctx, IvmSequenceCalculator.create(sequencePrefix, sequenceType), scopePartitionIds);
+        return create(plan, ctx, IvmSequenceCalculator.create(sequencePrefix, sequenceType), rewriteContext);
     }
 
     /**
@@ -90,12 +92,12 @@ class IvmDeltaRewriteState {
      * unique-key model carries out of this path entirely.
      */
     static IvmDeltaRewriteState forAppendOnlyDup(Plan plan, IvmIncrRefreshContext ctx,
-            Map<BaseTableInfo, Set<Long>> scopePartitionIds) {
-        return create(plan, ctx, null, scopePartitionIds);
+            IvmRewriteContext rewriteContext) {
+        return create(plan, ctx, null, rewriteContext);
     }
 
     private static IvmDeltaRewriteState create(Plan plan, IvmIncrRefreshContext ctx,
-            IvmSequenceCalculator sequenceCalculator, Map<BaseTableInfo, Set<Long>> scopePartitionIds) {
+            IvmSequenceCalculator sequenceCalculator, IvmRewriteContext rewriteContext) {
         Map<OlapTable, OlapTableStream> streams = new HashMap<>();
         // Window limits apply to every base table in the plan, including excluded
         // trigger tables (their snapshot side is windowed too, so the property saves
@@ -117,40 +119,80 @@ class IvmDeltaRewriteState {
         Map<TableNameInfo, Integer> windowLimits =
                 MTMVPropertyUtil.getIvmPartitionWindowLimit(ctx.getMtmv().getMvProperties());
         Map<OlapTable, List<Long>> windowPartitionIdsByTable = new HashMap<>();
-        if (!windowLimits.isEmpty()) {
-            for (OlapTable table : planTables) {
-                windowPartitionIdsByTable.put(table, MTMVPropertyUtil.getIvmPartitionWindowIds(table,
-                        new TableNameInfo(table.getFullQualifiers()), windowLimits));
-            }
+        for (OlapTable table : planTables) {
+            windowPartitionIdsByTable.put(table, windowPartitionIds(table, windowLimits,
+                    rewriteContext.getIncrementalScopePartitionIds()));
         }
-        applyScopePartitionIds(windowPartitionIdsByTable, planTables, scopePartitionIds);
         IvmDeltaRewriteState state = new IvmDeltaRewriteState(streams, ctx.isIncludeExhaustedStreams(),
                 sequenceCalculator, windowPartitionIdsByTable);
         if (Config.isCloudMode()) {
-            state.cloudReadStates = state.fetchCloudReadStates(plan);
+            state.cloudReadStates = rewriteContext.getCloudReadStates();
+            state.checkCloudReadStateCoverage(plan);
         }
         return state;
     }
 
-    private Map<Cloud.TableStreamIdentityPB, Map<Long, Cloud.TableStreamPartitionReadStatePB>>
-            fetchCloudReadStates(Plan plan) {
+    static Map<Cloud.TableStreamIdentityPB, Map<Long, Cloud.TableStreamPartitionReadStatePB>>
+            preloadCloudReadStates(IvmRewriteContext context, Collection<TableIf> tables) {
         Map<Cloud.TableStreamIdentityPB, Set<Long>> requestedPartitions = new HashMap<>();
-        for (LogicalOlapScan scan : plan.<LogicalOlapScan>collectToList(LogicalOlapScan.class::isInstance)) {
-            if (!isExcluded(scan)) {
-                List<Long> partitionIds = restrictWindow(scan).getSelectedPartitionIds();
-                if (!partitionIds.isEmpty()) {
-                    requestedPartitions.computeIfAbsent(getStream(scan).getCloudIdentity(), key -> new HashSet<>())
-                            .addAll(partitionIds);
+        Set<TableNameInfo> excludedTriggerTables = context.getMtmv().getExcludedTriggerTables();
+        Map<TableNameInfo, Integer> windowLimits =
+                MTMVPropertyUtil.getIvmPartitionWindowLimit(context.getMtmv().getMvProperties());
+        for (TableIf collectedTable : new HashSet<>(tables)) {
+            if (!(collectedTable instanceof OlapTable)) {
+                continue;
+            }
+            OlapTable table = (OlapTable) collectedTable;
+            if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
+                throw new AnalysisException("Failed to get read lock on table: " + table.getName());
+            }
+            try {
+                List<String> qualifier = table.getFullQualifiers().subList(0, 2);
+                if (IvmUtil.isExcludedTriggerTable(excludedTriggerTables, table, qualifier)) {
+                    continue;
                 }
+                List<Long> window = windowPartitionIds(table, windowLimits, context.getIncrementalScopePartitionIds());
+                List<Long> partitionIds = window == null ? table.getPartitionIds() : window;
+                if (partitionIds.isEmpty()) {
+                    continue;
+                }
+                OlapTableStream stream;
+                try {
+                    stream = IvmUtil.getIvmStream(context.getMtmv(), table);
+                } catch (IvmException unavailableStream) {
+                    // The normalizer may reject the table's changed schema or changelog before it needs the stream.
+                    // Leave validation and the original error to analysis.
+                    continue;
+                }
+                requestedPartitions.put(stream.getCloudIdentity(), new HashSet<>(partitionIds));
+            } finally {
+                table.readUnlock();
             }
         }
         if (requestedPartitions.isEmpty()) {
             return ImmutableMap.of();
         }
+        // Only the copied stream identities and partition ids are needed by the RPC.
         try {
             return CloudTableStreamReadStateHelper.getReadStates(requestedPartitions);
         } catch (UserException e) {
             throw new AnalysisException(e.getMessage(), e);
+        }
+    }
+
+    private void checkCloudReadStateCoverage(Plan plan) {
+        for (LogicalOlapScan scan : plan.<LogicalOlapScan>collectToList(LogicalOlapScan.class::isInstance)) {
+            if (isExcluded(scan)) {
+                continue;
+            }
+            List<Long> partitionIds = restrictWindow(scan).getSelectedPartitionIds();
+            Map<Long, Cloud.TableStreamPartitionReadStatePB> states =
+                    cloudReadStates.getOrDefault(getStream(scan).getCloudIdentity(), ImmutableMap.of());
+            if (!states.keySet().containsAll(partitionIds)) {
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM: Cloud Stream binding or partitions changed while planning refresh for "
+                                + scan.getTable().getName() + ", retry the refresh");
+            }
         }
     }
 
@@ -195,36 +237,20 @@ class IvmDeltaRewriteState {
      * <p>The scope is keyed by base table identity, but only olap tables are reachable here: the
      * delta reads them through {@code OlapTableStream} and restricts a scan by partition id.
      */
-    private static void applyScopePartitionIds(Map<OlapTable, List<Long>> windowPartitionIdsByTable,
-            Set<OlapTable> planTables, Map<BaseTableInfo, Set<Long>> scopePartitionIds) {
+    private static List<Long> windowPartitionIds(OlapTable table, Map<TableNameInfo, Integer> windowLimits,
+            Map<BaseTableInfo, Set<Long>> scopePartitionIds) {
+        List<Long> window = windowLimits.isEmpty() ? null : MTMVPropertyUtil.getIvmPartitionWindowIds(table,
+                new TableNameInfo(table.getFullQualifiers()), windowLimits);
         if (scopePartitionIds.isEmpty()) {
-            return;
+            return window;
         }
-        for (OlapTable table : planTables) {
-            Set<Long> tableScope = scopePartitionIds.get(new BaseTableInfo(table));
-            if (tableScope == null || tableScope.containsAll(table.getPartitionIds())) {
-                continue;
-            }
-            List<Long> windowPartitionIds = windowPartitionIdsByTable.get(table);
-            List<Long> readablePartitionIds;
-            if (windowPartitionIds == null) {
-                readablePartitionIds = new ArrayList<>(tableScope);
-            } else {
-                // Both limits apply, so only their intersection is readable. One keeps the
-                // partitions above a time cutoff and the other the last N by partition value, so
-                // each is a suffix of the same value order and the two cannot be disjoint.
-                readablePartitionIds = new ArrayList<>();
-                for (Long partitionId : windowPartitionIds) {
-                    if (tableScope.contains(partitionId)) {
-                        readablePartitionIds.add(partitionId);
-                    }
-                }
-            }
-            // Sorted like every other partition selection handed to a scan, so the plan shape does
-            // not depend on the order the two limits were combined in.
-            readablePartitionIds.sort(Long::compareTo);
-            windowPartitionIdsByTable.put(table, readablePartitionIds);
+        Set<Long> scope = scopePartitionIds.get(new BaseTableInfo(table));
+        if (scope == null || scope.containsAll(table.getPartitionIds())) {
+            return window;
         }
+        Collection<Long> candidates = window == null ? scope : window;
+        // Sort the intersection so the order of applying the limits does not change the plan shape.
+        return candidates.stream().filter(scope::contains).sorted().collect(Collectors.toList());
     }
 
     /**

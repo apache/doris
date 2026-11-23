@@ -18,7 +18,6 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -42,7 +41,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Builds the delta plan of an append-only detail IVM MV.
@@ -79,8 +77,8 @@ class IvmDupDeltaRewriter extends PlanVisitor<Optional<Plan>, Void> {
      * there that a delta has to add or take away.
      */
     static Optional<Plan> generateIncrRefreshPlan(Plan queryPlan, IvmIncrRefreshContext ctx,
-            Map<BaseTableInfo, Set<Long>> scopePartitionIds) {
-        IvmDeltaRewriteState rewriteState = IvmDeltaRewriteState.forAppendOnlyDup(queryPlan, ctx, scopePartitionIds);
+            IvmRewriteContext rewriteContext) {
+        IvmDeltaRewriteState rewriteState = IvmDeltaRewriteState.forAppendOnlyDup(queryPlan, ctx, rewriteContext);
         return queryPlan.accept(new IvmDupDeltaRewriter(rewriteState), null);
     }
 

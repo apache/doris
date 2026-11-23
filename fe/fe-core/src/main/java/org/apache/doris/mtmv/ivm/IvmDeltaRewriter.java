@@ -63,14 +63,14 @@ public class IvmDeltaRewriter {
             Preconditions.checkState(!rewriteResult.isAggMv(),
                     "an append-only detail MV holds no aggregate");
             Optional<Plan> deltaPlan = IvmDupDeltaRewriter.generateIncrRefreshPlan(sinkChild, refreshContext,
-                    rewriteContext.getIncrementalScopePartitionIds());
+                    rewriteContext);
             return deltaPlan.orElseGet(() -> emptyDeltaPlan(sinkChild, refreshContext));
         }
         Pair<Plan, List<LogicalProject<?>>> prefixChain = helper.detachAdaptProjectChain(sinkChild);
         Plan rootPlan = prefixChain.first;
         long sequencePrefix = refreshContext.getMtmv().getNextSequencePrefix();
         IvmDeltaRewriteState rewriteState = IvmDeltaRewriteState.forUniqueKeys(rootPlan, refreshContext, sequencePrefix,
-                rewriteContext.getIncrementalScopePartitionIds());
+                rewriteContext);
         Optional<IvmDeltaRewriteResult> deltaResult = rewriteDelta(rootPlan, refreshContext, rewriteState);
         if (!deltaResult.isPresent()) {
             return emptyDeltaPlan(sinkChild, refreshContext);

@@ -389,13 +389,16 @@ public class IvmUtil {
 
     /** Whether the refresh reads this base table's changes while it is an excluded trigger table. */
     public static boolean isExcludedTriggerTable(Set<TableNameInfo> excludedTriggerTables, LogicalOlapScan scan) {
+        return isExcludedTriggerTable(excludedTriggerTables, scan.getTable(), scan.getQualifier());
+    }
+
+    static boolean isExcludedTriggerTable(Set<TableNameInfo> excludedTriggerTables,
+            OlapTable table, List<String> qualifier) {
         if (excludedTriggerTables.isEmpty()) {
             return false;
         }
-        OlapTable table = scan.getTable();
         TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
         if (tableNameInfo == null) {
-            List<String> qualifier = scan.getQualifier();
             String dbName = qualifier.isEmpty() ? table.getDBName() : qualifier.get(qualifier.size() - 1);
             if (dbName == null) {
                 return false;

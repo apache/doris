@@ -57,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 class IvmDeltaRewriteStateTest extends IvmDeltaTestBase {
 
@@ -88,10 +89,16 @@ class IvmDeltaRewriteStateTest extends IvmDeltaTestBase {
             config.when(Config::isCloudMode).thenReturn(true);
             config.when(Config::isNotCloudMode).thenReturn(false);
             metaService.when(() -> CloudTableStreamReadStateHelper.getReadStates(request))
-                    .thenReturn(Map.of(identity, states));
-
-            IvmDeltaRewriteState state = IvmDeltaRewriteState.forAppendOnlyDup(original, context,
+                    .thenAnswer(invocation -> {
+                        Assertions.assertTrue(table.tryWriteLock(0, TimeUnit.MILLISECONDS),
+                                "read-state RPC must run after releasing the table read lock");
+                        table.writeUnlock();
+                        return Map.of(identity, states);
+                    });
+            IvmRewriteContext rewriteContext = IvmRewriteContext.incremental(context.getMtmv(),
                     Map.of(new BaseTableInfo(table), Set.of(caughtUp, pending, empty)));
+            rewriteContext.preloadCloudReadStates(List.of(table));
+            IvmDeltaRewriteState state = IvmDeltaRewriteState.forAppendOnlyDup(original, context, rewriteContext);
 
             // The caught-up partition advances after the RPC. The pending partition still has an older local version.
             table.getPartition(caughtUp).updateVisibleVersionAndTime(6, 1, 11);
@@ -137,6 +144,41 @@ class IvmDeltaRewriteStateTest extends IvmDeltaTestBase {
                     (CloudOlapTableStreamUpdate) StreamConsumptionInfoExtractor.extract(rewritten).get(0).getUpdate();
             Assertions.assertEquals(Set.of(pending), update.getPartitionUpdates().keySet());
             Assertions.assertEquals(25, update.getPartitionUpdates().get(pending).getNextOffsetTso());
+        }
+    }
+
+    @Test
+    void testRejectsPartitionAddedAfterCloudReadStatesWereCaptured() {
+        OlapTable table = buildMultiPartitionTable(1);
+        OlapTableStream stream = registerTestStream(table, 1L);
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table, List.of("test_db"));
+        IvmIncrRefreshContext context = new IvmIncrRefreshContext(
+                buildDupMtmvFromPlan(scan.getOutput()), MemoTestUtils.createConnectContext(), null, false);
+        IvmRewriteContext rewriteContext = IvmRewriteContext.incremental(context.getMtmv());
+        Cloud.TableStreamIdentityPB identity = stream.getCloudIdentity();
+        long initialPartition = partitionId(table, 1);
+        Map<Cloud.TableStreamIdentityPB, Set<Long>> request = Map.of(identity, Set.of(initialPartition));
+
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<CloudTableStreamReadStateHelper> metaService =
+                        Mockito.mockStatic(CloudTableStreamReadStateHelper.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            metaService.when(() -> CloudTableStreamReadStateHelper.getReadStates(request))
+                    .thenReturn(Map.of(identity, Map.of(initialPartition, consumedState(initialPartition, 5, 10, 11))));
+            rewriteContext.preloadCloudReadStates(List.of(table));
+            addPartition(table, 2);
+            LogicalOlapScan laterScan = scan.withSelectedPartitionIds(table.getPartitionIds());
+
+            table.readLock();
+            try {
+                IvmException error = Assertions.assertThrows(IvmException.class,
+                        () -> IvmDeltaRewriteState.forAppendOnlyDup(laterScan, context, rewriteContext));
+                Assertions.assertEquals(IvmFailureReason.PLAN_REWRITE_FAILED, error.getFailureReason());
+            } finally {
+                table.readUnlock();
+            }
+            metaService.verify(() -> CloudTableStreamReadStateHelper.getReadStates(request));
+            metaService.verifyNoMoreInteractions();
         }
     }
 
@@ -262,15 +304,18 @@ class IvmDeltaRewriteStateTest extends IvmDeltaTestBase {
     private OlapTable buildMultiPartitionTable(int partitionCount) {
         OlapTable table = PlanConstructor.newOlapTable(0, "t1", 0);
         for (int i = 1; i <= partitionCount; i++) {
-            long partitionId = table.getId() * 100 + i;
-            Partition partition = new Partition(partitionId, "p" + i,
-                    new MaterializedIndex(table.getBaseIndexId(), MaterializedIndex.IndexState.NORMAL),
-                    new RandomDistributionInfo(1));
-            table.addPartition(partition);
+            addPartition(table, i);
         }
         enableChangelog(table);
         table.setQualifiedDbName("test_db");
         return table;
+    }
+
+    private void addPartition(OlapTable table, int partitionIndex) {
+        long partitionId = table.getId() * 100 + partitionIndex;
+        table.addPartition(new Partition(partitionId, "p" + partitionIndex,
+                new MaterializedIndex(table.getBaseIndexId(), MaterializedIndex.IndexState.NORMAL),
+                new RandomDistributionInfo(1)));
     }
 
     private long partitionId(OlapTable table, int partitionIndex) {

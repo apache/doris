@@ -18,9 +18,12 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.stream.StreamReadMode;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.mtmv.BaseTableInfo;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -85,6 +88,7 @@ public class IvmRewriteContext {
     // fullRefreshResetPartitionIds, which names the partitions a partition-based refresh must reset,
     // every entry here is an upper bound on what the delta is allowed to read.
     private final Map<BaseTableInfo, Set<Long>> incrementalScopePartitionIds;
+    private Map<Cloud.TableStreamIdentityPB, Map<Long, Cloud.TableStreamPartitionReadStatePB>> cloudReadStates;
     // Set by MTMVPlanUtil before normalization: true means the MV unique keys include identity key columns.
     // Null when the rewrite context is created outside the analyzeQuery flow.
     private Boolean useFullKeys;
@@ -280,6 +284,15 @@ public class IvmRewriteContext {
     /** Empty when the incremental delta is not limited to a partition subset. */
     public Map<BaseTableInfo, Set<Long>> getIncrementalScopePartitionIds() {
         return incrementalScopePartitionIds;
+    }
+
+    /** Capture the Cloud Stream boundary before the planner takes the statement's table locks. */
+    public void preloadCloudReadStates(Collection<TableIf> tables) {
+        cloudReadStates = IvmDeltaRewriteState.preloadCloudReadStates(this, tables);
+    }
+
+    Map<Cloud.TableStreamIdentityPB, Map<Long, Cloud.TableStreamPartitionReadStatePB>> getCloudReadStates() {
+        return Objects.requireNonNull(cloudReadStates, "Cloud IVM read states must be captured before planning");
     }
 
     public Optional<StreamReadMode> getFullRefreshNonPctReadMode() {

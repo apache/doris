@@ -484,6 +484,11 @@ public class NereidsPlanner extends Planner {
         if (waitForChangeVisible) {
             waitForTimeBasedChangeVisibleBeforeLock();
         }
+        if (Config.isCloudMode()) {
+            statementContext.getIvmRewriteContext()
+                    .filter(context -> context.isIncrementalRefresh())
+                    .ifPresent(context -> context.preloadCloudReadStates(statementContext.getTables().values()));
+        }
         if (statementContext.getConnectContext().getExecutor() != null) {
             // Track only the actual lock() call here so the dedicated preload stage is not double counted.
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
