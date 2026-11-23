@@ -22,7 +22,10 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <stdlib.h>
 
+#include <algorithm>
+#include <cerrno>
 #include <cstddef>
+#include <cstring>
 #include <ostream>
 
 #include "cloud/config.h"
@@ -37,6 +40,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
+#include "util/debug_points.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -250,23 +254,40 @@ Status RowSourcesBuffer::_serialize() {
     if (rows == 0) {
         return Status::OK();
     }
-    // write size
+    // 1. Write 8-byte row count header
     ssize_t bytes_written = ::write(_fd, &rows, sizeof(rows));
     if (bytes_written != sizeof(size_t)) {
         LOG(WARNING) << "failed to write buffer size to file, bytes_written=" << bytes_written;
         return Status::InternalError("fail to write buffer size to file");
     }
-    // write data
-    bytes_written = ::write(_fd, _buffer.data(), _buffer.size() * sizeof(UInt16));
-    if (bytes_written != _buffer.size() * sizeof(UInt16)) {
-        LOG(WARNING) << "failed to write buffer data to file, bytes_written=" << bytes_written
-                     << " buffer size=" << _buffer.size() * sizeof(UInt16);
-        return Status::InternalError("fail to write buffer size to file");
+    // 2. Write payload in a loop because Linux caps a single write() at
+    // 0x7ffff000 (2147479552) bytes.
+    const char* data_ptr = reinterpret_cast<const char*>(_buffer.data());
+    size_t total_bytes = rows * sizeof(UInt16);
+    size_t max_io_bytes = total_bytes;
+    DBUG_EXECUTE_IF("RowSourcesBuffer._serialize.max_io_bytes", {
+        max_io_bytes = dp->param<size_t>("value", total_bytes);
+    });
+    size_t offset = 0;
+    while (offset < total_bytes) {
+        size_t chunk_bytes = std::min(total_bytes - offset, max_io_bytes);
+        bytes_written = ::write(_fd, data_ptr + offset, chunk_bytes);
+        if (bytes_written < 0 && errno == EINTR) {
+            continue;
+        }
+        if (bytes_written <= 0) {
+            LOG(WARNING) << "failed to write buffer data to file, bytes_written=" << bytes_written
+                         << ", total_written=" << offset << ", buffer size=" << total_bytes
+                         << ", err=" << (bytes_written < 0 ? strerror(errno) : "short write");
+            return Status::InternalError("failed to write buffer data to file");
+        }
+        offset += static_cast<size_t>(bytes_written);
     }
     return Status::OK();
 }
 
 Status RowSourcesBuffer::_deserialize() {
+    // 1. Read 8-byte row count header
     size_t rows = 0;
     ssize_t bytes_read = ::read(_fd, &rows, sizeof(rows));
     if (bytes_read == 0) {
@@ -276,13 +297,29 @@ Status RowSourcesBuffer::_deserialize() {
         LOG(WARNING) << "failed to read buffer size from file, bytes_read=" << bytes_read;
         return Status::InternalError("failed to read buffer size from file");
     }
+    // 2. Read payload in a loop because Linux caps a single read() at
+    // 0x7ffff000 (2147479552) bytes.
     _buffer.resize(rows);
-    auto& internal_data = _buffer;
-    bytes_read = ::read(_fd, internal_data.data(), rows * sizeof(UInt16));
-    if (bytes_read != rows * sizeof(UInt16)) {
-        LOG(WARNING) << "failed to read buffer data from file, bytes_read=" << bytes_read
-                     << ", expect bytes=" << rows * sizeof(UInt16);
-        return Status::InternalError("failed to read buffer data from file");
+    char* data_ptr = reinterpret_cast<char*>(_buffer.data());
+    size_t total_bytes = rows * sizeof(UInt16);
+    size_t max_io_bytes = total_bytes;
+    DBUG_EXECUTE_IF("RowSourcesBuffer._deserialize.max_io_bytes", {
+        max_io_bytes = dp->param<size_t>("value", total_bytes);
+    });
+    size_t offset = 0;
+    while (offset < total_bytes) {
+        size_t chunk_bytes = std::min(total_bytes - offset, max_io_bytes);
+        bytes_read = ::read(_fd, data_ptr + offset, chunk_bytes);
+        if (bytes_read < 0 && errno == EINTR) {
+            continue;
+        }
+        if (bytes_read <= 0) {
+            LOG(WARNING) << "failed to read buffer data from file, bytes_read=" << bytes_read
+                         << ", total_read=" << offset << ", expect bytes=" << total_bytes
+                         << ", err=" << (bytes_read < 0 ? strerror(errno) : "unexpected EOF");
+            return Status::InternalError("failed to read buffer data from file");
+        }
+        offset += static_cast<size_t>(bytes_read);
     }
     return Status::OK();
 }
