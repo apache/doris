@@ -1162,7 +1162,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private static String DEFAULT_NESTED_COLUMN_NAME = "unnest";
     private static String DEFAULT_ORDINALITY_COLUMN_NAME = "ordinality";
-    // The built-in values of the default_variant_* session variables.
+    // The built-in values of the debug_variant_* session variables.
     private static final SessionVariable BUILT_IN_SESSION_VARIABLE = new SessionVariable();
 
     private static class ColumnDefinitionWithPath {
@@ -5320,7 +5320,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
-    private String parsePropertyKey(PropertyKeyContext item) {
+    protected String parsePropertyKey(PropertyKeyContext item) {
         if (item.constant() != null) {
             return parseConstant(item.constant()).trim();
         }
@@ -5443,10 +5443,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + "use CREATE TABLE PROPERTIES(\"variant_escape_dots_in_keys\"=\"true\")");
         }
 
-        // The default_variant_* session variables only drive the tests, which run with debug points enabled.
+        // The debug_variant_* session variables only drive the tests, which run with debug points enabled.
         // Elsewhere, and without a session, the properties a DDL leaves out take the built-in values, whatever the
-        // session holds (a global value set before the variables became test-only still loads from an image), so a
-        // DDL text, such as the one CREATE TABLE LIKE prints and parses, creates the same column in every session.
+        // session holds (a fuzzed session, or a global value set while debug points were enabled), so a DDL text,
+        // such as the one CREATE TABLE LIKE prints and parses, creates the same column in every session.
         SessionVariable variantDefaults = BUILT_IN_SESSION_VARIABLE;
         if (Config.enable_debug_points && ConnectContext.get() != null) {
             variantDefaults = ConnectContext.get().getSessionVariable();

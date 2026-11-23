@@ -82,12 +82,14 @@ public final class LanceConnector implements Connector {
     }
 
     /**
-     * Runs on CREATE CATALOG only. A REST catalog is refused here rather than in the property check, so one
-     * that an earlier version created still replays; see {@link LanceCatalogProperties#requireFilesystem}.
+     * Runs on CREATE CATALOG only, so an OSS-HDFS warehouse is refused where the user wrote it. The first use of
+     * the namespace refuses it again: ALTER CATALOG does not run this check.
      */
     @Override
     public void preCreateValidation(ConnectorValidationContext validationContext) {
-        props.requireFilesystem();
+        if (!props.isRest()) {
+            LanceStorageOptions.rejectOssHdfs(context.getStorageContext().getStorageProperties());
+        }
     }
 
     /** {@code test_connection}: the namespace answers a listing under the catalog's parent namespace. */

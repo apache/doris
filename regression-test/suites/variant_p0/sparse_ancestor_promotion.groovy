@@ -16,7 +16,7 @@
 // under the License.
 
 suite("sparse_ancestor_promotion", "p0") {
-    sql "SET default_variant_enable_doc_mode = false"
+    sql "SET debug_variant_enable_doc_mode = false"
     def backendIPs = [:]
     def backendHttpPorts = [:]
     getBackendIpHttpPort(backendIPs, backendHttpPorts)

@@ -1068,6 +1068,9 @@ private:
     // cloud_unique_id.
     static bool check_strict_instance_auth(const ::google::protobuf::Message& req,
                                            MetaServiceResponseStatus* status);
+    // Reject a request whose instance_id is not the instance its cloud_unique_id belongs to.
+    bool check_request_instance_id(const ::google::protobuf::Message& req,
+                                   MetaServiceResponseStatus* status);
 
     template <typename Request, typename Response>
     using MetaServiceMethod = void (cloud::MetaService::*)(::google::protobuf::RpcController*,
@@ -1096,6 +1099,14 @@ private:
                 (Request::descriptor()->FindFieldByName("instance_id") != nullptr ||
                  Request::descriptor()->FindFieldByName("instance_ids") != nullptr);
         if (names_instance_by_id && !check_strict_instance_auth(*req, resp->mutable_status())) {
+            return;
+        }
+
+        // Only rpc goes through the proxy, the http api (authorized by token) calls impl directly.
+        static const bool names_instance =
+                !std::is_same_v<Request, BootstrapInstanceRequest> &&
+                Request::descriptor()->FindFieldByName("instance_id") != nullptr;
+        if (names_instance && !check_request_instance_id(*req, resp->mutable_status())) {
             return;
         }
 

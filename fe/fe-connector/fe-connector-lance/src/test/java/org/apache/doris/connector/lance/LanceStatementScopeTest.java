@@ -21,6 +21,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 
 class LanceStatementScopeTest {
@@ -33,9 +34,11 @@ class LanceStatementScopeTest {
     @Test
     void namespaceIsPrefixedWithTheConnectorType() {
         String type = new LanceConnectorProvider().getType();
-        Assertions.assertTrue(LanceStatementScope.TABLE_METADATA_NAMESPACE.startsWith(type + "."),
-                "Namespace '" + LanceStatementScope.TABLE_METADATA_NAMESPACE
-                        + "' must start with the connector type '" + type + ".'");
+        for (String namespace : Arrays.asList(LanceStatementScope.TABLE_METADATA_NAMESPACE,
+                LanceStatementScope.INDEX_METADATA_NAMESPACE)) {
+            Assertions.assertTrue(namespace.startsWith(type + "."),
+                    "Namespace '" + namespace + "' must start with the connector type '" + type + ".'");
+        }
     }
 
     /** The query-begin pin reads the newest version; the pinned reads after it must not read it again. */
