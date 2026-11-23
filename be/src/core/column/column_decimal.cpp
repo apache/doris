@@ -25,6 +25,7 @@
 
 #include <limits>
 
+#include "common/compare.h"
 #include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/columns_common.h"
@@ -43,6 +44,28 @@ template <typename T>
 bool decimal_less(T x, T y, doris::UInt32 x_scale, doris::UInt32 y_scale);
 
 namespace doris {
+
+template <PrimitiveType T>
+void ColumnDecimal<T>::update_equal_flags(EqualFlags& flags,
+                                          const uint8_t* __restrict null_map) const {
+    const size_t rows = size();
+    DCHECK_EQ(flags.size(), rows);
+    // Restricted pointers: a write to `flags` cannot change them, so the loops vectorize.
+    const auto* __restrict values = data.data();
+    uint8_t* __restrict equal = flags.data();
+    if (null_map == nullptr) {
+        for (size_t row = 1; row < rows; ++row) {
+            equal[row] &= Compare::compare(values[row - 1], values[row]) == 0;
+        }
+        return;
+    }
+    for (size_t row = 1; row < rows; ++row) {
+        const uint8_t previous_null = null_map[row - 1] != 0;
+        const uint8_t null = null_map[row] != 0;
+        equal[row] &= (previous_null == null) &
+                      (null | (Compare::compare(values[row - 1], values[row]) == 0));
+    }
+}
 
 template <PrimitiveType T>
 int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) const {
