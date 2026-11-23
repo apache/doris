@@ -278,9 +278,7 @@ public enum RuleType {
     ADD_POST_PROJECT_FOR_LOAD(RuleTypeClass.REWRITE),
 
     // Merge Consecutive plan
-    // Composing projections can rediscover an ancestor or descendant expression.
-    // Reuse that result without unifying its owner's group with the current group.
-    MERGE_PROJECTS(RuleTypeClass.REWRITE, false),
+    MERGE_PROJECTS(RuleTypeClass.REWRITE),
     MERGE_FILTERS(RuleTypeClass.REWRITE),
     MERGE_LIMITS(RuleTypeClass.REWRITE),
     MERGE_GENERATES(RuleTypeClass.REWRITE),
@@ -603,15 +601,9 @@ public enum RuleType {
     SENTINEL(RuleTypeClass.SENTINEL);
 
     private final RuleTypeClass ruleTypeClass;
-    private final boolean canMergeGroups;
 
     RuleType(RuleTypeClass ruleTypeClass) {
-        this(ruleTypeClass, true);
-    }
-
-    RuleType(RuleTypeClass ruleTypeClass, boolean canMergeGroups) {
         this.ruleTypeClass = ruleTypeClass;
-        this.canMergeGroups = canMergeGroups;
     }
 
     public int type() {
@@ -620,10 +612,6 @@ public enum RuleType {
 
     public RuleTypeClass getRuleTypeClass() {
         return ruleTypeClass;
-    }
-
-    public boolean canMergeGroups() {
-        return canMergeGroups;
     }
 
     public <INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> Rule build(

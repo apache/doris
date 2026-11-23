@@ -130,10 +130,14 @@ public class GroupExpression {
         return children.get(i);
     }
 
+    /** Replace a child and update its parent's topological rank. */
     public void setChild(int i, Group group) {
         child(i).removeParentExpression(this);
         children.set(i, group);
         group.addParentExpression(this);
+        if (ownerGroup != null) {
+            ownerGroup.updateTopologicalRank(this);
+        }
     }
 
     public List<Group> children() {
@@ -150,6 +154,9 @@ public class GroupExpression {
         oldChild.removeParentExpression(this);
         newChild.addParentExpression(this);
         Utils.replaceList(children, oldChild, newChild);
+        if (ownerGroup != null) {
+            ownerGroup.updateTopologicalRank(this);
+        }
     }
 
     public boolean hasApplied(Rule rule) {
@@ -296,6 +303,8 @@ public class GroupExpression {
         this.children.forEach(child -> child.removeParentExpression(this));
         this.children.clear();
         this.ownerGroup = null;
+        // Mark unused only after detaching: a recursive owner-group merge can be rejected to avoid a cycle.
+        this.setUnused(true);
     }
 
     public Cost getCost() {

@@ -19,9 +19,12 @@ package org.apache.doris.nereids.rules.exploration;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.cascades.ApplyRuleJob;
+import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
+import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -30,8 +33,10 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.MemoValidator;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
@@ -100,7 +105,7 @@ class MergeProjectsCBOTest {
     }
 
     @Test
-    void testRegisteredProjectDoesNotUnifyIndependentGroups() {
+    void testRegisteredProjectUnifiesIndependentGroups() {
         SlotReference slot = (SlotReference) scan.getOutput().get(0);
         LogicalProject<?> middle = new LogicalProject<>(
                 ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)), slot), scan);
@@ -115,9 +120,10 @@ class MergeProjectsCBOTest {
         new ApplyRuleJob(root.getLogicalExpression(), new MergeProjectsCBO().build(),
                 cascades.getCurrentJobContext()).execute();
 
-        Assertions.assertSame(root, memo.getRoot());
-        Assertions.assertEquals(1, root.getLogicalExpressions().size());
-        Assertions.assertEquals(4, memo.getGroups().size());
+        Assertions.assertSame(registered.getOwnerGroup(), memo.getRoot());
+        Assertions.assertNull(memo.getGroup(root.getGroupId()));
+        Assertions.assertEquals(2, memo.getRoot().getLogicalExpressions().size());
+        Assertions.assertEquals(3, memo.getGroups().size());
         Assertions.assertSame(registered, memo.getGroupExpressions().get(registered));
         MemoValidator.validate(memo);
     }
@@ -165,5 +171,51 @@ class MergeProjectsCBOTest {
         Assertions.assertSame(registered.getOwnerGroup(), memo.getRoot());
         Assertions.assertNull(memo.getGroup(oldRoot.getGroupId()));
         MemoValidator.validate(memo);
+    }
+
+    @Test
+    void testIndependentMergePreservesBestPlanAndCost() {
+        Double referenceCost = null;
+        String referenceShape = null;
+        for (boolean useRule : new boolean[] {false, true}) {
+            LogicalOlapScan localScan = new LogicalOlapScan(
+                    StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
+            SlotReference slot = (SlotReference) localScan.getOutput().get(0);
+            LogicalProject<?> middle = new LogicalProject<>(
+                    ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)), slot), localScan);
+            CascadesContext cascades = MemoTestUtils.createCascadesContext(connectContext,
+                    new LogicalProject<>(ImmutableList.of(slot), middle));
+            Memo memo = cascades.getMemo();
+            Group root = memo.getRoot();
+            Group leaf = root.getLogicalExpression().child(0).getLogicalExpression().child(0);
+            LogicalProject<?> merged = new LogicalProject<>(ImmutableList.of(slot), new GroupPlan(leaf));
+            memo.copyIn(merged, null, false);
+            if (useRule) {
+                new ApplyRuleJob(root.getLogicalExpression(), new MergeProjectsCBO().build(),
+                        cascades.getCurrentJobContext()).execute();
+            } else {
+                memo.copyIn(merged, root, false);
+            }
+            // Preserve this Memo: Optimizer.execute() would initialize a new one and discard the test setup.
+            cascades.setJobContext(PhysicalProperties.GATHER);
+            memo.getRoot().getLogicalExpressions().forEach(expression -> cascades.pushJob(
+                    new DeriveStatsJob(expression, cascades.getCurrentJobContext())));
+            cascades.getJobScheduler().executeJobPool(cascades);
+            cascades.pushJob(new OptimizeGroupJob(memo.getRoot(), cascades.getCurrentJobContext()));
+            cascades.getJobScheduler().executeJobPool(cascades);
+            double cost = memo.getRoot().getLowestCostPlan(PhysicalProperties.GATHER).orElseThrow().first.getValue();
+            PlanChecker checker = PlanChecker.from(cascades);
+            String shape = checker.getBestPlanTree().shape("");
+            Assertions.assertEquals(1, checker.getBestPlanTree()
+                    .collect(plan -> plan instanceof PhysicalProject).size());
+            if (useRule) {
+                Assertions.assertEquals(referenceCost, cost);
+                Assertions.assertEquals(referenceShape, shape);
+            } else {
+                referenceCost = cost;
+                referenceShape = shape;
+            }
+            MemoValidator.validate(memo);
+        }
     }
 }
