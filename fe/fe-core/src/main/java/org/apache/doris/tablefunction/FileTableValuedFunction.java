@@ -22,8 +22,8 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.storage.StatementStorageProperties;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.HadoopClientOptions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
@@ -45,7 +45,7 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
 
     public FileTableValuedFunction(Map<String, String> properties) throws AnalysisException {
         // Validate the statement properties before choosing the concrete TVF.
-        StatementStorageProperties.check(properties);
+        properties = HadoopClientOptions.forStatement(properties);
         try {
             this.storageAdapter = StorageAdapter.of(properties);
             switch (storageAdapter.getType()) {

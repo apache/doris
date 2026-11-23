@@ -24,8 +24,8 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
-import org.apache.doris.datasource.storage.StatementStorageProperties;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.HadoopClientOptions;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TDataSink;
@@ -211,7 +211,7 @@ public class TVFTableSink extends DataSink {
     }
 
     public static StorageAdapter bindRemoteStorage(String tvfName, Map<String, String> properties, String filePath) {
-        if ("hdfs".equals(tvfName) && StatementStorageProperties.isRemoteHadoopUri(filePath)) {
+        if ("hdfs".equals(tvfName) && HadoopClientOptions.isRemoteHadoopUri(filePath)) {
             properties.put("uri", filePath);
         }
         StorageAdapter adapter = StorageAdapter.of(properties);

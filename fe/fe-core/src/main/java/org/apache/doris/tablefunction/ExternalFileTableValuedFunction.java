@@ -47,11 +47,11 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
-import org.apache.doris.datasource.storage.StatementStorageProperties;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.properties.HadoopClientOptions;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -217,7 +217,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     // The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
-        StatementStorageProperties.check(properties);
+        properties = HadoopClientOptions.forStatement(properties);
         Map<String, String> mergedProperties = Maps.newHashMap();
         if (properties.containsKey("resource")) {
             Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(properties.get("resource"));
