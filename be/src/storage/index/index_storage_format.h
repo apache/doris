@@ -17,6 +17,11 @@
 
 #pragma once
 
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "common/status.h"
 #include "storage/index/index_common.h"
 
