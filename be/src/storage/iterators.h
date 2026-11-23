@@ -43,6 +43,10 @@ class ColumnPredicate;
 
 struct IteratorRowRef;
 
+namespace io {
+struct FileReadAheadResources;
+}
+
 class StorageReadOptions {
 public:
     // Every storage read needs a statistics sink. Deleting the default constructor keeps copied
@@ -141,6 +145,9 @@ public:
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     io::IOContext io_ctx;
+    // Bound by SegmentIterator to its source and reader-local stats/callbacks. Its columns share
+    // this binding and the query context carried by io_ctx.query_read_ahead.
+    std::shared_ptr<const io::FileReadAheadResources> file_read_ahead {};
     VExprContextSPtrs common_expr_ctxs_push_down;
     const std::set<int32_t>* output_columns = nullptr;
     // Extra storage key columns that are included only to keep the scan schema

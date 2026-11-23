@@ -79,22 +79,14 @@ void QueryReadAheadResources::cancel() const {
 }
 
 FileReadAheadResources::FileReadAheadResources(FileReaderSPtr source_reader,
-                                               FileRangeReadScheduler* scheduler,
-                                               std::shared_ptr<FileRangeReadContext> context,
                                                FileRangeReadIOContext io_context,
-                                               ReadAheadIOOptions options,
-                                               size_t eager_window_bytes, size_t lazy_window_bytes)
+                                               FileReadAheadCallbacks callbacks)
         : source_reader(std::move(source_reader)),
-          scheduler(scheduler),
-          context(std::move(context)),
           io_context(with_statistics(std::move(io_context))),
-          options(std::move(options)),
-          eager_window_bytes(eager_window_bytes),
-          lazy_window_bytes(lazy_window_bytes),
+          callbacks(std::move(callbacks)),
           statistics(this->io_context.statistics) {
     DORIS_CHECK(this->source_reader != nullptr);
-    DORIS_CHECK(scheduler != nullptr);
-    DORIS_CHECK(this->context != nullptr);
+    DORIS_CHECK(this->io_context.io_context.query_read_ahead != nullptr);
 }
 
 std::shared_ptr<const FileReadAheadResources> FileReadAheadResources::create(
@@ -141,14 +133,12 @@ std::shared_ptr<const FileReadAheadResources> FileReadAheadResources::create(
 
     auto snapshot = FileRangeReadIOContext::from_caller(caller);
     snapshot.statistics = std::move(statistics);
-    ReadAheadIOOptions options {
-            .range_plan = query.range_plan,
+    FileReadAheadCallbacks callbacks {
             .page_cache_probe = std::move(probe),
             .range_consumer_factory = std::move(range_consumer_factory),
     };
-    return std::make_shared<FileReadAheadResources>(
-            std::move(source_reader), query.scheduler, query.context, std::move(snapshot),
-            std::move(options), query.eager_window_bytes, query.lazy_window_bytes);
+    return std::make_shared<FileReadAheadResources>(std::move(source_reader), std::move(snapshot),
+                                                    std::move(callbacks));
 }
 
 } // namespace doris::io

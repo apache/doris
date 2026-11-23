@@ -156,7 +156,6 @@ io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, Rea
     if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
         io_ctx = query_ctx->io_context();
     }
-    io_ctx.file_read_ahead.reset();
     io_ctx.reader_type = reader_type;
     io_ctx.expiration_time = expiration_time;
     io_ctx.query_id = &state->query_id();

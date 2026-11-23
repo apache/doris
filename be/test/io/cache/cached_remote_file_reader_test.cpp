@@ -554,15 +554,15 @@ TEST_F(AsyncCachedRemoteFileReaderTest, cached_read_ahead_does_not_submit_writeb
                                                      statistics.read_ahead_stats, {});
     ASSERT_NE(read_ahead, nullptr);
     const FileRange range {.offset = 1024, .size = data.size()};
-    auto submitted = read_ahead->scheduler->try_submit({range}, reader, read_ahead->io_context,
-                                                       read_ahead->context);
+    auto submitted = read_ahead->query_resources().scheduler->try_submit(
+            {range}, reader, read_ahead->io_context, read_ahead->query_resources().context);
     ASSERT_TRUE(submitted.accepted());
     ReadAheadRangeBuffer buffer(read_ahead->statistics);
     buffer.register_slice(
             range,
             std::make_shared<ReadAheadRangeBuffer::Range>(ReadAheadRangeBuffer::Range {
                     .read = submitted.reads[0],
-                    .consumer = read_ahead->options.range_consumer_factory()}),
+                    .consumer = read_ahead->callbacks.range_consumer_factory()}),
             0);
     Status status;
     ASSERT_TRUE(buffer.try_read(range.offset, Slice(data), &status));

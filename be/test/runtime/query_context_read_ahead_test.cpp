@@ -27,6 +27,7 @@
 #include "io/fs/read_ahead_metrics.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
+#include "storage/iterators.h"
 #include "testutil/mock/mock_query_context.h"
 #include "util/threadpool.h"
 
@@ -149,27 +150,31 @@ TEST_F(QueryContextReadAheadTest, InvalidWindowFallsBackToSynchronousReads) {
 
 TEST_F(QueryContextReadAheadTest, FileBindingsAndAsyncSnapshotsDoNotRetainEachOther) {
     auto query = create_query();
-    auto scan = query->io_context();
+    OlapReaderStatistics scan_stats;
+    StorageReadOptions scan(scan_stats);
+    scan.io_ctx = query->io_context();
     auto reader = std::make_shared<ReadAheadTestReader>();
     auto stats = std::make_shared<io::ReadAheadStatistics>();
     io::FileCacheStatistics cache_stats;
-    scan.file_cache_stats = &cache_stats;
-    scan.file_read_ahead = io::FileReadAheadResources::create(reader, scan, stats, {});
+    scan.io_ctx.file_cache_stats = &cache_stats;
+    scan.file_read_ahead = io::FileReadAheadResources::create(reader, scan.io_ctx, stats, {});
     std::weak_ptr<const io::FileReadAheadResources> file = scan.file_read_ahead;
-    auto snapshot = io::FileRangeReadIOContext::from_caller(scan);
-    EXPECT_EQ(snapshot.io_context.file_read_ahead, nullptr);
+    auto snapshot = io::FileRangeReadIOContext::from_caller(scan.io_ctx);
     EXPECT_EQ(snapshot.io_context.file_cache_stats, nullptr);
     EXPECT_EQ(snapshot.io_context.query_read_ahead, query->io_context().query_read_ahead);
-    EXPECT_NE(snapshot.io_context.query_id, scan.query_id);
-    EXPECT_EQ(*snapshot.io_context.query_id, *scan.query_id);
-    auto another = query->io_context();
+    EXPECT_NE(snapshot.io_context.query_id, scan.io_ctx.query_id);
+    EXPECT_EQ(*snapshot.io_context.query_id, *scan.io_ctx.query_id);
+    OlapReaderStatistics another_scan_stats;
+    StorageReadOptions another(another_scan_stats);
+    another.io_ctx = query->io_context();
     EXPECT_EQ(another.file_read_ahead, nullptr);
-    EXPECT_EQ(another.file_cache_stats, nullptr);
+    EXPECT_EQ(another.io_ctx.file_cache_stats, nullptr);
     auto another_stats = std::make_shared<io::ReadAheadStatistics>();
     another.file_read_ahead =
-            io::FileReadAheadResources::create(reader, another, another_stats, {});
+            io::FileReadAheadResources::create(reader, another.io_ctx, another_stats, {});
     EXPECT_NE(another.file_read_ahead, scan.file_read_ahead);
-    EXPECT_EQ(another.file_read_ahead->context, scan.file_read_ahead->context);
+    EXPECT_EQ(another.file_read_ahead->query_resources().context,
+              scan.file_read_ahead->query_resources().context);
     EXPECT_NE(another.file_read_ahead->statistics, scan.file_read_ahead->statistics);
     scan.file_read_ahead.reset();
     EXPECT_TRUE(file.expired());

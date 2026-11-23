@@ -45,7 +45,6 @@ namespace io {
 
 class RemoteScanCacheWriteLimiter;
 struct QueryReadAheadResources;
-struct FileReadAheadResources;
 enum class CacheWriteMode : uint8_t;
 
 enum class FileCacheMissPolicy : uint8_t {
@@ -312,11 +311,6 @@ struct IOContext {
     // Query-wide policy and admission/cancellation context, created by QueryContext.
     // Scanner/segment IOContext copies share it; no file or reader-local stats are bound here.
     std::shared_ptr<const QueryReadAheadResources> query_read_ahead {};
-
-    // Per-segment file binding derived from query_read_ahead, reusing its query context.
-    // SegmentIterator binds the source and reader-local stats/callbacks for its columns.
-    // Worker snapshots clear this binding while retaining query_read_ahead.
-    std::shared_ptr<const FileReadAheadResources> file_read_ahead {};
 };
 
 } // namespace io

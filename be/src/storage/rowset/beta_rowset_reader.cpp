@@ -220,7 +220,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     if (_read_context->reader_type != ReaderType::READER_QUERY) {
         _read_options.io_ctx.is_disposable = true;
         _read_options.io_ctx.query_read_ahead.reset();
-        _read_options.io_ctx.file_read_ahead.reset();
     }
     _read_options.runtime_state = _read_context->runtime_state;
     _read_options.output_columns = _read_context->output_columns;

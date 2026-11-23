@@ -29,8 +29,7 @@ class PartialBlockWritebackManager;
 
 using ReadAheadPageCacheProbe = std::function<bool(const FileRange&)>;
 
-struct ReadAheadIOOptions {
-    FileRangePlanOptions range_plan;
+struct FileReadAheadCallbacks {
     ReadAheadPageCacheProbe page_cache_probe {};
     ReadAheadRangeConsumerFactory range_consumer_factory {};
 };
@@ -56,21 +55,21 @@ struct QueryReadAheadResources {
 
 // Bound to one source file and reader-local statistics, never shared across unrelated readers.
 struct FileReadAheadResources {
-    FileReadAheadResources(FileReaderSPtr source_reader, FileRangeReadScheduler* scheduler,
-                           std::shared_ptr<FileRangeReadContext> context,
-                           FileRangeReadIOContext io_context, ReadAheadIOOptions options,
-                           size_t eager_window_bytes = 1, size_t lazy_window_bytes = 1);
+    FileReadAheadResources(FileReaderSPtr source_reader, FileRangeReadIOContext io_context,
+                           FileReadAheadCallbacks callbacks);
     static std::shared_ptr<const FileReadAheadResources> create(
             FileReaderSPtr source_reader, const IOContext& io_context,
             std::shared_ptr<ReadAheadStatistics> statistics, ReadAheadPageCacheProbe probe);
 
+    // The snapshot retains the query resources. Two file bindings from one query therefore
+    // use the same policy, budget and cancellation context without copying that state here.
+    const QueryReadAheadResources& query_resources() const {
+        return *io_context.io_context.query_read_ahead;
+    }
+
     const FileReaderSPtr source_reader;
-    FileRangeReadScheduler* const scheduler;
-    const std::shared_ptr<FileRangeReadContext> context;
     const FileRangeReadIOContext io_context;
-    const ReadAheadIOOptions options;
-    const size_t eager_window_bytes;
-    const size_t lazy_window_bytes;
+    const FileReadAheadCallbacks callbacks;
     const std::shared_ptr<ReadAheadStatistics> statistics;
 };
 } // namespace doris::io

@@ -431,7 +431,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
         }
         auto probe = _opts.use_page_cache ? make_storage_page_cache_probe(_file_reader)
                                           : io::ReadAheadPageCacheProbe {};
-        _opts.io_ctx.file_read_ahead = io::FileReadAheadResources::create(
+        _opts.file_read_ahead = io::FileReadAheadResources::create(
                 _file_reader, _opts.io_ctx, _opts.stats->read_ahead_stats, std::move(probe));
     }
     _col_predicates.clear();
@@ -733,7 +733,7 @@ void SegmentIterator::_init_segment_prefetchers() {
 }
 
 void SegmentIterator::_prepare_scan_read_ahead() {
-    if (_opts.io_ctx.file_read_ahead == nullptr || _row_bitmap.isEmpty()) {
+    if (_opts.file_read_ahead == nullptr || _row_bitmap.isEmpty()) {
         return;
     }
     const auto prepare_columns = [&](const std::vector<ColumnId>& ordinals,
@@ -876,6 +876,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
                 .file_reader = _file_reader.get(),
                 .stats = _opts.stats,
                 .io_ctx = _opts.io_ctx,
+                .file_read_ahead = _opts.file_read_ahead,
         };
         RETURN_IF_ERROR(iter->init(iter_opts));
         _seek_column_iterators[i] = iter.get();
@@ -2088,6 +2089,7 @@ Status SegmentIterator::_init_column_iterators() {
                     .file_reader = _file_reader.get(),
                     .stats = _opts.stats,
                     .io_ctx = _opts.io_ctx,
+                    .file_read_ahead = _opts.file_read_ahead,
             };
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
@@ -3599,6 +3601,7 @@ Status SegmentIterator::_construct_compound_expr_context() {
             .file_reader = _file_reader.get(),
             .stats = _opts.stats,
             .io_ctx = _opts.io_ctx,
+            .file_read_ahead = _opts.file_read_ahead,
     };
     auto inverted_index_context = std::make_shared<IndexExecContext>(
             _index_iterators, _storage_name_and_type, _common_expr_index_exec_status,
@@ -3651,6 +3654,7 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
             .file_reader = _file_reader.get(),
             .stats = _opts.stats,
             .io_ctx = _opts.io_ctx,
+            .file_read_ahead = _opts.file_read_ahead,
     };
     for (const auto& [slot_index, slot_conjuncts] : ctxs_by_slot) {
         DORIS_CHECK_LT(cast_set<size_t>(slot_index), _schema->num_block_columns());

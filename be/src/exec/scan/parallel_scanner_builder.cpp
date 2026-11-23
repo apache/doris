@@ -58,7 +58,6 @@ io::IOContext create_preload_io_context(RuntimeState* state, OlapReaderStatistic
     if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
         io_ctx = query_ctx->io_context();
     }
-    io_ctx.file_read_ahead.reset();
     io_ctx.reader_type = ReaderType::READER_QUERY;
     io_ctx.query_id = &state->query_id();
     io_ctx.file_cache_stats = preload_stats ? &preload_stats->file_cache_stats : nullptr;

@@ -28,7 +28,8 @@ namespace doris {
 struct OlapReaderStatistics;
 namespace io {
 class FileReader;
-}
+struct FileReadAheadResources;
+} // namespace io
 namespace segment_v2 {
 
 struct ColumnIteratorOptions {
@@ -43,6 +44,9 @@ struct ColumnIteratorOptions {
     OlapReaderStatistics* stats = nullptr; // Ref
     io::IOContext io_ctx;
     bool only_read_offsets = false;
+    // Same file binding used by the factory, shared by this segment iterator's columns.
+    // Query-wide policy and cancellation are inherited through io_ctx.query_read_ahead.
+    std::shared_ptr<const io::FileReadAheadResources> file_read_ahead {};
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);

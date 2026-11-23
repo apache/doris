@@ -249,7 +249,6 @@ io::IOContext create_index_io_context(const io::IOContext* source, OlapReaderSta
     if (source != nullptr) {
         io_ctx = *source;
     }
-    io_ctx.file_read_ahead.reset();
     io_ctx.is_index_data = true;
     io_ctx.is_inverted_index = false;
     io_ctx.file_cache_stats = stats ? &stats->file_cache_stats : nullptr;
