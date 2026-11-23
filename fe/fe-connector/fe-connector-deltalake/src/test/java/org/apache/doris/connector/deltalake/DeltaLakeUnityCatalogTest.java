@@ -19,12 +19,20 @@
 package org.apache.doris.connector.deltalake;
 
 import org.apache.doris.connector.metastore.deltalake.uc.UnityCatalogProperties;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import io.delta.kernel.defaults.engine.fileio.SeekableInputStream;
+import io.delta.kernel.types.LongType;
+import io.delta.kernel.types.StringType;
+import io.delta.kernel.types.StructType;
 import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -40,6 +48,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class DeltaLakeUnityCatalogTest {
@@ -216,6 +225,31 @@ class DeltaLakeUnityCatalogTest {
                 Assertions.assertEquals(9, input.read());
             }
             Assertions.assertEquals(1, renewals.get());
+        }
+    }
+
+    @Test
+    void resolvesHistoricalVersionThroughUnityCatalog(@TempDir Path dir) throws Exception {
+        Path table = dir.resolve("t");
+        DeltaLakeTestTables.commit(table, 0, "delta-uuid", new StructType().add("old_name", LongType.LONG));
+        DeltaLakeTestTables.commit(table, 1, "delta-uuid", new StructType().add("new_name", StringType.STRING));
+        route("tables/main.db.t", exchange -> reply(exchange, 200,
+                EXTERNAL.replace("s3://warehouse/t", table.toUri().toString())));
+        route("temporary-table-credentials", exchange -> reply(exchange, 200, "{}"));
+        Map<String, String> raw = Map.of("deltalake.catalog.type", "uc",
+                UnityCatalogProperties.URI_KEY, uri, UnityCatalogProperties.NAMESPACE, "main",
+                UnityCatalogProperties.TOKEN, "metadata-only");
+        TestingConnectorSession session = new TestingConnectorSession("uc-versioned-read");
+        try (Connector connector = new DeltaLakeConnectorProvider().create(raw, new RecordingConnectorContext());
+                ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle latest = metadata.getTableHandle(session, "db", "t").orElseThrow();
+            ConnectorMvccSnapshot v0 = metadata.resolveTimeTravel(session, latest,
+                    ConnectorTimeTravelSpec.snapshotId("0")).orElseThrow();
+            Assertions.assertEquals(0, v0.getSnapshotId());
+            Assertions.assertEquals(Set.of("old_name"), metadata.getColumnHandles(session, latest, v0).keySet());
+            DeltaLakeTableHandle pinned = (DeltaLakeTableHandle) metadata.applySnapshot(session, latest, v0);
+            Assertions.assertEquals("table-1", pinned.reference().registrationId);
+            Assertions.assertSame(pinned, metadata.applySnapshot(session, latest, v0));
         }
     }
 
