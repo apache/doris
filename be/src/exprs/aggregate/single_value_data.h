@@ -350,12 +350,18 @@ public:
         if (!has()) {
             return;
         }
-        auto size_bytes = data_type->get_uncompressed_serialized_bytes(*_value, be_exec_version);
-        buf.write_binary(size_bytes);
-        buf.resize(size_bytes);
-        auto* p = data_type->serialize(*_value, buf.data(), be_exec_version);
-        DCHECK_EQ(p, buf.data() + size_bytes);
-        buf.add_offset(size_bytes);
+        const auto max_size =
+                data_type->get_uncompressed_serialized_bytes(*_value, be_exec_version);
+        buf.resize(sizeof(int64_t) + max_size);
+        char* payload = buf.data() + sizeof(int64_t);
+        const auto* end = data_type->serialize(*_value, payload, be_exec_version);
+        const auto written_bytes = static_cast<int64_t>(end - payload);
+        DCHECK_GE(written_bytes, 0);
+        DCHECK_LE(written_bytes, max_size);
+        memcpy(buf.data(), &written_bytes, sizeof(written_bytes));
+        const auto frame_bytes = sizeof(written_bytes) + static_cast<size_t>(written_bytes);
+        buf.resize(frame_bytes);
+        buf.add_offset(frame_bytes);
     }
 
     void read(BufferReadable& buf, const DataTypePtr& data_type, int be_exec_version, Arena&) {
