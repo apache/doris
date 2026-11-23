@@ -1762,6 +1762,7 @@ public class DatabaseTransactionMgr {
         // set COMMITTED only after idToTableCommitInfos is fully populated, so that
         // PublishVersionDaemon (which checks status without synchronized(transactionState))
         // will never see COMMITTED with empty commit info.
+        transactionState.setCommitJournalPending(true);
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
         // Update in-memory state only; caller handles edit log persistence
         unprotectUpdateInMemoryState(transactionState, false);
@@ -1837,6 +1838,7 @@ public class DatabaseTransactionMgr {
         // set COMMITTED only after all commit info is fully populated, so that
         // PublishVersionDaemon (which checks status without synchronized(transactionState))
         // will never see COMMITTED with empty commit info.
+        transactionState.setCommitJournalPending(true);
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
         // Update in-memory state only; caller handles edit log persistence
         unprotectUpdateInMemoryState(transactionState, false);
@@ -1854,6 +1856,7 @@ public class DatabaseTransactionMgr {
         transactionState.setCommitTime(System.currentTimeMillis());
         transactionState.setCommitTSO(commitTSO);
 
+        transactionState.setCommitJournalPending(true);
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
 
         Iterator<TableCommitInfo> tableCommitInfoIterator
@@ -1991,10 +1994,13 @@ public class DatabaseTransactionMgr {
      */
     protected void awaitTransactionState(EditLog.EditLogItem item, TransactionState transactionState) {
         if (item == null) {
+            // Written synchronously, so already durable.
+            transactionState.setCommitJournalPending(false);
             return;
         }
         long start = System.currentTimeMillis();
         long logId = item.await();
+        transactionState.setCommitJournalPending(false);
         long logEditEnd = System.currentTimeMillis();
         long end = logEditEnd;
         if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {

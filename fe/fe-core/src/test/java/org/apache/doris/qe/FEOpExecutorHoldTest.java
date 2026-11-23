@@ -47,6 +47,8 @@ public class FEOpExecutorHoldTest {
         int sends = 0;
         int refreshes = 0;
         boolean self = false;
+        // A fake clock that moves one second on each refresh, when set.
+        long fakeNowMs = -1;
 
         ScriptedExecutor(boolean followsMaster, Runnable onRefreshTarget, Object... outcomes) {
             super(new TNetworkAddress("127.0.0.1", 1), new OriginStatement("select 1", 0), new ConnectContext(),
@@ -70,6 +72,11 @@ public class FEOpExecutorHoldTest {
         @Override
         protected boolean targetIsSelf() {
             return self;
+        }
+
+        @Override
+        protected long currentTimeMs() {
+            return fakeNowMs < 0 ? super.currentTimeMs() : fakeNowMs;
         }
 
         @Override
@@ -216,5 +223,21 @@ public class FEOpExecutorHoldTest {
             Assertions.assertEquals("Failed to get master client.", e.getMessage());
         }
         Assertions.assertEquals(1, groupCommitExecutor.sends);
+    }
+
+    @Test
+    public void testNotReadyLimitCountsFromTheFirstNotReadyAttempt() throws Exception {
+        FEOpExecutor.NotSentException notReady = new FEOpExecutor.NotSentException(new Exception("not ready"), true);
+        ScriptedExecutor[] holder = new ScriptedExecutor[1];
+        // Seven refusals take seven seconds on the fake clock, then the FE is not ready for three seconds: still
+        // within the 5 s not-ready limit, which starts at the first not-ready attempt.
+        holder[0] = new ScriptedExecutor(true, () -> holder[0].fakeNowMs += 1000,
+                ShutdownGate.refusedForwardResult(), ShutdownGate.refusedForwardResult(),
+                ShutdownGate.refusedForwardResult(), ShutdownGate.refusedForwardResult(),
+                ShutdownGate.refusedForwardResult(), ShutdownGate.refusedForwardResult(),
+                ShutdownGate.refusedForwardResult(), notReady, notReady, notReady, accepted());
+        holder[0].fakeNowMs = 0;
+        Assertions.assertEquals(7, holder[0].forward(new TMasterOpRequest()).getMaxJournalId());
+        Assertions.assertEquals(11, holder[0].sends);
     }
 }

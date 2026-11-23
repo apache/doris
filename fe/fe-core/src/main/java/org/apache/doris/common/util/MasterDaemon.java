@@ -57,6 +57,12 @@ public class MasterDaemon extends Daemon {
         }
 
         // A master that hands its mastership over fences its daemons first and waits for running cycles to end.
+        if (!fenceWaitsForCycle()) {
+            if (!ShutdownGate.isMasterWorkFenced()) {
+                runAfterCatalogReady();
+            }
+            return;
+        }
         if (!ShutdownGate.enterMasterWork()) {
             return;
         }
@@ -65,6 +71,12 @@ public class MasterDaemon extends Daemon {
         } finally {
             ShutdownGate.exitMasterWork();
         }
+    }
+
+    // Whether a mastership handover waits for a running cycle of this daemon to end. A daemon whose cycle blocks
+    // waiting for work returns false and checks ShutdownGate.isMasterWorkFenced() before it acts on that work.
+    protected boolean fenceWaitsForCycle() {
+        return true;
     }
 
     // override by derived classes

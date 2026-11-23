@@ -69,6 +69,13 @@ public class SplitSourceManager extends MasterDaemon {
         }
     }
 
+    // Its cycle never ends and only releases the split sources of finished scans, so a handover does not wait for
+    // it.
+    @Override
+    protected boolean fenceWaitsForCycle() {
+        return false;
+    }
+
     @Override
     protected void runAfterCatalogReady() {
         while (true) {

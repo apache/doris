@@ -27,6 +27,7 @@ import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.qe.ShutdownGate;
 
 import lombok.extern.log4j.Log4j2;
 
@@ -64,6 +65,13 @@ public class StreamingTaskScheduler extends MasterDaemon {
         super("Streaming-task-scheduler", 1);
     }
 
+    // Its cycle waits for work, possibly forever, so a handover does not wait for the cycle to end; the loop checks
+    // the fence itself.
+    @Override
+    protected boolean fenceWaitsForCycle() {
+        return false;
+    }
+
     @Override
     protected void runAfterCatalogReady() {
         try {
@@ -79,6 +87,11 @@ public class StreamingTaskScheduler extends MasterDaemon {
                 Env.getCurrentEnv().getJobManager().getStreamingTaskManager().getNeedScheduleTasksQueue();
         tasks.add(needScheduleTasksQueue.take());
         needScheduleTasksQueue.drainTo(tasks);
+        // A master that hands its mastership over schedules no task: the new master would schedule it too.
+        if (ShutdownGate.isMasterWorkFenced()) {
+            tasks.forEach(needScheduleTasksQueue::addLast);
+            return;
+        }
         scheduleTasks(tasks);
     }
 

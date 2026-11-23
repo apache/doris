@@ -159,7 +159,7 @@ public class FEOpExecutor {
     // A request the hold gives up on fails with an exception, like any forward that never reached a master, so
     // the session keeps its state, such as its explicit transaction.
     private TMasterOpResult forward(TMasterOpRequest params, boolean holdDuringMasterChange) throws Exception {
-        long deadlineMs = System.currentTimeMillis() + ShutdownGate.MASTER_CHANGE_HOLD_MS;
+        long deadlineMs = currentTimeMs() + ShutdownGate.MASTER_CHANGE_HOLD_MS;
         // When this FE turned not ready, counted from the first of a run of not-ready attempts.
         long notReadySinceMs = -1;
         while (true) {
@@ -179,7 +179,7 @@ public class FEOpExecutor {
                 long holdUntilMs = deadlineMs;
                 if (e.notReady) {
                     if (notReadySinceMs < 0) {
-                        notReadySinceMs = System.currentTimeMillis();
+                        notReadySinceMs = currentTimeMs();
                     }
                     holdUntilMs = Config.ignore_meta_check ? 0
                             : Math.min(deadlineMs, notReadySinceMs + NOT_READY_HOLD_MS);
@@ -194,7 +194,7 @@ public class FEOpExecutor {
     }
 
     private boolean waitForMasterChange(long deadlineMs) throws InterruptedException {
-        if (isCancelled() || System.currentTimeMillis() >= deadlineMs) {
+        if (isCancelled() || currentTimeMs() >= deadlineMs) {
             return false;
         }
         Thread.sleep(MASTER_CHANGE_POLL_MS);
@@ -224,6 +224,16 @@ public class FEOpExecutor {
 
     private boolean isCancelled() {
         return cancelled || ctx.isKilled();
+    }
+
+    /** Stops holding this request: a held request fails instead of being sent again. */
+    public void stopHolding() {
+        cancelled = true;
+    }
+
+    // The clock of the hold; tests replace it.
+    protected long currentTimeMs() {
+        return System.currentTimeMillis();
     }
 
     // Whether this executor forwards to whichever FE is master, rather than to one fixed FE.

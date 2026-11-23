@@ -33,6 +33,7 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.ShutdownGate;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -331,6 +332,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             // 2. erase each expired database one at a time
             for (Long dbId : expiredIds) {
+                // A master that hands its mastership over stops erasing; each erase is journaled on its own.
+                if (ShutdownGate.isMasterWorkFenced()) {
+                    break;
+                }
                 writeLock();
                 try {
                     RecycleDatabaseInfo dbInfo = idToDatabase.remove(dbId);
@@ -365,6 +370,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 readUnlock();
             }
             for (Map.Entry<String, Set<Long>> entry : groups) {
+                // A master that hands its mastership over stops erasing; each erase is journaled on its own.
+                if (ShutdownGate.isMasterWorkFenced()) {
+                    break;
+                }
                 String dbName = entry.getKey();
                 eraseDatabaseWithSameName(dbName, currentTimeMs, keepNum, Lists.newArrayList(entry.getValue()));
             }
@@ -493,6 +502,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             // 2. erase each expired table one at a time
             for (Long tableId : expiredIds) {
+                // A master that hands its mastership over stops erasing; each erase is journaled on its own.
+                if (ShutdownGate.isMasterWorkFenced()) {
+                    break;
+                }
                 writeLock();
                 try {
                     RecycleTableInfo tableInfo = idToTable.get(tableId);
@@ -539,6 +552,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 readUnlock();
             }
             for (Map.Entry<Pair<Long, String>, Set<Long>> entry : groups) {
+                // A master that hands its mastership over stops erasing; each erase is journaled on its own.
+                if (ShutdownGate.isMasterWorkFenced()) {
+                    break;
+                }
                 eraseTableWithSameName(entry.getKey().first, entry.getKey().second, currentTimeMs, keepNum,
                         Lists.newArrayList(entry.getValue()));
             }
@@ -638,6 +655,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             // 2. erase each expired partition one at a time (microbatch)
             for (Long partitionId : expiredIds) {
+                // A master that hands its mastership over stops erasing; each erase is journaled on its own.
+                if (ShutdownGate.isMasterWorkFenced()) {
+                    break;
+                }
                 writeLock();
                 try {
                     RecyclePartitionInfo partitionInfo = idToPartition.remove(partitionId);
@@ -678,6 +699,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 readUnlock();
             }
             for (Map.Entry<Pair<Long, Long>, Map<String, Set<Long>>> entry : groups) {
+                // A master that hands its mastership over stops erasing; each erase is journaled on its own.
+                if (ShutdownGate.isMasterWorkFenced()) {
+                    break;
+                }
                 long dbId = entry.getKey().first;
                 long tableId = entry.getKey().second;
                 for (Map.Entry<String, Set<Long>> partitionEntry : entry.getValue().entrySet()) {

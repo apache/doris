@@ -30,6 +30,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
+import org.apache.doris.qe.ShutdownGate;
 import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
@@ -79,6 +80,13 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         this.routineLoadManager = routineLoadManager;
     }
 
+    // Its cycle waits for work, possibly forever, so a handover does not wait for the cycle to end; the loop checks
+    // the fence itself.
+    @Override
+    protected boolean fenceWaitsForCycle() {
+        return false;
+    }
+
     @Override
     protected void runAfterCatalogReady() {
         try {
@@ -103,6 +111,12 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         try {
             // This step will be blocked when queue is empty
             RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.take();
+            // A master that hands its mastership over assigns no task: the new master would assign it too.
+            if (ShutdownGate.isMasterWorkFenced()) {
+                needScheduleTasksQueue.addFirst(routineLoadTaskInfo);
+                Thread.sleep(SLOT_FULL_SLEEP_MS);
+                return;
+            }
             // try to delay scheduling tasks that are perceived as Eof to MaxBatchInterval
             // to avoid to much small transaction
             if (routineLoadTaskInfo.needDedalySchedule()) {

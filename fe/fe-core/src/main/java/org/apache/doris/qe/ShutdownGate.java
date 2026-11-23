@@ -28,6 +28,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -69,7 +71,8 @@ public final class ShutdownGate {
     // must not start: what it changes in memory or tells the backends could be lost with the journal entries the
     // transfer blocks, while the new master never learns of it.
     private static volatile boolean masterWorkFenced = false;
-    private static final AtomicInteger runningMasterWork = new AtomicInteger();
+    // The threads running a unit of master-only work, named in the log when a handover cannot wait them out.
+    private static final Set<Thread> runningMasterWork = ConcurrentHashMap.newKeySet();
 
     private ShutdownGate() {
     }
@@ -108,16 +111,16 @@ public final class ShutdownGate {
      * {@link #exitMasterWork()}.
      */
     public static boolean enterMasterWork() {
-        runningMasterWork.incrementAndGet();
+        runningMasterWork.add(Thread.currentThread());
         if (masterWorkFenced) {
-            runningMasterWork.decrementAndGet();
+            runningMasterWork.remove(Thread.currentThread());
             return false;
         }
         return true;
     }
 
     public static void exitMasterWork() {
-        runningMasterWork.decrementAndGet();
+        runningMasterWork.remove(Thread.currentThread());
     }
 
     /** Whether master-only work that is not tracked, such as scheduled jobs, must not start. */
@@ -132,9 +135,11 @@ public final class ShutdownGate {
     public static boolean fenceMasterWork(long timeoutMs) throws InterruptedException {
         masterWorkFenced = true;
         long deadlineMs = System.currentTimeMillis() + timeoutMs;
-        while (runningMasterWork.get() > 0) {
+        while (!runningMasterWork.isEmpty()) {
             if (System.currentTimeMillis() >= deadlineMs) {
-                LOG.warn("{} units of master work still run after {} ms", runningMasterWork.get(), timeoutMs);
+                List<String> names = new ArrayList<>();
+                runningMasterWork.forEach(thread -> names.add(thread.getName()));
+                LOG.warn("master work still runs after {} ms in threads {}", timeoutMs, names);
                 return false;
             }
             Thread.sleep(10);
