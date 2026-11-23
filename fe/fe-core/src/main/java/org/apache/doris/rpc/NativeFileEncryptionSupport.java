@@ -38,44 +38,37 @@ public final class NativeFileEncryptionSupport {
                 && FeServerStarterFactory.supportsPrivateFileKeys();
     }
 
-    public static int version() {
+    public static boolean supported() {
         try {
             // Admission precedes backend assignment: require every currently selectable live backend.
             List<Backend> backends = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values().stream()
                     .filter(Backend::isAlive).toList();
-            return minimumVersion(protectedTransports(), backends);
+            return allBackendsSupported(protectedTransports(), backends);
         } catch (AnalysisException unavailableCluster) {
-            return 0;
+            return false;
         }
     }
 
-    public static int version(Backend backend) {
-        return protectedTransports()
-                ? Math.min(FileScanEncryption.VERSION, backend.getNativeFileEncryptionVersion()) : 0;
+    public static boolean supported(Backend backend) {
+        return protectedTransports() && backend.isNativeFileEncryptionSupported();
     }
 
-    public static int version(TNetworkAddress address) {
+    public static boolean supported(TNetworkAddress address) {
         for (Backend backend : Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values()) {
             if (backend.getBrpcAddress().equals(address)) {
-                return version(backend);
+                return supported(backend);
             }
         }
-        return 0;
+        return false;
     }
 
-    static int minimumVersion(boolean protectedTransports, Collection<Backend> backends) {
-        if (!protectedTransports || backends.isEmpty()) {
-            return 0;
-        }
-        int minimum = FileScanEncryption.VERSION;
-        for (Backend backend : backends) {
-            minimum = Math.min(minimum, backend.getNativeFileEncryptionVersion());
-        }
-        return minimum;
+    static boolean allBackendsSupported(boolean protectedTransports, Collection<Backend> backends) {
+        return protectedTransports && !backends.isEmpty()
+                && backends.stream().allMatch(Backend::isNativeFileEncryptionSupported);
     }
 
     public static void require(Backend backend) {
-        if (version(backend) < FileScanEncryption.VERSION) {
+        if (!supported(backend)) {
             throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
         }
     }

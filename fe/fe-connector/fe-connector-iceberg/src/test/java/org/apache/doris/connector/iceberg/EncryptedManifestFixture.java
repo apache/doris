@@ -140,8 +140,8 @@ final class EncryptedManifestFixture implements TableOperations, AutoCloseable {
             public ConnectorStorageContext getStorageContext() {
                 return new ConnectorStorageContext() {
                     @Override
-                    public int getNativeFileEncryptionVersion() {
-                        return 1;
+                    public boolean supportsNativeFileEncryption() {
+                        return true;
                     }
                 };
             }

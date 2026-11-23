@@ -19,7 +19,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "util/native_file_encryption.h"
+#include "util/private_rpc_tls.h"
 
 namespace doris {
 
@@ -85,7 +85,8 @@ inline Status validate_file_scan_support(const TFileScanRangeParams& params,
     if (range != nullptr && range->__isset.table_format_params) {
         RETURN_IF_ERROR(validate_table(range->table_format_params));
     }
-    if (format == TFileFormatType::FORMAT_PARQUET_PME && native_file_encryption_version() < 1) {
+    if (format == TFileFormatType::FORMAT_PARQUET_PME &&
+        !rpc_tls::supports_native_file_encryption()) {
         return Status::NotSupported("File encryption [READ_UNAVAILABLE]");
     }
     if (format == TFileFormatType::FORMAT_AVRO) {

@@ -17,14 +17,18 @@
 
 package org.apache.doris.datasource.split;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VarAttrDef;
 import org.apache.doris.rpc.NativeFileEncryptionSupport;
+import org.apache.doris.service.FrontendServiceImpl;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExternalScanRange;
+import org.apache.doris.thrift.TFetchSplitBatchRequest;
+import org.apache.doris.thrift.TFetchSplitBatchResult;
 import org.apache.doris.thrift.TFileEncryptionInfo;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -33,6 +37,7 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -447,7 +452,7 @@ public class SplitSourceTest {
     }
 
     @Test
-    void actualLegacyCallerCannotInheritThePreviousProcessCapability() throws Exception {
+    void capableBackendReceivesEncryptedSplitsWithoutPerRequestNegotiation() throws Exception {
         TFileRangeDesc file = ranges.get(0).getScanRange().getExtScanRange().getFileScanRange().getRanges().get(0);
         file.setFormatType(TFileFormatType.FORMAT_PARQUET_PME);
         file.setTableFormatParams(new TTableFormatFileDesc().setIcebergParams(new TIcebergFileDesc()
@@ -456,12 +461,20 @@ public class SplitSourceTest {
         assignment.addToQueue(splits.subList(0, 1));
         assignment.finishSchedule();
         SplitSource source = new SplitSource(backend, assignment, 1000);
-        try (MockedStatic<NativeFileEncryptionSupport> proof = Mockito.mockStatic(NativeFileEncryptionSupport.class)) {
-            proof.when(() -> NativeFileEncryptionSupport.version(backend)).thenReturn(1);
-            UserException failure = Assertions.assertThrows(UserException.class, () -> source.getNextBatch(10, 0));
-            Assertions.assertTrue(failure.getMessage().contains("READ_UNAVAILABLE"));
-            Assertions.assertSame(failure, Assertions.assertThrows(UserException.class,
-                    () -> source.getNextBatch(10, 1)));
+        SplitSourceManager manager = new SplitSourceManager();
+        manager.registerSplitSource(source);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getSplitSourceManager()).thenReturn(manager);
+        try (MockedStatic<Env> current = Mockito.mockStatic(Env.class);
+                MockedStatic<NativeFileEncryptionSupport> proof = Mockito.mockStatic(NativeFileEncryptionSupport.class)) {
+            current.when(Env::getCurrentEnv).thenReturn(env);
+            proof.when(() -> NativeFileEncryptionSupport.supported(backend)).thenReturn(true);
+            FrontendServiceImpl frontend = Mockito.mock(FrontendServiceImpl.class, Mockito.CALLS_REAL_METHODS);
+            // A coordinated deployment needs the verified backend capability, not a second RPC version handshake.
+            TFetchSplitBatchResult response = frontend.fetchSplitBatch(new TFetchSplitBatchRequest()
+                    .setSplitSourceId(source.getUniqueId()).setMaxNumSplits(10));
+            Assertions.assertEquals(TStatusCode.OK, response.getStatus().getStatusCode());
+            Assertions.assertEquals(ranges.subList(0, 1), response.getSplits());
         }
     }
 

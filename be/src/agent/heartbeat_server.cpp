@@ -41,8 +41,8 @@
 #include "storage/storage_engine.h"
 #include "util/debug_util.h"
 #include "util/mem_info.h"
-#include "util/native_file_encryption.h"
 #include "util/network_util.h"
+#include "util/private_rpc_tls.h"
 #include "util/thrift_server.h"
 #include "util/time.h"
 
@@ -106,8 +106,8 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_be_mem(MemInfo::physical_mem());
         // Reader enum support cannot be inferred from a release version during rolling upgrades.
         heartbeat_result.backend_info.__set_supports_paimon_rust_reader(true);
-        heartbeat_result.backend_info.__set_native_file_encryption_version(
-                native_file_encryption_version());
+        heartbeat_result.backend_info.__set_supports_native_file_encryption(
+                rpc_tls::supports_native_file_encryption());
     }
     watch.stop();
     if (watch.elapsed_time() > 1000L * 1000L * 1000L) {

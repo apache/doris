@@ -33,14 +33,14 @@ Never put them in durable plan dumps, persistent caches or audit records.
 
 ## Dispatch
 
-`TBackendInfo` optional field **12** advertises native-file-encryption version 1.
-FE retains only a fresh runtime heartbeat lease, with no image-persisted proof.
-`TFetchSplitBatchRequest` optional field **4** reports the actual caller's version;
-field 3 remains reserved for branch-4.2's `close_source`. An absent version is
-zero, including after an old BE replaces a capable process.
+`TBackendInfo` optional boolean field **12**, `supports_native_file_encryption`,
+reports whether the BE has the native reader and protected private RPC support.
+FE retains only a fresh runtime heartbeat, with no image-persisted proof.
+FE, BE and connector plugins are deployed together; no reader-version negotiation
+or per-request caller capability is added to `TFetchSplitBatchRequest`.
 
-Keyed ranges and shared scan parameters use `FORMAT_PARQUET_PME = 22`. Old readers
-must reject that unknown format rather than ignore optional key fields. Native
+Keyed ranges and shared scan parameters use `FORMAT_PARQUET_PME = 22` to select
+the native encrypted reader and exclude ordinary Parquet/COUNT shortcuts. Native
 readers validate both marker and descriptor before I/O or COUNT shortcuts.
 Plaintext wire values and absent descriptors retain their existing behavior.
 
@@ -98,7 +98,7 @@ deterministic memory zeroization or protected crash dumps.
 and delete values, absent payloads, object serialization, nested strings, Gson
 and both JSON Thrift protocols. `FileScanEncryptionTest` checks descriptor shape.
 FE guard tests cover independent delete kinds, unknown payload versions, shared
-parameters across simplified fragments, missing caller/target capabilities,
+parameters across simplified fragments, unavailable target capabilities,
 repeated dispatch and rejection before execution. SplitSource tests preserve a terminal
 error when a rejected last batch is fetched again.
 `FileEncryptionInfoTest` in BE covers binary bytes, key sizes, stream printing,

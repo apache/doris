@@ -3,7 +3,7 @@
 The results below describe the integration candidate before its cache/lifetime
 and private-RPC prerequisites merged. They are historical evidence, not fresh
 validation of the current rebased head. The rebased integration uses connector
-SPI 36.0 on top of master's SPI 35.0; its current checks and limitations are
+SPI 37.0 on top of master's SPI 36.0; its current checks and limitations are
 reported separately in the pull request.
 
 This record covers the default-off HMS/v3/native-Parquet implementation and its

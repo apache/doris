@@ -134,7 +134,7 @@ public class PipelineExecutionTaskBuilder {
                 .map(kv -> {
                     try {
                         boolean needsCapability = FileScanEncryptionGuard.checkFragments(kv.getValue(),
-                                () -> NativeFileEncryptionSupport.version(((BackendWorker) kv.getKey()).getBackend()),
+                                () -> NativeFileEncryptionSupport.supported(((BackendWorker) kv.getKey()).getBackend()),
                                 isInternalWorker(kv.getKey()));
                         ByteString serializeString =
                                 new TFastSerializer(1024, new Factory()).serialize(kv.getValue());

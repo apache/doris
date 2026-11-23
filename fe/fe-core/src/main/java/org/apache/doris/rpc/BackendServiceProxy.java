@@ -227,7 +227,8 @@ public class BackendServiceProxy {
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
             TPipelineFragmentParamsList params, boolean twoPhaseExecution) throws TException, RpcException {
         // This direct entry bypasses the pipeline task builder, but has the same transport restriction.
-        FileScanEncryptionGuard.checkFragments(params, () -> NativeFileEncryptionSupport.version(address), internalRpc);
+        FileScanEncryptionGuard.checkFragments(params,
+                () -> NativeFileEncryptionSupport.supported(address), internalRpc);
         InternalService.PExecPlanFragmentRequest.Builder builder =
                 InternalService.PExecPlanFragmentRequest.newBuilder();
         if (Config.use_compact_thrift_rpc) {

@@ -31,15 +31,15 @@ import java.util.List;
 class NativeFileEncryptionSupportTest {
     @Test
     void missingTransportOrBackendProofNeverGrantsExecution() {
-        Backend current = backend(1, 1);
-        Assertions.assertEquals(0, NativeFileEncryptionSupport.minimumVersion(false, List.of(current)));
-        Assertions.assertEquals(0, NativeFileEncryptionSupport.minimumVersion(true, List.of()));
-        Assertions.assertEquals(0, NativeFileEncryptionSupport.minimumVersion(true,
-                List.of(current, backend(2, 0))));
-        Assertions.assertEquals(1, NativeFileEncryptionSupport.minimumVersion(true,
-                List.of(current, backend(2, 2))));
+        Backend current = backend(1, true);
+        Assertions.assertFalse(NativeFileEncryptionSupport.allBackendsSupported(false, List.of(current)));
+        Assertions.assertFalse(NativeFileEncryptionSupport.allBackendsSupported(true, List.of()));
+        Assertions.assertFalse(NativeFileEncryptionSupport.allBackendsSupported(true,
+                List.of(current, backend(2, false))));
+        Assertions.assertTrue(NativeFileEncryptionSupport.allBackendsSupported(true,
+                List.of(current, backend(2, true))));
         current.handleHbResponse(new BackendHbResponse(1, "127.0.0.1", current.getLastUpdateMs(), "fixture"), false);
-        Assertions.assertEquals(0, NativeFileEncryptionSupport.minimumVersion(true, List.of(current)));
+        Assertions.assertFalse(NativeFileEncryptionSupport.allBackendsSupported(true, List.of(current)));
     }
 
     @Test
@@ -66,12 +66,12 @@ class NativeFileEncryptionSupportTest {
         Assertions.assertFalse(listener.supportsPrivateFileKeys());
     }
 
-    private static Backend backend(long id, int version) {
+    private static Backend backend(long id, boolean supported) {
         Backend backend = new Backend(id, "127.0.0.1", 9050);
         long now = System.currentTimeMillis();
         BackendHbResponse heartbeat = new BackendHbResponse(id, 9060, 8040, 8060, now, now,
                 "fixture-version", Tag.VALUE_MIX, 0, 0, false, 8070);
-        heartbeat.setNativeFileEncryptionVersion(version);
+        heartbeat.setNativeFileEncryptionSupported(supported);
         backend.handleHbResponse(heartbeat, false);
         return backend;
     }

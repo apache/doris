@@ -37,7 +37,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import java.util.List;
 import java.util.Map;
-import java.util.function.IntSupplier;
+import java.util.function.BooleanSupplier;
 
 /** Last checks before serializing file keys, including lazy split responses and replanned retries. */
 public final class FileScanEncryptionGuard {
@@ -45,20 +45,20 @@ public final class FileScanEncryptionGuard {
     }
 
     public static void checkFragments(TPipelineFragmentParamsList fragments) {
-        checkFragments(fragments, () -> 0);
+        checkFragments(fragments, () -> false);
     }
 
-    public static boolean checkFragments(TPipelineFragmentParamsList fragments, IntSupplier verifiedVersion) {
-        return checkFragments(fragments, verifiedVersion, true);
+    public static boolean checkFragments(TPipelineFragmentParamsList fragments, BooleanSupplier supportsEncryption) {
+        return checkFragments(fragments, supportsEncryption, true);
     }
 
     public static void checkFragments(TPipelineFragmentParamsList fragments, boolean internalRpc) {
-        checkFragments(fragments, () -> 0, internalRpc);
+        checkFragments(fragments, () -> false, internalRpc);
     }
 
-    public static boolean checkFragments(TPipelineFragmentParamsList fragments, IntSupplier verifiedVersion,
+    public static boolean checkFragments(TPipelineFragmentParamsList fragments, BooleanSupplier supportsEncryption,
             boolean internalRpc) {
-        Checker checker = new Checker(verifiedVersion, FileScanEncryption.VERSION, true, internalRpc);
+        Checker checker = new Checker(supportsEncryption, true, internalRpc);
         if (fragments.isSetParamsList()) {
             Map<Integer, TFileScanRangeParams> paramsByNode = Map.of();
             for (TPipelineFragmentParams fragment : fragments.getParamsList()) {
@@ -87,11 +87,11 @@ public final class FileScanEncryptionGuard {
     }
 
     public static void checkBatch(List<TScanRangeLocations> ranges) {
-        checkBatch(ranges, () -> 0, 0);
+        checkBatch(ranges, () -> false);
     }
 
-    public static boolean checkBatch(List<TScanRangeLocations> ranges, IntSupplier verifiedVersion, int callerVersion) {
-        Checker checker = new Checker(verifiedVersion, callerVersion, false, true);
+    public static boolean checkBatch(List<TScanRangeLocations> ranges, BooleanSupplier supportsEncryption) {
+        Checker checker = new Checker(supportsEncryption, false, true);
         for (TScanRangeLocations range : ranges) {
             checker.checkRange(range.getScanRange(), null);
         }
@@ -99,18 +99,16 @@ public final class FileScanEncryptionGuard {
     }
 
     private static final class Checker {
-        private final IntSupplier verifiedVersion;
-        private final int callerVersion;
+        private final BooleanSupplier supportsEncryption;
         private final boolean initialDispatch;
         private final boolean internalRpc;
         private boolean needsCapability;
 
-        private Checker(IntSupplier verifiedVersion, int callerVersion, boolean initialDispatch,
+        private Checker(BooleanSupplier supportsEncryption, boolean initialDispatch,
                 boolean internalRpc) {
             this.internalRpc = internalRpc;
             this.initialDispatch = initialDispatch;
-            this.verifiedVersion = verifiedVersion;
-            this.callerVersion = callerVersion;
+            this.supportsEncryption = supportsEncryption;
         }
 
         private void checkDescriptor(TFileFormatType format, TTableFormatFileDesc table) {
@@ -123,9 +121,8 @@ public final class FileScanEncryptionGuard {
                 throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
             }
             if (format == TFileFormatType.FORMAT_PARQUET_PME && !needsCapability) {
-                // Even a marker-only first batch must exclude old readers before sending any fragment.
-                if (callerVersion < FileScanEncryption.VERSION
-                        || verifiedVersion.getAsInt() < FileScanEncryption.VERSION) {
+                // A marker-only first batch still requires a verified reader and protected key transport.
+                if (!supportsEncryption.getAsBoolean()) {
                     throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
                 }
                 needsCapability = true;
@@ -158,7 +155,7 @@ public final class FileScanEncryptionGuard {
                             : (params == null ? null : params.getFormatType());
                     if (initialDispatch && format == TFileFormatType.FORMAT_PARQUET_PME
                             && (params == null || params.getFormatType() != TFileFormatType.FORMAT_PARQUET_PME)) {
-                        // An old reader may ignore range overrides and choose its reader from shared params alone.
+                        // Shared params select the reader and COUNT handling for every range in a mixed scan.
                         throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
                     }
                     checkDescriptor(format, table);

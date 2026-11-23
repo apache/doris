@@ -21,7 +21,6 @@
 
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
-#include "util/native_file_encryption.h"
 
 namespace doris {
 
@@ -162,8 +161,6 @@ Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* rang
         TFetchSplitBatchRequest request;
         request.__set_split_source_id(_split_source_id);
         request.__set_max_num_splits(config::remote_split_source_batch_size);
-        // A restarted or downgraded caller must not inherit the previous process's cached heartbeat lease.
-        request.__set_native_file_encryption_version(native_file_encryption_version());
         TFetchSplitBatchResult result;
         do {
             RETURN_IF_CANCELLED(_state);

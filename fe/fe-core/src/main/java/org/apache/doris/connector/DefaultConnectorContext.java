@@ -257,8 +257,8 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     }
 
     @Override
-    public int getNativeFileEncryptionVersion() {
-        return NativeFileEncryptionSupport.version();
+    public boolean supportsNativeFileEncryption() {
+        return NativeFileEncryptionSupport.supported();
     }
 
     @Override

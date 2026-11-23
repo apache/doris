@@ -1671,9 +1671,6 @@ struct TSyncQueryColumns {
 struct TFetchSplitBatchRequest {
     1: optional i64 split_source_id
     2: optional i32 max_num_splits
-    // Field 3 is reserved for branch-4.2's optional bool close_source.
-    // The actual caller must opt in even when a cached heartbeat describes a previous BE process.
-    4: optional i32 native_file_encryption_version
 }
 
 struct TFetchSplitBatchResult {

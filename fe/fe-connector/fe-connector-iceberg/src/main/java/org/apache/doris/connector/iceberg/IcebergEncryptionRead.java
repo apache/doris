@@ -109,7 +109,7 @@ final class IcebergEncryptionRead {
                     + "encryption scheme with native Parquet AES_GCM_V1 files");
         }
         // Do not initialize a KMS before the engine verifies both protected transports and native readers.
-        if (context == null || context.getStorageContext().getNativeFileEncryptionVersion() < 1) {
+        if (context == null || !context.getStorageContext().supportsNativeFileEncryption()) {
             throw failure("BACKEND_CAPABILITY_UNAVAILABLE", "Encrypted Iceberg read capability is not verified "
                     + "by the engine; native encrypted scan execution is not available");
         }

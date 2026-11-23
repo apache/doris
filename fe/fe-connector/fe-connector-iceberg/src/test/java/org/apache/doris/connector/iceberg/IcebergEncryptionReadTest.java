@@ -121,10 +121,10 @@ public class IcebergEncryptionReadTest {
                     .withFormat("parquet").withFileSizeInBytes(128).withRecordCount(10)
                     .withEncryptionKeyMetadata(ByteBuffer.wrap(new byte[] {1})).build()).commit();
             IcebergScanPlanProvider disabled = new IcebergScanPlanProvider(properties("hms"),
-                    ops(table), context(Map.of(), 1));
+                    ops(table), context(Map.of(), true));
             reject("READ_DISABLED", () -> disabled.planScan(null, request(HANDLE, false)));
             IcebergScanPlanProvider enabled = new IcebergScanPlanProvider(properties("hms"),
-                    ops(table), context(Map.of("enable_encryption_read", "true"), 1));
+                    ops(table), context(Map.of("enable_encryption_read", "true"), true));
             reject("UNSUPPORTED_ENCRYPTION_MANAGER", () -> enabled.planScan(null, request(HANDLE, false)));
         }
     }
@@ -133,7 +133,7 @@ public class IcebergEncryptionReadTest {
     public void encryptedMetadataRequiresPhysicalCountPlanningAndRejectsJniSystemSplits() {
         try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
             IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties("hms"),
-                    ops(fixture.queryTable()), context(Map.of("enable_encryption_read", "true"), 1));
+                    ops(fixture.queryTable()), context(Map.of("enable_encryption_read", "true"), true));
             Assertions.assertFalse(provider.canServeMetadataOnlyCount(null, HANDLE, Optional.empty()));
             Assertions.assertEquals(-1, provider.planScan(null, request(HANDLE, true)).get(0).getPushDownRowCount());
             reject("UNSUPPORTED_METADATA_TABLE", () -> provider.planScan(null,
@@ -147,7 +147,7 @@ public class IcebergEncryptionReadTest {
             fixture.appendEncryptedFiles(3);
             AtomicInteger capabilityChecks = new AtomicInteger();
             IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties("hms"),
-                    ops(fixture.queryTable()), context(Map.of("enable_encryption_read", "true"), 1, capabilityChecks));
+                    ops(fixture.queryTable()), context(Map.of("enable_encryption_read", "true"), true, capabilityChecks));
             Assertions.assertEquals(4, provider.planScan(null, request(HANDLE, false)).size());
             Assertions.assertEquals(1, capabilityChecks.get(),
                     "Table admission snapshots the backend inventory; dispatch rechecks each selected target");
@@ -158,7 +158,7 @@ public class IcebergEncryptionReadTest {
     public void verifiedNativeExecutionCanPlanEncryptedSdkManifests() {
         try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
             IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties("hms"),
-                    ops(fixture.queryTable()), context(Map.of("enable_encryption_read", "true"), 1));
+                    ops(fixture.queryTable()), context(Map.of("enable_encryption_read", "true"), true));
             Assertions.assertEquals(1, provider.planScan(null, request(HANDLE, false)).size());
             Assertions.assertTrue(fixture.unwraps.get() > 0, "Planning must authorize the current SDK manifest keys");
         }
@@ -168,7 +168,7 @@ public class IcebergEncryptionReadTest {
     public void nativeRestExecutionRemainsOutsideTheHmsReadScope() throws Exception {
         try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
             IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties("rest"),
-                    ops(fixture.queryTable()), context(Map.of("enable_encryption_read", "true"), 1));
+                    ops(fixture.queryTable()), context(Map.of("enable_encryption_read", "true"), true));
             reject("UNSUPPORTED_CATALOG", () -> provider.planScan(null, request(HANDLE, false)));
         }
     }
@@ -321,14 +321,14 @@ public class IcebergEncryptionReadTest {
     }
 
     private static ConnectorContext context(Map<String, String> config) {
-        return context(config, 0);
+        return context(config, false);
     }
 
-    private static ConnectorContext context(Map<String, String> config, int nativeEncryptionVersion) {
-        return context(config, nativeEncryptionVersion, new AtomicInteger());
+    private static ConnectorContext context(Map<String, String> config, boolean nativeEncryptionSupported) {
+        return context(config, nativeEncryptionSupported, new AtomicInteger());
     }
 
-    private static ConnectorContext context(Map<String, String> config, int nativeEncryptionVersion,
+    private static ConnectorContext context(Map<String, String> config, boolean nativeEncryptionSupported,
             AtomicInteger capabilityChecks) {
         return new ConnectorContext() {
             @Override
@@ -350,9 +350,9 @@ public class IcebergEncryptionReadTest {
             public ConnectorStorageContext getStorageContext() {
                 return new ConnectorStorageContext() {
                     @Override
-                    public int getNativeFileEncryptionVersion() {
+                    public boolean supportsNativeFileEncryption() {
                         capabilityChecks.incrementAndGet();
-                        return nativeEncryptionVersion;
+                        return nativeEncryptionSupported;
                     }
                 };
             }

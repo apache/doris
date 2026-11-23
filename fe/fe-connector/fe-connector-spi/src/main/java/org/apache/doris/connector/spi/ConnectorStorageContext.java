@@ -57,14 +57,12 @@ public interface ConnectorStorageContext {
     };
 
     /**
-     * Returns the native file-encryption protocol version verified for this execution environment.
-     * Zero means unavailable. A positive value requires authenticated, encrypted fragment and split
-     * transports and compatible execution backends; a release version or an encryption-enabled build
-     * alone is insufficient. The engine must recheck these conditions before dispatch and lazy batches,
-     * because a backend can restart or be replaced after planning.
+     * Whether native encrypted reads have verified readers and authenticated fragment/split transports.
+     * The engine rechecks availability before dispatch and lazy batches; build support alone cannot
+     * establish protected key transport. FE, BE and plugins are deployed together without version negotiation.
      */
-    default int getNativeFileEncryptionVersion() {
-        return 0;
+    default boolean supportsNativeFileEncryption() {
+        return false;
     }
 
     /**

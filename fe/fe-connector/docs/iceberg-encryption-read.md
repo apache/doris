@@ -80,19 +80,19 @@ Public SQL/HTTP protocols have their own authentication settings.
 Only the selected concrete OSS providers prove this contract automatically;
 custom providers default to unavailable and must explicitly implement the
 capability contract. A running FE TLS split listener is required. Backends
-advertise protocol version 1 only with the native dependency and supported
-private transports. FE uses a fresh, process-local heartbeat lease; images,
-failed/missing capabilities and stale heartbeats cannot grant support. Failed
+advertise `supports_native_file_encryption=true` only with the native dependency
+and supported private transports. FE uses a fresh, process-local heartbeat lease;
+images, failed/missing capabilities and stale heartbeats cannot grant support. Failed
 heartbeats revoke encryption support immediately while preserving the configured
 backend liveness tolerance on every FE. Admission
 conservatively requires every currently selectable live backend to be capable.
 
 Initial fragments use `FORMAT_PARQUET_PME` (wire value 22), including shared scan
 parameters. Assigned targets are checked before serialization and again before
-sending. Lazy fetches additionally carry the actual caller's version; a
-restarted old BE cannot inherit a predecessor's cached lease. Missing capability
-rejects encrypted work while ordinary plaintext reads remain compatible. A lost
-capability is a planning refusal and does not blacklist a healthy backend.
+sending and before returning lazy split batches. FE, BE and connector plugins
+are deployed together; split requests do not negotiate a caller version.
+Unavailable capability rejects encrypted work while ordinary plaintext reads
+retain their existing paths. A lost capability is a planning refusal and does not blacklist a healthy backend.
 
 The [scan wire contract](iceberg-encryption-wire.md) defines payloads, diagnostic
 redaction and dispatch checks. File keys remain query-scoped, with bounded
@@ -326,8 +326,8 @@ bash run-regression-test.sh --run -d external_table_p0/iceberg \
 ```
 
 V3 scan planning remains synchronous in this stage. Changing the external batch
-session setting does not enable V3 streaming. Lazy split caller checks are
-covered independently, including legacy plaintext callers; authenticated Thrift
+session setting does not enable V3 streaming. Lazy split capability checks are
+covered independently, including plaintext scans; authenticated Thrift
 RPC tests round-trip independent binary data/delete payloads through cached and
 reopened connections. This does not claim encrypted V3 lazy SQL execution.
 

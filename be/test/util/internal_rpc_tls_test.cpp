@@ -143,7 +143,8 @@ protected:
     static void expect_successful_split(FrontendServiceConnection& connection) {
         TFetchSplitBatchResult result;
         TFetchSplitBatchRequest request;
-        request.__set_native_file_encryption_version(1);
+        request.__set_split_source_id(7);
+        request.__set_max_num_splits(3);
         connection->fetchSplitBatch(result, request);
         EXPECT_TRUE(result.__isset.status);
         EXPECT_EQ(TStatusCode::OK, result.status.status_code);
@@ -265,8 +266,8 @@ class TlsSplitService final : public FrontendServiceNull {
 public:
     void fetchSplitBatch(TFetchSplitBatchResult& result,
                          const TFetchSplitBatchRequest& request) override {
-        EXPECT_TRUE(request.__isset.native_file_encryption_version);
-        EXPECT_EQ(1, request.native_file_encryption_version);
+        EXPECT_EQ(7, request.split_source_id);
+        EXPECT_EQ(3, request.max_num_splits);
         TStatus status;
         status.__set_status_code(TStatusCode::OK);
         result.__set_status(status);
@@ -397,7 +398,7 @@ TEST_F(InternalRpcTlsTest, NativeFileKeysRequireBothProtectedProtocolsAndAnExpli
         EXPECT_FALSE(validate_file_scan_support(params, &range).ok());
         config::tls_verify_mode = "verify_fail_if_no_peer_cert";
 
-        // A markerless optional key could be silently ignored by a downgraded process.
+        // The physical reader requires the PME marker before it can consume file keys.
         range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
         EXPECT_FALSE(validate_file_scan_support(params, &range).ok());
     }

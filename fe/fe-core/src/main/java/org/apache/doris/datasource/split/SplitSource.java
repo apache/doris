@@ -19,7 +19,6 @@ package org.apache.doris.datasource.split;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.scan.FileScanEncryptionGuard;
-import org.apache.doris.rpc.FileScanEncryption;
 import org.apache.doris.rpc.NativeFileEncryptionSupport;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -87,12 +86,7 @@ public class SplitSource {
     /**
      * Get the next batch of file splits. If there's no more split, return empty list.
      */
-    public List<TScanRangeLocations> getNextBatch(int maxBatchSize) throws UserException {
-        return getNextBatch(maxBatchSize, FileScanEncryption.VERSION);
-    }
-
-    public synchronized List<TScanRangeLocations> getNextBatch(int maxBatchSize, int callerVersion)
-            throws UserException {
+    public synchronized List<TScanRangeLocations> getNextBatch(int maxBatchSize) throws UserException {
         Preconditions.checkArgument(maxBatchSize > 0, "Requested split batch size must be positive");
         if (dispatchFailure != null) {
             throw dispatchFailure;
@@ -173,9 +167,8 @@ public class SplitSource {
         }
         // Lazy splits leave FE after initial dispatch; apply the same checks before each RPC response.
         try {
-            // An old process omits the caller version even if FE still holds its predecessor's heartbeat lease.
-            FileScanEncryptionGuard.checkBatch(scanRanges, () -> NativeFileEncryptionSupport.version(backend),
-                    callerVersion);
+            // Keys leave FE only while the target reader and both private transports remain available.
+            FileScanEncryptionGuard.checkBatch(scanRanges, () -> NativeFileEncryptionSupport.supported(backend));
         } catch (IllegalArgumentException | IllegalStateException e) {
             // The rejected ranges were already drained. Stop every producer and preserve the error,
             // including when this source had marked its last batch before checking the descriptors.

@@ -53,8 +53,8 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private long beMemory = 0;
     @SerializedName("supportsPaimonRustReader")
     private boolean supportsPaimonRustReader;
-    @SerializedName("nativeFileEncryptionVersion")
-    private int nativeFileEncryptionVersion;
+    @SerializedName("supportsNativeFileEncryption")
+    private boolean supportsNativeFileEncryption;
 
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
@@ -164,12 +164,12 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         this.supportsPaimonRustReader = supported;
     }
 
-    public int getNativeFileEncryptionVersion() {
-        return nativeFileEncryptionVersion;
+    public boolean isNativeFileEncryptionSupported() {
+        return supportsNativeFileEncryption;
     }
 
-    public void setNativeFileEncryptionVersion(int version) {
-        nativeFileEncryptionVersion = version;
+    public void setNativeFileEncryptionSupported(boolean supported) {
+        supportsNativeFileEncryption = supported;
     }
 
     @Override
