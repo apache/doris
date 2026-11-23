@@ -248,12 +248,18 @@ suite("regression_test_variant_desc", "p0"){
         sql """insert into large_tablets values (50001, ${variantV2Function}('{"c" : 10}'))"""
         sql """insert into large_tablets values (99999, ${variantV2Function}('{"d" : 10}'))"""
         sql "select * from ${table_name} limit 1"
-        sql """set max_fetch_remote_schema_tablet_count = 2"""
-        sql "desc large_tablets"
-        sql """set max_fetch_remote_schema_tablet_count = 128"""
-        sql "desc large_tablets"
-        sql """set max_fetch_remote_schema_tablet_count = 512"""
-        sql "desc large_tablets"
+        for (limit in [2, 128, 512]) {
+            sql "set max_fetch_remote_schema_tablet_count = ${limit}"
+            test {
+                sql "desc large_tablets"
+                exception "needs to read 600 tablets, exceeding max_fetch_remote_schema_tablet_count=${limit}"
+            }
+        }
+        sql "set max_fetch_remote_schema_tablet_count = 128"
+        test {
+            sql "desc large_tablets partition (p1)"
+            exception "needs to read 200 tablets, exceeding max_fetch_remote_schema_tablet_count=128"
+        }
         sql """set max_fetch_remote_schema_tablet_count = 2048"""
         qt_sql15 "desc large_tablets"
 

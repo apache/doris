@@ -1577,10 +1577,10 @@ Result<std::vector<RowsetSharedPtr>> IndexStorageTestFixture::rowsets_with_varia
 
     auto schema = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
             rowsets, rowsets.front()->tablet_schema());
-    if (schema == nullptr) {
-        return ResultError(Status::InternalError("failed to calculate variant extended schema"));
+    if (!schema.has_value()) {
+        return ResultError(std::move(schema).error());
     }
-    return inject_reader_schema_for_rowsets(rowsets, std::move(schema));
+    return inject_reader_schema_for_rowsets(rowsets, std::move(schema).value());
 }
 
 int32_t IndexStorageTestFixture::column_id_by_path(const std::string& path) const {

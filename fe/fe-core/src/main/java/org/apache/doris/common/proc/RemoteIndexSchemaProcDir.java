@@ -21,10 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -59,16 +57,14 @@ public class RemoteIndexSchemaProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         Preconditions.checkNotNull(table);
         Preconditions.checkNotNull(schema);
-        List<Tablet> tablets = null;
+        List<Partition> partitions;
         table.readLock();
         try {
-            OlapTable olapTable = (OlapTable) table;
-            // Get sample tablets for remote desc schema
-            tablets = olapTable.getSampleTablets(ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount);
+            partitions = new ArrayList<>(((OlapTable) table).getPartitions());
         } finally {
             table.readUnlock();
         }
-        List<Column> remoteSchema = new FetchRemoteTabletSchemaUtil(tablets).fetch();
+        List<Column> remoteSchema = FetchRemoteTabletSchemaUtil.fetchPartitions(partitions);
         this.schema.addAll(remoteSchema);
         return IndexSchemaProcNode.createResult(this.schema, this.bfColumns, Lists.newArrayList());
     }
