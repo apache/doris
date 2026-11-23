@@ -998,8 +998,9 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
     if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         const auto& nested_column = nullable_column->get_nested_column_ptr();
 
+        // Another block can own the same nullable wrapper without increasing the nested count.
         MutableColumnPtr mutable_holder =
-                nested_column->use_count() == 1
+                nullable_column->is_exclusive()
                         ? nested_column->assert_mutable()
                         : nested_column->clone_resized(nested_column->size());
 
