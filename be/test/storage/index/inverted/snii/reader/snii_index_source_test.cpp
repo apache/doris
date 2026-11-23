@@ -20,19 +20,24 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <numeric>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "storage/index/inverted/query/exec/block_doc_set.h"
 #include "storage/index/inverted/query/exec/roaring_docid_sink.h"
 #include "storage/index/inverted/query/exec/term_pattern.h"
 #include "storage/index/inverted/query/exec/term_waves.h"
+#include "storage/index/inverted/snii/format/norms_pod.h"
 #include "storage/index/inverted/snii/format/phrase_bigram.h"
 #include "storage/index/inverted/snii/io/metered_file_reader.h"
 #include "storage/index/inverted/snii/query/internal/docid_posting_reader.h"
 #include "storage/index/inverted/snii/snii_query_test_util.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
+#include "util/debug_points.h"
 
 namespace doris::snii::reader {
 namespace {
@@ -404,6 +409,166 @@ TEST_F(SniiScoredSourceTest, EncodedNormsAreReadOnceAndOnlyWhenAsked) {
     assert_ok(_source->encoded_norms(docs, &norms));
     EXPECT_EQ(norms, (std::vector<uint32_t> {2, 5, 8}));
     EXPECT_EQ(rounds(), read);
+}
+
+// The same corpus written with dense norms and with sparse norms. Rows 3 to 5 and every row from
+// 20 on are NULL; every other row holds "alpha" twice and, when even, "beta" once.
+class SniiSparseNormsTest : public ::testing::Test {
+protected:
+    static constexpr uint32_t kDocCount = 40;
+    static constexpr const char* kSparseNormsPoint =
+            "LogicalIndexWriter::finalize_build.sparse_norms";
+
+    struct Written {
+        MemoryFile file;
+        SniiSegmentReader segment;
+        LogicalIndexReader index;
+        std::unique_ptr<SniiIndexSource> source;
+    };
+
+    static bool is_null(uint32_t doc) { return (doc >= 3 && doc <= 5) || doc >= 20; }
+
+    static writer::SniiIndexInput corpus(bool with_nulls) {
+        std::vector<snii_test::PostingDoc> alpha;
+        std::vector<snii_test::PostingDoc> beta;
+        writer::SniiIndexInput input;
+        input.index_id = 12;
+        input.index_suffix = "sparse";
+        input.config = format::IndexConfig::kDocsPositions;
+        input.doc_count = kDocCount;
+        input.encoded_norms.resize(kDocCount);
+        for (uint32_t doc = 0; doc < kDocCount; ++doc) {
+            if (with_nulls && is_null(doc)) {
+                input.null_docids.push_back(doc);
+                input.encoded_norms[doc] = format::kNullRowNorm;
+                continue;
+            }
+            alpha.push_back({.docid = doc, .positions = {0, 2}});
+            if (doc % 2 == 0) {
+                beta.push_back({.docid = doc, .positions = {1}});
+            }
+            input.encoded_norms[doc] = static_cast<uint8_t>(doc % 7 + 2);
+        }
+        input.terms = {make_term("alpha", std::move(alpha)), make_term("beta", std::move(beta))};
+        return input;
+    }
+
+    // Writes `input`, through the sparse writer path when `sparse`, and opens it for reading.
+    static std::unique_ptr<Written> write(const writer::SniiIndexInput& input, bool sparse) {
+        auto written = std::make_unique<Written>();
+        const bool debug_points_were_enabled = config::enable_debug_points;
+        config::enable_debug_points = true;
+        DebugPoints::instance()->clear();
+        if (sparse) {
+            DebugPoints::instance()->add(kSparseNormsPoint);
+        }
+        writer::SniiCompoundWriter compound_writer(&written->file);
+        assert_ok(compound_writer.add_logical_index(input));
+        assert_ok(compound_writer.finish());
+        DebugPoints::instance()->clear();
+        config::enable_debug_points = debug_points_were_enabled;
+
+        assert_ok(SniiSegmentReader::open(&written->file, &written->segment));
+        assert_ok(written->segment.open_index(12, "sparse", &written->index));
+        written->source = std::make_unique<SniiIndexSource>(written->index);
+        return written;
+    }
+
+    // (docid, norm) of every posting of `term` as a scoring cursor reads them.
+    static std::vector<std::pair<uint32_t, uint32_t>> scored_norms(SniiIndexSource& source,
+                                                                   const std::string& term) {
+        std::unique_ptr<index_query::PostingsCursor> cursor;
+        assert_ok(source.open_term(term, /*positions=*/true, /*scoring=*/true, &cursor));
+        EXPECT_NE(cursor, nullptr) << term;
+        std::vector<std::pair<uint32_t, uint32_t>> norms;
+        index_query::PostingsBlock block;
+        bool eof = false;
+        assert_ok(cursor->next_block(&block, &eof));
+        while (!eof) {
+            for (uint64_t ordinal = 0; ordinal < block.size(); ++ordinal) {
+                norms.emplace_back(block.doc_at(ordinal), block.norm_at(ordinal));
+            }
+            assert_ok(cursor->next_block(&block, &eof));
+        }
+        return norms;
+    }
+
+    static std::vector<uint32_t> all_norms(SniiIndexSource& source) {
+        std::vector<uint32_t> docs(kDocCount);
+        std::iota(docs.begin(), docs.end(), 0U);
+        std::vector<uint32_t> norms;
+        assert_ok(source.encoded_norms(docs, &norms));
+        return norms;
+    }
+};
+
+// Sparse norms drop the bytes of the NULL rows into a smaller section of their own.
+TEST_F(SniiSparseNormsTest, SparseNormsLiveInTheirOwnSmallerSection) {
+    const auto input = corpus(/*with_nulls=*/true);
+    const auto dense = write(input, /*sparse=*/false);
+    const auto sparse = write(input, /*sparse=*/true);
+
+    const auto& dense_refs = dense->index.section_refs();
+    const auto& sparse_refs = sparse->index.section_refs();
+    ASSERT_NE(dense_refs.norms.length, 0U);
+    EXPECT_EQ(dense_refs.sparse_norms.length, 0U);
+    EXPECT_EQ(sparse_refs.norms.length, 0U);
+    ASSERT_NE(sparse_refs.sparse_norms.length, 0U);
+    EXPECT_LT(sparse_refs.sparse_norms.length, dense_refs.norms.length);
+    EXPECT_TRUE(dense->index.has_norms());
+    EXPECT_TRUE(sparse->index.has_norms());
+}
+
+// Every reader path sees the bytes a dense section holds: the norms of the scored postings, the
+// norm of every row, and the stats.
+TEST_F(SniiSparseNormsTest, SparseNormsReadLikeDenseNorms) {
+    const auto input = corpus(/*with_nulls=*/true);
+    const auto dense = write(input, /*sparse=*/false);
+    const auto sparse = write(input, /*sparse=*/true);
+    ASSERT_NE(sparse->index.section_refs().sparse_norms.length, 0U);
+
+    for (const char* term : {"alpha", "beta"}) {
+        const auto expected = scored_norms(*dense->source, term);
+        ASSERT_FALSE(expected.empty()) << term;
+        EXPECT_EQ(scored_norms(*sparse->source, term), expected) << term;
+    }
+    const auto expected_rows = all_norms(*dense->source);
+    EXPECT_EQ(all_norms(*sparse->source), expected_rows);
+    for (uint32_t doc = 0; doc < kDocCount; ++doc) {
+        if (is_null(doc)) {
+            EXPECT_EQ(expected_rows[doc], format::kNullRowNorm) << doc;
+        }
+    }
+
+    index_query::IndexScoringStats dense_stats;
+    index_query::IndexScoringStats sparse_stats;
+    assert_ok(dense->source->scoring_stats(&dense_stats));
+    assert_ok(sparse->source->scoring_stats(&sparse_stats));
+    EXPECT_EQ(sparse_stats.doc_count, dense_stats.doc_count);
+    EXPECT_EQ(sparse_stats.token_count, dense_stats.token_count);
+    EXPECT_TRUE(sparse_stats.has_norms);
+}
+
+// The reader keeps sparse norms expanded to one byte per row, so their cache charge is one byte per
+// row, not the smaller section on disk. Dense norms stay in memory as the section read, framing
+// included, so the two charges differ by the framing of the dense section.
+TEST_F(SniiSparseNormsTest, CacheChargeCoversTheExpandedNorms) {
+    const auto input = corpus(/*with_nulls=*/true);
+    const auto dense = write(input, /*sparse=*/false);
+    const auto sparse = write(input, /*sparse=*/true);
+    const uint64_t dense_length = dense->index.section_refs().norms.length;
+    ASSERT_NE(sparse->index.section_refs().sparse_norms.length, 0U);
+    ASSERT_LT(sparse->index.section_refs().sparse_norms.length, kDocCount);
+    EXPECT_EQ(dense->index.compaction_norms_cache_charge() -
+                      sparse->index.compaction_norms_cache_charge(),
+              dense_length - kDocCount);
+}
+
+// An index without NULL rows has nothing to drop, so it keeps the dense section.
+TEST_F(SniiSparseNormsTest, IndexWithoutNullRowsStaysDense) {
+    const auto written = write(corpus(/*with_nulls=*/false), /*sparse=*/true);
+    EXPECT_NE(written->index.section_refs().norms.length, 0U);
+    EXPECT_EQ(written->index.section_refs().sparse_norms.length, 0U);
 }
 
 // The corpus read through a metered reader, so the rounds of every open count.

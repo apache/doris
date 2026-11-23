@@ -106,6 +106,10 @@ message SniiSectionRefsPB {
     optional SniiRegionRefPB null_bitmap = 3;
     optional SniiRegionRefPB bsbf = 4;
     optional SniiRegionRefPB norms = 5;
+    // Norms of the non-NULL rows only; an index sets at most one of norms and sparse_norms.
+    // Readers that predate this field see an index without norms: filtering still works and
+    // scoring is refused.
+    optional SniiRegionRefPB sparse_norms = 6;
 }
 // Stores the gram scheme used to write the index, so readers can split query
 // patterns the same way. Auto mode is resolved before serialization.

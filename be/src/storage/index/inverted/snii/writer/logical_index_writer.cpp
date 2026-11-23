@@ -41,6 +41,7 @@
 #include "storage/index/inverted/snii/format/prx_pod.h"
 #include "storage/index/inverted/snii/writer/posting_prx_encoder.h"
 #include "storage/index/inverted/snii/writer/posting_window_emitter.h"
+#include "util/debug_points.h"
 
 namespace doris::snii::writer {
 
@@ -933,6 +934,49 @@ Status LogicalIndexWriter::prepare_build(io::FileWriter* posting_out) {
     return Status::OK();
 }
 
+Status LogicalIndexWriter::build_norms_section() {
+    // Sparse norms drop the bytes of the NULL rows. Writers keep dense norms; this debug point
+    // lets tests write sparse ones.
+    DBUG_EXECUTE_IF("LogicalIndexWriter::finalize_build.sparse_norms",
+                    { sparse_norms_ = !null_docids_.empty(); });
+    const std::span<const uint32_t> null_docids(null_docids_.data(), null_docids_.size());
+    if (sparse_norms_) {
+        // The reader restores a NULL row as an empty document, so only that norm is dropped.
+        for (const uint32_t null_docid : null_docids) {
+            DCHECK_EQ(encoded_norms_[null_docid], format::kNullRowNorm);
+        }
+    }
+    const bool constant = sparse_norms_ && format::NormsPodWriter::sparse_values_constant(
+                                                   encoded_norms_, null_docids);
+    const size_t dense_payload_size = varint_len(encoded_norms_.size()) + encoded_norms_.size();
+    const size_t section_size =
+            sparse_norms_
+                    ? format::NormsPodWriter::sparse_section_size(
+                              doc_count_, doc_count_ - null_docids.size(), constant)
+                    : 1 + varint_len(dense_payload_size) + dense_payload_size + sizeof(uint32_t);
+    // The sparse payload buffer is reserved at the section size, which bounds it.
+    const size_t payload_size = sparse_norms_ ? section_size : dense_payload_size;
+    MemoryReporter::Reservation build_reservation = memory_reporter_ == nullptr
+                                                            ? MemoryReporter::Reservation()
+                                                            : memory_reporter_->make_reservation();
+    if (memory_reporter_ != nullptr) {
+        RETURN_IF_ERROR(build_reservation.set_bytes(payload_size));
+        RETURN_IF_ERROR(norms_section_reservation_.set_bytes(section_size));
+    }
+    ByteSink nsink;
+    if (sparse_norms_) {
+        format::NormsPodWriter::finish_sparse(encoded_norms_, null_docids, constant, &nsink);
+    } else {
+        format::NormsPodWriter::finish(encoded_norms_, &nsink);
+    }
+    norms_section_ = nsink.take();
+    DORIS_CHECK_EQ(norms_section_.capacity(), section_size);
+    if (memory_reporter_ != nullptr) {
+        DORIS_CHECK_EQ(norms_section_reservation_.bytes(), norms_section_.capacity());
+    }
+    return Status::OK();
+}
+
 Status LogicalIndexWriter::finalize_build() {
     if (has_norms_ && encoded_norms_.size() != doc_count_) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
@@ -948,22 +992,7 @@ Status LogicalIndexWriter::finalize_build() {
     stats_.null_count = static_cast<uint32_t>(null_docids_.size());
 
     if (has_norms_) {
-        const size_t payload_size = varint_len(encoded_norms_.size()) + encoded_norms_.size();
-        const size_t section_size = 1 + varint_len(payload_size) + payload_size + sizeof(uint32_t);
-        MemoryReporter::Reservation build_reservation =
-                memory_reporter_ == nullptr ? MemoryReporter::Reservation()
-                                            : memory_reporter_->make_reservation();
-        if (memory_reporter_ != nullptr) {
-            RETURN_IF_ERROR(build_reservation.set_bytes(payload_size));
-            RETURN_IF_ERROR(norms_section_reservation_.set_bytes(section_size));
-        }
-        ByteSink nsink;
-        format::NormsPodWriter::finish(encoded_norms_, &nsink);
-        norms_section_ = nsink.take();
-        DORIS_CHECK_EQ(norms_section_.capacity(), section_size);
-        if (memory_reporter_ != nullptr) {
-            DORIS_CHECK_EQ(norms_section_reservation_.bytes(), norms_section_.capacity());
-        }
+        RETURN_IF_ERROR(build_norms_section());
     }
 
     if (!null_docids_.empty()) {

@@ -29,6 +29,18 @@
 
 namespace doris::snii::format {
 
+class NullBitmapReader;
+
+// The norm a NULL row reads. A NULL row has no tokens, so the writer encodes it as a document of
+// zero tokens (query::encode_norm(0)), and a sparse section restores it without storing it.
+inline constexpr uint8_t kNullRowNorm = 1;
+
+// How a sparse norms section stores the norms of its non-NULL rows.
+enum class SparseNormsMode : uint8_t {
+    kValues = 0,   // one byte per non-NULL row, in docid order
+    kConstant = 1, // one byte shared by every non-NULL row
+};
+
 // Stores one encoded length byte per document for BM25 normalization.
 // SectionFramer wraps a payload of [varint64 doc_count][encoded_norm bytes].
 class NormsPodWriter {
@@ -44,6 +56,23 @@ public:
     // Zero-copy source overload used by streamed compaction.
     static void finish(std::span<const uint8_t> norms, ByteSink* sink);
 
+    // Sparse norms keep only the rows a query can score. A NULL row has no tokens, so no posting
+    // reaches it; the null bitmap of the same index tells the reader which rows those are.
+    // SectionFramer wraps a payload of
+    //   [u8 SparseNormsMode][varint64 doc_count][varint64 value_count][stored bytes]
+    // where value_count is the number of non-NULL rows. For example, with 7 rows of which 1, 2
+    // and 5 are NULL, the dense norms [3, 1, 1, 1, 2, 1, 4] become the values [3, 1, 2, 4].
+    //
+    // Whether every row outside `null_docids` has the same norm. False when no such row exists.
+    static bool sparse_values_constant(std::span<const uint8_t> norms,
+                                       std::span<const uint32_t> null_docids);
+    // The framed size of a sparse section for `value_count` non-NULL rows out of `doc_count`.
+    static size_t sparse_section_size(uint64_t doc_count, uint64_t value_count, bool constant);
+    // Writes the norms of the rows outside `null_docids` (ascending, each below norms.size()) as
+    // a sparse section. `constant` must be sparse_values_constant(norms, null_docids).
+    static void finish_sparse(std::span<const uint8_t> norms, std::span<const uint32_t> null_docids,
+                              bool constant, ByteSink* sink);
+
 private:
     std::vector<uint8_t> norms_;
 };
@@ -57,6 +86,12 @@ public:
     // Parses the entire section (including the framer envelope). Returns Corruption on CRC mismatch, truncation, or length inconsistency.
     // On success, *out borrows the memory pointed to by framer_payload; the caller must ensure its lifetime.
     static Status open(Slice framed, NormsPodReader* out);
+    // Expands a sparse section into one byte per row in `*dense`, with kNullRowNorm on the rows
+    // `nulls` marks NULL, so every docid reads the byte a dense section would hold. `nulls` is
+    // null when the index has no NULL rows. Returns Corruption when the section does not match
+    // `doc_count` and `nulls`. On success, *out borrows `*dense`.
+    static Status open_sparse(Slice framed, uint32_t doc_count, const NullBitmapReader* nulls,
+                              std::vector<uint8_t>* dense, NormsPodReader* out);
 
     uint32_t doc_count() const { return doc_count_; }
 
