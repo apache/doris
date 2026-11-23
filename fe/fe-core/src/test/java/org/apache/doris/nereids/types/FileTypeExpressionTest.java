@@ -696,4 +696,29 @@ public class FileTypeExpressionTest extends TestWithFeService {
                 "select last_value(f) over(order by id rows between unbounded preceding and current row) "
                         + "from (select 1 id, to_file('file_expr', null) f) t"));
     }
+
+    @Test
+    public void testCorrelatedScalarSubqueryProjectsFileThroughAnyValue() {
+        String cte = "with file_scan as ("
+                + "select number as id, file as f "
+                + "from numbers('number'='8') cross join "
+                + "list_files('resource'='file_expr', 'uri'='s3://file-test/prefix/') "
+                + "where path = 's3://file-test/prefix/a.json') ";
+        for (String sql : Arrays.asList(
+                cte + "select (select i.f from file_scan i where i.id = o.id and i.id = 0) "
+                        + "from file_scan o where o.id < 2 order by o.id",
+                cte + "select (select i.f from file_scan i where i.id % 4 = o.id) "
+                        + "from file_scan o where o.id = 0")) {
+            Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext())
+                    .analyze(sql)
+                    .rewrite()
+                    .getPlan();
+            Assertions.assertEquals(1, rewritten.getOutput().size(), sql);
+            Assertions.assertEquals(FileType.INSTANCE, rewritten.getOutput().get(0).getDataType(), sql);
+            Assertions.assertTrue(rewritten.getOutput().get(0).nullable(), sql);
+            Assertions.assertTrue(rewritten.anyMatch(node -> ((Plan) node).getExpressions().stream()
+                    .anyMatch(expr -> expr.anyMatch(e -> e instanceof AnyValue
+                            && ((AnyValue) e).getArgumentType(0).isFileType()))), sql);
+        }
+    }
 }

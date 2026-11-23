@@ -117,9 +117,16 @@ suite("test_list_files", "p0,external") {
                 exception "FILE"
             }
         }
+        def expectedFile = sql("${fileRows} SELECT f FROM file_scan WHERE id = 0")[0][0]
+        assertTrue(expectedFile != null)
+        def scalarSubqueryRows = sql("""${fileRows}
+            SELECT (SELECT i.f FROM file_scan i WHERE i.id = o.id AND i.id = 0)
+            FROM file_scan o WHERE o.id < 2 ORDER BY o.id
+        """)
+        assertEquals([[expectedFile], [null]], scalarSubqueryRows)
         test {
-            sql "${fileRows} SELECT (SELECT i.f FROM file_scan i WHERE i.id=o.id) FROM file_scan o"
-            exception "Agg Function any_value(FILE) is not implemented"
+            sql "${fileRows} SELECT (SELECT i.f FROM file_scan i WHERE i.id % 4 = o.id) FROM file_scan o WHERE o.id = 0"
+            exception "correlate scalar subquery must return only 1 row"
         }
         for (def value in ["ARRAY(i.f)", "NAMED_STRUCT('f', i.f)", "MAP('f', i.f)",
                           "ELEMENT_AT(i.f, 'uri')"]) {

@@ -245,4 +245,121 @@ TEST(FileAggregateTest, CountReadsOnlyTheOuterNullMask) {
     EXPECT_EQ((*result)[0].get<TYPE_BIGINT>(), 2);
 }
 
+TEST(FileAggregateTest, AnyValueCarriesFileAcrossEmptyNullAndPartialStates) {
+    const auto file_type = std::make_shared<DataTypeFile>();
+    const auto nullable_file = make_nullable(file_type);
+    const int version = BeExecVersionManager::get_newest_version();
+
+    for (const auto& name : {"min", "max"}) {
+        for (const auto& type : {DataTypePtr(file_type), nullable_file}) {
+            EXPECT_EQ(AggregateFunctionSimpleFactory::instance().get(name, {type}, type,
+                                                                     type->is_nullable(), version),
+                      nullptr);
+        }
+    }
+
+    for (const auto& name : {"any", "any_value"}) {
+        for (const bool nullable : {false, true}) {
+            SCOPED_TRACE(name);
+            SCOPED_TRACE(nullable);
+            const DataTypePtr source_type = nullable ? nullable_file : DataTypePtr(file_type);
+            auto function = AggregateFunctionSimpleFactory::instance().get(
+                    name, {source_type}, source_type, nullable, version);
+            ASSERT_NE(function, nullptr);
+            Arena arena;
+
+            AggregateFunctionGuard empty(function.get());
+            AggregateFunctionGuard restored_empty(function.get());
+            ColumnString empty_buffer;
+            VectorBufferWriter empty_writer(empty_buffer);
+            function->serialize(empty.data(), empty_writer);
+            empty_writer.commit();
+            VectorBufferReader empty_reader(empty_buffer.get_data_at(0));
+            ASSERT_NO_THROW(function->deserialize(restored_empty.data(), empty_reader, arena));
+            EXPECT_FALSE(empty_reader.has_remaining());
+            auto empty_result = function->get_return_type()->create_column();
+            function->insert_result_into(restored_empty.data(), *empty_result);
+            ASSERT_EQ(empty_result->size(), 1);
+            if (nullable) {
+                EXPECT_TRUE(empty_result->is_null_at(0));
+            } else {
+                const auto& empty_fields = (*empty_result)[0].get<TYPE_FILE>();
+                ASSERT_EQ(empty_fields.size(), 6);
+                for (const auto& child : empty_fields) {
+                    EXPECT_TRUE(child.is_null());
+                }
+            }
+
+            if (nullable) {
+                AggregateFunctionGuard null_only(function.get());
+                AggregateFunctionGuard restored_null(function.get());
+                AggregateFunctionGuard null_global(function.get());
+                auto null_source = source_type->create_column();
+                null_source->insert_default();
+                const IColumn* null_columns[] = {null_source.get()};
+                function->add_batch_single_place(null_source->size(), null_only.data(),
+                                                 null_columns, arena);
+
+                ColumnString null_buffer;
+                VectorBufferWriter null_writer(null_buffer);
+                function->serialize(null_only.data(), null_writer);
+                null_writer.commit();
+                VectorBufferReader null_reader(null_buffer.get_data_at(0));
+                ASSERT_NO_THROW(function->deserialize(restored_null.data(), null_reader, arena));
+                EXPECT_FALSE(null_reader.has_remaining());
+                function->merge(null_global.data(), restored_null.data(), arena);
+
+                auto null_result = function->get_return_type()->create_column();
+                function->insert_result_into(null_global.data(), *null_result);
+                ASSERT_EQ(null_result->size(), 1);
+                EXPECT_TRUE(null_result->is_null_at(0));
+
+                AggregateFunctionGuard value_state(function.get());
+                auto one_row = source_type->create_column();
+                one_row->insert(file_aggregate_value(1));
+                const IColumn* one_columns[] = {one_row.get()};
+                function->add_batch_single_place(one_row->size(), value_state.data(), one_columns,
+                                                 arena);
+                function->merge(null_global.data(), value_state.data(), arena);
+                auto merged_result = function->get_return_type()->create_column();
+                function->insert_result_into(null_global.data(), *merged_result);
+                ASSERT_EQ(merged_result->size(), 1);
+                ASSERT_FALSE(merged_result->is_null_at(0));
+                expect_file_payload((*merged_result)[0], 1);
+            }
+
+            AggregateFunctionGuard partial(function.get());
+            AggregateFunctionGuard restored(function.get());
+            AggregateFunctionGuard global(function.get());
+            auto source = source_type->create_column();
+            if (nullable) {
+                source->insert_default();
+            }
+            source->insert(file_aggregate_value(1));
+            source->insert(file_aggregate_value(2));
+            const IColumn* columns[] = {source.get()};
+            function->add_batch_single_place(source->size(), partial.data(), columns, arena);
+
+            ColumnString buffer;
+            VectorBufferWriter writer(buffer);
+            function->serialize(partial.data(), writer);
+            writer.commit();
+            source->clear();
+            function->reset(partial.data());
+
+            VectorBufferReader reader(buffer.get_data_at(0));
+            ASSERT_NO_THROW(function->deserialize(restored.data(), reader, arena));
+            EXPECT_FALSE(reader.has_remaining());
+            function->merge(global.data(), restored.data(), arena);
+            function->merge(global.data(), restored.data(), arena);
+
+            auto result = function->get_return_type()->create_column();
+            function->insert_result_into(global.data(), *result);
+            ASSERT_EQ(result->size(), 1);
+            ASSERT_FALSE(result->is_null_at(0));
+            expect_file_payload((*result)[0], 1);
+        }
+    }
+}
+
 } // namespace doris
