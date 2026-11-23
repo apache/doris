@@ -35,8 +35,10 @@ namespace doris {
 using namespace ErrorCode;
 
 VHeapMergeIterator::VHeapMergeIterator(std::vector<RowwiseIteratorUPtr> children,
-                                       ReadSchemaSPtr read_schema)
-        : _read_schema(std::move(read_schema)), _num_key_columns(_read_schema->num_key_columns()) {
+                                       ReadSchemaSPtr read_schema, HeapMergeOrder order)
+        : _read_schema(std::move(read_schema)),
+          _num_key_columns(_read_schema->num_key_columns()),
+          _order(std::move(order)) {
     _children.reserve(children.size());
     for (auto& child : children) {
         _children.emplace_back();
@@ -101,16 +103,33 @@ Status VHeapMergeIterator::_read_next_block(Child& child, bool* eof) {
 bool VHeapMergeIterator::_less_than_current_row(uint32_t child, size_t row, uint32_t other) const {
     const Block& block = _children[child].block;
     const Child& other_child = _children[other];
-    for (size_t ordinal = 0; ordinal < _num_key_columns; ++ordinal) {
-        // NULLs first (-1).
-        const int r = block.get_by_position(ordinal).column->compare_at(
-                row, other_child.pos, *other_child.block.get_by_position(ordinal).column, -1);
-        if (r != 0) {
-            return r < 0;
+    if (!_order.sort_columns.empty()) {
+        for (uint32_t ordinal : _order.sort_columns) {
+            const int r = block.get_by_position(ordinal).column->compare_at(
+                    row, other_child.pos, *other_child.block.get_by_position(ordinal).column, -1);
+            if (r != 0) {
+                return _order.descending ? r > 0 : r < 0;
+            }
+        }
+    } else {
+        for (size_t ordinal = 0; ordinal < _num_key_columns; ++ordinal) {
+            // NULLs are smallest (-1).
+            const int r = block.get_by_position(ordinal).column->compare_at(
+                    row, other_child.pos, *other_child.block.get_by_position(ordinal).column, -1);
+            if (r != 0) {
+                return _order.descending ? r > 0 : r < 0;
+            }
         }
     }
-    // The same key: the newer child first.
-    return child > other;
+    if (_order.tie_breaker_ordinal >= 0) {
+        const auto pos = static_cast<size_t>(_order.tie_breaker_ordinal);
+        const int r = block.get_by_position(pos).column->compare_at(
+                row, other_child.pos, *other_child.block.get_by_position(pos).column, -1);
+        if (r != 0) {
+            return _order.tie_breaker_ascending ? r < 0 : r > 0;
+        }
+    }
+    return _order.older_child_first ? child < other : child > other;
 }
 
 size_t VHeapMergeIterator::_rows_before_next_child(uint32_t child, size_t limit) const {

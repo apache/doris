@@ -39,6 +39,7 @@
 
 namespace doris {
 class BlockIterator;
+struct HeapMergeOrder;
 class ColumnPredicate;
 class RuntimeProfile;
 class RuntimeState;
@@ -70,6 +71,8 @@ private:
     enum class BlockIterMode {
         NONE,
         TOPN,
+        DIRECT,
+        KEY_ORDERED,
         AGG_FOLD,
     };
 
@@ -110,11 +113,14 @@ private:
     Status _validate_merge_schema(int32_t tie_breaker_ordinal) const;
     Status _collect_key_ordered_children(const ReaderParams& read_params,
                                          std::vector<RowwiseIteratorUPtr>* children);
+    Status _init_direct_iter(const ReaderParams& read_params,
+                             std::unique_ptr<BlockIterator>* out_iter);
+    Status _init_key_ordered_iter(const ReaderParams& read_params,
+                                  std::unique_ptr<BlockIterator>* out_iter);
+    Status _init_heap_merge(std::vector<RowwiseIteratorUPtr> children, HeapMergeOrder order,
+                            RuntimeState* runtime_state, RowwiseIteratorUPtr* merge_iter);
     // Set up `_block_iter` for AGG_FOLD reads.
     Status _init_agg_key_iter(const ReaderParams& read_params);
-    // Set `*merge_iter` to the merge of `children` by the key columns.
-    Status _init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
-                               RuntimeState* runtime_state, RowwiseIteratorUPtr* merge_iter);
 
     // Set up `_block_iter` for TOPN reads.
     Status _init_topn_iter(const ReaderParams& read_params);

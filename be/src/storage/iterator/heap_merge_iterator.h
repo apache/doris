@@ -32,13 +32,29 @@ namespace doris {
 class RuntimeProfile;
 class RuntimeState;
 
-// Merges key-ordered children into one key-ordered stream; rows of the same key come newer child
-// first. An output Block may end inside the rows of a key, and a child's Block that sorts wholly
-// before the other children is passed on whole instead of copied. It does not init() the
-// children.
+// Sort order of VHeapMergeIterator. By default, compares the leading key columns of the read
+// schema ascending (NULLs first), with newer children (higher index) first on ties.
+struct HeapMergeOrder {
+    // Optional column position compared when the sort columns are equal, or -1 if none.
+    int32_t tie_breaker_ordinal = -1;
+    // True when smaller values of `tie_breaker_ordinal` sort first (e.g. changelog TSO);
+    // false when larger values sort first (e.g. UNIQUE_KEYS sequence column).
+    bool tie_breaker_ascending = false;
+    // True when an older child (smaller index) sorts first on ties; false when a newer child
+    // sorts first.
+    bool older_child_first = false;
+    // Explicit column positions to compare; when empty, compares `0..num_key_columns - 1`.
+    std::vector<uint32_t> sort_columns;
+    bool descending = false;
+};
+
+// Merges key-ordered children into one ordered stream. An output Block may end inside the rows of
+// a key, and a child's Block that sorts wholly before the other children is passed on whole
+// instead of copied. It does not init() the children.
 class VHeapMergeIterator final : public RowwiseIterator {
 public:
-    VHeapMergeIterator(std::vector<RowwiseIteratorUPtr> children, ReadSchemaSPtr read_schema);
+    VHeapMergeIterator(std::vector<RowwiseIteratorUPtr> children, ReadSchemaSPtr read_schema,
+                       HeapMergeOrder order = {});
 
     ~VHeapMergeIterator() override = default;
 
@@ -71,8 +87,7 @@ private:
     Status _push_back_to_heap(uint32_t child);
 
     // Whether row `row` of child `child` sorts before the current row of child `other`; both are
-    // indexes into `_children`. Rows with the same key go in child order, the newer child (the
-    // higher index) first.
+    // indexes into `_children`.
     bool _less_than_current_row(uint32_t child, size_t row, uint32_t other) const;
     // How many rows of child `child`, which is out of the heap, from its current row on sort
     // before the current row of the next child, `limit` at most. The heap must not be empty.
@@ -99,6 +114,7 @@ private:
     const ReadSchemaSPtr _read_schema;
     // The key columns lead the read schema.
     const size_t _num_key_columns;
+    const HeapMergeOrder _order;
 
     // From init():
     size_t _block_row_max = 0;
