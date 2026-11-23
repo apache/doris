@@ -296,8 +296,6 @@ public class GroupExpression {
         this.children.forEach(child -> child.removeParentExpression(this));
         this.children.clear();
         this.ownerGroup = null;
-        // Mark unused only after detaching: a recursive owner-group merge can be rejected to avoid a cycle.
-        this.setUnused(true);
     }
 
     public Cost getCost() {

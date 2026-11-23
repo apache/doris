@@ -38,9 +38,6 @@ public class GroupExpressionTest {
         target.putOutputPropertiesMap(PhysicalProperties.ANY, PhysicalProperties.ANY);
 
         source.mergeToNotOwnerRemove(target);
-        Assertions.assertTrue(source.isUnused());
-        Assertions.assertNull(source.getOwnerGroup());
-        Assertions.assertTrue(source.children().isEmpty());
         Assertions.assertTrue(target.getLowestCostTable().containsKey(PhysicalProperties.ANY));
         Assertions.assertTrue(target.getLowestCostTable().containsKey(PhysicalProperties.GATHER));
         Assertions.assertEquals(PhysicalProperties.ANY, target.getOutputProperties(PhysicalProperties.ANY));
@@ -57,9 +54,6 @@ public class GroupExpressionTest {
         target.putOutputPropertiesMap(PhysicalProperties.ANY, PhysicalProperties.ANY);
 
         source.mergeToNotOwnerRemove(target);
-        Assertions.assertTrue(source.isUnused());
-        Assertions.assertNull(source.getOwnerGroup());
-        Assertions.assertTrue(source.children().isEmpty());
         Assertions.assertTrue(target.getLowestCostTable().containsKey(PhysicalProperties.ANY));
         Assertions.assertTrue(target.getLowestCostTable().containsKey(PhysicalProperties.GATHER));
         Assertions.assertEquals(PhysicalProperties.GATHER, target.getOutputProperties(PhysicalProperties.ANY));

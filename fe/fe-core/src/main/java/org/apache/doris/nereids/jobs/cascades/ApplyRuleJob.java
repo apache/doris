@@ -23,6 +23,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -75,10 +76,11 @@ public class ApplyRuleJob extends Job {
                 if (newPlan == plan) {
                     continue;
                 }
-                CopyInResult result = context.getCascadesContext()
-                        .getMemo()
-                        .copyIn(newPlan, groupExpression.getOwnerGroup(), false,
-                                context.getCascadesContext().getStatementContext().isDpHyp());
+                Memo memo = context.getCascadesContext().getMemo();
+                boolean isDpHyp = context.getCascadesContext().getStatementContext().isDpHyp();
+                CopyInResult result = rule.getRuleType().canMergeGroups()
+                        ? memo.copyIn(newPlan, groupExpression.getOwnerGroup(), false, isDpHyp)
+                        : memo.copyInWithoutGroupMerge(newPlan, groupExpression.getOwnerGroup(), isDpHyp);
                 if (!result.generateNewExpression) {
                     continue;
                 }
