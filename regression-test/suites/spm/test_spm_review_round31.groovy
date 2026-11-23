@@ -42,6 +42,7 @@ suite("test_spm_review_round31", "spm") {
     // surface as an error, never silently re-run the original query.
     sql """set enable_spm_fallback = false"""
     sql """set enable_spm_rewrite = true"""
+    sql """set enable_sql_cache = false"""
 
     // ==================== setup: tables (drop before use, keep after) ====================
     sql """DROP TABLE IF EXISTS spm_r31_t2"""
@@ -68,11 +69,10 @@ suite("test_spm_review_round31", "spm") {
     """
     sql """INSERT INTO spm_r31_t3 VALUES (1, 10), (2, 20)"""
 
-    // Global baselines are cluster-wide state and other SPM suites may run their own in
-    // parallel: every SHOW here is scoped to this suite's tables and only baselines
-    // matching them are dropped or asserted on.
+    // These cases cover frozen SQL and its results. Use session baselines so a
+    // global refresh cannot invalidate a cold lookup during the EXPLAIN check.
     def ownBaselines = {
-        sql("""SHOW BASELINE PLANS""").findAll { row ->
+        sql("""SHOW BASELINE PLANS WHERE scope = 'SESSION'""").findAll { row ->
             row[1].toString().contains("spm_r31_t2") || row[1].toString().contains("spm_r31_t3")
         }
     }
@@ -90,33 +90,36 @@ suite("test_spm_review_round31", "spm") {
         // ==================== #2: the quoted count() column stays an argument ====================
         String countCol = "SELECT count(`count()`) AS c FROM spm_r31_t2"
         List<List<Object>> created = sql(
-                """CREATE GLOBAL BASELINE PLAN '${countCol}' WITH '${countCol}'""")
+                """CREATE SESSION BASELINE PLAN '${countCol}' WITH '${countCol}'""")
         assertEquals(1, created.size(), "CREATE should return one row, got: ${created}")
         long countId = Long.parseLong(created[0][0].toString())
         String countPlan = ownBaselines().find { Long.parseLong(it[0].toString()) == countId }[4]
                 .toString()
+        assertTrue(countPlan != countCol, "the COUNT case requires frozen SQL: " + countPlan)
         assertTrue(countPlan.contains("count(`count()`)"),
                 "the frozen SQL must keep the quoted column as the argument, not count(*): "
                         + countPlan)
-        assertTrue(explainOf(countCol).contains("SPM baseline hit: id=${countId}"),
-                "the count(`count()`) query must hit its baseline: " + explainOf(countCol))
-        order_qt_count_column_is_not_a_star """SELECT count(`count()`) AS c FROM spm_r31_t2"""
+        String countExplain = explainOf(countCol)
+        assertTrue(countExplain.contains("SPM baseline hit: id=${countId},"),
+                "the count(`count()`) query must hit its baseline: " + countExplain)
+        order_qt_count_column_is_not_a_star countCol
 
         // ==================== #6: a user column named GROUPING_ID ====================
         String groupingCol = "SELECT `GROUPING_ID`, k + 1 AS kk FROM spm_r31_t3"
         List<List<Object>> createdGrouping = sql(
-                """CREATE GLOBAL BASELINE PLAN '${groupingCol}' WITH '${groupingCol}'""")
+                """CREATE SESSION BASELINE PLAN '${groupingCol}' WITH '${groupingCol}'""")
         assertEquals(1, createdGrouping.size(),
                 "CREATE should return one row, got: ${createdGrouping}")
         long groupingId = Long.parseLong(createdGrouping[0][0].toString())
         String groupingPlan = ownBaselines()
                 .find { Long.parseLong(it[0].toString()) == groupingId }[4].toString()
+        assertTrue(groupingPlan != groupingCol, "the GROUPING_ID case requires frozen SQL: " + groupingPlan)
         assertTrue(groupingPlan.contains("GROUPING_ID"),
                 "the frozen SQL must export the user column GROUPING_ID: " + groupingPlan)
-        assertTrue(explainOf(groupingCol).contains("SPM baseline hit: id=${groupingId}"),
-                "the GROUPING_ID query must hit its baseline: " + explainOf(groupingCol))
-        order_qt_user_column_grouping_id """SELECT `GROUPING_ID`, k + 1 AS kk FROM spm_r31_t3
-                ORDER BY k"""
+        String groupingExplain = explainOf(groupingCol)
+        assertTrue(groupingExplain.contains("SPM baseline hit: id=${groupingId},"),
+                "the GROUPING_ID query must hit its baseline: " + groupingExplain)
+        order_qt_user_column_grouping_id groupingCol
 
         // leave no baselines behind for other runs
         dropOwnBaselines()
