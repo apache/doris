@@ -48,6 +48,7 @@
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "common/bvars.h"
@@ -3598,6 +3599,9 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
     CloneChainReader reader(instance_id, txn_kv_.get(), resource_mgr_.get());
+    const std::unordered_set<int64_t> versioned_row_counts(
+            request->tablet_ids_with_row_count_version().begin(),
+            request->tablet_ids_with_row_count_version().end());
     for (auto& i : request->tablet_idx()) {
         TabletIndexPB idx(i);
         // FIXME(plat1ko): Get all tablet stats in one txn
@@ -3637,6 +3641,33 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
                 response->clear_tablet_stats();
                 return;
             }
+        }
+        if (versioned_row_counts.contains(idx.tablet_id())) {
+            // Read coverage from the same KV transaction as tablet_stats.
+            VersionPB version;
+            if (is_versioned_read) {
+                err = reader.get_partition_version(txn.get(), idx.partition_id(), &version,
+                                                   nullptr);
+            } else {
+                auto key = partition_version_key(
+                        {instance_id, idx.db_id(), idx.table_id(), idx.partition_id()});
+                std::string value;
+                err = txn->get(key, &value);
+                if (err == TxnErrorCode::TXN_OK && !version.ParseFromString(value)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = fmt::format("malformed partition version, tablet_id={}", idx.tablet_id());
+                    return;
+                }
+            }
+            if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get row-count version, err={}, tablet_id={}", err,
+                                  idx.tablet_id());
+                return;
+            }
+            // A new partition starts at version 1. Do not count pending lazy versions here.
+            tablet_stats->set_row_count_partition_version(version.has_version() ? version.version()
+                                                                                : 1);
         }
 #ifdef NDEBUG
         // Force data size >= 0 to reduce the losses caused by bugs
