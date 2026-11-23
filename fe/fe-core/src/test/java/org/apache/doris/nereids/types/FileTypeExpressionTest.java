@@ -40,18 +40,32 @@ import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAggV2;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MinMap;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeFile;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeFileOuter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FlGetBinary;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdaf;
@@ -63,7 +77,6 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -113,7 +126,7 @@ public class FileTypeExpressionTest extends TestWithFeService {
             Assertions.assertThrows(NotSupportedException.class, divide::getDataType);
             Assertions.assertDoesNotThrow(divide::checkInputDataTypes);
             Assertions.assertDoesNotThrow(alias::checkInputDataTypes);
-            Assertions.assertDoesNotThrow(() -> CheckAnalysis.checkFilePlan(relation));
+            Assertions.assertDoesNotThrow(() -> CheckAnalysis.checkKeyTypes(relation));
             Assertions.assertFalse(context.getSessionVariable().isEnableDecimal256());
         } finally {
             if (previous == null) {
@@ -425,8 +438,10 @@ public class FileTypeExpressionTest extends TestWithFeService {
             assertAnalysisError("in predicate could not contains complex type",
                     () -> TypeCoercionUtils.processInPredicate(
                             new InPredicate(value, Collections.singletonList(value))));
-            assertAnalysisError("does not support FILE",
-                    () -> ExpressionUtils.checkFileKey(value, "ORDER BY"));
+            assertAnalysisError("does not support type",
+                    () -> value.getDataType().checkKeyUse(DataType.KeyUse.ORDERING, "ORDER BY"));
+            assertAnalysisError("does not support type",
+                    () -> value.getDataType().checkKeyUse(DataType.KeyUse.GROUP_EQUALITY, "GROUP BY"));
         }
     }
 
@@ -525,12 +540,36 @@ public class FileTypeExpressionTest extends TestWithFeService {
             assertAnalysisError("array_distinct does not support element type",
                     () -> TypeCoercionUtils.processBoundFunction(
                             new ArrayDistinct(new SlotReference("a", ArrayType.of(file.getDataType())))), sqlType);
+            Expression mapWithFileValue = new SlotReference("m", MapType.of(StringType.INSTANCE, file.getDataType()));
+            Expression mapWithFileKey = new SlotReference("mk", MapType.of(file.getDataType(), IntegerType.INSTANCE));
+            for (BoundFunction rejected : Arrays.asList(new Min(file), new Max(file),
+                    new CountAtMin(file), new CountAtMax(file),
+                    new MinBy(key, file), new MaxBy(key, file),
+                    new MinMap(mapWithFileValue), new MaxMap(mapWithFileValue))) {
+                String expectedMessage = sqlType.equals("ARRAY<FILE>")
+                        ? "Can not find the compatibility function signature"
+                        : "column must use with specific function";
+                assertAnalysisError(expectedMessage,
+                        () -> TypeCoercionUtils.processBoundFunction(rejected),
+                        rejected.getName() + " " + sqlType);
+            }
+            for (BoundFunction rejectedBySignature : Arrays.asList(
+                    new CollectSet(file), new MapAggV2(file, key),
+                    new TopNArray(file, key),
+                    new MultiDistinctCount(file),
+                    new MinMap(mapWithFileKey), new MaxMap(mapWithFileKey),
+                    new GroupArrayIntersect(new SlotReference("a", ArrayType.of(file.getDataType()))),
+                    new GroupArrayUnion(new SlotReference("a", ArrayType.of(file.getDataType()))),
+                    new Greatest(file, file), new Least(file, file), new NullIf(file, file),
+                    StateCombinator.create(new CollectSet(file)))) {
+                assertAnalysisError("Can not find the compatibility function signature",
+                        () -> TypeCoercionUtils.processBoundFunction(rejectedBySignature),
+                        rejectedBySignature.getName() + " " + sqlType);
+            }
         }
-        Expression file = new SlotReference("f", FileType.INSTANCE);
-        assertAnalysisError("column must use with specific function",
-                () -> TypeCoercionUtils.processBoundFunction(new Min(file)));
-        assertAnalysisError("column must use with specific function",
-                () -> TypeCoercionUtils.processBoundFunction(new MinBy(key, file)));
+        Expression arrayOfFile = new SlotReference("af", type("ARRAY<FILE>"));
+        assertAnalysisError("Can not find the compatibility function signature",
+                () -> TypeCoercionUtils.processBoundFunction(StateCombinator.create(new Min(arrayOfFile))));
     }
 
     @Test
@@ -670,7 +709,7 @@ public class FileTypeExpressionTest extends TestWithFeService {
                 "select u from (select to_file('file_expr', null) f) t lateral view explode_file(f) e as u, o, s, c, h",
                 "select u from (select to_file('file_expr', null) f) t "
                         + "lateral view explode_file_outer(f) e as u, o, s, c, h")) {
-            String expectedMessage = "does not support FILE";
+            String expectedMessage = "does not support type";
             if (sql.contains("lateral view")) {
                 expectedMessage = "has 6 columns available but 5 columns specified";
             } else if (sql.contains("missing")) {
@@ -685,6 +724,48 @@ public class FileTypeExpressionTest extends TestWithFeService {
             assertAnalysisError(expectedMessage,
                     () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql), sql);
         }
+    }
+
+    @Test
+    public void testAggregateOrderByAndKeyRestrictionsSql() {
+        Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(
+                "select group_concat(path order by size) "
+                        + "from list_files('resource'='file_expr', 'uri'='s3://file-test/prefix/')"));
+        for (String sql : Arrays.asList(
+                "select group_concat(path order by file) "
+                        + "from list_files('resource'='file_expr', 'uri'='s3://file-test/prefix/')",
+                "select group_concat(path order by array(file)) "
+                        + "from list_files('resource'='file_expr', 'uri'='s3://file-test/prefix/')")) {
+            assertAnalysisError("ORDER BY does not support type",
+                    () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql), sql);
+        }
+        String input = " from (select to_file('file_expr', null) f) t";
+        for (String select : Arrays.asList(
+                "select collect_list(distinct f)",
+                "select array_agg(distinct f)")) {
+            assertAnalysisError("does not support type",
+                    () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(select + input),
+                    select);
+        }
+        for (String select : Arrays.asList(
+                "select min(array(f))",
+                "select max(array(f))",
+                "select min_by(1, array(f))",
+                "select collect_set(f)",
+                "select collect_set(array(f))",
+                "select map_agg(f, 1)",
+                "select topn_array(f, 1)",
+                "select group_array_intersect(array(f))",
+                "select group_array_union(array(f))",
+                "select greatest(f, f)",
+                "select nullif(f, f)")) {
+            assertAnalysisError("Can not find the compatibility function signature",
+                    () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(select + input),
+                    select);
+        }
+        assertAnalysisError("does not support type",
+                () -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                        .analyze("select f" + input + " group by grouping sets ((f), ())"));
     }
 
     @Test

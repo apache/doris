@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -67,8 +66,12 @@ public class InSubquery extends SubqueryExpr implements UnaryExpression {
 
     @Override
     protected TypeCheckResult checkInputDataTypesInternal() {
-        ExpressionUtils.checkFileKey(getCompareExpr(), "IN");
-        ExpressionUtils.checkFileKey(getSubqueryOutput(), "IN");
+        for (Expression operand : ImmutableList.of(getCompareExpr(), getSubqueryOutput())) {
+            DataType type = operand.getDataType();
+            if (!type.allowsKeyUse(DataType.KeyUse.GROUP_EQUALITY)) {
+                return new TypeCheckResult(false, "IN does not support type " + type.toSql());
+            }
+        }
         return TypeCheckResult.SUCCESS;
     }
 

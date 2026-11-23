@@ -211,6 +211,11 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
     }
 
     @Override
+    public boolean allowsKeyUse(KeyUse keyUse) {
+        return fields.stream().allMatch(field -> field.getDataType().allowsKeyUse(keyUse));
+    }
+
+    @Override
     public Optional<Expression> zeroValue() {
         return Optional.empty();
     }

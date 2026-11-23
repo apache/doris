@@ -800,6 +800,24 @@ public abstract class DataType {
         return this instanceof FileType;
     }
 
+    /** Key capabilities required by ordering, grouping, or deduplication operations. */
+    public enum KeyUse {
+        ORDERING,
+        GROUP_EQUALITY
+    }
+
+    /** Whether expressions of this bound type can participate in keys requiring {@code keyUse}. */
+    public boolean allowsKeyUse(KeyUse keyUse) {
+        return true;
+    }
+
+    /** Reject this bound type when {@code operation} requires an unsupported key capability. */
+    public void checkKeyUse(KeyUse keyUse, String operation) {
+        if (!allowsKeyUse(keyUse)) {
+            throw new AnalysisException(operation + " does not support type " + toSql());
+        }
+    }
+
     public boolean isStructType() {
         return this instanceof StructType;
     }

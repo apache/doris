@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -51,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -130,7 +132,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 any().thenApply(ctx -> {
                     Plan plan = ctx.root;
                     checkExpressionInputTypes(plan);
-                    CheckAnalysis.checkFilePlan(plan);
+                    CheckAnalysis.checkKeyTypes(plan);
                     checkUnexpectedExpressions(plan);
                     checkAggregateFunction(plan);
                     checkGroupingScalarFunction(plan);
@@ -148,23 +150,23 @@ public class CheckAnalysis implements AnalysisRuleFactory {
         );
     }
 
-    /** Validate operator keys after expression binding. */
-    public static void checkFilePlan(Plan plan) {
-        if (plan instanceof LogicalSort) {
-            ((LogicalSort<?>) plan).getOrderKeys()
-                    .forEach(key -> ExpressionUtils.checkFileKey(key.getExpr(), "ORDER BY"));
+    /** Validate operator keys against their bound data types. */
+    public static void checkKeyTypes(Plan plan) {
+        if (plan instanceof Sort) {
+            ((Sort) plan).getOrderKeys()
+                    .forEach(key -> key.getExpr().getDataType()
+                            .checkKeyUse(DataType.KeyUse.ORDERING, "ORDER BY"));
         }
-        if (plan instanceof LogicalAggregate) {
-            ((LogicalAggregate<?>) plan).getGroupByExpressions()
-                    .forEach(key -> ExpressionUtils.checkFileKey(key, "GROUP BY"));
-        }
-        if (plan instanceof LogicalRepeat) {
-            ((LogicalRepeat<?>) plan).getGroupByExpressions()
-                    .forEach(key -> ExpressionUtils.checkFileKey(key, "GROUPING SETS"));
+        if (plan instanceof Aggregate) {
+            String operation = plan instanceof LogicalRepeat ? "GROUPING SETS" : "GROUP BY";
+            ((Aggregate<?>) plan).getGroupByExpressions()
+                    .forEach(key -> key.getDataType()
+                            .checkKeyUse(DataType.KeyUse.GROUP_EQUALITY, operation));
         }
         if (plan instanceof LogicalSetOperation
                 && (!(plan instanceof LogicalUnion) || ((LogicalSetOperation) plan).getQualifier() != Qualifier.ALL)) {
-            plan.getOutput().forEach(key -> ExpressionUtils.checkFileKey(key, plan.getType().toString()));
+            plan.getOutput().forEach(key -> key.getDataType()
+                    .checkKeyUse(DataType.KeyUse.GROUP_EQUALITY, plan.getType().toString()));
         }
     }
 

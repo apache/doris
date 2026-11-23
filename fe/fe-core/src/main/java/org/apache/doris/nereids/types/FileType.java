@@ -74,6 +74,11 @@ public final class FileType extends DataType implements ComplexDataType, NestedC
     }
 
     @Override
+    public boolean allowsKeyUse(KeyUse keyUse) {
+        return false;
+    }
+
+    @Override
     public Optional<Expression> zeroValue() {
         return Optional.empty();
     }
