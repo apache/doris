@@ -70,6 +70,7 @@
 #include "storage/segment/page_pointer.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/segment/variant/variant_compaction_paths.h"
+#include "storage/segment/variant/variant_desc_fingerprint.h"
 #include "storage/segment/variant/variant_ext_meta_writer.h"
 #include "storage/segment/variant_stats_calculator.h"
 #include "storage/storage_engine.h"
@@ -767,6 +768,10 @@ Status VerticalSegmentWriter::finalize_columns(uint64_t* index_size) {
 
     group_finalized = true;
     return Status::OK();
+}
+
+std::string VerticalSegmentWriter::variant_desc_fingerprint() const {
+    return variant_util::build_segment_desc_fingerprint(_footer, *_tablet_schema);
 }
 
 Status VerticalSegmentWriter::finalize_footer(uint64_t* segment_file_size,

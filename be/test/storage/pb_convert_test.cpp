@@ -22,6 +22,7 @@
 #include <iostream>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "google/protobuf/message.h"
@@ -184,6 +185,32 @@ auto set_diff = [](auto a, auto b) {
 
 // ensure that PBs need to be converted have identical fields, so that they can
 // be inter-converted
+TEST(PbConvert, VariantDescFingerprintRoundTrip) {
+    RowsetMetaPB local;
+    local.set_rowset_id(0);
+    auto* fingerprint = local.mutable_variant_desc_fingerprint();
+    fingerprint->set_format_version(1);
+    fingerprint->set_layout_sha256(std::string(64, 'a'));
+    fingerprint->set_segment_set_sha256(std::string(64, 'b'));
+    const auto expected = fingerprint->SerializeAsString();
+
+    auto cloud = doris_rowset_meta_to_cloud(local);
+    EXPECT_EQ(expected, cloud.variant_desc_fingerprint().SerializeAsString());
+    EXPECT_EQ(expected, cloud_rowset_meta_to_doris(cloud).variant_desc_fingerprint().SerializeAsString());
+
+    auto moved_cloud = doris_rowset_meta_to_cloud(std::move(local));
+    EXPECT_EQ(expected, moved_cloud.variant_desc_fingerprint().SerializeAsString());
+    auto moved_local = cloud_rowset_meta_to_doris(std::move(moved_cloud));
+    EXPECT_EQ(expected, moved_local.variant_desc_fingerprint().SerializeAsString());
+
+    RowsetMetaPB legacy_local;
+    legacy_local.set_rowset_id(0);
+    doris_rowset_meta_to_cloud(&cloud, legacy_local);
+    EXPECT_FALSE(cloud.has_variant_desc_fingerprint());
+    cloud_rowset_meta_to_doris(&moved_local, std::move(cloud));
+    EXPECT_FALSE(moved_local.has_variant_desc_fingerprint());
+}
+
 TEST(PbConvert, ensure_identical_fields) {
     EXPECT_EQ(RowsetMetaPB::GetDescriptor()->field_count(), RowsetMetaCloudPB::GetDescriptor()->field_count());
     EXPECT_EQ(TabletSchemaPB::GetDescriptor()->field_count(),

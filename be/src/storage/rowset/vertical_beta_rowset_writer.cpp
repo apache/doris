@@ -226,10 +226,14 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
         //uint64_t footer_position = 0;
         segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
         auto segment_id = segment_writer->segment_id();
+        auto desc_fingerprint = segment_writer->variant_desc_fingerprint();
         auto st = segment_writer->finalize_footer(&segment_size, &index_file_cache_info);
         if (!st.ok()) {
             LOG(WARNING) << "Fail to finalize segment footer, " << st;
             return st;
+        }
+        if (!desc_fingerprint.empty()) {
+            this->_vertical_desc_fingerprints.emplace_back(segment_id, std::move(desc_fingerprint));
         }
         this->_total_data_size += segment_size;
         TEST_SYNC_POINT_CALLBACK("VerticalBetaRowsetWriter::final_flush_segment_writer",

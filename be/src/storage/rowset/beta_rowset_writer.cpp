@@ -57,6 +57,7 @@
 #include "storage/rowset/segcompaction.h"
 #include "storage/schema_change/schema_change.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/variant/variant_desc_fingerprint.h"
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
@@ -117,6 +118,7 @@ SegmentStatistics copy_segment_statistics_with_truncated_key_bounds(const Segmen
     dst.row_num = src.row_num;
     dst.data_size = src.data_size;
     dst.index_size = src.index_size;
+    dst.variant_desc_fingerprint = src.variant_desc_fingerprint;
     key_bounds_truncated = copy_key_bounds_with_truncation(src.key_bounds, &dst.key_bounds);
     return dst;
 }
@@ -1076,6 +1078,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     std::vector<KeyBoundsPB> segments_encoded_key_bounds;
     std::vector<uint32_t> segment_rows;
     std::vector<int64_t> segment_ids;
+    std::vector<std::pair<int64_t, std::string>> desc_fingerprints;
     std::optional<bool> segments_key_bounds_truncated;
     const bool record_segment_ids =
             _context.write_type == DataWriteType::TYPE_COMPACTION && _segment_start_id != 0;
@@ -1101,6 +1104,9 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
             // segcompaction don't modify _segment_num_rows, so we need to get segment rows from _segid_statistics_map for load
             segment_rows.push_back(cast_set<uint32_t>(itr.second.row_num));
+            if (!itr.second.variant_desc_fingerprint.empty()) {
+                desc_fingerprints.emplace_back(itr.first, itr.second.variant_desc_fingerprint);
+            }
         }
         segments_key_bounds_truncated = _segments_key_bounds_truncated;
     }
@@ -1161,6 +1167,11 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     if (!segment_ids.empty()) {
         DORIS_CHECK_EQ(segment_ids.size(), segment_num);
         rowset_meta->set_segment_ids(segment_ids);
+    }
+    if (completed_segment_ids == nullptr) {
+        variant_util::set_rowset_desc_fingerprint(
+                *rowset_meta, _vertical_desc_fingerprints.empty() ? desc_fingerprints
+                                                                  : _vertical_desc_fingerprints);
     }
     rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
     rowset_meta->set_total_disk_size(total_data_size + _total_data_size + total_index_size +
@@ -1371,6 +1382,7 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
     uint32_t row_num = (*writer)->row_count();
     uint64_t segment_size;
 
+    auto desc_fingerprint = (*writer)->variant_desc_fingerprint();
     auto s = (*writer)->finalize_footer(&segment_size);
     if (!s.ok()) {
         return Status::Error<WRITER_DATA_WRITE_ERROR>("failed to finalize segment: {}",
@@ -1383,6 +1395,7 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
     segstat.row_num = row_num;
     segstat.data_size = segment_size;
     segstat.index_size = inverted_index_file_size;
+    segstat.variant_desc_fingerprint = std::move(desc_fingerprint);
     bool key_bounds_truncated = copy_key_bounds_with_truncation(key_bounds, &segstat.key_bounds);
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
