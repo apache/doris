@@ -53,6 +53,7 @@
 #include "storage/iterator/direct_iterator.h"
 #include "storage/iterator/heap_merge_iterator.h"
 #include "storage/iterator/merge_block_iterator.h"
+#include "storage/iterator/sequence_map_block_iterator.h"
 #include "storage/iterator/topn_block_iterator.h"
 #include "storage/iterator/unique_key_block_iterator.h"
 #include "storage/iterator/vcollect_iterator.h"
@@ -585,7 +586,7 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
 }
 
 BlockReader::BlockIterMode BlockReader::_block_iter_mode(const ReaderParams& read_params,
-                                                         bool /*merge_by_sequence_mapping*/) const {
+                                                         bool merge_by_sequence_mapping) const {
     if (!config::enable_new_block_iterator) {
         return BlockIterMode::NONE;
     }
@@ -610,7 +611,8 @@ BlockReader::BlockIterMode BlockReader::_block_iter_mode(const ReaderParams& rea
         return BlockIterMode::KEY_ORDERED;
     }
     if (_tablet_schema->keys_type() == KeysType::UNIQUE_KEYS) {
-        return merge_by_sequence_mapping ? BlockIterMode::NONE : BlockIterMode::UNIQUE_NEWEST;
+        return merge_by_sequence_mapping ? BlockIterMode::SEQUENCE_MAP
+                                         : BlockIterMode::UNIQUE_NEWEST;
     }
     if (_tablet_schema->keys_type() == KeysType::AGG_KEYS) {
         return BlockIterMode::AGG_FOLD;
@@ -637,6 +639,8 @@ Status BlockReader::_init_block_iter(const ReaderParams& read_params, BlockIterM
         return _init_key_ordered_iter(read_params, &_block_iter);
     case BlockIterMode::UNIQUE_NEWEST:
         return _init_unique_key_iter(read_params);
+    case BlockIterMode::SEQUENCE_MAP:
+        return _init_sequence_map_iter(read_params);
     case BlockIterMode::AGG_FOLD:
         return _init_agg_key_iter(read_params);
     case BlockIterMode::NONE:
@@ -779,6 +783,28 @@ Status BlockReader::_init_unique_key_iter(const ReaderParams& read_params) {
                                      read_params.runtime_state, &merge_iter));
     _block_iter = std::make_unique<UniqueKeyBlockIterator>(std::move(merge_iter), _read_schema,
                                                            &_merged_rows);
+    return Status::OK();
+}
+
+Status BlockReader::_init_sequence_map_iter(const ReaderParams& read_params) {
+    DORIS_CHECK(!_reader_context.read_changelog);
+    DORIS_CHECK(!read_params.read_orderby_key);
+
+    _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
+    if (!_is_rowsets_overlapping) {
+        return _init_direct_iter(read_params, &_block_iter);
+    }
+
+    std::vector<RowwiseIteratorUPtr> children;
+    RETURN_IF_ERROR(_collect_key_ordered_children(read_params, &children));
+    RETURN_IF_ERROR(_validate_merge_schema(-1));
+
+    RowwiseIteratorUPtr merge_iter;
+    RETURN_IF_ERROR(_init_heap_merge(std::move(children), HeapMergeOrder {},
+                                     read_params.runtime_state, &merge_iter));
+    _block_iter = std::make_unique<SequenceMapBlockIterator>(
+            std::move(merge_iter), batch_max_rows(), preferred_block_size_bytes(), _read_schema,
+            &_merged_rows);
     return Status::OK();
 }
 
