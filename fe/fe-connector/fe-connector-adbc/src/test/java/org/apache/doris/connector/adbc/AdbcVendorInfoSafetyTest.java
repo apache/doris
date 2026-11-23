@@ -59,28 +59,37 @@ import java.util.Optional;
 class AdbcVendorInfoSafetyTest {
     static final int CONNECTION_SCOPED_VENDOR_INFO = 0x444f0001;
 
-    @Test
-    void refusesSharedFlightInfoBeforeRequestingAVendor() {
-        try (RecordingClient client = new RecordingClient("ADBC Flight SQL Driver - Go", null)) {
+    @ParameterizedTest
+    @ValueSource(strings = {"ADBC Flight SQL Driver - Go", "FlightSQL", "ArrowFlightSQL",
+            "ADBC Flight-SQL Driver", "Flight_SQL", "aDbC fLiGhT Driver"})
+    void refusesSharedFlightInfoBeforeRequestingAVendor(String name) {
+        try (RecordingClient client = new RecordingClient(name, null)) {
             DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class, client::vendorName);
             Assertions.assertTrue(error.getMessage().contains("connection-scoped"), error.getMessage());
+            Assertions.assertEquals(1, client.isolationCalls);
             Assertions.assertEquals(0, client.vendorCalls);
         }
     }
 
-    @Test
-    void refusesExplicitlyFalseIsolationCapability() {
-        try (RecordingClient client = new RecordingClient("ADBC Flight SQL Driver - Go", false)) {
+    @ParameterizedTest
+    @ValueSource(strings = {"ADBC Flight SQL Driver - Go", "FlightSQL", "ArrowFlightSQL",
+            "ADBC Flight-SQL Driver", "Flight_SQL", "aDbC fLiGhT Driver"})
+    void refusesExplicitlyFalseIsolationCapability(String name) {
+        try (RecordingClient client = new RecordingClient(name, false)) {
             Assertions.assertThrows(DorisConnectorException.class, client::vendorName);
+            Assertions.assertEquals(1, client.isolationCalls);
             Assertions.assertEquals(0, client.vendorCalls);
         }
     }
 
-    @Test
-    void readsAnIsolatedFlightVendorOnce() {
-        try (RecordingClient client = new RecordingClient("ADBC Flight SQL Driver - Go", true)) {
+    @ParameterizedTest
+    @ValueSource(strings = {"ADBC Flight SQL Driver - Go", "FlightSQL", "ArrowFlightSQL",
+            "ADBC Flight-SQL Driver", "Flight_SQL", "aDbC fLiGhT Driver"})
+    void readsAnIsolatedFlightVendorOnce(String name) {
+        try (RecordingClient client = new RecordingClient(name, true)) {
             Assertions.assertEquals(Optional.of("DorisFE"), client.vendorName());
             Assertions.assertEquals(Optional.of("DorisFE"), client.vendorName());
+            Assertions.assertEquals(1, client.isolationCalls);
             Assertions.assertEquals(1, client.vendorCalls);
         }
     }
@@ -89,6 +98,7 @@ class AdbcVendorInfoSafetyTest {
     void otherDriversNeedNoFlightSpecificCapability() {
         try (RecordingClient client = new RecordingClient("Other ADBC Driver", null)) {
             Assertions.assertEquals(Optional.of("DorisFE"), client.vendorName());
+            Assertions.assertEquals(0, client.isolationCalls);
             Assertions.assertEquals(1, client.vendorCalls);
         }
     }

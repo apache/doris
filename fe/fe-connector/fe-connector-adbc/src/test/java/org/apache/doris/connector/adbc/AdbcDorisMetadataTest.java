@@ -37,6 +37,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.ByteArrayInputStream;
@@ -47,6 +48,7 @@ import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -205,11 +207,15 @@ class AdbcDorisMetadataTest {
         }
     }
 
-    @Test
-    void missingCurrentCatalogStopsBeforeDiscovery() {
-        try (RecordingClient client = new RecordingClient("", List.of(List.of("db_one")))) {
-            Assertions.assertThrows(DorisConnectorException.class, () -> metadata(client).listDatabaseNames(null));
+    @ParameterizedTest
+    @NullAndEmptySource
+    void missingCurrentCatalogStopsBeforeDiscovery(String catalog) {
+        try (RecordingClient client = new RecordingClient(catalog, List.of(List.of("db_one")))) {
+            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata(client).listDatabaseNames(null));
+            Assertions.assertEquals("The Doris ADBC connection must select a remote catalog", error.getMessage());
             Assertions.assertEquals(List.of("SELECT CURRENT_CATALOG()"), client.queries);
+            Assertions.assertEquals(0, client.standardMetadataReads);
             Assertions.assertEquals(1, client.closedStatements);
         }
     }
@@ -384,7 +390,7 @@ class AdbcDorisMetadataTest {
             String query = queries.get(queries.size() - 1);
             int columns = query.startsWith("SHOW FULL TABLES") ? 2 : 1;
             List<List<String>> responseRows = query.equals("SELECT CURRENT_CATALOG()")
-                    ? List.of(List.of(currentCatalog)) : rows;
+                    ? List.of(Collections.singletonList(currentCatalog)) : rows;
             List<Field> fields = new ArrayList<>();
             for (int column = 0; column < columns; column++) {
                 fields.add(new Field("column_" + column, FieldType.nullable(ArrowType.Utf8.INSTANCE), null));
@@ -397,8 +403,13 @@ class AdbcDorisMetadataTest {
                 for (List<String> row : responseRows) {
                     root.allocateNew();
                     for (int column = 0; column < columns; column++) {
-                        ((VarCharVector) root.getVector(column)).setSafe(0,
-                                row.get(column).getBytes(StandardCharsets.UTF_8));
+                        VarCharVector vector = (VarCharVector) root.getVector(column);
+                        String value = row.get(column);
+                        if (value == null) {
+                            vector.setNull(0);
+                        } else {
+                            vector.setSafe(0, value.getBytes(StandardCharsets.UTF_8));
+                        }
                     }
                     root.setRowCount(1);
                     writer.writeBatch();

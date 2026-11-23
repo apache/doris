@@ -47,8 +47,9 @@ final class AdbcDriverInfo {
         }
         // Missing identity cannot prove that an operator-supplied library is a non-Flight driver.
         // Require isolation before any vendor request when DRIVER_NAME is unavailable or empty.
+        // Custom Flight names may join SQL or use different separators; they still need isolation.
         if (name != null && !name.toString().isBlank()
-                && !name.toString().toLowerCase(Locale.ROOT).contains("flight sql")) {
+                && !name.toString().toLowerCase(Locale.ROOT).contains("flight")) {
             return;
         }
         // An old Flight library writes its process-wide info map during GetInfo(VENDOR_NAME).

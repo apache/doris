@@ -89,7 +89,9 @@ final class AdbcDorisMetadata {
                     for (int row = 0; row < root.getRowCount(); row++) {
                         List<String> values = new ArrayList<>();
                         for (int column = 0; column < root.getFieldVectors().size(); column++) {
-                            values.add(root.getVector(column).getObject(row).toString());
+                            Object value = root.getVector(column).getObject(row);
+                            // Preserve SQL NULL so the current-catalog check can report a missing selection.
+                            values.add(value == null ? null : value.toString());
                         }
                         consumer.accept(values);
                     }
