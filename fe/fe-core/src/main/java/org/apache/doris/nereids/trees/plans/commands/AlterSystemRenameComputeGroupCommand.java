@@ -77,7 +77,7 @@ public class AlterSystemRenameComputeGroupCommand extends Command implements For
             ((CloudSystemInfoService) Env.getCurrentSystemInfo()).renameComputeGroup(this.originalName, this.newName);
             // 2. if 1 not throw exception, refresh cloud cluster
             // if not do 2, will wait 10s to get new name
-            ((CloudEnv) Env.getCurrentEnv()).getCloudClusterChecker().checkNow();
+            ((CloudEnv) Env.getCurrentEnv()).getCloudMetadataSynchronizer().checkNow();
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }

@@ -77,8 +77,7 @@ public class CloudEnv extends Env {
 
     private static final Logger LOG = LogManager.getLogger(CloudEnv.class);
 
-    private CloudInstanceStatusChecker cloudInstanceStatusChecker;
-    private CloudClusterChecker cloudClusterCheck;
+    private CloudMetadataSynchronizer cloudMetadataSynchronizer;
     private CloudUpgradeMgr upgradeMgr;
 
     private CloudTabletRebalancer cloudTabletRebalancer;
@@ -127,8 +126,7 @@ public class CloudEnv extends Env {
         this.cleanCopyJobScheduler = new CleanCopyJobScheduler();
         this.loadManager = ((CloudEnvFactory) EnvFactory.getInstance())
                 .createLoadManager(loadJobScheduler, cleanCopyJobScheduler);
-        this.cloudClusterCheck = new CloudClusterChecker((CloudSystemInfoService) systemInfo);
-        this.cloudInstanceStatusChecker = new CloudInstanceStatusChecker((CloudSystemInfoService) systemInfo);
+        this.cloudMetadataSynchronizer = new CloudMetadataSynchronizer((CloudSystemInfoService) systemInfo);
         this.cloudTabletRebalancer = new CloudTabletRebalancer((CloudSystemInfoService) systemInfo);
         this.cacheHotspotMgr = new CacheHotspotManager((CloudSystemInfoService) systemInfo);
         this.upgradeMgr = new CloudUpgradeMgr((CloudSystemInfoService) systemInfo);
@@ -149,8 +147,8 @@ public class CloudEnv extends Env {
         return this.upgradeMgr;
     }
 
-    public CloudClusterChecker getCloudClusterChecker() {
-        return this.cloudClusterCheck;
+    public CloudMetadataSynchronizer getCloudMetadataSynchronizer() {
+        return this.cloudMetadataSynchronizer;
     }
 
     public CloudSnapshotHandler getCloudSnapshotHandler() {
@@ -191,7 +189,7 @@ public class CloudEnv extends Env {
 
         super.initialize(args);
         this.cloudSnapshotHandler.initialize();
-        cloudInstanceStatusChecker.start();
+        cloudMetadataSynchronizer.start();
     }
 
     @Override
@@ -199,7 +197,6 @@ public class CloudEnv extends Env {
         LOG.info("start cloud Master only daemon threads");
         super.startMasterOnlyDaemonThreads();
         cleanCopyJobScheduler.start();
-        cloudClusterCheck.start();
         cloudTabletRebalancer.start();
         if (Config.enable_fetch_cluster_cache_hotspot) {
             cacheHotspotMgr.recoverRunningJobsBeforeStart();

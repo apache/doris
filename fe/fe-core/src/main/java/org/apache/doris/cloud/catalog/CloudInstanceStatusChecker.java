@@ -26,8 +26,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.DebugPointUtil;
-import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 
@@ -45,44 +43,19 @@ import java.util.stream.Collectors;
 
 
 
-public class CloudInstanceStatusChecker extends MasterDaemon {
+public class CloudInstanceStatusChecker {
     private static final Logger LOG = LogManager.getLogger(CloudInstanceStatusChecker.class);
     private CloudSystemInfoService cloudSystemInfoService;
     // if find vcg failed sync, record it timestamp, virtual compute group id <-> timestamp
     private Map<String, Long> lastFailedSyncTimeMap = new ConcurrentHashMap<>();
 
     public CloudInstanceStatusChecker(CloudSystemInfoService cloudSystemInfoService) {
-        super("cloud instance check", Config.cloud_cluster_check_interval_second * 1000L);
         this.cloudSystemInfoService = cloudSystemInfoService;
     }
 
-    @Override
-    protected void runAfterCatalogReady() {
+    void check(Cloud.InstanceInfoPB instance) {
         try {
-            if (DebugPointUtil.isEnable("CloudInstanceStatusChecker.runAfterCatalogReady.pause")) {
-                LOG.info("CloudInstanceStatusChecker.runAfterCatalogReady.pause phase={}",
-                        DebugPointUtil.getDebugParamOrDefault(
-                                "CloudInstanceStatusChecker.runAfterCatalogReady.pause", "phase", ""));
-                return;
-            }
             long start = System.currentTimeMillis();
-            Cloud.GetInstanceResponse response = cloudSystemInfoService.getCloudInstance();
-            if (!isResponseValid(response)) {
-                return;
-            }
-
-            Cloud.InstanceInfoPB instance = response.getInstance();
-            if (DebugPointUtil.isEnable("CloudInstanceStatusChecker.afterGetInstance.pause")
-                    && instance.getClustersList().stream().anyMatch(c -> c.getClusterId().equals(
-                            DebugPointUtil.getDebugParamOrDefault(
-                                    "CloudInstanceStatusChecker.afterGetInstance.pause", "cluster_id", "")))) {
-                LOG.info("CloudInstanceStatusChecker.afterGetInstance.pause phase={}",
-                        DebugPointUtil.getDebugParamOrDefault(
-                                "CloudInstanceStatusChecker.afterGetInstance.pause", "phase", ""));
-                while (DebugPointUtil.isEnable("CloudInstanceStatusChecker.afterGetInstance.pause")) {
-                    Thread.sleep(100);
-                }
-            }
             cloudSystemInfoService.setInstanceStatus(instance.getStatus());
             syncStorageVault(instance);
             processVirtualClusters(instance.getClustersList());
@@ -90,18 +63,8 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             LOG.info("finished to cloud instance checker. cost: {} ms",
                     System.currentTimeMillis() - start);
         } catch (Exception e) {
-            LOG.warn("get instance from ms exception", e);
+            LOG.warn("failed to refresh cloud instance state", e);
         }
-    }
-
-    private boolean isResponseValid(Cloud.GetInstanceResponse response) {
-        if (response == null || !response.hasStatus() || !response.getStatus().hasCode()
-                || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("failed to get cloud instance due to incomplete response, "
-                    + "cloud_unique_id={}, response={}", Config.cloud_unique_id, response);
-            return false;
-        }
-        return true;
     }
 
     private void syncStorageVault(Cloud.InstanceInfoPB instance) {

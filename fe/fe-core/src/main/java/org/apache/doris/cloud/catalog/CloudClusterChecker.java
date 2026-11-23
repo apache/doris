@@ -22,13 +22,11 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB.Type;
 import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
-import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
-import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.resource.Tag;
@@ -48,17 +46,14 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-public class CloudClusterChecker extends MasterDaemon {
+public class CloudClusterChecker {
     private static final Logger LOG = LogManager.getLogger(CloudClusterChecker.class);
 
     private CloudSystemInfoService cloudSystemInfoService;
 
-    private final Object checkLock = new Object();
-
     boolean isUpdateCloudUniqueId = false;
 
     public CloudClusterChecker(CloudSystemInfoService cloudSystemInfoService) {
-        super("cloud cluster check", Config.cloud_cluster_check_interval_second * 1000L);
         this.cloudSystemInfoService = cloudSystemInfoService;
     }
 
@@ -383,13 +378,10 @@ public class CloudClusterChecker extends MasterDaemon {
         }
     }
 
-    @Override
-    protected void runAfterCatalogReady() {
-        synchronized (checkLock) {
-            checkCloudBackends();
-            updateCloudMetrics();
-            checkCloudFes();
-        }
+    void check(Cloud.InstanceInfoPB instance) {
+        checkCloudBackends(instance.getClustersList());
+        updateCloudMetrics();
+        checkCloudFes(instance.getClustersList());
     }
 
     private void checkFeNodesMapValid() {
@@ -432,25 +424,19 @@ public class CloudClusterChecker extends MasterDaemon {
         }
     }
 
-    private void checkCloudFes() {
-        Cloud.GetClusterResponse response = cloudSystemInfoService.getCloudCluster(
-                Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
-        if (!response.hasStatus() || !response.getStatus().hasCode()
-                || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("failed to get cloud cluster due to incomplete response, "
-                    + "cloud_unique_id={}, clusterId={}, response={}",
-                    Config.cloud_unique_id, Config.cloud_sql_server_cluster_id, response);
-            return;
-        }
-        // Note: get_cluster interface cluster(option -> repeated), so it has at least one cluster.
-        if (response.getClusterCount() == 0) {
+    private void checkCloudFes(List<ClusterPB> clusters) {
+        // Match get_cluster's precedence: ID takes priority over name.
+        ClusterPB cpb = clusters.stream().filter(cluster ->
+                !Strings.isNullOrEmpty(Config.cloud_sql_server_cluster_id)
+                        ? Config.cloud_sql_server_cluster_id.equals(cluster.getClusterId())
+                        : Config.cloud_sql_server_cluster_name.equals(cluster.getClusterName()))
+                .findFirst().orElse(null);
+        if (cpb == null) {
             LOG.warn("meta service error , return cluster zero, plz check it, "
-                    + "cloud_unique_id={}, clusterId={}, response={}",
-                    Config.cloud_unique_id, Config.cloud_sql_server_cluster_id, response);
+                    + "cloud_unique_id={}, clusterId={}",
+                    Config.cloud_unique_id, Config.cloud_sql_server_cluster_id);
             return;
         }
-
-        ClusterPB cpb = response.getCluster(0);
         if (LOG.isDebugEnabled()) {
             LOG.debug("get cloud cluster, clusterId={} nodes={}",
                     Config.cloud_sql_server_cluster_id, cpb.getNodesList());
@@ -542,26 +528,16 @@ public class CloudClusterChecker extends MasterDaemon {
         }
     }
 
-    private void checkCloudBackends() {
+    void checkCloudBackends(List<ClusterPB> clusters) {
         if (DebugPointUtil.isEnable("CloudClusterChecker.checkCloudBackends.pause")) {
             LOG.info("CloudClusterChecker.checkCloudBackends.pause phase={}", DebugPointUtil.getDebugParamOrDefault(
                     "CloudClusterChecker.checkCloudBackends.pause", "phase", ""));
             return;
         }
         Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend(false);
-        //rpc to ms, to get mysql user can use cluster_id
-        // NOTE: rpc args all empty, use cluster_unique_id to get a instance's all cluster info.
-        Cloud.GetClusterResponse response = cloudSystemInfoService.getCloudCluster("", "", "");
-        if (!response.hasStatus() || !response.getStatus().hasCode()
-                || (response.getStatus().getCode() != Cloud.MetaServiceCode.OK
-                && response.getStatus().getCode() != MetaServiceCode.CLUSTER_NOT_FOUND)) {
-            LOG.warn("failed to get cloud cluster due to incomplete response, "
-                    + "cloud_unique_id={}, response={}", Config.cloud_unique_id, response);
-            return;
-        }
         Set<String> localClusterIds = clusterIdToBackend.keySet();
         // clusterId -> clusterPB
-        Map<String, ClusterPB> remoteClusterIdToPB = response.getClusterList().stream()
+        Map<String, ClusterPB> remoteClusterIdToPB = clusters.stream()
                 .filter(c -> c.getType() == Type.COMPUTE)
                 .collect(Collectors.toMap(ClusterPB::getClusterId, clusterPB -> clusterPB));
         LOG.info("get cluster info  clusterIds: {}", remoteClusterIdToPB);
@@ -613,14 +589,6 @@ public class CloudClusterChecker extends MasterDaemon {
                 aliveNum = backend.isAlive() ? aliveNum + 1 : aliveNum;
             }
             MetricRepo.updateClusterBackendAliveTotal(entry.getKey(), entry.getValue(), aliveNum);
-        }
-    }
-
-    public void checkNow() {
-        if (Env.getCurrentEnv().isMaster()) {
-            synchronized (checkLock) {
-                runAfterCatalogReady();
-            }
         }
     }
 }
