@@ -248,11 +248,16 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(const io::FSProperties
                 resource.sse_enabled);
     }
     case TFileType::FILE_HDFS: {
-        THdfsParams hdfs_params = parse_properties(*fs_properties.properties);
+        THdfsParams parsed_params;
+        const auto* hdfs_params = fs_properties.hdfs_params;
+        if (hdfs_params == nullptr) {
+            parsed_params = parse_properties(*fs_properties.properties);
+            hdfs_params = &parsed_params;
+        }
         std::shared_ptr<io::HdfsHandler> handler;
         RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
-                hdfs_params, hdfs_params.fs_name, &handler));
-        return io::HdfsFileWriter::create(path, handler, hdfs_params.fs_name, &options);
+                *hdfs_params, hdfs_params->fs_name, &handler));
+        return io::HdfsFileWriter::create(path, handler, hdfs_params->fs_name, &options);
     }
     default:
         return ResultError(Status::InternalError("unsupported file writer type: {}",
