@@ -30,6 +30,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.ivm.agg.IvmAggFunctionKind;
 import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
@@ -168,6 +169,25 @@ class IvmNormalizeUniqKeysMTMVTest {
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
         Assertions.assertNotNull(rewriteResult.getPlanSignature());
         Assertions.assertNull(mtmv.getIvmInfo().getPlanSignature());
+    }
+
+    @Test
+    void testPartitionRefreshRejectsSignatureDriftButCompleteCanRebuild() {
+        MTMV mtmv = mockIvmMtmv("stored-signature");
+        Plan sink = signatureTestSink(mtmv);
+        JobContext partitions = newJobContextForRoot(sink, true, Collections.emptySet(),
+                Optional.of(IvmRewriteContext.partitions(mtmv, Collections.emptyMap(), StreamReadMode.SNAPSHOT)));
+
+        assertIvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH,
+                () -> new IvmNormalizeUniqKeysMTMV().normalizeRoot(sink, partitions));
+        Assertions.assertNull(partitions.getCascadesContext().getIvmRewriteResult().orElseThrow()
+                .getPlanSignature());
+
+        JobContext complete = newJobContextForRoot(sink, true, Collections.emptySet(),
+                Optional.of(IvmRewriteContext.complete(mtmv)));
+        new IvmNormalizeUniqKeysMTMV().normalizeRoot(sink, complete);
+        Assertions.assertNotNull(complete.getCascadesContext().getIvmRewriteResult().orElseThrow()
+                .getPlanSignature());
     }
 
     @Test

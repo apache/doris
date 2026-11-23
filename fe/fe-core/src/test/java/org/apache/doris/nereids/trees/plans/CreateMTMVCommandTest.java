@@ -33,7 +33,6 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
-import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -1766,8 +1765,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + " AS SELECT k1, v1 FROM ivm_context_base;");
 
         Assertions.assertTrue(info.isEnableIvm());
-        Assertions.assertEquals(IvmRewriteContext.Mode.CREATE,
-                connectContext.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
+        Assertions.assertTrue(connectContext.getStatementContext().getIvmRewriteContext().orElseThrow().isCreate());
     }
 
     @Test

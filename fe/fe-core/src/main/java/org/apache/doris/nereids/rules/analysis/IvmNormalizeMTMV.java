@@ -83,7 +83,7 @@ public class IvmNormalizeMTMV implements CustomRewriter {
         // that a statement downstream of this rewrite reads the plan of the model that was chosen.
         rewriteResult.setNormalizeRewritten(true);
         rewriteResult.setNormalizedPlan(result);
-        if (rewriteContext.getMode() == IvmRewriteContext.Mode.CREATE) {
+        if (rewriteContext.isCreate()) {
             LOG.info("IVM normalized plan, mtmvName={}, keysType={}, detailModel={}, inputRoot={}, plan={}",
                     rewriteContext.getMtmvName(), keysType, detailModel, plan.getClass().getSimpleName(),
                     result.treeString());
@@ -102,8 +102,7 @@ public class IvmNormalizeMTMV implements CustomRewriter {
             return mtmv.isIvmAppendOnlyDupTable() ? KeysType.DUP_KEYS : KeysType.UNIQUE_KEYS;
         }
         Preconditions.checkState(rewriteContext.isCreate(),
-                "an IVM rewrite without an MV can only be CREATE, but its mode is: %s",
-                rewriteContext.getMode());
+                "only CREATE can rewrite an IVM query without an MV");
         return judgeKeysType(plan, rewriteContext);
     }
 
