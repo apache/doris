@@ -17,8 +17,10 @@
 
 package org.apache.doris.cdcclient.itcase;
 
+import static org.apache.doris.cdcclient.common.CdcResourceManager.ReaderGroup.STANDALONE_TVF;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.apache.doris.cdcclient.common.CdcResourceManager;
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 
@@ -38,7 +40,9 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.IntStream;
 
 /**
  * Simulates a snapshot interrupted partway and resumed: with a small chunk size the table splits
@@ -140,6 +144,51 @@ class MySqlSnapshotResumeITCase {
                 expected.add(i);
             }
             assertThat(ids).containsExactlyInAnyOrderElementsOf(expected);
+        }
+    }
+
+    @Test
+    void quotaLimitedSnapshotLoadsEverySplitBeforeCommittingOffset() throws Exception {
+        CdcResourceManager resources = Env.getCurrentEnv().getCdcResourceManager();
+        int totalSlots =
+                (int)
+                        (resources.getReaderMemoryQuotaBytes()
+                                / resources.getReaderReservationBytes());
+        assertThat(totalSlots).isGreaterThanOrEqualTo(2);
+        try (MockDorisServer mock = new MockDorisServer();
+                CdcResourceManager.SnapshotQuota occupied =
+                        resources.newSnapshotQuota("holder", STANDALONE_TVF);
+                CdcClientWriteHarness harness =
+                        CdcClientWriteHarness.mysql(
+                                        jobId,
+                                        MYSQL.getHost(),
+                                        MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
+                                        ROOT_USER,
+                                        ROOT_PASSWORD,
+                                        database,
+                                        "t_user",
+                                        "initial",
+                                        "doris_target_db",
+                                        mock)
+                                .withSplitSize(4)
+                                .withSnapshotParallelism(8)) {
+            List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_user");
+            assertThat(splits).hasSizeGreaterThan(2);
+            assertThat(occupied.tryReserveSlots(totalSlots - 2)).isEqualTo(totalSlots - 2);
+
+            harness.writeSnapshotAsync(splits);
+
+            assertThat(ids(harness.loadedRecords()))
+                    .containsExactlyInAnyOrderElementsOf(
+                            IntStream.rangeClosed(1, ROW_COUNT).boxed().toList());
+            assertThat(mock.commitOffsetCount()).isEqualTo(1);
+            assertThat(mock.loadedRowsAtCommit()).isEqualTo(ROW_COUNT);
+            List<Map<String, String>> offsets = harness.committedSnapshotOffsets();
+            assertThat(offsets)
+                    .extracting(offset -> offset.get("splitId"))
+                    .containsExactlyElementsOf(
+                            splits.stream().map(SnapshotSplit::getSplitId).toList());
+            assertThat(offsets).allSatisfy(offset -> assertThat(offset.get("pos")).isNotBlank());
         }
     }
 

@@ -124,13 +124,30 @@ public class ConfigUtil {
         return ZoneId.systemDefault();
     }
 
+    // Convention: standalone TVF uses a UUID jobId; job-driven TVF uses the job's numeric Long
+    // jobId, injected into the TVF properties by rewriteTvfParams and read by generateParams().
+    // TODO: replace this jobId-based check with an explicit field in FetchRecordRequest.
+    public static boolean isJobDrivenTvf(String jobId) {
+        if (jobId == null || jobId.isEmpty()) return false;
+        try {
+            Long.parseLong(jobId);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
     public static final String MAX_QUEUE_BYTES_SYS_PROP = "cdc.max.queue.size.in.bytes";
 
     // Heap-adaptive byte cap for the debezium ChangeEventQueue buffer.
     // heap 1G->64MB, 2G->128MB, >=4G->256MB. -D<MAX_QUEUE_BYTES_SYS_PROP> overrides
     // (<=0 disables); a malformed override is logged and ignored, falling back to the cap.
-    private static long resolveMaxQueueSizeInBytes() {
-        String override = System.getProperty(MAX_QUEUE_BYTES_SYS_PROP);
+    public static long resolveMaxQueueSizeInBytes() {
+        return resolveMaxQueueSizeInBytes(System.getProperties(), Runtime.getRuntime().maxMemory());
+    }
+
+    public static long resolveMaxQueueSizeInBytes(Properties config, long heapBytes) {
+        String override = config.getProperty(MAX_QUEUE_BYTES_SYS_PROP);
         if (override != null) {
             try {
                 long bytes = Long.parseLong(override.trim());
@@ -143,7 +160,11 @@ public class ConfigUtil {
                         override);
             }
         }
-        long target = Runtime.getRuntime().maxMemory() / 16;
+        return defaultMaxQueueSizeInBytes(heapBytes);
+    }
+
+    public static long defaultMaxQueueSizeInBytes(long heapBytes) {
+        long target = heapBytes / 16;
         return Math.max(64L * 1024 * 1024, Math.min(target, 256L * 1024 * 1024));
     }
 

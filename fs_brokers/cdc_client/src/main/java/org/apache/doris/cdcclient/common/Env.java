@@ -44,6 +44,7 @@ import org.slf4j.LoggerFactory;
 public class Env {
     private static final Logger LOG = LoggerFactory.getLogger(Env.class);
     private static volatile Env INSTANCE;
+    @Getter private final CdcResourceManager cdcResourceManager = new CdcResourceManager();
     private final Map<String, JobContext> jobContexts;
     private final Map<String, Lock> jobLocks;
     private final Map<String, SlotDropTask> pendingSlotDrops;
@@ -336,6 +337,7 @@ public class Env {
     // Each chore is guarded independently: one failing must not skip the other, and an uncaught
     // throwable here would silently cancel the whole periodic task.
     private void runBackgroundCleanup() {
+        cdcResourceManager.retryClosingReaders();
         try {
             releaseIdleReaders();
         } catch (Exception e) {

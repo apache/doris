@@ -50,6 +50,7 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.google.gson.Gson;
@@ -301,21 +302,11 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     }
 
     /**
-     * Callback function for offset commit success.
+     * Parse and validate the complete batch before updating any task or provider state.
+     * Snapshot commits contain one entry per split; binlog commits contain exactly one entry.
      */
-    public void successCallback(CommitOffsetRequest offsetRequest) throws JobException {
-        if (getIsCanceled().get()) {
-            return;
-        }
-        this.status = TaskStatus.SUCCESS;
-        this.finishTimeMs = System.currentTimeMillis();
+    List<Map<String, String>> validateOffsetMeta(CommitOffsetRequest offsetRequest) {
         JdbcOffset runOffset = (JdbcOffset) this.runningOffset;
-        if (!isCallable()) {
-            return;
-        }
-        // set end offset to running offset
-        // binlogSplit : [{"splitId":"binlog-split"}]  only 1 element
-        // snapshotSplit:[{"splitId":"table-0"},...],...}]
         List<Map<String, String>> offsetMeta;
         try {
             offsetMeta = objectMapper.readValue(offsetRequest.getOffset(),
@@ -329,22 +320,41 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                 + offsetMeta.size() + " is not equal to running offset splits size "
                 + runOffset.getSplits().size());
 
+        for (int i = 0; i < runOffset.getSplits().size(); i++) {
+            String expectedId = runOffset.snapshotSplit()
+                    ? ((SnapshotSplit) runOffset.getSplits().get(i)).getSplitId() : BinlogSplit.BINLOG_SPLIT_ID;
+            Map<String, String> result = offsetMeta.get(i);
+            String splitId = result.remove(JdbcSourceOffsetProvider.SPLIT_ID);
+            Preconditions.checkState(expectedId.equals(splitId),
+                    "Unexpected split id in offset result for " + expectedId);
+            Preconditions.checkState(!result.isEmpty(), "Missing watermark for split " + expectedId);
+        }
+        return offsetMeta;
+    }
+
+    /**
+     * Apply the validated offset metadata after a successful commit.
+     */
+    public void successCallback(CommitOffsetRequest offsetRequest, List<Map<String, String>> offsetMeta)
+            throws JobException {
+        if (getIsCanceled().get()) {
+            return;
+        }
+        this.status = TaskStatus.SUCCESS;
+        this.finishTimeMs = System.currentTimeMillis();
+        JdbcOffset runOffset = (JdbcOffset) this.runningOffset;
+        if (!isCallable()) {
+            return;
+        }
+
         if (runOffset.snapshotSplit()) {
             for (int i = 0; i < runOffset.getSplits().size(); i++) {
                 SnapshotSplit split = (SnapshotSplit) runOffset.getSplits().get(i);
-                Map<String, String> splitOffsetMeta = offsetMeta.get(i);
-                String splitId = splitOffsetMeta.remove(JdbcSourceOffsetProvider.SPLIT_ID);
-                Preconditions.checkState(split.getSplitId().equals(splitId),
-                        "split id " + split.getSplitId() + " is not equal to offset meta split id " + splitId);
-                split.setHighWatermark(splitOffsetMeta);
+                split.setHighWatermark(offsetMeta.get(i));
             }
         } else {
-            Map<String, String> offsetMap = offsetMeta.get(0);
-            String splitId = offsetMap.remove(JdbcSourceOffsetProvider.SPLIT_ID);
-            Preconditions.checkState(BinlogSplit.BINLOG_SPLIT_ID.equals(splitId),
-                    "split id is not equal to binlog split id");
             BinlogSplit split = (BinlogSplit) runOffset.getSplits().get(0);
-            split.setEndingOffset(offsetMap);
+            split.setEndingOffset(offsetMeta.get(0));
         }
 
         this.scannedRows = offsetRequest.getScannedRows();
@@ -439,8 +449,8 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         long timeoutMs = getTaskTimeoutMs();
         long elapsed = now - lastProgressMs;
         if (elapsed > timeoutMs) {
-            log.info("Task {} timeout detected: no progress for {}ms, timeoutMs={}ms",
-                    taskId, elapsed, timeoutMs);
+            log.info("Task {} timeout detected: no progress for {}ms, timeoutMs={}ms, reason={}",
+                    taskId, elapsed, timeoutMs, status == null ? "" : status.getFailReason());
             return true;
         }
         return false;
@@ -470,15 +480,26 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                     .requestCdcClient(address, request, Config.streaming_cdc_light_rpc_timeout_sec);
             PRequestCdcClientResult result = future.get(Config.streaming_cdc_light_rpc_timeout_sec, TimeUnit.SECONDS);
             if (TStatusCode.findByValue(result.getStatus().getStatusCode()) != TStatusCode.OK) {
+                log.warn("Fetch task status RPC failed, jobId={}, taskId={}, backendId={}, statusCode={}, errors={}",
+                        getJobId(), getTaskId(), backend.getId(), result.getStatus().getStatusCode(),
+                        result.getStatus().getErrorMsgsList());
                 return null;
             }
-            ResponseBody<StreamingTaskStatus> body = objectMapper.readValue(
+            ResponseBody<JsonNode> body = objectMapper.readValue(
                     result.getResponse(),
-                    new TypeReference<ResponseBody<StreamingTaskStatus>>() {
+                    new TypeReference<ResponseBody<JsonNode>>() {
                     });
-            return body.getCode() == RestApiStatusCode.OK.code ? body.getData() : null;
+            if (body.getCode() != RestApiStatusCode.OK.code) {
+                String detail = body.getData() == null ? null : body.getData().textValue();
+                log.warn("CDC task status request failed, jobId={}, taskId={}, backendId={}, code={}, error={}",
+                        getJobId(), getTaskId(), backend.getId(), body.getCode(),
+                        StringUtils.defaultIfBlank(detail, body.getMsg()));
+                return null;
+            }
+            return objectMapper.treeToValue(body.getData(), StreamingTaskStatus.class);
         } catch (Exception e) {
-            log.warn("fetch task status failed, job {} task {}", getJobId(), getTaskId(), e);
+            log.warn("Fetch task status failed, jobId={}, taskId={}, backendId={}",
+                    getJobId(), getTaskId(), backend.getId(), e);
             return null;
         }
     }

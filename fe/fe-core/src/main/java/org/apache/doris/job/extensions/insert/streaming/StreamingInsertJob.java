@@ -1695,34 +1695,32 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public void commitOffset(CommitOffsetRequest offsetRequest) throws JobException {
-        if (!(offsetProvider instanceof JdbcSourceOffsetProvider)) {
+        if (!(offsetProvider instanceof JdbcSourceOffsetProvider jdbcOffsetProvider)) {
             throw new JobException("Unsupported commit offset for offset provider type: "
                     + offsetProvider.getClass().getSimpleName());
         }
-        JdbcSourceOffsetProvider jdbcOffsetProvider = (JdbcSourceOffsetProvider) offsetProvider;
-
         writeLock();
         try {
-            if (this.runningStreamTask != null
-                    && this.runningStreamTask instanceof StreamingMultiTblTask) {
-                if (this.runningStreamTask.getIsCanceled().get()) {
+            if (this.runningStreamTask instanceof StreamingMultiTblTask runningMultiTask) {
+                if (runningMultiTask.getIsCanceled().get()) {
                     log.info("Streaming multi table job {} skip late commit offset on canceled task "
                                     + "(expected: {}, actual: {})",
-                            getJobId(), this.runningStreamTask.getTaskId(), offsetRequest.getTaskId());
+                            getJobId(), runningMultiTask.getTaskId(), offsetRequest.getTaskId());
                     return;
                 }
                 // Reject a late commit from an already-failed task (e.g. brpc timeout) reviving a paused job.
-                if (!TaskStatus.RUNNING.equals(this.runningStreamTask.getStatus())) {
+                if (!TaskStatus.RUNNING.equals(runningMultiTask.getStatus())) {
                     log.info("Streaming multi table job {} skip late commit offset on non-running task {} "
                                     + "(status: {}, actual: {})",
-                            getJobId(), this.runningStreamTask.getTaskId(),
-                            this.runningStreamTask.getStatus(), offsetRequest.getTaskId());
+                            getJobId(), runningMultiTask.getTaskId(),
+                            runningMultiTask.getStatus(), offsetRequest.getTaskId());
                     return;
                 }
-                if (this.runningStreamTask.getTaskId() != offsetRequest.getTaskId()) {
+                if (runningMultiTask.getTaskId() != offsetRequest.getTaskId()) {
                     throw new JobException("Task id mismatch when commit offset. expected: "
-                            + this.runningStreamTask.getTaskId() + ", actual: " + offsetRequest.getTaskId());
+                            + runningMultiTask.getTaskId() + ", actual: " + offsetRequest.getTaskId());
                 }
+                List<Map<String, String>> offsetMeta = runningMultiTask.validateOffsetMeta(offsetRequest);
                 checkDataQuality(offsetRequest);
                 updateNoTxnJobStatisticAndOffset(offsetRequest);
                 offsetProvider.onTaskCommitted(offsetRequest.getScannedRows(), offsetRequest.getLoadBytes());
@@ -1732,7 +1730,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 persistOffsetProviderIfNeed(jdbcOffsetProvider, System.currentTimeMillis());
                 log.info("Streaming multi table job {} task {} commit offset successfully, offset: {}",
                         getJobId(), offsetRequest.getTaskId(), offsetRequest.getOffset());
-                ((StreamingMultiTblTask) this.runningStreamTask).successCallback(offsetRequest);
+                runningMultiTask.successCallback(offsetRequest, offsetMeta);
             }
 
         } finally {

@@ -153,6 +153,11 @@ public final class CdcClientReadHarness implements AutoCloseable {
         return Env.getCurrentEnv().getReader(baseConfig(), true);
     }
 
+    CdcClientReadHarness withSplitSize(int splitSize) {
+        config.put(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE, String.valueOf(splitSize));
+        return this;
+    }
+
     /**
      * Compute every snapshot chunk for one table by advancing the FE-style cursor (nextSplitStart /
      * nextSplitId) until the final chunk (the one whose splitEnd is null) is reached.
@@ -192,6 +197,10 @@ public final class CdcClientReadHarness implements AutoCloseable {
 
     /** Read the full snapshot for the given splits in one blocking stream. */
     public SnapshotResult readSnapshot(List<SnapshotSplit> splits) throws Exception {
+        return readSnapshot(splits, nextTaskId());
+    }
+
+    SnapshotResult readSnapshot(List<SnapshotSplit> splits, String taskId) throws Exception {
         List<Map<String, Object>> splitMaps = new ArrayList<>();
         for (SnapshotSplit split : splits) {
             splitMaps.add(toMap(split));
@@ -199,7 +208,6 @@ public final class CdcClientReadHarness implements AutoCloseable {
         Map<String, Object> meta = new HashMap<>();
         meta.put("splits", splitMaps);
 
-        String taskId = nextTaskId();
         List<String> records = streamRecords(meta, taskId);
         return new SnapshotResult(records, coordinator.getOffsetWithTaskId(taskId));
     }
@@ -314,8 +322,13 @@ public final class CdcClientReadHarness implements AutoCloseable {
         return jobId + "-t" + taskSeq.incrementAndGet();
     }
 
+    String taskWaitReason(String taskId) {
+        return coordinator.getTaskStatus(taskId).getFailReason();
+    }
+
     @Override
     public void close() {
+        coordinator.closeTaskScheduler();
         Env.getCurrentEnv().close(jobId);
     }
 

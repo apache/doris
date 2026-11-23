@@ -61,6 +61,8 @@ final class MockDorisServer implements AutoCloseable {
     private final Set<String> schemaColumns = Collections.synchronizedSet(new LinkedHashSet<>());
     private final AtomicInteger ddlRequestCount = new AtomicInteger();
     private final AtomicInteger schemaRequestCount = new AtomicInteger();
+    private final AtomicInteger commitOffsetCount = new AtomicInteger();
+    private volatile int loadedRowsAtCommit;
     private final AtomicInteger failedCommitOffsetCount = new AtomicInteger();
     private final AtomicBoolean blockNextDdlResponse = new AtomicBoolean();
     private final AtomicBoolean failCommitOffset = new AtomicBoolean();
@@ -93,6 +95,8 @@ final class MockDorisServer implements AutoCloseable {
                                     + "\"NumberFilteredRows\":0,\"LoadBytes\":%d}",
                             rows, rows, body.length);
         } else if (path.endsWith("/commit_offset")) {
+            commitOffsetCount.incrementAndGet();
+            loadedRowsAtCommit = loadedRecords.size();
             if (failCommitOffset.get()) {
                 failedCommitOffsetCount.incrementAndGet();
                 response = "{\"code\":1,\"msg\":\"injected commit offset failure\"}";
@@ -182,6 +186,14 @@ final class MockDorisServer implements AutoCloseable {
     /** FE query endpoint responses for schema-change DDLs, in arrival order. */
     List<String> ddlResponses() {
         return new ArrayList<>(ddlResponses);
+    }
+
+    int commitOffsetCount() {
+        return commitOffsetCount.get();
+    }
+
+    int loadedRowsAtCommit() {
+        return loadedRowsAtCommit;
     }
 
     int failedCommitOffsetCount() {

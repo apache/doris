@@ -17,8 +17,11 @@
 
 package org.apache.doris.cdcclient.service;
 
+import org.apache.doris.cdcclient.common.CdcResourceManager.ReaderGroup;
 import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.common.Env;
+import org.apache.doris.cdcclient.common.ReaderBatch;
+import org.apache.doris.cdcclient.common.ReaderQuotaUnavailableException;
 import org.apache.doris.cdcclient.exception.CommonException;
 import org.apache.doris.cdcclient.exception.StreamException;
 import org.apache.doris.cdcclient.model.response.RecordWithMeta;
@@ -49,15 +52,15 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 
 import static org.apache.flink.cdc.connectors.base.utils.SourceRecordUtils.SCHEMA_HEARTBEAT_EVENT_KEY_NAME;
 
@@ -92,28 +95,15 @@ public class PipelineCoordinator {
     private final Cache<String, String> taskErrorMaps =
             CacheBuilder.newBuilder().maximumSize(1000).build();
     private final Map<String, AtomicLong> taskProgressMap = new ConcurrentHashMap<>();
-    private final ThreadPoolExecutor executor;
-    private static final int QUEUE_CAPACITY = 128;
+    private final CdcTaskScheduler taskScheduler;
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private final byte[] LINE_DELIMITER = "\n".getBytes(StandardCharsets.UTF_8);
 
     public PipelineCoordinator(
             @Value("${pipeline.max-concurrent-tasks:10}") int maxConcurrentTasks) {
-        this.executor =
-                new ThreadPoolExecutor(
-                        maxConcurrentTasks,
-                        maxConcurrentTasks,
-                        60L,
-                        TimeUnit.SECONDS,
-                        new LinkedBlockingQueue<>(QUEUE_CAPACITY),
-                        r -> {
-                            Thread t =
-                                    new Thread(
-                                            r, "async-write-record-" + System.currentTimeMillis());
-                            t.setDaemon(false);
-                            return t;
-                        },
-                        new ThreadPoolExecutor.AbortPolicy());
+        this.taskScheduler =
+                new CdcTaskScheduler(
+                        Env.getCurrentEnv().getCdcResourceManager(), maxConcurrentTasks);
     }
 
     /** return data for http_file_reader */
@@ -132,45 +122,120 @@ public class PipelineCoordinator {
                 LOG.info("Generated meta for job {}: {}", fetchReq.getJobId(), meta);
             }
 
-            sourceReader =
-                    isJobDrivenTvf(fetchReq.getJobId())
-                            ? Env.getCurrentEnv().getReaderAndClaim(fetchReq, fetchReq.getTaskId())
-                            : Env.getCurrentEnv().getReader(fetchReq, true);
+            if (ConfigUtil.isJobDrivenTvf(fetchReq.getJobId())) {
+                Preconditions.checkArgument(
+                        StringUtils.isNotBlank(fetchReq.getTaskId()),
+                        "taskId is required for job TVF");
+                ReaderGroup group =
+                        SourceReader.isBinlogSplitMeta(fetchReq.getMeta())
+                                ? ReaderGroup.JOB_INCREMENTAL
+                                : ReaderGroup.JOB_SNAPSHOT;
+                return outputStream -> streamJobTvf(fetchReq, group, outputStream);
+            }
+            sourceReader = Env.getCurrentEnv().getReader(fetchReq, true);
         } catch (Exception ex) {
             throw new CommonException(ex);
         }
 
         SplitReadResult readResult;
         try {
-            readResult = sourceReader.prepareAndSubmitSplit(fetchReq);
+            readResult = prepareTvfReader(fetchReq, sourceReader, () -> false);
+        } catch (ReaderQuotaUnavailableException ex) {
+            throw new CommonException(ex.getMessage(), ex);
+        }
+
+        return outputStream ->
+                streamTvfRecords(sourceReader, fetchReq, readResult, outputStream, () -> false);
+    }
+
+    private void streamJobTvf(
+            FetchRecordRequest request, ReaderGroup group, OutputStream outputStream) {
+        String taskId = request.getTaskId();
+        CompletableFuture<Void> result;
+        try {
+            result =
+                    taskScheduler.submitStream(
+                            request.getJobId(),
+                            taskId,
+                            group,
+                            () -> {
+                                BooleanSupplier cancelled =
+                                        taskScheduler.getCancellationSignal(taskId);
+                                SourceReader reader =
+                                        Env.getCurrentEnv().getReaderAndClaim(request, taskId);
+                                SplitReadResult readResult =
+                                        prepareTvfReader(request, reader, cancelled);
+                                taskScheduler.onReaderPrepared(taskId);
+                                streamTvfRecords(
+                                        reader, request, readResult, outputStream, cancelled);
+                            });
+        } catch (RejectedExecutionException ex) {
+            throw new CommonException(ex.getMessage(), ex);
+        }
+
+        try {
+            result.get();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new StreamException(ex);
+        } catch (ExecutionException ex) {
+            if (ex.getCause() instanceof CommonException beforeStreaming) {
+                throw beforeStreaming;
+            }
+            if (ex.getCause() instanceof StreamException streamFailure) {
+                throw streamFailure;
+            }
+            throw new StreamException(ex.getCause());
+        } catch (CancellationException ex) {
+            throw new StreamException(ex);
+        } finally {
+            // Spring MVC interrupts this callback on an async request timeout or error.
+            taskScheduler.cancelStream(taskId, result);
+        }
+    }
+
+    private SplitReadResult prepareTvfReader(
+            FetchRecordRequest request, SourceReader sourceReader, BooleanSupplier cancelled) {
+        try {
+            checkTvfReadActive(request, cancelled);
+            return sourceReader.prepareAndSubmitSplit(request);
         } catch (Exception ex) {
             try {
-                closeTvfReader(fetchReq, sourceReader);
+                closeTvfReader(request, sourceReader);
             } catch (Exception cleanupEx) {
                 ex.addSuppressed(cleanupEx);
+                throw new CommonException(ex);
+            }
+            if (ex instanceof ReaderQuotaUnavailableException unavailable) {
+                throw unavailable;
             }
             throw new CommonException(ex);
         }
+    }
 
-        return outputStream -> {
-            try {
-                buildStreamRecords(sourceReader, fetchReq, readResult, outputStream);
-            } catch (Exception ex) {
-                LOG.error(
-                        "Failed fetch record, jobId={}, taskId={}",
-                        fetchReq.getJobId(),
-                        fetchReq.getTaskId(),
-                        ex);
-                throw new StreamException(ex);
-            } finally {
-                closeTvfReader(fetchReq, sourceReader);
-            }
-        };
+    private void streamTvfRecords(
+            SourceReader sourceReader,
+            FetchRecordRequest request,
+            SplitReadResult readResult,
+            OutputStream outputStream,
+            BooleanSupplier cancelled) {
+        try {
+            buildStreamRecords(sourceReader, request, readResult, outputStream, cancelled);
+        } catch (Exception ex) {
+            LOG.error(
+                    "Failed fetch record, jobId={}, taskId={}",
+                    request.getJobId(),
+                    request.getTaskId(),
+                    ex);
+            throw new StreamException(ex);
+        } finally {
+            closeTvfReader(request, sourceReader);
+        }
     }
 
     private void closeTvfReader(FetchRecordRequest request, SourceReader sourceReader) {
         Env env = Env.getCurrentEnv();
-        if (isJobDrivenTvf(request.getJobId())) {
+        if (ConfigUtil.isJobDrivenTvf(request.getJobId())) {
             env.detachReaderIfOwner(request.getJobId(), request.getTaskId());
             // Release only this request's instance and keep the PG slot for the next task.
             sourceReader.release(request);
@@ -187,7 +252,8 @@ public class PipelineCoordinator {
             SourceReader sourceReader,
             FetchRecordRequest fetchRecord,
             SplitReadResult readResult,
-            OutputStream rawOutputStream)
+            OutputStream rawOutputStream,
+            BooleanSupplier cancelled)
             throws Exception {
         SourceSplit split = readResult.getSplit();
         boolean isSnapshotSplit = sourceReader.isSnapshotSplit(split);
@@ -205,51 +271,53 @@ public class PipelineCoordinator {
                     fetchRecord.getTaskId(),
                     isSnapshotSplit);
             while (!shouldStop) {
-                checkTvfReaderOwner(fetchRecord);
-                Iterator<SourceRecord> recordIterator = sourceReader.pollRecords();
-                if (!recordIterator.hasNext()) {
-                    Thread.sleep(100);
-                    long elapsedTime = System.currentTimeMillis() - startTime;
-                    boolean timeoutReached = elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
-                    if (shouldStop(
-                            sourceReader,
-                            isSnapshotSplit,
-                            hasReceivedData,
-                            lastMessageIsHeartbeat,
-                            elapsedTime,
-                            Constants.POLL_SPLIT_RECORDS_TIMEOUTS,
-                            timeoutReached)) {
-                        break;
-                    }
-                    continue;
-                }
-                while (recordIterator.hasNext()) {
-                    SourceRecord element = recordIterator.next();
-                    if (isHeartbeatEvent(element)) {
-                        heartbeatCount++;
-                        if (!isSnapshotSplit) {
-                            lastMessageIsHeartbeat = true;
-                        }
+                checkTvfReadActive(fetchRecord, cancelled);
+                try (ReaderBatch<SourceRecord> recordIterator = sourceReader.pollRecords()) {
+                    if (!recordIterator.hasNext()) {
+                        Thread.sleep(100);
                         long elapsedTime = System.currentTimeMillis() - startTime;
                         boolean timeoutReached =
                                 elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
-                        if (!isSnapshotSplit && timeoutReached) {
-                            shouldStop = true;
+                        if (shouldStop(
+                                sourceReader,
+                                isSnapshotSplit,
+                                hasReceivedData,
+                                lastMessageIsHeartbeat,
+                                elapsedTime,
+                                Constants.POLL_SPLIT_RECORDS_TIMEOUTS,
+                                timeoutReached)) {
                             break;
                         }
-                        // Heartbeat before timeout: skip and keep reading.
                         continue;
                     }
-                    DeserializeResult result =
-                            sourceReader.deserialize(fetchRecord.getConfig(), element);
-                    if (!CollectionUtils.isEmpty(result.getRecords())) {
-                        for (String record : result.getRecords()) {
-                            bos.write(record.getBytes(StandardCharsets.UTF_8));
-                            bos.write(LINE_DELIMITER);
+                    while (recordIterator.hasNext()) {
+                        SourceRecord element = recordIterator.next();
+                        if (isHeartbeatEvent(element)) {
+                            heartbeatCount++;
+                            if (!isSnapshotSplit) {
+                                lastMessageIsHeartbeat = true;
+                            }
+                            long elapsedTime = System.currentTimeMillis() - startTime;
+                            boolean timeoutReached =
+                                    elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
+                            if (!isSnapshotSplit && timeoutReached) {
+                                shouldStop = true;
+                                break;
+                            }
+                            // Heartbeat before timeout: skip and keep reading.
+                            continue;
                         }
-                        rowCount += result.getRecords().size();
-                        hasReceivedData = true;
-                        lastMessageIsHeartbeat = false;
+                        DeserializeResult result =
+                                sourceReader.deserialize(fetchRecord.getConfig(), element);
+                        if (!CollectionUtils.isEmpty(result.getRecords())) {
+                            for (String record : result.getRecords()) {
+                                bos.write(record.getBytes(StandardCharsets.UTF_8));
+                                bos.write(LINE_DELIMITER);
+                            }
+                            rowCount += result.getRecords().size();
+                            hasReceivedData = true;
+                            lastMessageIsHeartbeat = false;
+                        }
                     }
                 }
             }
@@ -269,32 +337,22 @@ public class PipelineCoordinator {
         }
 
         List<Map<String, String>> offsetMeta = extractOffsetMeta(sourceReader, readResult);
-        checkTvfReaderOwner(fetchRecord);
+        checkTvfReadActive(fetchRecord, cancelled);
         if (StringUtils.isNotEmpty(fetchRecord.getTaskId())) {
             taskOffsetCache.put(fetchRecord.getTaskId(), offsetMeta);
         }
     }
 
-    private void checkTvfReaderOwner(FetchRecordRequest request) {
-        if (isJobDrivenTvf(request.getJobId())
+    private void checkTvfReadActive(FetchRecordRequest request, BooleanSupplier cancelled) {
+        if (cancelled.getAsBoolean() || Thread.currentThread().isInterrupted()) {
+            throw new CancellationException("TVF read cancelled for task " + request.getTaskId());
+        }
+        if (ConfigUtil.isJobDrivenTvf(request.getJobId())
                 && !Env.getCurrentEnv().isOwner(request.getJobId(), request.getTaskId())) {
             throw new IllegalStateException(
                     String.format(
                             "TVF reader released or replaced for job %s task %s",
                             request.getJobId(), request.getTaskId()));
-        }
-    }
-
-    // Convention: standalone TVF uses a UUID jobId; job-driven TVF uses the job's numeric Long
-    // jobId, injected into the TVF properties by rewriteTvfParams and read by generateParams().
-    // TODO: replace this jobId-based check with an explicit field in FetchRecordRequest.
-    private boolean isJobDrivenTvf(String jobId) {
-        if (jobId == null || jobId.isEmpty()) return false;
-        try {
-            Long.parseLong(jobId);
-            return true;
-        } catch (NumberFormatException e) {
-            return false;
         }
     }
 
@@ -325,7 +383,8 @@ public class PipelineCoordinator {
         SourceReader sourceReader =
                 Env.getCurrentEnv()
                         .getReader(
-                                fetchRecordRequest, !isJobDrivenTvf(fetchRecordRequest.getJobId()));
+                                fetchRecordRequest,
+                                !ConfigUtil.isJobDrivenTvf(fetchRecordRequest.getJobId()));
         SplitReadResult readResult = sourceReader.prepareAndSubmitSplit(fetchRecordRequest);
         return buildRecordResponse(sourceReader, fetchRecordRequest, readResult);
     }
@@ -353,65 +412,67 @@ public class PipelineCoordinator {
                     fetchRecord.getJobId(),
                     isSnapshotSplit);
             while (!shouldStop) {
-                Iterator<SourceRecord> recordIterator = sourceReader.pollRecords();
+                try (ReaderBatch<SourceRecord> recordIterator = sourceReader.pollRecords()) {
 
-                if (!recordIterator.hasNext()) {
-                    Thread.sleep(100);
+                    if (!recordIterator.hasNext()) {
+                        Thread.sleep(100);
 
-                    // Check if should stop
-                    long elapsedTime = System.currentTimeMillis() - startTime;
-                    boolean timeoutReached = elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
-
-                    if (shouldStop(
-                            sourceReader,
-                            isSnapshotSplit,
-                            hasReceivedData,
-                            lastMessageIsHeartbeat,
-                            elapsedTime,
-                            Constants.POLL_SPLIT_RECORDS_TIMEOUTS,
-                            timeoutReached)) {
-                        break;
-                    }
-                    continue;
-                }
-
-                while (recordIterator.hasNext()) {
-                    SourceRecord element = recordIterator.next();
-
-                    // Check if this is a heartbeat message
-                    if (isHeartbeatEvent(element)) {
-                        heartbeatCount++;
-
-                        // Mark last message as heartbeat
-                        if (!isSnapshotSplit) {
-                            lastMessageIsHeartbeat = true;
-                        }
-
-                        // If already have data or timeout, stop when heartbeat received
+                        // Check if should stop
                         long elapsedTime = System.currentTimeMillis() - startTime;
                         boolean timeoutReached =
                                 elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
 
-                        if (hasReceivedData || timeoutReached) {
-                            LOG.info(
-                                    "Heartbeat received after {} data records, stopping",
-                                    recordResponse.getRecords().size());
-                            shouldStop = true;
+                        if (shouldStop(
+                                sourceReader,
+                                isSnapshotSplit,
+                                hasReceivedData,
+                                lastMessageIsHeartbeat,
+                                elapsedTime,
+                                Constants.POLL_SPLIT_RECORDS_TIMEOUTS,
+                                timeoutReached)) {
                             break;
                         }
-                        // Skip heartbeat messages if we haven't received data yet
                         continue;
                     }
 
-                    // Process data messages
-                    DeserializeResult result =
-                            sourceReader.deserialize(fetchRecord.getConfig(), element);
-                    if (result.getType() == DeserializeResult.Type.DML
-                            && !CollectionUtils.isEmpty(result.getRecords())) {
-                        recordCount++;
-                        recordResponse.getRecords().addAll(result.getRecords());
-                        hasReceivedData = true;
-                        lastMessageIsHeartbeat = false;
+                    while (recordIterator.hasNext()) {
+                        SourceRecord element = recordIterator.next();
+
+                        // Check if this is a heartbeat message
+                        if (isHeartbeatEvent(element)) {
+                            heartbeatCount++;
+
+                            // Mark last message as heartbeat
+                            if (!isSnapshotSplit) {
+                                lastMessageIsHeartbeat = true;
+                            }
+
+                            // If already have data or timeout, stop when heartbeat received
+                            long elapsedTime = System.currentTimeMillis() - startTime;
+                            boolean timeoutReached =
+                                    elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
+
+                            if (hasReceivedData || timeoutReached) {
+                                LOG.info(
+                                        "Heartbeat received after {} data records, stopping",
+                                        recordResponse.getRecords().size());
+                                shouldStop = true;
+                                break;
+                            }
+                            // Skip heartbeat messages if we haven't received data yet
+                            continue;
+                        }
+
+                        // Process data messages
+                        DeserializeResult result =
+                                sourceReader.deserialize(fetchRecord.getConfig(), element);
+                        if (result.getType() == DeserializeResult.Type.DML
+                                && !CollectionUtils.isEmpty(result.getRecords())) {
+                            recordCount++;
+                            recordResponse.getRecords().addAll(result.getRecords());
+                            hasReceivedData = true;
+                            lastMessageIsHeartbeat = false;
+                        }
                     }
                 }
             }
@@ -437,7 +498,14 @@ public class PipelineCoordinator {
         Preconditions.checkNotNull(writeRecordRequest.getToken(), "token must not be null");
         Preconditions.checkNotNull(writeRecordRequest.getTaskId(), "taskId must not be null");
         Preconditions.checkNotNull(writeRecordRequest.getTargetDb(), "targetDb must not be null");
-        return CompletableFuture.runAsync(
+        ReaderGroup group =
+                SourceReader.isBinlogSplitMeta(writeRecordRequest.getMeta())
+                        ? ReaderGroup.JOB_INCREMENTAL
+                        : ReaderGroup.JOB_SNAPSHOT;
+        return taskScheduler.submit(
+                writeRecordRequest.getJobId(),
+                writeRecordRequest.getTaskId(),
+                group,
                 () -> {
                     try {
                         LOG.info(
@@ -449,6 +517,8 @@ public class PipelineCoordinator {
                                 "Successfully processed async write record, jobId={} taskId={}",
                                 writeRecordRequest.getJobId(),
                                 writeRecordRequest.getTaskId());
+                    } catch (ReaderQuotaUnavailableException waiting) {
+                        throw waiting;
                     } catch (Exception ex) {
                         closeTaskStreamLoad(
                                 writeRecordRequest.getJobId(), writeRecordRequest.getTaskId());
@@ -467,8 +537,7 @@ public class PipelineCoordinator {
                                 writeRecordRequest.getTaskId(),
                                 ex);
                     }
-                },
-                executor);
+                });
     }
 
     /**
@@ -484,6 +553,8 @@ public class PipelineCoordinator {
      * <p>Heartbeat events will carry the latest offset.
      */
     public void writeRecords(WriteRecordRequest writeRecordRequest) throws Exception {
+        BooleanSupplier cancelled =
+                taskScheduler.getCancellationSignal(writeRecordRequest.getTaskId());
         Preconditions.checkArgument(
                 StringUtils.isNotBlank(writeRecordRequest.getDorisUser()),
                 "Missing dorisUser; FE must send the Doris job creator's user name");
@@ -506,6 +577,13 @@ public class PipelineCoordinator {
         SourceReader sourceReader =
                 Env.getCurrentEnv()
                         .getReaderAndClaim(writeRecordRequest, writeRecordRequest.getTaskId());
+        if (cancelled.getAsBoolean()) {
+            Env.getCurrentEnv()
+                    .detachReaderIfOwner(
+                            writeRecordRequest.getJobId(), writeRecordRequest.getTaskId());
+            sourceReader.release(writeRecordRequest);
+            return;
+        }
         DorisBatchStreamLoad batchStreamLoad = null;
         long scannedRows = 0L;
         int heartbeatCount = 0;
@@ -517,9 +595,13 @@ public class PipelineCoordinator {
         try {
             // 1. submit split async
             readResult = sourceReader.prepareAndSubmitSplit(writeRecordRequest);
+            taskScheduler.onReaderPrepared(writeRecordRequest.getTaskId());
             synchronized (this) {
-                if (!Env.getCurrentEnv()
-                        .isOwner(writeRecordRequest.getJobId(), writeRecordRequest.getTaskId())) {
+                if (cancelled.getAsBoolean()
+                        || !Env.getCurrentEnv()
+                                .isOwner(
+                                        writeRecordRequest.getJobId(),
+                                        writeRecordRequest.getTaskId())) {
                     LOG.info(
                             "Skip writer acquisition for job {} task {}: reader released or taken over",
                             writeRecordRequest.getJobId(),
@@ -547,8 +629,11 @@ public class PipelineCoordinator {
 
             // 2. poll record
             while (!shouldStop) {
-                if (!Env.getCurrentEnv()
-                        .isOwner(writeRecordRequest.getJobId(), writeRecordRequest.getTaskId())) {
+                if (cancelled.getAsBoolean()
+                        || !Env.getCurrentEnv()
+                                .isOwner(
+                                        writeRecordRequest.getJobId(),
+                                        writeRecordRequest.getTaskId())) {
                     LOG.info(
                             "Skip polling for job {} task {}: reader released or taken over",
                             writeRecordRequest.getJobId(),
@@ -557,137 +642,143 @@ public class PipelineCoordinator {
                 }
                 // Active poll keeps the reader alive so the reaper won't reclaim it mid-task.
                 Env.getCurrentEnv().keepAlive(writeRecordRequest.getJobId());
-                Iterator<SourceRecord> recordIterator = sourceReader.pollRecords();
+                try (ReaderBatch<SourceRecord> recordIterator = sourceReader.pollRecords()) {
 
-                if (!recordIterator.hasNext()) {
-                    Thread.sleep(100);
+                    if (!recordIterator.hasNext()) {
+                        Thread.sleep(100);
 
-                    // Stream-split setup stuck (WAL search / idle): bail out; snapshot has its own
-                    // completion logic.
-                    if (!isSnapshotSplit
-                            && streamingStartTime < 0
-                            && searchTimeoutMs > 0
-                            && System.currentTimeMillis() - startTime > searchTimeoutMs) {
-                        LOG.warn(
-                                "Streaming not started within {} ms for jobId={} taskId={}, "
-                                        + "stopping to commit offset",
-                                searchTimeoutMs,
-                                writeRecordRequest.getJobId(),
-                                writeRecordRequest.getTaskId());
-                        break;
-                    }
-
-                    // Check if should stop
-                    long elapsedTime =
-                            streamingStartTime > 0
-                                    ? System.currentTimeMillis() - streamingStartTime
-                                    : 0;
-                    boolean timeoutReached =
-                            streamingStartTime > 0
-                                    && maxIntervalMillis > 0
-                                    && elapsedTime >= maxIntervalMillis;
-
-                    if (shouldStop(
-                            sourceReader,
-                            isSnapshotSplit,
-                            scannedRows > 0,
-                            lastMessageIsHeartbeat,
-                            elapsedTime,
-                            maxIntervalMillis,
-                            timeoutReached)) {
-                        break;
-                    }
-                    continue;
-                }
-
-                if (streamingStartTime < 0) {
-                    streamingStartTime = System.currentTimeMillis();
-                    LOG.info(
-                            "Streaming phase started after {} ms setup for jobId={} taskId={}",
-                            streamingStartTime - startTime,
-                            writeRecordRequest.getJobId(),
-                            writeRecordRequest.getTaskId());
-                }
-
-                while (recordIterator.hasNext()) {
-                    // streamload backpressure can stall this loop past the reaper timeout
-                    Env.getCurrentEnv().keepAlive(writeRecordRequest.getJobId());
-                    // A successor task took over: stop draining into the shared batchStreamLoad.
-                    if (!Env.getCurrentEnv()
-                            .isOwner(
+                        // Stream-split setup stuck (WAL search / idle): bail out;
+                        // snapshot has its own completion logic.
+                        if (!isSnapshotSplit
+                                && streamingStartTime < 0
+                                && searchTimeoutMs > 0
+                                && System.currentTimeMillis() - startTime > searchTimeoutMs) {
+                            LOG.warn(
+                                    "Streaming not started within {} ms for jobId={} taskId={}, "
+                                            + "stopping to commit offset",
+                                    searchTimeoutMs,
                                     writeRecordRequest.getJobId(),
-                                    writeRecordRequest.getTaskId())) {
-                        LOG.info(
-                                "Task {} displaced mid-write for job {} after {} rows, stop writing",
-                                writeRecordRequest.getTaskId(),
-                                writeRecordRequest.getJobId(),
-                                scannedRows);
-                        shouldStop = true;
-                        break;
-                    }
-                    SourceRecord element = recordIterator.next();
-
-                    // Check if this is a heartbeat message
-                    if (isHeartbeatEvent(element)) {
-                        heartbeatCount++;
-
-                        // Mark last message as heartbeat (only for binlog split)
-                        if (!isSnapshotSplit) {
-                            lastMessageIsHeartbeat = true;
+                                    writeRecordRequest.getTaskId());
+                            break;
                         }
 
-                        // If already timeout, stop immediately when heartbeat received
-                        long elapsedTime = System.currentTimeMillis() - streamingStartTime;
+                        // Check if should stop
+                        long elapsedTime =
+                                streamingStartTime > 0
+                                        ? System.currentTimeMillis() - streamingStartTime
+                                        : 0;
                         boolean timeoutReached =
                                 streamingStartTime > 0
                                         && maxIntervalMillis > 0
                                         && elapsedTime >= maxIntervalMillis;
 
-                        if (!isSnapshotSplit && timeoutReached && !shouldStop) {
-                            LOG.info(
-                                    "Binlog split max interval reached; draining current batch before stopping");
-                            shouldStop = true;
+                        if (shouldStop(
+                                sourceReader,
+                                isSnapshotSplit,
+                                scannedRows > 0,
+                                lastMessageIsHeartbeat,
+                                elapsedTime,
+                                maxIntervalMillis,
+                                timeoutReached)) {
+                            break;
                         }
-                        // Drain the rest of this batch instead of breaking: records after the
-                        // heartbeat are already dequeued and the reused reader won't re-read them.
                         continue;
                     }
 
-                    // Process data messages
-                    DeserializeResult result =
-                            sourceReader.deserialize(deserializeContext, element);
-
-                    if (result.getType() == DeserializeResult.Type.SCHEMA_CHANGE) {
-                        // Flush pending data before DDL
-                        batchStreamLoad.forceFlush();
-                        validateUnsupportedSchemaChange(writeRecordRequest, result);
-                        if (!CollectionUtils.isEmpty(result.getSchemaChanges())) {
-                            ddlCount += result.getSchemaChanges().size();
-                        }
-                        SchemaChangeManager.executeChanges(
-                                feAddr,
-                                targetDb,
-                                token,
+                    if (streamingStartTime < 0) {
+                        streamingStartTime = System.currentTimeMillis();
+                        LOG.info(
+                                "Streaming phase started after {} ms setup for jobId={} taskId={}",
+                                streamingStartTime - startTime,
                                 writeRecordRequest.getJobId(),
-                                result.getSchemaChanges());
-                        hasSchemaChanges = true;
-                        sourceReader.applySchemaChange(result.getUpdatedSchemas());
-                        lastMessageIsHeartbeat = false;
+                                writeRecordRequest.getTaskId());
                     }
-                    if (!CollectionUtils.isEmpty(result.getRecords())) {
-                        String table = extractTable(element);
-                        String dorisTable = targetTableMappings.getOrDefault(table, table);
-                        for (String record : result.getRecords()) {
-                            scannedRows++;
-                            batchStreamLoad.writeRecord(
-                                    targetDb, dorisTable, record.getBytes(StandardCharsets.UTF_8));
+
+                    while (recordIterator.hasNext()) {
+                        // streamload backpressure can stall this loop past the reaper timeout
+                        Env.getCurrentEnv().keepAlive(writeRecordRequest.getJobId());
+                        // A successor task took over: stop draining into the shared
+                        // batchStreamLoad.
+                        if (cancelled.getAsBoolean()
+                                || !Env.getCurrentEnv()
+                                        .isOwner(
+                                                writeRecordRequest.getJobId(),
+                                                writeRecordRequest.getTaskId())) {
+                            LOG.info(
+                                    "Task {} displaced mid-write for job {} after {} rows, stop writing",
+                                    writeRecordRequest.getTaskId(),
+                                    writeRecordRequest.getJobId(),
+                                    scannedRows);
+                            shouldStop = true;
+                            break;
                         }
-                        // Mark last message as data (not heartbeat)
-                        lastMessageIsHeartbeat = false;
-                        taskProgressMap
-                                .computeIfAbsent(
-                                        writeRecordRequest.getTaskId(), k -> new AtomicLong())
-                                .set(scannedRows);
+                        SourceRecord element = recordIterator.next();
+
+                        // Check if this is a heartbeat message
+                        if (isHeartbeatEvent(element)) {
+                            heartbeatCount++;
+
+                            // Mark last message as heartbeat (only for binlog split)
+                            if (!isSnapshotSplit) {
+                                lastMessageIsHeartbeat = true;
+                            }
+
+                            // If already timeout, stop immediately when heartbeat received
+                            long elapsedTime = System.currentTimeMillis() - streamingStartTime;
+                            boolean timeoutReached =
+                                    streamingStartTime > 0
+                                            && maxIntervalMillis > 0
+                                            && elapsedTime >= maxIntervalMillis;
+
+                            if (!isSnapshotSplit && timeoutReached && !shouldStop) {
+                                LOG.info(
+                                        "Binlog split max interval reached; draining current batch before stopping");
+                                shouldStop = true;
+                            }
+                            // Drain the rest of this batch instead of breaking: records after the
+                            // heartbeat are already dequeued and the reused reader won't re-read
+                            // them.
+                            continue;
+                        }
+
+                        // Process data messages
+                        DeserializeResult result =
+                                sourceReader.deserialize(deserializeContext, element);
+
+                        if (result.getType() == DeserializeResult.Type.SCHEMA_CHANGE) {
+                            // Flush pending data before DDL
+                            batchStreamLoad.forceFlush();
+                            validateUnsupportedSchemaChange(writeRecordRequest, result);
+                            if (!CollectionUtils.isEmpty(result.getSchemaChanges())) {
+                                ddlCount += result.getSchemaChanges().size();
+                            }
+                            SchemaChangeManager.executeChanges(
+                                    feAddr,
+                                    targetDb,
+                                    token,
+                                    writeRecordRequest.getJobId(),
+                                    result.getSchemaChanges());
+                            hasSchemaChanges = true;
+                            sourceReader.applySchemaChange(result.getUpdatedSchemas());
+                            lastMessageIsHeartbeat = false;
+                        }
+                        if (!CollectionUtils.isEmpty(result.getRecords())) {
+                            String table = extractTable(element);
+                            String dorisTable = targetTableMappings.getOrDefault(table, table);
+                            for (String record : result.getRecords()) {
+                                scannedRows++;
+                                batchStreamLoad.writeRecord(
+                                        targetDb,
+                                        dorisTable,
+                                        record.getBytes(StandardCharsets.UTF_8));
+                            }
+                            // Mark last message as data (not heartbeat)
+                            lastMessageIsHeartbeat = false;
+                            taskProgressMap
+                                    .computeIfAbsent(
+                                            writeRecordRequest.getTaskId(), k -> new AtomicLong())
+                                    .set(scannedRows);
+                        }
                     }
                 }
             }
@@ -712,6 +803,9 @@ public class PipelineCoordinator {
                         writeRecordRequest.getJobId(),
                         readResult,
                         writeRecordRequest.isReuseReader());
+            } else if (cancelled.getAsBoolean()) {
+                // Cancellation may detach the source just before prepare opens its reader.
+                sourceReader.release(writeRecordRequest);
             }
         }
         if (!stillOwner) {
@@ -726,6 +820,12 @@ public class PipelineCoordinator {
         List<Map<String, String>> metaResponse = extractOffsetMeta(sourceReader, readResult);
         // 4. wait all stream load finish
         batchStreamLoad.forceFlush();
+
+        if (cancelled.getAsBoolean()
+                || !Env.getCurrentEnv()
+                        .isOwner(writeRecordRequest.getJobId(), writeRecordRequest.getTaskId())) {
+            return;
+        }
 
         // 5. request fe api update offset
         // The offset must be reset before commitOffset to prevent the next taskId from being create
@@ -919,6 +1019,15 @@ public class PipelineCoordinator {
         return taskReason == null ? "" : taskReason;
     }
 
+    public void cancelTask(String jobId, String taskId) {
+        taskScheduler.cancel(jobId, taskId);
+    }
+
+    @jakarta.annotation.PreDestroy
+    public void closeTaskScheduler() {
+        taskScheduler.close();
+    }
+
     public StreamingTaskStatus getTaskStatus(String taskId) {
         // On failure, drop progress so FE won't renew the deadline on a failed task.
         String reason = taskErrorMaps.getIfPresent(taskId);
@@ -927,7 +1036,9 @@ public class PipelineCoordinator {
             return new StreamingTaskStatus(-1, reason);
         }
         AtomicLong scannedRows = taskProgressMap.get(taskId);
-        return new StreamingTaskStatus(scannedRows == null ? -1 : scannedRows.get(), "");
+        return new StreamingTaskStatus(
+                scannedRows == null ? -1 : scannedRows.get(),
+                taskScheduler.getResourceWaitReason(taskId));
     }
 
     /**

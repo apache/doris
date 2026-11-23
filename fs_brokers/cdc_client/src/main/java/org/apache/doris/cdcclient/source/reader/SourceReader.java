@@ -17,6 +17,7 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
+import org.apache.doris.cdcclient.common.ReaderBatch;
 import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
@@ -26,12 +27,12 @@ import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
 import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
+import org.apache.doris.job.cdc.split.BinlogSplit;
 
 import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -41,6 +42,13 @@ import io.debezium.relational.history.TableChanges;
 /** Source Reader Interface */
 public interface SourceReader {
     String SPLIT_ID = "splitId";
+
+    static boolean isBinlogSplitMeta(Map<String, Object> meta) {
+        if (meta == null || meta.isEmpty()) {
+            throw new IllegalArgumentException("miss meta offset");
+        }
+        return BinlogSplit.BINLOG_SPLIT_ID.equals(meta.get(SPLIT_ID));
+    }
 
     /** Initialization, called when the program starts */
     void initialize(String jobId, DataSource dataSource, Map<String, String> config);
@@ -58,8 +66,13 @@ public interface SourceReader {
     /** Construct a split and submit a split reading task. */
     SplitReadResult prepareAndSubmitSplit(JobBaseRecordRequest baseReq) throws Exception;
 
-    /** Retrieve data from the current split(s). */
-    Iterator<SourceRecord> pollRecords() throws Exception;
+    /** Retrieve data from the current split(s); the caller must close the returned batch. */
+    ReaderBatch<SourceRecord> pollRecords() throws Exception;
+
+    /** Describes a resource wait without changing the task's timeout or failure state. */
+    default String getResourceWaitReason() {
+        return "";
+    }
 
     /** Extract offset information from snapshot split state. */
     Map<String, String> extractSnapshotStateOffset(Object splitState);

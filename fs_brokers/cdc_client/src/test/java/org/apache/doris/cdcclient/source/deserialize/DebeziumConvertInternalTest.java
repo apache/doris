@@ -17,9 +17,11 @@
 
 package org.apache.doris.cdcclient.source.deserialize;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 import org.apache.kafka.connect.data.Decimal;
 import org.apache.kafka.connect.data.Schema;
@@ -125,6 +127,12 @@ class DebeziumConvertInternalTest {
         assertEquals(BigDecimal.valueOf(5.5d), convertInternal(schema, 5.5d));
     }
 
+    @Test
+    void decimal_reusesValueWithPrecisionAndScale() {
+        BigDecimal value = new BigDecimal("12345678901234567890.12345678901234567800");
+        assertSame(value, convertInternal(Decimal.builder(value.scale()).build(), value));
+    }
+
     // ─── Bits passthrough ──────────────────────────────────────────────────────
 
     @Test
@@ -161,8 +169,46 @@ class DebeziumConvertInternalTest {
     // ─── Unnamed primitives ────────────────────────────────────────────────────
 
     @Test
-    void primitive_int64_toLong() {
-        assertEquals(42L, convertInternal(SchemaBuilder.int64().build(), 42L));
+    void primitive_integers_toLong() {
+        assertEquals((long) Byte.MIN_VALUE, convertInternal(Schema.INT8_SCHEMA, Byte.MIN_VALUE));
+        assertEquals((long) Short.MAX_VALUE, convertInternal(Schema.INT16_SCHEMA, Short.MAX_VALUE));
+        assertEquals(
+                (long) Integer.MIN_VALUE, convertInternal(Schema.INT32_SCHEMA, Integer.MIN_VALUE));
+        Long value = Long.MAX_VALUE;
+        assertSame(value, convertInternal(Schema.INT64_SCHEMA, value));
+    }
+
+    @Test
+    void primitive_integerFallback_preservesParsing() {
+        assertEquals(Long.MIN_VALUE, convertInternal(Schema.INT64_SCHEMA, "-9223372036854775808"));
+        assertThatThrownBy(() -> convertInternal(Schema.INT64_SCHEMA, new BigDecimal("1.5")))
+                .hasRootCauseInstanceOf(NumberFormatException.class);
+    }
+
+    @Test
+    void primitive_floatingPointValues_areReused() {
+        for (Float value : new Float[] {
+            0.0f, -0.0f, Float.MIN_VALUE, Float.MAX_VALUE,
+            Float.NaN, Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY
+        }) {
+            assertSame(value, convertInternal(Schema.FLOAT32_SCHEMA, value));
+        }
+        for (Double value : new Double[] {
+            0.0d, -0.0d, Double.MIN_VALUE, Double.MAX_VALUE,
+            Double.NaN, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY
+        }) {
+            assertSame(value, convertInternal(Schema.FLOAT64_SCHEMA, value));
+        }
+    }
+
+    @Test
+    void primitive_floatingPointFallback_preservesParsing() {
+        assertEquals(1.25f, convertInternal(Schema.FLOAT32_SCHEMA, "1.25"));
+        assertEquals(1.25d, convertInternal(Schema.FLOAT64_SCHEMA, new BigDecimal("1.25")));
+        assertThatThrownBy(() -> convertInternal(Schema.FLOAT32_SCHEMA, "invalid"))
+                .hasRootCauseInstanceOf(NumberFormatException.class);
+        assertThatThrownBy(() -> convertInternal(Schema.FLOAT64_SCHEMA, "invalid"))
+                .hasRootCauseInstanceOf(NumberFormatException.class);
     }
 
     @Test

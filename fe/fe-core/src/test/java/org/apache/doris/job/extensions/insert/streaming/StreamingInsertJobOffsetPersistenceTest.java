@@ -610,7 +610,13 @@ public class StreamingInsertJobOffsetPersistenceTest {
         }
 
         @Override
-        public void successCallback(CommitOffsetRequest offsetRequest) throws JobException {
+        List<Map<String, String>> validateOffsetMeta(CommitOffsetRequest offsetRequest) {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public void successCallback(CommitOffsetRequest offsetRequest, List<Map<String, String>> offsetMeta)
+                throws JobException {
         }
     }
 }

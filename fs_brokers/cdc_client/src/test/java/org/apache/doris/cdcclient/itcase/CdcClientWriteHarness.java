@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import io.debezium.relational.Table;
@@ -204,6 +205,11 @@ final class CdcClientWriteHarness implements AutoCloseable {
         return this;
     }
 
+    CdcClientWriteHarness withSnapshotParallelism(int parallelism) {
+        config.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, String.valueOf(parallelism));
+        return this;
+    }
+
     /**
      * Override the MySQL JDBC url's {@code serverTimezone}, which both the driver and Debezium use
      * to interpret TIMESTAMP columns. MySQL only — the url is rebuilt from the original host/port/db.
@@ -265,13 +271,22 @@ final class CdcClientWriteHarness implements AutoCloseable {
 
     /** Run the snapshot through the from-to path: read -> deserialize -> streamload -> commit. */
     void writeSnapshot(List<SnapshotSplit> splits) throws Exception {
+        runWrite(snapshotMeta(splits));
+    }
+
+    void writeSnapshotAsync(List<SnapshotSplit> splits) throws Exception {
+        openReader();
+        coordinator.writeRecordsAsync(buildRequest(snapshotMeta(splits))).get(30, TimeUnit.SECONDS);
+    }
+
+    private static Map<String, Object> snapshotMeta(List<SnapshotSplit> splits) {
         List<Map<String, Object>> splitMaps = new ArrayList<>();
         for (SnapshotSplit split : splits) {
             splitMaps.add(toMap(split));
         }
         Map<String, Object> meta = new HashMap<>();
         meta.put("splits", splitMaps);
-        runWrite(meta);
+        return meta;
     }
 
     /**
@@ -430,7 +445,7 @@ final class CdcClientWriteHarness implements AutoCloseable {
         return meta;
     }
 
-    private List<Map<String, String>> committedSnapshotOffsets() throws Exception {
+    List<Map<String, String>> committedSnapshotOffsets() throws Exception {
         return parseOffsetList(mock.committedOffset());
     }
 
@@ -496,11 +511,16 @@ final class CdcClientWriteHarness implements AutoCloseable {
 
     @Override
     public void close() {
+        coordinator.closeTaskScheduler();
+        coordinator.closeJobStreamLoad(jobId);
         SourceReader reader = Env.getCurrentEnv().getReaderIfPresent(jobId);
-        if (reader != null) {
-            reader.close(baseConfig());
+        try {
+            if (reader != null) {
+                reader.close(baseConfig());
+            }
+        } finally {
+            Env.getCurrentEnv().close(jobId);
         }
-        Env.getCurrentEnv().close(jobId);
     }
 
     private static Map<String, Object> toMap(SnapshotSplit split) {
