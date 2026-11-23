@@ -68,8 +68,10 @@ public class MergeDateTrunc implements ExpressionPatternRuleFactory {
         if (!parentTimeUnit.isPresent() || !childTimeUnit.isPresent()) {
             return dateTrunc;
         }
-        if (UN_SUPPORT_TIME_UNIT.contains(parentTimeUnit.get())
-                || UN_SUPPORT_TIME_UNIT.contains(childTimeUnit.get())) {
+        // Identical truncations are idempotent, including WEEK and QUARTER.
+        if (parentTimeUnit.get() != childTimeUnit.get()
+                && (UN_SUPPORT_TIME_UNIT.contains(parentTimeUnit.get())
+                || UN_SUPPORT_TIME_UNIT.contains(childTimeUnit.get()))) {
             return dateTrunc;
         }
         if (parentTimeUnit.get().getLevel() < childTimeUnit.get().getLevel()) {

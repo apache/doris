@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -96,7 +97,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
 
     @Override
     public String toSql(MTMVPartitionInfo mvPartitionInfo) {
-        return String.format("date_trunc(`%s`, '%s')", mvPartitionInfo.getPartitionCol(), timeUnit);
+        return String.format("date_trunc(%s, '%s')", SqlUtils.getIdentSql(mvPartitionInfo.getPartitionCol()), timeUnit);
     }
 
     @Override

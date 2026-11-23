@@ -26,11 +26,23 @@ import org.apache.doris.nereids.types.DateV2Type;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * merge date_trunc test
  */
 public class MergeDateTruncTest extends ExpressionRewriteTestHelper {
+
+    @ParameterizedTest
+    @ValueSource(strings = {"WEEK", "QUARTER"})
+    void testMergeIdenticalCalendarUnits(String timeUnit) {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(bottomUp(MergeDateTrunc.INSTANCE)));
+        Slot dataSlot = new SlotReference("data_slot", DateV2Type.INSTANCE);
+        assertRewrite(new DateTrunc(new DateTrunc(dataSlot, new VarcharLiteral(timeUnit)),
+                        new VarcharLiteral(timeUnit.toLowerCase())),
+                new DateTrunc(dataSlot, new VarcharLiteral(timeUnit)));
+    }
 
     @Test
     public void testMergeDateTrunc() {
