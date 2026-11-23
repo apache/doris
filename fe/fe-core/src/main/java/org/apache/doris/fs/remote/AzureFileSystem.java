@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.backup.Status;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.GlobListResult;
 import org.apache.doris.fs.obj.AzureObjStorage;
 
 import org.apache.logging.log4j.LogManager;
@@ -56,6 +57,13 @@ public class AzureFileSystem extends ObjFileSystem {
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         AzureObjStorage azureObjStorage = (AzureObjStorage) getObjStorage();
         return azureObjStorage.globList(remotePath, result, fileNameOnly);
+    }
+
+    @Override
+    public GlobListResult globListWithLimit(String remotePath, List<RemoteFile> result, String startFile,
+            long fileSizeLimit, long fileNumLimit) {
+        AzureObjStorage storage = (AzureObjStorage) getObjStorage();
+        return storage.globListWithLimit(remotePath, result, startFile, fileSizeLimit, fileNumLimit);
     }
 
     @Override
