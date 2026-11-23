@@ -76,7 +76,6 @@ import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
@@ -196,39 +195,24 @@ public class DorisFE {
                 // running now finish, so their clients see no error.
                 long drainStartMs = System.currentTimeMillis();
                 gracefulShutdown(runningQueryIds(), DRAIN_TIMEOUT_MS);
-                Set<String> transferTargets = Collections.emptySet();
-                try {
-                    transferTargets = Env.getCurrentEnv().chooseReadyMasterTransferTargets();
-                } catch (Throwable t) {
-                    LOG.warn("choose followers to transfer mastership to failed", t);
-                }
-                ShutdownGate.begin(!transferTargets.isEmpty());
-                // Statements that started during the drain, and those forwarded here, finish next. Before a handover
-                // the wait stays well within the time the other FEs hold forwarded statements; without one, they
-                // get the rest of the drain timeout.
-                long finalWaitMs = transferTargets.isEmpty()
-                        ? Math.max(0, DRAIN_TIMEOUT_MS - (System.currentTimeMillis() - drainStartMs))
-                        : ShutdownGate.FINAL_DRAIN_MS;
-                gracefulShutdown(null, finalWaitMs);
+                // Then new statements are refused, so clients reconnect elsewhere, and the statements that started
+                // during the drain get the rest of the drain timeout.
+                ShutdownGate.begin();
+                gracefulShutdown(null, Math.max(0, DRAIN_TIMEOUT_MS - (System.currentTimeMillis() - drainStartMs)));
 
+                // A master hands its mastership to a ready follower, so the followers do not wait for the BDBJE
+                // heartbeat to time out before they elect a new master.
                 boolean masterTransferred = false;
                 try {
-                    masterTransferred = Env.getCurrentEnv().transferMasterOnShutdown(transferTargets);
+                    Env env = Env.getCurrentEnv();
+                    masterTransferred = env.transferMasterOnShutdown(env.chooseReadyMasterTransferTargets());
                 } catch (Throwable t) {
                     LOG.warn("transfer mastership before shutdown failed", t);
                 }
-                if (masterTransferred) {
-                    // The other FEs learn the new master from the journal within about a second. Until then they
-                    // keep forwarding here and get a fast error, instead of timing out on an address that is gone.
-                    try {
-                        Thread.sleep(ShutdownGate.SETTLE_MS);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
-                // After the handover this FE still runs the master daemons on a catalog that no longer follows
-                // the journal. Exit now instead of waiting for the servers to stop: their in-flight requests
-                // cannot complete here, and the clients retry on the new master.
+                // After the handover this FE is a replica of the new master but still holds a catalog that no
+                // longer follows the journal. It has served nothing since the fence and exits now instead of
+                // stopping its servers one by one: requests still in flight here cannot complete, and their
+                // clients retry on the new master.
                 if (!masterTransferred) {
                     if (qeService != null) {
                         qeService.stop();
@@ -791,7 +775,7 @@ public class DorisFE {
         return ids;
     }
 
-    // Waits for the given queries, or for every query and forwarded statement when queryIds is null.
+    // Waits for the given queries, or for every query when queryIds is null.
     private static void gracefulShutdown(Set<TUniqueId> queryIds, long timeoutMs) {
         try {
             long start = System.currentTimeMillis();
@@ -803,14 +787,12 @@ public class DorisFE {
                         running++;
                     }
                 }
-                int forwards = queryIds == null ? ShutdownGate.inFlightForwards() : 0;
-                if (running == 0 && forwards == 0) {
+                if (running == 0) {
                     break;
                 }
                 if (System.currentTimeMillis() - lastLogMs >= 1000) {
                     lastLogMs = System.currentTimeMillis();
-                    LOG.info("waiting {} queries and {} forwarded statements to finish before shutdown", running,
-                            forwards);
+                    LOG.info("waiting {} queries to finish before shutdown", running);
                 }
                 Thread.sleep(DRAIN_POLL_MS);
             }

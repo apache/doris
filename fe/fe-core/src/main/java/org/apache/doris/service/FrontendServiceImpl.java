@@ -1202,32 +1202,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
-        Frontend requester = validateForwardRequester(params);
-        boolean isCancel = params.isSetCancelQeury() && params.isCancelQeury();
-        // A master that hands its mastership over answers no journal sync or group commit request either: once
-        // demoted its journal id is stale. An FE that is not ready, such as a new master still starting, runs
-        // nothing. Either way the request did not run, and the forwarding FE sends it again.
-        if (!isCancel && ((ShutdownGate.refusesForwards() && (params.isSyncJournalOnly()
-                || params.getGroupCommitInfo() != null)) || !Env.getCurrentEnv().isReady())) {
-            return ShutdownGate.refusedForwardResult();
+        // A master that hands its mastership over runs no forwarded request, journal syncs included: the forwarding
+        // FE gets an error, as from any master that is gone, and its client retries.
+        if (ShutdownGate.isMasterWorkFenced()) {
+            throw new TException("the master frontend is handing its mastership over, retry");
         }
+        Frontend requester = validateForwardRequester(params);
         TMasterOpResult shortcut = handleForwardShortcut(params);
         if (shortcut != null) {
             return shortcut;
         }
-        if (!ShutdownGate.enterForward()) {
-            // This master is handing its mastership over: the forwarding FE holds the statement and sends it
-            // again to the new master.
-            return ShutdownGate.refusedForwardResult();
-        }
-        try {
-            return forwardStatement(params, requester);
-        } finally {
-            ShutdownGate.exitForward();
-        }
-    }
-
-    private TMasterOpResult forwardStatement(TMasterOpRequest params, Frontend requester) throws TException {
         logForwardRequest(params);
         ConnectContext context = createForwardContext(params, requester);
         // createForwardContext() always builds a MySQL proxy context: the master replays the
@@ -6215,7 +6199,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private TStatus checkMaster() {
         TStatus status = new TStatus(TStatusCode.OK);
-        if (!Env.getCurrentEnv().isMaster()) {
+        // A master that hands its mastership over takes no new master request, such as a transaction begin or
+        // commit: the backends and clients send it again to the new master.
+        if (!Env.getCurrentEnv().isMaster() || ShutdownGate.isMasterWorkFenced()) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
         }

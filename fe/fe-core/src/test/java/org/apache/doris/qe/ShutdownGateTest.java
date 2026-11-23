@@ -17,15 +17,10 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.thrift.TMasterOpResult;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 
 public class ShutdownGateTest {
 
@@ -45,59 +40,6 @@ public class ShutdownGateTest {
     }
 
     @Test
-    public void testRefusedForwardCarriesShutdownError() {
-        TMasterOpResult result = ShutdownGate.refusedForwardResult();
-        Assertions.assertEquals(ErrorCode.ERR_SERVER_SHUTDOWN.getCode(), result.getStatusCode());
-        Assertions.assertEquals(0, result.getMaxJournalId());
-        ByteBuffer packet = result.bufferForPacket();
-        Assertions.assertEquals((byte) 0xff, packet.get(0));
-        Assertions.assertEquals(1053, (packet.get(1) & 0xff) | ((packet.get(2) & 0xff) << 8));
-        byte[] bytes = new byte[packet.remaining()];
-        packet.duplicate().get(bytes);
-        String text = new String(bytes, StandardCharsets.UTF_8);
-        Assertions.assertTrue(text.contains("08S01"));
-        Assertions.assertTrue(text.contains(ShutdownGate.FORWARD_REJECT_MESSAGE));
-    }
-
-    @Test
-    public void testRecognisesOnlyTheRefusedForward() {
-        Assertions.assertTrue(ShutdownGate.isRefusedForward(ShutdownGate.refusedForwardResult()));
-        TMasterOpResult other = ShutdownGate.refusedForwardResult();
-        other.setErrMessage("Server shutdown in progress");
-        Assertions.assertFalse(ShutdownGate.isRefusedForward(other));
-        TMasterOpResult ok = new TMasterOpResult();
-        ok.setStatusCode(0);
-        Assertions.assertFalse(ShutdownGate.isRefusedForward(ok));
-        Assertions.assertFalse(ShutdownGate.isRefusedForward(null));
-    }
-
-    @Test
-    public void testCountsForwardsUntilTheyAreRefused() {
-        int before = ShutdownGate.inFlightForwards();
-        try {
-            Assertions.assertTrue(ShutdownGate.enterForward());
-            Assertions.assertEquals(before + 1, ShutdownGate.inFlightForwards());
-            ShutdownGate.setRefusingForwards(true);
-            Assertions.assertFalse(ShutdownGate.enterForward());
-            Assertions.assertEquals(before + 1, ShutdownGate.inFlightForwards());
-            ShutdownGate.exitForward();
-            Assertions.assertEquals(before, ShutdownGate.inFlightForwards());
-        } finally {
-            ShutdownGate.setRefusingForwards(false);
-        }
-    }
-
-    @Test
-    public void testFinalDrainAndTransferStayWithinTheHoldWindow() {
-        Assertions.assertEquals(5000L, ShutdownGate.FINAL_DRAIN_MS);
-        // (30 s - 5 s - 3 s - 2 s) / 2 = 10 s.
-        Assertions.assertEquals(10, ShutdownGate.TRANSFER_TIMEOUT_SECOND);
-        Assertions.assertTrue(ShutdownGate.FINAL_DRAIN_MS + ShutdownGate.FENCE_WAIT_MS
-                + ShutdownGate.JOURNAL_FLUSH_WAIT_MS + ShutdownGate.TRANSFER_TIMEOUT_SECOND * 1000L
-                + ShutdownGate.SETTLE_MS < ShutdownGate.MASTER_CHANGE_HOLD_MS);
-    }
-
-    @Test
     public void testFenceStopsNewMasterWorkAndWaitsForRunningWork() throws Exception {
         try {
             Assertions.assertTrue(ShutdownGate.enterMasterWork());
@@ -110,6 +52,14 @@ public class ShutdownGateTest {
         } finally {
             ShutdownGate.resetMasterWorkFence();
         }
+    }
+
+    @Test
+    public void testFenceWaitFitsBeforeTheTransfer() {
+        // The fence and the journal flush take a few seconds at most, well below the transfer timeout and the
+        // BDBJE heartbeat timeout that a handover saves the followers from waiting for.
+        Assertions.assertTrue(ShutdownGate.FENCE_WAIT_MS + ShutdownGate.JOURNAL_FLUSH_WAIT_MS
+                <= ShutdownGate.TRANSFER_TIMEOUT_SECOND * 1000L);
     }
 
     @Test

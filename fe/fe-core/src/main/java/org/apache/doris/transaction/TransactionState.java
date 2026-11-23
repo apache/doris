@@ -536,6 +536,16 @@ public class TransactionState implements Writable {
         this.commitJournalPending = commitJournalPending;
     }
 
+    /**
+     * The status a label lookup reports. A COMMITTED transaction whose journal entry is not durable yet is
+     * reported as PREPARE: a crash or a mastership handover can still lose that commit, so a client must not take
+     * its label as finished.
+     */
+    public TransactionStatus getDurableTransactionStatus() {
+        TransactionStatus status = transactionStatus;
+        return commitJournalPending && status == TransactionStatus.COMMITTED ? TransactionStatus.PREPARE : status;
+    }
+
     public void setTransactionStatus(TransactionStatus transactionStatus) {
         // status changed
         this.preStatus = this.transactionStatus;

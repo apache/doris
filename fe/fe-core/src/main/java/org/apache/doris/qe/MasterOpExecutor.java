@@ -58,21 +58,6 @@ public class MasterOpExecutor extends FEOpExecutor {
     }
 
     @Override
-    protected boolean followsMaster() {
-        return true;
-    }
-
-    @Override
-    protected boolean targetIsSelf() {
-        return ctx.getEnv().isMaster();
-    }
-
-    @Override
-    protected void refreshTarget() {
-        feAddr = new TNetworkAddress(ctx.getEnv().getMasterHost(), ctx.getEnv().getMasterRpcPort());
-    }
-
-    @Override
     public void execute() throws Exception {
         super.execute();
         waitOnReplaying();

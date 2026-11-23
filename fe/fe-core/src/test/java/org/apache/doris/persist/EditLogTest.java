@@ -19,6 +19,7 @@ package org.apache.doris.persist;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.journal.bdbje.Timestamp;
 
@@ -260,6 +261,32 @@ public class EditLogTest {
                     editLog.close();
                 }
             }
+        }
+    }
+
+    @Test
+    public void testWaitForSubmittedEditsReturnsOnceTheyAreDurable() throws Exception {
+        boolean originalBatch = Config.enable_batch_editlog;
+        Config.enable_batch_editlog = true;
+        File imageDir = Files.createDirectories(temporaryFolder.resolve("flush_barrier")).toFile();
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getImageDir()).thenReturn(imageDir.getAbsolutePath());
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            EditLog editLog = new EditLog("test");
+            editLog.open();
+            try {
+                EditLog.EditLogItem item = editLog.submitEdit(OperationType.OP_SAVE_NEXTID, new Text("7"));
+                Assertions.assertTrue(editLog.waitForSubmittedEdits(10000));
+                // The barrier is released only after every entry submitted before it is durable.
+                Assertions.assertTrue(item.finished);
+                // With nothing pending, the wait returns at once.
+                Assertions.assertTrue(editLog.waitForSubmittedEdits(10000));
+            } finally {
+                editLog.close();
+            }
+        } finally {
+            Config.enable_batch_editlog = originalBatch;
         }
     }
 }

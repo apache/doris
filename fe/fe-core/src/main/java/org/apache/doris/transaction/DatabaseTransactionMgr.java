@@ -1165,7 +1165,7 @@ public class DatabaseTransactionMgr {
             }
             // find the latest txn (which id is largest)
             long maxTxnId = existingTxnIds.stream().max(Comparator.comparingLong(Long::valueOf)).get();
-            return unprotectedGetTransactionState(maxTxnId).getTransactionStatus();
+            return unprotectedGetTransactionState(maxTxnId).getDurableTransactionStatus();
         } finally {
             readUnlock();
         }

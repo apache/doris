@@ -1466,14 +1466,7 @@ public class StmtExecutor {
         if (env.isMaster() || !context.getSessionVariable().enableStrongConsistencyRead) {
             return;
         }
-        MasterOpExecutor executor = new MasterOpExecutor(context);
-        // KILL QUERY and the query timeout cancel through the statement's executor; a journal sync held while the
-        // master changes stops with them instead of running later.
-        StmtExecutor stmtExecutor = context.getExecutor();
-        if (stmtExecutor != null) {
-            stmtExecutor.registerQueryCancellationCallback(executor::stopHolding);
-        }
-        executor.syncJournal();
+        new MasterOpExecutor(context).syncJournal();
     }
 
     private boolean isQuery() {

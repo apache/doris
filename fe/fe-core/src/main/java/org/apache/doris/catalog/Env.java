@@ -3294,14 +3294,17 @@ public class Env {
     }
 
     /**
-     * Hands mastership to an alive follower when this master shuts down gracefully, so the followers do not wait
-     * for the BDBJE heartbeat to time out before they elect a new master. Returns whether mastership moved; the
-     * caller must then exit without serving further requests. On any failure this FE stays master.
+     * Hands mastership to one of {@code targets} when this master shuts down gracefully, so the followers do not
+     * wait for the BDBJE heartbeat to time out before they elect a new master. Returns whether mastership moved,
+     * once the other targets replicate the new master (at most ShutdownGate.REJOIN_WAIT_MS) and at least
+     * ShutdownGate.MIN_LINGER_MS after the transfer, serving nothing meanwhile; the caller then exits. Otherwise the
+     * caller shuts down as master, as it would without a handover.
      *
      * <p>Before the transfer, the master-only work is fenced and the journal entries already submitted are made
-     * durable. The transfer blocks journal commits on this master and then demotes it, so an entry still in flight
-     * is lost; with the fence, no daemon publishes a version, sends a backend task or acts on a backend report
-     * based on such an entry, and the new master sees everything this master acted on.
+     * durable. The fence also makes this FE answer transaction begins and commits as a non-master, so no new commit
+     * starts. The transfer may block journal commits on this master and then demotes it, so an entry still in
+     * flight is lost; no daemon has acted on such an entry, a label lookup does not report it as finished, and the
+     * new master sees everything this master acted on.
      */
     public boolean transferMasterOnShutdown(Set<String> targets) {
         if (targets.isEmpty() || !isMaster() || !(haProtocol instanceof BDBHA)) {
@@ -3332,6 +3335,17 @@ public class Env {
             String newMaster = ((BDBHA) haProtocol).transferMaster(targets, timeoutSecond);
             LOG.info("transferred mastership to {} before shutdown in {} ms", newMaster,
                     System.currentTimeMillis() - startMs);
+            Set<String> followers = new HashSet<>(targets);
+            followers.remove(newMaster);
+            long rejoinStartMs = System.currentTimeMillis();
+            boolean rejoined = ((BDBHA) haProtocol).waitForReplicasOf(newMaster, followers,
+                    ShutdownGate.REJOIN_WAIT_MS);
+            LOG.info("followers {} {} replicas of {} after {} ms", followers, rejoined ? "are" : "are not yet",
+                    newMaster, System.currentTimeMillis() - rejoinStartMs);
+            long lingerMs = ShutdownGate.MIN_LINGER_MS - (System.currentTimeMillis() - rejoinStartMs);
+            if (lingerMs > 0) {
+                Thread.sleep(lingerMs);
+            }
             return true;
         } catch (Throwable t) {
             LOG.warn("failed to transfer mastership to one of {} in {} ms, shut down as master", targets,
@@ -3344,8 +3358,8 @@ public class Env {
      * The followers this master can hand its mastership to on shutdown: alive followers that answer a heartbeat
      * now and have replayed the journal to within ShutdownGate.MAX_TRANSFER_JOURNAL_LAG of this master.
      * A frozen or lagging follower is left out, so the handover never waits on it. Empty when this FE does not
-     * hand over, which includes the case where the followers that answer do not form a majority of the electable
-     * nodes without this one: a new master could not then commit journal entries.
+     * hand over, which includes the case where those followers do not form a majority of the electable nodes
+     * without this one: the group could then neither elect a master safely nor acknowledge its commits.
      */
     public Set<String> chooseReadyMasterTransferTargets() {
         if (!isMaster() || !(haProtocol instanceof BDBHA)) {
@@ -3388,13 +3402,8 @@ public class Env {
             }
         }
         int electable = getFrontends(FrontendNodeType.FOLLOWER).size();
-        if (!BDBHA.keepsQuorumWithout(electable, replayedJournalIds.size())) {
-            LOG.warn("only {} of {} electable frontends besides this one answer, no quorum without it,"
-                    + " shut down as master", replayedJournalIds.size(), electable);
-            return Collections.emptySet();
-        }
         long journalId = getMaxJournalId();
-        Set<String> targets = BDBHA.chooseReadyTransferTargets(replayedJournalIds, journalId,
+        Set<String> targets = BDBHA.chooseHandoverTargets(electable, replayedJournalIds, journalId,
                 ShutdownGate.MAX_TRANSFER_JOURNAL_LAG);
         LOG.info("ready followers to transfer mastership to: {}, candidates {}, replayed journal ids {}, ours {}",
                 targets, candidates, replayedJournalIds, journalId);

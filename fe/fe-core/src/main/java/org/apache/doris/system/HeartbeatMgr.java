@@ -142,6 +142,14 @@ public class HeartbeatMgr extends MasterDaemon {
         }
     }
 
+    // A heartbeat round waits up to the heartbeat timeout for slow nodes, longer than a handover can wait. The
+    // handover does not wait for it: heartbeats change nothing the new master depends on, and the next round
+    // after the fence does not start.
+    @Override
+    protected boolean fenceWaitsForCycle() {
+        return false;
+    }
+
     /**
      * At each round:
      * 1. send heartbeat to all nodes

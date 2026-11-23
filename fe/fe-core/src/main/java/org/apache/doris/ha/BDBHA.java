@@ -28,6 +28,7 @@ import com.sleepycat.je.DatabaseEntry;
 import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.rep.MasterStateException;
 import com.sleepycat.je.rep.MemberNotFoundException;
+import com.sleepycat.je.rep.NodeState;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
 import com.sleepycat.je.rep.ReplicationGroup;
 import com.sleepycat.je.rep.ReplicationMutableConfig;
@@ -169,6 +170,42 @@ public class BDBHA implements HAProtocol {
     }
 
     /**
+     * Waits up to timeoutMs until each of {@code followers} is a replica of {@code master}. Returns whether they
+     * all are.
+     */
+    public boolean waitForReplicasOf(String master, Set<String> followers, long timeoutMs)
+            throws InterruptedException {
+        long deadlineMs = System.currentTimeMillis() + timeoutMs;
+        while (true) {
+            int joined = 0;
+            try {
+                ReplicationGroupAdmin admin = environment.getReplicationGroupAdmin();
+                ReplicationGroup group = admin == null ? null : admin.getGroup();
+                for (String name : followers) {
+                    ReplicationNode node = group == null ? null : group.getMember(name);
+                    if (node == null) {
+                        continue;
+                    }
+                    NodeState state = admin.getNodeState(node, 1000);
+                    if (state.getNodeState() == ReplicatedEnvironment.State.REPLICA
+                            && master.equals(state.getMasterName())) {
+                        joined++;
+                    }
+                }
+            } catch (Exception e) {
+                LOG.debug("failed to read the replication state of {}", followers, e);
+            }
+            if (joined == followers.size()) {
+                return true;
+            }
+            if (System.currentTimeMillis() >= deadlineMs) {
+                return false;
+            }
+            Thread.sleep(100);
+        }
+    }
+
+    /**
      * Returns the node names of the alive followers other than {@code selfNodeName}: the nodes a master can
      * hand its mastership to.
      */
@@ -179,6 +216,22 @@ public class BDBHA implements HAProtocol {
                     && !fe.getNodeName().equals(selfNodeName)) {
                 targets.add(fe.getNodeName());
             }
+        }
+        return targets;
+    }
+
+    /**
+     * The followers a departing master hands its mastership to: those that answered a heartbeat just now, given as
+     * node name to replayed journal id, and are within maxJournalLag of masterJournalId. Empty unless they form a
+     * majority of all {@code electable} nodes, the departing master included.
+     */
+    public static Set<String> chooseHandoverTargets(int electable, Map<String, Long> replayedJournalIds,
+            long masterJournalId, long maxJournalLag) {
+        Set<String> targets = chooseReadyTransferTargets(replayedJournalIds, masterJournalId, maxJournalLag);
+        if (!keepsQuorumWithout(electable, targets.size())) {
+            LOG.warn("only {} of {} electable frontends besides this one are ready, no quorum without it,"
+                    + " shut down as master", targets.size(), electable);
+            return new TreeSet<>();
         }
         return targets;
     }

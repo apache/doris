@@ -91,4 +91,19 @@ public class MasterTransferTargetTest {
         // Two electable nodes never keep a quorum without one of them.
         Assertions.assertFalse(BDBHA.keepsQuorumWithout(2, 1));
     }
+
+    @Test
+    public void testHandoverTargetsNeedAReadyMajority() {
+        // Three electable nodes: both other followers ready, both are targets.
+        Assertions.assertEquals(ImmutableSet.of("fe_a", "fe_b"), BDBHA.chooseHandoverTargets(3,
+                ImmutableMap.of("fe_a", 1000L, "fe_b", 990L), 1000L, 100L));
+        // One of them lags: the ready one alone is no majority of three, so there is no handover.
+        Assertions.assertTrue(BDBHA.chooseHandoverTargets(3,
+                ImmutableMap.of("fe_a", 1000L, "fe_b", 500L), 1000L, 100L).isEmpty());
+        // One of them is frozen and did not answer: no handover either.
+        Assertions.assertTrue(BDBHA.chooseHandoverTargets(3, ImmutableMap.of("fe_a", 1000L), 1000L, 100L).isEmpty());
+        // Five electable nodes: three ready followers of the other four are enough.
+        Assertions.assertEquals(ImmutableSet.of("fe_a", "fe_b", "fe_c"), BDBHA.chooseHandoverTargets(5,
+                ImmutableMap.of("fe_a", 1000L, "fe_b", 1000L, "fe_c", 950L, "fe_d", 10L), 1000L, 100L));
+    }
 }
