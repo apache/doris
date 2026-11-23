@@ -91,7 +91,8 @@ public class RoutineLoadJobReplayTest extends TestWithFeService {
         Assertions.assertEquals(4294967296L, replayed.getMemLimit());
         Assertions.assertEquals(3, replayed.getSendBatchParallelism());
         Assertions.assertTrue(replayed.isLoadToSingleTablet());
-        NereidsRoutineLoadTaskInfo taskInfo = replayed.toNereidsRoutineLoadTaskInfo();
+        NereidsRoutineLoadTaskInfo taskInfo = replayed.toNereidsRoutineLoadTaskInfo(123L);
+        Assertions.assertEquals(123L, taskInfo.getTxnId());
         Assertions.assertEquals('"', taskInfo.getEnclose());
         Assertions.assertEquals('\\', taskInfo.getEscape());
         Assertions.assertEquals(0.5, taskInfo.getMaxFilterRatio());
@@ -193,7 +194,8 @@ public class RoutineLoadJobReplayTest extends TestWithFeService {
         altered.put(CsvFileFormatProperties.PROP_ESCAPE, "|");
         job.replayModifyProperties(new AlterRoutineLoadJobOperationLog(job.getId(), altered, null));
 
-        NereidsRoutineLoadTaskInfo taskInfo = job.toNereidsRoutineLoadTaskInfo();
+        NereidsRoutineLoadTaskInfo taskInfo = job.toNereidsRoutineLoadTaskInfo(123L);
+        Assertions.assertEquals(123L, taskInfo.getTxnId());
         Assertions.assertEquals('\'', taskInfo.getEnclose());
         Assertions.assertEquals('|', taskInfo.getEscape());
         KafkaRoutineLoadJob replayed = replay(job);

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.stream.BaseTableStream;
@@ -52,8 +53,10 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TChangelogScanType;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -1327,9 +1330,27 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                 && hasSameScanParams(scanParams, that.scanParams);
     }
 
+    private boolean isChangelogMergeScan() {
+        if (!scanParams.isPresent() || !scanParams.get().incrementalRead()) {
+            return false;
+        }
+        OlapTable source = table instanceof OlapChangelogTableWrapper
+                ? ((OlapChangelogTableWrapper) table).getOriginTable() : getTable();
+        TChangelogScanType mode = OlapScanNode.parseChangelogScanType(scanParams.get(), source);
+        return mode == TChangelogScanType.DETAIL || mode == TChangelogScanType.MIN_DELTA;
+    }
+
+    public boolean canPushDownVirtualColumns() {
+        // Expressions on merged rows must see the emitted BEFORE or AFTER image.
+        OlapTable olapTable = getTable();
+        return !isChangelogMergeScan() && (olapTable.getKeysType() == KeysType.DUP_KEYS
+                || olapTable.getEnableUniqueKeyMergeOnWrite());
+    }
+
     @Override
     public boolean supportPruneNestedColumn() {
-        return true;
+        // MIN_DELTA compares whole values. DETAIL swaps current/before values and needs matching types.
+        return !isChangelogMergeScan();
     }
 
     public Optional<TableScanParams> getScanParams() {

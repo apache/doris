@@ -87,6 +87,20 @@ suite("test_insert_remote_doris_as_olap_table_select", "p0,external,doris,extern
         );
     """
 
+    if (sql("SHOW FRONTEND CONFIG LIKE '%enable_feature_changelog'").any { it[1] == "true" }) {
+        sql """CREATE TABLE `${db_name}`.`remote_changelog_target` (k INT, v INT)
+               DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+               PROPERTIES ("replication_num" = "1", "changelog.enable" = "true")"""
+        test {
+            sql "INSERT INTO `${catalog_name}`.`${db_name}`.`remote_changelog_target` VALUES (1, 2)"
+            exception "Writing to a changelog-enabled table through a Doris catalog is not supported"
+        }
+        test {
+            sql "INSERT INTO `${catalog_name}`.`${db_name}`.`remote_changelog_target` SELECT 1, 2 WHERE FALSE"
+            exception "Writing to a changelog-enabled table through a Doris catalog is not supported"
+        }
+    }
+
     sql """
         INSERT INTO `${catalog_name}`.`${db_name}`.`test_remote_doris_all_types_select_t` values('2025-05-18 01:00:00.000', true, -128, -32768, -2147483648, -9223372036854775808, -1234567890123456790, -123.456, -123456.789, -123457, -123456789012346, -1234567890123456789012345678, '1970-01-01', '0000-01-01 00:00:00', 'A', 'Hello', 'Hello, Doris!', '["apple", "banana", "orange"]', {"Emily":101,"age":25} , {11, 3.14, "Emily"})
     """
