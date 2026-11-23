@@ -61,6 +61,33 @@ suite("topn_filter_outer_join_null", "p0") {
         }
     }
 
+    for (String joinType : ["FULL OUTER", "RIGHT OUTER"]) {
+        for (String expression : ["array_position([0, 1], l.k)", "make_set(1, cast(l.k as string))"]) {
+            String query = """SELECT ${expression} AS sort_key, r.k
+                FROM (
+                    SELECT k FROM topn_filter_outer_join_null WHERE k = 0
+                    UNION ALL
+                    SELECT k FROM topn_filter_outer_join_null WHERE k > 0 AND sleep(k) = 0
+                ) l ${joinType} JOIN topn_filter_outer_join_null r ON l.k = r.k
+                ORDER BY sort_key ASC NULLS LAST, r.k NULLS LAST LIMIT 1"""
+            sql "SET topn_filter_ratio = 1000000"
+            explain {
+                sql query
+                contains "HASH JOIN"
+                notContains "TOPN OPT:"
+            }
+            qt_builtin_enabled query
+            sql "SET topn_filter_ratio = 0"
+            qt_builtin_disabled query
+        }
+
+        // The value search returns false for a missing left row, and the right key breaks the tie.
+        qt_builtin_unmatched """SELECT map_contains_value(map(1, 1), l.k) AS sort_key, r.k
+            FROM (SELECT k FROM topn_filter_outer_join_null WHERE k = 0) l
+                ${joinType} JOIN topn_filter_outer_join_null r ON l.k = r.k
+            ORDER BY sort_key ASC NULLS LAST, r.k DESC NULLS LAST LIMIT 1"""
+    }
+
     sql "SET topn_filter_ratio = 1000000"
     for (String joinType : ["FULL OUTER", "RIGHT OUTER"]) {
         for (String conversion : ["to_uuid_or_default", "to_uuid_or_zero"]) {

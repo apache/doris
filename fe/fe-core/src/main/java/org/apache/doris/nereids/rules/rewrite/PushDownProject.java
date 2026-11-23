@@ -25,9 +25,11 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -391,7 +393,8 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
                     List<Plan> children = plan.children();
                     for (int i = 0; i < children.size(); i++) {
                         Plan child = children.get(i);
-                        if (child.getOutputSet().containsAll(e.getInputSlots())) {
+                        if (child.getOutputSet().containsAll(e.getInputSlots())
+                                && canPushDownToChild(e, i)) {
                             Alias alias = new Alias(statementContext.getNextExprId(), e);
                             Slot slot = alias.toSlot();
                             childToPushDownProjects.put(child, alias);
@@ -408,6 +411,19 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
             } else {
                 return Optional.empty();
             }
+        }
+
+        private boolean canPushDownToChild(Expression expression, int childIndex) {
+            if (plan instanceof LogicalJoin<?, ?> join) {
+                JoinType joinType = join.getJoinType();
+                boolean nullGenerating = childIndex == 0 ? joinType.isLeftSideNullable()
+                        : joinType.isRightSideNullable();
+                // For example, map_contains_value(map(1, 1), NULL) is false. A projection below
+                // the join would be absent for an unmatched row and would produce NULL instead.
+                return !nullGenerating || !expression.anyMatch(
+                        e -> NullToNonNullFunction.canConvertNullToNonNull((Expression) e));
+            }
+            return true;
         }
 
         public List<Plan> buildNewChildren() {

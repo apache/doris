@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ImplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -34,7 +35,7 @@ import java.util.List;
 /**
  * ScalarFunction 'make_set'.
  */
-public class MakeSet extends ScalarFunction implements ImplicitlyCastableSignature {
+public class MakeSet extends ScalarFunction implements ImplicitlyCastableSignature, NullToNonNullFunction {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(BigIntType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE).varArgs(BigIntType.INSTANCE, StringType.INSTANCE)

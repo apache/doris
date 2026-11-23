@@ -48,6 +48,8 @@ import org.apache.doris.thrift.TExplainLevel;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 import java.util.List;
@@ -385,6 +387,33 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                 List.of("RIGHT OUTER", "FULL OUTER"), false, false);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "array_position([0, 1], l.k)",
+        "make_set(1, cast(l.k as string))",
+        "array_contains([1], l.k)",
+        "countequal([1], l.k)",
+        "cardinality(array_remove([1], l.k))",
+        "cardinality(array_pushback([1], l.k))",
+        "cardinality(array_pushfront([1], l.k))",
+        "cardinality(array_sortby([1], split_by_string(cast(l.k as string), ',')))",
+        "map_contains_key(map(1, 1), l.k)",
+        "map_contains_value(map(1, 1), l.k)",
+        "map_contains_entry(map(1, 1), 1, l.k)",
+        "element_at(map(cast(null as int), 0, 1, 1), l.k)",
+        "char(l.k)",
+        "elt(1, 'a', cast(l.k as string))",
+        "nullif(1, l.k)",
+        "cast(json_insert('{}', '$.a', l.k) as string)",
+        "cast(json_replace('{\"a\":0}', '$.a', l.k) as string)",
+        "cast(json_set('{}', '$.a', l.k) as string)",
+        "cast(json_parse_error_to_value('{}', to_json(l.k)) as string)",
+        "bitmap_to_string(bitmap_or(to_bitmap(1), bitmap_from_string(cast(l.k as string))))"
+    })
+    public void testTopNFilterRejectsBuiltinsThatConsumeNullThroughOuterJoin(String expression) {
+        checkTopNFilterThroughJoin(List.of(expression), List.of("RIGHT OUTER", "FULL OUTER"), false, false);
+    }
+
     @Test
     public void testTopNFilterRejectsScalarUdfThroughNullGeneratingSide() throws Exception {
         createFunction("CREATE FUNCTION topn_nonnullable_udf(INT) RETURNS INT PROPERTIES ("
@@ -401,15 +430,16 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
     @Test
     public void testTopNFilterPreservesNullPropagatingOuterJoinExpressions() {
         checkTopNFilterThroughJoin(List.of("l.k", "cast(l.k as bigint)", "abs(l.k)",
-                "to_uuid_or_zero(cast(l.k as string))"),
+                "element_at([1, 2], l.k + 1)", "to_uuid_or_zero(cast(l.k as string))"),
                 List.of("RIGHT OUTER", "FULL OUTER"), false, true);
         checkTopNFilterThroughJoin(List.of("l.k"), List.of("RIGHT OUTER", "FULL OUTER"), true, false);
     }
 
     @Test
     public void testTopNFilterPreservesNonNullGeneratingJoinSide() {
-        checkTopNFilterThroughJoin(List.of("coalesce(l.k, -1)", "to_uuid_or_default(cast(l.k as string))"),
-                List.of("INNER", "LEFT OUTER"), false, true);
+        checkTopNFilterThroughJoin(List.of("coalesce(l.k, -1)", "to_uuid_or_default(cast(l.k as string))",
+                "array_position([0, 1], l.k)", "make_set(1, cast(l.k as string))",
+                "map_contains_value(map(1, 1), l.k)"), List.of("INNER", "LEFT OUTER"), false, true);
     }
 
     private void checkTopNFilterThroughJoin(List<String> expressions, List<String> joinTypes,

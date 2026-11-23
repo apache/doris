@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -51,7 +52,7 @@ import java.util.List;
  */
 public class ElementAt extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable,
-            PropagateNullLiteral, PreferPushDownProject {
+            PropagateNullLiteral, PreferPushDownProject, NullToNonNullFunction {
 
     private static final FunctionSignature VARIANT_KEY_SIGNATURE =
             FunctionSignature.ret(VariantType.INSTANCE)
@@ -93,6 +94,12 @@ public class ElementAt extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitElementAt(this, context);
+    }
+
+    @Override
+    public boolean canConvertNullToNonNull() {
+        // A map lookup can find a stored NULL key. Array, struct, and variant access propagate NULL.
+        return getArgumentType(0) instanceof MapType;
     }
 
     @Override
