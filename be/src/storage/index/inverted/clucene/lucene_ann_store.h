@@ -30,10 +30,11 @@ class Directory;
 
 namespace doris::segment_v2 {
 
-// ANN storage over a CLucene directory: how V1 and V2 keep an ANN index, and SNII until it serves
-// ANN natively. On the read side the directory is the compound reader of the index file, on the
-// write side the scratch directory begin_close() packs into it. Both adapters take the Directory
-// base class because the ANN tests read and write through a RAMDirectory.
+// ANN storage over a CLucene directory: how V1 and V2 keep an ANN index (SNII keeps it in its
+// container, see inverted/snii/snii_ann_store.h). On the read side the directory is the compound
+// reader of the index file, on the write side the scratch directory begin_close() packs into it.
+// Both adapters take the Directory base class because the ANN tests read and write through a
+// RAMDirectory.
 //
 // Every CLuceneError comes out as an INVERTED_INDEX_CLUCENE_ERROR status, the code ANN reported
 // for CLucene failures when it called CLucene itself. Reads go through CLucene's
