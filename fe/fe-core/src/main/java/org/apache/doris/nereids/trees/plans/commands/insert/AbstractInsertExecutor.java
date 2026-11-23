@@ -72,6 +72,7 @@ public abstract class AbstractInsertExecutor {
     protected String errMsg = "";
     protected Optional<InsertCommandContext> insertCtx;
     protected final boolean emptyInsert;
+    protected final boolean loadJobRegistered;
     protected long txnId = INVALID_TXN_ID;
 
     /**
@@ -128,6 +129,7 @@ public abstract class AbstractInsertExecutor {
         this.insertCtx = insertCtx;
         this.emptyInsert = emptyInsert;
         this.jobId = jobId;
+        this.loadJobRegistered = needRegister;
     }
 
     public void registerListener(InsertExecutorListener listener) {
@@ -187,6 +189,13 @@ public abstract class AbstractInsertExecutor {
      * Do something after exec
      */
     protected abstract void afterExec(StmtExecutor executor);
+
+    /**
+     * Called instead of executeSingleInsert when the insert needs no transaction, i.e. the planner proved the
+     * source empty. Must close any bookkeeping opened in the constructor, such as a registered load job.
+     */
+    public void onSkipExecution() {
+    }
 
     protected final void execImpl(StmtExecutor executor) throws Exception {
         String queryId = DebugUtil.printId(ctx.queryId());

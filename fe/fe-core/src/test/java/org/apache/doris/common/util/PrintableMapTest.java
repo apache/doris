@@ -27,6 +27,46 @@ import java.util.Set;
 public class PrintableMapTest {
 
     @Test
+    public void testMaxComputeSessionTokenIsMasked() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("mc.session_token", "fixture-session-material");
+        Assertions.assertEquals("mc.session_token = " + PrintableMap.PASSWORD_MASK,
+                new PrintableMap<>(properties, "=", false, false, true).toString());
+        Assertions.assertEquals("fixture-session-material", properties.get("mc.session_token"));
+    }
+
+
+    @Test
+    public void testPermanentCredentialsSurviveDisabledSupplementalPattern() {
+        String original = org.apache.doris.common.Config.datasource_sensitive_property_pattern;
+        try {
+            org.apache.doris.common.Config.datasource_sensitive_property_pattern = "(?!)";
+            for (String key : java.util.Arrays.asList("mc.access_key", "mc.session_token", "ozone.access_key",
+                    "ozone.secret_key", "ozone.session_token", "iceberg.jdbc.password", "paimon.jdbc.password",
+                    "paimon.rest.dlf.access-key-id", "paimon.rest.dlf.access-key-secret", "aws.glue.session-token",
+                    "dlf.catalog.securityToken", "AZURE_ACCOUNT_KEY", "AZURE_CLIENT_SECRET", "COS_ACCESS_KEY",
+                    "COS_SECRET_KEY", "COS_SESSION_TOKEN", "COS_TOKEN", "OBS_ACCESS_KEY", "OBS_SECRET_KEY",
+                    "OBS_SESSION_TOKEN", "OBS_TOKEN", "OSS_ACCESS_KEY", "OSS_SECRET_KEY", "OSS_SESSION_TOKEN",
+                    "OSS_TOKEN", "cos.session_token", "obs.session_token", "oss.hdfs.security_token",
+                    "oss.security_token", "lance.rest.bearer-token", "lance.rest.api-key", "trino.keytab",
+                    "TRINO.connection-password",
+                    "trino.hive.s3.aws-secret-key", "trino.\napi-key", "trino.Key")) {
+                Map<String, String> properties = new HashMap<>();
+                properties.put(key, "fixture-material");
+                Assertions.assertEquals(key + " = " + PrintableMap.PASSWORD_MASK,
+                        new PrintableMap<>(properties, "=", false, false, true).toString(), key);
+                Assertions.assertEquals("fixture-material", properties.get(key));
+            }
+            Assertions.assertEquals("https://api.example.com", PrintableMap.redactProperty("uri",
+                    "https://api.example.com"));
+            Assertions.assertEquals("host.example.com:9000", PrintableMap.redactProperty("trino.endpoint",
+                    "host.example.com:9000"));
+        } finally {
+            org.apache.doris.common.Config.datasource_sensitive_property_pattern = original;
+        }
+    }
+
+    @Test
     public void testSensitiveKeysContainAliyunDLFProperties() {
         // Verify that SENSITIVE_KEY contains sensitive keys from AliyunDLFBaseProperties
         // These keys are added via ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class)

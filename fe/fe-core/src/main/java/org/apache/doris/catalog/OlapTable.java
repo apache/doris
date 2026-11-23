@@ -1952,6 +1952,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             sb.append(indexMeta.getStorageType());
         }
 
+        if (getVariantEscapeDotsInKeys()) {
+            sb.append("variant_escape_dots_in_keys=true");
+        }
+
         // bloom filter
         if (bfColumns != null && !bfColumns.isEmpty()) {
             for (String bfCol : bfColumns) {
@@ -2176,7 +2180,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public static OlapTable read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), OlapTable.class);
     }
-
 
     public void fillInfo(Partition partition, RecyclePartitionParam recyclePartitionParam) {
         recyclePartitionParam.dataProperty = partitionInfo.getDataProperty(partition.getId());
@@ -2680,6 +2683,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
                 Boolean.valueOf(flattenNested).toString());
         tableProperty.buildVariantEnableFlattenNested();
+    }
+
+    public boolean getVariantEscapeDotsInKeys() {
+        return tableProperty != null && tableProperty.getVariantEscapeDotsInKeys();
+    }
+
+    public void setVariantEscapeDotsInKeys(boolean value) {
+        if (value) {
+            TableProperty property = getOrCreatTableProperty();
+            property.modifyTableProperties(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "true");
+            property.buildVariantEscapeDotsInKeys();
+        }
     }
 
     @Deprecated
@@ -3876,7 +3891,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getInvertedIndex(column, subPath, null);
     }
 
+    /** Look up an index using logical key components, encoding only at the storage metadata boundary. */
     public Index getInvertedIndex(Column column, List<String> subPath, String analyzer) {
+        return getInvertedIndexByStoragePath(column, toVariantStoragePath(subPath), analyzer);
+    }
+
+    /** Variant sub path components in storage spelling: each key is escaped when the table escapes dots. */
+    public List<String> toVariantStoragePath(List<String> subPath) {
+        if (subPath == null || !getVariantEscapeDotsInKeys()) {
+            return subPath;
+        }
+        return subPath.stream().map(PropertyAnalyzer::encodeVariantPathComponent).collect(Collectors.toList());
+    }
+
+    /** Look up an index using a sub path already in storage spelling, such as a translated slot's. */
+    public Index getInvertedIndexByStoragePath(Column column, List<String> storagePath, String analyzer) {
         if (indexes == null) {
             return null;
         }
@@ -3892,7 +3921,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         List<Index> filteredInvertedIndexes = filterIndexesByAnalyzer(invertedIndexes, analyzer);
 
-        if (subPath == null || subPath.isEmpty()) {
+        if (storagePath == null || storagePath.isEmpty()) {
             return filteredInvertedIndexes.size() == 1 ? filteredInvertedIndexes.get(0)
                 : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
@@ -3901,7 +3930,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // The first match wins, the same as the BE writer that picks the physical index of a subcolumn
         // (variant_util.cpp), so a write and a query on one path land on the same index even when
         // the predefined patterns overlap.
-        String subPathString = String.join(".", subPath);
+        String subPathString = String.join(".", storagePath);
         String fieldPattern = "";
         if (column.getChildren() != null) {
             for (Column child : column.getChildren()) {

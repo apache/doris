@@ -17,6 +17,8 @@
 
 // SHOW CREATE TABLE must print predefined field comments as SQL literals that can be replayed.
 suite("test_variant_predefine_comment_escape") {
+    // V2 execution keeps a JSON string as a string Variant value; the V1 sink parsed it.
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql "DROP TABLE IF EXISTS test_variant_predefine_comment_escape"
     sql "DROP TABLE IF EXISTS test_variant_predefine_comment_escape_copy"
     sql """
@@ -48,8 +50,8 @@ suite("test_variant_predefine_comment_escape") {
     def copyDdl = sql("SHOW CREATE TABLE test_variant_predefine_comment_escape_copy")[0][1]
     assertEquals(fields, predefinedFields(copyDdl))
 
-    // These release branches default to Variant V1; its sink parses the JSON string.
+    // V1's sink parses a JSON string; V2 keeps it as a string, so parse it explicitly here.
     sql """INSERT INTO test_variant_predefine_comment_escape_copy
-            SELECT 1, '{"price": 10, "name": "n", "path": "p"}'"""
+            SELECT 1, ${variantV2Function}('{"price": 10, "name": "n", "path": "p"}')"""
     order_qt_select_copy "SELECT id, v['price'], v['name'], v['path'] FROM test_variant_predefine_comment_escape_copy"
 }

@@ -117,6 +117,9 @@ Status BinaryColumnExtractIterator::_fill_variant_v2_path(MutableColumnPtr& dst,
         return Status::Corruption("Variant sparse input is not Map<String,String>");
     }
 
+    // Compaction promotes one physical path. For a sparse row containing only a.b,
+    // assembling the a subtree would invent a non-null a and break path statistics.
+    // Prefix matches such as a.b belong to another physical path; read the exact key only.
     const auto& offsets = map->get_offsets();
     const StringRef requested {_path.data(), _path.size()};
     DorisVector<StringRef> cells;
@@ -129,6 +132,8 @@ Status BinaryColumnExtractIterator::_fill_variant_v2_path(MutableColumnPtr& dst,
         if (end < previous_end || end > paths->size()) {
             return Status::Corruption("Variant sparse row {} has invalid offset {}", row, end);
         }
+        // Readers binary-search by raw path bytes; a producer that violates the order is a bug.
+        DCHECK(is_variant_sparse_row_sorted(*paths, previous_end, end));
         const size_t lower =
                 find_variant_sparse_path_lower_bound(requested, *paths, previous_end, end);
         if (lower < end && paths->get_data_at(lower) == requested) {

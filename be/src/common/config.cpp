@@ -1348,6 +1348,11 @@ DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
 
+// Larger values favor remote reads when a query enables the file-cache IO adaptor.
+DEFINE_mDouble(file_cache_io_adaptor_skip_read_factor, "1.0");
+DEFINE_Validator(file_cache_io_adaptor_skip_read_factor,
+                 [](double v) { return std::isfinite(v) && v > 0; });
+
 // async file cache write
 DEFINE_mBool(enable_async_file_cache_write, "false");
 DEFINE_mInt32(async_file_cache_write_workers_per_disk, "16");
@@ -1507,6 +1512,8 @@ DEFINE_Validator(snii_postings_workspace_bytes,
                  [](const int64_t value) -> bool { return value > 0; });
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
+// The kuromoji (Japanese) analyzer
+DEFINE_mBool(enable_kuromoji_analyzer, "false");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
@@ -1997,7 +2004,16 @@ DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
 
 // Maximum number of OpenMP threads allowed for concurrent vector index builds.
 // -1 means auto: use 80% of the available CPU cores.
+// Auto sizing shares the CPU count captured on first use with ann_index_build_threads_per_task.
 DEFINE_Int32(omp_threads_limit, "-1");
+
+// OpenMP threads reserved by each ANN index train/add call, capped by omp_threads_limit.
+// -1 means auto: 1 thread below 32 available CPU cores, otherwise 4 threads.
+// The CPU count is captured once on first use and reused until BE restart.
+// A call waits until its entire reservation is available. Requires a BE restart.
+DEFINE_Int32(ann_index_build_threads_per_task, "-1");
+DEFINE_Validator(ann_index_build_threads_per_task,
+                 [](int32_t value) { return value == -1 || value > 0; });
 
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
@@ -2034,9 +2050,9 @@ DEFINE_mInt32(concurrency_stats_dump_interval_ms, "100");
 DEFINE_Validator(concurrency_stats_dump_interval_ms,
                  [](const int32_t config) -> bool { return config >= 10; });
 
-DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
+DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "false");
 
-DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "false");
+DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "true");
 DEFINE_mInt32(file_handles_deplenish_frequency_times, "3");
 
 // clang-format off
