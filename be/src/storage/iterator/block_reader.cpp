@@ -28,6 +28,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
@@ -47,6 +48,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/changelog.h"
 #include "storage/iterator/agg_key_block_iterator.h"
+#include "storage/iterator/block_iterator.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
 #include "storage/iterator/heap_merge_iterator.h"
 #include "storage/iterator/topn_block_iterator.h"
@@ -79,8 +81,8 @@ BlockReader::~BlockReader() {
 }
 
 void BlockReader::update_profile(RuntimeProfile* profile) {
-    if (_agg_key_iter != nullptr) {
-        _agg_key_iter->update_profile(profile);
+    if (_block_iter != nullptr) {
+        _block_iter->update_profile(profile);
         return;
     }
     _vcollect_iter.update_profile(profile);
@@ -579,7 +581,22 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-Status BlockReader::_init_agg_key_iter(const ReaderParams& read_params) {
+BlockReader::BlockIterMode BlockReader::_block_iter_mode(const ReaderParams& read_params,
+                                                         bool /*merge_by_sequence_mapping*/) const {
+    if (!config::enable_new_block_iterator) {
+        return BlockIterMode::NONE;
+    }
+    // From read_params: _reader_context gets the limit only in _capture_rs_readers().
+    if (read_params.read_orderby_key_limit > 0) {
+        return BlockIterMode::TOPN;
+    }
+    if (!_direct_mode && _tablet_schema->keys_type() == KeysType::AGG_KEYS) {
+        return BlockIterMode::AGG_FOLD;
+    }
+    return BlockIterMode::NONE;
+}
+
+Status BlockReader::_init_block_iter(const ReaderParams& read_params, BlockIterMode mode) {
     auto res = _capture_rs_readers(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
@@ -589,52 +606,99 @@ Status BlockReader::_init_agg_key_iter(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
         return res;
     }
+    switch (mode) {
+    case BlockIterMode::TOPN:
+        return _init_topn_iter(read_params);
+    case BlockIterMode::AGG_FOLD:
+        return _init_agg_key_iter(read_params);
+    case BlockIterMode::NONE:
+        DORIS_CHECK(false);
+    }
+    return Status::OK();
+}
+
+Status BlockReader::_validate_merge_schema(int32_t tie_breaker_ordinal) const {
+    const size_t num_block_columns = _read_schema->num_block_columns();
+    const size_t num_key_columns = _read_schema->num_key_columns();
+    auto contract_error = [&](std::string_view detail) {
+        return Status::InternalError(
+                "merge heap compare contract violated: {}, tablet_id={}, read_columns={}, "
+                "num_key_columns={}, sequence_ordinal={}",
+                detail, _tablet->tablet_id(), num_block_columns, num_key_columns,
+                tie_breaker_ordinal);
+    };
+    if (_reader_context.read_orderby_key_columns != nullptr) {
+        for (uint32_t ordinal : *_reader_context.read_orderby_key_columns) {
+            if (ordinal >= num_block_columns) {
+                return contract_error("compare column ordinal out of range");
+            }
+        }
+    } else {
+        if (num_key_columns > num_block_columns) {
+            return contract_error("read schema has fewer columns than the key prefix");
+        }
+        for (size_t ordinal = 0; ordinal < num_key_columns; ++ordinal) {
+            if (!_read_schema->column(ordinal)->is_key()) {
+                return contract_error("read schema key prefix contains a non-key column");
+            }
+        }
+    }
+    if (tie_breaker_ordinal != -1 &&
+        std::cmp_greater_equal(tie_breaker_ordinal, num_block_columns)) {
+        return contract_error("sequence column ordinal out of range");
+    }
+    return Status::OK();
+}
+
+Status BlockReader::_collect_key_ordered_children(const ReaderParams& read_params,
+                                                  std::vector<RowwiseIteratorUPtr>* children) {
+    RuntimeState* runtime_state = read_params.runtime_state;
+    SCOPED_RAW_TIMER(&_stats.block_reader_rs_readers_init_timer_ns);
+    int64_t previous_start_version = -1;
+    for (const auto& rs_split : read_params.rs_splits) {
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) {
+            return runtime_state->cancel_reason();
+        }
+        const RowsetReaderSharedPtr& rs_reader = rs_split.rs_reader;
+        RETURN_IF_ERROR(rs_reader->init(&_reader_context, rs_split));
+        // The merge orders rows of the same key by child index, so rowsets must arrive in
+        // non-decreasing start_version order.
+        DORIS_CHECK_GE(rs_reader->rowset()->start_version(), previous_start_version);
+        previous_start_version = rs_reader->rowset()->start_version();
+        RETURN_IF_ERROR(rs_reader->get_key_ordered_iterators(&_reader_context, children));
+        _rs_readers.push_back(rs_reader);
+    }
+    return Status::OK();
+}
+
+Status BlockReader::_init_agg_key_iter(const ReaderParams& read_params) {
     // Only duplicate and merge-on-write tables have a changelog, and the scanner pushes a LIMIT or
     // a key TopN down only into the reads that do not merge: the rows are merged by the whole key.
     DORIS_CHECK(!_reader_context.read_changelog);
     DORIS_CHECK(!read_params.read_orderby_key);
     DORIS_CHECK(_reader_context.general_read_limit <= 0);
 
-    // The children of the merge, in (rowset version, segment) order.
     std::vector<RowwiseIteratorUPtr> children;
-    RuntimeState* runtime_state = read_params.runtime_state;
-    {
-        SCOPED_RAW_TIMER(&_stats.block_reader_rs_readers_init_timer_ns);
-        int64_t previous_start_version = -1;
-        for (const auto& rs_split : read_params.rs_splits) {
-            if (runtime_state != nullptr && runtime_state->is_cancelled()) {
-                return runtime_state->cancel_reason();
-            }
-            const RowsetReaderSharedPtr& rs_reader = rs_split.rs_reader;
-            RETURN_IF_ERROR(rs_reader->init(&_reader_context, rs_split));
-            // The merge puts the rows of one key in the order of its children, the newer first,
-            // so the rowsets must come in version order.
-            DORIS_CHECK_GE(rs_reader->rowset()->start_version(), previous_start_version);
-            previous_start_version = rs_reader->rowset()->start_version();
-            RETURN_IF_ERROR(rs_reader->get_key_ordered_iterators(&_reader_context, &children));
-            _rs_readers.push_back(rs_reader);
-        }
-    }
+    RETURN_IF_ERROR(_collect_key_ordered_children(read_params, &children));
+    RETURN_IF_ERROR(_validate_merge_schema(-1));
 
-    // The key columns lead the read Blocks: the merge orders the rows by them, and the fold
-    // groups the rows by them.
-    for (uint32_t ordinal = 0; ordinal < _read_schema->num_key_columns(); ++ordinal) {
-        DORIS_CHECK(_read_schema->column(ordinal)->is_key());
-    }
     RowwiseIteratorUPtr merge_iter;
-    RETURN_IF_ERROR(_init_agg_key_merge(std::move(children), runtime_state, &merge_iter));
-    _agg_key_iter = std::make_unique<AggKeyBlockIterator>(
+    RETURN_IF_ERROR(
+            _init_agg_key_merge(std::move(children), read_params.runtime_state, &merge_iter));
+    auto agg_iter = std::make_unique<AggKeyBlockIterator>(
             std::move(merge_iter), batch_max_rows(), preferred_block_size_bytes(), _read_schema,
             read_params.get_be_exec_version(), &_merged_rows);
-    Status st = _agg_key_iter->init();
+    Status st = agg_iter->init();
     if (!st.ok()) {
         st.prepend(fmt::format(
                 "Failed to init reader when init agg state: tablet_id: {}, schema_hash: {}, "
                 "reader_type: {}, version: {}: ",
                 read_params.tablet->tablet_id(), read_params.tablet->schema_hash(),
                 int(read_params.reader_type), read_params.version.to_string()));
+        return st;
     }
-    return st;
+    _block_iter = std::move(agg_iter);
+    return Status::OK();
 }
 
 Status BlockReader::_init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
@@ -652,15 +716,6 @@ Status BlockReader::_init_agg_key_merge(std::vector<RowwiseIteratorUPtr> childre
 }
 
 Status BlockReader::_init_topn_iter(const ReaderParams& read_params) {
-    auto res = _capture_rs_readers(read_params);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
-                     << ", tablet_id:" << read_params.tablet->tablet_id()
-                     << ", schema_hash:" << read_params.tablet->schema_hash()
-                     << ", reader_type:" << int(read_params.reader_type)
-                     << ", version:" << read_params.version;
-        return res;
-    }
     // The scanner pushes a TopN down only without a LIMIT, and TabletReader sets up its ORDER BY
     // columns.
     DORIS_CHECK(_reader_context.general_read_limit <= 0);
@@ -692,7 +747,7 @@ Status BlockReader::_init_topn_iter(const ReaderParams& read_params) {
             return Status::OK();
         };
     }
-    _topn_iter = std::make_unique<TopNBlockIterator>(
+    _block_iter = std::make_unique<TopNBlockIterator>(
             std::move(rowsets), limit, *_reader_context.read_orderby_key_columns,
             _reader_context.read_orderby_key_reverse, std::move(virtual_column_types),
             std::move(update_filter));
@@ -742,22 +797,10 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
     }
 
-    // With enable_new_block_iterator, the AGG_KEYS reads that fold the rows of a key use
-    // AggKeyBlockIterator, and the storage TopN reads use TopNBlockIterator; the other reads go
-    // through VCollectIterator. It is read once, as it can change while the reader is set up.
-    const bool new_block_iterator = config::enable_new_block_iterator;
-    const bool use_agg_key_iter = new_block_iterator && !_direct_mode &&
-                                  _tablet_schema->keys_type() == KeysType::AGG_KEYS;
-    // From read_params: _reader_context gets the limit only in _capture_rs_readers().
-    const bool use_topn_iter = new_block_iterator && read_params.read_orderby_key_limit > 0;
-    Status status;
-    if (use_agg_key_iter) {
-        status = _init_agg_key_iter(read_params);
-    } else if (use_topn_iter) {
-        status = _init_topn_iter(read_params);
-    } else {
-        status = _init_collect_iter(read_params);
-    }
+    // Decided once, as config::enable_new_block_iterator is mutable at runtime.
+    const BlockIterMode mode = _block_iter_mode(read_params, merge_by_sequence_mapping);
+    Status status = mode != BlockIterMode::NONE ? _init_block_iter(read_params, mode)
+                                                : _init_collect_iter(read_params);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
@@ -765,11 +808,17 @@ Status BlockReader::init(const ReaderParams& read_params) {
         return status;
     }
 
-    if (use_topn_iter) {
-        _next_block_func = &BlockReader::_topn_iter_next_block;
+    if (mode != BlockIterMode::NONE) {
+        _next_block_func = &BlockReader::_block_iter_next_block;
+        _filter_delete_sign = false;
         return Status::OK();
     }
 
+    return _init_legacy_next_block(read_params, merge_by_sequence_mapping);
+}
+
+Status BlockReader::_init_legacy_next_block(const ReaderParams& read_params,
+                                            bool merge_by_sequence_mapping) {
     // MIN_DELTA: collapse consecutive same-key changes to the minimum equivalent change set
     // (e.g. INSERT+DELETE -> SKIP, INSERT+UPDATE -> INSERT). Reduces downstream traffic.
     if (read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA) {
@@ -802,12 +851,8 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
         break;
     case KeysType::AGG_KEYS:
-        if (use_agg_key_iter) {
-            _next_block_func = &BlockReader::_agg_key_iter_next_block;
-        } else {
-            _next_block_func = &BlockReader::_agg_key_next_block;
-            RETURN_IF_ERROR(_init_agg_state(read_params));
-        }
+        _next_block_func = &BlockReader::_agg_key_next_block;
+        RETURN_IF_ERROR(_init_agg_state(read_params));
         break;
     default:
         DCHECK(false) << "No next row function for type:" << _tablet_schema->keys_type();
@@ -965,12 +1010,8 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     return Status::OK();
 }
 
-Status BlockReader::_agg_key_iter_next_block(Block* block, bool* eof) {
-    return _agg_key_iter->next_block(block, eof);
-}
-
-Status BlockReader::_topn_iter_next_block(Block* block, bool* eof) {
-    return _topn_iter->next_block(block, eof);
+Status BlockReader::_block_iter_next_block(Block* block, bool* eof) {
+    return _block_iter->next_block(block, eof);
 }
 
 Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {

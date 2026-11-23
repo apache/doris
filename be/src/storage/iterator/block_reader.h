@@ -38,16 +38,14 @@
 #include "storage/tablet/tablet_reader.h"
 
 namespace doris {
-class AggKeyBlockIterator;
+class BlockIterator;
 class ColumnPredicate;
 class RuntimeProfile;
 class RuntimeState;
-class TopNBlockIterator;
 
 class BlockReader final : public TabletReader {
 public:
-    // Out of line, as the destructor: the header only declares AggKeyBlockIterator and
-    // TopNBlockIterator.
+    // Out of line, as the destructor: the header only declares BlockIterator.
     BlockReader();
     ~BlockReader() override;
 
@@ -69,12 +67,14 @@ private:
     Status _direct_next_block(Block* block, bool* eof);
     // For normal AGGREGATE KEY tables, read data by a merge heap.
     Status _agg_key_next_block(Block* block, bool* eof);
-    // For AGGREGATE KEY tables with enable_new_block_iterator: the rows of every key folded into
-    // one by _agg_key_iter.
-    Status _agg_key_iter_next_block(Block* block, bool* eof);
-    // For storage TopN reads with enable_new_block_iterator: the first rows by the ORDER BY
-    // columns, from _topn_iter.
-    Status _topn_iter_next_block(Block* block, bool* eof);
+    enum class BlockIterMode {
+        NONE,
+        TOPN,
+        AGG_FOLD,
+    };
+
+    // For reads served by `_block_iter` when enable_new_block_iterator is enabled.
+    Status _block_iter_next_block(Block* block, bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
     // The difference from _agg_key_next_block is that it will read the data from high version to low version,
     // to minimize the comparison time in merge heap.
@@ -102,13 +102,21 @@ private:
 
     Status _init_agg_state(const ReaderParams& read_params);
 
-    // Set up _agg_key_iter for the reads that _agg_key_iter_next_block() serves.
+    Status _init_legacy_next_block(const ReaderParams& read_params, bool merge_by_sequence_mapping);
+
+    BlockIterMode _block_iter_mode(const ReaderParams& read_params,
+                                   bool merge_by_sequence_mapping) const;
+    Status _init_block_iter(const ReaderParams& read_params, BlockIterMode mode);
+    Status _validate_merge_schema(int32_t tie_breaker_ordinal) const;
+    Status _collect_key_ordered_children(const ReaderParams& read_params,
+                                         std::vector<RowwiseIteratorUPtr>* children);
+    // Set up `_block_iter` for AGG_FOLD reads.
     Status _init_agg_key_iter(const ReaderParams& read_params);
     // Set `*merge_iter` to the merge of `children` by the key columns.
     Status _init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
                                RuntimeState* runtime_state, RowwiseIteratorUPtr* merge_iter);
 
-    // Set up _topn_iter for the reads that _topn_iter_next_block() serves.
+    // Set up `_block_iter` for TOPN reads.
     Status _init_topn_iter(const ReaderParams& read_params);
     // Set `*streams` to the rows of the rowset of `rs_split`, as streams that each come sorted by
     // the ORDER BY columns: one per segment when its segments overlap on keys, else one.
@@ -150,11 +158,10 @@ private:
     std::vector<int> _agg_data_counters;
     int _last_agg_data_counter = 0;
 
-    // Held for the whole read, never used: a rowset reader keeps its rowset in use until it is
-    // destroyed, and _agg_key_iter reads the segments of these rowsets.
+    // Held for the whole read when `_block_iter` merges segment iterators across rowsets: a rowset
+    // reader keeps its rowset in use until it is destroyed.
     std::vector<RowsetReaderSharedPtr> _rs_readers;
-    std::unique_ptr<AggKeyBlockIterator> _agg_key_iter;
-    std::unique_ptr<TopNBlockIterator> _topn_iter;
+    std::unique_ptr<BlockIterator> _block_iter;
 
     // Buffer of consecutive rows that share the same primary key, used by
     // _min_delta_next_block to fold INSERT/UPDATE/DELETE into a single net change.

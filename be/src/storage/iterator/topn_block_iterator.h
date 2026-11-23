@@ -28,6 +28,7 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
 #include "core/field.h"
+#include "storage/iterator/block_iterator.h"
 #include "storage/iterators.h"
 
 namespace doris {
@@ -38,7 +39,7 @@ namespace doris {
 // keeps the rows that sort before the last of the first `limit` rows so far, and tightens the TopN
 // filter of the query to that last row. For example, with `limit` 2 and the streams 1 4 7 and
 // 2 3 9, it keeps 1 4 and tightens the filter to 4, then keeps 1 2 and tightens it to 2.
-class TopNBlockIterator {
+class TopNBlockIterator final : public BlockIterator {
 public:
     // Returns the rows of one rowset as streams that each come sorted by the sort columns, such as
     // one per segment when its segments overlap on keys; they need no merge, as the rows kept are
@@ -60,7 +61,7 @@ public:
     // The first call reads every rowset into `block`, an empty read Block, and then fills it with
     // the first `limit` rows, sorted, or all rows if there are fewer. `*eof` when there are none,
     // and on every later call.
-    Status next_block(Block* block, bool* eof);
+    Status next_block(Block* block, bool* eof) override;
 
 private:
     // Read the rows of one stream into `block`, and keep the ones among the first `limit` so far.

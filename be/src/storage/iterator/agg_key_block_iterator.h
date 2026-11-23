@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "storage/iterator/agg_key_block_aggregator.h"
+#include "storage/iterator/block_iterator.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 
@@ -37,7 +38,7 @@ class RuntimeProfile;
 // next merged Block. An output Block thus holds at least its row limit of keys, but the last one,
 // and at most the keys of one merged Block more; the merge bounds its Blocks by the same row limit
 // and byte budget.
-class AggKeyBlockIterator {
+class AggKeyBlockIterator final : public BlockIterator {
 public:
     // `input` hands out the rows of the read in key order, the rows of a key newest first, as a
     // VHeapMergeIterator does; the key columns lead `read_schema`. The row limit is
@@ -53,9 +54,9 @@ public:
 
     // Fill `block`, which must be empty, with the next batch of aggregated rows; `*eof` once
     // there are none.
-    Status next_block(Block* block, bool* eof);
+    Status next_block(Block* block, bool* eof) override;
 
-    void update_profile(RuntimeProfile* profile) { _input->update_profile(profile); }
+    void update_profile(RuntimeProfile* profile) override { _input->update_profile(profile); }
 
 private:
     // The row limit for the merged Block in `_input_block`, see the constructor.
