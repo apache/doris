@@ -21,6 +21,7 @@
 #include "storage/index/index_common.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_fs_directory.h"
+#include "storage/index/inverted/clucene/rowid_conversion.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 
@@ -29,7 +30,7 @@ Status compact_column(
         int64_t index_id,
         std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>>& src_index_dirs,
         std::vector<lucene::store::Directory*>& dest_index_dirs, std::string_view tmp_path,
-        const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& trans_vec,
+        const RowIdConversion& rowid_conversion,
         const std::vector<uint32_t>& dest_segment_num_rows) {
     DBUG_EXECUTE_IF("index_compaction_compact_column_throw_error", {
         if (index_id % 2 == 0) {
@@ -43,6 +44,9 @@ Status compact_column(
         }
     })
 
+    // Both modes borrow conversion storage. Keep the adapter alive through writer
+    // close() and exception cleanup by constructing it before the writer.
+    CluceneRowIdMapping mapping(rowid_conversion);
     bool can_use_ram_dir = true;
     std::unique_ptr<lucene::store::Directory, DirectoryDeleter> dir(
             DorisFSDirectoryFactory::getDirectory(io::global_local_filesystem(), tmp_path.data(),
@@ -57,12 +61,12 @@ Status compact_column(
         _CLTHROWA(CL_ERR_IO,
                   "debug point: compact_column_create_index_writer_error in index compaction");
     })
-    DCHECK_EQ(src_index_dirs.size(), trans_vec.size());
+    DCHECK_EQ(src_index_dirs.size(), mapping.sourceCount());
     std::vector<lucene::store::Directory*> tmp_src_index_dirs(src_index_dirs.size());
     for (size_t i = 0; i < tmp_src_index_dirs.size(); ++i) {
         tmp_src_index_dirs[i] = src_index_dirs[i].get();
     }
-    index_writer->indexCompaction(tmp_src_index_dirs, dest_index_dirs, trans_vec,
+    index_writer->indexCompaction(tmp_src_index_dirs, dest_index_dirs, mapping,
                                   dest_segment_num_rows);
     DBUG_EXECUTE_IF("compact_column_indexCompaction_error", {
         _CLTHROWA(CL_ERR_IO,

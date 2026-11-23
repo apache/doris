@@ -450,11 +450,20 @@ class IndexCompactionUtils {
             compaction._output_rs_writer->set_segment_start_id(output_segment_start_id);
         }
 
-        compaction._stats.rowid_conversion = compaction._rowid_conversion.get();
+        // These fixtures contain no changelog-only rowsets. Follow the production
+        // storage selection instead of forcing the default dense representation.
+        compaction._data_input_rowsets = compaction._input_rowsets;
+        compaction.prepare_rowid_conversion(ctx);
         RETURN_IF_ERROR(Merger::vertical_merge_rowsets(
                 tablet, compaction.compaction_type(), *(compaction._cur_tablet_schema),
                 input_rs_readers, compaction._output_rs_writer.get(), max_rows_per_segment - 1, 5,
                 &compaction._stats));
+        if (compaction._stats.rowid_conversion != nullptr &&
+            compaction._stats.rowid_conversion->mode() == RowIdConversion::Mode::COMPRESSED) {
+            std::vector<uint32_t> destination_rows;
+            RETURN_IF_ERROR(compaction._output_rs_writer->get_segment_num_rows(&destination_rows));
+            RETURN_IF_ERROR(compaction._stats.rowid_conversion->finalize(destination_rows));
+        }
 
         const auto& dst_writer =
                 dynamic_cast<BaseBetaRowsetWriter*>(compaction._output_rs_writer.get());

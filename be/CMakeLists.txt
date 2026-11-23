@@ -324,7 +324,6 @@ endif()
 target_compile_options(clucene-core-static PRIVATE ${clucene_options})
 target_compile_options(clucene-shared-static PRIVATE ${clucene_options})
 target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
-target_compile_options(ic PRIVATE ${clucene_options})
 
 install(DIRECTORY
     ${CONTRIB_PATH}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
@@ -774,7 +773,6 @@ if (USE_UNWIND)
 endif()
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} orc)
-set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ic)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-core-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-shared-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)

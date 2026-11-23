@@ -466,18 +466,17 @@ void Compaction::prepare_rowid_conversion(const RowsetWriterContext& ctx) {
                                 _tablet->enable_unique_key_merge_on_write());
     if (!needs_mapping) return;
 
-    auto mode = should_compress_rowid_conversion(ctx) ? RowIdConversion::Mode::COMPRESSED
-                                                      : RowIdConversion::Mode::DENSE;
+    auto mode = should_compress_rowid_conversion() ? RowIdConversion::Mode::COMPRESSED
+                                                   : RowIdConversion::Mode::DENSE;
     _rowid_conversion->set_mode(mode);
     _stats.rowid_conversion = _rowid_conversion.get();
     _profile->add_info_string("RowIdConversion",
                               mode == RowIdConversion::Mode::COMPRESSED ? "COMPRESSED" : "DENSE");
 }
 
-bool Compaction::should_compress_rowid_conversion(const RowsetWriterContext& ctx) const {
-    // CLucene and the legacy debug dump consume a dense matrix.
-    if (!config::enable_compressed_rowid_conversion ||
-        !ctx.columns_to_do_index_compaction.empty() || config::debug_inverted_index_compaction) {
+bool Compaction::should_compress_rowid_conversion() const {
+    // The legacy debug dump still consumes a dense matrix.
+    if (!config::enable_compressed_rowid_conversion || config::debug_inverted_index_compaction) {
         return false;
     }
     // Cluster-key and sequence-map readers can revisit source rows, whereas this
@@ -1562,8 +1561,7 @@ Status Compaction::do_inverted_index_compaction() {
                     dest_index_dirs[dest_segment_pos] = res.value().get();
                 }
                 auto st = compact_column(index_meta->index_id(), src_idx_dirs, dest_index_dirs,
-                                         index_tmp_path.native(),
-                                         _stats.rowid_conversion->get_rowid_conversion_map(),
+                                         index_tmp_path.native(), *_stats.rowid_conversion,
                                          dest_segment_num_rows);
                 if (!st.ok()) {
                     error_handler(index_meta->index_id(), column_uniq_id);
