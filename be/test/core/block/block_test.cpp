@@ -714,6 +714,56 @@ void serialize_and_deserialize_test_decimal() {
     }
 }
 
+TEST(BlockTest, SerializeCompactBitmapBatch) {
+    BitmapValue source;
+    for (uint64_t i = 0; i < 8192; ++i) {
+        source.add(i);
+    }
+    BitmapValue compact(source);
+    compact.optimize();
+    ASSERT_GT(source.getSizeInBytes(), compact.getSizeInBytes());
+
+    const size_t rows = 32;
+    auto bitmaps = ColumnBitmap::create();
+    bitmaps->get_data().assign(rows, source);
+    auto bitmap_type = std::make_shared<DataTypeBitMap>();
+    Block block({{bitmaps->get_ptr(), bitmap_type, "b"}});
+
+    auto offsets = ColumnOffset64::create();
+    offsets->get_data().push_back(rows);
+    auto array = ColumnArray::create(make_nullable(bitmaps->get_ptr()), std::move(offsets));
+    block.insert({ColumnConst::create(std::move(array), rows),
+                  std::make_shared<DataTypeArray>(make_nullable(bitmap_type)), "a"});
+
+    PBlock encoded;
+    size_t allocated = 0;
+    size_t compressed = 0;
+    int64_t time = 0;
+    ASSERT_TRUE(block.serialize(BeExecVersionManager::get_newest_version(), &encoded, &allocated,
+                                &compressed, &time, segment_v2::LZ4)
+                        .ok());
+    EXPECT_GE(allocated, encoded.uncompressed_size());
+    EXPECT_LT(encoded.uncompressed_size(), source.getSizeInBytes());
+    EXPECT_TRUE(bitmaps->get_element(0).needs_optimization());
+    EXPECT_EQ(bitmaps->get_element(0).getSizeInBytes(), source.getSizeInBytes());
+
+    Block decoded;
+    size_t bytes = 0;
+    ASSERT_TRUE(decoded.deserialize(encoded, &bytes, &time).ok());
+    EXPECT_EQ(decoded.rows(), rows);
+    const auto& result = assert_cast<const ColumnBitmap&>(*decoded.get_by_position(0).column);
+    EXPECT_EQ(result.get_element(rows - 1).cardinality(), source.cardinality());
+    EXPECT_EQ(result.get_element(rows - 1).getSizeInBytes(), compact.getSizeInBytes());
+    EXPECT_FALSE(result.get_element(rows - 1).needs_optimization());
+    const auto& constant = assert_cast<const ColumnConst&>(*decoded.get_by_position(1).column);
+    const auto& values = assert_cast<const ColumnArray&>(constant.get_data_column());
+    const auto& nested = assert_cast<const ColumnNullable&>(values.get_data());
+    const auto& elements = assert_cast<const ColumnBitmap&>(nested.get_nested_column());
+    EXPECT_EQ(elements.size(), rows);
+    EXPECT_EQ(elements.get_element(0).getSizeInBytes(), compact.getSizeInBytes());
+    EXPECT_FALSE(elements.get_element(0).needs_optimization());
+}
+
 void serialize_and_deserialize_test_bitmap() {
     // const bitmap
     {
@@ -764,14 +814,15 @@ void serialize_and_deserialize_test_bitmap() {
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
         std::string s1 = pblock.DebugString();
-        std::string bb1 = block.dump_data(0, 1024);
         Block block2;
         size_t uncompress_size = 0;
         int64_t uncompressed_time = 0;
-        static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
-        std::string bb2 = block2.dump_data(0, 1024);
-        EXPECT_EQ(bb1, bb2);
-        EXPECT_EQ(block.dump_data_json(0, 1024), block2.dump_data_json(0, 1024));
+        ASSERT_TRUE(block2.deserialize(pblock, &uncompress_size, &uncompressed_time).ok());
+        const auto& decoded = assert_cast<const ColumnBitmap&>(*block2.get_by_position(0).column);
+        ASSERT_EQ(decoded.size(), container.size());
+        for (size_t i = 0; i < container.size(); ++i) {
+            EXPECT_EQ(container[i].xor_cardinality(decoded.get_element(i)), 0);
+        }
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();

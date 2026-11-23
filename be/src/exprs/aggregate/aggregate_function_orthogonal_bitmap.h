@@ -132,8 +132,10 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to);
-        column.get_data().emplace_back(result.empty() ? AggOrthBitmapBaseData<T>::bitmap.intersect()
-                                                      : result);
+        column.get_data()
+                .emplace_back(result.empty() ? AggOrthBitmapBaseData<T>::bitmap.intersect()
+                                             : result)
+                .optimize();
     }
 
 private:
@@ -164,8 +166,7 @@ public:
     void write(BufferWritable& buf) {
         buf.write_binary(AggOrthBitmapBaseData<T>::first_init);
         std::string data;
-        data.resize(AggOrthBitmapBaseData<T>::bitmap.size());
-        AggOrthBitmapBaseData<T>::bitmap.serialize(data.data());
+        AggOrthBitmapBaseData<T>::bitmap.serialize(data);
         buf.write_binary(data);
     }
 
@@ -290,8 +291,9 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to);
-        column.get_data().emplace_back(!result.empty() ? result
-                                                       : this->bitmap_expr_cal.bitmap_calculate());
+        column.get_data()
+                .emplace_back(!result.empty() ? result : this->bitmap_expr_cal.bitmap_calculate())
+                .optimize();
     }
 
     void reset() {

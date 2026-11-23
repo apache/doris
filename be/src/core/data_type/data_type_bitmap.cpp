@@ -61,17 +61,12 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
     const auto& data_column = assert_cast<const ColumnBitmap&>(*bitmap_column);
     // serialize the bitmap size array
     auto* meta_ptr = reinterpret_cast<size_t*>(buf);
-    for (size_t i = 0; i < real_need_copy_num; ++i) {
-        auto& bitmap = data_column.get_element(i);
-        unaligned_store<size_t>(&meta_ptr[i], bitmap.getSizeInBytes());
-    }
-
-    // serialize each bitmap
     char* data_ptr = buf + sizeof(size_t) * real_need_copy_num;
     for (size_t i = 0; i < real_need_copy_num; ++i) {
         auto& bitmap = data_column.get_element(i);
-        bitmap.write_to(data_ptr);
-        data_ptr += unaligned_load<size_t>(&meta_ptr[i]);
+        const auto size = bitmap.write_optimized_to(data_ptr);
+        unaligned_store<size_t>(&meta_ptr[i], size);
+        data_ptr += size;
     }
     return data_ptr;
 }
@@ -90,7 +85,7 @@ const char* DataTypeBitMap::deserialize(const char* buf, MutableColumnPtr* colum
     const auto* meta_ptr = reinterpret_cast<const size_t*>(buf);
     const char* data_ptr = buf + sizeof(size_t) * real_have_saved_num;
     for (size_t i = 0; i < real_have_saved_num; ++i) {
-        data[i].deserialize(data_ptr);
+        data[i].deserialize_optimized(data_ptr);
         data_ptr += unaligned_load<size_t>(&meta_ptr[i]);
     }
     return data_ptr;
@@ -106,15 +101,13 @@ Status DataTypeBitMap::check_column(const IColumn& column) const {
 
 void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritable& buf) {
     std::string memory_buffer;
-    size_t bytesize = cvalue.getSizeInBytes();
-    memory_buffer.resize(bytesize);
-    cvalue.write_to(memory_buffer.data());
+    cvalue.serialize_optimized(memory_buffer);
     buf.write_binary(memory_buffer);
 }
 
 void DataTypeBitMap::deserialize_as_stream(BitmapValue& value, BufferReadable& buf) {
     StringRef ref;
     buf.read_binary(ref);
-    value.deserialize(ref.data);
+    value.deserialize_optimized(ref.data);
 }
 } // namespace doris

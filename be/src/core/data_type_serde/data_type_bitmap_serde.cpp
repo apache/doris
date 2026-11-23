@@ -84,12 +84,9 @@ Status DataTypeBitMapSerDe::write_column_to_pb(const IColumn& column, PValues& r
     auto& data_column = assert_cast<const ColumnBitmap&>(column);
     auto row_count = cast_set<int>(end - start);
     result.mutable_bytes_value()->Reserve(row_count);
+    std::string memory_buffer;
     for (auto row = start; row < end; ++row) {
-        auto& value = data_column.get_element(row);
-        std::string memory_buffer;
-        auto bytesize = value.getSizeInBytes();
-        memory_buffer.resize(bytesize);
-        value.write_to(memory_buffer.data());
+        data_column.get_element(row).serialize_optimized(memory_buffer);
         result.add_bytes_value(memory_buffer);
     }
     return Status::OK();
@@ -105,18 +102,14 @@ Status DataTypeBitMapSerDe::read_column_from_pb(IColumn& column, const PValues& 
 }
 
 void DataTypeBitMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                  Arena& arena, int32_t col_id, int64_t row_num,
+                                                  Arena&, int32_t col_id, int64_t row_num,
                                                   const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnBitmap&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
-    auto bitmap_value = data_column.get_element(row_num);
-    // serialize the content of string
-    auto size = bitmap_value.getSizeInBytes();
-    // serialize the content of string
-    char* ptr = arena.alloc(size);
-    bitmap_value.write_to(ptr);
+    std::string bytes;
+    data_column.get_element(row_num).serialize_optimized(bytes);
     result.writeStartBinary();
-    result.writeBinary(reinterpret_cast<const char*>(ptr), size);
+    result.writeBinary(bytes.data(), bytes.size());
     result.writeEndBinary();
 }
 
@@ -125,13 +118,12 @@ Status DataTypeBitMapSerDe::write_column_to_arrow(const IColumn& column, const N
                                                   int64_t end, const cctz::time_zone& ctz) const {
     const auto& col = assert_cast<const ColumnBitmap&>(column);
     auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
+    std::string memory_buffer;
     for (size_t string_i = start; string_i < end; ++string_i) {
         if (null_map && (*null_map)[string_i]) {
             RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
         } else {
-            auto& bitmap_value = col.get_element(string_i);
-            std::string memory_buffer(bitmap_value.getSizeInBytes(), '0');
-            bitmap_value.write_to(memory_buffer.data());
+            col.get_element(string_i).serialize_optimized(memory_buffer);
             RETURN_IF_ERROR(checkArrowStatus(
                     builder.Append(memory_buffer.data(), static_cast<int>(memory_buffer.size())),
                     column, *array_builder));
@@ -159,11 +151,9 @@ bool DataTypeBitMapSerDe::write_column_to_mysql_text(const IColumn& column, Buff
                                                      const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnBitmap&>(column);
     if (_return_object_as_string) {
-        BitmapValue bitmap_value = data_column.get_element(row_idx);
-        size_t size = bitmap_value.getSizeInBytes();
-        std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
-        bitmap_value.write_to(buf.get());
-        bw.write(buf.get(), size);
+        std::string bytes;
+        data_column.get_element(row_idx).serialize_optimized(bytes);
+        bw.write(bytes.data(), bytes.size());
         return true;
     } else {
         return false;
@@ -177,37 +167,15 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
                                                 const FormatOptions& options) const {
     auto& col_data = assert_cast<const ColumnBitmap&>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
-    // First pass: calculate total memory needed and collect serialized values
-    size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            auto bitmap_value = col_data.get_element(row_id);
-            size_t len = bitmap_value.getSizeInBytes();
-            total_size += len;
-        }
-    }
-    // Allocate continues memory based on calculated size
-    char* ptr = arena.alloc(total_size);
-    if (!ptr) {
-        return Status::InternalError(
-                "malloc memory {} error when write variant column data to orc file.", total_size);
-    }
-    // Second pass: copy data to allocated memory
-    size_t offset = 0;
-    for (size_t row_id = start; row_id < end; row_id++) {
-        if (cur_batch->notNull[row_id] == 1) {
-            auto bitmap_value = col_data.get_element(row_id);
-            size_t len = bitmap_value.getSizeInBytes();
-            if (offset + len > total_size) {
-                return Status::InternalError(
-                        "Buffer overflow when writing column data to ORC file. offset {} with len "
-                        "{} exceed total_size {} . ",
-                        offset, len, total_size);
-            }
-            bitmap_value.write_to(ptr + offset);
-            cur_batch->data[row_id] = ptr + offset;
+            char* dst = nullptr;
+            const size_t len = col_data.get_element(row_id).write_optimized([&](size_t size) {
+                dst = arena.alloc(size);
+                return dst;
+            });
+            cur_batch->data[row_id] = dst;
             cur_batch->length[row_id] = len;
-            offset += len;
         }
     }
     cur_batch->numElements = end - start;
@@ -232,11 +200,8 @@ Status DataTypeBitMapSerDe::from_olap_string(const std::string& str, Field& fiel
 
 void DataTypeBitMapSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                     const FormatOptions& options) const {
-    /// TODO: remove const_cast in the future
-    auto& data =
-            const_cast<BitmapValue&>(assert_cast<const ColumnBitmap&>(column).get_element(row_num));
-    std::string buffer(data.getSizeInBytes(), '0');
-    data.write_to(const_cast<char*>(buffer.data()));
+    std::string buffer;
+    assert_cast<const ColumnBitmap&>(column).get_element(row_num).serialize_optimized(buffer);
     bw.write(buffer.c_str(), buffer.size());
 }
 

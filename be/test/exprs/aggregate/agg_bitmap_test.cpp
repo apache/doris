@@ -74,6 +74,21 @@ TEST(AggBitmapTest, bitmap_union_test) {
     agg_function->insert_result_into(place, ans);
     EXPECT_EQ(ans.size(), 1);
     EXPECT_EQ(ans.get_element(0).cardinality(), agg_test_batch_size);
+
+    BitmapValue dense;
+    for (uint64_t i = 0; i < 1024; ++i) {
+        dense.add(i);
+    }
+    assert_cast<ColumnBitmap&>(*column_bitmap).insert_value(dense);
+    agg_function->add(place, column, agg_test_batch_size, arena);
+    agg_function->insert_result_into_range(place, ans, 0, 3);
+    EXPECT_EQ(ans.size(), 4);
+    EXPECT_FALSE(ans.get_element(1).needs_optimization());
+    EXPECT_EQ(ans.get_element(1)._bitmap, ans.get_element(3)._bitmap);
+    agg_function->insert_result_into_vec({place}, 0, ans, 1);
+    EXPECT_EQ(ans.size(), 5);
+    EXPECT_LT(ans.get_element(4).getSizeInBytes(), dense.getSizeInBytes());
+    EXPECT_EQ(ans.get_element(4).cardinality(), dense.cardinality());
     agg_function->destroy(place);
 
     auto dst = agg_function->create_serialize_column();

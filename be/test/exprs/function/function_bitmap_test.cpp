@@ -139,6 +139,10 @@ TEST(function_bitmap_test, function_bitmap_to_base64) {
     BitmapValue bitmap64_3(bits64);                    // bitmap
 
     BitmapValue empty_bitmap;
+    BitmapValue raw32(bitmap32_3);
+    BitmapValue raw64(bitmap64_3);
+    bitmap32_3.optimize();
+    bitmap64_3.optimize();
 
     EXPECT_EQ(bitmap32_1.get_type_code(), BitmapTypeCode::SINGLE32);
     EXPECT_EQ(bitmap32_2.get_type_code(), BitmapTypeCode::BITMAP32);
@@ -153,6 +157,8 @@ TEST(function_bitmap_test, function_bitmap_to_base64) {
                 {{&bitmap32_1}, std::string("AQEAAAA=")},
                 {{&bitmap32_2}, std::string("AjowAAACAAAAAAAAAJgAAAAYAAAAGgAAAAEAf5Y=")},
                 {{&bitmap32_3}, std::string("AjswAAABAAAgAAEAAAAgAA==")},
+                {{&raw32}, encode_bitmap_to_base64(bitmap32_3)},
+                {{&raw64}, encode_bitmap_to_base64(bitmap64_3)},
                 {{&bitmap64_1}, std::string("AwAAAAABAAAA")},
                 {{&bitmap64_2},
                  std::string("BAIAAAAAOjAAAAEAAAAAAAAAEAAAAAEAAQAAADowAAABAAAAAAAAABAAAAAAAA==")},
@@ -173,6 +179,8 @@ TEST(function_bitmap_test, function_bitmap_to_base64) {
     bitmap64_2 = BitmapValue({1, (uint64_t)4294967296}); // set
     bitmap64_3 = BitmapValue(bits64);                    // bitmap
 
+    bitmap32_3.optimize();
+    bitmap64_3.optimize();
     EXPECT_EQ(bitmap32_1.get_type_code(), BitmapTypeCode::SINGLE32);
     EXPECT_EQ(bitmap32_2.get_type_code(), BitmapTypeCode::SET);
     EXPECT_EQ(bitmap32_3.get_type_code(), BitmapTypeCode::BITMAP32);
@@ -216,6 +224,8 @@ TEST(function_bitmap_test, function_bitmap_to_base64) {
     EXPECT_TRUE(config::set_config("bitmap_serialize_version", "2", false, true).ok());
     bitmap32_3 = BitmapValue(bits32); // bitmap32
     bitmap64_3 = BitmapValue(bits64); // bitmap64
+    bitmap32_3.optimize();
+    bitmap64_3.optimize();
     EXPECT_EQ(bitmap32_3.get_type_code(), BitmapTypeCode::BITMAP32_V2);
     EXPECT_EQ(bitmap64_3.get_type_code(), BitmapTypeCode::BITMAP64_V2);
 

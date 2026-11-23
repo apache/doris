@@ -69,7 +69,7 @@ public:
         value_type* pvalue = &get_element(size() - 1);
 
         if constexpr (T == TYPE_BITMAP) {
-            pvalue->deserialize(pos);
+            pvalue->deserialize_optimized(pos);
         } else if constexpr (T == TYPE_HLL) {
             pvalue->deserialize(Slice(pos, length));
         } else if constexpr (T == TYPE_QUANTILE_STATE) {
@@ -84,6 +84,7 @@ public:
         if (UNLIKELY(num == 0)) {
             return;
         }
+        data.reserve(data.size() + num);
         // the offsets size should be num + 1
         for (size_t i = 0; i != num; ++i) {
             insert_binary_data(input_data + offsets[i], offsets[i + 1] - offsets[i]);
@@ -91,6 +92,7 @@ public:
     }
 
     void insert_many_strings(const StringRef* strings, size_t num) override {
+        data.reserve(data.size() + num);
         for (size_t i = 0; i < num; i++) {
             insert_binary_data(strings[i].data, strings[i].size);
         }
