@@ -67,9 +67,8 @@ suite("test_query_plan_scan_validation", "arrow_flight_sql") {
             params.setOpaquedQueryPlan(plan.data.opaqued_query_plan)
             params.setUser(context.config.feHttpUser)
             params.setPasswd(context.config.feHttpPassword ?: "")
-            // Use a valid execution timeout so the scan reaches the Arrow conversion checks.
-            // An omitted timeout becomes zero in the BE query options and fails validation.
-            params.setExecutionTimeout(60)
+            // Leave the optional timeout unset. The adapter must retain a valid query-option
+            // default so this request reaches the Arrow conversion checks below.
             def opened = client.openScanner(params)
             assertEquals(TStatusCode.OK, opened.getStatus().getStatusCode(), opened.toString())
             long rows = 0

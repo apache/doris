@@ -20,6 +20,8 @@
 
 #include "exec/common/memory.h"
 
+#include <limits>
+
 namespace doris {
 
 // A full scan budget must keep INT64_MAX exact instead of converting it through double.
@@ -72,7 +74,9 @@ int MemLimiter::available_scanner_count(int ins_idx) const {
                << ", ins_id = " << ins_idx << ", per_count = " << per_count
                << " debug_string: " << debug_string();
 
-    return cast_set<int>(per_count);
+    // INT64_MAX bytes with a 64 MiB estimate can give 137438953471 scanners. Cap each instance's
+    // share before narrowing; ScannerContext then applies the actual scanner concurrency limit.
+    return cast_set<int>(std::min<int64_t>(per_count, std::numeric_limits<int>::max()));
 }
 
 void MemLimiter::reestimated_block_mem_bytes(int64_t value) {

@@ -1125,7 +1125,11 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     exec_fragment_params.local_params.push_back(fragment_exec_params);
     TQueryOptions query_options;
     query_options.batch_size = params.batch_size;
-    query_options.execution_timeout = params.execution_timeout;
+    // An omitted external timeout has a generated value of zero. Keep the query-option default
+    // in that case. Copy explicit values so validation still rejects zero and negative timeouts.
+    if (params.__isset.execution_timeout) {
+        query_options.__set_execution_timeout(params.execution_timeout);
+    }
     query_options.mem_limit = params.mem_limit;
     query_options.__isset.mem_limit = params.__isset.mem_limit;
     query_options.query_type = TQueryType::EXTERNAL;
