@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
+
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
@@ -178,6 +180,11 @@ public interface PaimonCatalogOps {
      * Like the former sum of split row counts, this is not an exact count for primary-key tables.
      */
     long rowCount(Table table);
+
+    default Optional<ConnectorSqlCacheVersion> resolveSqlCacheVersion(
+            Table table, String branchName, Map<String, String> scanOptions) {
+        return PaimonSchemaPin.resolveSqlCacheVersion(table, branchName, scanOptions);
+    }
 
     void close() throws Exception;
 

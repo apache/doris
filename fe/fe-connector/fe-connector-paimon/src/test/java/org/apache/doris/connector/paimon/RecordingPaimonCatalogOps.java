@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
+
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
@@ -135,6 +137,18 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     Table lastRowCountTable;
     /** When set, {@link #rowCount} throws (drives the best-effort planning-failure path). */
     boolean throwOnRowCount;
+    java.util.Optional<ConnectorSqlCacheVersion> sqlCacheVersion;
+
+    @Override
+    public java.util.Optional<ConnectorSqlCacheVersion> resolveSqlCacheVersion(
+            Table table, String branchName, Map<String, String> scanOptions) {
+        checkSnapshotAuthentication();
+        log.add("resolveSqlCacheVersion:" + (branchName == null ? "main" : branchName));
+        if (sqlCacheVersion != null) {
+            return sqlCacheVersion;
+        }
+        return PaimonSchemaPin.resolveSqlCacheVersion(table, branchName, scanOptions);
+    }
 
     @Override
     public List<String> listDatabases() {

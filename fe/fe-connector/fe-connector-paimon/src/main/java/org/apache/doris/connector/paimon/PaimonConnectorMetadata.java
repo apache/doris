@@ -24,6 +24,7 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.ConnectorType;
@@ -34,6 +35,7 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
@@ -1653,6 +1655,47 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                                 + "' conflicts with a reserved metadata column name");
             }
         }
+    }
+
+    @Override
+    public boolean supportsNativePartitionPlanning(ConnectorSession session, ConnectorTableHandle handle) {
+        return !((PaimonTableHandle) handle).isSystemTable()
+                && (session == null || !Boolean.parseBoolean(session.getSessionProperties()
+                        .getOrDefault("enable_paimon_internal_partition_pruning", "false")));
+    }
+
+    @Override
+    public Optional<ConnectorSqlCacheVersion> getSqlCacheVersion(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        if (paimonHandle.isSystemTable()) {
+            throw new UnsupportedOperationException("Paimon system tables do not support SQL cache versioning");
+        }
+        return readMetadataAuthenticated(() -> {
+            Table table = resolveTable(paimonHandle);
+            ConnectorSqlCacheVersion version = catalogOps.resolveSqlCacheVersion(
+                    table, paimonHandle.getBranchName(), paimonHandle.getScanOptions())
+                    .orElseThrow(() -> new UnsupportedOperationException(
+                            "Paimon SQL cache requires published data-table snapshot metadata"));
+            return Optional.of(version);
+        });
+    }
+
+    @Override
+    public Optional<String> getPartitionViewVersion(ConnectorSession session, ConnectorTableHandle handle) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        if (paimonHandle.isSystemTable() || session == null
+                || session.getStatementScope() == ConnectorStatementScope.NONE
+                || !PaimonScanParams.supportsPartitionViewVersion(paimonHandle.getScanOptions())) {
+            // Without a statement-scoped pinned handle, metadata could change between version lookup and listing.
+            return Optional.empty();
+        }
+        return readMetadataAuthenticated(() -> {
+            Table table = resolveTable(paimonHandle);
+            return catalogOps.resolveSqlCacheVersion(
+                    table, paimonHandle.getBranchName(), paimonHandle.getScanOptions())
+                    .map(ConnectorSqlCacheVersion::getVersion);
+        });
     }
 
     @Override

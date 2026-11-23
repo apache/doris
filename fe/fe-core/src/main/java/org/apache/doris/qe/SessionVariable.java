@@ -597,6 +597,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PAIMON_WRITE_CHAR_PADDING = "enable_paimon_write_char_padding";
     public static final String ENABLE_ICEBERG_INTERNAL_PARTITION_PRUNING =
             "enable_iceberg_internal_partition_pruning";
+    public static final String ENABLE_PAIMON_INTERNAL_PARTITION_PRUNING =
+            "enable_paimon_internal_partition_pruning";
 
     public static final String ICEBERG_MANIFEST_LOAD_CONCURRENCY = "iceberg_manifest_load_concurrency";
 
@@ -3930,6 +3932,12 @@ public class SessionVariable implements Serializable, Writable {
                     + "defer the Doris partition view and rely on Iceberg native file pruning. Materialized view "
                     + "planning and partition metadata rules still require the full partition view.")
     public boolean enableIcebergInternalPartitionPruning = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_INTERNAL_PARTITION_PRUNING,
+            description = "Enable Doris FE partition pruning for Paimon scans. When disabled, ordinary scans "
+                    + "defer the Doris partition view and rely on Paimon native file pruning. Materialized view "
+                    + "planning and partition metadata rules still require the full partition view.")
+    public boolean enablePaimonInternalPartitionPruning = false;
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
 
