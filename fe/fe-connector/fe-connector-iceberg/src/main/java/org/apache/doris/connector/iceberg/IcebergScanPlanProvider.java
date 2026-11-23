@@ -417,7 +417,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     @Override
     public boolean supportsFileCache() {
-        // iceberg data files are read by BE's native parquet/orc readers, so the BE file cache applies.
+        // iceberg data files are read by BE's native parquet/orc/avro readers, so the BE file cache applies.
         return true;
     }
 
@@ -1210,7 +1210,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * {@code IcebergScanNode.doGetPositionDeletesSystemTableSplits} (upstream #65135).
      *
      * <p>This is the ONE system table that does not ride the JNI serialized-split path: BE reads it with a
-     * native parquet/orc/puffin reader, so FE must emit real file ranges (see
+     * native parquet/orc/avro/puffin reader, so FE must emit real file ranges (see
      * {@link IcebergScanRange#populateRangeParams} for the wire shape).
      *
      * <p>Deviations from the JNI sys path above, each forced:
@@ -1916,7 +1916,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Build the BE-ready {@link IcebergScanRange} for one {@link FileScanTask}, mirroring legacy
      * {@code IcebergScanNode.createIcebergSplit} + {@code setIcebergParams}: the file path/offset/size, the
-     * per-file format (native parquet/orc), the table format version, the v3 row-lineage fields, and — for a
+     * per-file format (native parquet/orc/avro), the table format version, the v3 row-lineage fields, and — for a
      * partitioned table — the partition spec-id, the all-fields {@code partition_data_json}, and the ordered
      * identity {@code partitionValues} that become columns-from-path.
      *
@@ -1974,7 +1974,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * Compute {@link #buildRange}'s per-file invariants and, when {@code scratch} is non-null, store them into
      * it so the file's remaining byte-slices reuse them. Uses {@code task.deletes()} (identical across a
      * file's slices) for the delete carriers. Mirrors the former inline per-slice computation exactly — same
-     * partition-JSON / identity-map ordering, same fail-loud on a non-parquet/orc file, same v3 row-lineage —
+     * partition-JSON / identity-map ordering, same fail-loud on a non-parquet/orc/avro file, same v3 row-lineage —
      * so the memoized range is byte-identical to the per-slice recompute. The scratch fields are assigned only
      * after the fail-loud check, so a rejected file never leaves a half-populated scratch.
      */
@@ -2242,7 +2242,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * Scan-node-level (not per-range) properties consumed by the generic {@code PluginDrivenScanNode}:
      * <ul>
      *   <li>{@code file_format_type=jni} — makes the parent default the per-range format to {@code FORMAT_JNI},
-     *       which each native range overrides to parquet/orc in {@code populateRangeParams} (mirrors paimon).</li>
+     *       which each native range overrides to parquet/orc/avro in {@code populateRangeParams} (mirrors paimon).</li>
      *   <li>{@code path_partition_keys} — the case-preserved, comma-joined identity partition columns, so FE marks
      *       those slots as partition columns and excludes them from the file-decode set; without it BE
      *       double-fills the partition columns (decode-from-file AND append-from-path) and DCHECKs (CI #968880).
@@ -2290,7 +2290,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         // This is only the scan-level native-reader default, not the format of the table's files.
-        // Every normal Iceberg range carries its own validated Parquet/ORC format, which BE prefers
+        // Every normal Iceberg range carries its own validated Parquet/ORC/Avro format, which BE prefers
         // over this default (including mixed-format snapshots and row-id fetches). Do not enumerate
         // data manifests here just to infer a format: scanning starts in planScan/streamSplits.
         // Keep JNI for metadata tables, whose serialized splits use the Java system-table reader.
@@ -3729,7 +3729,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         if (sessionBool(session, FORCE_JNI_SCANNER, false)) {
             throw new DorisConnectorException(
-                    "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
+                    "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC/Avro reader; "
                             + "actual reader is JNI");
         }
     }

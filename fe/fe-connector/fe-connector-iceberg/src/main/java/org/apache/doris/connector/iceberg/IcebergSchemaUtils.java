@@ -68,9 +68,9 @@ import java.util.Set;
  * (mirrors {@code IcebergPartitionUtils}/{@code IcebergPredicateConverter}; zero fe-core import).
  *
  * <p><b>Iceberg vs paimon (the load-bearing divergence)</b>: iceberg emits exactly ONE schema entry
- * ({@code current_schema_id = -1}). BE reads the FILE field ids straight from the parquet/orc file metadata
- * ({@code iceberg_reader.cpp by_parquet_field_id} / {@code by_orc_field_id}) and matches them by equality to
- * this single table-side entry. Because iceberg field ids are permanent invariants, NO per-file
+ * ({@code current_schema_id = -1}). BE reads the FILE field ids from parquet/orc/avro metadata
+ * into the native readers' column definitions and matches them by equality to this single table-side entry.
+ * Because iceberg field ids are permanent invariants, NO per-file
  * {@code schema_id} is looked up (legacy emits only the {@code -1} entry too) — unlike paimon/hudi
  * ({@code by_table_field_id}), which match the FE-supplied file schema and therefore need a per-committed-id
  * history. See {@code designs/P6-T06-iceberg-scan-fieldid-design.md} §0/§1.</p>

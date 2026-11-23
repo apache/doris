@@ -1045,7 +1045,7 @@ public class IcebergScanPlanProviderTest {
                 () -> provider.planScan(session, ConnectorScanRequest.builder(handle,
                         Collections.singletonList(new IcebergColumnHandle("_file", -1))).build()));
         Assertions.assertEquals(
-                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
+                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC/Avro reader; "
                         + "actual reader is JNI",
                 ex.getMessage());
     }
@@ -1949,7 +1949,7 @@ public class IcebergScanPlanProviderTest {
                 () -> provider.planScan(session, ConnectorScanRequest.builder(
                         new IcebergTableHandle("db1", "t1"), columns).build()));
         Assertions.assertEquals(
-                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
+                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC/Avro reader; "
                         + "actual reader is JNI",
                 ex.getMessage());
     }
@@ -1994,7 +1994,7 @@ public class IcebergScanPlanProviderTest {
                         ConnectorScanRequest.builder(new IcebergTableHandle("db1", "stream_metadata"), columns)
                                 .filter(Optional.empty()).limit(-1L).build()));
         Assertions.assertEquals(
-                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
+                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC/Avro reader; "
                         + "actual reader is JNI",
                 ex.getMessage());
     }
