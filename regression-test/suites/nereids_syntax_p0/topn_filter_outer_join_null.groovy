@@ -62,6 +62,27 @@ suite("topn_filter_outer_join_null", "p0") {
     }
 
     sql "SET topn_filter_ratio = 1000000"
+    for (String joinType : ["FULL OUTER", "RIGHT OUTER"]) {
+        for (String conversion : ["to_uuid_or_default", "to_uuid_or_zero"]) {
+            String query = """SELECT ${conversion}(concat('0000000000000000000000000000000', l.k + 1))
+                AS sort_key, r.k FROM (
+                    SELECT k FROM topn_filter_outer_join_null WHERE k = 0
+                    UNION ALL
+                    SELECT k FROM topn_filter_outer_join_null WHERE k > 0 AND sleep(k) = 0
+                ) l ${joinType} JOIN topn_filter_outer_join_null r ON l.k = r.k
+                ORDER BY sort_key ASC NULLS LAST, r.k NULLS LAST LIMIT 1"""
+            explain {
+                sql query
+                contains "HASH JOIN"
+                if (conversion == "to_uuid_or_default") {
+                    notContains "TOPN OPT:"
+                } else {
+                    contains "TOPN OPT:"
+                }
+            }
+        }
+    }
+
     for (String nullOrder : ["FIRST", "LAST"]) {
         String query = """SELECT l.k, r.k FROM (
             SELECT k FROM topn_filter_outer_join_null WHERE k = 0

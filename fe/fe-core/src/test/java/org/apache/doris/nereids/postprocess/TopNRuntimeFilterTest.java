@@ -379,19 +379,37 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                 "coalesce(l.k, -1) - 1",
                 "cast(l.k is null as int)",
                 "cast(l.k <=> 0 as int)",
-                "cast(to_json(array(l.k)) as string)"), List.of("RIGHT OUTER", "FULL OUTER"), false, false);
+                "cast(to_json(array(l.k)) as string)",
+                "to_uuid_or_default(cast(l.k as string))",
+                "to_uuid_or_default(cast(l.k as string), cast('00000000000000000000000000000001' as uuid))"),
+                List.of("RIGHT OUTER", "FULL OUTER"), false, false);
+    }
+
+    @Test
+    public void testTopNFilterRejectsScalarUdfThroughNullGeneratingSide() throws Exception {
+        createFunction("CREATE FUNCTION topn_nonnullable_udf(INT) RETURNS INT PROPERTIES ("
+                + "'type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2', "
+                + "'volatility'='immutable', 'always_nullable'='false')");
+        createFunction("CREATE FUNCTION topn_nullable_udf(INT) RETURNS INT PROPERTIES ("
+                + "'type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2', "
+                + "'volatility'='immutable', 'always_nullable'='true')");
+        List<String> expressions = List.of("topn_nonnullable_udf(l.k)", "topn_nullable_udf(l.k)");
+        checkTopNFilterThroughJoin(expressions, List.of("RIGHT OUTER", "FULL OUTER"), false, false);
+        checkTopNFilterThroughJoin(expressions, List.of("INNER", "LEFT OUTER"), false, true);
     }
 
     @Test
     public void testTopNFilterPreservesNullPropagatingOuterJoinExpressions() {
-        checkTopNFilterThroughJoin(List.of("l.k", "cast(l.k as bigint)", "abs(l.k)"),
+        checkTopNFilterThroughJoin(List.of("l.k", "cast(l.k as bigint)", "abs(l.k)",
+                "to_uuid_or_zero(cast(l.k as string))"),
                 List.of("RIGHT OUTER", "FULL OUTER"), false, true);
         checkTopNFilterThroughJoin(List.of("l.k"), List.of("RIGHT OUTER", "FULL OUTER"), true, false);
     }
 
     @Test
     public void testTopNFilterPreservesNonNullGeneratingJoinSide() {
-        checkTopNFilterThroughJoin(List.of("coalesce(l.k, -1)"), List.of("INNER", "LEFT OUTER"), false, true);
+        checkTopNFilterThroughJoin(List.of("coalesce(l.k, -1)", "to_uuid_or_default(cast(l.k as string))"),
+                List.of("INNER", "LEFT OUTER"), false, true);
     }
 
     private void checkTopNFilterThroughJoin(List<String> expressions, List<String> joinTypes,
