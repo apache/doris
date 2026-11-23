@@ -49,9 +49,8 @@ class CIDR {
 public:
     bool reset(const std::string& cidr_str) {
         auto slash = std::find(std::begin(cidr_str), std::end(cidr_str), '/');
-        auto ip = (slash == std::end(cidr_str))
-                          ? cidr_str
-                          : cidr_str.substr(0, slash - std::begin(cidr_str));
+        auto ip = (slash == std::end(cidr_str)) ? cidr_str
+                                                : cidr_str.substr(0, slash - std::begin(cidr_str));
 
         if (inet_pton(AF_INET, ip.c_str(), address_.data())) {
             family_ = AF_INET;
