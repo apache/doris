@@ -89,6 +89,7 @@ Status LoadChannelMgr::init(int64_t process_mem_limit) {
 Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     UniqueId load_id(params.id());
     std::shared_ptr<LoadChannel> channel;
+    bool created_channel = false;
     {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _load_channels.find(load_id);
@@ -117,14 +118,19 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
                                           params.sender_ip(), params.backend_id(),
                                           params.enable_profile(), wg_id));
             _load_channels.insert({load_id, channel});
+            created_channel = true;
         }
     }
 
     auto status = channel->open(params);
     if (!status.ok()) {
-        // Cloud validation can reject an open before any receiver exists. Remove the
-        // exact failed instance so shutdown does not count it until the load timeout.
-        RETURN_IF_ERROR(_cancel_load_channel(channel, status));
+        // A malformed duplicate open (e.g. txn_expiration <= 0) must not cancel
+        // an existing receiver. Only clean up a channel registered by this call.
+        if (created_channel) {
+            // TODO: Coordinate concurrent first opens: another request may have
+            // opened this instance successfully before its creator's open fails.
+            RETURN_IF_ERROR(_cancel_load_channel(channel, status));
+        }
         return status;
     }
 

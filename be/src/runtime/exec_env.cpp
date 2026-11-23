@@ -224,6 +224,8 @@ void ExecEnv::wait_for_shutdown_heartbeat() {
 void ExecEnv::wait_for_all_tasks_done() {
     // The cloud load receiver and coordinator must finish. For example,
     // an HTTP upload or transaction commit can outlive all of its pipeline fragments.
+    // TODO: Include LoadStreamMgr receivers and failed StreamAccept cleanup when
+    // extending graceful load draining to shared-nothing mode.
     int32_t wait_seconds_passed = 0;
     while (true) {
         int num_queries = _fragment_mgr->running_query_num();

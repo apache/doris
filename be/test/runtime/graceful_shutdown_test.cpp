@@ -135,4 +135,22 @@ TEST(GracefulShutdownTest, FailedTransactionalSetupReleasesContextBeforeFragment
     EXPECT_EQ(StreamLoadContext::num_active_contexts(), baseline);
 }
 
+TEST(GracefulShutdownTest, LateContextRemovalPreservesReplacement) {
+    ExecEnv env;
+    NewLoadStreamMgr streams;
+    auto original = StreamLoadContext::create_shared(&env);
+    ASSERT_TRUE(streams.put(original->id, original).ok());
+    streams.remove(original->id, original.get());
+
+    auto replacement = StreamLoadContext::create_shared(&env);
+    replacement->id = original->id;
+    ASSERT_TRUE(streams.put(replacement->id, replacement).ok());
+    // Model the old attempt's completion after synchronous failure cleanup
+    // and a new registration. Only the replacement may detach its owner.
+    streams.remove(original->id, original.get());
+    EXPECT_EQ(streams.get(replacement->id), replacement);
+    streams.remove(replacement->id, replacement.get());
+    EXPECT_EQ(streams.get(replacement->id), nullptr);
+}
+
 } // namespace doris
