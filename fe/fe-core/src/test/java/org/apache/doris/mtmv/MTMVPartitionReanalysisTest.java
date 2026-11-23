@@ -99,8 +99,19 @@ class MTMVPartitionReanalysisTest extends TestWithFeService {
     @CsvSource({"week,q,true", "quarter,q,true", "day,q`day,true",
             "week,q,false", "quarter,q,false", "day,q`day,false"})
     void testReanalyzePartitionBoundary(String timeUnit, String alias, boolean projectBaseColumn) throws Exception {
+        checkPartitionBoundary(timeUnit, alias, projectBaseColumn, false);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"day,true", "day,false", "week,true", "week,false", "quarter,true", "quarter,false"})
+    void testReanalyzeReversedDateTrunc(String timeUnit, boolean projectBaseColumn) throws Exception {
+        checkPartitionBoundary(timeUnit, "q", projectBaseColumn, true);
+    }
+
+    private void checkPartitionBoundary(String timeUnit, String alias, boolean projectBaseColumn,
+            boolean unitFirst) throws Exception {
         String suffix = timeUnit + "_" + alias.replace(".", "_dot_").replace("`", "_tick_")
-                + "_" + projectBaseColumn;
+                + "_" + projectBaseColumn + "_" + unitFirst;
         String table = "source_boundary_" + suffix;
         String name = "mv_boundary_" + suffix;
         String quotedAlias = "`" + alias.replace("`", "``") + "`";
@@ -111,7 +122,8 @@ class MTMVPartitionReanalysisTest extends TestWithFeService {
         createMvByNereids("CREATE MATERIALIZED VIEW " + name
                 + " BUILD DEFERRED REFRESH AUTO ON MANUAL PARTITION BY (" + quotedAlias + ") "
                 + "DISTRIBUTED BY RANDOM BUCKETS 1 PROPERTIES ('replication_num' = '1') AS SELECT "
-                + (projectBaseColumn ? "dt, " : "") + "date_trunc(dt, '" + timeUnit + "') AS "
+                + (projectBaseColumn ? "dt, " : "") + "date_trunc("
+                + (unitFirst ? "'" + timeUnit + "', dt" : "dt, '" + timeUnit + "'") + ") AS "
                 + quotedAlias + ", v FROM " + table);
         MTMV mv = (MTMV) Env.getCurrentInternalCatalog().getDbOrAnalysisException("partition_reanalysis")
                 .getTableOrAnalysisException(name);

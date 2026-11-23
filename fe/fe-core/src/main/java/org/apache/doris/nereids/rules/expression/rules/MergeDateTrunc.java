@@ -46,7 +46,8 @@ public class MergeDateTrunc implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesTopType(DateTrunc.class)
-                        .when(dateTrunc -> dateTrunc.getArgument(0) instanceof DateTrunc)
+                        .when(dateTrunc -> dateTrunc.getArgument(
+                                dateTrunc.getMonotonicFunctionChildIndex()) instanceof DateTrunc)
                         .then(MergeDateTrunc::rewrite)
                         .toRule(ExpressionRuleType.MERGE_DATE_TRUNC)
         );
@@ -54,13 +55,16 @@ public class MergeDateTrunc implements ExpressionPatternRuleFactory {
 
     private static Expression rewrite(DateTrunc dateTrunc) {
 
-        Expression parentTimeUnitArgument = dateTrunc.getArgument(1);
+        // DATE_TRUNC accepts the time unit either before or after the date argument.
+        int parentDateIndex = dateTrunc.getMonotonicFunctionChildIndex();
+        Expression parentTimeUnitArgument = dateTrunc.getArgument(1 - parentDateIndex);
         if (!(parentTimeUnitArgument instanceof Literal)) {
             return dateTrunc;
         }
         Optional<TimeUnit> parentTimeUnit = TimeUnit.of(((Literal) parentTimeUnitArgument).getStringValue());
-        DateTrunc childDateTrunc = (DateTrunc) dateTrunc.getArgument(0);
-        Expression childTimeUnitArgument = childDateTrunc.getArgument(1);
+        DateTrunc childDateTrunc = (DateTrunc) dateTrunc.getArgument(parentDateIndex);
+        int childDateIndex = childDateTrunc.getMonotonicFunctionChildIndex();
+        Expression childTimeUnitArgument = childDateTrunc.getArgument(1 - childDateIndex);
         if (!(childTimeUnitArgument instanceof Literal)) {
             return dateTrunc;
         }
@@ -77,6 +81,7 @@ public class MergeDateTrunc implements ExpressionPatternRuleFactory {
         if (parentTimeUnit.get().getLevel() < childTimeUnit.get().getLevel()) {
             return dateTrunc;
         }
-        return new DateTrunc(childDateTrunc.getArgument(0), new VarcharLiteral(parentTimeUnit.get().toString()));
+        return new DateTrunc(childDateTrunc.getArgument(childDateIndex),
+                new VarcharLiteral(parentTimeUnit.get().toString()));
     }
 }

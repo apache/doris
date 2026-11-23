@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.rules.MergeDateTrunc;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
@@ -27,7 +28,7 @@ import org.apache.doris.nereids.types.DateV2Type;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /**
  * merge date_trunc test
@@ -35,13 +36,40 @@ import org.junit.jupiter.params.provider.ValueSource;
 public class MergeDateTruncTest extends ExpressionRewriteTestHelper {
 
     @ParameterizedTest
-    @ValueSource(strings = {"WEEK", "QUARTER"})
-    void testMergeIdenticalCalendarUnits(String timeUnit) {
+    @CsvSource({"DAY,false,false", "DAY,false,true", "DAY,true,false", "DAY,true,true",
+            "WEEK,false,false", "WEEK,false,true", "WEEK,true,false", "WEEK,true,true",
+            "QUARTER,false,false", "QUARTER,false,true", "QUARTER,true,false", "QUARTER,true,true"})
+    void testMergeIdenticalCalendarUnits(String timeUnit, boolean childUnitFirst, boolean parentUnitFirst) {
         executor = new ExpressionRuleExecutor(ImmutableList.of(bottomUp(MergeDateTrunc.INSTANCE)));
         Slot dataSlot = new SlotReference("data_slot", DateV2Type.INSTANCE);
-        assertRewrite(new DateTrunc(new DateTrunc(dataSlot, new VarcharLiteral(timeUnit)),
-                        new VarcharLiteral(timeUnit.toLowerCase())),
+        assertRewrite(dateTrunc(dateTrunc(dataSlot, timeUnit, childUnitFirst),
+                        timeUnit.toLowerCase(), parentUnitFirst),
                 new DateTrunc(dataSlot, new VarcharLiteral(timeUnit)));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void testMergeCompatibleUnits(boolean childUnitFirst, boolean parentUnitFirst) {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(bottomUp(MergeDateTrunc.INSTANCE)));
+        Slot dataSlot = new SlotReference("data_slot", DateV2Type.INSTANCE);
+        assertRewrite(dateTrunc(dateTrunc(dataSlot, "HOUR", childUnitFirst), "DAY", parentUnitFirst),
+                new DateTrunc(dataSlot, new VarcharLiteral("DAY")));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void testKeepMixedCalendarUnits(boolean childUnitFirst, boolean parentUnitFirst) {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(bottomUp(MergeDateTrunc.INSTANCE)));
+        Slot dataSlot = new SlotReference("data_slot", DateV2Type.INSTANCE);
+        assertNotRewrite(dateTrunc(dateTrunc(dataSlot, "HOUR", childUnitFirst), "WEEK", parentUnitFirst),
+                new DateTrunc(dataSlot, new VarcharLiteral("WEEK")));
+        assertNotRewrite(dateTrunc(dateTrunc(dataSlot, "DAY", childUnitFirst), "QUARTER", parentUnitFirst),
+                new DateTrunc(dataSlot, new VarcharLiteral("QUARTER")));
+    }
+
+    private DateTrunc dateTrunc(Expression date, String timeUnit, boolean unitFirst) {
+        VarcharLiteral unit = new VarcharLiteral(timeUnit);
+        return unitFirst ? new DateTrunc(unit, date) : new DateTrunc(date, unit);
     }
 
     @Test
