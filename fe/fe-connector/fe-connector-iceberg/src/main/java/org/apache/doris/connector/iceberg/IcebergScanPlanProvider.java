@@ -2246,7 +2246,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (getFormatVersion(base) < 4) {
             return normalize;
         }
-        return new V4UriNormalizer(new IcebergV4FileIO(table.io(), table.location()), normalize);
+        FileIO io = table.io();
+        // Reuse the bound view: nesting relative resolvers would rebase filesystem-rooted manifest version probes.
+        IcebergV4FileIO paths = io instanceof IcebergV4FileIO
+                ? (IcebergV4FileIO) io : new IcebergV4FileIO(io, table.location());
+        return new V4UriNormalizer(paths, normalize);
     }
 
     private static String normalizeFileLocation(ContentFile<?> file, UnaryOperator<String> normalizer) {

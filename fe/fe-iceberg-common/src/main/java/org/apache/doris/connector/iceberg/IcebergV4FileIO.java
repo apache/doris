@@ -72,6 +72,12 @@ public final class IcebergV4FileIO implements FileIO {
         return SCHEME.matcher(path).matches();
     }
 
+    private static boolean isAbsoluteMetadataLocation(String path) {
+        // Upgrades retain filesystem-rooted write.metadata.path locations without a URI scheme.
+        // Content paths use their producing manifest's rules instead, so a V4 "/data/file" stays relative.
+        return path.startsWith("/") || isAbsolute(path);
+    }
+
     public String resolveLocation(String path) {
         return resolve(tableLocation, path);
     }
@@ -98,7 +104,8 @@ public final class IcebergV4FileIO implements FileIO {
 
     private int readManifestVersion(String manifest) {
         try (CloseableIterable<?> header = InternalData.read(FileFormat.AVRO,
-                delegate.newInputFile(resolve(tableLocation, manifest))).project(new Schema()).build()) {
+                delegate.newInputFile(isAbsoluteMetadataLocation(manifest)
+                        ? manifest : resolve(tableLocation, manifest))).project(new Schema()).build()) {
             return Integer.parseInt(((AvroIterable<?>) header).getMetadata().getOrDefault("format-version", "1"));
         } catch (IOException failure) {
             throw new UncheckedIOException("Failed to read Iceberg manifest version", failure);
@@ -131,13 +138,13 @@ public final class IcebergV4FileIO implements FileIO {
 
     @Override
     public InputFile newInputFile(ManifestFile file) {
-        return isAbsolute(file.path())
+        return isAbsoluteMetadataLocation(file.path())
                 ? delegate.newInputFile(file) : FileIO.super.newInputFile(file);
     }
 
     @Override
     public InputFile newInputFile(ManifestListFile file) {
-        return isAbsolute(file.location())
+        return isAbsoluteMetadataLocation(file.location())
                 ? delegate.newInputFile(file) : FileIO.super.newInputFile(file);
     }
 

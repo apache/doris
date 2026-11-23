@@ -49,8 +49,10 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.JsonUtil;
+import org.apache.iceberg.util.SerializationUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -65,6 +67,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 class IcebergFormatV4ReadTest {
     @TempDir
@@ -164,6 +168,63 @@ class IcebergFormatV4ReadTest {
                 }
             }
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {2, 3})
+    void upgradedTablesKeepAbsoluteFilesystemMetadataLocations(int originalVersion) throws Exception {
+        Table table = createTable(originalVersion);
+        table.updateLocation().setLocation("hdfs://namenode.example/warehouse/table").commit();
+        String metadataPath = "/metadata/" + tempDir.getFileName();
+        table.updateProperties().set(TableProperties.WRITE_METADATA_LOCATION, metadataPath).commit();
+        String legacyData = "/data/legacy.parquet";
+        table.newFastAppend().appendFile(data(table, legacyData)).commit();
+        long legacySnapshot = table.currentSnapshot().snapshotId();
+        Assertions.assertTrue(table.currentSnapshot().manifestListLocation().startsWith(metadataPath + "/"));
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "4").commit();
+
+        // Discard SDK snapshot caches so the upgraded view must reopen its inherited manifest list.
+        Table cold = coldMetadata(table);
+        Table view = IcebergSnapshotTableOperations.v4ReadTable(cold);
+        List<ManifestFile> manifests = Assertions.assertDoesNotThrow(
+                () -> view.currentSnapshot().allManifests(view.io()));
+        Assertions.assertEquals(1, manifests.size());
+        FileIO transported = SerializationUtil.deserializeFromBase64(SerializationUtil.serializeToBase64(view.io()));
+        Assertions.assertEquals(1, coldMetadata(table).currentSnapshot().allManifests(transported).size());
+        Assertions.assertTrue(manifests.stream().allMatch(manifest -> manifest.path().startsWith(metadataPath + "/")));
+        for (ManifestFile manifest : manifests) {
+            try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, view.io(), view.specs())) {
+                DataFile file = reader.iterator().next();
+                Assertions.assertEquals(legacyData, ((IcebergV4FileIO) view.io()).resolveContentFile(file));
+            }
+        }
+        for (boolean cached : new boolean[] {false, true}) {
+            IcebergScanPlanProvider provider = provider(cold, cached);
+            for (int attempt = 0; attempt < 2; attempt++) {
+                List<ConnectorScanRange> ranges = provider.planScan(null, request());
+                Assertions.assertEquals(1, ranges.size());
+                Assertions.assertEquals(legacyData, ranges.get(0).getPath().orElseThrow());
+            }
+        }
+
+        // New V4 entries share the same absolute metadata directory but keep table-relative data semantics.
+        table.newFastAppend().appendFile(data(table, "/data/new.parquet")).commit();
+        Table latest = coldMetadata(table);
+        Table latestView = IcebergSnapshotTableOperations.v4ReadTable(latest);
+        Assertions.assertDoesNotThrow(() -> latestView.snapshot(legacySnapshot).allManifests(latestView.io()));
+        for (boolean cached : new boolean[] {false, true}) {
+            List<ConnectorScanRange> ranges = provider(latest, cached).planScan(null, request());
+            Assertions.assertEquals(2, ranges.size());
+            Assertions.assertEquals(Set.of(legacyData, table.location() + "//data/new.parquet"),
+                    ranges.stream().map(range -> range.getPath().orElseThrow()).collect(Collectors.toSet()));
+        }
+    }
+
+    private static Table coldMetadata(Table table) {
+        TableMetadata metadata = ((BaseTable) table).operations().current();
+        String json = TableMetadataParser.toJson(metadata);
+        return new BaseTable(new StaticTableOperations(
+                TableMetadataParser.fromJson(metadata.metadataFileLocation(), json), table.io()), table.name());
     }
 
     @Test
