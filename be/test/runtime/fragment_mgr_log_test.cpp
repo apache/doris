@@ -130,8 +130,12 @@ TEST_F(FragmentMgrLogTest, ExternalRequestOmitsDescriptorCredentials) {
     instance_id.__set_lo(0xef01);
     std::vector<TScanColumnDesc> selected_columns;
 
-    const auto status = _fragment_mgr->exec_external_plan_fragment(
-            TScanOpenParams {}, query_plan, query_id, instance_id, &selected_columns);
+    TScanOpenParams params;
+    // An omitted timeout becomes zero in the query options. Set a positive value so the request
+    // reaches the query-context debug point and the existing log assertions.
+    params.__set_execution_timeout(60);
+    const auto status = _fragment_mgr->exec_external_plan_fragment(params, query_plan, query_id,
+                                                                   instance_id, &selected_columns);
     EXPECT_FALSE(status.ok());
     EXPECT_NE(std::string::npos, status.to_string().find("FragmentMgr._get_query_ctx.failed"));
     const auto log = messages();
