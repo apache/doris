@@ -340,6 +340,39 @@ struct AvroContainerReader::Impl {
         require(marker == sync, "Avro sync mismatch");
     }
 
+    bool valid_sync_boundary() {
+        const size_t offset = file.position();
+        const size_t remaining = file.remaining();
+        // The final block's sync marker ends at EOF, so it has no following header.
+        if (remaining == 0) {
+            return true;
+        }
+        // A candidate needs at most two ten-byte varints. Keep file I/O outside the parsing
+        // catch: a read failure or cancellation must not be mistaken for a payload collision.
+        std::array<uint8_t, 20> header;
+        const size_t length = std::min(header.size(), remaining);
+        file.read(header.data(), length);
+        MemoryCursor cursor {.data = header.data(), .length = length};
+        int64_t count;
+        int64_t bytes;
+        try {
+            count = read_long(cursor);
+            bytes = read_long(cursor);
+        } catch (const Exception&) {
+            return false;
+        }
+        const size_t available = remaining - cursor.position;
+        // Payload bytes can mimic a header while describing a negative or past-EOF block.
+        if (count < 0 || bytes < 0 || available < sync.size() ||
+            static_cast<uint64_t>(bytes) > available - sync.size()) {
+            return false;
+        }
+        file.seek(offset + cursor.position + bytes);
+        std::array<uint8_t, 16> marker;
+        file.read(marker.data(), marker.size());
+        return marker == sync;
+    }
+
     void decompress_snappy() {
         require(compressed.size() >= 4, "Truncated Avro Snappy block");
         const size_t length = compressed.size() - 4;
@@ -724,7 +757,14 @@ int64_t AvroContainerReader::seek_range(int64_t start, bool absolute_positions) 
             std::move(window.begin() + 1, window.end(), window.begin());
             window.back() = s.file.byte();
             if (++filled >= window.size() && window == s.sync) {
-                break;
+                // A bytes value may contain <sync><invalid header>. Accept a marker only
+                // when the next block's header and closing sync agree with OCF framing.
+                const size_t candidate = s.file.position();
+                const bool valid = s.valid_sync_boundary();
+                s.file.seek(candidate);
+                if (valid) {
+                    break;
+                }
             }
         }
     }

@@ -214,6 +214,71 @@ TEST_F(AvroReaderTest, AdjacentByteRangesOwnEveryBlockExactlyOnce) {
     }
 }
 
+TEST_F(AvroReaderTest, SplitAlignmentRejectsSyncMarkersInsidePayloads) {
+    const auto avro_schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"r","fields":[{"name":"id","type":"long"},
+                {"name":"payload","type":"bytes"}]})");
+    const std::string placeholder(16, '!');
+    for (const auto& suffix : {std::string(24, '\x80'), std::string("\x01\x00", 2),
+                               std::string("\x02\x04xx", 4) + std::string(16, '?'),
+                               std::string("\x02\xfe\xff\xff\xff\xff\xff\xff\xff\xff\x01", 11)}) {
+        SCOPED_TRACE(suffix);
+        const std::string payload = "prefix" + placeholder + suffix;
+        {
+            ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), avro_schema);
+            for (int64_t id = 0; id < 2; ++id) {
+                ::avro::GenericDatum datum(avro_schema);
+                auto& record = datum.value<::avro::GenericRecord>();
+                record.fieldAt(0).value<int64_t>() = id;
+                record.fieldAt(1).value<std::vector<uint8_t>>() =
+                        id == 0 ? std::vector<uint8_t>(payload.begin(), payload.end())
+                                : std::vector<uint8_t> {'e', 'n', 'd'};
+                writer.write(datum);
+                writer.flush();
+            }
+            writer.close();
+        }
+        ::avro::DataFileReaderBase header(path.c_str());
+        const auto header_end = header.previousSync();
+        header.close();
+        std::ifstream in(path, std::ios::binary);
+        std::string data((std::istreambuf_iterator<char>(in)), {});
+        in.close();
+        const auto embedded = data.find(placeholder, header_end);
+        ASSERT_NE(embedded, std::string::npos);
+        data.replace(embedded, placeholder.size(), data.substr(header_end - 16, 16));
+        {
+            std::ofstream out(path, std::ios::binary);
+            out.write(data.data(), data.size());
+        }
+        // Cut before, within and after a payload marker; both ranges must still own only
+        // complete OCF blocks, including when no absolute row-position column is requested.
+        for (size_t cut = embedded; cut <= embedded + 17; ++cut) {
+            for (const bool coordinates : {false, true}) {
+                std::vector<std::vector<std::string>> all;
+                for (const auto [start, size] :
+                     {std::pair<int64_t, int64_t> {0, cut}, {cut, data.size() - cut}}) {
+                    auto input = reader(start, size);
+                    ASSERT_TRUE(initialize(input.get()).ok());
+                    auto request = std::make_shared<FileScanRequest>();
+                    auto block =
+                            block_for(coordinates ? std::vector<int32_t> {0, ROW_POSITION_COLUMN_ID}
+                                                  : std::vector<int32_t> {0},
+                                      request.get());
+                    const auto status = input->open(request);
+                    ASSERT_TRUE(status.ok()) << status << " cut=" << cut;
+                    auto rows = read_all(input.get(), block);
+                    all.insert(all.end(), rows.begin(), rows.end());
+                }
+                EXPECT_EQ(all, coordinates ? (std::vector<std::vector<std::string>> {{"0", "0"},
+                                                                                     {"1", "1"}})
+                                           : (std::vector<std::vector<std::string>> {{"0"}, {"1"}}))
+                        << "cut=" << cut;
+            }
+        }
+    }
+}
+
 TEST_F(AvroReaderTest, GlobalLocationsAreVisibleThroughTheColumnMapper) {
     write_ids(::avro::NULL_CODEC);
     auto input = reader(

@@ -39,11 +39,17 @@ TEST(FileScanRangeUtilsTest, RemovedFormatsCannotUseLegacyOrMetadataReads) {
         EXPECT_FALSE(validate_file_scan_support(params, &range).ok());
         params.__isset.table_format_params = false;
     }
+}
+
+TEST(FileScanRangeUtilsTest, AvroCanUseNativeReads) {
+    // Native Avro reads are supported independently of the removed table-format adapters.
+    TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_AVRO);
-    EXPECT_FALSE(validate_file_scan_support(params).ok());
+    EXPECT_TRUE(validate_file_scan_support(params).ok());
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    TFileRangeDesc range;
     range.__set_format_type(TFileFormatType::FORMAT_AVRO);
-    EXPECT_FALSE(validate_file_scan_support(params, &range).ok());
+    EXPECT_TRUE(validate_file_scan_support(params, &range).ok());
 }
 
 TEST(FileScanRangeUtilsTest, IcebergFilesCannotBeIgnored) {
