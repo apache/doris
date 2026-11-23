@@ -20,7 +20,6 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.TabletMeta;
@@ -109,15 +108,22 @@ class IvmDeltaRewriteStateTest extends IvmDeltaTestBase {
                     LogicalOlapTableStreamScan.class::isInstance).get(0);
             Assertions.assertEquals(delta.getTable().getCloudReadStates(), preScan.getTable().getCloudReadStates());
             Assertions.assertTrue(preScan.isSnapshot());
+            LogicalOlapScan leftPost = postSnapshotScan(leftAfter);
+            LogicalOlapScan rightPost = postSnapshotScan(rightAfter);
+            // The fixed version is a scan option. The table still owns all schema and distribution metadata.
+            Assertions.assertSame(table, leftPost.getTable());
+            Assertions.assertSame(table, rightPost.getTable());
             Assertions.assertEquals(Map.of(caughtUp, 5L),
-                    fixedSnapshotTable(leftAfter).getPartitionVisibleVersionMap());
-            OlapTableWrapper postTable = fixedSnapshotTable(rightAfter);
+                    leftPost.getScanParams().orElseThrow().getFixedPartitionVersions());
             Assertions.assertEquals(Map.of(pending, 7L, empty, Partition.PARTITION_INIT_VERSION),
-                    postTable.getPartitionVisibleVersionMap());
-            Assertions.assertEquals(List.of(pending),
-                    postTable.selectNonEmptyPartitionIds(List.of(pending, empty), Optional.empty()));
+                    rightPost.getScanParams().orElseThrow().getFixedPartitionVersions());
+            Assertions.assertEquals(List.of(pending), rightPost.selectNonEmptyPartitionIds());
+            LogicalOlapScan prunedPost = rightPost.withSelectedPartitionIds(List.of(pending));
+            Assertions.assertSame(rightPost.getScanParams().orElseThrow(), prunedPost.getScanParams().orElseThrow());
             OlapScanNode postNode = Mockito.mock(OlapScanNode.class);
-            Mockito.when(postNode.getOlapTable()).thenReturn(postTable);
+            Mockito.when(postNode.getOlapTable()).thenReturn(prunedPost.getTable());
+            Mockito.when(postNode.getFixedPartitionVersions())
+                    .thenReturn(prunedPost.getScanParams().orElseThrow().getFixedPartitionVersions());
             ScanNode.setVisibleVersionForOlapScanNodes(List.of(postNode));
             Mockito.verify(postNode).updateScanRangeVersions(
                     Map.of(pending, 7L, empty, Partition.PARTITION_INIT_VERSION));
@@ -145,9 +151,8 @@ class IvmDeltaRewriteStateTest extends IvmDeltaTestBase {
                 .build();
     }
 
-    private static OlapTableWrapper fixedSnapshotTable(Plan plan) {
-        return (OlapTableWrapper) plan.<LogicalOlapScan>collectToList(LogicalOlapScan.class::isInstance)
-                .get(0).getTable();
+    private static LogicalOlapScan postSnapshotScan(Plan plan) {
+        return plan.<LogicalOlapScan>collectToList(LogicalOlapScan.class::isInstance).get(0);
     }
 
     @Test

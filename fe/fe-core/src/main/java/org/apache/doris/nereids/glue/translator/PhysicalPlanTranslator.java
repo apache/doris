@@ -1025,10 +1025,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 throw new RuntimeException("Not supported key type: " + olapScan.getTable().getKeysType());
         }
 
-        // apply change scan info if present
-        if (olapScan.getScanParams().isPresent()) {
-            olapScanNode.setScanParams(olapScan.getScanParams().get());
-        }
+        olapScan.getScanParams().ifPresent(params -> {
+            Map<Long, Long> fixedVersions = params.getFixedPartitionVersions();
+            if (fixedVersions.isEmpty()) {
+                olapScanNode.setScanParams(params);
+            } else {
+                olapScanNode.setFixedPartitionVersions(fixedVersions);
+            }
+        });
 
         // create scan range
         Utils.execWithUncheckedException(olapScanNode::init);
@@ -3134,8 +3138,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return;
         }
         if (scanNode.getOlapTable() instanceof OlapTableWrapper
-                && !(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)
-                && ((OlapTableWrapper) scanNode.getOlapTable()).hasPartitionOffsets()) {
+                && !(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)) {
             preserveSnapshotCommitTsoSlot(scanNode, requiredSlotIds);
         }
         preserveMergeSequenceSlots(scanNode, requiredSlotIds, requireSequenceForLazyMaterialization);

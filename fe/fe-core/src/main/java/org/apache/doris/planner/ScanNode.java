@@ -690,8 +690,8 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
             OlapScanNode scanNode = (OlapScanNode) node;
             OlapTable table = scanNode.getOlapTable();
-            if (table instanceof OlapTableWrapper
-                    && ((OlapTableWrapper) table).hasFixedVisibleVersions()) {
+            if (!scanNode.getFixedPartitionVersions().isEmpty() || (table instanceof OlapTableWrapper
+                    && ((OlapTableWrapper) table).hasFixedVisibleVersions())) {
                 continue;
             }
             if (scanNode.getScanParams() != null && scanNode.getScanParams().incrementalRead()) {
@@ -745,7 +745,10 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
             OlapScanNode scanNode = (OlapScanNode) node;
             OlapTable table = scanNode.getOlapTable();
-            if (table instanceof OlapTableWrapper
+            Map<Long, Long> fixedVersions = scanNode.getFixedPartitionVersions();
+            if (!fixedVersions.isEmpty()) {
+                scanNode.updateScanRangeVersions(fixedVersions);
+            } else if (table instanceof OlapTableWrapper
                     && ((OlapTableWrapper) table).hasFixedVisibleVersions()) {
                 scanNode.updateScanRangeVersions(
                         ((OlapTableWrapper) table).getPartitionVisibleVersionMap());

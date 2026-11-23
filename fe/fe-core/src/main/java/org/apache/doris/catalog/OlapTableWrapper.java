@@ -24,7 +24,6 @@ import org.apache.doris.common.Pair;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -33,7 +32,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 /**
  * A lightweight wrapper base class for {@link OlapTable}.
@@ -87,28 +85,6 @@ public class OlapTableWrapper extends OlapTable {
 
     protected OlapTableWrapper(OlapTable originTable) {
         this(originTable, Collections.emptyMap());
-    }
-
-    /** Creates a full base-table scan at the supplied partition versions. */
-    public static OlapTableWrapper forFixedVisibleVersions(OlapTable originTable, Map<Long, Long> visibleVersions) {
-        Map<Long, PartitionScanState> partitionStates = Maps.newHashMapWithExpectedSize(visibleVersions.size());
-        visibleVersions.forEach((id, version) -> partitionStates.put(id, new PartitionScanState(null, version, null)));
-        return new FixedVersionTable(originTable, partitionStates);
-    }
-
-    private static final class FixedVersionTable extends OlapTableWrapper {
-        private FixedVersionTable(OlapTable originTable, Map<Long, PartitionScanState> partitionStates) {
-            super(originTable, partitionStates);
-        }
-
-        @Override
-        public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds,
-                Optional<StreamReadMode> streamReadMode) {
-            Map<Long, Long> visibleVersions = getPartitionVisibleVersionMap();
-            return partitionIds.stream()
-                    .filter(id -> visibleVersions.get(id) > Partition.PARTITION_INIT_VERSION)
-                    .collect(Collectors.toCollection(ArrayList::new));
-        }
     }
 
     @Override
@@ -270,10 +246,6 @@ public class OlapTableWrapper extends OlapTable {
     public Pair<Long, Long> getPartitionOffset(long partitionId) {
         PartitionScanState state = partitionScanStates.get(partitionId);
         return state == null ? null : state.offsets;
-    }
-
-    public boolean hasPartitionOffsets() {
-        return partitionScanStates.values().stream().anyMatch(state -> state.offsets != null);
     }
 
     public boolean hasFixedVisibleVersions() {

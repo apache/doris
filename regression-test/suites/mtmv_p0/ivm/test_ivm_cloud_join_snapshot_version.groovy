@@ -68,6 +68,7 @@ suite("test_ivm_cloud_join_snapshot_version", "docker") {
             AS
             SELECT l.k AS k, COUNT(*) AS cnt, SUM(l.v + r.v) AS total
             FROM ivm_cloud_join_snapshot_left l JOIN ivm_cloud_join_snapshot_right r ON l.k = r.k
+            WHERE l.v > 0
             GROUP BY l.k
         """
         sql "REFRESH MATERIALIZED VIEW ivm_cloud_join_snapshot_mv COMPLETE"
@@ -93,10 +94,18 @@ suite("test_ivm_cloud_join_snapshot_version", "docker") {
         waitingMTMVTaskFinishedByMvName("ivm_cloud_join_snapshot_mv")
         order_qt_second_refresh "SELECT k, cnt, total FROM ivm_cloud_join_snapshot_mv"
 
+        // A right-only delta pairs with a filtered left post snapshot. CSE must see the source table's MOW metadata.
+        sql "SET GLOBAL experimental_enable_virtual_slot_for_cse = true"
+        sql "INSERT INTO ivm_cloud_join_snapshot_right VALUES (1, 21)"
+        sql "REFRESH MATERIALIZED VIEW ivm_cloud_join_snapshot_mv INCREMENTAL"
+        waitingMTMVTaskFinishedByMvName("ivm_cloud_join_snapshot_mv")
+        order_qt_right_only_refresh "SELECT k, cnt, total FROM ivm_cloud_join_snapshot_mv"
+
         sql "SET cloud_partition_version_cache_ttl_ms = 0"
         order_qt_full_join """
             SELECT l.k, COUNT(*), SUM(l.v + r.v)
             FROM ivm_cloud_join_snapshot_left l JOIN ivm_cloud_join_snapshot_right r ON l.k = r.k
+            WHERE l.v > 0
             GROUP BY l.k
         """
     }

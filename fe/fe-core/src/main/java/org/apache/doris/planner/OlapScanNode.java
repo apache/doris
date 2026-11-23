@@ -191,6 +191,7 @@ public class OlapScanNode extends ScanNode {
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
 
     private final Map<Long, Long> sqlCachePartitionVersions = Maps.newHashMap();
+    private Map<Long, Long> fixedPartitionVersions = Collections.emptyMap();
     private Map<Long, String> selectedPartitionNames = Collections.emptyMap();
     // Partition boundaries must come from the same planning snapshot as runtime-filter
     // partition monotonicity. Thrift serialization can happen after query queueing, when
@@ -2008,6 +2009,14 @@ public class OlapScanNode extends ScanNode {
 
     public TableScanParams getScanParams() {
         return scanParams;
+    }
+
+    public void setFixedPartitionVersions(Map<Long, Long> versions) {
+        fixedPartitionVersions = ImmutableMap.copyOf(versions);
+    }
+
+    public Map<Long, Long> getFixedPartitionVersions() {
+        return fixedPartitionVersions;
     }
 
     public static long parseChangeTimestamp(String ts) {

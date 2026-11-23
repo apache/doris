@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.OlapTableWrapper;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
@@ -973,14 +973,19 @@ public class LogicalOlapScan extends LogicalCatalogRelation
 
     /** Scan the base table at the supplied partition versions. */
     public LogicalOlapScan withFixedVisibleVersions(Map<Long, Long> visibleVersions) {
-        OlapTableWrapper snapshot = OlapTableWrapper.forFixedVisibleVersions(getTable(), visibleVersions);
-        return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalOlapScan(relationId, snapshot, qualifier, Optional.empty(), Optional.empty(),
-                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
-                        selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints,
-                        cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
-                        manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
-                        scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams));
+        return withTableScanParams(TableScanParams.forFixedPartitionVersions(visibleVersions));
+    }
+
+    /** Prunes empty partitions at the scan's read boundary. */
+    public List<Long> selectNonEmptyPartitionIds() {
+        Map<Long, Long> fixedVersions = scanParams.map(TableScanParams::getFixedPartitionVersions)
+                .orElseGet(ImmutableMap::of);
+        if (fixedVersions.isEmpty()) {
+            return getTable().selectNonEmptyPartitionIds(selectedPartitionIds, getStreamReadMode());
+        }
+        return selectedPartitionIds.stream()
+                .filter(id -> fixedVersions.get(id) > Partition.PARTITION_INIT_VERSION)
+                .collect(Collectors.toCollection(ArrayList::new));
     }
 
     protected List<SlotReference> createSlotsVectorized(List<Column> columns) {
@@ -1360,7 +1365,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation
         }
         return Objects.equals(left.get().getParamType(), right.get().getParamType())
                 && Objects.equals(left.get().getMapParams(), right.get().getMapParams())
-                && Objects.equals(left.get().getListParams(), right.get().getListParams());
+                && Objects.equals(left.get().getListParams(), right.get().getListParams())
+                && left.get().getFixedPartitionVersions().equals(right.get().getFixedPartitionVersions());
     }
 
     /**

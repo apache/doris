@@ -37,6 +37,7 @@ public class TableScanParams {
     public static final String OPTIONS = "options";
     public static final String SNAPSHOT = "snapshot";
     public static final String RESET = "reset";
+    private static final String FIXED_PARTITION_VERSIONS = "fixed_partition_versions";
     private static final ImmutableSet<String> VALID_PARAM_TYPES = ImmutableSet.of(
             INCREMENTAL_READ,
             BRANCH,
@@ -54,6 +55,7 @@ public class TableScanParams {
     //   such as: `listParams` is used for @func_name('value1', 'value2', 'value3')
     private final Map<String, String> mapParams;
     private final List<String> listParams;
+    private final Map<Long, Long> fixedPartitionVersions;
     private volatile Map<String, String> resolvedMapParams;
 
     private void validate() {
@@ -86,7 +88,24 @@ public class TableScanParams {
         this.paramType = Strings.toLowerCase(paramType);
         this.mapParams = mapParams == null ? ImmutableMap.of() : ImmutableMap.copyOf(mapParams);
         this.listParams = listParams == null ? ImmutableList.of() : ImmutableList.copyOf(listParams);
+        this.fixedPartitionVersions = ImmutableMap.of();
         validate();
+    }
+
+    private TableScanParams(Map<Long, Long> fixedPartitionVersions) {
+        this.paramType = FIXED_PARTITION_VERSIONS;
+        this.mapParams = ImmutableMap.of();
+        this.listParams = ImmutableList.of();
+        this.fixedPartitionVersions = ImmutableMap.copyOf(fixedPartitionVersions);
+    }
+
+    /** Pins a full OLAP scan to the versions already read by IVM. This is an internal scan option. */
+    public static TableScanParams forFixedPartitionVersions(Map<Long, Long> fixedPartitionVersions) {
+        return new TableScanParams(fixedPartitionVersions);
+    }
+
+    public Map<Long, Long> getFixedPartitionVersions() {
+        return fixedPartitionVersions;
     }
 
     public List<String> getListParams() {
