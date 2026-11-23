@@ -771,8 +771,9 @@ struct TMongoScanDesc {
     20: optional i32 server_selection_timeout_ms
     // Socket I/O timeout in milliseconds; the leased client is bounded by the remaining scan time.
     21: optional i32 socket_timeout_ms
-    // Maximum simultaneously leased clients in this BE-local pool, keyed by catalog/configuration and
-    // connection policy. This is not a query-wide or source-wide scanner-concurrency budget.
+    // Maximum simultaneously leased clients per BE scan instance (query/fragment/output tuple).
+    // Catalog/configuration/credentials and transport policy further isolate its pool.
+    // Independent scans do not share this quota; it is not a source-wide connection budget.
     22: optional i32 pool_max_clients
     // Typed BSON candidate filter; the Doris residual is retained. Absent means scan all documents.
     23: optional binary filter_bson

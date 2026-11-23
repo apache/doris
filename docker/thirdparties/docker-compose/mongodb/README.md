@@ -191,9 +191,9 @@ Decimal128, pre-epoch milliseconds, DATETIME(3/6), and four session time zones.
 
 Command failpoints cover getMore failure, SnapshotTooOld propagation, observed
 getMore cancellation/deadline, concurrent transaction visibility, replica-set
-configuration changes, DROP/CREATE replacement, and cleanup/recovery. A one-client-per-BE
-pool with unequal query deadlines verifies that remaining-time differences cannot
-create independent pools. Time-series cases cover logical duplicate timestamps,
+configuration changes, DROP/CREATE replacement, and cleanup/recovery. Concurrent scans
+with a one-client bound use independent pools: one query completes while the other's
+getMore holds a client. Time-series cases cover logical duplicate timestamps,
 concurrent inserts and observed public-options changes; concurrent drop/rename is
 explicitly outside the qualified time-series source contract. Failpoints are always
 disabled in `finally` blocks. The test does not enable range scans or claim a release
@@ -219,8 +219,8 @@ privately until cleanup, since it contains credentials. Stop/removal discards da
 no fixture data volumes are created. The standard standalone suites continue to use
 the separate original fixture and remain required alongside this snapshot matrix.
 
-Run the complete fault matrix with one BE so both competing queries exercise the
-same per-BE pool. To additionally qualify a cluster with at least two BEs, rerun
+Run the complete fault matrix with one BE so the independent queries exercise
+separate pools on the same BE. To additionally qualify a cluster with at least two BEs, rerun
 the verifier with `--oracle-only --require-cross-backend --iterations 20`. This mode
 requires a query in each deployment's concurrent oracle to execute actual MongoDB
 scanners on at least two distinct BEs, as recorded next to the scanner timestamps
@@ -228,7 +228,7 @@ in completed Profiles. Aggregate-only fragments do not count as native scans.
 The oracle enables the existing all-candidate external-scan spreading policy through
 statement hints, since default single-split placement may choose one BE for both
 collections. Every scan still has to share T and match the source result at T. It deliberately
-omits the per-BE pool-contention fault case in this multi-BE run.
+omits the single-BE pool-isolation fault case in this multi-BE run.
 
 ## Frozen range-plan qualification
 
@@ -252,8 +252,9 @@ Profiles, full result multisets across single/range paths, missing/null/array/ot
 BSON families, ObjectIds, int64 boundaries, duplicate/skewed keys, DATETIME(0..6),
 Decimal precisions/scales and four time zones. Transactional split-key updates are
 compared against an independent single-cursor source read at exactly the same T.
-A one-client pool case uses the default 10000 ms connection/selection caps and a
-2-second competing query, covering the below-cap deadline case.
+A one-client pool case keeps a source getMore blocked while a separate 2-second
+query completes from its first batch using its own scan pool. A multi-batch self
+join also verifies independent build/probe admission with a one-client bound.
 
 After `--prepare-only`, enable the retained SQL suite with `enableMongoSplitTest=true`
 and set `mongodb_split_uri` from the corresponding `split_reader_uris` entry in the
@@ -286,7 +287,7 @@ Range tests use the shared `file_split_size`/`max_file_split_num` settings. Only
 `verify_native_read_parameters.py` complements the snapshot/split fault oracles
 with source-observed routing. Use the replicated fixture above, seed it using
 `verify_native_splits.py --prepare-only --allow-failpoints`, and run with exactly
-one live Doris BE so competing queries exercise the same BE-local client pool:
+one live Doris BE so competing queries verify independent scan-local client pools:
 
 ```bash
 python3 docker/thirdparties/docker-compose/mongodb/verify_native_read_parameters.py \
@@ -307,7 +308,7 @@ for MongoDB 7.0.28 and 8.0.20. The fixture state and reports are private artifac
 | `mongodb.databases`, `mongodb.schema.mode`, `mongodb.schema` | Trimmed allowlists, all four schema modes, explicit mapping aliases, missing validator/manifest rejection. |
 | `mongodb.type_mismatch`, `mongodb.datetime_timezone` | Null/error field conversion, explicit UTC, invalid non-UTC setting; the split oracle independently covers DATETIME(0..6), nine Decimal precision/scale pairs and four session time zones. |
 | Three Catalog timeout properties | FE settings/bounds UT; URI transport options lose to explicit properties, actual socket-delay success/timeout, missing-member selection timeout and recovery. |
-| `mongodb.pool_max_clients` | Legal/illegal bounds, per-BE one-client contention with unequal deadlines. Source profiling proves the waiter sends no new find, excluding a second I/O timeout as a false positive. |
+| `mongodb.pool_max_clients` | Legal/illegal bounds and independent one-client pools for concurrent scans. A competitor completes from its first source batch while another query is blocked in getMore; same-scan exhaustion/deadline handling is covered by native-stream UT and the single-worker range oracle. |
 | Three MongoDB pushdown switches | Disabled/enabled combinations, full residual equality and source policy checks; existing predicate/precision suites retain LIKE and typed candidate coverage. |
 | `mongodb_split_strategy`, `mongodb_split_field`; shared file sizes/counts | Policy matrix, invalid values, incompatible range/concern rejection, one/large/unlimited user caps, shared size heuristic, explicit fields and qualified scalar families in the split suite. |
 | `batch_size`, generic scanner/pipeline controls | 1/16/1024/65535 batches, invalid bounds, scanner/pipeline hints; split oracle covers single-worker contention and actual cross-BE partition placement separately. |

@@ -438,7 +438,7 @@ def matrix(catalog):
         return comparisons
 
     # These fixtures are immutable until every comparison joins. Independent SQL sessions also
-    # exercise bounded shared-pool contention without overlapping failpoints or source mutation.
+    # exercise independent scan admission without overlapping failpoints or source mutation.
     with ThreadPoolExecutor(max_workers=5) as executor:
         comparisons = sum(executor.map(compare_table, [
             ("integer_records", "split_key"), ("date_records", "split_key"), ("oid_records", "_id"),
@@ -754,14 +754,14 @@ def worker_pool_case(uri, catalog):
 
 
 def join_pool_case(uri, catalog):
-    create_catalog(catalog, uri, pool=2)
+    create_catalog(catalog, uri, pool=1)
     namespace = catalog + "." + DATABASE + ".pool_records"
     expected = ((POOL_ROWS, POOL_ROWS * (POOL_ROWS - 1) // 2, POOL_ROWS * 2048, POOL_ROWS * 2048),)
     for streaming in [False, True]:
         for strategy, split_field in [("single", ""), ("range", ""), ("range", "_id"), ("auto", "_id")]:
             token = "join-pool-" + uuid.uuid4().hex
             # Wide source rows fill the probe queue before EOF. Otherwise the probe can return
-            # both pool leases before its consumer blocks on the build, hiding the cycle.
+            # its pool lease before its consumer blocks on the build, hiding the cycle.
             statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='" + strategy + "',"
                          "mongodb_split_field='" + split_field + "',file_split_size=1,"
                          "max_file_split_num=2,max_file_scanners_concurrency=2,min_file_scanners_concurrency=2,"
@@ -776,7 +776,7 @@ def join_pool_case(uri, catalog):
             assert counts and set(map(int, counts)) == ({1} if strategy == "single" else {2})
             scanners = re.findall(r"NumScanners:\s*(\d+)", text)
             assert scanners and set(map(int, scanners)) == ({1} if strategy == "single" else {2})
-    print("PASS: dependency-blocked probe scans cannot exhaust a two-client pool before the build", flush=True)
+    print("PASS: join build and probe scans have independent one-client admission in both planning modes", flush=True)
 
 
 def pool_case(source, uri, catalog):
@@ -789,14 +789,18 @@ def pool_case(source, uri, catalog):
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(snapshot_checks.sql, statement)
             snapshot_checks.wait_entered(source, entered)
-            snapshot_checks.expect_error(statement.replace("batch_size=16", "batch_size=16,query_timeout=2"),
-                                         ("timeout", "mongodb"))
+            # The independent query fits in its first source batch, so the holder's getMore
+            # failpoint cannot manufacture a second network timeout instead of pool contention.
+            competitor = statement.replace("batch_size=16", "batch_size=65535,query_timeout=2")
+            assert not future.done()
+            assert snapshot_checks.sql(competitor) == ((ROWS * (ROWS - 1) // 2,),)
+            assert not future.done(), "The queries did not overlap while holding separate clients"
             assert future.result(timeout=20) == ((ROWS * (ROWS - 1) // 2,),)
     finally:
         snapshot_checks.off(source)
     assert snapshot_checks.sql(statement) == ((ROWS * (ROWS - 1) // 2,),)
     cursors_closed([source])
-    print("PASS: query remaining time below the default 10000 ms transport caps cannot bypass pool_max_clients=1", flush=True)
+    print("PASS: independent queries complete while another scan holds its one-client pool", flush=True)
 
 
 def main():
@@ -806,7 +810,7 @@ def main():
     parser.add_argument("--catalog-prefix", default="mongodb_splits",
                         help="SQL identifier prefix; use distinct prefixes for independent fixture runs")
     parser.add_argument("--prepare-only", action="store_true")
-    parser.add_argument("--oracle-only", action="store_true", help="skip per-BE fault/pool contention cases")
+    parser.add_argument("--oracle-only", action="store_true", help="skip single-BE fault/pool isolation cases")
     parser.add_argument("--require-cross-backend", action="store_true",
                         help="require actual native partitions on multiple BEs in each deployment oracle")
     parser.add_argument("--allow-failpoints", action="store_true", required=True,

@@ -385,18 +385,18 @@ class Deployment:
                 snapshot.wait_entered(self.source, entered)
                 before = len(self.commands(application))
                 assert before > 0 and not holder.done()
-                # Disabling a failpoint waits for active users and would release the holder
-                # before the competitor starts. Keep it active and prove the waiter sends no
-                # find; a second blocked getMore must not masquerade as pool admission.
-                rejected(statement.replace("batch_size=1", "batch_size=1,query_timeout=2"), ("mongodb", "timeout"))
+                # Fit the competitor into its first batch: it must complete using its own
+                # client while the holder remains inside the getMore failpoint.
+                competitor = statement.replace("batch_size=1", "batch_size=65535,query_timeout=2")
+                assert sql(competitor) == expected
                 assert not holder.done(), "The holder did not overlap the competing deadline"
-                assert len(self.commands(application)) == before, "The waiter bypassed the shared client bound"
+                assert len(self.commands(application)) > before, "The independent scan did not reach the source"
                 assert holder.result(timeout=15) == expected
         finally:
             snapshot.off(self.source)
         assert sql(statement) == expected
         splits.cursors_closed([self.source, *[item[2] for item in self.members]])
-        print("PASS:", self.label, "actual socket override/timeout, unequal-deadline pool admission and recovery", flush=True)
+        print("PASS:", self.label, "actual socket override/timeout, independent scan admission and recovery", flush=True)
 
     def validation(self):
         invalid = {"mongodb.read_preference": ["invalid"], "mongodb.read_concern": ["linearizable", "inherit"],

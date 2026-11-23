@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -51,9 +52,18 @@ public:
     // Idempotently destroy the cursor before returning its client lease to the pool.
     virtual void close() = 0;
 };
+// BE-local identity shared by one scan instance's splits. Aliases in a self join have distinct
+// output tuples; query and fragment IDs keep independent executions out of each other's quota.
+struct MongoScanScope {
+    TUniqueId query_id;
+    TUniqueId fragment_instance_id;
+    int32_t tuple_id = 0;
+};
+
 // Production libmongoc transport. MongoFileReader owns the returned stream through unique_ptr;
 // a factory lets reader tests inject BSON documents, EOF and failures without opening a network cursor.
-std::unique_ptr<MongoCursorStream> make_native_mongo_stream();
+// The scope fixes client admission for the stream's lifetime, including cooperative retries.
+std::unique_ptr<MongoCursorStream> make_native_mongo_stream(const MongoScanScope& scope = {});
 using MongoStreamFactory = std::function<std::unique_ptr<MongoCursorStream>()>;
 // Validate single/range contracts and resource bounds before creating driver objects.
 Status validate_mongodb_range(const TFileRangeDesc& range);
@@ -78,7 +88,7 @@ public:
                     std::unique_ptr<io::FileDescription>& description,
                     std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                     TFileRangeDesc range, std::vector<SlotDescriptor*> slots,
-                    MongoStreamFactory factory = {});
+                    MongoStreamFactory factory = {}, int32_t scan_tuple_id = 0);
     ~MongoFileReader() override;
     // Freeze bindings from the FE descriptor and initialize session batch limits/profile counters.
     Status init(RuntimeState* state) override;
@@ -107,6 +117,7 @@ private:
     const TFileRangeDesc _range;
     const std::vector<SlotDescriptor*> _slots;
     MongoStreamFactory _factory;
+    const int32_t _scan_tuple_id;
     RuntimeState* _state = nullptr;
     size_t _batch_size = 1024;
     std::unique_ptr<MongoCursorStream> _stream;

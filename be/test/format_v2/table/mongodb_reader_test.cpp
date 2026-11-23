@@ -245,6 +245,30 @@ TEST_F(MongoReaderTest, BatchesAndProjectionOrderUseNativeBson) {
     ASSERT_TRUE(scan->close().ok());
     EXPECT_EQ(_responses->closes, 1);
 }
+TEST_F(MongoReaderTest, NativeReadersKeepBuildAndProbeClientAdmissionIndependent) {
+    _range.table_format_params.mongodb_params.__set_uri("mongodb://127.0.0.1:1");
+    _range.table_format_params.mongodb_params.__set_pool_max_clients(1);
+    auto native_reader = [&](int32_t tuple_id) {
+        auto props = std::make_shared<io::FileSystemProperties>();
+        auto file = std::make_unique<io::FileDescription>();
+        auto result = std::make_unique<MongoFileReader>(props, file, _io, &_profile, _range, _slots,
+                                                        MongoStreamFactory {}, tuple_id);
+        EXPECT_TRUE(result->init(&_state).ok());
+        return result;
+    };
+    auto probe = native_reader(1);
+    auto build = native_reader(2);
+    auto sibling = native_reader(1);
+    ASSERT_TRUE(probe->open(request({0})).ok());
+    EXPECT_FALSE(probe->_open_pending);
+    ASSERT_TRUE(build->open(request({0})).ok());
+    EXPECT_FALSE(build->_open_pending);
+    ASSERT_TRUE(sibling->open(request({0})).ok());
+    EXPECT_TRUE(sibling->_open_pending);
+    ASSERT_TRUE(probe->close().ok());
+    EXPECT_TRUE(sibling->_open_stream().ok());
+}
+
 TEST_F(MongoReaderTest, PendingClientLeaseYieldsWithoutClosingOrLosingTheSplit) {
     _responses->pending_opens = 2;
     auto scan = reader();
@@ -693,6 +717,39 @@ TEST(MongoNativeStreamTest, BusyPoolReturnsToSchedulerAndPreservesTheOriginalDea
     EXPECT_FALSE(status.ok());
     EXPECT_FALSE(status.is<ErrorCode::NEED_SEND_AGAIN>());
     waiter->close();
+}
+
+TEST(MongoNativeStreamTest, IndependentScansDoNotShareClientAdmission) {
+    auto d = range().table_format_params.mongodb_params;
+    d.__set_uri("mongodb://127.0.0.1:1");
+    d.__set_pool_max_clients(1);
+    MongoScanScope probe_scope;
+    probe_scope.query_id.__set_lo(1);
+    probe_scope.fragment_instance_id.__set_lo(2);
+    probe_scope.tuple_id = 3;
+    auto probe = make_native_mongo_stream(probe_scope);
+    ASSERT_TRUE(probe->open(d, [] { return false; }).ok());
+
+    // A blocked join probe retains its lease. Its build must still obtain a private lease.
+    auto build_scope = probe_scope;
+    build_scope.tuple_id = 4;
+    auto build = make_native_mongo_stream(build_scope);
+    EXPECT_TRUE(build->open(d, [] { return false; }).ok());
+
+    auto other_fragment_scope = probe_scope;
+    other_fragment_scope.fragment_instance_id.__set_lo(5);
+    auto other_fragment = make_native_mongo_stream(other_fragment_scope);
+    EXPECT_TRUE(other_fragment->open(d, [] { return false; }).ok());
+
+    auto other_query_scope = probe_scope;
+    other_query_scope.query_id.__set_lo(6);
+    auto other_query = make_native_mongo_stream(other_query_scope);
+    EXPECT_TRUE(other_query->open(d, [] { return false; }).ok());
+
+    auto sibling = make_native_mongo_stream(probe_scope);
+    EXPECT_TRUE(sibling->open(d, [] { return false; }).is<ErrorCode::NEED_SEND_AGAIN>());
+    probe->close();
+    EXPECT_TRUE(sibling->open(d, [] { return false; }).ok());
 }
 
 TEST(MongoNativeStreamTest, CancellationAfterPoolSetupStopsBeforeSourceIdentityCommands) {

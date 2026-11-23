@@ -66,22 +66,29 @@ struct ClientPool {
     MongoPtr<mongoc_client_pool_t, mongoc_client_pool_destroy> pool;
 };
 
-// Share a pool within this BE; open() separately borrows an exclusive client from that pool.
+// Splits share a pool within one BE scan instance; open() borrows an exclusive client.
 // The registry holds weak references, so the last stream owner releases the pool and its clients.
-Status acquire_pool(const TMongoScanDesc& d, std::shared_ptr<ClientPool>* result) {
+Status acquire_pool(const TMongoScanDesc& d, const MongoScanScope& scope,
+                    std::shared_ptr<ClientPool>* result) {
     // Driver initialization is process-wide; cleanup while another scanner is alive is unsafe.
     static std::once_flag initialized;
     std::call_once(initialized, [] { mongoc_init(); });
     static std::mutex mutex;
     static std::unordered_map<std::string, std::weak_ptr<ClientPool>> pools;
+    // A join probe can retain its only client while waiting for its build. Their distinct output
+    // tuples must have independent quotas, e.g. tuple 1's lease cannot prevent tuple 2 from opening.
+    std::string key = std::to_string(scope.query_id.hi) + ":" + std::to_string(scope.query_id.lo) +
+                      ":" + std::to_string(scope.fragment_instance_id.hi) + ":" +
+                      std::to_string(scope.fragment_instance_id.lo) + ":" +
+                      std::to_string(scope.tuple_id);
     // Include exact credentials as well as the FE version: even a malformed descriptor cannot reuse
     // another identity's authenticated client. The key is private memory and is never logged.
-    std::string key = std::to_string(d.catalog_id) + ":" + d.configuration_version;
+    key += ":" + std::to_string(d.catalog_id) + ":" + d.configuration_version;
     for (const auto* value : {&d.uri, &d.username, &d.password, &d.auth_database}) {
         key += ":" + std::to_string(value->size()) + ":" + *value;
     }
-    // Pool identity AND construction must use stable configuration. Remaining budgets such as
-    // 1990/1980 ms (both below a 10000 ms cap) must still contend for the same one-client pool.
+    // Pool identity AND construction must use stable configuration. One scan's remaining budgets
+    // of 1990/1980 ms must still contend for the same one-client pool.
     // A first caller's shorter deadline must not become the shared pool's transport configuration.
     key += ":" + std::to_string(d.connect_timeout_ms) + ":" +
            std::to_string(d.server_selection_timeout_ms) + ":" +
@@ -259,6 +266,7 @@ Status validate_snapshot_descriptor(const TMongoScanDesc& d) {
 // current batch; MongoFileReader copies its values before another next() or close() can invalidate it.
 class NativeMongoStream final : public MongoCursorStream {
 public:
+    explicit NativeMongoStream(MongoScanScope scope) : _scope(std::move(scope)) {}
     ~NativeMongoStream() override { close(); }
     Status open(const TMongoScanDesc& d, std::function<bool()> cancelled) override {
         if (_client) {
@@ -270,7 +278,7 @@ public:
             RETURN_IF_ERROR(check_deadline());
             RETURN_IF_ERROR(validate_pushdown_bson(d));
             RETURN_IF_ERROR(validate_snapshot_descriptor(d));
-            RETURN_IF_ERROR(acquire_pool(d, &_pool));
+            RETURN_IF_ERROR(acquire_pool(d, _scope, &_pool));
         }
         // Preserve the first deadline across cooperative retries. Sleeping here can occupy a
         // workload group's only scanner worker while the client holder is queued to resume.
@@ -552,6 +560,7 @@ private:
         }
         return Status::OK();
     }
+    const MongoScanScope _scope;
     SessionPtr _session;
     TMongoScanDesc _identity;
     std::function<bool()> _cancelled;
@@ -563,8 +572,8 @@ private:
 };
 } // namespace
 
-std::unique_ptr<MongoCursorStream> make_native_mongo_stream() {
-    return std::make_unique<NativeMongoStream>();
+std::unique_ptr<MongoCursorStream> make_native_mongo_stream(const MongoScanScope& scope) {
+    return std::make_unique<NativeMongoStream>(scope);
 }
 
 Status validate_mongodb_snapshot_source(const TMongoSnapshot& snapshot, const bson_t& hello,
@@ -726,11 +735,12 @@ MongoFileReader::MongoFileReader(std::shared_ptr<io::FileSystemProperties>& prop
                                  std::unique_ptr<io::FileDescription>& description,
                                  std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                                  TFileRangeDesc range, std::vector<SlotDescriptor*> slots,
-                                 MongoStreamFactory factory)
+                                 MongoStreamFactory factory, int32_t scan_tuple_id)
         : FileReader(properties, description, std::move(io_ctx), profile),
           _range(std::move(range)),
           _slots(std::move(slots)),
-          _factory(std::move(factory)) {}
+          _factory(std::move(factory)),
+          _scan_tuple_id(scan_tuple_id) {}
 MongoFileReader::~MongoFileReader() {
     (void)close();
 }
@@ -824,7 +834,11 @@ Status MongoFileReader::open(std::shared_ptr<FileScanRequest> request) {
         _positions.push_back(position.value());
         _serdes.push_back(slot->type()->get_serde());
     }
-    _stream = _factory ? _factory() : make_native_mongo_stream();
+    _stream = _factory ? _factory()
+                       : make_native_mongo_stream(
+                                 {.query_id = _state->query_id(),
+                                  .fragment_instance_id = _state->fragment_instance_id(),
+                                  .tuple_id = _scan_tuple_id});
     SCOPED_TIMER(_io_time);
     SCOPED_TIMER(_read_time);
     Status status = _open_stream();
@@ -951,9 +965,9 @@ Status MongoReader::prepare_split(const SplitReadOptions& options) {
     return TableReader::prepare_split(options);
 }
 Status MongoReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
-    *reader = std::make_unique<MongoFileReader>(_system_properties, _current_task->data_file,
-                                                _io_ctx, _scanner_profile, _current_file_range_desc,
-                                                *_file_slot_descs, _factory);
+    *reader = std::make_unique<MongoFileReader>(
+            _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+            _current_file_range_desc, *_file_slot_descs, _factory, _scan_params->dest_tuple_id);
     return Status::OK();
 }
 

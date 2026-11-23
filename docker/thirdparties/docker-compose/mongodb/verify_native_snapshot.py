@@ -504,13 +504,18 @@ def pool_case(source, uri):
         future = executor.submit(sql, statement)
         try:
             wait_entered(source, count)
-            expect_error(statement.replace("SELECT", "SELECT /*+ SET_VAR(query_timeout=2) */", 1), ("timeout", "mongodb"))
+            # The second scan owns its client and fits in one source batch, while the first
+            # scan still holds its lease inside getMore.
+            competitor = statement.replace("SELECT", "SELECT /*+ SET_VAR(batch_size=65535,query_timeout=2) */", 1)
+            assert not future.done()
+            assert sql(competitor) == ((2164240,),)
+            assert not future.done(), "The independent scans did not overlap"
             assert future.result(timeout=15) == ((2164240,),)
         finally:
             off(source)
     cursors_closed([source])
     assert sql(statement) == ((2164240,),)
-    print("PASS: different remaining query deadlines share the configured one-client native pool", flush=True)
+    print("PASS: independent snapshot scans progress with separate one-client pools", flush=True)
 
 
 def timeseries_case(source, catalog):

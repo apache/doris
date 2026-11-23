@@ -184,7 +184,7 @@ suite("test_mongodb_splits", "p0,external") {
                 exception "missing_index"
             }
         }
-        create("mongodb_splits_join_pool", "null", 2)
+        create("mongodb_splits_join_pool", "null", 1)
         String joinTable = "mongodb_splits_join_pool.doris_mongodb_splits.pool_records"
         for (boolean streaming : [false, true]) {
             def baseline = sql """SELECT count(*),sum(l.seq),sum(length(l.payload)),sum(length(r.payload))

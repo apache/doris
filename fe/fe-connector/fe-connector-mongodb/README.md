@@ -163,14 +163,21 @@ Catalog connection defaults:
 | `mongodb.connect_timeout_ms` | `10000` |
 | `mongodb.server_selection_timeout_ms` | `10000` |
 | `mongodb.socket_timeout_ms` | `1000` |
-| `mongodb.pool_max_clients` | `16` |
+| `mongodb.pool_max_clients` | `16`, per FE metadata pool and per BE scan instance |
 | `mongodb.datetime_timezone` | `UTC` |
 
 A majority read does not imply a point-in-time snapshot. User-supplied time-travel
 timestamps remain unsupported. Parallel ranges require the qualified snapshot contract below.
 EOF, early termination, cancellation and errors close the
 cursor and return its exclusive client lease. Pool identities include catalog
-configuration and credentials. Driver errors expose stable error codes without
+configuration, credentials, query, fragment instance and scan output tuple. Parallel
+splits of one scan instance share this bound. Join build/probe scans and independent
+queries use separate pools, so a blocked scan cannot retain another scan's clients.
+The bound is not a catalog-wide or BE-wide connection limit: total client capacity
+grows with the number of active scan instances, and driver monitoring connections
+are separate. Pools are released when their last reader closes.
+The FE metadata client's pool continues to use this value per catalog.
+Driver errors expose stable error codes without
 source values or connection strings. Keep network timeouts small enough for the
 required cancellation responsiveness.
 
@@ -319,9 +326,9 @@ serialized descriptor budgets are 8 MiB per plan, 32 MiB per pinned source and 6
 per statement, including repeated schema/connection/filter payloads. Wide metadata
 therefore reduces admitted counts instead of multiplying into an oversized split RPC. These are planning
 limits for the opted-in range path, not a new cross-statement/cross-BE source service.
-The existing per-catalog/configuration BE client-pool bound controls leases during
-execution and is shared across unequal remaining query deadlines. Splits are tasks,
-not additional clients opened inside every scanner. General D06 resource-policy and
+The BE client-pool bound controls leases within each query/fragment/scan instance;
+unequal remaining split deadlines do not create extra pools within that instance.
+Only admitted scanners lease clients; planning extra partitions does not open them. General D06 resource-policy and
 credential-lifecycle extensions remain outside this change.
 
 The two-second probe cap is deliberately fixed: range planning is optional tuning and

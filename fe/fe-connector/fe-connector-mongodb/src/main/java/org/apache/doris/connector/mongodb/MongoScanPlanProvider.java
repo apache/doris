@@ -112,7 +112,7 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
             d.setTimeoutMs(MongoSnapshot.remainingMillis(session));
         }
         // Stable connection/selection caps identify the shared pool; per-client socket timeouts
-        // and local scan deadlines are separate. poolMaxClients bounds compatible BE-local leases.
+        // and local scan deadlines are separate. BE groups leases by query/fragment/scan instance.
         d.setConnectTimeoutMs(properties.getConnectTimeoutMs());
         d.setServerSelectionTimeoutMs(properties.getServerSelectionTimeoutMs());
         d.setSocketTimeoutMs(properties.getSocketTimeoutMs());
