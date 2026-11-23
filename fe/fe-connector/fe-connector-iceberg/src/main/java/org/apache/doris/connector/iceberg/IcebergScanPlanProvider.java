@@ -4020,8 +4020,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (scanIO instanceof IcebergV4FileIO) {
             // Keep authentication below path resolution so native version probes neither nest resolvers
             // nor bypass doAs. The captured operations retain this metadata generation's location.
-            scanIO = new IcebergV4FileIO(new IcebergAuthenticatedFileIO(
-                    ((IcebergV4FileIO) scanIO).delegate(), auth), rawOps.current().location());
+            scanIO = ((IcebergV4FileIO) scanIO).withDelegate(
+                    new IcebergAuthenticatedFileIO(((IcebergV4FileIO) scanIO).delegate(), auth));
         } else {
             scanIO = new IcebergAuthenticatedFileIO(scanIO, auth);
         }

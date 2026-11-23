@@ -56,7 +56,8 @@ final class IcebergSnapshotTableOperations implements TableOperations {
         }
         // Freeze the location with its metadata generation, including credential-dependent uncached tables.
         return new BaseTable(new IcebergSnapshotTableOperations(operations, metadata,
-                new IcebergV4FileIO(table.io(), metadata.location())), table.name(), base.reporter(), base.labels());
+                new IcebergV4FileIO(table.io(), metadata.location(), metadata)),
+                table.name(), base.reporter(), base.labels());
     }
 
     @Override

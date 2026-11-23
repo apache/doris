@@ -214,6 +214,12 @@ final class IcebergManifestCache {
         if (manifest.keyMetadata() != null) {
             return null;
         }
+        // This probe also runs under the prefetch queue lock. Bind ambiguous provenance only on the elected
+        // read path, which can still reuse the parsed payload without holding that lock during storage I/O.
+        if (table != null && table.io() instanceof IcebergV4FileIO
+                && !((IcebergV4FileIO) table.io()).isManifestPrepared(manifest)) {
+            return null;
+        }
         ManifestCacheValue value = entry.getIfPresent(manifestKey(manifest, table));
         if (value != null && queryId != null && !queryId.isEmpty()) {
             touch(queryId).hits.increment();
@@ -235,6 +241,9 @@ final class IcebergManifestCache {
 
     /** Uses one stable statement identity while retaining only values classified as plaintext. */
     ManifestCacheValue readForStatement(ManifestFile manifest, Table table, Object loadScope, boolean privateRead) {
+        if (table.io() instanceof IcebergV4FileIO) {
+            ((IcebergV4FileIO) table.io()).prepareManifest(manifest);
+        }
         IcebergManifestEntryKey key = manifestKey(manifest, table);
         return privateRead ? IcebergManifestLoader.read(manifest, table, manifest.content(), false)
                 : entry.getForLoadScope(key, loadScope, k -> IcebergManifestLoader.read(
@@ -247,9 +256,11 @@ final class IcebergManifestCache {
 
     private static IcebergManifestEntryKey manifestKey(ManifestFile manifest, Table table) {
         if (table instanceof BaseTable && ((BaseTable) table).operations().current().formatVersion() >= 4) {
-            // The same relative manifest name can describe different bytes in different table locations.
-            return new IcebergManifestEntryKey(IcebergV4FileIO.resolve(table.location(), manifest.path()),
-                    manifest.content());
+            // Parsed files inherit the descriptor's raw manifest location. Physical aliases cannot share
+            // that provenance across table bases, even when they open the same immutable manifest bytes.
+            return new IcebergManifestEntryKey(manifest.path(),
+                    manifest.content(), table.location(), manifest.snapshotId(),
+                    manifest.sequenceNumber(), manifest.firstRowId());
         }
         return IcebergManifestEntryKey.of(manifest);
     }

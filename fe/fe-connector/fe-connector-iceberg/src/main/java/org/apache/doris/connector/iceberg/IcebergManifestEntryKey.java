@@ -25,20 +25,31 @@ import java.util.Objects;
 /**
  * Cache key for one iceberg manifest entry (T08).
  *
- * <p>Ported verbatim from the legacy fe-core
- * {@code org.apache.doris.datasource.iceberg.IcebergManifestEntryKey}. The key carries only stable identity
- * dimensions — the manifest path plus its content type — so two tables that share a manifest path hit the same
- * cached payload, and a table-level invalidation (REFRESH TABLE) intentionally does NOT drop it (legacy
- * {@code testInvalidateTableKeepsManifestCache} parity). Runtime loader context (the manifest/table instances)
- * must not be stored here.
+ * <p>Legacy keys retain the manifest path and content type. V4 keys also identify the table base, raw reference
+ * and descriptor fields inherited by parsed files. Physical aliases alone cannot identify those cached values.
+ * Table-level invalidation (REFRESH TABLE) intentionally does not drop immutable manifest entries. Runtime
+ * loader context (the manifest/table instances) must not be stored here.
  */
 public class IcebergManifestEntryKey {
     private final String manifestPath;
     private final ManifestContent content;
+    private final String tableLocation;
+    private final Long snapshotId;
+    private final Long sequenceNumber;
+    private final Long firstRowId;
 
     public IcebergManifestEntryKey(String manifestPath, ManifestContent content) {
+        this(manifestPath, content, null, null, null, null);
+    }
+
+    IcebergManifestEntryKey(String manifestPath, ManifestContent content, String tableLocation,
+            Long snapshotId, Long sequenceNumber, Long firstRowId) {
         this.manifestPath = Objects.requireNonNull(manifestPath, "manifestPath can not be null");
         this.content = Objects.requireNonNull(content, "content can not be null");
+        this.tableLocation = tableLocation;
+        this.snapshotId = snapshotId;
+        this.sequenceNumber = sequenceNumber;
+        this.firstRowId = firstRowId;
     }
 
     public static IcebergManifestEntryKey of(ManifestFile manifest) {
@@ -63,11 +74,16 @@ public class IcebergManifestEntryKey {
         }
         IcebergManifestEntryKey that = (IcebergManifestEntryKey) o;
         return Objects.equals(manifestPath, that.manifestPath)
-                && content == that.content;
+                && content == that.content
+                && Objects.equals(tableLocation, that.tableLocation)
+                && Objects.equals(snapshotId, that.snapshotId)
+                && Objects.equals(sequenceNumber, that.sequenceNumber)
+                && Objects.equals(firstRowId, that.firstRowId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(manifestPath, content);
+        return Objects.hash(manifestPath, content, tableLocation,
+                snapshotId, sequenceNumber, firstRowId);
     }
 }
