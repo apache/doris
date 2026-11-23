@@ -186,6 +186,12 @@ if [[ ! -x "${DORIS_HOME}/lib/doris_be" || ! -r "${DORIS_HOME}/lib/doris_be" ]];
     chmod 550 "${DORIS_HOME}/lib/doris_be"
 fi
 
+# Keep collecting race reports in be.out throughout the Linux regression run.
+if [[ "$(uname -s)" == "Linux" && -f "${DORIS_HOME}/conf/tsan_brpc_suppr.conf" ]]; then
+    ulimit -s 8192
+    export TSAN_OPTIONS="halt_on_error=0:allow_addr2line=1:suppressions=${DORIS_HOME}/conf/tsan_brpc_suppr.conf${TSAN_OPTIONS:+:${TSAN_OPTIONS}}"
+fi
+
 if [[ "${RUN_VERSION}" -eq 1 ]]; then
     "${DORIS_HOME}"/lib/doris_be --version
     exit 0
