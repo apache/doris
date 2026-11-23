@@ -52,6 +52,7 @@
 #include "storage/index/inverted/snii/writer/logical_index_writer.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using namespace doris::snii::format;
@@ -69,9 +70,10 @@ constexpr const char* kSuffixA = "title";
 constexpr const char* kSuffixB = "body";
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("snii_rewrite_snapshot_test");
     static int counter = 0;
-    return "/tmp/snii_rewrite_snapshot_test_" + std::to_string(getpid()) + "_" +
-           std::to_string(counter++) + ".idx";
+    return (temp_dir.path() / "snii_rewrite_snapshot_test_").string() + std::to_string(getpid()) +
+           "_" + std::to_string(counter++) + ".idx";
 }
 
 // An in-memory reader over an owned, mutable byte image.

@@ -44,6 +44,7 @@
 #include "io/fs/local_file_system.h"
 #include "storage/index/inverted/snii/format/metadata_directory.h"
 #include "storage/index/inverted/snii/snii_doris_adapter.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 
@@ -59,9 +60,10 @@ namespace {
 constexpr size_t kBigLen = 70000; // > BufferedIndexInput::BUFFER_SIZE
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("snii_blob_directory_test");
     static int counter = 0;
-    return "/tmp/snii_blob_dir_test_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
-           ".bin";
+    return (temp_dir.path() / "snii_blob_dir_test_").string() + std::to_string(getpid()) + "_" +
+           std::to_string(counter++) + ".bin";
 }
 
 std::vector<uint8_t> Pattern(size_t n, uint8_t seed) {

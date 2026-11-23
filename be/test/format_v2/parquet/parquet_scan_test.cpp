@@ -92,6 +92,7 @@
 #include "storage/utils.h"
 #include "testutil/benchmark_control.h"
 #include "testutil/mock/mock_query_context.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/coding.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
@@ -2024,10 +2025,11 @@ void use_schema_order_positions(format::FileScanRequest* request,
 
 class ParquetScanTest : public testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"parquet_scan_test"};
+
     void SetUp() override {
         // Paired baseline/candidate benchmarks must not remove the other process's fixtures.
-        _test_dir = std::filesystem::temp_directory_path() /
-                    ("doris_format_v2_parquet_scan_test_" + std::to_string(getpid()));
+        _test_dir = scoped_temp_dir_.path() / "scan";
         std::filesystem::remove_all(_test_dir);
         std::filesystem::create_directories(_test_dir);
         _file_path = (_test_dir / "scan.parquet").string();

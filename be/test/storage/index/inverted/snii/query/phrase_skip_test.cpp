@@ -40,6 +40,7 @@
 #include "storage/index/inverted/snii/snii_query_oracle.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 
 // Checks window-skipping phrase results against brute force and full-read results. Metered reads verify that sparse candidates avoid most high-frequency windows.
 using namespace doris::snii;
@@ -51,9 +52,10 @@ using doris::Status;
 namespace {
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("phrase_skip_test");
     static int counter = 0;
-    return "/tmp/snii_phrase_skip_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
-           ".idx";
+    return (temp_dir.path() / "snii_phrase_skip_").string() + std::to_string(getpid()) + "_" +
+           std::to_string(counter++) + ".idx";
 }
 
 constexpr uint32_t kDocCount = 60000;
