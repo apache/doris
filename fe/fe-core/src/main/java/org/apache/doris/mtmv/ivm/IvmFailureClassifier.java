@@ -27,6 +27,7 @@ import java.util.Optional;
  */
 public final class IvmFailureClassifier {
     public static final String MIN_MAX_BOUNDARY_MSG_PREFIX = "IVM fallback: min/max boundary hit";
+    public static final String NEGATIVE_AGGREGATE_COUNT_MSG_PREFIX = "IVM fallback: negative aggregate count: ";
     public static final String BITMAP_AGG_DELETE_MSG_PREFIX =
             "IVM: deleted row affects BITMAP aggregate, requires COMPLETE";
     public static final String NON_DETERMINISTIC_ROW_ID_MSG_PREFIX =
@@ -44,6 +45,9 @@ public final class IvmFailureClassifier {
         }
         if (detail.contains(MIN_MAX_BOUNDARY_MSG_PREFIX)) {
             return Optional.of(IvmFailureReason.MIN_MAX_BOUNDARY_HIT);
+        }
+        if (detail.contains(NEGATIVE_AGGREGATE_COUNT_MSG_PREFIX)) {
+            return Optional.of(IvmFailureReason.NEGATIVE_AGGREGATE_COUNT);
         }
         if (detail.contains(BITMAP_AGG_DELETE_MSG_PREFIX)) {
             return Optional.of(IvmFailureReason.BITMAP_AGG_DELETE);
