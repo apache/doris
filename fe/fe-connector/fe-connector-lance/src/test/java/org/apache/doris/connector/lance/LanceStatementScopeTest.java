@@ -35,8 +35,8 @@ class LanceStatementScopeTest {
     void namespaceIsPrefixedWithTheConnectorType() {
         String type = new LanceConnectorProvider().getType();
         for (String namespace : Arrays.asList(LanceStatementScope.TABLE_METADATA_NAMESPACE,
-                LanceStatementScope.INDEX_METADATA_NAMESPACE, LanceMetadataMetrics.TABLE_METRICS_NAMESPACE,
-                LanceMetadataMetrics.SCAN_PROFILES_KEY_PREFIX)) {
+                LanceStatementScope.INDEX_METADATA_NAMESPACE, LanceStatementScope.FILE_METADATA_NAMESPACE,
+                LanceMetadataMetrics.TABLE_METRICS_NAMESPACE, LanceMetadataMetrics.SCAN_PROFILES_KEY_PREFIX)) {
             Assertions.assertTrue(namespace.startsWith(type + "."),
                     "Namespace '" + namespace + "' must start with the connector type '" + type + ".'");
         }

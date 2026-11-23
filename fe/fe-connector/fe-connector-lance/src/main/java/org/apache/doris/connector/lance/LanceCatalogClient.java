@@ -77,8 +77,8 @@ final class LanceCatalogClient implements AutoCloseable {
     static final long SESSION_METADATA_CACHE_BYTES = 64L * 1024 * 1024;
     static final long SESSION_INDEX_CACHE_BYTES = 128L * 1024 * 1024;
     /**
-     * The metadata cache of a dataset opened with a Session of its own (see {@link #openDataset}). Planning reads
-     * index metadata, not index pages, so such a dataset keeps no index cache.
+     * The metadata cache of a dataset opened with a Session of its own (see {@link #ownSessionOptions}). Planning
+     * reads index metadata, not index pages, so such a dataset keeps no index cache.
      */
     private static final long OWN_SESSION_METADATA_CACHE_BYTES = 64L * 1024 * 1024;
 
@@ -249,7 +249,8 @@ final class LanceCatalogClient implements AutoCloseable {
         }, "load Lance table metadata for " + what);
     }
 
-    private static LanceTableMetadata readMetadata(Dataset dataset, LanceTableAccess access,
+    /** The version, schema and fragments of {@code dataset}, which was opened with {@code access}. */
+    static LanceTableMetadata readMetadata(Dataset dataset, LanceTableAccess access,
             LanceMetadataMetrics.Timer timer) {
         Schema schema = timer.measure(Stage.SCHEMA, dataset::getSchema);
         List<LanceFragmentInfo> fragments = timer.measure(Stage.FRAGMENTS, () -> {
@@ -289,17 +290,23 @@ final class LanceCatalogClient implements AutoCloseable {
      */
     private static Dataset openDataset(Generation generation, BufferAllocator readAllocator,
             LanceTableAccess access, OptionalLong version, LanceMetadataMetrics.Timer timer) {
-        ReadOptions.Builder options = new ReadOptions.Builder().setStorageOptions(access.getStorageOptions());
-        if (access.hasVendedOptions()) {
-            options.setIndexCacheSizeBytes(0).setMetadataCacheSizeBytes(OWN_SESSION_METADATA_CACHE_BYTES);
-        } else {
-            options.setSession(generation.session);
-        }
+        ReadOptions.Builder options = access.hasVendedOptions() ? ownSessionOptions(access.getStorageOptions())
+                : new ReadOptions.Builder().setStorageOptions(access.getStorageOptions())
+                        .setSession(generation.session);
         if (version.isPresent()) {
             options.setVersion(version.getAsLong());
         }
         return timer.measure(Stage.DATASET_OPEN, () -> Dataset.open().allocator(readAllocator)
                 .uri(access.getDatasetUri()).readOptions(options.build()).build());
+    }
+
+    /**
+     * Read options that open a dataset with a Session of its own, released with the dataset, and the storage
+     * options of one read: for credentials that may differ from one read to the next.
+     */
+    static ReadOptions.Builder ownSessionOptions(Map<String, String> storageOptions) {
+        return new ReadOptions.Builder().setStorageOptions(storageOptions).setIndexCacheSizeBytes(0)
+                .setMetadataCacheSizeBytes(OWN_SESSION_METADATA_CACHE_BYTES);
     }
 
     /**

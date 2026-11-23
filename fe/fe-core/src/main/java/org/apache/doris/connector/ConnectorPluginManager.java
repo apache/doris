@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 import org.apache.doris.connector.spi.ConnectorSecuritySurface.SensitiveKeyPrefix;
 import org.apache.doris.datasource.CatalogFactory;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.loader.ClassLoadingPolicy;
 import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
@@ -52,6 +53,7 @@ import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Manages lifecycle of ConnectorProvider plugins.
@@ -147,6 +149,12 @@ public class ConnectorPluginManager {
     private final Set<String> claimedTypes = ConcurrentHashMap.newKeySet();
     /** Lower-cased create-table engine names already claimed. Same uniqueness rule as {@link #claimedTypes}. */
     private final Set<String> claimedEngineNames = ConcurrentHashMap.newKeySet();
+    /** Lower-cased file formats claimed by a provider ({@link ConnectorProvider#getFileFormats()}), with it. */
+    private final Map<String, ConnectorProvider> fileFormatProviders = new ConcurrentHashMap<>();
+    /** The reader of each claimed file format, built when a statement first reads it; see {@link #getFileFormat}. */
+    private final Map<String, PluginFileFormat> fileFormats = new ConcurrentHashMap<>();
+    /** The catalog id of the next file format's connector: negative, as no catalog's is. */
+    private final AtomicLong nextFileFormatCatalogId = new AtomicLong(-100);
     private final DirectoryPluginRuntimeManager<ConnectorProvider> runtimeManager =
             new DirectoryPluginRuntimeManager<>();
     private final ClassLoadingPolicy classLoadingPolicy =
@@ -233,9 +241,13 @@ public class ConnectorPluginManager {
             boolean failFast) {
         String type = provider.getType();
         Set<String> engineNames = provider.acceptedCreateTableEngineNames();
+        Set<String> formats = provider.getFileFormats();
         String problem = typeNameProblem(type);
         if (problem == null) {
             problem = createTableEngineNameProblem(engineNames);
+        }
+        if (problem == null) {
+            problem = fileFormatProblem(formats);
         }
         // Claim last, and only once nothing else can reject: a failed claim must not leave a name taken.
         if (problem == null && !claimedTypes.add(type.toLowerCase())) {
@@ -251,6 +263,9 @@ public class ConnectorPluginManager {
         }
         for (String engineName : engineNames) {
             claimedEngineNames.add(engineName.toLowerCase());
+        }
+        for (String format : formats) {
+            fileFormatProviders.put(format.toLowerCase(), provider);
         }
         registerSecrets(securitySurface);
         providers.add(provider);
@@ -297,6 +312,46 @@ public class ConnectorPluginManager {
             }
         }
         return null;
+    }
+
+    /**
+     * Same uniqueness rule as the type name, applied to the file formats a provider claims for the file table
+     * functions, so that a format means one reader whatever the load order. The formats the engine reads itself
+     * are reserved: a plugin answering to one would change what existing statements read.
+     */
+    private String fileFormatProblem(Set<String> formats) {
+        for (String format : formats) {
+            if (format == null || format.trim().isEmpty()) {
+                return "getFileFormats() returned a blank format name";
+            }
+            String lower = format.toLowerCase();
+            if (FileFormatProperties.ENGINE_FORMATS.contains(lower)) {
+                return "file format '" + format + "' is reserved for a format the engine reads itself";
+            }
+            if (fileFormatProviders.containsKey(lower)) {
+                return "file format '" + format + "' is already claimed by another registered connector provider";
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The reader of {@code format} for the file table functions, or empty when no plugin claims the format. Its
+     * connector is built through {@link ConnectorProvider#createFileFormatConnector} when a statement first reads
+     * the format, with the plugin's own conf and no storage, and kept for the life of the FE.
+     */
+    public Optional<PluginFileFormat> getFileFormat(String format) {
+        String key = format.toLowerCase();
+        ConnectorProvider provider = fileFormatProviders.get(key);
+        if (provider == null) {
+            return Optional.empty();
+        }
+        return Optional.of(fileFormats.computeIfAbsent(key, claimed -> {
+            long catalogId = nextFileFormatCatalogId.getAndDecrement();
+            ConnectorContext context = withConnectorConfig(new DefaultConnectorContext(claimed, catalogId), provider);
+            LOG.info("Creating the file format connector of '{}' via provider '{}'", claimed, provider.getType());
+            return new PluginFileFormat(claimed, provider.createFileFormatConnector(claimed, context), catalogId);
+        }));
     }
 
     /**

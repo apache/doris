@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connectorconf.testplugins.BackendDiscoveringConnectorProvider;
 import org.apache.doris.datasource.CatalogFactory;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.extension.loader.PluginRegistry;
 import org.apache.doris.pluginapiversion.testplugins.VersionProbeConnectorProvider;
 import org.apache.doris.utframe.PluginJarWriter;
@@ -49,6 +50,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
@@ -458,6 +460,81 @@ public class ConnectorPluginManagerTest {
                         false),
                 "the type name must still be free after the earlier provider was refused");
         Assertions.assertEquals(Collections.singletonList("good_type"), manager.getRegisteredTypes());
+    }
+
+    @Test
+    void fileFormatIsClaimedOnceAndItsConnectorIsBuiltOnFirstUse() {
+        // A format name routes s3(... "format" = <name>) the way a type name routes CREATE CATALOG: two plugins
+        // answering to one name would make the statement mean whichever registered first.
+        AtomicInteger builds = new AtomicInteger();
+        Assertions.assertTrue(admit(createProviderWithFileFormats("first_type", builds, "Shared_Format"), false));
+        Assertions.assertFalse(admit(createProviderWithFileFormats("second_type", builds, "shared_format"), false),
+                "a second claimant of the same file format must be refused, case-insensitively");
+        Assertions.assertEquals(Collections.singletonList("first_type"), manager.getRegisteredTypes());
+        IllegalStateException e = Assertions.assertThrows(IllegalStateException.class,
+                () -> admit(createProviderWithFileFormats("third_type", builds, "shared_format"), true),
+                "on the classpath the same conflict must fail loud");
+        Assertions.assertTrue(e.getMessage().contains("already claimed"), e.getMessage());
+
+        Assertions.assertEquals(0, builds.get(), "admitting the plugin must not build the format's connector");
+        PluginFileFormat format = manager.getFileFormat("SHARED_FORMAT").get();
+        Assertions.assertSame(format, manager.getFileFormat("shared_format").get());
+        Assertions.assertEquals(1, builds.get(), "the connector is kept for the life of the FE");
+        Assertions.assertEquals("shared_format", format.getFormat());
+        Assertions.assertEquals("shared_format", ((TaggedConnector) format.getConnector()).tag);
+        Assertions.assertTrue(format.getCatalogId() < 0, "the format's connector belongs to no catalog");
+        Assertions.assertFalse(manager.getFileFormat("other_format").isPresent());
+    }
+
+    @Test
+    void providerClaimingAFormatTheEngineReadsIsRefused() {
+        // The engine reads these itself; a plugin answering to one would change what existing statements read.
+        for (String engineFormat : FileFormatProperties.ENGINE_FORMATS) {
+            Assertions.assertFalse(admit(createProviderWithFileFormats("t_" + engineFormat, new AtomicInteger(),
+                    engineFormat.toUpperCase()), false), "a plugin must not claim format '" + engineFormat + "'");
+            Assertions.assertFalse(manager.getFileFormat(engineFormat).isPresent());
+        }
+        Assertions.assertTrue(manager.getRegisteredTypes().isEmpty(), "no refused provider may be registered");
+        Assertions.assertTrue(admit(createProviderWithFileFormats("t_csv", new AtomicInteger(), "plugin_format"),
+                false), "the type name must still be free after the earlier provider was refused");
+    }
+
+    @Test
+    void eachFileFormatsConnectorHasItsOwnCatalogId() {
+        // The engine memoizes a statement's connector metadata by catalog id.
+        AtomicInteger builds = new AtomicInteger();
+        Assertions.assertTrue(admit(createProviderWithFileFormats("type_a", builds, "format_a", "format_b"),
+                false));
+        Assertions.assertNotEquals(manager.getFileFormat("format_a").get().getCatalogId(),
+                manager.getFileFormat("format_b").get().getCatalogId());
+        Assertions.assertEquals(2, builds.get());
+    }
+
+    private static ConnectorProvider createProviderWithFileFormats(String type, AtomicInteger builds,
+            String... formats) {
+        Set<String> fileFormats = new HashSet<>(Arrays.asList(formats));
+        return new ConnectorProvider() {
+            @Override
+            public String getType() {
+                return type;
+            }
+
+            @Override
+            public Connector create(Map<String, String> properties, ConnectorContext context) {
+                return new TaggedConnector("");
+            }
+
+            @Override
+            public Set<String> getFileFormats() {
+                return fileFormats;
+            }
+
+            @Override
+            public Connector createFileFormatConnector(String format, ConnectorContext context) {
+                builds.incrementAndGet();
+                return new TaggedConnector(format);
+            }
+        };
     }
 
     private static ConnectorProvider createProviderWithEngines(String type, String... engineNames) {
