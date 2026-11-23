@@ -509,6 +509,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (snapshot == null) {
             return -1;
         }
+        // V3 always plans synchronously; probing encrypted deletes here would reject a valid physical COUNT.
+        if (getFormatVersion(table) >= 3) {
+            return -1;
+        }
         if (countPushdown && filter.isEmpty()) {
             boolean netPositionDeletes = sessionBool(session, IGNORE_ICEBERG_DANGLING_DELETE, false);
             ManifestDeleteState deleteState = manifestDeleteState(snapshot.deleteManifests(table.io()));
@@ -524,9 +528,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     return -1;
                 }
             }
-        }
-        if (getFormatVersion(table) >= 3) {
-            return -1;
         }
         long threshold = sessionLong(session, NUM_FILES_IN_BATCH_MODE, DEFAULT_NUM_FILES_IN_BATCH_MODE);
         long fileCount = 0;

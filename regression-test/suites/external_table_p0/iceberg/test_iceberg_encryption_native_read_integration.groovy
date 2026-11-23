@@ -57,13 +57,16 @@ suite("test_iceberg_encryption_native_read_integration", "p0,external,nonConcurr
 
     def variables = ["enable_file_scanner_v2", "enable_external_table_batch_mode", "num_files_in_batch_mode",
                      "enable_count_push_down_for_external_table", "enable_parquet_file_page_cache",
-                     "enable_parquet_filter_by_min_max", "enable_parquet_filter_by_bloom_filter", "enable_profile"]
+                     "enable_parquet_filter_by_min_max", "enable_parquet_filter_by_bloom_filter", "enable_profile",
+                     "ignore_iceberg_dangling_delete"]
     def previous = sql "SELECT ${variables.collect { '@@' + it }.join(', ')}"
     def catalogs = []
     try {
         sql "SET enable_file_scanner_v2=true"
         sql "SET num_files_in_batch_mode=1"
         sql "SET enable_profile=true"
+        // Batch estimation must not inspect encrypted delete keys before v3 selects a physical scan.
+        sql "SET ignore_iceberg_dangling_delete=true"
         for (String cached : ["false", "true"]) {
             String catalog = "encryption_native_cache_${cached}"
             catalogs.add(catalog)

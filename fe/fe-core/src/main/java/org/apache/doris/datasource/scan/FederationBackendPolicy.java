@@ -177,6 +177,14 @@ public class FederationBackendPolicy {
     }
 
     public void init(List<String> preLocations) throws UserException {
+        init(queryBackendPolicy(preLocations));
+    }
+
+    public static List<Backend> getQueryAvailableBackends() throws UserException {
+        return queryBackendPolicy(Collections.emptyList()).getCandidateBackends(queryComputeGroup().getBackendList());
+    }
+
+    private static BeSelectionPolicy queryBackendPolicy(List<String> preLocations) {
         // scan node is used for query
         BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder();
         builder.needQueryAvailable()
@@ -184,24 +192,11 @@ public class FederationBackendPolicy {
                 .preferComputeNode(Config.prefer_compute_node_for_external_table)
                 .assignExpectBeNum(Config.min_backend_num_for_external_table)
                 .addPreLocations(preLocations);
-        init(builder.build());
+        return builder.build();
     }
 
     public void init(BeSelectionPolicy policy) throws UserException {
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx == null) {
-            if (Config.isCloudMode()) {
-                throw new AnalysisException("ConnectContext is null");
-            } else {
-                ctx = new ConnectContext();
-            }
-
-        }
-        ComputeGroup computeGroup = ctx.getComputeGroup();
-        if (Config.isNotCloudMode() && computeGroup.equals(ComputeGroup.INVALID_COMPUTE_GROUP)) {
-            throw new LoadException(ComputeGroup.INVALID_COMPUTE_GROUP_ERR_MSG);
-        }
-
+        ComputeGroup computeGroup = queryComputeGroup();
         backends.addAll(policy.getCandidateBackends(computeGroup.getBackendList()));
         if (backends.isEmpty()) {
             if (Config.isCloudMode()) {
@@ -224,6 +219,24 @@ public class FederationBackendPolicy {
         } catch (ExecutionException e) {
             throw new UserException("failed to get consistent hash", e);
         }
+    }
+
+    private static ComputeGroup queryComputeGroup() throws UserException {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            if (Config.isCloudMode()) {
+                throw new AnalysisException("ConnectContext is null");
+            } else {
+                ctx = new ConnectContext();
+            }
+
+        }
+        ComputeGroup computeGroup = ctx.getComputeGroup();
+        if (Config.isNotCloudMode() && computeGroup.equals(ComputeGroup.INVALID_COMPUTE_GROUP)) {
+            throw new LoadException(ComputeGroup.INVALID_COMPUTE_GROUP_ERR_MSG);
+        }
+
+        return computeGroup;
     }
 
     public Backend getNextBe() {

@@ -84,13 +84,16 @@ advertise `supports_native_file_encryption=true` only with the native dependency
 and supported private transports. FE uses a fresh, process-local heartbeat lease;
 images, failed/missing capabilities and stale heartbeats cannot grant support. Failed
 heartbeats revoke encryption support immediately while preserving the configured
-backend liveness tolerance on every FE. Admission
-conservatively requires every currently selectable live backend to be capable.
+backend liveness tolerance on every FE. Admission requires every backend in the
+external scan scheduler's current candidate set to be capable, using the session's
+compute group and the scheduler's availability rules.
 
 Initial fragments use `FORMAT_PARQUET_PME` (wire value 22), including shared scan
 parameters. Assigned targets are checked before serialization and again before
-sending and before returning lazy split batches. FE, BE and connector plugins
-are deployed together; split requests do not negotiate a caller version.
+sending and before returning lazy split batches. Before sending fragment keys, FE
+resolves the bound backend ID again and verifies that its registered BRPC address
+still matches the bound RPC target and its capability remains current. FE, BE and
+connector plugins are deployed together; split requests do not negotiate a caller version.
 Unavailable capability rejects encrypted work while ordinary plaintext reads
 retain their existing paths. A lost capability is a planning refusal and does not blacklist a healthy backend.
 

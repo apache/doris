@@ -123,6 +123,10 @@ public class BackendServiceProxy {
             this.proxy = Objects.requireNonNull(proxy);
         }
 
+        public void requireFileEncryption(long backendId) {
+            NativeFileEncryptionSupport.require(backendId, address);
+        }
+
         public Future<InternalService.PExecPlanFragmentResult> prepare(ByteString fragments, boolean twoPhase)
                 throws RpcException {
             return proxy.execPlanFragmentsAsync(address, fragments, twoPhase);

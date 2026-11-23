@@ -30,7 +30,6 @@ import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.BackendServiceProxy.BackendRpcTarget;
-import org.apache.doris.rpc.NativeFileEncryptionSupport;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -197,7 +196,7 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
         try {
             // Serialization can precede a failed heartbeat or backend replacement; recheck at the send boundary.
             if (needsFileEncryption) {
-                NativeFileEncryptionSupport.require(backend);
+                target.requireFileEncryption(backend.getId());
             }
             return target.prepare(serializedFragments, twoPhaseExecution);
         } catch (RpcException | IllegalStateException e) {

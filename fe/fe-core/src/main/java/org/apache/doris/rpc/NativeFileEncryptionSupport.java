@@ -18,14 +18,14 @@
 package org.apache.doris.rpc;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.tls.server.FeServerStarterFactory;
 
 import java.util.Collection;
-import java.util.List;
 
 /** Runtime proof for the native reader and every private channel carrying file keys. */
 public final class NativeFileEncryptionSupport {
@@ -40,11 +40,9 @@ public final class NativeFileEncryptionSupport {
 
     public static boolean supported() {
         try {
-            // Admission precedes backend assignment: require every currently selectable live backend.
-            List<Backend> backends = Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values().stream()
-                    .filter(Backend::isAlive).toList();
-            return allBackendsSupported(protectedTransports(), backends);
-        } catch (AnalysisException unavailableCluster) {
+            // Live backends outside the query's compute group or scheduling policy cannot execute this scan.
+            return allBackendsSupported(protectedTransports(), FederationBackendPolicy.getQueryAvailableBackends());
+        } catch (UserException unavailableCluster) {
             return false;
         }
     }
@@ -67,8 +65,10 @@ public final class NativeFileEncryptionSupport {
                 && backends.stream().allMatch(Backend::isNativeFileEncryptionSupported);
     }
 
-    public static void require(Backend backend) {
-        if (!supported(backend)) {
+    public static void require(long backendId, TNetworkAddress address) {
+        // A captured Backend can outlive its registration or move ports after the RPC target was bound.
+        Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+        if (backend == null || !backend.getBrpcAddress().equals(address) || !supported(backend)) {
             throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
         }
     }

@@ -17,18 +17,84 @@
 
 package org.apache.doris.rpc;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ThriftClientTransportProvider;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BackendHbResponse;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.tls.PrivateRpcTls;
+import org.apache.doris.tls.server.FeServerStarterFactory;
 import org.apache.doris.tls.server.ServerStarter;
+import org.apache.doris.tls.server.TlsProtocolSet.Protocol;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
+import java.util.Map;
 
 class NativeFileEncryptionSupportTest {
+    @ParameterizedTest
+    @ValueSource(strings = {"query", "load", "group"})
+    void admissionIgnoresBackendsOutsideTheQueryCandidates(String exclusion) throws Exception {
+        long previousTolerance = Config.max_backend_heartbeat_failure_tolerance_count;
+        Config.max_backend_heartbeat_failure_tolerance_count = 3;
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class);
+                MockedStatic<ConnectContext> contexts = Mockito.mockStatic(ConnectContext.class);
+                MockedStatic<PrivateRpcTls> tls = Mockito.mockStatic(PrivateRpcTls.class);
+                MockedStatic<FeServerStarterFactory> listener = Mockito.mockStatic(FeServerStarterFactory.class)) {
+            SystemInfoService service = new SystemInfoService();
+            Backend eligible = backend(1, true);
+            Backend excluded = backend(2, true);
+            eligible.setTagMap(Map.of(Tag.TYPE_LOCATION, "selected"));
+            excluded.setTagMap(Map.of(Tag.TYPE_LOCATION, "selected"));
+            service.addBackend(eligible);
+            service.addBackend(excluded);
+            excluded.handleHbResponse(new BackendHbResponse(2, excluded.getHost(),
+                    excluded.getLastUpdateMs(), "fixture heartbeat failure"), false);
+            Assertions.assertTrue(excluded.isAlive());
+            Assertions.assertFalse(excluded.isNativeFileEncryptionSupported());
+            switch (exclusion) {
+                case "query":
+                    excluded.setQueryDisabled(true);
+                    break;
+                case "load":
+                    excluded.setLoadDisabled(true);
+                    break;
+                default:
+                    excluded.setTagMap(Map.of(Tag.TYPE_LOCATION, "another"));
+                    break;
+            }
+            Env currentEnv = Mockito.mock(Env.class);
+            env.when(Env::getCurrentEnv).thenReturn(currentEnv);
+            env.when(Env::getCurrentSystemInfo).thenReturn(service);
+            ConnectContext context = Mockito.mock(ConnectContext.class);
+            Mockito.when(context.getComputeGroup()).thenReturn(new ComputeGroup("selected", "selected", service));
+            contexts.when(ConnectContext::get).thenReturn(context);
+            tls.when(() -> PrivateRpcTls.supportsPrivateFileKeys(Protocol.BRPC)).thenReturn(true);
+            tls.when(() -> PrivateRpcTls.supportsPrivateFileKeys(Protocol.THRIFT)).thenReturn(true);
+            listener.when(FeServerStarterFactory::supportsPrivateFileKeys).thenReturn(true);
+
+            Assertions.assertTrue(NativeFileEncryptionSupport.supported(eligible));
+            Assertions.assertTrue(NativeFileEncryptionSupport.supported());
+            excluded.setQueryDisabled(false);
+            excluded.setLoadDisabled(false);
+            excluded.setTagMap(Map.of(Tag.TYPE_LOCATION, "selected"));
+            Assertions.assertFalse(NativeFileEncryptionSupport.supported(),
+                    "An eligible backend without a current capability must still refuse the query");
+        } finally {
+            Config.max_backend_heartbeat_failure_tolerance_count = previousTolerance;
+        }
+    }
+
     @Test
     void missingTransportOrBackendProofNeverGrantsExecution() {
         Backend current = backend(1, true);

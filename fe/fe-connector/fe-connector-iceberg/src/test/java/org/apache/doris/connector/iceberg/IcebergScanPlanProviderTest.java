@@ -4828,6 +4828,41 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void v3CountBatchEstimateSkipsEncryptedPositionDeleteProbe() {
+        byte[] metadata = new byte[22];
+        metadata[0] = 1;
+        metadata[1] = 32;
+        Arrays.fill(metadata, 2, 18, (byte) 13);
+        metadata[18] = 2;
+        metadata[19] = 2;
+        metadata[20] = 9;
+        DeleteFile delete = FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned()).ofPositionDeletes()
+                .withPath("s3://bucket/delete.parquet").withFormat("parquet")
+                .withFileSizeInBytes(100).withRecordCount(1)
+                .withEncryptionKeyMetadata(ByteBuffer.wrap(metadata)).build();
+        Table table = tableWithPositionDelete(delete);
+        ConnectorSession session = new FakeScanSession("UTC", Map.of(
+                "enable_external_table_batch_mode", "true", "num_files_in_batch_mode", "1",
+                "ignore_iceberg_dangling_delete", "true"));
+        try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                    IcebergCatalogProperties.of(Map.of("iceberg.catalog.type", "hms")),
+                    opsReturning(fixture.importedTable(table)), EncryptedManifestFixture.verifiedContext());
+            Assertions.assertEquals(-1, provider.streamingSplitEstimate(session,
+                    new IcebergTableHandle("db1", "t1"), Optional.empty(), true));
+            List<ConnectorScanRange> ranges = planCount(provider, session, true);
+            Assertions.assertFalse(ranges.isEmpty());
+            for (ConnectorScanRange range : ranges) {
+                TFileRangeDesc fileRange = new TFileRangeDesc();
+                TTableFormatFileDesc format = new TTableFormatFileDesc();
+                range.populateRangeParams(format, fileRange);
+                Assertions.assertTrue(format.getIcebergParams().getDeleteFiles().get(0).isSetEncryptionInfo());
+                Assertions.assertEquals(-1L, format.getTableLevelRowCount());
+            }
+        }
+    }
+
+    @Test
     public void streamingSplitEstimateServableCountPushdownStaysSynchronous() {
         // COUNT(*) needs a complete live-file enumeration to prove an exact metadata count, so it never streams.
         // MUTATION: dropping the countPushdown short-circuit -> 3 -> red.
