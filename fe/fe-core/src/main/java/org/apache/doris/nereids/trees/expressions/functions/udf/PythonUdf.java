@@ -60,6 +60,8 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
     private final String checkSum;
     private final boolean isStaticLoad;
     private final long expirationTime;
+    private final int poolSize;
+    private final long autoSuspend;
     private final String runtimeVersion;
     private final String functionCode;
 
@@ -71,7 +73,7 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
                      NullableMode nullableMode, FunctionVolatility volatility, VolatileIdentity volatileIdentity,
                      String objectFile, String symbol, String prepareFn, String closeFn,
                      String checkSum, boolean isStaticLoad, long expirationTime,
-                     String runtimeVersion, String functionCode, Expression... args) {
+                     String runtimeVersion, String functionCode, int poolSize, long autoSuspend, Expression... args) {
         super(name, args);
         this.dbName = dbName;
         this.functionId = functionId;
@@ -87,6 +89,8 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
         this.checkSum = checkSum;
         this.isStaticLoad = isStaticLoad;
         this.expirationTime = expirationTime;
+        this.poolSize = poolSize;
+        this.autoSuspend = autoSuspend;
         this.runtimeVersion = runtimeVersion;
         this.functionCode = functionCode;
     }
@@ -120,7 +124,7 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
         return new PythonUdf(getName(), functionId, dbName, binaryType, signature, nullableMode,
             volatility, volatileIdentity,
             objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
-            runtimeVersion, functionCode, children.toArray(new Expression[0]));
+            runtimeVersion, functionCode, poolSize, autoSuspend, children.toArray(new Expression[0]));
     }
 
     @Override
@@ -134,7 +138,7 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
         return new PythonUdf(getName(), functionId, dbName, binaryType, signature, nullableMode,
             volatility, volatileIdentity.withIgnoreUniqueId(ignoreUniqueId),
             objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
-            runtimeVersion, functionCode, children.toArray(new Expression[0]));
+            runtimeVersion, functionCode, poolSize, autoSuspend, children.toArray(new Expression[0]));
     }
 
     /** Return a copy with a new per-call identity when this UDF is VOLATILE. */
@@ -146,7 +150,7 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
         return new PythonUdf(getName(), functionId, dbName, binaryType, signature, nullableMode,
             volatility, VolatileIdentity.newVolatileIdentity(),
             objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
-            runtimeVersion, functionCode, children.toArray(new Expression[0]));
+            runtimeVersion, functionCode, poolSize, autoSuspend, children.toArray(new Expression[0]));
     }
 
     @Override
@@ -190,7 +194,7 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
                 scalar.getCloseFnSymbol(),
                 scalar.getChecksum(), scalar.isStaticLoad(), scalar.getExpirationTime(),
                 scalar.getRuntimeVersion(),
-                scalar.getFunctionCode(),
+                scalar.getFunctionCode(), scalar.getPoolSize(), scalar.getAutoSuspend(),
                 arguments);
 
         PythonUdfBuilder builder = new PythonUdfBuilder(udf);
@@ -222,6 +226,8 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
             expr.setStaticLoad(isStaticLoad);
             expr.setExpirationTime(expirationTime);
             expr.setRuntimeVersion(runtimeVersion);
+            expr.setPoolSize(poolSize);
+            expr.setAutoSuspend(autoSuspend);
             expr.setFunctionCode(functionCode);
             expr.setVolatility(volatility);
             return expr;

@@ -70,6 +70,8 @@ suite("test_python_udaf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udaf.WeightedAverageUDAF",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -92,6 +94,8 @@ suite("test_python_udaf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udaf.SkewnessUDAF",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -114,6 +118,8 @@ suite("test_python_udaf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udaf.KurtosisUDAF",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -136,6 +142,8 @@ suite("test_python_udaf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udaf.CorrelationUDAF",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -158,6 +166,8 @@ suite("test_python_udaf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udaf.CovarianceUDAF",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -180,6 +190,8 @@ suite("test_python_udaf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udaf.RetentionRateUDAF",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -228,6 +240,8 @@ suite("test_python_udaf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udaf.ConversionFunnelUDAF",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -278,6 +292,8 @@ suite("test_python_udaf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udaf.GiniCoefficientUDAF",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -324,6 +340,8 @@ suite("test_python_udaf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udaf.HerfindahlIndexUDAF",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -372,6 +390,8 @@ suite("test_python_udaf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udaf.TrendSlopeUDAF",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -425,6 +445,8 @@ suite("test_python_udaf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udaf.VolatilityUDAF",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -473,6 +495,8 @@ suite("test_python_udaf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udaf.JsonArrayAggUDAF",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """

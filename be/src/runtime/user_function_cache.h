@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include <mutex>
+#include <set>
 #include <string>
 #include <unordered_map>
 
@@ -28,6 +29,7 @@
 namespace doris {
 
 struct UserFunctionCacheEntry;
+struct UserFunctionCacheTombstones;
 
 // Used to cache a user function. Theses functions include
 // UDF(User Defined Function) and UDAF(User Defined Aggregate
@@ -59,11 +61,18 @@ public:
     Status get_jarpath(int64_t fid, const std::string& url, const std::string& checksum,
                        std::string* libpath);
 
+    // Retain package files until all query/process references are released.
     Status get_pypath(int64_t fid, const std::string& url, const std::string& checksum,
-                      std::string* libpath);
+                      std::string* libpath,
+                      std::shared_ptr<UserFunctionCacheEntry>* cache_entry = nullptr);
 
     // Drop the cached function library by function id.
     void drop_function_cache(int64_t fid);
+
+    std::set<int64_t> collect_pyudf_ids();
+
+    // Check whether a retained entry is marked for file deletion.
+    static bool is_pending_deletion(const UserFunctionCacheEntry& entry);
 
 #ifndef BE_TEST
 private:
@@ -78,10 +87,6 @@ private:
      * Unzip the python udf user file.
      */
     Status _unzip_lib(const std::string& file);
-    /**
-     * Check if the cache file is python udf.
-     */
-    Status _check_cache_is_python_udf(const std::string& dir, const std::string& file);
     Status _load_cache_entry_internal(std::shared_ptr<UserFunctionCacheEntry> entry);
 
     std::string _make_lib_file(int64_t function_id, const std::string& checksum, LibType type,
@@ -98,6 +103,7 @@ private:
 
     std::mutex _cache_lock;
     std::unordered_map<int64_t, std::shared_ptr<UserFunctionCacheEntry>> _entry_map;
+    std::shared_ptr<UserFunctionCacheTombstones> _tombstones;
 };
 
 } // namespace doris

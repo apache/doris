@@ -58,6 +58,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -345,7 +346,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                         return v.isEmpty() ? null : v;
                     });
 
-                    Env.getCurrentEnv().eraseDatabase(db.getId(), true);
+                    eraseDatabase(db);
                     LOG.info("erase db[{}]", db.getId());
                     eraseNum++;
                 } finally {
@@ -401,7 +402,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                     return v.isEmpty() ? null : v;
                 });
 
-                Env.getCurrentEnv().eraseDatabase(dbId, true);
+                eraseDatabase(dbInfo.getDb());
                 LOG.info("erase database[{}] name: {}", dbId, dbName);
             } finally {
                 writeUnlock();
@@ -454,6 +455,12 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return allEraseTasksCreated;
     }
 
+    private void eraseDatabase(Database db) {
+        Env.getCurrentEnv().eraseDatabase(db.getId(), true);
+        db.unregisterFunctionsById();
+        FunctionUtil.cleanUdfCache(FunctionUtil.collectPythonFunctions(db));
+    }
+
     public void replayEraseDatabase(long dbId) {
         writeLock();
         try {
@@ -461,6 +468,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             idToRecycleTime.remove(dbId);
 
             if (dbInfo != null) {
+                dbInfo.getDb().unregisterFunctionsById();
                 dbNameToIds.computeIfPresent(dbInfo.getDb().getFullName(), (k, v) -> {
                     v.remove(dbId);
                     return v.isEmpty() ? null : v;
@@ -1216,7 +1224,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         try {
             dbInfo = idToDatabase.get(dbId);
             if (dbInfo != null) {
-                Env.getCurrentEnv().eraseDatabase(dbId, true);
+                eraseDatabase(dbInfo.getDb());
                 idToDatabase.remove(dbId);
                 idToRecycleTime.remove(dbId);
 
@@ -1909,6 +1917,20 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     // currently only used when loading image. So no synchronized protected.
     public List<Long> getAllDbIds() {
         return Lists.newArrayList(idToDatabase.keySet());
+    }
+
+    void registerFunctionsById(ConcurrentMap<Long, Function> functionsById) {
+        for (Map.Entry<Long, RecycleDatabaseInfo> entry : idToDatabase.entrySet()) {
+            if (idToRecycleTime.get(entry.getKey()) > 0) {
+                entry.getValue().getDb().registerFunctionsById(functionsById);
+            }
+        }
+    }
+
+    void unregisterFunctionsById() {
+        for (RecycleDatabaseInfo dbInfo : idToDatabase.values()) {
+            dbInfo.getDb().unregisterFunctionsById();
+        }
     }
 
     // only for unit test

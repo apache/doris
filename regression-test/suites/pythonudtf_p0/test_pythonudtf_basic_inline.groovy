@@ -33,6 +33,8 @@ suite("test_pythonudtf_basic_inline") {
         RETURNS ARRAY<STRING>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "split_string_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -78,6 +80,8 @@ def split_string_udtf(input_str):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "generate_series_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -130,6 +134,8 @@ def generate_series_udtf(start, end):
         RETURNS ARRAY<STRUCT<original_value:INT, cumulative_sum:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "running_sum_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -179,6 +185,8 @@ def running_sum_udtf(value):
         RETURNS ARRAY<STRING>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "explode_json_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -229,6 +237,8 @@ def explode_json_udtf(json_str):
         RETURNS ARRAY<STRUCT<value:INT, rank:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "top_n_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -281,6 +291,8 @@ def top_n_udtf(value, n):
         RETURNS ARRAY<STRUCT<output:STRING, idx:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "duplicate_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -325,6 +337,8 @@ def duplicate_udtf(text, n):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "filter_positive_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -369,6 +383,8 @@ def filter_positive_udtf(value):
         RETURNS ARRAY<STRUCT<item1:STRING, item2:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "cartesian_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -418,6 +434,8 @@ def cartesian_udtf(list1, list2):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "filter_negative_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -512,6 +530,8 @@ def filter_negative_udtf(value):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "nullable_processor_udtf",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -561,6 +581,8 @@ def nullable_processor_udtf(value):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "non_nullable_processor_udtf",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "false"
@@ -643,6 +665,8 @@ def non_nullable_processor_udtf(value):
         RETURNS ARRAY<STRING>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "default_nullable_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -689,6 +713,8 @@ def default_nullable_udtf(text):
         RETURNS ARRAY<STRING>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "nullable_explode_udtf",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -746,6 +772,8 @@ def nullable_explode_udtf(csv_string):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "scalar_int_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -772,6 +800,8 @@ def scalar_int_udtf(start, end):
         RETURNS ARRAY<STRING>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "scalar_string_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -798,6 +828,8 @@ def scalar_string_udtf(text):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "mixed_style_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -828,6 +860,8 @@ def mixed_style_udtf(n):
         RETURNS ARRAY<STRING>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "return_scalar_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -852,6 +886,8 @@ def return_scalar_udtf(text):
         RETURNS ARRAY<STRUCT<original:INT, doubled:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "multi_field_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -883,6 +919,8 @@ def multi_field_udtf(n):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_value_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -938,6 +976,8 @@ def process_value_udtf(value):
         RETURNS ARRAY<STRING>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "split_words_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -995,6 +1035,8 @@ def split_words_udtf(text):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "expand_range_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -1051,6 +1093,8 @@ def expand_range_udtf(n):
         RETURNS ARRAY<STRUCT<field1:STRING, field2:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "parse_csv_udtf",
             "runtime_version" = "${runtime_version}"
         )
@@ -1211,6 +1255,8 @@ def parse_csv_udtf(csv_line):
         RETURNS ARRAY<LARGEINT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "largeint_expand_udtf",
             "runtime_version" = "${runtime_version}"
         )

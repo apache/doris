@@ -32,6 +32,8 @@ suite("test_pythonudf_file_protocol") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${zipPath}",
             "symbol" = "int_test.evaluate",
             "runtime_version" = "${runtime_version}"
@@ -47,6 +49,8 @@ suite("test_pythonudf_file_protocol") {
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${zipPath}",
             "symbol" = "string_test.evaluate",
             "runtime_version" = "${runtime_version}"
@@ -62,6 +66,8 @@ suite("test_pythonudf_file_protocol") {
         RETURNS FLOAT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${zipPath}",
             "symbol" = "float_test.evaluate",
             "runtime_version" = "${runtime_version}",
@@ -78,6 +84,8 @@ suite("test_pythonudf_file_protocol") {
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${zipPath}",
             "symbol" = "boolean_test.evaluate",
             "runtime_version" = "${runtime_version}"
@@ -127,6 +135,8 @@ suite("test_pythonudf_file_protocol") {
         RETURNS INT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${context.file.parent}/udf_scripts/missing_inline_precedence.zip",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"

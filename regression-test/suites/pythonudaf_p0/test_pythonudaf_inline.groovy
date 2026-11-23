@@ -54,6 +54,8 @@ suite("test_pythonudaf_inline") {
         RETURNS BIGINT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "SumUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -100,6 +102,8 @@ class SumUDAF:
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "AvgUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -150,6 +154,8 @@ class AvgUDAF:
         RETURNS BIGINT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "CountUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -194,6 +200,8 @@ class CountUDAF:
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "MaxUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -288,6 +296,8 @@ class MaxUDAF:
         RETURNS BIGINT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "SumUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -361,6 +371,8 @@ class SumUDAF:
         RETURNS LARGEINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "SumLargeIntUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -404,6 +416,8 @@ class SumLargeIntUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "CountPrivateIPv4UDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -447,6 +461,8 @@ class CountPrivateIPv4UDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "CountLoopbackIPv6UDAF",
             "runtime_version" = "${runtime_version}"
         )

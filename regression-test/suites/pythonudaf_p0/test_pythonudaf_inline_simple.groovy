@@ -49,6 +49,8 @@ suite("test_pythonudaf_inline_simple") {
         RETURNS BIGINT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "MySum",
             "runtime_version" = "${runtime_version}"
         )

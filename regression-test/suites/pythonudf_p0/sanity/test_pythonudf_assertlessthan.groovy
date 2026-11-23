@@ -44,6 +44,8 @@ suite("test_pythonudf_assertlessthan") {
             "file"="file://${pyPath}",
             "symbol"="assert_lessthan_test.evaluate",
             "type"="PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         ); """

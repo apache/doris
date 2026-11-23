@@ -54,7 +54,7 @@ suite("test_python_arrow_time_types", "p0,nonConcurrent") {
                 def name = "python_arrow_ns_${mode}_${kind}"
                 sql "DROP FUNCTION IF EXISTS ${name}(${type})"
                 sql """CREATE FUNCTION ${name}(${type}) RETURNS ${type}
-                    PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                    PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                                "runtime_version"="${runtimeVersion}") AS \$\$
 import pandas as pd
 
@@ -70,7 +70,7 @@ def evaluate(value${annotation}):
         }
         sql "DROP FUNCTION IF EXISTS python_arrow_ns_series_hour(TIMESTAMP_NS)"
         sql """CREATE FUNCTION python_arrow_ns_series_hour(TIMESTAMP_NS) RETURNS INT
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 import pandas as pd
 
@@ -82,7 +82,7 @@ def evaluate(value: pd.Series):
             "SELECT id, hour(ts) FROM python_arrow_ns_values WHERE id > 0 ORDER BY id")
         sql "DROP FUNCTION IF EXISTS python_arrow_timestamptz_format(TIMESTAMPTZ(6))"
         sql """CREATE FUNCTION python_arrow_timestamptz_format(TIMESTAMPTZ(6)) RETURNS STRING
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(value):
     return None if value is None else value.strftime('%Y-%m-%d %H:%M:%S.%f')
@@ -96,7 +96,7 @@ def evaluate(value):
             sql "DROP FUNCTION IF EXISTS python_arrow_timestamptz_${mode}(TIMESTAMPTZ(6))"
             sql """CREATE FUNCTION python_arrow_timestamptz_${mode}(TIMESTAMPTZ(6))
                 RETURNS TIMESTAMPTZ(6)
-                PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                            "runtime_version"="${runtimeVersion}") AS \$\$
 import pandas as pd
 
@@ -107,7 +107,7 @@ def evaluate(value${annotation}):
         sql "DROP FUNCTION IF EXISTS python_arrow_timestamptz_array(ARRAY<TIMESTAMPTZ(6)>)"
         sql """CREATE FUNCTION python_arrow_timestamptz_array(ARRAY<TIMESTAMPTZ(6)>)
             RETURNS ARRAY<TIMESTAMPTZ(6)>
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(value):
     return value
@@ -118,7 +118,7 @@ def evaluate(value):
             sql "DROP FUNCTION IF EXISTS python_arrow_timestamptz_${result}(TIMESTAMPTZ(6))"
             sql """CREATE AGGREGATE FUNCTION python_arrow_timestamptz_${result}(TIMESTAMPTZ(6))
                 RETURNS ${returnType}
-                PROPERTIES("type"="PYTHON_UDF", "symbol"="Maximum",
+                PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="Maximum",
                            "runtime_version"="${runtimeVersion}") AS \$\$
 class Maximum:
     def __init__(self):
@@ -140,7 +140,7 @@ class Maximum:
         sql "DROP FUNCTION IF EXISTS python_arrow_timestamptz_rows(TIMESTAMPTZ(6))"
         sql """CREATE TABLES FUNCTION python_arrow_timestamptz_rows(TIMESTAMPTZ(6))
             RETURNS ARRAY<STRUCT<ts:TIMESTAMPTZ(6), local_time:STRING>>
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(value):
     yield (value, None if value is None else value.strftime('%Y-%m-%d %H:%M:%S.%f'))
@@ -190,7 +190,7 @@ def evaluate(value):
             def micros = scale == 0 ? 0 : (scale == 3 ? 123000 : 123456)
             sql "DROP FUNCTION IF EXISTS ${name}()"
             sql """CREATE FUNCTION ${name}() RETURNS DATETIME(${scale})
-                PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                            "runtime_version"="${runtimeVersion}") AS \$\$
 from datetime import datetime
 
@@ -208,7 +208,7 @@ def evaluate():
                         : "return value.dt.tz_localize(None)")
             sql "DROP FUNCTION IF EXISTS ${name}(DATETIME(6))"
             sql """CREATE FUNCTION ${name}(DATETIME(6)) RETURNS DATETIME(6)
-                PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                            "runtime_version"="${runtimeVersion}") AS \$\$
 import pandas as pd
 
@@ -219,21 +219,21 @@ def evaluate(value${annotation}):
         sql "DROP FUNCTION IF EXISTS python_arrow_datetime_array(ARRAY<DATETIME(6)>)"
         sql """CREATE FUNCTION python_arrow_datetime_array(ARRAY<DATETIME(6)>)
             RETURNS ARRAY<DATETIME(6)>
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(values):
     return [None if value is None else value.replace(tzinfo=None) for value in values]
 \$\$"""
         sql "DROP FUNCTION IF EXISTS python_arrow_datetime_inspect(DATETIME(6))"
         sql """CREATE FUNCTION python_arrow_datetime_inspect(DATETIME(6)) RETURNS STRING
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(value):
     return None if value is None else str(value.utcoffset())
 \$\$"""
         sql "DROP FUNCTION IF EXISTS python_arrow_datetime_format(DATETIME(6))"
         sql """CREATE FUNCTION python_arrow_datetime_format(DATETIME(6)) RETURNS STRING
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(value):
     return None if value is None else value.strftime('%Y-%m-%d %H:%M:%S.%f')
@@ -241,7 +241,7 @@ def evaluate(value):
         sql "DROP FUNCTION IF EXISTS python_arrow_datetime_max(DATETIME(6))"
         sql """CREATE AGGREGATE FUNCTION python_arrow_datetime_max(DATETIME(6))
             RETURNS DATETIME(6)
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="Maximum",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="Maximum",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 class Maximum:
     def __init__(self):
@@ -264,7 +264,7 @@ class Maximum:
         sql "DROP FUNCTION IF EXISTS python_arrow_datetime_rows(DATETIME(6))"
         sql """CREATE TABLES FUNCTION python_arrow_datetime_rows(DATETIME(6))
             RETURNS ARRAY<STRUCT<ts:DATETIME(6), timezone:STRING>>
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(value):
     yield (None if value is None else value.replace(tzinfo=None),
@@ -273,7 +273,7 @@ def evaluate(value):
         sql "DROP FUNCTION IF EXISTS python_arrow_datetime_strings(DATETIME(6))"
         sql """CREATE TABLES FUNCTION python_arrow_datetime_strings(DATETIME(6))
             RETURNS ARRAY<STRING>
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(value):
     yield (None if value is None else value.strftime('%Y-%m-%d %H:%M:%S.%f'),)
@@ -283,7 +283,7 @@ def evaluate(value):
             def annotation = mode == "list" ? ": list" : (mode == "series" ? ": pd.Series" : "")
             sql "DROP FUNCTION IF EXISTS ${name}(TIME(6))"
             sql """CREATE FUNCTION ${name}(TIME(6)) RETURNS TIME(6)
-                PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                            "runtime_version"="${runtimeVersion}") AS \$\$
 import pandas as pd
 
@@ -295,7 +295,7 @@ def evaluate(value${annotation}):
             def name = "python_arrow_time_precision_${scale}"
             sql "DROP FUNCTION IF EXISTS ${name}(TIME(6))"
             sql """CREATE FUNCTION ${name}(TIME(6)) RETURNS TIME(${scale})
-                PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                            "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(value):
     return value
@@ -303,21 +303,21 @@ def evaluate(value):
         }
         sql "DROP FUNCTION IF EXISTS python_arrow_time_array(ARRAY<TIME(6)>)"
         sql """CREATE FUNCTION python_arrow_time_array(ARRAY<TIME(6)>) RETURNS ARRAY<TIME(6)>
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(value):
     return value
 \$\$"""
         sql "DROP FUNCTION IF EXISTS python_arrow_time_inspect(TIME(6))"
         sql """CREATE FUNCTION python_arrow_time_inspect(TIME(6)) RETURNS STRING
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(value):
     return f"{type(value).__name__}:{value}"
 \$\$"""
         sql "DROP FUNCTION IF EXISTS python_arrow_time_max(TIME(6))"
         sql """CREATE AGGREGATE FUNCTION python_arrow_time_max(TIME(6)) RETURNS TIME(6)
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="Maximum",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="Maximum",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 class Maximum:
     def __init__(self):
@@ -337,14 +337,14 @@ class Maximum:
 \$\$"""
         sql "DROP FUNCTION IF EXISTS python_arrow_time_rows(TIME(6))"
         sql """CREATE TABLES FUNCTION python_arrow_time_rows(TIME(6)) RETURNS ARRAY<TIME(6)>
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(value):
     yield (value,)
 \$\$"""
         sql "DROP FUNCTION IF EXISTS python_arrow_time_value(INT)"
         sql """CREATE FUNCTION python_arrow_time_value(INT) RETURNS TIME(6)
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(index):
     return [float('nan'), float('inf'), float('-inf'),
