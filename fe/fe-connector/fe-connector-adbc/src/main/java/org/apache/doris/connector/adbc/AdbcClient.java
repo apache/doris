@@ -71,9 +71,9 @@ public class AdbcClient implements Closeable {
 
     private static final Logger LOG = LogManager.getLogger(AdbcClient.class);
 
-    // Retain the existing bound on concurrent cold remote probes. Native correctness comes from
-    // connection-scoped driver information, verified before requesting a vendor; ordinary calls stay concurrent.
-    private static final Object DRIVER_INFO_LOCK = new Object();
+    // Native vendor information is connection-scoped; only this client's cold probes need coalescing.
+    // A separate lifecycle monitor lets close() proceed while a remote probe is still in flight.
+    private final Object driverInfoLock = new Object();
 
     private final Path driverPath;
     private final String driverUrl;
@@ -139,7 +139,7 @@ public class AdbcClient implements Closeable {
         if (known != null) {
             return known;
         }
-        synchronized (DRIVER_INFO_LOCK) {
+        synchronized (driverInfoLock) {
             // Another caller may have completed this catalog's probe while this one waited.
             known = vendorName.get();
             if (known == null) {

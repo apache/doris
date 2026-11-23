@@ -43,12 +43,31 @@ class AdbcVendorProbeConcurrencyTest {
 
     @Test
     void coalescesConcurrentProbesForOneCatalog() throws Exception {
-        assertProbesDoNotOverlap(true);
+        assertProbesDoNotOverlap();
     }
 
     @Test
-    void serializesProbesAcrossCatalogClients() throws Exception {
-        assertProbesDoNotOverlap(false);
+    void blockedProbeDoesNotDelayAnotherColdCatalog() throws Exception {
+        Probe pending = new Probe();
+        Probe ready = new Probe();
+        ready.release.countDown();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Optional<String>> firstCall = executor.submit(new ProbeClient(pending)::vendorName);
+            Assertions.assertTrue(pending.entered.await(30, TimeUnit.SECONDS));
+            Future<Optional<String>> secondCall = executor.submit(new ProbeClient(ready)::vendorName);
+            // The healthy catalog must finish while the stalled source still holds its probe.
+            Assertions.assertEquals(Optional.empty(), Assertions.assertDoesNotThrow(
+                    () -> secondCall.get(5, TimeUnit.SECONDS), "A stalled catalog must not block a healthy catalog"));
+            Assertions.assertEquals(1, ready.calls.get());
+            Assertions.assertFalse(firstCall.isDone());
+            pending.release.countDown();
+            Assertions.assertEquals(Optional.empty(), firstCall.get(30, TimeUnit.SECONDS));
+        } finally {
+            pending.release.countDown();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
+        }
     }
 
     @Test
@@ -75,11 +94,9 @@ class AdbcVendorProbeConcurrencyTest {
         }
     }
 
-    private static void assertProbesDoNotOverlap(boolean sameClient) throws Exception {
-        // The native Flight driver shares its mutable info map even between different databases.
+    private static void assertProbesDoNotOverlap() throws Exception {
         Probe probe = new Probe();
         ProbeClient first = new ProbeClient(probe);
-        ProbeClient second = sameClient ? first : new ProbeClient(probe);
         CountDownLatch secondStarted = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
@@ -87,15 +104,15 @@ class AdbcVendorProbeConcurrencyTest {
             Assertions.assertTrue(probe.entered.await(30, TimeUnit.SECONDS));
             Future<Optional<String>> secondCall = executor.submit(() -> {
                 secondStarted.countDown();
-                return second.vendorName();
+                return first.vendorName();
             });
             Assertions.assertTrue(secondStarted.await(30, TimeUnit.SECONDS));
             Assertions.assertFalse(probe.overlap.await(1, TimeUnit.SECONDS),
-                    "Concurrent getInfo calls would write the native driver's shared map");
+                    "Concurrent requests for one catalog must share the vendor probe");
             probe.release.countDown();
             Assertions.assertEquals(Optional.empty(), firstCall.get(30, TimeUnit.SECONDS));
             Assertions.assertEquals(Optional.empty(), secondCall.get(30, TimeUnit.SECONDS));
-            Assertions.assertEquals(sameClient ? 1 : 2, probe.calls.get());
+            Assertions.assertEquals(1, probe.calls.get());
         } finally {
             probe.release.countDown();
             executor.shutdownNow();
