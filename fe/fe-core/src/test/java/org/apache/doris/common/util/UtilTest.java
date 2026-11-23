@@ -35,6 +35,16 @@ public class UtilTest {
     }
 
     @Test
+    public void avroPrefixDoesNotOverrideTheFileExtension() {
+        Assertions.assertEquals(TFileFormatType.FORMAT_JSON,
+                Util.getFileFormatTypeFromPath("s3://bucket/archive.avro/rows.json"));
+        Assertions.assertEquals(TFileFormatType.FORMAT_JSON,
+                Util.getFileFormatTypeFromPath("s3://bucket/rows.avro.json"));
+        Assertions.assertEquals(TFileFormatType.FORMAT_CSV_PLAIN,
+                Util.getFileFormatTypeFromPath("s3://bucket/archive.avro/rows.csv"));
+    }
+
+    @Test
     public void getRootCauseWithSuppressedMessageRootCauseWithMessageNoSuppressed() {
         Exception rootCause = new Exception("Root cause message");
         Assertions.assertEquals("java.lang.Exception: Root cause message",

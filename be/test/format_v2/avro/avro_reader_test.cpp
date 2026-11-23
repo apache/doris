@@ -24,13 +24,17 @@
 #include <avro/DataFile.hh>
 #include <avro/Generic.hh>
 #include <fstream>
+#include <tuple>
 
 #include "common/config.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/table/hive_reader.h"
 #include "format_v2/table_reader.h"
 #include "io/io_common.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -103,6 +107,34 @@ protected:
         write_long(payload.size());
         out.write(reinterpret_cast<const char*>(payload.data()), payload.size());
         out.write(original.data() + header_size - 16, 16);
+    }
+
+    void write_header_json(const std::string& json,
+                           const std::optional<std::vector<uint8_t>>& payload = std::nullopt) {
+        std::ofstream out(path, std::ios::binary);
+        out.write("Obj\x01", 4);
+        auto write_long = [&](uint64_t value) {
+            value *= 2;
+            while (value >= 128) {
+                out.put(static_cast<char>((value & 127) | 128));
+                value >>= 7;
+            }
+            out.put(static_cast<char>(value));
+        };
+        write_long(1);
+        const std::string key = "avro.schema";
+        write_long(key.size());
+        out.write(key.data(), key.size());
+        write_long(json.size());
+        out.write(json.data(), json.size());
+        write_long(0);
+        out.write("0123456789abcdef", 16);
+        if (payload) {
+            write_long(1);
+            write_long(payload->size());
+            out.write(reinterpret_cast<const char*>(payload->data()), payload->size());
+            out.write("0123456789abcdef", 16);
+        }
     }
 
     std::unique_ptr<AvroReader> reader(int64_t start = 0, int64_t size = -1,
@@ -221,7 +253,8 @@ TEST_F(AvroReaderTest, SplitAlignmentRejectsSyncMarkersInsidePayloads) {
     const std::string placeholder(16, '!');
     for (const auto& suffix : {std::string(24, '\x80'), std::string("\x01\x00", 2),
                                std::string("\x02\x04xx", 4) + std::string(16, '?'),
-                               std::string("\x02\xfe\xff\xff\xff\xff\xff\xff\xff\xff\x01", 11)}) {
+                               std::string("\x02\xfe\xff\xff\xff\xff\xff\xff\xff\xff\x01", 11),
+                               std::string("\x02\x04\x54\x00", 4) + placeholder}) {
         SCOPED_TRACE(suffix);
         const std::string payload = "prefix" + placeholder + suffix;
         {
@@ -246,7 +279,12 @@ TEST_F(AvroReaderTest, SplitAlignmentRejectsSyncMarkersInsidePayloads) {
         in.close();
         const auto embedded = data.find(placeholder, header_end);
         ASSERT_NE(embedded, std::string::npos);
-        data.replace(embedded, placeholder.size(), data.substr(header_end - 16, 16));
+        const auto sync = data.substr(header_end - 16, 16);
+        // The last fixture contains a fully framed fake block, including its closing sync.
+        for (size_t match = embedded; match != std::string::npos;
+             match = data.find(placeholder, match + placeholder.size())) {
+            data.replace(match, placeholder.size(), sync);
+        }
         {
             std::ofstream out(path, std::ios::binary);
             out.write(data.data(), data.size());
@@ -275,6 +313,31 @@ TEST_F(AvroReaderTest, SplitAlignmentRejectsSyncMarkersInsidePayloads) {
                                            : (std::vector<std::vector<std::string>> {{"0"}, {"1"}}))
                         << "cut=" << cut;
             }
+        }
+    }
+}
+
+TEST_F(AvroReaderTest, RejectsCaseCollidingFieldsAtEveryRecordLevel) {
+    const std::string record =
+            R"({"type":"record","name":"collision","fields":[{"name":"Foo","type":"int"},
+                {"name":"foo","type":"int"}]})";
+    for (const auto& value : {record, std::string("{\"type\":\"array\",\"items\":") + record + "}",
+                              std::string("{\"type\":\"map\",\"values\":") + record + "}",
+                              std::string("[\"null\",") + record + "]"}) {
+        for (const bool nested : {false, true}) {
+            const auto json = nested ? "{\"type\":\"record\",\"name\":\"outer\",\"fields\":[{"
+                                       "\"name\":\"value\",\"type\":" +
+                                               value + "}]}"
+                                     : record;
+            const auto avro_schema = ::avro::compileJsonSchemaFromString(json);
+            {
+                ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), avro_schema);
+                writer.close();
+            }
+            auto input = reader();
+            const auto status = initialize(input.get());
+            EXPECT_FALSE(status.ok()) << json;
+            EXPECT_NE(status.to_string().find("ambiguous"), std::string::npos) << status;
         }
     }
 }
@@ -670,6 +733,332 @@ TEST_F(AvroReaderTest, SchemaExpansionIsAdmittedBeforeBuildingColumnTrees) {
     EXPECT_TRUE(input->close().ok());
 }
 
+TEST_F(AvroReaderTest, RepeatedRecordNamesAreAdmittedBeforeBuildingColumnTrees) {
+    std::string json = R"({"type":"record","name":"root","fields":[
+        {"name":"n0","type":{"type":"record","name":"Shared","fields":[{"name":")";
+    json += std::string(64 * 1024, 'a');
+    json += R"(","type":"long"}]}})";
+    for (int i = 1; i < 128; ++i) {
+        json += ",{\"name\":\"n" + std::to_string(i) + "\",\"type\":\"Shared\"}";
+    }
+    json += "]}";
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(
+                path.c_str(), ::avro::compileJsonSchemaFromString(json));
+        writer.close();
+    }
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "avro_schema_name_limit", 8 * 1024 * 1024);
+    SCOPED_ATTACH_TASK(tracker);
+    auto input = reader();
+    const auto status = initialize(input.get());
+    EXPECT_FALSE(status.ok()) << status;
+    EXPECT_TRUE(input->close().ok());
+}
+
+TEST_F(AvroReaderTest, UnprojectedNamesAreAdmittedForTheWholeMappingLifetime) {
+    std::string json = R"({"type":"record","name":"root","fields":[
+        {"name":"n0","type":{"type":"record","name":"Shared","fields":[{"name":")";
+    json += std::string(64 * 1024, 'a');
+    json += R"(","type":"long"}]}})";
+    for (int i = 1; i < 128; ++i) {
+        json += ",{\"name\":\"n" + std::to_string(i) + "\",\"type\":\"Shared\"}";
+    }
+    json += R"(,{"name":"id","type":"int"}]})";
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(
+                path.c_str(), ::avro::compileJsonSchemaFromString(json));
+        writer.close();
+    }
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "avro_schema_name_limit", 54 * 1024 * 1024);
+    SCOPED_ATTACH_TASK(tracker);
+    TFileScanRangeParams params;
+    params.__set_file_type(TFileType::FILE_LOCAL);
+    params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+    ColumnDefinition projected;
+    projected.name = "id";
+    projected.identifier = Field::create_field<TYPE_STRING>("id");
+    projected.type = make_nullable(std::make_shared<DataTypeInt32>());
+    TableReader table;
+    ASSERT_TRUE(table.init({.projected_columns = {projected},
+                            .conjuncts = {},
+                            .format = FileFormat::AVRO,
+                            .scan_params = &params,
+                            .io_ctx = std::make_shared<io::IOContext>(),
+                            .runtime_state = &state,
+                            .scanner_profile = &profile})
+                        .ok());
+    SplitReadOptions split;
+    split.current_range.__set_path(path);
+    split.current_range.__set_start_offset(0);
+    split.current_range.__set_size(std::filesystem::file_size(path));
+    split.current_range.__set_file_size(std::filesystem::file_size(path));
+    split.current_split_format = FileFormat::AVRO;
+    ASSERT_TRUE(table.prepare_split(split).ok());
+    Block block;
+    block.insert({projected.type->create_column(), projected.type, projected.name});
+    bool eof = false;
+    // Unrequested writer fields still live in the reader, table schema and mapper schema.
+    EXPECT_FALSE(table.get_block(&block, &eof).ok());
+    EXPECT_TRUE(table.close().ok());
+}
+
+TEST_F(AvroReaderTest, HiveValidatesImplicitAndTransportedReaderSchemasBeforeMapping) {
+    auto record = [](const std::string& type) {
+        return "{\"type\":\"record\",\"name\":\"r\",\"fields\":[{\"name\":\"v\",\"type\":" + type +
+               "}]}";
+    };
+    auto scan = [&](DataTypePtr type, const std::string& literal, bool hdfs, Block* block) {
+        TFileScanRangeParams params;
+        params.__set_file_type(TFileType::FILE_LOCAL);
+        params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+        if (!literal.empty()) {
+            if (hdfs) {
+                THdfsConf conf;
+                conf.__set_key("avro.schema.literal");
+                conf.__set_value(literal);
+                THdfsParams hdfs_params;
+                hdfs_params.__set_hdfs_conf({conf});
+                params.__set_hdfs_params(hdfs_params);
+            } else {
+                params.__set_properties({{"avro.schema.literal", literal}});
+            }
+        }
+        ColumnDefinition projected;
+        projected.name = "v";
+        projected.identifier = Field::create_field<TYPE_STRING>("v");
+        projected.type = make_nullable(type);
+        hive::HiveReader table;
+        auto status = table.init({.projected_columns = {projected},
+                                  .conjuncts = {},
+                                  .format = FileFormat::AVRO,
+                                  .scan_params = &params,
+                                  .io_ctx = std::make_shared<io::IOContext>(),
+                                  .runtime_state = &state,
+                                  .scanner_profile = &profile});
+        if (!status.ok()) {
+            return status;
+        }
+        Defer close([&] { EXPECT_TRUE(table.close().ok()); });
+        SplitReadOptions split;
+        split.current_range.__set_path(path);
+        split.current_range.__set_start_offset(0);
+        split.current_range.__set_size(std::filesystem::file_size(path));
+        split.current_range.__set_file_size(std::filesystem::file_size(path));
+        split.current_split_format = FileFormat::AVRO;
+        RETURN_IF_ERROR(table.prepare_split(split));
+        block->insert({projected.type->create_column(), projected.type, projected.name});
+        bool eof = false;
+        return table.get_block(block, &eof);
+    };
+    const std::string date = R"({"type":"int","logicalType":"date"})";
+    const std::string millis = R"({"type":"long","logicalType":"timestamp-millis"})";
+    const std::string micros = R"({"type":"long","logicalType":"timestamp-micros"})";
+    for (const auto& [writer_type, table_type, accepted] :
+         std::vector<std::tuple<std::string, DataTypePtr, bool>> {
+                 {date, std::make_shared<DataTypeInt32>(), false},
+                 {R"("int")", std::make_shared<DataTypeDateV2>(), false},
+                 {R"("long")", std::make_shared<DataTypeInt32>(), false},
+                 {micros, std::make_shared<DataTypeDateTimeV2>(6), false},
+                 {millis, std::make_shared<DataTypeDateTimeV2>(3), true},
+                 {date, std::make_shared<DataTypeDateV2>(), true},
+                 {R"("int")", std::make_shared<DataTypeInt64>(), true},
+                 {R"("int")", std::make_shared<DataTypeInt8>(), true}}) {
+        SCOPED_TRACE(writer_type + " -> " + table_type->get_name());
+        write_raw_block(::avro::compileJsonSchemaFromString(record(writer_type)),
+                        ::avro::NULL_CODEC, {2});
+        Block block;
+        const auto status = scan(table_type, "", false, &block);
+        EXPECT_EQ(status.ok(), accepted) << status;
+        if (accepted) {
+            EXPECT_EQ(block.rows(), 1);
+        }
+    }
+    write_raw_block(::avro::compileJsonSchemaFromString(record(R"("int")")), ::avro::NULL_CODEC,
+                    {2});
+    const std::string explicit_date =
+            R"({"type":"record","name":"r","fields":[{"name":"v","type":["null",{"type":"int","logicalType":"date"}],"default":null}]})";
+    const std::string explicit_int =
+            R"({"type":"record","name":"r","fields":[{"name":"v","type":["null","int"],"default":null}]})";
+    for (bool hdfs : {false, true}) {
+        Block rejected, accepted;
+        EXPECT_FALSE(scan(std::make_shared<DataTypeInt32>(), explicit_date, hdfs, &rejected).ok());
+        EXPECT_TRUE(scan(std::make_shared<DataTypeInt32>(), explicit_int, hdfs, &accepted).ok());
+        ASSERT_EQ(accepted.rows(), 1);
+        EXPECT_EQ(
+                accepted.get_by_position(0).type->to_string(*accepted.get_by_position(0).column, 0),
+                "1");
+    }
+    // An explicit reader promotion must not be skipped on the way to the HMS output type.
+    // 16777217 rounds to 16777216 as FLOAT but remains exact as DOUBLE.
+    write_raw_block(::avro::compileJsonSchemaFromString(record(R"("int")")), ::avro::NULL_CODEC,
+                    {0x82, 0x80, 0x80, 0x10});
+    const std::string explicit_float =
+            R"({"type":"record","name":"r","fields":[{"name":"v","type":["null","float"],"default":null}]})";
+    const std::string explicit_long =
+            R"({"type":"record","name":"r","fields":[{"name":"v","type":["null","long"],"default":null}]})";
+    for (bool hdfs : {false, true}) {
+        Block rounded, exact, widened, missing;
+        EXPECT_FALSE(
+                scan(std::make_shared<DataTypeFloat64>(), explicit_float, hdfs, &rounded).ok());
+        EXPECT_TRUE(scan(std::make_shared<DataTypeFloat32>(), explicit_float, hdfs, &exact).ok());
+        EXPECT_TRUE(scan(std::make_shared<DataTypeInt64>(), explicit_long, hdfs, &widened).ok());
+        EXPECT_FALSE(scan(std::make_shared<DataTypeInt32>(),
+                          R"({"type":"record","name":"r","fields":[]})", hdfs, &missing)
+                             .ok());
+    }
+    for (const auto* logical : {"char", "varchar", "ChAr", "VaRcHaR"}) {
+        const std::string value_type = std::string(R"({"type":"string","logicalType":")") +
+                                       logical + R"(","maxLength":3})";
+        // Preserve the Hive annotation: Avro C++ would erase it while writing a fixture.
+        write_header_json(record(value_type), std::vector<uint8_t> {8, 'a', 'b', 'c', 'd'});
+        const std::string literal =
+                "{\"type\":\"record\",\"name\":\"r\",\"fields\":[{\"name\":\"v\",\"type\":["
+                "\"null\"," +
+                value_type + "],\"default\":null}]}";
+        Block implicit_block, explicit_block;
+        EXPECT_FALSE(scan(std::make_shared<DataTypeString>(), "", false, &implicit_block).ok());
+        EXPECT_FALSE(
+                scan(std::make_shared<DataTypeString>(), literal, false, &explicit_block).ok());
+    }
+    write_raw_block(::avro::compileJsonSchemaFromString(record(R"("bytes")")), ::avro::NULL_CODEC,
+                    {2, 0xff});
+    const std::string explicit_string =
+            R"({"type":"record","name":"r","fields":[{"name":"v","type":["null","string"],"default":null}]})";
+    Block invalid_utf8;
+    // Java's bytes-to-string resolution replaces FF with U+FFFD; raw insertion would retain FF.
+    EXPECT_FALSE(
+            scan(std::make_shared<DataTypeString>(), explicit_string, false, &invalid_utf8).ok());
+}
+
+TEST_F(AvroReaderTest, ValidatesPhysicalReaderSchemaBeforeSqlCasts) {
+    auto record = [](const std::string& type, const std::string& name = "v",
+                     const std::string& record_name = "r") {
+        return "{\"type\":\"record\",\"name\":\"" + record_name + "\",\"fields\":[{\"name\":\"" +
+               name + "\",\"type\":[\"null\"," + type + "],\"default\":null}]}";
+    };
+    const std::string date = R"({"type":"int","logicalType":"date"})";
+    const std::string millis = R"({"type":"long","logicalType":"timestamp-millis"})";
+    const std::string micros = R"({"type":"long","logicalType":"timestamp-micros"})";
+    const std::string decimal =
+            R"({"type":"bytes","logicalType":"decimal","precision":9,"scale":2})";
+    const std::vector<std::pair<std::string, std::string>> incompatible = {
+            {date, R"("int")"},
+            {R"("int")", date},
+            {millis, R"("long")"},
+            {micros, millis},
+            {R"({"type":"long","logicalType":"local-timestamp-millis"})", millis},
+            {decimal, R"("bytes")"},
+            {R"("bytes")", decimal},
+            {R"({"type":"string","logicalType":"uuid"})", R"("string")"},
+            {R"("long")", R"("int")"},
+            {R"("double")", R"("long")"},
+            {R"({"type":"array","items":"long"})", R"("long")"},
+            {"{\"type\":\"array\",\"items\":" + date + "}", R"({"type":"array","items":"int"})"},
+            {"{\"type\":\"map\",\"values\":" + micros + "}",
+             "{\"type\":\"map\",\"values\":" + millis + "}"},
+            {record(date, "child", "nested"), record(R"("int")", "child", "nested")}};
+    for (const auto& [writer, read] : incompatible) {
+        SCOPED_TRACE(writer + " -> " + read);
+        write_header_json(record(writer));
+        auto input = reader();
+        ASSERT_TRUE(initialize(input.get()).ok());
+        EXPECT_FALSE(input->validate_read_schema(record(read), true).ok());
+        EXPECT_FALSE(input->validate_read_schema(record(read), false).ok());
+    }
+    for (const auto& [writer, read] :
+         std::vector<std::pair<std::string, std::string>> {{date, date},
+                                                           {millis, millis},
+                                                           {decimal, decimal},
+                                                           {R"("int")", R"("long")"},
+                                                           {R"("float")", R"("double")"}}) {
+        write_header_json(record(writer));
+        auto input = reader();
+        ASSERT_TRUE(initialize(input.get()).ok());
+        EXPECT_TRUE(input->validate_read_schema(record(read), true).ok());
+    }
+    write_header_json(record(R"("long")", "Value"));
+    auto input = reader();
+    ASSERT_TRUE(initialize(input.get()).ok());
+    EXPECT_FALSE(input->validate_read_schema(record(R"("long")", "value"), true).ok());
+    EXPECT_TRUE(input->validate_read_schema(record(R"("long")", "added"), true).ok());
+    EXPECT_FALSE(input->validate_read_schema(record(R"("long")", "Value", "other"), true).ok());
+    EXPECT_TRUE(input->validate_read_schema(record(R"("long")", "Value", "other"), false).ok());
+}
+
+TEST_F(AvroReaderTest, RejectsHiveAnnotationCaseVariantsBeforeCompilerErasure) {
+    for (const auto* logical : {"ChAr", "VaRcHaR", "DeCiMaL", "dec\u0131mal"}) {
+        const bool decimal = std::string(logical) != "ChAr" && std::string(logical) != "VaRcHaR";
+        const std::string physical = decimal ? R"("bytes")" : R"("string")";
+        const std::string annotated =
+                std::string("{\"type\":") + physical + ",\"logicalType\":\"" + logical +
+                (decimal ? "\",\"precision\":9,\"scale\":2}" : "\",\"maxLength\":3}");
+        for (int nesting = 0; nesting < 4; ++nesting) {
+            auto schema = [&](const std::string& value) {
+                const auto nested = nesting == 1   ? "{\"type\":\"array\",\"items\":" + value + "}"
+                                    : nesting == 2 ? "{\"type\":\"map\",\"values\":" + value + "}"
+                                    : nesting == 3 ? "{\"type\":\"record\",\"name\":\"n\","
+                                                     "\"fields\":[{\"name\":\"child\",\"type\":" +
+                                                             value + "}]}"
+                                                   : value;
+                return "{\"type\":\"record\",\"name\":\"r\",\"fields\":[{\"name\":\"v\",\"type\":" +
+                       nested + "}]}";
+            };
+            SCOPED_TRACE(std::string(logical) + " nesting=" + std::to_string(nesting));
+            write_header_json(schema(annotated));
+            auto writer_annotation = reader();
+            ASSERT_TRUE(initialize(writer_annotation.get()).ok());
+            EXPECT_FALSE(writer_annotation->validate_read_schema(schema(annotated), false).ok());
+            EXPECT_TRUE(writer_annotation->close().ok());
+            write_header_json(schema(physical));
+            auto reader_annotation = reader();
+            ASSERT_TRUE(initialize(reader_annotation.get()).ok());
+            EXPECT_FALSE(reader_annotation->validate_read_schema(schema(annotated), false).ok());
+        }
+    }
+}
+
+TEST_F(AvroReaderTest, RejectsDuplicateSchemaKeysBeforeDefaultConstruction) {
+    for (const auto* json :
+         {R"({"type":"record","name":"r","fields":[{"name":"v","type":["null","long"],"default":null,"default":null}]})",
+          R"({"type":"record","name":"r","fields":[{"name":"v","type":{"type":"string","logicalType":"char","logicalType":"other","maxLength":3}}]})",
+          R"({"type":"record","name":"r","fields":[{"name":"v","type":"long","type":"int"}]})"}) {
+        SCOPED_TRACE(json);
+        write_header_json(json);
+        auto input = reader();
+        const auto status = initialize(input.get());
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("Duplicate"), std::string::npos) << status;
+    }
+    write_header_json(R"({"type":"record","name":"r","fields":[{"name":"v","type":"long"}]})");
+    auto input = reader();
+    ASSERT_TRUE(initialize(input.get()).ok());
+    EXPECT_FALSE(
+            input->validate_read_schema(
+                         R"({"type":"record","name":"r","fields":[{"name":"v","type":["null","long"],"default":null,"default":null}]})",
+                         true)
+                    .ok());
+}
+
+TEST_F(AvroReaderTest, WriterNullDefaultsDoNotRequireTheFirstUnionBranch) {
+    for (const auto* value : {R"("long")",
+                              R"({"type":"record","name":"child","fields":[{"name":"v",
+                                  "type":{"type":"fixed","name":"fixed_value","size":4096}}]})"}) {
+        const std::string json =
+                R"({"type":"record","name":"root","fields":[{"name":"value","type":[)" +
+                std::string(value) + R"(,"null"],"default":null}]})";
+        write_header_json(json);
+        auto input = reader();
+        const auto status = initialize(input.get());
+        ASSERT_TRUE(status.ok()) << status;
+        auto request = std::make_shared<FileScanRequest>();
+        auto block = block_for({0}, request.get());
+        ASSERT_TRUE(input->open(request).ok());
+        EXPECT_TRUE(read_all(input.get(), block).empty());
+    }
+}
+
 TEST_F(AvroReaderTest, LateRangesAvoidTinyPrefixReads) {
     const auto avro_schema = ::avro::compileJsonSchemaFromString(
             R"({"type":"record","name":"r","fields":[{"name":"id","type":"long"},
@@ -700,7 +1089,8 @@ TEST_F(AvroReaderTest, LateRangesAvoidTinyPrefixReads) {
                                request.get());
         const auto before = io_stats.read_calls;
         ASSERT_TRUE(input->open(request).ok());
-        EXPECT_LE(io_stats.read_calls - before, coordinates ? 10 : 2);
+        // Ordinary scans must prove boundaries through the same coalesced prefix as row-id scans.
+        EXPECT_LE(io_stats.read_calls - before, 10);
         const auto rows = read_all(input.get(), block);
         ASSERT_EQ(rows.size(), 124);
         for (size_t i = 0; i < rows.size(); ++i) {

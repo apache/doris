@@ -17,6 +17,9 @@
 
 #include "format_v2/avro/avro_container_reader.h"
 
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 #include <snappy.h>
 #include <zlib.h>
 #define ZSTD_STATIC_LINKING_ONLY
@@ -30,8 +33,10 @@
 #include <bit>
 #include <cstring>
 #include <limits>
+#include <string_view>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -46,6 +51,228 @@ namespace {
 void require(bool condition, const char* message) {
     if (!condition) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, message);
+    }
+}
+
+std::string folded_name(std::string name) {
+    for (auto& c : name) {
+        if (c >= 'A' && c <= 'Z') {
+            c += 'a' - 'A';
+        }
+    }
+    return name;
+}
+
+// Writer defaults never appear on the wire. Avro C++ eagerly builds their GenericDatum values
+// and assumes union branch zero, rejecting legal null defaults on later branches. Strip only
+// record-field defaults before compiling a physical schema; retain all types and logical metadata.
+void strip_field_defaults(rapidjson::Value& value, bool hive_validation) {
+    if (value.IsArray()) {
+        for (auto& child : value.GetArray()) {
+            strip_field_defaults(child, hive_validation);
+        }
+    } else if (value.IsObject()) {
+        if (hive_validation && value.HasMember("logicalType") && value["logicalType"].IsString()) {
+            const std::string_view logical(value["logicalType"].GetString(),
+                                           value["logicalType"].GetStringLength());
+            // Hive compares decimal/char/varchar with Java equalsIgnoreCase. Reject non-ASCII
+            // spellings too, whose Unicode case equivalence the native compiler does not share.
+            require(std::ranges::all_of(logical, [](unsigned char c) { return c < 128; }),
+                    "Non-ASCII Hive Avro logical annotation is unsupported");
+            const auto folded = folded_name(std::string(logical));
+            require(folded != "char" && folded != "varchar",
+                    "Hive Avro char/varchar coercion is unsupported");
+            require(folded != "decimal" || logical == "decimal",
+                    "Noncanonical Hive Avro decimal annotation is unsupported");
+        }
+        if (value.HasMember("fields") && value["fields"].IsArray()) {
+            for (auto& field : value["fields"].GetArray()) {
+                if (field.IsObject()) {
+                    field.RemoveMember("default");
+                    if (field.HasMember("type")) {
+                        strip_field_defaults(field["type"], hive_validation);
+                    }
+                }
+            }
+        }
+        for (const auto* key : {"type", "items", "values"}) {
+            if (value.HasMember(key)) {
+                strip_field_defaults(value[key], hive_validation);
+            }
+        }
+    }
+}
+
+void validate_json_keys(const rapidjson::Value& value) {
+    if (value.IsObject()) {
+        std::unordered_set<std::string_view> keys;
+        for (const auto& member : value.GetObject()) {
+            const std::string_view key(member.name.GetString(), member.name.GetStringLength());
+            // RapidJSON, Gson and Avro C++ choose different duplicate members. Reject them
+            // before removing defaults, so no surviving default can reach eager SDK construction.
+            require(keys.insert(key).second, "Duplicate Avro schema JSON key");
+            validate_json_keys(member.value);
+        }
+    } else if (value.IsArray()) {
+        for (const auto& child : value.GetArray()) {
+            validate_json_keys(child);
+        }
+    }
+}
+
+rapidjson::Document physical_schema_document(const std::string& json, bool hive_validation) {
+    // Bound recursion before either JSON parser runs, including header-only files.
+    size_t depth = 0;
+    bool quoted = false, escaped = false;
+    for (const char c : json) {
+        if (quoted) {
+            if (escaped) {
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else if (c == '"') {
+                quoted = false;
+            }
+        } else if (c == '"') {
+            quoted = true;
+        } else if (c == '{' || c == '[') {
+            require(++depth <= 128, "Avro schema nesting is unsupported");
+        } else if (c == '}' || c == ']') {
+            require(depth != 0, "Invalid Avro schema JSON");
+            --depth;
+        }
+    }
+    require(depth == 0 && !quoted, "Invalid Avro schema JSON");
+    rapidjson::Document document;
+    document.Parse(json.data(), json.size());
+    require(!document.HasParseError(), "Invalid Avro schema JSON");
+    validate_json_keys(document);
+    strip_field_defaults(document, hive_validation);
+    return document;
+}
+
+::avro::ValidSchema compile_physical_schema(const std::string& json, bool hive_validation = false) {
+    auto document = physical_schema_document(json, hive_validation);
+    rapidjson::StringBuffer output;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(output);
+    require(document.Accept(writer), "Cannot serialize Avro physical schema");
+    return ::avro::compileJsonSchemaFromString(std::string(output.GetString(), output.GetSize()));
+}
+
+::avro::NodePtr physical_node(const ::avro::NodePtr& input) {
+    return input->type() == ::avro::AVRO_SYMBOLIC ? ::avro::resolveSymbol(input) : input;
+}
+
+::avro::NodePtr non_null_branch(const ::avro::NodePtr& input, bool* nullable) {
+    auto node = physical_node(input);
+    *nullable = node->type() == ::avro::AVRO_NULL;
+    if (node->type() != ::avro::AVRO_UNION) {
+        return node;
+    }
+    ::avro::NodePtr value;
+    for (size_t i = 0; i < node->leaves(); ++i) {
+        auto child = physical_node(node->leafAt(i));
+        if (child->type() == ::avro::AVRO_NULL) {
+            *nullable = true;
+        } else {
+            require(!value, "Reader schema requires unsupported Avro union resolution");
+            value = std::move(child);
+        }
+    }
+    return value;
+}
+
+void validate_schema_pair(const ::avro::NodePtr& writer, const ::avro::NodePtr& reader,
+                          bool match_record_names, size_t depth = 0,
+                          bool exact_value_types = false);
+
+void validate_record_pair(const ::avro::NodePtr& from, const ::avro::NodePtr& to,
+                          bool match_record_names, size_t depth, bool exact_value_types) {
+    require(!match_record_names || from->name() == to->name(),
+            "Avro reader record name resolution is unsupported");
+    std::unordered_set<std::string> reader_names;
+    std::unordered_set<std::string> writer_names;
+    bool indexed_writer_names = false;
+    for (size_t i = 0; i < to->leaves(); ++i) {
+        auto folded = folded_name(to->nameAt(i));
+        require(reader_names.insert(folded).second,
+                "Avro reader has ambiguous case-insensitive field names");
+        size_t writer_index = 0;
+        if (from->nameIndex(to->nameAt(i), writer_index)) {
+            validate_schema_pair(from->leafAt(writer_index), to->leafAt(i), match_record_names,
+                                 depth + 1, exact_value_types);
+            continue;
+        }
+        // The mapper is case-insensitive, whereas Avro resolution is exact. Do not let a
+        // missing nullable reader field bind to a differently-cased writer field later.
+        if (!indexed_writer_names) {
+            for (size_t j = 0; j < from->leaves(); ++j) {
+                writer_names.insert(folded_name(from->nameAt(j)));
+            }
+            indexed_writer_names = true;
+        }
+        require(!writer_names.contains(folded), "Avro reader field differs only by case");
+        require(!exact_value_types, "Projected field is absent from Avro reader schema");
+        bool nullable = false;
+        (void)non_null_branch(to->leafAt(i), &nullable);
+        require(nullable, "Missing Avro reader field without a nullable default");
+    }
+}
+
+void validate_schema_pair(const ::avro::NodePtr& writer, const ::avro::NodePtr& reader,
+                          bool match_record_names, size_t depth, bool exact_value_types) {
+    require(depth < 64, "Avro reader schema nesting is unsupported");
+    bool writer_null = false, reader_null = false;
+    const auto from = non_null_branch(writer, &writer_null);
+    const auto to = non_null_branch(reader, &reader_null);
+    require(!writer_null || reader_null, "Avro reader schema cannot resolve nullable writer");
+    if (!from || from->type() == ::avro::AVRO_NULL) {
+        return;
+    }
+    require(to && to->type() != ::avro::AVRO_NULL, "Incompatible Avro reader schema");
+    const auto& from_logical = from->logicalType();
+    const auto& to_logical = to->logicalType();
+    // A SQL cast after writer-logical decoding is not Avro resolution (date int 1 becomes
+    // 19700102). Require identical logical interpretation before projection/predicate mapping.
+    require(from_logical.type() == to_logical.type(), "Incompatible Avro reader logical type");
+    if (from_logical.type() == ::avro::LogicalType::DECIMAL) {
+        // Decimal parameter evolution is not implemented by this physical compatibility gate.
+        require(from_logical.precision() == to_logical.precision() &&
+                        from_logical.scale() == to_logical.scale(),
+                "Avro decimal reader precision/scale evolution is unsupported");
+    }
+    const auto source = from->type(), target = to->type();
+    const bool promoted = (source == ::avro::AVRO_INT &&
+                           (target == ::avro::AVRO_LONG || target == ::avro::AVRO_FLOAT ||
+                            target == ::avro::AVRO_DOUBLE)) ||
+                          (source == ::avro::AVRO_LONG &&
+                           (target == ::avro::AVRO_FLOAT || target == ::avro::AVRO_DOUBLE)) ||
+                          (source == ::avro::AVRO_FLOAT && target == ::avro::AVRO_DOUBLE) ||
+                          (source == ::avro::AVRO_STRING && target == ::avro::AVRO_BYTES) ||
+                          (source == ::avro::AVRO_BYTES && target == ::avro::AVRO_STRING);
+    // Java resolves bytes to STRING with UTF-8 replacement; raw byte insertion is not equivalent.
+    require(source != ::avro::AVRO_BYTES || target != ::avro::AVRO_STRING,
+            "Hive Avro bytes-to-string resolution is unsupported");
+    const bool identical_string_storage =
+            source == ::avro::AVRO_STRING && target == ::avro::AVRO_BYTES;
+    require(source == target || (promoted && (!exact_value_types || identical_string_storage) &&
+                                 from_logical.type() == ::avro::LogicalType::NONE),
+            "Incompatible Avro reader physical type");
+    if (source == ::avro::AVRO_RECORD) {
+        validate_record_pair(from, to, match_record_names, depth, exact_value_types);
+    } else if (source == ::avro::AVRO_ARRAY || source == ::avro::AVRO_MAP) {
+        validate_schema_pair(from->leafAt(source == ::avro::AVRO_MAP ? 1 : 0),
+                             to->leafAt(target == ::avro::AVRO_MAP ? 1 : 0), match_record_names,
+                             depth + 1, exact_value_types);
+    } else if (source == ::avro::AVRO_FIXED) {
+        require(from->name() == to->name() && from->fixedSize() == to->fixedSize(),
+                "Incompatible Avro fixed reader schema");
+    } else if (source == ::avro::AVRO_ENUM) {
+        require(from->name() == to->name(), "Incompatible Avro enum reader schema");
+        for (size_t i = 0; i < from->names(); ++i) {
+            size_t index = 0;
+            require(to->nameIndex(from->nameAt(i), index), "Incompatible Avro enum symbols");
+        }
     }
 }
 
@@ -210,31 +437,10 @@ struct AvroContainerReader::Impl {
         header_end = file.position();
         const auto found = metadata.find("avro.schema");
         require(found != metadata.end(), "Avro schema metadata is missing");
-        // The upstream JSON compiler recurses. Bound nesting before entering it, even for a
-        // header-only file; braces inside escaped JSON strings do not contribute to depth.
-        size_t depth = 0;
-        bool quoted = false, escaped = false;
-        for (const char c : found->second) {
-            if (quoted) {
-                if (escaped) {
-                    escaped = false;
-                } else if (c == '\\') {
-                    escaped = true;
-                } else if (c == '"') {
-                    quoted = false;
-                }
-            } else if (c == '"') {
-                quoted = true;
-            } else if (c == '{' || c == '[') {
-                require(++depth <= 128, "Avro schema nesting is unsupported");
-            } else if (c == '}' || c == ']') {
-                require(depth != 0, "Invalid Avro schema JSON");
-                --depth;
-            }
-        }
-        growth(0, found->second.size(), 16);
-        schema_charge = found->second.size() * 16;
-        schema = ::avro::compileJsonSchemaFromString(found->second);
+        // Cover the preprocessing DOM/output and compiler graph before allocating any of them.
+        growth(0, found->second.size(), 32);
+        schema_charge = found->second.size() * 32;
+        schema = compile_physical_schema(found->second);
     }
 
     void growth(size_t capacity, size_t count, size_t item_size = 1) const {
@@ -338,39 +544,6 @@ struct AvroContainerReader::Impl {
         std::array<uint8_t, 16> marker;
         file.read(marker.data(), marker.size());
         require(marker == sync, "Avro sync mismatch");
-    }
-
-    bool valid_sync_boundary() {
-        const size_t offset = file.position();
-        const size_t remaining = file.remaining();
-        // The final block's sync marker ends at EOF, so it has no following header.
-        if (remaining == 0) {
-            return true;
-        }
-        // A candidate needs at most two ten-byte varints. Keep file I/O outside the parsing
-        // catch: a read failure or cancellation must not be mistaken for a payload collision.
-        std::array<uint8_t, 20> header;
-        const size_t length = std::min(header.size(), remaining);
-        file.read(header.data(), length);
-        MemoryCursor cursor {.data = header.data(), .length = length};
-        int64_t count;
-        int64_t bytes;
-        try {
-            count = read_long(cursor);
-            bytes = read_long(cursor);
-        } catch (const Exception&) {
-            return false;
-        }
-        const size_t available = remaining - cursor.position;
-        // Payload bytes can mimic a header while describing a negative or past-EOF block.
-        if (count < 0 || bytes < 0 || available < sync.size() ||
-            static_cast<uint64_t>(bytes) > available - sync.size()) {
-            return false;
-        }
-        file.seek(offset + cursor.position + bytes);
-        std::array<uint8_t, 16> marker;
-        file.read(marker.data(), marker.size());
-        return marker == sync;
     }
 
     void decompress_snappy() {
@@ -710,6 +883,26 @@ const ::avro::ValidSchema& AvroContainerReader::dataSchema() const {
     return _impl->schema;
 }
 
+void AvroContainerReader::validate_read_schema(const std::string& json, bool match_record_names,
+                                               const std::string& projected_schema) const {
+    const auto limit = (std::numeric_limits<size_t>::max() - _impl->schema_charge) / 32;
+    require(json.size() <= limit && projected_schema.size() <= limit - json.size(),
+            "Avro reader schema allocation overflows");
+    // Hold admission through compilation AND comparison, including temporary field-name indexes.
+    auto workspace =
+            _impl->workspace((json.size() + projected_schema.size()) * 32 + _impl->schema_charge);
+    // Inspect the original writer JSON before the C++ compiler drops unknown Hive annotations.
+    (void)physical_schema_document(_impl->metadata.at("avro.schema"), true);
+    const auto reader_schema = compile_physical_schema(json, true);
+    validate_schema_pair(_impl->schema.root(), reader_schema.root(), match_record_names);
+    if (!projected_schema.empty()) {
+        const auto projected = compile_physical_schema(projected_schema, true);
+        // Skipping a reader INT->FLOAT promotion before a DOUBLE output would skip rounding.
+        // Every projected field must exist with the same value interpretation in the reader.
+        validate_schema_pair(reader_schema.root(), projected.root(), false, 0, true);
+    }
+}
+
 std::optional<std::string> AvroContainerReader::metadata(const std::string& key) const {
     const auto found = _impl->metadata.find(key);
     return found == _impl->metadata.end() ? std::nullopt : std::optional(found->second);
@@ -729,44 +922,23 @@ size_t AvroContainerReader::position() const {
     return _impl->file.position();
 }
 
-int64_t AvroContainerReader::seek_range(int64_t start, bool absolute_positions) {
+int64_t AvroContainerReader::seek_range(int64_t start) {
     auto& s = *_impl;
     s.file.seek(s.header_end);
     int64_t rows = 0;
-    if (absolute_positions) {
-        if (std::cmp_greater(start, s.header_end)) {
-            // Coalesce prefix headers so remote scans do not issue one GET per small OCF block.
-            s.file.coalesce_prefix(s.reserve);
-        }
-        while (s.file.position() < static_cast<uint64_t>(start) && s.file.remaining() != 0) {
-            size_t end;
-            const auto count = s.block_header(&end);
-            require(count <= std::numeric_limits<int64_t>::max() - rows,
-                    "Avro row count overflows");
-            rows += count;
-            s.file.seek(end);
-            s.verify_sync();
-        }
-    } else if (std::cmp_greater(start, s.header_end)) {
-        // Ordinary scans need sync alignment, not the absolute row count of every preceding block.
-        s.file.seek(
-                std::max(s.header_end - s.sync.size(), static_cast<size_t>(start) - s.sync.size()));
-        std::array<uint8_t, 16> window {};
-        size_t filled = 0;
-        while (s.file.remaining() != 0) {
-            std::move(window.begin() + 1, window.end(), window.begin());
-            window.back() = s.file.byte();
-            if (++filled >= window.size() && window == s.sync) {
-                // A bytes value may contain <sync><invalid header>. Accept a marker only
-                // when the next block's header and closing sync agree with OCF framing.
-                const size_t candidate = s.file.position();
-                const bool valid = s.valid_sync_boundary();
-                s.file.seek(candidate);
-                if (valid) {
-                    break;
-                }
-            }
-        }
+    if (std::cmp_greater(start, s.header_end)) {
+        // Coalesce prefix headers so remote scans do not issue one GET per small OCF block.
+        s.file.coalesce_prefix(s.reserve);
+    }
+    // A bytes value can contain <sync><valid header><valid datum><sync>. Only block lengths
+    // followed from the container header prove boundaries, even without absolute row ids.
+    while (s.file.position() < static_cast<uint64_t>(start) && s.file.remaining() != 0) {
+        size_t end;
+        const auto count = s.block_header(&end);
+        require(count <= std::numeric_limits<int64_t>::max() - rows, "Avro row count overflows");
+        rows += count;
+        s.file.seek(end);
+        s.verify_sync();
     }
     s.total_rows = rows;
     return rows;

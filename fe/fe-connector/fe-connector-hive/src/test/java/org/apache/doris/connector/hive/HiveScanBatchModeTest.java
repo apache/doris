@@ -103,6 +103,56 @@ public class HiveScanBatchModeTest {
     private static final String OPEN_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
 
     @Test
+    public void avroFileProducesAdjacentSplitRanges() throws Exception {
+        HiveScanPlanProvider provider = provider(null, (location, fs) -> Collections.singletonList(
+                new HiveFileStatus(location + "/data.avro", 25, 1)));
+        HiveTableHandle handle = parquetHandle(Collections.emptyList()).toBuilder()
+                .inputFormat("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat")
+                .serializationLib("org.apache.hadoop.hive.serde2.avro.AvroSerDe")
+                .build();
+        FakeSession session = new FakeSession(Collections.singletonMap("file_split_size", "10"));
+        ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList()).build();
+        List<ConnectorScanRange> streaming = new ArrayList<>();
+        try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+            while (source.hasNext()) {
+                streaming.add(source.next());
+            }
+        }
+        for (List<ConnectorScanRange> ranges : Arrays.asList(provider.planScan(session, request), streaming)) {
+            Assertions.assertEquals(3, ranges.size());
+            for (int i = 0; i < ranges.size(); ++i) {
+                HiveScanRange range = (HiveScanRange) ranges.get(i);
+                Assertions.assertEquals(i * 10L, range.getStart());
+                Assertions.assertEquals(Math.min(10L, 25L - i * 10L), range.getLength());
+                Assertions.assertEquals("avro", range.getFileFormat());
+            }
+        }
+    }
+
+    @Test
+    public void avroReaderSchemaUsesEffectiveTableProperty() {
+        HiveScanPlanProvider provider = provider(null, new CountingLister());
+        String literal = "{\"type\":\"record\",\"name\":\"r\",\"fields\":[]}";
+        HiveTableHandle handle = parquetHandle(Collections.emptyList()).toBuilder()
+                .inputFormat("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat")
+                .serializationLib("org.apache.hadoop.hive.serde2.avro.AvroSerDe")
+                .sdParameters(Map.of("avro.schema.literal", "invalid"))
+                .tableParameters(Map.of("avro.schema.literal", literal))
+                .build();
+        String key = ScanNodePropertyKeys.LOCATION_PREFIX + "avro.schema.literal";
+        Assertions.assertEquals(literal, provider.getScanNodeProperties(new FakeSession(), handle,
+                Collections.emptyList(), Optional.empty()).get(key));
+        HiveTableHandle disabled = handle.toBuilder()
+                .tableParameters(Map.of("avro.schema.literal", "none")).build();
+        Assertions.assertFalse(provider.getScanNodeProperties(new FakeSession(), disabled,
+                Collections.emptyList(), Optional.empty()).containsKey(key));
+        HiveTableHandle serdeOnly = handle.toBuilder().tableParameters(Collections.emptyMap())
+                .sdParameters(Map.of("avro.schema.literal", literal)).build();
+        Assertions.assertEquals(literal, provider.getScanNodeProperties(new FakeSession(), serdeOnly,
+                Collections.emptyList(), Optional.empty()).get(key));
+    }
+
+    @Test
     public void statementReuseSeparatesScanLocalCoarseSizes() {
         HiveScanPlanProvider provider = provider(null, (location, fs) -> Collections.singletonList(
                 new HiveFileStatus(location + "/large.parquet", 35, 1)));

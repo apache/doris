@@ -428,6 +428,17 @@ public:
     virtual std::unique_ptr<TableColumnMapper> create_column_mapper(
             TableColumnMapperOptions options) const;
 
+    // Validate an optional reader schema in this file format's dialect after init(), before
+    // mapping or filter localization. This checks physical compatibility only; the mapper remains
+    // authoritative for projection, defaults and materialization. Synthetic record names may be
+    // ignored when the table layer generated the declaration from its own type contract.
+    // An optional projected schema, also in the file dialect, requires direct materialization
+    // to preserve the intermediate reader's value types for every projected field.
+    virtual Status validate_read_schema(const std::string& schema, bool match_record_names,
+                                        const std::string& projected_schema = {}) const {
+        return Status::NotSupported("File reader schema validation is unsupported");
+    }
+
     virtual bool supports_rowid_fetch() const { return false; }
 
     // Open the file reader with file-local scan request. The file reader should initialize its internal state according to the request, but does not need to interpret table/global schema semantics. For example, all schema change, filter localization, default/generated/partition columns should be handled in table reader layer. This method can only be called after init() successfully.

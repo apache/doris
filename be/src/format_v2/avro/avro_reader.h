@@ -39,6 +39,8 @@ public:
     Status get_schema(std::vector<ColumnDefinition>* file_schema) const override;
     std::unique_ptr<TableColumnMapper> create_column_mapper(
             TableColumnMapperOptions options) const override;
+    Status validate_read_schema(const std::string& schema, bool match_record_names,
+                                const std::string& projected_schema = {}) const override;
     bool supports_rowid_fetch() const override { return true; }
     Status open(std::shared_ptr<FileScanRequest> request) override;
     void set_batch_size(size_t batch_size) override;

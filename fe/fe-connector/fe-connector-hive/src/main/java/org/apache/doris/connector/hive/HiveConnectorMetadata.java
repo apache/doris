@@ -521,6 +521,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 .sdParameters(tableInfo.getSdParameters())
                 .tableParameters(tableInfo.getParameters())
                 .firstColumnIsString(firstColumnIsString(tableInfo))
+                .avroStringCoercionRequired(HiveAvroSchemaPolicy.requiresStringCoercion(tableInfo.getColumns()))
                 .build();
         return Optional.of(handle);
     }

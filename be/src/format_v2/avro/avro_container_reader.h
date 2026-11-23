@@ -52,9 +52,11 @@ public:
     ~AvroContainerReader();
     const ::avro::ValidSchema& dataSchema() const;
     std::optional<std::string> metadata(const std::string& key) const;
+    void validate_read_schema(const std::string& schema, bool match_record_names,
+                              const std::string& projected_schema = {}) const;
     size_t scratchBytes() const;
     size_t position() const;
-    int64_t seek_range(int64_t start, bool absolute_positions);
+    int64_t seek_range(int64_t start);
     void init(const ::avro::ValidSchema& schema, int64_t offset);
     bool hasMoreBefore(int64_t end);
     std::unique_ptr<::avro::GenericDatum> make_datum();

@@ -98,6 +98,30 @@ public class HiveAvroSchemaPolicyTest {
     }
 
     @Test
+    public void rejectsHiveCharAndVarcharReaderCoercionsRecursively() {
+        for (String logical : new String[] {"char", "varchar", "ChAr", "VaRcHaR"}) {
+            String type = "{\"type\":\"string\",\"logicalType\":\"" + logical + "\",\"maxLength\":3}";
+            for (String value : new String[] {type, "{\"type\":\"array\",\"items\":" + type + "}",
+                    "{\"type\":\"map\",\"values\":" + type + "}"}) {
+                String schema = GENERATED.replace("\"int\"", value);
+                Assertions.assertThrows(DorisConnectorException.class,
+                        () -> inspect(Map.of(LITERAL, schema), Map.of()));
+            }
+        }
+    }
+
+    @Test
+    public void rejectsCaseInsensitiveDecimalAnnotationsBeforeNativeErasure() {
+        for (String logical : new String[] {"DeCiMaL", "decımal"}) {
+            String value = "{\"type\":\"bytes\",\"logicalType\":\"" + logical
+                    + "\",\"precision\":9,\"scale\":2}";
+            String schema = GENERATED.replace("\"int\"", value);
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> inspect(Map.of(LITERAL, schema), Map.of()));
+        }
+    }
+
+    @Test
     public void ignoresAvroPropertiesForOtherPhysicalFormats() {
         HiveTableHandle table = handle(Map.of(LITERAL, DEFAULT_SEVEN), Map.of()).toBuilder()
                 .inputFormat("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat").build();

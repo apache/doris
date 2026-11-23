@@ -33,6 +33,7 @@ import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperti
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.FileTableValuedFunction;
 import org.apache.doris.tablefunction.PluginDrivenQueryTableValueFunction;
@@ -43,8 +44,11 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -119,6 +123,28 @@ public class FileQueryScanNodeTest {
         @Override
         protected Map<String, String> getLocationProperties() throws UserException {
             return Collections.emptyMap();
+        }
+    }
+
+    @Test
+    public void avroReaderSchemaSurvivesStorageParameterSerialization() throws Exception {
+        Method method = FileQueryScanNode.class.getDeclaredMethod("setLocationPropertiesIfNecessary",
+                Backend.class, TFileType.class, Map.class);
+        method.setAccessible(true);
+        String literal = "{\"type\":\"record\",\"name\":\"r\",\"fields\":[]}";
+        for (TFileType storage : Arrays.asList(TFileType.FILE_HDFS, TFileType.FILE_S3, TFileType.FILE_LOCAL)) {
+            TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+            node.params = new TFileScanRangeParams();
+            method.invoke(node, null, storage, Map.of("avro.schema.literal", literal));
+            TFileScanRangeParams decoded = new TFileScanRangeParams();
+            new TDeserializer().deserialize(decoded, new TSerializer().serialize(node.params));
+            if (storage == TFileType.FILE_HDFS) {
+                Assertions.assertTrue(decoded.getHdfsParams().getHdfsConf().stream()
+                        .anyMatch(conf -> "avro.schema.literal".equals(conf.getKey())
+                                && literal.equals(conf.getValue())));
+            } else {
+                Assertions.assertEquals(literal, decoded.getProperties().get("avro.schema.literal"));
+            }
         }
     }
 

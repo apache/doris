@@ -139,9 +139,25 @@ bool parse_writer_timezone(const std::string& name, cctz::time_zone* zone) {
     return true;
 }
 
-size_t expanded_schema_bytes(const ::avro::NodePtr& input,
-                             std::unordered_map<const ::avro::Node*, size_t>* sizes,
-                             std::unordered_set<const ::avro::Node*>* ancestors) {
+constexpr size_t MAX_SCHEMA_BYTES = 64 * 1024 * 1024;
+
+size_t schema_cost_add(size_t current, size_t count, size_t copies = 1) {
+    if (current > MAX_SCHEMA_BYTES || count > (MAX_SCHEMA_BYTES - current) / copies) {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "Expanded Avro schema size is unsupported");
+    }
+    return current + count * copies;
+}
+
+struct SchemaCost {
+    size_t retained = 1024;
+    // Copies share DataTypePtr but own ColumnDefinition vectors, names and string identifiers.
+    size_t copy = 2 * sizeof(ColumnDefinition);
+};
+
+SchemaCost expanded_schema_cost(const ::avro::NodePtr& input,
+                                std::unordered_map<const ::avro::Node*, SchemaCost>* sizes,
+                                std::unordered_set<const ::avro::Node*>* ancestors) {
     const auto node = resolved_node(input);
     if (ancestors->size() >= 64 || !ancestors->insert(node.get()).second) {
         throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -151,20 +167,21 @@ size_t expanded_schema_bytes(const ::avro::NodePtr& input,
     if (const auto found = sizes->find(node.get()); found != sizes->end()) {
         return found->second;
     }
-    // Named schemas share Avro nodes, but Doris expands each use into a distinct column tree.
-    // Memoize the expanded cost: N_i={a:N_(i-1),b:N_(i-1)} doubles without a deep schema.
-    constexpr size_t max_schema_bytes = 64 * 1024 * 1024;
-    size_t bytes = 1024;
+    SchemaCost cost;
     for (size_t i = 0; i < node->leaves(); ++i) {
-        const auto child = expanded_schema_bytes(node->leafAt(i), sizes, ancestors);
-        if (child > max_schema_bytes || bytes > max_schema_bytes - child) {
-            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                            "Expanded Avro schema size is unsupported");
-        }
-        bytes += child;
+        const auto child = expanded_schema_cost(node->leafAt(i), sizes, ancestors);
+        const auto name_bytes = node->type() == ::avro::AVRO_RECORD ? node->nameAt(i).size() : 0;
+        cost.copy = schema_cost_add(cost.copy, child.copy);
+        cost.copy = schema_cost_add(cost.copy, name_bytes, 2);
+        cost.retained = schema_cost_add(cost.retained, child.retained);
+        cost.retained = schema_cost_add(cost.retained, name_bytes, 6);
+        // Each mapped ancestor owns original/projected child trees. Filter localization and
+        // projection rebuilds overlap deep mapping snapshots, so their cost grows with depth.
+        // The envelope covers 32 subtree copies per enclosing level, including predicate maps.
+        cost.retained = schema_cost_add(cost.retained, child.copy, 32);
     }
-    sizes->emplace(node.get(), bytes);
-    return bytes;
+    sizes->emplace(node.get(), cost);
+    return cost;
 }
 
 std::string lowercase(std::string name) {
@@ -317,7 +334,14 @@ Status build_schema(const ::avro::NodePtr& input, const std::string& name, int32
         case ::avro::AVRO_RECORD: {
             DataTypes types;
             Strings names;
+            std::unordered_set<std::string> field_names;
             for (size_t i = 0; i < node->leaves(); ++i) {
+                // Avro distinguishes Foo from foo, but Doris maps both through lowercase keys.
+                // Reject collisions within this record before publishing an ambiguous STRUCT.
+                if (!field_names.insert(lowercase(node->nameAt(i))).second) {
+                    return Status::NotSupported(
+                            "Avro record has ambiguous case-insensitive field names");
+                }
                 ColumnDefinition child;
                 RETURN_IF_ERROR(build_schema(node->leafAt(i), node->nameAt(i),
                                              static_cast<int32_t>(i), timestamp_tz, varbinary,
@@ -946,8 +970,11 @@ Status AvroReader::init(RuntimeState* state) {
         }
         _impl->header_end = _impl->reader->position();
         std::unordered_set<const ::avro::Node*> ancestors;
-        std::unordered_map<const ::avro::Node*, size_t> schema_sizes;
-        _impl->schema_scratch = expanded_schema_bytes(root, &schema_sizes, &ancestors);
+        std::unordered_map<const ::avro::Node*, SchemaCost> schema_sizes;
+        const auto schema_cost = expanded_schema_cost(root, &schema_sizes, &ancestors);
+        // get_schema(), TableReader and the mapper copy even unprojected writer fields. Include
+        // their retained/transient full-schema copies and mapping names before building any tree.
+        _impl->schema_scratch = schema_cost_add(schema_cost.retained, schema_cost.copy, 16);
         Impl::reserve_callback(_impl.get(), _impl->schema_scratch);
         ColumnDefinition record;
         RETURN_IF_ERROR(build_schema(root, "row", 0, _impl->timestamp_tz, _impl->varbinary,
@@ -961,6 +988,20 @@ Status AvroReader::init(RuntimeState* state) {
         return Status::MemoryLimitExceeded("Avro allocation failed");
     } catch (const std::exception& e) {
         return Status::InvalidArgument("Cannot read Avro schema: {}", e.what());
+    }
+}
+
+Status AvroReader::validate_read_schema(const std::string& schema, bool match_record_names,
+                                        const std::string& projected_schema) const {
+    try {
+        _impl->reader->validate_read_schema(schema, match_record_names, projected_schema);
+        return Status::OK();
+    } catch (const doris::Exception& e) {
+        return e.to_status();
+    } catch (const std::bad_alloc&) {
+        return Status::MemoryLimitExceeded("Avro reader schema allocation failed");
+    } catch (const std::exception& e) {
+        return Status::InvalidArgument("Cannot validate Avro reader schema: {}", e.what());
     }
 }
 
@@ -1031,13 +1072,8 @@ Status AvroReader::open(std::shared_ptr<FileScanRequest> request) {
             return Status::InvalidArgument("Invalid Avro file range");
         }
         _impl->range_end = size < 0 ? std::numeric_limits<int64_t>::max() : start + size;
-        // Position deletes and virtual row ids need absolute coordinates. Ordinary scans can
-        // align directly to a sync marker instead of enumerating all preceding block headers.
-        const bool absolute_positions =
-                _request->row_ids.has_value() ||
-                _request->local_positions.contains(LocalColumnId(ROW_POSITION_COLUMN_ID)) ||
-                _request->local_positions.contains(LocalColumnId(GLOBAL_ROWID_COLUMN_ID));
-        _impl->row_position = _impl->reader->seek_range(start, absolute_positions);
+        // Every split follows the header chain: a payload may contain an entire fake block.
+        _impl->row_position = _impl->reader->seek_range(start);
         const auto offset = _impl->reader->position();
         _eof = std::cmp_greater_equal(offset, _impl->range_end) ||
                static_cast<uint64_t>(offset) >= _tracing_file_reader->size();

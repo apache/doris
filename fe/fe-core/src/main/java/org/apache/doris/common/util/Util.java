@@ -406,7 +406,8 @@ public class Util {
             return TFileFormatType.FORMAT_PARQUET;
         } else if (lowerCasePath.contains(".orc")) {
             return TFileFormatType.FORMAT_ORC;
-        } else if (lowerCasePath.contains(".avro")) {
+        } else if (lowerCasePath.endsWith(".avro")) {
+            // A directory or an earlier suffix does not determine the file encoding.
             return TFileFormatType.FORMAT_AVRO;
         } else if (lowerCasePath.contains(".json")) {
             return TFileFormatType.FORMAT_JSON;

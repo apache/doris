@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
 import com.google.gson.JsonElement;
@@ -24,6 +26,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 
+import java.util.List;
 import java.util.Set;
 
 final class HiveAvroSchemaPolicy {
@@ -38,6 +41,9 @@ final class HiveAvroSchemaPolicy {
     static void validate(HiveTableHandle handle, HiveFileFormat format) {
         if (format != HiveFileFormat.AVRO) {
             return;
+        }
+        if (handle.requiresAvroStringCoercion()) {
+            throw new DorisConnectorException("Native Hive Avro CHAR/VARCHAR coercion is unsupported");
         }
         String literal = property(handle, LITERAL);
         if (literal == null || "none".equals(literal)) {
@@ -64,6 +70,21 @@ final class HiveAvroSchemaPolicy {
         }
     }
 
+    static boolean requiresStringCoercion(List<ConnectorColumn> columns) {
+        return columns != null && columns.stream().anyMatch(column -> requiresStringCoercion(column.getType()));
+    }
+
+    private static boolean requiresStringCoercion(ConnectorType type) {
+        // DataTypeString later erases length and Hive's Unicode truncation/padding behavior.
+        return "CHAR".equalsIgnoreCase(type.getTypeName()) || "VARCHAR".equalsIgnoreCase(type.getTypeName())
+                || type.getChildren().stream().anyMatch(HiveAvroSchemaPolicy::requiresStringCoercion);
+    }
+
+    static String readerSchema(HiveTableHandle handle) {
+        String literal = property(handle, LITERAL);
+        return literal == null || "none".equals(literal) ? null : literal;
+    }
+
     private static String property(HiveTableHandle handle, String key) {
         String value = handle.getTableParameters().get(key);
         return value != null ? value : handle.getSdParameters().get(key);
@@ -72,7 +93,7 @@ final class HiveAvroSchemaPolicy {
     private static DorisConnectorException unsupported() {
         return new DorisConnectorException("Native Hive Avro reads support only generated-style nullable reader "
                 + "schemas with null defaults; custom Avro reader defaults, aliases, named references and "
-                + "schema URLs are unsupported");
+                + "schema URLs and Hive CHAR/VARCHAR logical types are unsupported");
     }
 
     private static String typeName(JsonElement schema) {
@@ -122,6 +143,16 @@ final class HiveAvroSchemaPolicy {
             return PRIMITIVES.contains(type);
         }
         JsonObject object = schema.getAsJsonObject();
+        JsonElement logical = object.get("logicalType");
+        if (logical != null && logical.isJsonPrimitive()) {
+            String name = logical.getAsString();
+            // Hive recognizes these annotations without case, while the native SDK does not.
+            if (name.chars().anyMatch(value -> value >= 128)
+                    || "char".equalsIgnoreCase(name) || "varchar".equalsIgnoreCase(name)
+                    || ("decimal".equalsIgnoreCase(name) && !"decimal".equals(name))) {
+                return false;
+            }
+        }
         if (aliases(object)) {
             return false;
         }

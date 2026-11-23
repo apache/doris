@@ -737,6 +737,14 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
 
+        if (fileFormat == HiveFileFormat.AVRO) {
+            String readerSchema = HiveAvroSchemaPolicy.readerSchema(hiveHandle);
+            if (readerSchema != null) {
+                // The native reader must validate resolution before predicates or SQL casts run.
+                props.put(ScanNodePropertyKeys.LOCATION_PREFIX + "avro.schema.literal", readerSchema);
+            }
+        }
+
         // Text format properties (delimiters / enclose / escape / null_format / is_json) for every non-columnar
         // format — TEXT (hive text serde), CSV (OpenCSV serde) and JSON. BE reads these from the hive.text.*
         // props regardless of the resolved TFileFormatType, so all three families must emit them.

@@ -176,6 +176,7 @@ public enum HiveFileFormat {
      * structure; text/csv are line-splittable. JSON is read whole (not split), matching the legacy behavior.
      */
     public boolean isSplittable() {
-        return this == PARQUET || this == ORC || this == TEXT || this == CSV;
+        // The native Avro reader proves OCF block boundaries, so large files can use parallel ranges.
+        return this == PARQUET || this == ORC || this == AVRO || this == TEXT || this == CSV;
     }
 }

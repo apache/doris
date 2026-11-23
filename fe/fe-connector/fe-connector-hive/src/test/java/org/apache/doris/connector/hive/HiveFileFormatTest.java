@@ -63,7 +63,7 @@ public class HiveFileFormatTest {
         HiveFileFormat format = detect("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat",
                 "org.apache.hadoop.hive.serde2.avro.AvroSerDe");
         Assertions.assertEquals("avro", format.getFormatName());
-        Assertions.assertFalse(format.isSplittable());
+        Assertions.assertTrue(format.isSplittable());
     }
 
     @Test
@@ -140,6 +140,7 @@ public class HiveFileFormatTest {
     public void splittability() {
         Assertions.assertTrue(HiveFileFormat.PARQUET.isSplittable());
         Assertions.assertTrue(HiveFileFormat.ORC.isSplittable());
+        Assertions.assertTrue(HiveFileFormat.AVRO.isSplittable());
         Assertions.assertTrue(HiveFileFormat.TEXT.isSplittable());
         Assertions.assertTrue(HiveFileFormat.CSV.isSplittable());
         Assertions.assertFalse(HiveFileFormat.JSON.isSplittable());
