@@ -54,6 +54,7 @@
 #include "storage/iterator/heap_merge_iterator.h"
 #include "storage/iterator/merge_block_iterator.h"
 #include "storage/iterator/topn_block_iterator.h"
+#include "storage/iterator/unique_key_block_iterator.h"
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -608,6 +609,9 @@ BlockReader::BlockIterMode BlockReader::_block_iter_mode(const ReaderParams& rea
         }
         return BlockIterMode::KEY_ORDERED;
     }
+    if (_tablet_schema->keys_type() == KeysType::UNIQUE_KEYS) {
+        return merge_by_sequence_mapping ? BlockIterMode::NONE : BlockIterMode::UNIQUE_NEWEST;
+    }
     if (_tablet_schema->keys_type() == KeysType::AGG_KEYS) {
         return BlockIterMode::AGG_FOLD;
     }
@@ -631,6 +635,8 @@ Status BlockReader::_init_block_iter(const ReaderParams& read_params, BlockIterM
         return _init_direct_iter(read_params, &_block_iter);
     case BlockIterMode::KEY_ORDERED:
         return _init_key_ordered_iter(read_params, &_block_iter);
+    case BlockIterMode::UNIQUE_NEWEST:
+        return _init_unique_key_iter(read_params);
     case BlockIterMode::AGG_FOLD:
         return _init_agg_key_iter(read_params);
     case BlockIterMode::NONE:
@@ -747,6 +753,32 @@ Status BlockReader::_collect_key_ordered_children(const ReaderParams& read_param
         RETURN_IF_ERROR(rs_reader->get_key_ordered_iterators(&_reader_context, children));
         _rs_readers.push_back(rs_reader);
     }
+    return Status::OK();
+}
+
+Status BlockReader::_init_unique_key_iter(const ReaderParams& read_params) {
+    DORIS_CHECK(!_reader_context.read_changelog);
+    DORIS_CHECK(!read_params.read_orderby_key);
+
+    _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
+    if (!_is_rowsets_overlapping) {
+        return _init_direct_iter(read_params, &_block_iter);
+    }
+
+    HeapMergeOrder order;
+    order.tie_breaker_ordinal = _read_schema->sequence_ordinal();
+    order.tie_breaker_ascending = false;
+    order.older_child_first = false;
+
+    std::vector<RowwiseIteratorUPtr> children;
+    RETURN_IF_ERROR(_collect_key_ordered_children(read_params, &children));
+    RETURN_IF_ERROR(_validate_merge_schema(order.tie_breaker_ordinal));
+
+    RowwiseIteratorUPtr merge_iter;
+    RETURN_IF_ERROR(_init_heap_merge(std::move(children), std::move(order),
+                                     read_params.runtime_state, &merge_iter));
+    _block_iter = std::make_unique<UniqueKeyBlockIterator>(std::move(merge_iter), _read_schema,
+                                                           &_merged_rows);
     return Status::OK();
 }
 
@@ -886,7 +918,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
 
     if (mode != BlockIterMode::NONE) {
         _next_block_func = &BlockReader::_block_iter_next_block;
-        _filter_delete_sign = false;
+        _filter_delete_sign = mode == BlockIterMode::UNIQUE_NEWEST && _delete_sign_available;
         return Status::OK();
     }
 

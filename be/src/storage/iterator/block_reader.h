@@ -73,6 +73,7 @@ private:
         TOPN,
         DIRECT,
         KEY_ORDERED,
+        UNIQUE_NEWEST,
         AGG_FOLD,
     };
 
@@ -119,6 +120,7 @@ private:
                                   std::unique_ptr<BlockIterator>* out_iter);
     Status _init_heap_merge(std::vector<RowwiseIteratorUPtr> children, HeapMergeOrder order,
                             RuntimeState* runtime_state, RowwiseIteratorUPtr* merge_iter);
+    Status _init_unique_key_iter(const ReaderParams& read_params);
     // Set up `_block_iter` for AGG_FOLD reads.
     Status _init_agg_key_iter(const ReaderParams& read_params);
 
