@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connectorconf.testplugins.BackendDiscoveringConnectorProvider;
+import org.apache.doris.connectorconf.testplugins.FileFormatsFailingConnectorProvider;
 import org.apache.doris.datasource.CatalogFactory;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.extension.loader.PluginRegistry;
@@ -401,6 +402,41 @@ public class ConnectorPluginManagerTest {
     }
 
     @Test
+    void classpathProviderWhoseFileFormatsThrowIsSkippedNotFatal(@TempDir Path tempDir) throws Exception {
+        // The file formats are plugin code read at admission, as the security surface is: a provider whose
+        // getFileFormats() throws is skipped, and FE starts.
+        Path jar = createClasspathProviderJar(tempDir.resolve("file-formats-failing.jar"), kernelApiMajor() + ".0",
+                FileFormatsFailingConnectorProvider.class);
+        ConnectorPluginManager loading = new ConnectorPluginManager();
+        try (URLClassLoader loader = providerClassLoader(jar, FileFormatsFailingConnectorProvider.class)) {
+            Assertions.assertDoesNotThrow(() -> loading.loadBuiltins(loader));
+        }
+        Assertions.assertFalse(loading.getRegisteredTypes().contains(FileFormatsFailingConnectorProvider.TYPE));
+    }
+
+    @Test
+    void pluginWhoseFileFormatsThrowIsSkippedNotFatal(@TempDir Path tempDir) throws Exception {
+        // The same failure from a plugin directory: loadPlugins promises partial success, so the plugin is skipped
+        // and the plugin next to it, loaded after it, still loads.
+        String apiVersion = kernelApiMajor() + ".0";
+        Path root = tempDir.resolve("connector-plugins");
+        PluginJarWriter.writePluginRoot(root, "file-formats-failing", FileFormatsFailingConnectorProvider.class,
+                ConnectorProvider.class, "Doris-Connector-Plugin-Api-Version", apiVersion, Collections.emptyList());
+        PluginJarWriter.writePluginRoot(root, "version-probe", VersionProbeConnectorProvider.class,
+                ConnectorProvider.class, "Doris-Connector-Plugin-Api-Version", apiVersion, Collections.emptyList());
+        ConnectorPluginManager loading = new ConnectorPluginManager();
+        try {
+            Assertions.assertDoesNotThrow(() -> loading.loadPlugins(Collections.singletonList(root)));
+            Assertions.assertFalse(loading.getRegisteredTypes().contains(FileFormatsFailingConnectorProvider.TYPE));
+            Assertions.assertTrue(loading.getRegisteredTypes().contains("version_probe"),
+                    loading.getRegisteredTypes().toString());
+        } finally {
+            // loadPlugins writes inventory rows into a process-wide singleton.
+            PluginRegistry.getInstance().clearForTest();
+        }
+    }
+
+    @Test
     void incompatibleClasspathProviderIsRejectedBeforeConstruction(@TempDir Path tempDir) throws Exception {
         System.clearProperty(CLASSPATH_PROVIDER_CONSTRUCTED);
         try {
@@ -664,9 +700,9 @@ public class ConnectorPluginManagerTest {
         return jarPath;
     }
 
-    /** Admits {@code provider} as both loading paths do: with its security surface read up front. */
+    /** Admits {@code provider} as both loading paths do: with its security surface and file formats read up front. */
     private boolean admit(ConnectorProvider provider, boolean failFast) {
-        return manager.registerDiscovered(provider, provider.securitySurface(), failFast);
+        return manager.registerDiscovered(provider, provider.securitySurface(), provider.getFileFormats(), failFast);
     }
 
     private static ConnectorProvider createProvider(String type) {

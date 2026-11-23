@@ -200,12 +200,14 @@ public class ConnectorPluginManager {
                 continue;
             }
             ConnectorSecuritySurface securitySurface;
+            Set<String> formats;
             try {
-                // Snapshot self-reported metadata (the security surface included) before publishing the
-                // provider so one throwing implementation is rejected cleanly instead of
+                // Snapshot self-reported metadata (the security surface and the file formats included) before
+                // publishing the provider so one throwing implementation is rejected cleanly instead of
                 // aborting startup or being active without an inventory row. A surface built through the
                 // provider's own ServiceLoader fails with ServiceConfigurationError, as construction can.
                 securitySurface = provider.securitySurface();
+                formats = provider.getFileFormats();
                 PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, provider);
             } catch (ServiceConfigurationError | RuntimeException e) {
                 LOG.warn("Skip built-in connector provider {}: self-reported metadata failed",
@@ -214,7 +216,7 @@ public class ConnectorPluginManager {
             }
             // Deliberately outside that catch: registerDiscovered's fail-loud
             // IllegalStateException reports a build error, not a "skip this one" condition.
-            if (registerDiscovered(provider, securitySurface, true)) {
+            if (registerDiscovered(provider, securitySurface, formats, true)) {
                 LOG.info("Registered built-in connector provider: {}", provider.getType());
             }
         }
@@ -231,6 +233,7 @@ public class ConnectorPluginManager {
      *
      * @param securitySurface the provider's {@code securitySurface()}, which the caller reads before it
      *                 publishes anything: it is plugin code that may throw
+     * @param formats the provider's {@code getFileFormats()}, which the caller reads the same way
      * @param failFast {@code true} for the classpath batch: two providers claiming one type name there is a
      *                 build error and must fail loud. {@code false} for the plugin-directory batch: that is a
      *                 deployment accident, so the offender is skipped and logged, preserving
@@ -238,10 +241,9 @@ public class ConnectorPluginManager {
      * @return true if the provider was admitted
      */
     boolean registerDiscovered(ConnectorProvider provider, ConnectorSecuritySurface securitySurface,
-            boolean failFast) {
+            Set<String> formats, boolean failFast) {
         String type = provider.getType();
         Set<String> engineNames = provider.acceptedCreateTableEngineNames();
-        Set<String> formats = provider.getFileFormats();
         String problem = typeNameProblem(type);
         if (problem == null) {
             problem = createTableEngineNameProblem(engineNames);
@@ -389,22 +391,24 @@ public class ConnectorPluginManager {
                 continue;
             }
             ConnectorProvider provider = handle.getFactory();
-            // Snapshot the security surface before publishing anything: it is plugin code, and one bad plugin
-            // dir must not stop FE. A connector may build it through its own ServiceLoader, as Hive, Iceberg and
-            // Paimon do for their metastore backends, and a descriptor naming a backend that cannot be loaded
-            // fails that with ServiceConfigurationError, an Error.
+            // Snapshot the security surface and the file formats before publishing anything: they are plugin
+            // code, and one bad plugin dir must not stop FE. A connector may build its surface through its own
+            // ServiceLoader, as Hive, Iceberg and Paimon do for their metastore backends, and a descriptor naming
+            // a backend that cannot be loaded fails that with ServiceConfigurationError, an Error.
             ConnectorSecuritySurface securitySurface;
+            Set<String> formats;
             try {
                 securitySurface = provider.securitySurface();
+                formats = provider.getFileFormats();
             } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
                 runtimeManager.discard(handle.getPluginName());
-                LOG.warn("Skip connector plugin '{}' from {}: securitySurface() failed",
+                LOG.warn("Skip connector plugin '{}' from {}: securitySurface() or getFileFormats() failed",
                         handle.getPluginName(), handle.getPluginDir(), e);
                 continue;
             }
             // The inventory row is written only for a provider that was actually admitted, so
             // information_schema.extensions never lists a connector the routing table cannot reach.
-            if (registerDiscovered(provider, securitySurface, false)) {
+            if (registerDiscovered(provider, securitySurface, formats, false)) {
                 PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
                 loadConnectorConfig(handle);
                 LOG.info("Loaded connector plugin: name={}, pluginDir={}, jarCount={}",
