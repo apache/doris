@@ -110,19 +110,21 @@ public class MaterializedIndexTest {
     }
 
     @Test
-    public void testStaleReportPreservesVisibleChangelogDelta() {
+    public void testIncompleteOrRegressingReportPreservesVisibleChangelogDelta() {
         index.setIsChangelog(true);
-        index.setChangelogReportedRowCount(0, true, 3, 3);
+        index.setChangelogReportedRowCount(2, true, 2, 3);
         index.addChangelogRows(4, 10);
-        index.setChangelogReportedRowCount(0, true, 3, 3);
-        Assertions.assertEquals(10, index.getRowCount());
         index.setChangelogReportedRowCount(0, false, 4, 4);
-        Assertions.assertEquals(10, index.getRowCount());
-
-        index.setChangelogReportedRowCount(8, true, 4, 4);
+        index.setChangelogReportedRowCount(0, true, -1, -1);
+        index.setChangelogReportedRowCount(0, true, 1, 3);
+        index.setChangelogReportedRowCount(0, true, 2, 2);
         index.addChangelogRows(4, 10);
-        index.setChangelogReportedRowCount(0, true, 3, 3);
-        Assertions.assertEquals(8, index.getRowCount());
+        Assertions.assertEquals(12, index.getRowCount());
+
+        index.setChangelogReportedRowCount(1, true, 2, 3);
+        index.addChangelogRows(4, 10);
+        Assertions.assertEquals(1, index.getRowCount());
+        Assertions.assertTrue(index.getRowCountReported());
     }
 
     @Test
@@ -139,67 +141,83 @@ public class MaterializedIndexTest {
                     changelog.addChangelogRowsFromPublish(version, 6);
                     changelog.addChangelogRowsFromPublish(version, 4);
                 }
-                changelog.setChangelogReportedRowCount(100, true, version - 1, version - 1);
                 Assertions.assertEquals(110L, changelog.getRowCount(), "cloud=" + cloud + ", version=" + version);
+                changelog.setChangelogReportedRowCount(100, true, version - 1, version - 1);
+                Assertions.assertEquals(100L, changelog.getRowCount(), "cloud=" + cloud + ", version=" + version);
             }
         }
     }
 
     @Test
     public void testChangelogDeltaLimitPausesUntilCompleteReport() {
-        int deltaLimit = 1_024;
-        long nextVersion = 2L * deltaLimit + 2;
-        for (long version = 2; version < nextVersion; version += 2) {
+        for (long version = 2; version <= 128; version++) {
             index.addChangelogRows(version, 1);
         }
-        Assertions.assertEquals(deltaLimit, index.getRowCount());
+        Assertions.assertEquals(127, index.getRowCount());
+        index.addChangelogRows(129, 1);
+        Assertions.assertEquals(128, index.getRowCount());
+        index.addChangelogRows(130, 10);
+        Assertions.assertEquals(128, index.getRowCount());
+        Assertions.assertEquals(130, index.getChangelogStatsRefreshVersion());
 
-        index.addChangelogRows(3, 10);
-        index.addChangelogRows(nextVersion, 10);
-        Assertions.assertEquals(deltaLimit, index.getRowCount());
+        index.setChangelogReportedRowCount(5, false, 129, 129);
+        index.addChangelogRows(131, 1);
+        Assertions.assertEquals(128, index.getRowCount());
+        index.setChangelogReportedRowCount(50, true, 128, 128);
+        Assertions.assertEquals(50, index.getRowCount());
+        Assertions.assertEquals(131, index.getChangelogStatsRefreshVersion());
 
-        index.setChangelogReportedRowCount(deltaLimit, false, nextVersion, nextVersion);
-        index.addChangelogRows(nextVersion, 10);
-        Assertions.assertEquals(deltaLimit, index.getRowCount());
-
-        index.setChangelogReportedRowCount(deltaLimit, true, nextVersion - 2, nextVersion - 2);
-        index.addChangelogRows(2, 10);
-        index.addChangelogRows(4, 10);
-        Assertions.assertEquals(deltaLimit, index.getRowCount());
-        index.addChangelogRows(nextVersion, 1);
-        Assertions.assertEquals(deltaLimit + 1, index.getRowCount());
-        index.addChangelogRows(nextVersion + 2, 10);
-        Assertions.assertEquals(deltaLimit + 11, index.getRowCount());
+        // Both the counted write and the write skipped at capacity may be retried.
+        index.addChangelogRows(129, 1);
+        index.addChangelogRows(130, 10);
+        Assertions.assertEquals(50, index.getRowCount());
+        index.addChangelogRows(133, 3);
+        index.addChangelogRows(132, 2);
+        index.addChangelogRows(133, 3);
+        Assertions.assertEquals(55, index.getRowCount());
     }
 
     @Test
     public void testConsecutivePublishVersionsAreBoundedAndResumeAfterLaggingReport() {
-        for (long version = 2; version <= 1_025; version++) {
+        for (long version = 2; version <= 129; version++) {
             index.addChangelogRowsFromPublish(version, 1);
         }
-        index.addChangelogRowsFromPublish(1_025, 1);
-        index.addChangelogRowsFromPublish(1_026, 1);
-        Assertions.assertEquals(1_025, index.getRowCount());
+        index.addChangelogRowsFromPublish(129, 4);
+        index.addChangelogRowsFromPublish(130, 10);
+        Assertions.assertEquals(132, index.getRowCount());
 
-        index.setChangelogReportedRowCount(50, true, 1_024, 1_024);
-        Assertions.assertEquals(52, index.getRowCount());
-        index.addChangelogRowsFromPublish(1_027, 1);
-        Assertions.assertEquals(53, index.getRowCount());
+        index.setChangelogReportedRowCount(50, true, 128, 128);
+        index.addChangelogRowsFromPublish(129, 4);
+        Assertions.assertEquals(50, index.getRowCount());
+        index.addChangelogRowsFromPublish(131, 1);
+        Assertions.assertEquals(51, index.getRowCount());
     }
 
     @Test
-    public void testMixedChangelogReportDoesNotReapplyPartiallyCoveredWrites() {
-        index.addChangelogRows(4, 10);
-        index.addChangelogRows(5, 7);
-        index.setChangelogReportedRowCount(100, true, 3, 4);
-        Assertions.assertEquals(107, index.getRowCount());
+    public void testChangelogReportSupersedesOverlappingPublishDeltas() {
+        // A mixed report already includes part of a subtransaction's aggregated publish delta.
+        index.addChangelogRowsFromPublish(5, 5);
+        index.setChangelogReportedRowCount(12, true, 3, 4);
+        Assertions.assertEquals(12, index.getRowCount());
+        index.addChangelogRowsFromPublish(5, 5);
+        Assertions.assertEquals(12, index.getRowCount());
 
-        index.addChangelogRows(4, 10);
-        index.setChangelogReportedRowCount(80, true, 3, 3);
-        Assertions.assertEquals(107, index.getRowCount());
+        // Shared-nothing tablet rows can include rowsets above the contiguous report version.
+        index.clearTabletsForRestore();
+        index.addChangelogRowsFromPublish(5, 10);
+        index.addChangelogRowsFromPublish(4, 10);
+        index.setChangelogReportedRowCount(110, true, 3, 3);
+        Assertions.assertEquals(110, index.getRowCount());
+        index.setChangelogReportedRowCount(120, true, 5, 5);
+        Assertions.assertEquals(120, index.getRowCount());
 
-        index.setChangelogReportedRowCount(95, true, 4, 4);
-        Assertions.assertEquals(102, index.getRowCount());
+        // Cloud tablet rows can already include a lazy commit above the sampled partition version.
+        index.clearTabletsForRestore();
+        index.addChangelogRows(4, 10);
+        index.setChangelogReportedRowCount(110, true, 3, 3);
+        Assertions.assertEquals(110, index.getRowCount());
+        index.addChangelogRows(4, 10);
+        Assertions.assertEquals(110, index.getRowCount());
     }
 
     @Test

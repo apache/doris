@@ -98,8 +98,9 @@ public class TabletStatMgrTest {
             defaultReplica.updateVersion(3L);
             otherTabletReplica.updateVersion(3L);
             changelog.addChangelogRowsFromPublish(3L, 10L);
-            manager.runAfterCatalogReady();
             Assertions.assertEquals(17L, changelog.getRowCount());
+            manager.runAfterCatalogReady();
+            Assertions.assertEquals(7L, changelog.getRowCount());
             reportedReplica.updateRowCountReport(8L, 3L);
             manager.runAfterCatalogReady();
             // Select the freshest report for the first tablet. Its version-3 rows already
@@ -110,6 +111,12 @@ public class TabletStatMgrTest {
             reportedReplica.updateRowCountReport(0L, 3L);
             defaultReplica.updateRowCountReport(0L, 3L);
             otherTabletReplica.updateRowCountReport(0L, 3L);
+            manager.runAfterCatalogReady();
+            Assertions.assertEquals(0L, changelog.getRowCount());
+            Assertions.assertTrue(changelog.getRowCountReported());
+
+            // No replica currently qualifies after the partition version advances.
+            table.getPartition(30L).setVisibleVersionAndTime(4L, 300L);
             manager.runAfterCatalogReady();
             Assertions.assertEquals(0L, changelog.getRowCount());
             Assertions.assertTrue(changelog.getRowCountReported());
@@ -171,10 +178,11 @@ public class TabletStatMgrTest {
             Assertions.assertTrue(changelog.getRowCountReported());
 
             changelog.addChangelogRows(4L, 10L);
+            Assertions.assertEquals(22L, changelog.getRowCount());
             update.invoke(manager, cloudRows(200L, 0L, 3L), false);
             update.invoke(manager, cloudRows(300L, 0L, 3L), false);
             aggregate.invoke(manager, Collections.singletonList(10L));
-            Assertions.assertEquals(10L, changelog.getRowCount());
+            Assertions.assertEquals(0L, changelog.getRowCount());
             update.invoke(manager, cloudRows(200L, 0L, 4L), false);
             aggregate.invoke(manager, Collections.singletonList(10L));
             Assertions.assertEquals(0L, changelog.getRowCount());
@@ -220,7 +228,7 @@ public class TabletStatMgrTest {
     }
 
     @Test
-    public void testCloudModeTwoRevalidatesRestoredRowsBeforePollingBackoff() throws Exception {
+    public void testCloudModeTwoBypassesPollingBackoffForRestoredRowsAndNewWrites() throws Exception {
         InternalCatalog catalog = new InternalCatalog();
         MaterializedIndex changelog = createTable(catalog);
         OlapTable table = (OlapTable) catalog.getDbNullable(10L).getTableNullable(20L);
@@ -274,6 +282,8 @@ public class TabletStatMgrTest {
                             .addAllTabletStats(cloudRows(200L, 13L).getTabletStatsList()).build(), false);
                 } else if (requests.size() == 3) {
                     update.invoke(manager, cloudRows(200L, 18L, 3L), false);
+                } else if (requests.size() == 4) {
+                    update.invoke(manager, cloudRows(200L, 200L, 132L), false);
                 }
                 return CompletableFuture.completedFuture(null);
             }).when(manager).submitGetTabletStatsTask(Mockito.any(), Mockito.anyBoolean());
@@ -304,6 +314,21 @@ public class TabletStatMgrTest {
             Assertions.assertEquals(List.of(200L), requests.get(2).getTabletIdsWithRowCountVersionList());
             Assertions.assertEquals(18L, changelog.getRowCount());
             Assertions.assertTrue(changelog.getRowCountReported());
+
+            for (long version = 4; version <= 131; version++) {
+                changelog.addChangelogRows(version, 1L);
+            }
+            // The replica has a sample through the last counted write, but the FE has
+            // not aggregated that sample. The skipped write still needs a fresh sample.
+            restoredChangelog.updateRowCountReport(146L, 131L);
+            restoredChangelog.setStatsIntervalIndex(8);
+            changelog.addChangelogRows(132L, 1L);
+            Assertions.assertEquals(146L, changelog.getRowCount());
+            manager.runAfterCatalogReady();
+            Assertions.assertEquals(4, requests.size());
+            Assertions.assertEquals(1, requests.get(3).getTabletIdxCount());
+            Assertions.assertEquals(List.of(200L), requests.get(3).getTabletIdsWithRowCountVersionList());
+            Assertions.assertEquals(200L, changelog.getRowCount());
         } finally {
             Config.cloud_get_tablet_stats_version = oldStatsVersion;
         }

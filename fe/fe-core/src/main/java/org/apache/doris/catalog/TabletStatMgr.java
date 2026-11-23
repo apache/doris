@@ -301,8 +301,6 @@ public class TabletStatMgr extends MasterDaemon {
                             } else if (anyTabletReported || indexReported) {
                                 index.setChangelogReportedRowCount(indexRowCount, indexReported,
                                         tablets.isEmpty() ? -1 : indexReportVersion, maxReportVersion);
-                            } else {
-                                index.setRowCountReported(false);
                             }
                             LOG.debug("Table {} index {} all tablets reported[{}], row count {}",
                                     olapTable.getName(), olapTable.getIndexNameById(index.getId()),

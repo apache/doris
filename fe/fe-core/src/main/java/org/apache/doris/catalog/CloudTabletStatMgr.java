@@ -466,8 +466,6 @@ public class CloudTabletStatMgr extends MasterDaemon {
                             } else if (anyTabletReported || indexReported) {
                                 index.setChangelogReportedRowCount(indexRowCount, indexReported,
                                         tablets.isEmpty() ? -1 : indexReportVersion, maxReportVersion);
-                            } else {
-                                index.setRowCountReported(false);
                             }
                         } // end for indices
                         if (maxPartitionSize.second <= partitionDataSize) {
