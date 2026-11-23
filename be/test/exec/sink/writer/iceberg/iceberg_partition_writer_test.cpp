@@ -236,8 +236,8 @@ TEST_F(VIcebergPartitionWriterTest, UnsupportedParquetCodecDoesNotCreateFile) {
                                                 .file_type = TFileType::FILE_LOCAL,
                                                 .broker_addresses = {}};
     auto writer = std::make_unique<VIcebergPartitionWriter>(
-            make_table_sink(std::nullopt), std::vector<std::string> {}, output_exprs, schema,
-            &schema_json, std::vector<std::string> {}, std::move(write_info),
+            make_table_sink(std::nullopt), std::vector<std::optional<std::string>> {}, output_exprs,
+            schema, &schema_json, std::vector<std::string> {}, std::move(write_info),
             "unsupported_parquet_codec_" + UniqueId::gen_uid().to_string(), 0,
             TFileFormatType::FORMAT_PARQUET, TFileCompressType::ZLIB, hadoop_conf);
 
