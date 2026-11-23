@@ -24,9 +24,11 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /** The connector's lifecycle, without reaching storage or loading the native library. */
@@ -75,29 +77,29 @@ class LanceConnectorTest {
     }
 
     /**
-     * REFRESH CATALOG replaces the catalog's generation, so the next call connects a new namespace (with a new
-     * Session); REFRESH DATABASE and TABLE keep it.
+     * REFRESH TABLE, DATABASE and CATALOG each replace the catalog's generation, so the next call connects a new
+     * namespace with a new Session: a Lance Session cannot drop the cached metadata of one dataset.
      */
     @Test
-    void onlyCatalogRefreshReplacesTheGeneration() {
+    void everyRefreshReplacesTheGeneration() {
         FakeResourceFactory resources = new FakeResourceFactory();
         LanceCatalogProperties properties = LanceCatalogProperties.of(filesystem());
         LanceConnector connector = new LanceConnector(properties, new LanceTestContext(), new LanceCatalogClient(
                 properties, Collections::emptyList, () -> 1024 * 1024, resources, () -> 0L));
         LanceTestSession session = new LanceTestSession();
+        List<Runnable> refreshes = Arrays.asList(() -> connector.invalidateTable("default", "t"),
+                () -> connector.invalidateDb("default"), connector::invalidateAll);
         connector.getMetadata(session).listDatabaseNames(session);
-        connector.invalidateTable("default", "t");
-        connector.invalidateDb("default");
-        connector.getMetadata(session).listDatabaseNames(session);
-        Assertions.assertEquals(1, resources.namespaces.size());
-        Assertions.assertEquals(0, resources.namespaces.get(0).closes.get());
-
-        connector.invalidateAll();
-        Assertions.assertEquals(1, resources.namespaces.get(0).closes.get());
-        connector.getMetadata(session).listDatabaseNames(session);
-        Assertions.assertEquals(2, resources.namespaces.size());
+        for (int i = 0; i < refreshes.size(); i++) {
+            Assertions.assertEquals(0, resources.namespaces.get(i).closes.get());
+            refreshes.get(i).run();
+            Assertions.assertEquals(1, resources.namespaces.get(i).closes.get());
+            Assertions.assertTrue(resources.allocators.get(i).closed);
+            connector.getMetadata(session).listDatabaseNames(session);
+            Assertions.assertEquals(i + 2, resources.namespaces.size());
+        }
         connector.close();
-        Assertions.assertEquals(1, resources.namespaces.get(1).closes.get());
+        Assertions.assertEquals(1, resources.namespaces.get(3).closes.get());
     }
 
     private static LanceTestContext unreachable(String what) {

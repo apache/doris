@@ -56,9 +56,9 @@ import java.util.concurrent.TimeUnit;
  * <p>Every metadata read starts from the table's access: the dataset URI and the storage options the namespace
  * describes. Those rarely change, while describing costs a REST request or a directory listing per read, so a
  * described access is reused for {@code lance.table_access_cache_ttl_seconds}, counted from the describe: a hit
- * never extends it. A table whose options carry vended credentials, or whose URI may carry credentials, is
- * described on every read: the BE cannot renew credentials during a scan of any length, and no fixed margin
- * covers every query.
+ * never extends it, and any REFRESH drops them all with the generation this client belongs to. A table whose
+ * options carry vended credentials, or whose URI may carry credentials, is described on every read: the BE
+ * cannot renew credentials during a scan of any length, and no fixed margin covers every query.
  */
 final class LanceNamespaceClient {
     /** Joins the components of a nested namespace into one Doris database name. */
@@ -81,8 +81,8 @@ final class LanceNamespaceClient {
     private final Object namespaceLock = new Object();
     private final long tableAccessTtlNanos;
     private final Ticker ticker;
-    /** Replaced, never cleared, on invalidation; see {@link #invalidateTableAccessCache()}. */
-    private volatile Cache<List<String>, CachedTableAccess> tableAccessCache;
+    /** Lives as long as this client: a refresh retires the client with its generation. */
+    private final Cache<List<String>, CachedTableAccess> tableAccessCache;
 
     /**
      * @param tableAccessTtlSeconds how long a described access is reused; 0 describes the table on every read
@@ -221,16 +221,6 @@ final class LanceNamespaceClient {
         return tableAccessCache.get(tableId, id -> describeTableAccess(id, dbName, tableName)).access;
     }
 
-    /**
-     * Drops every cached access, catalog-wide, for REFRESH TABLE as for REFRESH DATABASE: describing a table again
-     * is cheap. The cache is swapped rather than cleared, so that this waits for nothing, and a describe already in
-     * flight, which still answers its own caller, cannot repopulate the cache that reads admitted after the refresh
-     * use.
-     */
-    void invalidateTableAccessCache() {
-        tableAccessCache = newTableAccessCache();
-    }
-
     private CachedTableAccess describeTableAccess(List<String> tableId, String dbName, String tableName) {
         DescribeTableResponse table = namespace.describeTable(
                 new DescribeTableRequest().id(tableId).withTableUri(true).vendCredentials(vendCredentials));
@@ -251,20 +241,22 @@ final class LanceNamespaceClient {
         // One option map serves both readers: the FE opens the dataset through the Lance Java SDK and the
         // BE through lance-c, so neither can end up with credentials the other lacks. The dataset URL picks
         // the option vocabulary, the same way Lance picks a provider from it.
-        LanceTableAccess access = new LanceTableAccess(datasetUri, LanceStorageOptions.fromDorisAndVendedStorageOptions(
-                datasetUri, storageProperties, table.getStorageOptions()));
-        return new CachedTableAccess(access, cacheTtlNanos(datasetUri, table.getStorageOptions()));
+        Map<String, String> vendedOptions = table.getStorageOptions();
+        LanceTableAccess access = new LanceTableAccess(datasetUri,
+                LanceStorageOptions.fromDorisAndVendedStorageOptions(datasetUri, storageProperties, vendedOptions),
+                vendedOptions != null && !vendedOptions.isEmpty());
+        return new CachedTableAccess(access, cacheTtlNanos(access));
     }
 
     /** How long a described access may be reused: 0 when it may carry credentials. */
-    private long cacheTtlNanos(String datasetUri, Map<String, String> vendedOptions) {
+    private long cacheTtlNanos(LanceTableAccess access) {
         // The BE cannot renew credentials during a scan. A fixed expiry margin cannot cover arbitrary query
         // durations, so vended options are described again for every read, even with a reported deadline.
-        if (vendedOptions != null && !vendedOptions.isEmpty()) {
+        if (access.hasVendedOptions()) {
             return 0;
         }
         try {
-            URI uri = new URI(datasetUri.trim());
+            URI uri = new URI(access.getDatasetUri().trim());
             // Presigned or SAS credentials may live in the URI even when the storage options are empty. A
             // registry-based authority holds user info that URI.getRawUserInfo() does not report.
             if (uri.isOpaque() || uri.getRawUserInfo() != null || uri.getRawQuery() != null

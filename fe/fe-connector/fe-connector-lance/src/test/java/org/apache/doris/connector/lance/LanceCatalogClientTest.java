@@ -166,27 +166,12 @@ class LanceCatalogClientTest {
             throw new AssertionError("an invalidation must not read lance.conf");
         }, resources, () -> 0L);
         client.refresh();
-        client.invalidateTableAccess();
         client.close();
         client.refresh();
-        client.invalidateTableAccess();
         Assertions.assertTrue(resources.namespaces.isEmpty());
         Assertions.assertTrue(resources.allocators.isEmpty());
         Assertions.assertEquals("Lance catalog resources have been closed", Assertions.assertThrows(
                 DorisConnectorException.class, () -> client.listDatabaseNames()).getMessage());
-    }
-
-    /** REFRESH TABLE / DATABASE keep the generation, and with it the Session's cached metadata. */
-    @Test
-    void tableAccessInvalidationKeepsTheGeneration() {
-        LanceCatalogClient client = client(1024 * 1024);
-        Assertions.assertTrue(client.tableExists("default", "t"));
-        client.invalidateTableAccess();
-        Assertions.assertTrue(client.tableExists("default", "t"));
-        Assertions.assertEquals(1, resources.namespaces.size());
-        Assertions.assertEquals(2, resources.namespaces.get(0).existenceChecks.size());
-        Assertions.assertEquals(0, resources.namespaces.get(0).closes.get());
-        client.close();
     }
 
     @Test

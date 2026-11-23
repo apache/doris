@@ -30,6 +30,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.lance.Dataset;
 import org.lance.Fragment;
 import org.lance.FragmentMetadata;
@@ -51,14 +53,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
  * A catalog's Lance Session on a real dataset: every metadata read of a generation opens its dataset with that one
  * Session, a later read of a version already read is served from its metadata cache, the newest version is still
- * found, and a refresh closes it and moves the next read to a new one, which reads afresh a dataset written again
- * at the same URI.
+ * found, a table described with vended options is read with a Session of its own, and every REFRESH closes the
+ * Session and moves the next read to a new one, which reads afresh a dataset written again at the same URI.
  *
  * <p>Describes go to a recording namespace that names the copied dataset, so that the table-access cache can be
  * counted; the allocator, the Session and the dataset reads are the real ones. Skips, loudly, where the native
@@ -124,21 +127,45 @@ class LanceSharedSessionNativeTest {
         Assertions.assertEquals(1, resources.sessions.size());
     }
 
+    /**
+     * A table described with vended options is read with a Session of its own. A namespace may vend a new token on
+     * every describe, and the shared Session would keep an object store for each set of options it was opened
+     * with until the generation is retired. A table described without them still reads through the shared
+     * Session.
+     */
     @Test
-    void tableAccessInvalidationDescribesAgainWithTheSameSession() {
+    void readsWithVendedOptionsKeepOutOfTheSharedSession() {
+        String uri = dataset.toString();
+        AtomicInteger tokens = new AtomicInteger();
+        resources.nextNamespace = () -> {
+            FakeLanceNamespace namespace = new FakeLanceNamespace();
+            namespace.describe = request -> new DescribeTableResponse().tableUri(uri).storageOptions(
+                    Collections.singletonMap("doris_test_token", "token-" + tokens.incrementAndGet()));
+            return namespace;
+        };
+        for (int read = 0; read < 8; read++) {
+            Assertions.assertEquals(3, read(OptionalLong.of(3)).getVersion());
+        }
+        Session shared = resources.sessions.get(0);
+        Assertions.assertEquals(8, resources.namespaces.get(0).describes.size());
+        Assertions.assertEquals(0, shared.metadataCacheStats().getHits() + shared.metadataCacheStats().getMisses(),
+                "a read with vended options must not open its dataset with the shared Session");
+
+        resources.namespaces.get(0).describing(new DescribeTableResponse().tableUri(uri));
         read(OptionalLong.of(3));
-        client.invalidateTableAccess();
+        long hits = shared.metadataCacheStats().getHits();
         read(OptionalLong.of(3));
-        Assertions.assertEquals(2, resources.namespaces.get(0).describes.size());
-        Assertions.assertEquals(1, resources.sessions.size());
-        Assertions.assertFalse(resources.sessions.get(0).isClosed());
+        Assertions.assertTrue(shared.metadataCacheStats().getHits() > hits,
+                "a read without vended options must still be served from the shared Session");
     }
 
-    @Test
-    void refreshClosesTheSessionAndTheNextReadOpensANewGeneration() {
+    /** REFRESH TABLE, DATABASE and CATALOG each close the Session and move the next read to a new generation. */
+    @ParameterizedTest
+    @EnumSource(Refresh.class)
+    void everyRefreshClosesTheSessionAndTheNextReadOpensANewGeneration(Refresh refresh) {
         read(OptionalLong.of(3));
         Session first = resources.sessions.get(0);
-        client.refresh();
+        refresh.run(new LanceConnector(properties, new LanceTestContext(), client));
         Assertions.assertTrue(first.isClosed());
 
         Assertions.assertEquals(3, read(OptionalLong.of(3)).getVersion());
@@ -151,12 +178,14 @@ class LanceSharedSessionNativeTest {
 
     /**
      * A dataset deleted and written again at the same URI starts its versions over. With V1 manifest names Lance
-     * keys a version's index list by the version alone, so the old Session can serve the deleted dataset's indexes
-     * for the new dataset's version 2; REFRESH CATALOG moves the next read to a new Session, which reads the new
+     * keys a version's index list by the URI and the version alone, so the old Session can serve the deleted
+     * dataset's indexes for the new dataset's version 2, and a filtered scan would then be planned over index
+     * segments the BE cannot find. Every REFRESH moves the next read to a new Session, which reads the new
      * dataset's.
      */
-    @Test
-    void catalogRefreshReadsTheIndexesOfADatasetWrittenAgainAtTheSameUri() throws IOException {
+    @ParameterizedTest
+    @EnumSource(Refresh.class)
+    void everyRefreshReadsTheIndexesOfADatasetWrittenAgainAtTheSameUri(Refresh refresh) throws IOException {
         Path recreated = warehouse.resolve("recreated.lance");
         String uri = recreated.toString();
         resources.nextNamespace = () -> new FakeLanceNamespace().describing(
@@ -178,9 +207,33 @@ class LanceSharedSessionNativeTest {
         Assertions.assertTrue(Files.exists(recreated.resolve("_versions").resolve("2.manifest")),
                 "V1 manifest names expected: with V2 names Lance keys the index list by the manifest's e-tag too");
 
-        new LanceConnector(properties, new LanceTestContext(), client).invalidateAll();
+        refresh.run(new LanceConnector(properties, new LanceTestContext(), client));
         Assertions.assertEquals(Collections.emptyList(), indexesOfTheNewestVersion(2));
         Assertions.assertEquals(2, resources.sessions.size());
+    }
+
+    /** The REFRESH statements, as the engine routes them to the connector. */
+    enum Refresh {
+        TABLE {
+            @Override
+            void run(LanceConnector connector) {
+                connector.invalidateTable("default", "recreated");
+            }
+        },
+        DATABASE {
+            @Override
+            void run(LanceConnector connector) {
+                connector.invalidateDb("default");
+            }
+        },
+        CATALOG {
+            @Override
+            void run(LanceConnector connector) {
+                connector.invalidateAll();
+            }
+        };
+
+        abstract void run(LanceConnector connector);
     }
 
     private LanceTableMetadata read(OptionalLong version) {

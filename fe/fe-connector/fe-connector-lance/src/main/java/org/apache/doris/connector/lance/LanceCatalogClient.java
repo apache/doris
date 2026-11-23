@@ -59,12 +59,12 @@ import java.util.function.Supplier;
  * classloader, because the engine does not pin it for metadata calls and lance-core resolves classes by name.
  *
  * <p>The Session caches the manifests and the fragment, file and index metadata of the versions FE reads, so a
- * later statement planning a version already read reads it from memory. {@link #refresh} (REFRESH CATALOG)
- * retires the generation, and the next call opens a new one, whose cold Session reads afresh a dataset replaced at
- * the same URI. Closing retires it too and refuses new calls. A retired generation is released by its last call
- * in flight: the engine reclaims a replaced or dropped catalog's connector on a background thread without waiting
- * for its statements, and closing the namespace, the Session or the allocator under a running JNI call is not
- * safe.
+ * later statement planning a version already read reads it from memory. {@link #refresh} (REFRESH CATALOG,
+ * DATABASE or TABLE) retires the generation, and the next call opens a new one, whose cold Session reads afresh a
+ * dataset replaced at the same URI. Closing retires it too and refuses new calls. A retired generation is released
+ * by its last call in flight: the engine reclaims a replaced or dropped catalog's connector on a background thread
+ * without waiting for its statements, and closing the namespace, the Session or the allocator under a running JNI
+ * call is not safe.
  */
 final class LanceCatalogClient implements AutoCloseable {
 
@@ -76,6 +76,11 @@ final class LanceCatalogClient implements AutoCloseable {
      */
     static final long SESSION_METADATA_CACHE_BYTES = 64L * 1024 * 1024;
     static final long SESSION_INDEX_CACHE_BYTES = 128L * 1024 * 1024;
+    /**
+     * The metadata cache of a dataset opened with a Session of its own (see {@link #openDataset}). Planning reads
+     * index metadata, not index pages, so such a dataset keeps no index cache.
+     */
+    private static final long OWN_SESSION_METADATA_CACHE_BYTES = 64L * 1024 * 1024;
 
     private final LanceCatalogProperties properties;
     private final Supplier<List<StorageProperties>> storageProperties;
@@ -196,29 +201,14 @@ final class LanceCatalogClient implements AutoCloseable {
     }
 
     /**
-     * REFRESH CATALOG: retires the current generation, so that the next call opens a new namespace, allocator and
-     * Session. Opens nothing and waits for nothing: calls in flight finish on the retired generation, and the
-     * last of them releases it.
+     * REFRESH CATALOG, DATABASE or TABLE: retires the current generation, so that the next call opens a new
+     * namespace, allocator and Session, and describes every table again. Opens nothing and waits for nothing:
+     * calls in flight finish on the retired generation, and the last of them releases it.
      */
     void refresh() {
         Generation idle = retireCurrent();
         if (idle != null) {
             idle.closeResources();
-        }
-    }
-
-    /**
-     * REFRESH TABLE / DATABASE: the next read describes its table again; the Session and its cached metadata
-     * stay, as {@link LanceConnector#invalidateDb} explains. Opens nothing: before the first call nothing is
-     * cached.
-     */
-    void invalidateTableAccess() {
-        Generation generation;
-        synchronized (this) {
-            generation = current;
-        }
-        if (generation != null) {
-            generation.namespaceClient.invalidateTableAccessCache();
         }
     }
 
@@ -290,12 +280,21 @@ final class LanceCatalogClient implements AutoCloseable {
     /**
      * Opens the dataset with the generation's Session: its caches, not the dataset, decide how much metadata is
      * kept, and the next open of the same version reads it from them.
+     *
+     * <p>A table described with vended options is opened with a Session of its own, released with the dataset.
+     * A Session keeps an object store for every distinct set of storage options, and drops an unused one only
+     * when the same options are asked for again. A namespace that vends a new token on every describe would
+     * leave one per read in the shared Session, outside its capacities, until the generation is retired. Such a
+     * table is described again on every read anyway.
      */
     private static Dataset openDataset(Generation generation, BufferAllocator readAllocator,
             LanceTableAccess access, OptionalLong version, LanceMetadataMetrics.Timer timer) {
-        ReadOptions.Builder options = new ReadOptions.Builder()
-                .setStorageOptions(access.getStorageOptions())
-                .setSession(generation.session);
+        ReadOptions.Builder options = new ReadOptions.Builder().setStorageOptions(access.getStorageOptions());
+        if (access.hasVendedOptions()) {
+            options.setIndexCacheSizeBytes(0).setMetadataCacheSizeBytes(OWN_SESSION_METADATA_CACHE_BYTES);
+        } else {
+            options.setSession(generation.session);
+        }
         if (version.isPresent()) {
             options.setVersion(version.getAsLong());
         }

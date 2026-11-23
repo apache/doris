@@ -85,7 +85,8 @@ class LanceScanPlanProviderTest {
     }
 
     private static LanceTableMetadata metadata(Map<String, String> storageOptions, LanceFragmentInfo... fragments) {
-        return new LanceTableMetadata(new LanceTableAccess(URI, storageOptions), 3, SCHEMA, Arrays.asList(fragments));
+        return new LanceTableMetadata(new LanceTableAccess(URI, storageOptions, false), 3, SCHEMA,
+                Arrays.asList(fragments));
     }
 
     @Test
