@@ -3351,6 +3351,81 @@ TEST(RecyclerTest, delete_bitmap_collect_shard_keys) {
     EXPECT_EQ(storage_type, InstanceRecycler::DeleteBitmapStorageType::IN_FDB);
 }
 
+static void check_interrupted_tablet_scan(bool recycle_index) {
+    auto retention_seconds = config::retention_seconds;
+    DORIS_CLOUD_DEFER {
+        config::retention_seconds = retention_seconds;
+    };
+    config::retention_seconds = 0;
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    constexpr int64_t table_id = 10000, index_id = 10001, partition_id = 10002;
+    constexpr int64_t first_tablet = 10100, second_tablet = 10101;
+    ASSERT_EQ(create_tablet(txn_kv.get(), table_id, index_id, partition_id, first_tablet), 0);
+    ASSERT_EQ(create_tablet(txn_kv.get(), table_id, index_id, partition_id, second_tablet), 0);
+    std::string parent_key;
+    if (recycle_index) {
+        ASSERT_EQ(create_recycle_index(txn_kv.get(), table_id, index_id), 0);
+        parent_key = recycle_index_key({instance_id, index_id});
+    } else {
+        ASSERT_EQ(create_recycle_partiton(txn_kv.get(), table_id, partition_id, {index_id}), 0);
+        parent_key = recycle_partition_key({instance_id, partition_id});
+    }
+    auto recycle = [recycle_index](InstanceRecycler& recycler) {
+        return recycle_index ? recycler.recycle_indexes() : recycler.recycle_partitions();
+    };
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto committer = std::make_shared<TxnLazyCommitter>(txn_kv);
+    {
+        InstanceRecycler recycler(txn_kv, instance, thread_group, committer);
+        ASSERT_EQ(recycler.init(), 0);
+        auto* sp = SyncPoint::get_instance();
+        SyncPoint::CallbackGuard page_size, stop;
+        DORIS_CLOUD_DEFER {
+            sp->disable_processing();
+        };
+        sp->set_call_back(
+                "memkv::Transaction::get", [](auto&& args) { *try_any_cast<int*>(args[0]) = 1; },
+                &page_size);
+        sp->set_call_back(
+                "InstanceRecycler::recycle_tablets.before_commit", [&](auto&&) { recycler.stop(); },
+                &stop);
+        sp->enable_processing();
+        EXPECT_EQ(recycle(recycler), -1);
+    }
+
+    auto first_meta =
+            meta_tablet_key({instance_id, table_id, index_id, partition_id, first_tablet});
+    auto second_meta =
+            meta_tablet_key({instance_id, table_id, index_id, partition_id, second_tablet});
+    auto stats = stats_tablet_key({instance_id, table_id, index_id, partition_id, second_tablet});
+    auto job = job_tablet_key({instance_id, table_id, index_id, partition_id, second_tablet});
+    std::unique_ptr<Transaction> txn;
+    std::string val;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(txn->get(first_meta, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    for (const auto& key : {second_meta, stats, job, parent_key}) {
+        EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK) << hex(key);
+    }
+
+    InstanceRecycler successor(txn_kv, instance, thread_group, committer);
+    ASSERT_EQ(successor.init(), 0);
+    ASSERT_EQ(recycle(successor), 0);
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    for (const auto& key : {second_meta, stats, job, parent_key}) {
+        EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND) << hex(key);
+    }
+}
+
+TEST(RecyclerTest, interrupted_index_tablet_scan) {
+    check_interrupted_tablet_scan(true);
+}
+
+TEST(RecyclerTest, interrupted_partition_tablet_scan) {
+    check_interrupted_tablet_scan(false);
+}
+
 TEST(RecyclerTest, recycle_indexes) {
     config::retention_seconds = 0;
     auto txn_kv = std::make_shared<MemTxnKv>();
