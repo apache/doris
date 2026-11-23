@@ -110,6 +110,12 @@ Status validate_query_options(const TQueryOptions& options) {
         return Status::InvalidArgument("execution_timeout must be > 0, but was {}",
                                        options.execution_timeout);
     }
+    // RuntimeState and QueryContext use query_timeout when execution_timeout is absent.
+    // For example, -1 would become a negative deadline of -1000 milliseconds.
+    if (options.__isset.query_timeout && options.query_timeout <= 0) {
+        return Status::InvalidArgument("query_timeout must be > 0, but was {}",
+                                       options.query_timeout);
+    }
     // The wire field is i64, but the exchanger stores this count as int.
     if (options.__isset.local_exchange_free_blocks_limit &&
         (options.local_exchange_free_blocks_limit < 0 ||

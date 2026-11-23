@@ -45,6 +45,28 @@ TEST(QueryOptionsValidationTest, ExecutionTimeoutMustBePositiveWhenSet) {
     }
 }
 
+TEST(QueryOptionsValidationTest, QueryTimeoutMustBePositiveWhenSet) {
+    // The generated constructor marks defaulted fields as present. Clear the execution
+    // timeout bit to reproduce a request that uses query_timeout as its fallback.
+    TQueryOptions options;
+    options.__isset.execution_timeout = false;
+    EXPECT_TRUE(validate_query_options(options).ok());
+    for (bool has_execution_timeout : {false, true}) {
+        options.__isset.execution_timeout = has_execution_timeout;
+        for (int timeout : {-1, 0}) {
+            options.__set_query_timeout(timeout);
+            auto status = validate_query_options(options);
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("query_timeout"), std::string::npos);
+        }
+        // Check both valid endpoints without waiting for a deadline or creating a query.
+        for (int timeout : {1, std::numeric_limits<int32_t>::max()}) {
+            options.__set_query_timeout(timeout);
+            EXPECT_TRUE(validate_query_options(options).ok());
+        }
+    }
+}
+
 TEST(QueryOptionsValidationTest, RejectNegativeCountsBeforeExecution) {
     // One request object is enough. No fragment, table, rows, or allocation is needed.
     TQueryOptions options;

@@ -217,7 +217,8 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             long maxBatchIntervalS = Util.getLongPropertyOrDefault(
                     jobProperties.get(CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SEC_PROPERTY),
                     -1, CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_PRED,
-                    CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SEC_PROPERTY + " should >= 1");
+                    CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SEC_PROPERTY + " must be between 1 and "
+                            + CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SECONDS);
             analyzedJobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SEC_PROPERTY,
                     String.valueOf(maxBatchIntervalS));
         }

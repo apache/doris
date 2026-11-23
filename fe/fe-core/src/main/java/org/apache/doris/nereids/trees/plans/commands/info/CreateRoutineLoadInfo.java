@@ -102,7 +102,11 @@ public class CreateRoutineLoadInfo {
     public static final java.util.function.Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
     public static final java.util.function.Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
     public static final java.util.function.Predicate<Double> MAX_FILTER_RATIO_PRED = (v) -> v >= 0 && v <= 1;
-    public static final java.util.function.Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 1;
+    // BE converts this interval to signed 64-bit milliseconds. For example,
+    // 9223372036854776 seconds cannot be represented and must fail before the job is saved.
+    public static final long MAX_BATCH_INTERVAL_SECONDS = Long.MAX_VALUE / 1000;
+    public static final java.util.function.Predicate<Long> MAX_BATCH_INTERVAL_PRED =
+            (v) -> v >= 1 && v <= MAX_BATCH_INTERVAL_SECONDS;
     public static final java.util.function.Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> v >= 200000;
     public static final java.util.function.Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> v >= 100 * 1024 * 1024
             && v <= (long) (1024 * 1024 * 1024) * 10;
@@ -637,9 +641,12 @@ public class CreateRoutineLoadInfo {
             RoutineLoadJob.DEFAULT_MAX_FILTER_RATIO, MAX_FILTER_RATIO_PRED,
             MAX_FILTER_RATIO_PROPERTY + " should between 0 and 1");
 
+        // Replay parses the original CREATE to rebuild load descriptors. A later ALTER can have
+        // corrected an oversized interval. Do not cancel that job by applying the new upper bound
+        // to its historical CREATE statement; keep the previous lower-bound check during replay.
         maxBatchIntervalS = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_INTERVAL_SEC_PROPERTY),
-            RoutineLoadJob.DEFAULT_MAX_INTERVAL_SECOND, MAX_BATCH_INTERVAL_PRED,
-            MAX_BATCH_INTERVAL_SEC_PROPERTY + " should >= 1");
+            RoutineLoadJob.DEFAULT_MAX_INTERVAL_SECOND, isReplay ? (v) -> v >= 1 : MAX_BATCH_INTERVAL_PRED,
+            MAX_BATCH_INTERVAL_SEC_PROPERTY + " must be between 1 and " + MAX_BATCH_INTERVAL_SECONDS);
 
         maxBatchRows = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_ROWS_PROPERTY),
             RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS, MAX_BATCH_ROWS_PRED,

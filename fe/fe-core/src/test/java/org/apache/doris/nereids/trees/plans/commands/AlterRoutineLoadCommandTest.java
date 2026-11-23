@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -36,6 +37,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -115,6 +118,32 @@ public class AlterRoutineLoadCommandTest {
         Assertions.assertTrue(command.getAnalyzedJobProperties().containsKey(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY));
         Assertions.assertTrue(command.getAnalyzedJobProperties().containsKey(CreateRoutineLoadInfo.STRICT_MODE));
         Assertions.assertTrue(command.getAnalyzedJobProperties().containsKey(CreateRoutineLoadInfo.TIMEZONE));
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {-1, 0, 9223372036854776L, Long.MAX_VALUE})
+    public void testRejectInvalidInterval(long seconds) throws Exception {
+        // One property reproduces the failure before ALTER looks up or changes a stored job.
+        // The first overflowing value and Long.MAX_VALUE previously passed this analysis.
+        runBefore();
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(new LabelNameInfo("testDb", "label1"),
+                Map.of("max_batch_interval", Long.toString(seconds)), Map.of());
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> command.validate(connectContext));
+        Assertions.assertTrue(error.getMessage().contains(
+                "max_batch_interval must be between 1 and 9223372036854775"), error.getMessage());
+        Mockito.verify(env.getRoutineLoadManager(), Mockito.never()).getJob(Mockito.anyString(), Mockito.anyString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1, 9223372036854775L})
+    public void testAcceptValidIntervalBoundaries(long seconds) throws Exception {
+        // Keep both legal endpoints unchanged in the properties that ALTER will persist.
+        runBefore();
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(new LabelNameInfo("testDb", "label1"),
+                Map.of("max_batch_interval", Long.toString(seconds)), Map.of());
+        command.validate(connectContext);
+        Assertions.assertEquals(Long.toString(seconds), command.getAnalyzedJobProperties().get("max_batch_interval"));
     }
 
     // The job takes the byte from enclose and escape the way CREATE does, so ALTER rejects what CREATE rejects.
