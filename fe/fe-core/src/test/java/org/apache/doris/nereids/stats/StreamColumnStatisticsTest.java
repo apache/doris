@@ -29,6 +29,7 @@ import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -162,6 +163,25 @@ class StreamColumnStatisticsTest {
             Assertions.assertFalse(StatsCalculator.disableJoinReorderIfStatsInvalid(
                     ImmutableList.of(fixture.scan), context).isPresent());
             Assertions.assertFalse(fixture.context.getSessionVariable().isDisableJoinReorder());
+        }
+    }
+
+    @Test
+    void testNdvValidationLeavesStatementUnknownStatsToDerivation() {
+        try (ScanFixture fixture = new ScanFixture(OlapChangelogTableWrapper.class, 100)) {
+            StatementContext statement = new StatementContext(0);
+            fixture.context.setStatementContext(statement);
+            statement.addKeySlot(fixture.slot);
+            fixture.tableStatistic(ColumnStatistic.UNKNOWN);
+
+            CascadesContext context = Mockito.mock(CascadesContext.class);
+            Mockito.when(context.getConnectContext()).thenReturn(fixture.context);
+            Assertions.assertTrue(StatsCalculator.disableJoinReorderIfStatsInvalid(
+                    ImmutableList.of(fixture.scan), context).isEmpty());
+            Assertions.assertFalse(statement.isHasUnknownColStats());
+
+            fixture.compute();
+            Assertions.assertTrue(statement.isHasUnknownColStats());
         }
     }
 
@@ -365,6 +385,29 @@ class StreamColumnStatisticsTest {
             Assertions.assertEquals(90, column.numNulls);
             Assertions.assertEquals(10, column.ndv);
             Assertions.assertEquals(10, column.original.ndv);
+        }
+    }
+
+    @Test
+    void testHistoricalFilterIgnoresTableWideDeltaRows() {
+        try (ScanFixture fixture = new ScanFixture(OlapTableWrapper.class, 100)) {
+            Mockito.when(((OlapTableWrapper) fixture.table).hasRowCountEstimates(10L)).thenReturn(true);
+            Mockito.when(fixture.table.getRowCountForPartitionIndex(1L, 10L, true)).thenReturn(40L);
+            Mockito.when(fixture.table.getRowCountForPartitionIndex(2L, 10L, true)).thenReturn(60L);
+            long sourceTableId = fixture.source.getId();
+            Mockito.when(fixture.table.getId()).thenReturn(sourceTableId);
+            TableStatsMeta tableStats = Mockito.mock(TableStatsMeta.class);
+            Mockito.when(tableStats.getBaseIndexDeltaRowCount(fixture.table)).thenReturn(1_000_000L);
+            Mockito.when(fixture.analysisManager.findTableStatsStatus(sourceTableId)).thenReturn(tableStats);
+            fixture.tableStatistic(statistic(10_000, 10, 0));
+
+            Statistics scanStats = fixture.compute();
+            LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                    ImmutableSet.of(new IsNull(fixture.slot)), fixture.scan);
+            Statistics filtered = new StatsCalculator((CascadesContext) null).computeFilter(filter, scanStats);
+            Assertions.assertEquals(100, scanStats.getRowCount());
+            Assertions.assertEquals(0, scanStats.getDeltaRowCount());
+            Assertions.assertEquals(0, filtered.getRowCount());
         }
     }
 

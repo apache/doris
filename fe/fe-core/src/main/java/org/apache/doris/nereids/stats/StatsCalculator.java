@@ -519,7 +519,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     // check validation of ndv.
     private Optional<String> checkNdvValidation(OlapScan olapScan, double rowCount) {
-        Statistics streamStats = needsStreamColumnStatistics(olapScan) ? computeOlapScan(olapScan) : null;
+        // Validation can run before the statistics cache finishes loading.
+        Statistics streamStats = needsStreamColumnStatistics(olapScan) ? computeOlapScan(olapScan, false) : null;
         OlapTableStatistics olapTableStats = streamStats == null ? getOlapScanSourceStatistics(olapScan) : null;
         boolean explicitScanEstimate = hasScanRowCountEstimates(olapScan);
         for (Slot slot : ((Plan) olapScan).getOutput()) {
@@ -544,6 +545,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     /** Compute statistics for an OLAP scan or a stream read lowered to an OLAP scan. */
     public Statistics computeOlapScan(OlapScan scan) {
+        return computeOlapScan(scan, true);
+    }
+
+    private Statistics computeOlapScan(OlapScan scan, boolean reportUnknownStats) {
         double scanRowCount = getOlapTableRowCount(scan);
         double tableRowCount = Math.max(1, scanRowCount);
         boolean streamRead = needsStreamColumnStatistics(scan);
@@ -556,6 +561,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
         Optional<Statistics> unknownStats = getUnknownOlapScanStatistics(scan, tableRowCount);
         if (unknownStats.isPresent()) {
+            if (reportUnknownStats) {
+                setHasUnknownColStatsInStatementContext();
+            }
             return unknownStats.get();
         }
 
@@ -565,17 +573,20 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         boolean estimatePartitionRows = useSelectedPartitions && !explicitScanEstimate;
         double rowCount = estimatePartitionRows
                 ? getSelectedPartitionRowCount(scan, () -> tableRowCount) : tableRowCount;
-        StatisticsBuilder builder = new StatisticsBuilder().setRowCount(rowCount)
-                .setDeltaRowCount(computeDeltaRowCount(scan));
+        StatisticsBuilder builder = new StatisticsBuilder().setRowCount(rowCount);
         OlapTableStatistics sourceStats = getOlapScanSourceStatistics(scan);
         if (streamRead) {
             // Keep an unavailable estimate out of the column-distribution calculation.
             double columnRowCount = !estimatePartitionRows && scanRowCount < 0 ? scanRowCount : rowCount;
             computeOlapStreamScan(scan, columnRowCount, sourceStats, builder);
         } else {
+            // Table-wide changes since ANALYZE can fall outside a stream scan's offset range.
+            builder.setDeltaRowCount(computeDeltaRowCount(scan));
             computeNormalOlapScan(scan, tableRowCount, rowCount, useSelectedPartitions, sourceStats, builder);
         }
-        checkIfUnknownStatsUsedAsKey(builder);
+        if (reportUnknownStats) {
+            checkIfUnknownStatsUsedAsKey(builder);
+        }
         return computeVirtualColumnStats(scan, builder.build());
     }
 
@@ -625,7 +636,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         for (Slot slot : ((Plan) scan).getOutput()) {
             builder.putColumnStatistics(slot, unknown);
         }
-        setHasUnknownColStatsInStatementContext();
         return Optional.of(builder.build());
     }
 
