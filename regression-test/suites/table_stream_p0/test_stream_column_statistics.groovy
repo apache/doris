@@ -63,9 +63,14 @@ suite("test_stream_column_statistics") {
     def rowEstimate = { String operator ->
         def node = plan.find { it["Explain String(Nereids Planner)"].contains(operator) }
         assertTrue(node != null, "Missing ${operator} in ${plan}")
-        def stats = node["Explain String(Nereids Planner)"] =~ /stats=([0-9,]+(?:\.[0-9]+)?)/
+        def stats = node["Explain String(Nereids Planner)"] =~ /stats=(\p{Nd}+(?:[.,'’\p{Zs}\u066b\u066c]\p{Nd}+)*)/
         assertTrue(stats.find(), "Missing row estimate for ${operator} in ${node}")
-        return stats.group(1).replace(",", "") as BigDecimal
+        // EXPLAIN uses localized groups of three digits and up to two fractional digits.
+        def parts = stats.group(1).split(/[^\p{Nd}]+/).toList()
+        if (parts.size() > 1 && parts.last().length() <= 2) {
+            return (parts[0..-2].join("") + "." + parts.last()) as BigDecimal
+        }
+        return parts.join("") as BigDecimal
     }
     // Check the column distribution against the estimate chosen for this snapshot.
     def scanRows = rowEstimate("PhysicalOlapScan")

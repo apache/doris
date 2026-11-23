@@ -478,12 +478,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private boolean isRegisteredRowCount(OlapScan olapScan) {
-        return !hasScanRowCountEstimates(olapScan) && hasUserInjectedStats(olapScan);
+        return !hasScanRowCountEstimates(olapScan) && hasUserInjectedStats(olapScan.getTable());
     }
 
-    private boolean hasUserInjectedStats(OlapScan olapScan) {
+    private boolean hasUserInjectedStats(OlapTable table) {
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(table.getId());
         return tableMeta != null && tableMeta.userInjected;
     }
 
@@ -559,7 +559,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             return unknownStats.get();
         }
 
-        boolean useSelectedPartitions = !hasUserInjectedStats(scan)
+        boolean useSelectedPartitions = !hasUserInjectedStats(scan.getTable())
                 && scan.getSelectedPartitionIds().size() < scan.getTable().getPartitionNum();
         // Wrapper estimates already cover the selected partitions.
         boolean estimatePartitionRows = useSelectedPartitions && !explicitScanEstimate;
@@ -672,7 +672,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             return !((LogicalOlapTableStreamScan) scan).isReset();
         }
         if (table instanceof OlapChangelogTableWrapper) {
-            return true;
+            return ((OlapChangelogTableWrapper) table).isStreamScan();
         }
         if (table instanceof OlapTableWrapper) {
             OlapTableWrapper wrapper = (OlapTableWrapper) table;
@@ -686,6 +686,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private OlapTable getOlapScanSourceTable(OlapTable table) {
         if (table instanceof OlapTableStreamWrapper) {
             return ((OlapTableStreamWrapper) table).getBaseTable();
+        }
+        if (table instanceof OlapChangelogTableWrapper && !((OlapChangelogTableWrapper) table).isStreamScan()) {
+            return table;
         }
         if (table instanceof OlapTableWrapper) {
             return ((OlapTableWrapper) table).getOriginTable();
@@ -712,7 +715,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             OlapTableStatistics sourceStats, StatisticsBuilder builder) {
         OlapTable table = scan.getTable();
         OlapTable sourceTable = getOlapScanSourceTable(table);
-        List<String> partitionNames = getSelectedPartitionNames(scan, sourceTable);
+        // ALTER TABLE ... SET STATS overrides previously collected partition statistics.
+        List<String> partitionNames = hasUserInjectedStats(sourceTable)
+                ? Collections.emptyList() : getSelectedPartitionNames(scan, sourceTable);
         for (Slot slot : ((Plan) scan).getOutput()) {
             String columnName = slot.getName();
             boolean beforeColumn = table instanceof OlapChangelogTableWrapper

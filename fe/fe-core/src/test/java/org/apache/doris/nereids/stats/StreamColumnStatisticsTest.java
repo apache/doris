@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.analysis.AnalysisManager;
+import org.apache.doris.statistics.analysis.TableStatsMeta;
 import org.apache.doris.statistics.cache.StatisticsCache;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.ColumnStatisticBuilder;
@@ -193,6 +194,42 @@ class StreamColumnStatisticsTest {
     }
 
     @Test
+    void testDirectChangelogScanKeepsOrdinaryColumnStatistics() {
+        try (ScanFixture fixture = new ScanFixture(OlapChangelogTableWrapper.class, 100)) {
+            Mockito.when(((OlapChangelogTableWrapper) fixture.table).isStreamScan()).thenReturn(false);
+            fixture.tableStatistic(statistic(1000, 100, 900));
+
+            Statistics result = fixture.compute();
+            ColumnStatistic column = result.findColumnStatistics(fixture.slot);
+            Assertions.assertEquals(100, result.getRowCount());
+            Assertions.assertEquals(900, column.numNulls);
+            Assertions.assertEquals(100, column.ndv);
+            Mockito.verify(fixture.cache).getOlapTableStats(fixture.scan);
+        }
+    }
+
+    @Test
+    void testHistoricalScanPrefersInjectedTableStatistics() {
+        try (ScanFixture fixture = new ScanFixture(OlapTableWrapper.class, 100)) {
+            fixture.context.getSessionVariable().enablePartitionAnalyze = true;
+            Mockito.when(((OlapTableWrapper) fixture.table).hasRowCountEstimates(10L)).thenReturn(true);
+            Mockito.when(fixture.table.getRowCountForPartitionIndex(1L, 10L, true)).thenReturn(50L);
+            Mockito.when(fixture.table.getRowCountForPartitionIndex(2L, 10L, true)).thenReturn(50L);
+            fixture.tableStatistic(statistic(1000, 100, 900));
+            fixture.partitionStatistics(partitionStatistic(50, 0, 1), partitionStatistic(50, 0, 2));
+            TableStatsMeta tableStats = Mockito.mock(TableStatsMeta.class);
+            tableStats.userInjected = true;
+            Mockito.when(fixture.analysisManager.findTableStatsStatus(fixture.source.getId())).thenReturn(tableStats);
+
+            Statistics result = fixture.compute();
+            ColumnStatistic column = result.findColumnStatistics(fixture.slot);
+            Assertions.assertEquals(100, result.getRowCount());
+            Assertions.assertEquals(90, column.numNulls);
+            Assertions.assertEquals(10, column.ndv);
+        }
+    }
+
+    @Test
     void testResetStreamUsesOrdinarySourceDistribution() {
         try (ScanFixture fixture = new ScanFixture(OlapTableStreamWrapper.class, 100)) {
             Mockito.when(((LogicalOlapTableStreamScan) fixture.scan).isReset()).thenReturn(true);
@@ -243,6 +280,20 @@ class StreamColumnStatisticsTest {
             Statistics stats = fixture.compute();
             Assertions.assertEquals(1, stats.getRowCount());
             Assertions.assertTrue(stats.findColumnStatistics(fixture.slot).isUnKnown);
+        }
+    }
+
+    @Test
+    void testUnknownExplicitRowCountDoesNotBecomeKnownOneRowDistribution() {
+        try (ScanFixture fixture = new ScanFixture(OlapChangelogTableWrapper.class, -1)) {
+            Mockito.when(((OlapTableWrapper) fixture.table).hasRowCountEstimates(30L)).thenReturn(true);
+            Mockito.when(fixture.table.getRowCountForPartitionIndex(1L, 30L, true)).thenReturn(-1L);
+            Mockito.when(fixture.table.getRowCountForPartitionIndex(2L, 30L, true)).thenReturn(-1L);
+            fixture.tableStatistic(statistic(1000, 100, 100));
+
+            Statistics result = fixture.compute();
+            Assertions.assertEquals(1, result.getRowCount());
+            Assertions.assertTrue(result.findColumnStatistics(fixture.slot).isUnKnown);
         }
     }
 
@@ -361,6 +412,7 @@ class StreamColumnStatisticsTest {
         private final ConnectContext previousContext = ConnectContext.get();
         private final boolean previousInternalSchema = FeConstants.enableInternalSchemaDb;
         private final ConnectContext context = new ConnectContext();
+        private final AnalysisManager analysisManager = Mockito.mock(AnalysisManager.class);
         private final StatisticsCache cache = Mockito.mock(StatisticsCache.class);
         private final StatisticsCache.OlapTableStatistics sourceStats
                 = Mockito.mock(StatisticsCache.OlapTableStatistics.class);
@@ -395,6 +447,9 @@ class StreamColumnStatisticsTest {
             Mockito.when(source.getColumn("val")).thenReturn(column);
             Mockito.when(source.getBaseIndexId()).thenReturn(10L);
             Mockito.when(source.getId()).thenReturn(20L);
+            if (table instanceof OlapChangelogTableWrapper) {
+                Mockito.when(((OlapChangelogTableWrapper) table).isStreamScan()).thenReturn(true);
+            }
             long indexId = type == OlapChangelogTableWrapper.class ? 30L : 10L;
             Mockito.when(table.getBaseIndexId()).thenReturn(indexId);
             Mockito.when(table.getRowCountForIndex(indexId, true)).thenReturn(rowCount);
@@ -412,7 +467,7 @@ class StreamColumnStatisticsTest {
                 Mockito.when(source.getPartition(id)).thenReturn(partition);
             }
             Env env = Mockito.mock(Env.class);
-            Mockito.when(env.getAnalysisManager()).thenReturn(Mockito.mock(AnalysisManager.class));
+            Mockito.when(env.getAnalysisManager()).thenReturn(analysisManager);
             Mockito.when(env.getStatisticsCache()).thenReturn(cache);
             Mockito.when(cache.getOlapTableStats(scan)).thenReturn(sourceStats);
             Mockito.when(cache.getOlapTableStats(source, 10L)).thenReturn(sourceStats);
