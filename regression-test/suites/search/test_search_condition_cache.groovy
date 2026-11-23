@@ -21,6 +21,10 @@ suite("test_search_condition_cache", "p0") {
     sql "SET enable_sql_cache = false"
     sql "SET enable_inverted_index_query_cache = false"
     sql "SET enable_count_on_index_pushdown = false"
+    // Fuzzy session settings could otherwise store VARIANT paths without an index iterator.
+    sql "SET enable_match_without_inverted_index = false"
+    sql "SET debug_variant_enable_typed_paths_to_sparse = false"
+    sql "SET debug_variant_enable_doc_mode = false"
 
     def textTable = "search_condition_cache_text"
     def variantTable = "search_condition_cache_variant"
