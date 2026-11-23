@@ -2140,6 +2140,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // "must have format version 2 or higher for position deletes"); keep that behavior.
             return OptionalLong.empty();
         }
+        if (((BaseTable) table).operations().current().formatVersion() >= 4) {
+            // V4 relative metadata needs a read-only adapter, which cannot serve the writable SDK transaction.
+            // Leave V4 on the row-level path before raw candidate IO can fail on relative manifests.
+            return OptionalLong.empty();
+        }
         validateBoundWriteGeneration(table, boundWriteMetadataIdentity);
         IcebergSchemaUtils.validateNoUnknownForWrite(table.schema());
         Expression deleteExpr = predicate.isPresent()

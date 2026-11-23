@@ -20,12 +20,14 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
+import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.DataFile;
@@ -50,6 +52,8 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.JsonUtil;
 import org.apache.iceberg.util.SerializationUtil;
@@ -59,15 +63,20 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 class IcebergFormatV4ReadTest {
@@ -217,6 +226,110 @@ class IcebergFormatV4ReadTest {
             Assertions.assertEquals(2, ranges.size());
             Assertions.assertEquals(Set.of(legacyData, table.location() + "//data/new.parquet"),
                     ranges.stream().map(range -> range.getPath().orElseThrow()).collect(Collectors.toSet()));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {2, 3})
+    void kerberosUpgradesKeepMetadataProbesAuthenticated(int originalVersion) throws Exception {
+        Table table = createTable(originalVersion);
+        table.updateLocation().setLocation("hdfs://namenode.example/warehouse/table").commit();
+        table.updateProperties().set(TableProperties.WRITE_METADATA_LOCATION,
+                "/metadata/" + tempDir.getFileName()).commit();
+        table.newFastAppend().appendFile(data(table, "/data/legacy.parquet")).commit();
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "4").commit();
+        for (boolean cached : new boolean[] {false, true}) {
+            RecordingAuthenticator auth = new RecordingAuthenticator();
+            Table cold = coldMetadata(table);
+            TableMetadata metadata = ((BaseTable) cold).operations().current();
+            AtomicInteger reads = new AtomicInteger();
+            FileIO guarded = new FileIO() {
+                @Override
+                public InputFile newInputFile(String path) {
+                    Assertions.assertTrue(auth.active.get(), "manifest factories and probes must retain doAs");
+                    reads.incrementAndGet();
+                    return cold.io().newInputFile(path);
+                }
+
+                @Override
+                public OutputFile newOutputFile(String path) {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public void deleteFile(String path) {
+                    throw new UnsupportedOperationException();
+                }
+            };
+            Table secured = new BaseTable(new StaticTableOperations(metadata, guarded), table.name());
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            ops.table = secured;
+            TcclPinningConnectorContext context = new TcclPinningConnectorContext(new RecordingConnectorContext(),
+                    getClass().getClassLoader(), () -> auth);
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(
+                    Collections.singletonMap("meta.cache.iceberg.manifest.enable", Boolean.toString(cached))),
+                    ops, context, cached ? new IcebergManifestCache() : null);
+            for (int attempt = 0; attempt < 2; attempt++) {
+                List<ConnectorScanRange> ranges = provider.planScan(null, request());
+                Assertions.assertEquals(1, ranges.size());
+                Assertions.assertEquals("/data/legacy.parquet", ranges.get(0).getPath().orElseThrow());
+                try (ConnectorSplitSource source = provider.streamSplits(null, request())) {
+                    Assertions.assertTrue(source.hasNext());
+                    Assertions.assertEquals("/data/legacy.parquet", source.next().getPath().orElseThrow());
+                    Assertions.assertFalse(source.hasNext());
+                }
+            }
+            Assertions.assertTrue(reads.get() > 0);
+            Assertions.assertFalse(auth.active.get());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void metadataDeleteWithRelativeLocationsFallsBackWithoutCommitting(boolean withDeletes) throws Exception {
+        Table table = createTable(4);
+        DataFile file = data(table, "data/first.parquet");
+        table.newFastAppend().appendFile(file).commit();
+        if (withDeletes) {
+            table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(table.spec()).ofPositionDeletes()
+                    .withPath("data/deletes.puffin").withFormat(FileFormat.PUFFIN)
+                    .withReferencedDataFile(file.location()).withContentOffset(16).withContentSizeInBytes(64)
+                    .withFileSizeInBytes(128).withRecordCount(2).build()).commit();
+        }
+        Table relative = relativeMetadata(table);
+        long snapshot = relative.currentSnapshot().snapshotId();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = relative;
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops,
+                IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
+        OptionalLong result = Assertions.assertDoesNotThrow(() -> metadata.deleteUsingMetadata(null,
+                new IcebergTableHandle("db", "table"), Optional.empty(), null, () -> false));
+        Assertions.assertTrue(result.isEmpty());
+        Assertions.assertEquals(snapshot, relative.currentSnapshot().snapshotId());
+        Assertions.assertEquals(1, provider(relative, false).planScan(null, request()).size());
+    }
+
+    private static final class RecordingAuthenticator implements HadoopAuthenticator {
+        private final ThreadLocal<Boolean> active = ThreadLocal.withInitial(() -> false);
+
+        @Override
+        public UserGroupInformation getUGI() {
+            throw new UnsupportedOperationException("doAs is supplied by the test");
+        }
+
+        @Override
+        public <T> T doAs(PrivilegedExceptionAction<T> action) throws IOException {
+            boolean previous = active.get();
+            active.set(true);
+            try {
+                return action.run();
+            } catch (IOException | RuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new IOException(e);
+            } finally {
+                active.set(previous);
+            }
         }
     }
 

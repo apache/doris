@@ -4016,10 +4016,19 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         BaseTable baseTable = (BaseTable) table;
         TableOperations rawOps = baseTable.operations();
+        FileIO scanIO = rawOps.io();
+        if (scanIO instanceof IcebergV4FileIO) {
+            // Keep authentication below path resolution so native version probes neither nest resolvers
+            // nor bypass doAs. The captured operations retain this metadata generation's location.
+            scanIO = new IcebergV4FileIO(new IcebergAuthenticatedFileIO(
+                    ((IcebergV4FileIO) scanIO).delegate(), auth), rawOps.current().location());
+        } else {
+            scanIO = new IcebergAuthenticatedFileIO(scanIO, auth);
+        }
         // Keep the table's metrics reporter and REST catalog labels: every scan of a Kerberos catalog runs on this
         // wrapper.
         return new BaseTable(new IcebergAuthenticatedTableOperations(
-                rawOps, new IcebergAuthenticatedFileIO(rawOps.io(), auth)), table.name(), baseTable.reporter(),
+                rawOps, scanIO), table.name(), baseTable.reporter(),
                 baseTable.labels());
     }
 
