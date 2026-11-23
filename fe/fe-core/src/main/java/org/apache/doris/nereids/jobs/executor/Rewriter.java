@@ -127,6 +127,7 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushCountIntoUnionAll;
+import org.apache.doris.nereids.rules.rewrite.PushDownAggStateCast;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
 import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterIntoSchemaScan;
@@ -208,6 +209,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new EliminateSortUnderSubqueryOrView(),
                                             // MergeProjects depends on this rule
                                             new LogicalSubQueryAliasToLogicalProject(),
+                                            new PushDownAggStateCast(),
                                             ExpressionNormalizationAndOptimization.FULL_RULE_INSTANCE,
                                             new AvgDistinctToSumDivCount(),
                                             new CountDistinctRewrite(),
@@ -435,7 +437,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // move MergeProjects rule from analyze phase
                     // because SubqueryToApply and BindSink rule may create extra project node
                     // we need merge them at the beginning of rewrite phase to let later rules happy
-                    topDown(new MergeProjectable()),
+                    topDown(new MergeProjectable(), new PushDownAggStateCast()),
                     topDown(
                             new EliminateOrderByConstant(),
                             new EliminateSortUnderSubqueryOrView(),

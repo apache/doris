@@ -111,6 +111,19 @@ public class AggStateType extends DataType {
         return beExecVersion;
     }
 
+    /** Keep the aggregate signature when choosing a producer's output codec. */
+    public AggStateType withBeExecVersion(int version) {
+        return new AggStateType(functionName, subTypes, subTypeNullables, returnNullable, version);
+    }
+
+    /** Compare the aggregate signature, without asserting that its state bytes are compatible. */
+    public boolean hasSameAggregateSignature(AggStateType other) {
+        return functionName.equals(other.functionName)
+                && subTypes.equals(other.subTypes)
+                && subTypeNullables.equals(other.subTypeNullables)
+                && returnNullable == other.returnNullable;
+    }
+
     /**
      * Allow the version 19 to 20 storage cast without changing its state bytes.
      * Version 20 keeps the version 19 AGG_STATE storage columns and accepts their payloads.
@@ -125,10 +138,7 @@ public class AggStateType extends DataType {
     public boolean canUpgradeStoredStateFrom(AggStateType source) {
         return beExecVersion == Config.UNIFIED_NULLABLE_AGGREGATION_MIN_BE_EXEC_VERSION
                 && source.beExecVersion == Config.UNIFIED_NULLABLE_AGGREGATION_MIN_BE_EXEC_VERSION - 1
-                && functionName.equals(source.functionName)
-                && subTypes.equals(source.subTypes)
-                && subTypeNullables.equals(source.subTypeNullables)
-                && returnNullable == source.returnNullable;
+                && hasSameAggregateSignature(source);
     }
 
     @Override

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
@@ -58,6 +59,17 @@ public class ConvertAggStateCast implements ExpressionPatternRuleFactory {
             // TODO remove it after we refactor mv rewriter to avoid generate Alias in expression
             while (child instanceof Alias) {
                 child = ((Alias) child).child();
+            }
+            if (child instanceof CombineCombinator) {
+                AggStateType source = (AggStateType) originalType;
+                AggStateType target = (AggStateType) targetType;
+                // COMBINE casts may change only the codec. Keep rejecting changes such
+                // as AVG(INT) to AVG(BIGINT); they require different aggregate inputs.
+                if (!source.equals(target) && source.hasSameAggregateSignature(target)) {
+                    return cast.withChildren(ImmutableList.of(((CombineCombinator) child)
+                            .withBeExecVersion(target.getBeExecVersion())));
+                }
+                return cast;
             }
             if (child instanceof StateCombinator) {
                 AggStateType target = (AggStateType) targetType;

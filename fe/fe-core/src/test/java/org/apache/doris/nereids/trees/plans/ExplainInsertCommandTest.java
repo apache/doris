@@ -29,6 +29,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -212,6 +213,44 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         } finally {
             Config.be_exec_version = version;
             connectContext.getSessionVariable().enableAggState = enabled;
+        }
+    }
+
+    @Test
+    public void testInsertCombineUsesStoredCodecVersion() throws Exception {
+        int version = Config.be_exec_version;
+        boolean enabled = connectContext.getSessionVariable().enableAggState;
+        String disabled = String.join(",", connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        try {
+            connectContext.getSessionVariable().enableAggState = true;
+            // Keep the mock scan. An empty-relation rewrite would remove the producer
+            // whose return type must reach the backend with the sink's version.
+            connectContext.getSessionVariable().setDisableNereidsRules(disabled + ",PRUNE_EMPTY_PARTITION");
+            createTable("create table combine_codec_input (k int, v int null) duplicate key(k) "
+                    + "distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            Config.be_exec_version = 19;
+            createTable("create table combine_codec_sink (k int, a agg_state<avg(int null)> generic) "
+                    + "aggregate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            Config.be_exec_version = 20;
+            for (String suffix : new String[] {"", " having k >= 0 order by k limit 1"}) {
+                String sql = "insert into combine_codec_sink select k, avg_combine(v) "
+                        + "from combine_codec_input group by k" + suffix;
+                StatementContext context = MemoTestUtils.createStatementContext(connectContext, sql);
+                LogicalPlan logical = (LogicalPlan) ((Explainable) parser.parseSingle(sql)).getExplainPlan(connectContext);
+                PhysicalPlan plan = new NereidsPlanner(context).planWithLock(logical, PhysicalProperties.ANY);
+                List<CombineCombinator> producers = plan.<Plan>collectToList(node -> true).stream()
+                        .flatMap(node -> node.getExpressions().stream())
+                        .flatMap(expr -> expr.<CombineCombinator>collectToList(CombineCombinator.class::isInstance).stream())
+                        .collect(Collectors.toList());
+                Assertions.assertFalse(producers.isEmpty());
+                for (CombineCombinator producer : producers) {
+                    Assertions.assertEquals(19, ((AggStateType) producer.getDataType()).getBeExecVersion());
+                }
+            }
+        } finally {
+            Config.be_exec_version = version;
+            connectContext.getSessionVariable().enableAggState = enabled;
+            connectContext.getSessionVariable().setDisableNereidsRules(disabled);
         }
     }
 

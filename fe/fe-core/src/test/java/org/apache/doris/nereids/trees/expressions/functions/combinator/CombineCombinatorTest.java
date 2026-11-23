@@ -20,15 +20,24 @@ package org.apache.doris.nereids.trees.expressions.functions.combinator;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.rules.analysis.WindowFunctionChecker;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
+import org.apache.doris.nereids.rules.rewrite.PushDownAggStateCast;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -38,7 +47,12 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmap
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersectCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapUnionCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -46,13 +60,108 @@ import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class CombineCombinatorTest {
+
+    @Test
+    void testCombineCastUsesSinkCodec() {
+        int version = Config.be_exec_version;
+        try {
+            MemoTestUtils.createConnectContext();
+            Config.be_exec_version = 20;
+            Expression argument = new Nullable(new IntegerLiteral(2));
+            CombineCombinator combine = new CombineCombinator(ImmutableList.of(argument), new Avg(argument));
+            // Read the signature first. The sink rewrite must replace this cached version 20.
+            Assertions.assertEquals(20, ((AggStateType) combine.getDataType()).getBeExecVersion());
+            AggStateType target = new AggStateType("avg", ImmutableList.of(IntegerType.INSTANCE),
+                    ImmutableList.of(true), true, 19);
+            // Also model constant folding: the child is now non-null, but the analyzed
+            // input layout stays nullable. Changing the codec must preserve that layout.
+            CombineCombinator folded = MoreFieldsThread.keepFunctionSignature(true,
+                    () -> combine.withChildren(ImmutableList.of(new IntegerLiteral(2))));
+            for (CombineCombinator source : ImmutableList.of(combine, folded)) {
+                Cast cast = MoreFieldsThread.keepFunctionSignature(true,
+                        () -> ConvertAggStateCast.convert(new Cast(source, target)));
+                CombineCombinator producer = (CombineCombinator) cast.child();
+                Assertions.assertEquals(target, producer.getDataType());
+                Assertions.assertNotEquals(source, producer);
+
+                FunctionCallExpr translated = (FunctionCallExpr) ExpressionTranslator.translate(
+                        new AggregateExpression(producer, AggregateParam.LOCAL_RESULT), new PlanTranslatorContext());
+                Assertions.assertEquals(target.toCatalogDataType(), translated.getFn().getReturnType());
+                Assertions.assertTrue(translated.getChild(0).isNullable());
+            }
+        } finally {
+            Config.be_exec_version = version;
+        }
+    }
+
+    @Test
+    void testCodecCastKeepsOtherConsumers() {
+        int version = Config.be_exec_version;
+        try {
+            ConnectContext context = MemoTestUtils.createConnectContext();
+            Config.be_exec_version = 20;
+            Alias value = new Alias(new Nullable(new IntegerLiteral(2)), "v");
+            LogicalOneRowRelation input = new LogicalOneRowRelation(
+                    StatementScopeIdGenerator.newRelationId(), ImmutableList.of(value));
+            CombineCombinator combine = new CombineCombinator(ImmutableList.of(value.toSlot()), new Avg(value.toSlot()));
+            Alias original = new Alias(combine, "new_state");
+            AggStateType oldType = new AggStateType("avg", ImmutableList.of(IntegerType.INSTANCE),
+                    ImmutableList.of(true), true, 19);
+            LogicalAggregate<LogicalOneRowRelation> aggregate = new LogicalAggregate<>(
+                    ImmutableList.of(), ImmutableList.of(original), input);
+            // One consumer still needs version 20. Two other consumers need version 19.
+            // They must share a new output without changing the original slot or its producer.
+            LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(original.toSlot(),
+                    new Alias(new Cast(original.toSlot(), oldType), "old_state"),
+                    new Alias(new Cast(original.toSlot(), oldType), "old_again")), aggregate);
+            LogicalProject<?> rewritten = (LogicalProject<?>) PlanChecker
+                    .from(context, project)
+                    .applyTopDown(new PushDownAggStateCast()).getPlan();
+            Assertions.assertEquals(original.toSlot(), rewritten.getProjects().get(0));
+            Assertions.assertEquals(oldType, rewritten.getProjects().get(1).getDataType());
+            Assertions.assertEquals(rewritten.getProjects().get(1).child(0), rewritten.getProjects().get(2).child(0));
+            LogicalAggregate<?> newAggregate = (LogicalAggregate<?>) rewritten.child();
+            Assertions.assertEquals(2, newAggregate.getOutputExpressions().size());
+            Assertions.assertEquals(original, newAggregate.getOutputExpressions().get(0));
+            Assertions.assertEquals(oldType, newAggregate.getOutputExpressions().get(1).getDataType());
+        } finally {
+            Config.be_exec_version = version;
+        }
+    }
+
+    @Test
+    void testCombineRebuildKeepsCodecVersion() {
+        int version = Config.be_exec_version;
+        try {
+            Config.be_exec_version = 19;
+            SlotReference argument = new SlotReference("value", IntegerType.INSTANCE, true);
+            CombineCombinator combine = new CombineCombinator(ImmutableList.of(argument), new Avg(argument));
+            AggStateType original = (AggStateType) combine.getDataType();
+            Config.be_exec_version = 20;
+            // A rewrite can preserve or recompute the signature. Neither path may replace
+            // the producer's chosen codec with the current FE version.
+            for (boolean keepSignature : new boolean[] {false, true}) {
+                MoreFieldsThread.keepFunctionSignature(keepSignature, () -> {
+                    CombineCombinator rebuilt = combine.withChildren(ImmutableList.of(argument));
+                    Assertions.assertEquals(original, rebuilt.getDataType());
+                    Assertions.assertEquals(original,
+                            rebuilt.withDistinctAndChildren(false, ImmutableList.of(argument)).getDataType());
+                    return null;
+                });
+            }
+        } finally {
+            Config.be_exec_version = version;
+        }
+    }
 
     @Test
     void testAvgCombineReturnsCompatibleAggState() {
@@ -151,6 +260,8 @@ class CombineCombinatorTest {
         Assertions.assertTrue(CheckCast.check(exactType, exactType, false));
         Assertions.assertFalse(CheckCast.check(exactType, differentSubtype, false));
         Assertions.assertFalse(CheckCast.check(exactType, differentNullability, false));
+        Assertions.assertSame(combine, ConvertAggStateCast.convert(new Cast(combine, differentSubtype)).child());
+        Assertions.assertSame(combine, ConvertAggStateCast.convert(new Cast(combine, differentNullability)).child());
 
         PlanChecker checker = PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze("select cast(avg_combine(cast(1 as int)) as agg_state<avg(bigint not null)>)");
