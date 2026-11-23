@@ -90,6 +90,24 @@ enum TChangelogScanType {
   UNKNOWN = 4
 }
 
+enum TTabletSamplingAlgorithm {
+  FIXED_ROWID_BLOCK = 0
+}
+
+struct TFixedRowIdBlockSampleParams {
+  1: optional i64 sample_unit_rows
+  2: optional i64 max_sample_units_per_tablet
+}
+
+struct TTabletSampleOptions {
+  1: optional i32 protocol_version
+  2: optional TTabletSamplingAlgorithm algorithm
+  3: optional double intra_tablet_unit_probability
+  4: optional i64 seed
+  5: optional TFixedRowIdBlockSampleParams fixed_rowid_block_params
+  6: optional double tablet_inclusion_probability
+}
+
 struct TPaloScanRange {
   1: required list<Types.TNetworkAddress> hosts
   2: required string schema_hash
@@ -108,6 +126,7 @@ struct TPaloScanRange {
   // and exact scan-key bucket pruning. The count is not the selected tablet count.
   13: optional i32 bucket_seq
   14: optional i32 bucket_num
+  15: optional TTabletSampleOptions sample_options
 }
 
 enum TFileFormatType {

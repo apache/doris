@@ -365,6 +365,26 @@ TEST_F(BetaRowsetTest, ReadTest) {
     }
 }
 
+TEST_F(BetaRowsetTest, EmptyMiddleSampleSkipsSegmentIterator) {
+    auto schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(schema);
+    auto meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(meta, 1, 1);
+    meta->set_num_segments(4);
+    auto rowset = std::make_shared<BetaRowset>(schema, meta, kTestDir);
+    RowsetReaderSharedPtr reader;
+    ASSERT_TRUE(rowset->create_reader(&reader).ok());
+    RowsetReaderContext ctx {};
+    ctx.read_schema = std::make_shared<ReadSchema>(schema->columns());
+    RowSetSplits split(reader);
+    split.segment_offsets = {1, 4};
+    split.segment_row_ranges = {RowRanges::create_single(2), {}, RowRanges::create_single(1)};
+    ASSERT_TRUE(reader->init(&ctx, split).ok());
+    std::vector<RowwiseIteratorUPtr> iterators;
+    ASSERT_TRUE(reader->get_segment_iterators(&ctx, &iterators).ok());
+    EXPECT_EQ(iterators.size(), 2);
+}
+
 TEST_F(BetaRowsetTest, AddToBinlogTest) {
     RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
     BetaRowset rowset(nullptr, rowset_meta, "");

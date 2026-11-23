@@ -24,6 +24,7 @@
 #include <optional>
 #include <tuple>
 
+#include "cloud/config.h"
 #include "common/object_pool.h"
 #include "core/column/column_const.h"
 #include "core/column/column_vector.h"
@@ -44,6 +45,7 @@
 #include "testutil/mock/mock_fn_call.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -366,6 +368,64 @@ TEST_F(OlapScanOperatorTsoPruningTest, EmptyBootstrapDoesNotStartMinDeltaScanner
     EXPECT_EQ(_local_state->_rowsets_pruned_by_tso_counter->value(), 1);
     EXPECT_EQ(_local_state->_segments_pruned_by_tso_counter->value(), 2);
     EXPECT_EQ(_local_state->_tablets_pruned_by_tso_counter->value(), 1);
+}
+
+TEST_F(OlapScanOperatorTsoPruningTest, SampledCloudMatchUsesRowIdParallelism) {
+    const auto saved_mode = config::deploy_mode;
+    Defer restore_mode {[&] { config::deploy_mode = saved_mode; }};
+    config::deploy_mode = "cloud";
+    auto options = _state->query_options();
+    options.__set_optimize_index_scan_parallelism(true);
+    _state->set_query_options(options);
+    auto match = MockFnCall::create("match");
+    match->set_node_type(TExprNodeType::MATCH_PRED);
+    _local_state->_common_expr_ctxs_push_down.push_back(VExprContext::create_shared(match));
+    ASSERT_TRUE(_local_state->_use_scan_parallelism_by_per_segment());
+
+    auto sampled = std::make_unique<TPaloScanRange>();
+    sampled->__set_sample_options(TTabletSampleOptions {});
+    _local_state->_scan_ranges.push_back(std::move(sampled));
+    EXPECT_FALSE(_local_state->_use_scan_parallelism_by_per_segment());
+}
+
+TEST_F(OlapScanOperatorTsoPruningTest, ZeroHitFixedBlockSampleDoesNotRecaptureTablet) {
+    _parent->_olap_scan_node.__set_read_changelog(false);
+    _parent->_should_run_serial = true;
+    _local_state->_custom_profile = std::make_unique<RuntimeProfile>("Sample");
+    _local_state->_segment_profile = std::make_unique<RuntimeProfile>("Segment");
+    _local_state->_tablets.resize(2);
+    _local_state->_read_sources.resize(2);
+    auto reader = make_reader(std::nullopt, 3, 6);
+    reader->rowset()->rowset_meta()->set_num_segment_rows({1, 2, 3});
+    _local_state->_read_sources.front().rs_splits.emplace_back(reader);
+    auto second_reader = make_reader(std::nullopt, 1, 100);
+    second_reader->rowset()->rowset_meta()->set_num_segment_rows({100});
+    _local_state->_read_sources.back().rs_splits.emplace_back(second_reader);
+
+    TTabletSampleOptions options;
+    options.__set_protocol_version(1);
+    options.__set_algorithm(TTabletSamplingAlgorithm::FIXED_ROWID_BLOCK);
+    options.__set_intra_tablet_unit_probability(std::numeric_limits<double>::min());
+    options.__set_tablet_inclusion_probability(1);
+    options.__set_seed(8101);
+    TFixedRowIdBlockSampleParams params;
+    params.__set_sample_unit_rows(1024);
+    params.__set_max_sample_units_per_tablet(1);
+    options.__set_fixed_rowid_block_params(params);
+    _local_state->_scan_ranges.front()->__set_sample_options(options);
+
+    auto second_range = std::make_unique<TPaloScanRange>();
+    second_range->__set_tablet_id(2);
+    second_range->__set_sample_options(options);
+    _local_state->_scan_ranges.push_back(std::move(second_range));
+
+    ASSERT_TRUE(_local_state->_prepare_scanners().ok());
+    EXPECT_TRUE(_local_state->_scanners.empty());
+    EXPECT_TRUE(_local_state->_eos);
+    EXPECT_EQ(_local_state->_scan_dependency->is_blocked_by(nullptr), nullptr);
+    EXPECT_EQ(_local_state->custom_profile()->get_counter("SampleSelectedTablets")->value(), 2);
+    EXPECT_EQ(_local_state->custom_profile()->get_counter("SamplePopulationUnits")->value(), 4);
+    EXPECT_EQ(_local_state->custom_profile()->get_counter("SampleSelectedUnits")->value(), 0);
 }
 
 class OlapScanRuntimePredicateTest : public testing::TestWithParam<std::tuple<bool, bool>> {

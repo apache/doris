@@ -152,6 +152,9 @@ public class Backend implements Writable {
     private long beMemory = 0;
     @SerializedName("supportsPaimonRustReader")
     private volatile boolean supportsPaimonRustReader;
+
+    @SerializedName("supportsFixedBlockSamplingV1")
+    private volatile boolean supportsFixedBlockSamplingV1;
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
@@ -266,6 +269,10 @@ public class Backend implements Writable {
 
     public boolean isPaimonRustReaderSupported() {
         return supportsPaimonRustReader;
+    }
+
+    public boolean isSupportsFixedBlockSamplingV1() {
+        return supportsFixedBlockSamplingV1;
     }
 
     /** Connector-facing capabilities reported by this backend. */
@@ -892,6 +899,10 @@ public class Backend implements Writable {
             if (supportsPaimonRustReader != hbResponse.isPaimonRustReaderSupported()) {
                 isChanged = true;
                 supportsPaimonRustReader = hbResponse.isPaimonRustReaderSupported();
+            }
+            if (supportsFixedBlockSamplingV1 != hbResponse.isSupportsFixedBlockSamplingV1()) {
+                isChanged = true;
+                supportsFixedBlockSamplingV1 = hbResponse.isSupportsFixedBlockSamplingV1();
             }
             if (!this.version.equals(hbResponse.getVersion())) {
                 isChanged = true;

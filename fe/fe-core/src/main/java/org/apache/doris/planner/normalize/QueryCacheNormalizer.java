@@ -138,7 +138,7 @@ public class QueryCacheNormalizer implements Normalizer {
     private Optional<CachePoint> doComputeCachePoint(PlanNode planRoot) {
         if (planRoot instanceof AggregationNode) {
             PlanNode child = planRoot.getChild(0);
-            if (child instanceof OlapScanNode) {
+            if (child instanceof OlapScanNode && !((OlapScanNode) child).hasFixedBlockSample()) {
                 if (((AggregationNode) planRoot).isQueryCacheCandidate()) {
                     return Optional.of(new CachePoint(planRoot, planRoot));
                 }

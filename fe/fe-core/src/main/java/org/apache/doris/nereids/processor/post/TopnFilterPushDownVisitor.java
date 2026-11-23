@@ -283,13 +283,11 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     }
 
     private boolean supportPhysicalRelations(PhysicalRelation relation) {
-        if (relation instanceof PhysicalOlapScan
-                && ((PhysicalOlapScan) relation).getTable().hasRowTtl()) {
-            return false;
+        if (relation instanceof PhysicalOlapScan) {
+            PhysicalOlapScan scan = (PhysicalOlapScan) relation;
+            return !scan.hasFixedBlockSample() && !scan.getTable().hasRowTtl();
         }
-        return relation instanceof PhysicalOlapScan
-                || relation instanceof PhysicalOdbcScan
-                || relation instanceof PhysicalFileScan
-                || relation instanceof PhysicalLazyMaterializeOlapScan;
+        return relation instanceof PhysicalOdbcScan
+                || relation instanceof PhysicalFileScan;
     }
 }

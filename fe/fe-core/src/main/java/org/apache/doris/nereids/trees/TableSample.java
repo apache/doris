@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees;
 
+import org.apache.doris.analysis.FixedBlockSampleSpec;
+
 import java.util.Objects;
 
 /**
@@ -34,7 +36,18 @@ public class TableSample {
 
     public final long seek;
 
+    public final FixedBlockSampleSpec fixedBlockSpec;
+
     public TableSample(long sampleValue, boolean isPercent, long seek) {
+        this(sampleValue, isPercent, seek, null);
+    }
+
+    public TableSample(FixedBlockSampleSpec spec) {
+        this(0, false, spec.seed, spec);
+    }
+
+    private TableSample(long sampleValue, boolean isPercent, long seek, FixedBlockSampleSpec fixedBlockSpec) {
+        this.fixedBlockSpec = fixedBlockSpec;
         this.sampleValue = sampleValue;
         this.isPercent = isPercent;
         this.seek = seek;
@@ -51,15 +64,20 @@ public class TableSample {
         TableSample tableSample = (TableSample) obj;
         return this.sampleValue == tableSample.sampleValue
                 && this.isPercent == tableSample.isPercent
-                && this.seek == tableSample.seek;
+                && this.seek == tableSample.seek && Objects.equals(fixedBlockSpec, tableSample.fixedBlockSpec);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(sampleValue, isPercent, seek);
+        return Objects.hash(sampleValue, isPercent, seek, fixedBlockSpec);
+    }
+
+    @Override
+    public String toString() {
+        return translateToLegacyTableSample().toString();
     }
 
     public org.apache.doris.analysis.TableSample translateToLegacyTableSample() {
-        return new org.apache.doris.analysis.TableSample(this.isPercent, this.sampleValue, this.seek);
+        return new org.apache.doris.analysis.TableSample(this.isPercent, this.sampleValue, this.seek, fixedBlockSpec);
     }
 }

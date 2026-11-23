@@ -73,7 +73,7 @@ public class PushDownVectorTopNIntoOlapScan implements RewriteRuleFactory {
             LogicalProject<?> project,
             LogicalOlapScan scan,
             Optional<LogicalFilter<?>> optionalFilter) {
-        if (scan.getTable().hasRowTtl()) {
+        if (scan.hasFixedBlockSample() || scan.getTable().hasRowTtl()) {
             // ANN returns a limited candidate set from the index. TTL must first observe every
             // post-merge row, so retain the scalar expression and the upper TopN instead.
             return null;

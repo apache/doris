@@ -25,6 +25,7 @@ import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
+import org.apache.doris.analysis.FixedBlockSampleSpec;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourceDesc;
@@ -62,6 +63,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.scan.FileCacheAdmissionManager;
@@ -5606,8 +5608,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Object visitSample(SampleContext ctx) {
-        long seek = ctx.seed == null ? -1L : Long.parseLong(ctx.seed.getText());
         DorisParser.SampleMethodContext sampleContext = ctx.sampleMethod();
+        if (sampleContext == null) {
+            throw new AnalysisException("TABLESAMPLE requires a sampling method");
+        }
+        if (sampleContext instanceof DorisParser.SampleByFixedBlockContext) {
+            return parseFixedBlockSample(ctx, (DorisParser.SampleByFixedBlockContext) sampleContext);
+        }
+        long seek = ctx.seed == null ? -1L : Long.parseLong(ctx.seed.getText());
         if (sampleContext instanceof SampleByPercentileContext) {
             SampleByPercentileContext sampleByPercentileContext = (SampleByPercentileContext) sampleContext;
             long percent = Long.parseLong(sampleByPercentileContext.INTEGER_VALUE().getText());
@@ -5616,6 +5624,49 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         SampleByRowsContext sampleByRowsContext = (SampleByRowsContext) sampleContext;
         long rows = Long.parseLong(sampleByRowsContext.INTEGER_VALUE().getText());
         return new TableSample(rows, false, seek);
+    }
+
+    private TableSample parseFixedBlockSample(SampleContext ctx, DorisParser.SampleByFixedBlockContext fixed) {
+        if ((ConnectContext.get() == null || !ConnectContext.get().getState().isInternal())
+                && !DebugPointUtil.isEnable("TableSample.allowInternalFixedBlock")) {
+            throw new AnalysisException("FIXED_BLOCK sampling requires an internal session");
+        }
+        if (!"FIXED_BLOCK".equalsIgnoreCase(fixed.method.getText())
+                || !"unit_rows".equalsIgnoreCase(fixed.key.getText()) || ctx.seed == null) {
+            throw new AnalysisException("Expected FIXED_BLOCK unit_rows and a nonnegative REPEATABLE seed");
+        }
+        if (fixed.fixedBlockGroup().size() > FixedBlockSampleSpec.MAX_GROUPS) {
+            throw new AnalysisException("Too many FIXED_BLOCK groups");
+        }
+        try {
+            int tabletsSeen = 0;
+            List<FixedBlockSampleSpec.Group> groups = new ArrayList<>();
+            for (DorisParser.FixedBlockGroupContext group : fixed.fixedBlockGroup()) {
+                if (group.tablets.size() > FixedBlockSampleSpec.MAX_TABLETS - tabletsSeen) {
+                    throw new AnalysisException("Too many FIXED_BLOCK tablets");
+                }
+                tabletsSeen += group.tablets.size();
+                Map<String, String> values = new HashMap<>();
+                for (DorisParser.FixedBlockOptionContext option : group.fixedBlockOption()) {
+                    String key = option.key.getText().toLowerCase(Locale.ROOT);
+                    if (values.put(key, option.value.getText()) != null) {
+                        throw new AnalysisException("Duplicate FIXED_BLOCK option " + key);
+                    }
+                }
+                if (!values.keySet().equals(ImmutableSet.of("tablet_rate", "unit_rate", "max_units"))) {
+                    throw new AnalysisException("FIXED_BLOCK GROUP requires tablet_rate, unit_rate and max_units");
+                }
+                List<Long> tablets = group.tablets.stream().map(t -> Long.parseLong(t.getText()))
+                        .collect(Collectors.toList());
+                groups.add(new FixedBlockSampleSpec.Group(Double.parseDouble(values.get("tablet_rate")),
+                        Double.parseDouble(values.get("unit_rate")),
+                        new BigDecimal(values.get("max_units")).longValueExact(), tablets));
+            }
+            return new TableSample(new FixedBlockSampleSpec(new BigDecimal(fixed.unitRows.getText()).longValueExact(),
+                    Long.parseLong(ctx.seed.getText()), groups));
+        } catch (NumberFormatException | ArithmeticException e) {
+            throw new AnalysisException("Invalid FIXED_BLOCK numeric value", e);
+        }
     }
 
     @Override
@@ -7021,6 +7072,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             tableAlias = ctx.tableAlias().strictIdentifier().getText();
         }
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
+        // Administrative statements describe whole tables and never build an OLAP scan.
+        if (tableSample != null && tableSample.fixedBlockSpec != null) {
+            throw new AnalysisException("FIXED_BLOCK requires an OLAP query scan");
+        }
         List<String> hints = visitRelationHintContext(ctx.relationHint());
         return new TableRefInfo(new TableNameInfo(nameParts), scanParams, tableSnapShot, partitionNameInfo,
                 tabletIdList, tableAlias, tableSample, hints);

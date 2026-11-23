@@ -79,7 +79,7 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
         }
         // Lazy point-query pruning does not preserve explicit PARTITION/TABLET restrictions.
         // Keep these queries on the normal execution path so the physical scan enforces them.
-        if (!olapScan.getManuallySpecifiedPartitions().isEmpty()
+        if (olapScan.hasFixedBlockSample() || !olapScan.getManuallySpecifiedPartitions().isEmpty()
                 || !olapScan.getManuallySpecifiedTabletIds().isEmpty()) {
             return false;
         }

@@ -274,6 +274,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return canNotPush;
         }
         if (logicalScan != null) {
+            if (logicalScan.hasFixedBlockSample()) {
+                return canNotPush;
+            }
             KeysType keysType = logicalScan.getTable().getKeysType();
             if (keysType != KeysType.DUP_KEYS) {
                 return canNotPush;
@@ -402,6 +405,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             LogicalOlapScan olapScan,
             CascadesContext cascadesContext) {
 
+        if (olapScan.hasFixedBlockSample()) {
+            return agg;
+        }
         PhysicalOlapScan physicalOlapScan = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
                 .build()
                 .transform(olapScan, cascadesContext)
@@ -459,6 +465,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             LogicalOlapScan olapScan,
             CascadesContext cascadesContext) {
         final LogicalAggregate<? extends Plan> canNotPush = aggregate;
+        if (olapScan.hasFixedBlockSample()) {
+            return canNotPush;
+        }
         Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
         if (checkWhetherPushDownMinMax(aggregateFunctions, project, olapScan.getOutput())) {
             PhysicalOlapScan physicalOlapScan = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
@@ -554,6 +563,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         }
 
         if (logicalScan instanceof LogicalOlapScan) {
+            if (((LogicalOlapScan) logicalScan).hasFixedBlockSample()) {
+                return canNotPush;
+            }
             KeysType keysType = ((LogicalOlapScan) logicalScan).getTable().getKeysType();
             if (keysType != KeysType.AGG_KEYS && keysType != KeysType.DUP_KEYS) {
                 return canNotPush;

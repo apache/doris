@@ -34,8 +34,13 @@
 #include "storage/tablet/tablet_reader.h"
 
 namespace doris {
+namespace io {
+struct FileCacheStatistics;
+}
+
 class OlapScanner;
 class QueryCacheRuntime;
+class TabletSamplePlan;
 struct QueryCacheInstanceDecision;
 } // namespace doris
 
@@ -134,6 +139,11 @@ private:
     }
 
     Status _init_scanners(std::list<ScannerSPtr>* scanners) override;
+
+    Status _prepare_tablet_samples(
+            const std::vector<const std::vector<OlapScanRange*>*>& tablet_key_ranges);
+    Status _build_tablet_sample_plan(size_t idx, io::FileCacheStatistics* stats,
+                                     TabletSamplePlan* plan);
 
     void _prune_rowsets_by_tso(const TPaloScanRange& scan_range, TabletReadSource& read_source);
 

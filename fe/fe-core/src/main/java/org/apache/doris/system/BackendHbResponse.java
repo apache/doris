@@ -54,6 +54,9 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     @SerializedName("supportsPaimonRustReader")
     private boolean supportsPaimonRustReader;
 
+    @SerializedName("supportsFixedBlockSamplingV1")
+    private boolean supportsFixedBlockSamplingV1;
+
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
     }
@@ -156,6 +159,14 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
 
     public boolean isPaimonRustReaderSupported() {
         return supportsPaimonRustReader;
+    }
+
+    public boolean isSupportsFixedBlockSamplingV1() {
+        return supportsFixedBlockSamplingV1;
+    }
+
+    public void setSupportsFixedBlockSamplingV1(boolean supported) {
+        supportsFixedBlockSamplingV1 = supported;
     }
 
     public void setPaimonRustReaderSupported(boolean supported) {

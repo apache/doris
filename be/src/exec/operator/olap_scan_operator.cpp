@@ -50,6 +50,9 @@
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "storage/index/ann/ann_topn_runtime.h"
+#include "storage/sampling/tablet_sample_plan.h"
+#include "storage/sampling/tablet_sampling_algorithm.h"
+#include "storage/sampling/tablet_sampling_algorithm_factory.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
@@ -705,6 +708,11 @@ bool OlapScanLocalState::_use_scan_parallelism_by_per_segment() {
         !state()->query_options().optimize_index_scan_parallelism) {
         return false;
     }
+    // Sampled row ranges are split by rowid, including when a MATCH predicate uses an index.
+    if (std::ranges::any_of(_scan_ranges,
+                            [](const auto& range) { return range->__isset.sample_options; })) {
+        return false;
+    }
     // TODO: Use optimize_index_scan_parallelism for ann range search in the future.
     // Currently, ann topn is enough
     if (_ann_topn_runtime != nullptr) {
@@ -713,6 +721,76 @@ bool OlapScanLocalState::_use_scan_parallelism_by_per_segment() {
     return config::is_cloud_mode() &&
            std::ranges::any_of(_common_expr_ctxs_push_down,
                                [](const auto& ctx) { return is_match_expr(ctx->root()); });
+}
+
+Status OlapScanLocalState::_build_tablet_sample_plan(size_t idx, io::FileCacheStatistics* stats,
+                                                     TabletSamplePlan* plan) {
+    const auto& range = *_scan_ranges[idx];
+    const auto& source = _read_sources[idx];
+    std::unique_ptr<TabletSamplingAlgorithm> algorithm;
+    RETURN_IF_ERROR(TabletSamplingAlgorithmFactory::create(range.sample_options, &algorithm));
+    std::vector<SampleSegment> segments;
+    for (const auto& split : source.rs_splits) {
+        auto rowset = split.rs_reader->rowset();
+        std::vector<uint32_t> rows;
+        RETURN_IF_ERROR(ParallelScannerBuilder::load_segment_rows(state(), rowset, stats, &rows));
+        DORIS_CHECK_EQ(rows.size(), rowset->num_segments());
+        for (size_t pos = 0; pos < rows.size(); ++pos) {
+            segments.push_back({rowset->rowset_id(), rowset->segment(pos).id(), rows[pos]});
+        }
+    }
+    return algorithm->build(range.tablet_id, segments, plan);
+}
+
+static void olap_scan_apply_tablet_sample(TabletReadSource& source, TabletSamplePlan&& plan) {
+    auto ranges = std::move(plan).take_segments();
+    auto next = ranges.begin();
+    for (auto& split : source.rs_splits) {
+        auto count = split.rs_reader->rowset()->num_segments();
+        split.segment_offsets = {0, count};
+        split.segment_row_ranges.assign(std::make_move_iterator(next),
+                                        std::make_move_iterator(next + count));
+        next += count;
+    }
+    std::erase_if(source.rs_splits, [](const auto& split) {
+        return std::ranges::all_of(split.segment_row_ranges, &RowRanges::is_empty);
+    });
+}
+
+Status OlapScanLocalState::_prepare_tablet_samples(
+        const std::vector<const std::vector<OlapScanRange*>*>& tablet_key_ranges) {
+    std::optional<io::FileCacheStatistics> sample_preload;
+    int64_t selected_tablets = 0;
+    uint64_t population_units = 0;
+    uint64_t selected_units = 0;
+    for (size_t idx = 0; idx < _scan_ranges.size(); ++idx) {
+        if (_scan_ranges[idx]->__isset.sample_options && !tablet_key_ranges[idx]->empty()) {
+            if (!sample_preload) {
+                sample_preload.emplace();
+            }
+            TabletSamplePlan plan;
+            RETURN_IF_ERROR(_build_tablet_sample_plan(idx, &*sample_preload, &plan));
+            ++selected_tablets;
+            population_units += plan.population_units();
+            selected_units += plan.selected_units();
+            olap_scan_apply_tablet_sample(_read_sources[idx], std::move(plan));
+        }
+    }
+    if (sample_preload) {
+        COUNTER_UPDATE(ADD_COUNTER(custom_profile(), "SampleSelectedTablets", TUnit::UNIT),
+                       selected_tablets);
+        COUNTER_UPDATE(ADD_COUNTER(custom_profile(), "SamplePopulationUnits", TUnit::UNIT),
+                       population_units);
+        COUNTER_UPDATE(ADD_COUNTER(custom_profile(), "SampleSelectedUnits", TUnit::UNIT),
+                       selected_units);
+        // A zero-hit tablet has no scanner to report its footer I/O.
+        io::FileCacheProfileReporter(_segment_profile.get()).update(&*sample_preload);
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                sample_preload->bytes_read_from_local);
+        DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
+                sample_preload->bytes_read_from_remote);
+    }
+    return Status::OK();
 }
 
 Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
@@ -817,6 +895,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         }
     }
 
+    RETURN_IF_ERROR(_prepare_tablet_samples(tablet_key_ranges));
     bool enable_parallel_scan = state()->enable_parallel_scan();
     auto resolve_changelog_scan_type = [](const TPaloScanRange& scan_range) {
         if (scan_range.__isset.changelog_scan_type) {
@@ -893,6 +972,11 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             continue;
         }
         const auto& palo_scan_range = *_scan_ranges[scan_range_idx];
+        if (palo_scan_range.__isset.sample_options &&
+            _read_sources[scan_range_idx].rs_splits.empty()) {
+            // Creating a scanner with no splits would recapture the whole tablet.
+            continue;
+        }
         if (read_changelog &&
             (palo_scan_range.__isset.start_tso || palo_scan_range.__isset.end_tso)) {
             auto& read_source = _read_sources[scan_range_idx];

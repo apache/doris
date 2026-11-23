@@ -82,7 +82,7 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
     private Optional<Plan> pushDown(LogicalTopN<?> topN, Optional<LogicalProject<?>> project,
             LogicalFilter<LogicalOlapScan> filter) {
         LogicalOlapScan scan = filter.child();
-        if (scan.getTable().hasRowTtl()) {
+        if (scan.hasFixedBlockSample() || scan.getTable().hasRowTtl()) {
             // Expired rows must be filtered before limiting the score candidates.
             return Optional.empty();
         }

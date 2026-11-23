@@ -245,7 +245,7 @@ public:
         return result;
     }
 
-    size_t count() { return _count; }
+    size_t count() const { return _count; }
 
     bool is_empty() const { return _count == 0; }
 

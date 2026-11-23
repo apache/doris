@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import java.util.Objects;
+
 /*
  * To represent following stmt:
  *      TABLESAMPLE (10 PERCENT)
@@ -32,23 +34,45 @@ public class TableSample implements ParseNode {
 
     private final Long sampleValue;
     private final boolean isPercent;
-    private Long seek = -1L;
+    private final Long seek;
+    private final FixedBlockSampleSpec fixedBlockSpec;
 
     public TableSample(boolean isPercent, Long sampleValue) {
-        this.sampleValue = sampleValue;
-        this.isPercent = isPercent;
+        this(isPercent, sampleValue, -1L);
     }
 
     public TableSample(boolean isPercent, Long sampleValue, Long seek) {
+        this(isPercent, sampleValue, seek, null);
+    }
+
+    public TableSample(boolean isPercent, Long sampleValue, Long seek, FixedBlockSampleSpec fixedBlockSpec) {
+        this.fixedBlockSpec = fixedBlockSpec;
         this.sampleValue = sampleValue;
         this.isPercent = isPercent;
         this.seek = seek;
     }
 
     public TableSample(TableSample other) {
-        this.sampleValue = other.sampleValue;
-        this.isPercent = other.isPercent;
-        this.seek = other.seek;
+        this(other.isPercent, other.sampleValue, other.seek, other.fixedBlockSpec);
+    }
+
+    public FixedBlockSampleSpec getFixedBlockSpec() {
+        return fixedBlockSpec;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (!(other instanceof TableSample)) {
+            return false;
+        }
+        TableSample that = (TableSample) other;
+        return isPercent == that.isPercent && Objects.equals(sampleValue, that.sampleValue)
+                && Objects.equals(seek, that.seek) && Objects.equals(fixedBlockSpec, that.fixedBlockSpec);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(isPercent, sampleValue, seek, fixedBlockSpec);
     }
 
     public Long getSampleValue() {
@@ -65,6 +89,9 @@ public class TableSample implements ParseNode {
 
     @Override
     public String toString() {
+        if (fixedBlockSpec != null) {
+            return fixedBlockSpec.toString();
+        }
         if (sampleValue == null) {
             return "";
         }

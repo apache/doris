@@ -2267,6 +2267,17 @@ sample
 sampleMethod
     : percentage=INTEGER_VALUE PERCENT                              #sampleByPercentile
     | INTEGER_VALUE ROWS                                            #sampleByRows
+    | method=identifier key=identifier EQ unitRows=number
+        (COMMA fixedBlockGroup)+                                    #sampleByFixedBlock
+    ;
+
+fixedBlockGroup
+    : GROUP LEFT_PAREN fixedBlockOption (COMMA fixedBlockOption)* COMMA TABLETS
+        LEFT_PAREN tablets+=INTEGER_VALUE (COMMA tablets+=INTEGER_VALUE)* RIGHT_PAREN RIGHT_PAREN
+    ;
+
+fixedBlockOption
+    : key=identifier EQ value=number
     ;
 
 tableSnapshot

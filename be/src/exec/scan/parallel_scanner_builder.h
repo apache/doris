@@ -68,6 +68,9 @@ public:
 
     Status build_scanners(std::list<ScannerSPtr>& scanners);
 
+    static Status load_segment_rows(RuntimeState* state, const RowsetSharedPtr& rowset,
+                                    io::FileCacheStatistics* stats, std::vector<uint32_t>* rows);
+
     void set_max_scanners_count(size_t count) { _max_scanners_count = count; }
 
     void set_min_rows_per_scanner(int64_t size) { _min_rows_per_scanner = size; }
@@ -83,6 +86,11 @@ private:
     Status _load();
 
     Status _build_scanners_by_rowid(std::list<ScannerSPtr>& scanners);
+
+    void _build_sampled_tablet_scanners(
+            size_t idx, const TabletReadSource& source,
+            const std::shared_ptr<TabletCollectionStatistics>& collection_statistics,
+            std::list<ScannerSPtr>& scanners);
 
     // Build scanners so that each segment is handled by its own scanner.
     Status _build_scanners_by_per_segment(std::list<ScannerSPtr>& scanners);

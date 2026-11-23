@@ -17,24 +17,29 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.analysis.FixedBlockSampleSpec;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -71,6 +76,7 @@ import org.apache.doris.statistics.model.ColumnStatisticBuilder;
 import org.apache.doris.statistics.model.PartitionColumnStatistic;
 import org.apache.doris.statistics.model.PartitionColumnStatisticBuilder;
 import org.apache.doris.statistics.model.Statistics;
+import org.apache.doris.statistics.model.StatisticsBuilder;
 import org.apache.doris.statistics.util.Hll128;
 
 import com.google.common.collect.ImmutableList;
@@ -307,6 +313,80 @@ public class StatsCalculatorTest {
             Statistics statistics = fixture.computeOlapScan();
             Assertions.assertEquals(4, statistics.getRowCount());
             Assertions.assertEquals(2, statistics.findColumnStatistics(fixture.slot).ndv);
+        }
+    }
+
+    @Test
+    public void testFixedBlockEstimatesOnlyWithinSelectedTablets() {
+        StatementContext statement = new StatementContext();
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(false, newTableStatistic(2), null)) {
+            LogicalOlapScan scan = fixture.scan;
+            ConnectContext ctx = ConnectContext.get();
+            ctx.setStatementContext(statement);
+            ctx.getState().setPlanWithUnKnownColumnStats(true);
+            FixedBlockSampleSpec spec = new FixedBlockSampleSpec(32, 1, List.of(
+                    new FixedBlockSampleSpec.Group(0.25, 0.5, 20, List.of(101L, 303L))));
+            Mockito.when(scan.hasFixedBlockSample()).thenCallRealMethod();
+            Mockito.when(scan.getTableSample()).thenReturn(Optional.of(new TableSample(spec)));
+            MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
+            Tablet sampled = Mockito.mock(Tablet.class);
+            Mockito.when(sampled.getId()).thenReturn(101L);
+            Mockito.when(sampled.getRowCount(true)).thenReturn(4L);
+            Tablet other = Mockito.mock(Tablet.class);
+            Mockito.when(other.getId()).thenReturn(202L);
+            Mockito.when(index.getTablets()).thenReturn(List.of(sampled, other));
+            OlapTable table = scan.getTable();
+            Partition partition = table.getPartition(1L);
+            Mockito.when(table.getPartitionIndex(partition, 10L)).thenReturn(index);
+            Assertions.assertEquals(2, fixture.computeOlapScan().getRowCount());
+
+            Mockito.when(scan.getSelectedIndexId()).thenReturn(77L);
+            Mockito.when(table.getPartitionIndex(partition, 77L)).thenReturn(index);
+            Mockito.when(table.getRowCountForPartitionIndex(1L, 77L, true)).thenReturn(4L);
+            Mockito.when(scan.getRelationId()).thenReturn(StatementScopeIdGenerator.newRelationId());
+            Statistics rollup = new StatisticsBuilder().setRowCount(4).build();
+            statement.addStatistics(scan.getRelationId(), rollup);
+            Assertions.assertEquals(2, fixture.computeOlapScan().getRowCount());
+            Assertions.assertEquals(4, rollup.getRowCount());
+            Mockito.when(scan.getSelectedTabletIds()).thenReturn(List.of(202L));
+            Assertions.assertEquals(1, fixture.computeOlapScan().getRowCount());
+        }
+    }
+
+    @Test
+    public void testFixedBlockUnreportedTabletRows() {
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(false, newTableStatistic(2), null)) {
+            LogicalOlapScan scan = fixture.scan;
+            ConnectContext.get().getState().setPlanWithUnKnownColumnStats(true);
+            OlapTable table = scan.getTable();
+            Mockito.when(table.getRowCountForIndex(10L, true)).thenReturn(120L);
+            Mockito.when(table.getRowCountForPartitionIndex(1L, 10L, true)).thenReturn(120L);
+            Tablet first = Mockito.mock(Tablet.class);
+            Tablet second = Mockito.mock(Tablet.class);
+            Tablet other = Mockito.mock(Tablet.class);
+            Mockito.when(first.getId()).thenReturn(101L);
+            Mockito.when(second.getId()).thenReturn(102L);
+            Mockito.when(other.getId()).thenReturn(103L);
+            MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
+            Mockito.when(index.getTablets()).thenReturn(List.of(first, second, other));
+            Partition partition = table.getPartition(1L);
+            Mockito.when(table.getPartitionIndex(partition, 10L)).thenReturn(index);
+            FixedBlockSampleSpec spec = new FixedBlockSampleSpec(32, 1, List.of(
+                    new FixedBlockSampleSpec.Group(0.25, 0.5, 20, List.of(101L)),
+                    new FixedBlockSampleSpec.Group(0.25, 1.0, 20, List.of(102L))));
+            Mockito.when(scan.hasFixedBlockSample()).thenCallRealMethod();
+            Mockito.when(scan.getTableSample()).thenReturn(Optional.of(new TableSample(spec)));
+
+            Mockito.when(scan.getSelectedPartitionIds()).thenReturn(List.of(1L, 9L));
+            Assertions.assertEquals(60, fixture.computeOlapScan().getRowCount());
+            Mockito.when(scan.getSelectedTabletIds()).thenReturn(List.of(101L));
+            Assertions.assertEquals(20, fixture.computeOlapScan().getRowCount());
+            Mockito.when(scan.getSelectedTabletIds()).thenReturn(List.of(103L));
+            Assertions.assertEquals(1, fixture.computeOlapScan().getRowCount());
+            Mockito.when(scan.getSelectedTabletIds()).thenReturn(List.of(101L));
+            Mockito.when(other.getRowCount(true)).thenReturn(120L);
+            Assertions.assertEquals(1, fixture.computeOlapScan().getRowCount());
+            Mockito.verify(table, Mockito.never()).getPartitionIndex(null, 10L);
         }
     }
 

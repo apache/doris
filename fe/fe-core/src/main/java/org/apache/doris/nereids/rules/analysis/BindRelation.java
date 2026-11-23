@@ -29,6 +29,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.OlapTableWrapper.PartitionScanState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.SchemaTable;
@@ -45,6 +46,7 @@ import org.apache.doris.changelog.ChangelogUtils;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
@@ -237,6 +239,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private void rejectScanParamsOnCte(UnboundRelation unboundRelation) {
+        if (unboundRelation.getTableSample().map(sample -> sample.fixedBlockSpec != null).orElse(false)) {
+            throw new AnalysisException("FIXED_BLOCK requires an internal OLAP table");
+        }
         if (unboundRelation.getScanParams() != null) {
             // A CTE reference has no physical table handle on which scan parameters can be applied.
             throw new AnalysisException("Table scan parameters are not supported on CTE references.");
@@ -307,6 +312,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample(), ImmutableList.of(),
                         Optional.ofNullable(unboundRelation.getScanParams()));
+            }
+        }
+        if (scan.hasFixedBlockSample()) {
+            try {
+                // A partition predicate can remove this scan entirely before physical translation.
+                scan.getTableSample().get().fixedBlockSpec.validateTablets((OlapTable) table,
+                        scan.getSelectedIndexId(), Optional.of(unboundRelation.isTempPart()));
+            } catch (UserException e) {
+                throw new AnalysisException(e.getMessage(), e);
             }
         }
         if (!tabletIds.isEmpty()) {
@@ -857,6 +871,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     Utils.qualifiedNameWithBackquote(qualifiedTableName));
         });
 
+        if (unboundRelation.getTableSample().map(sample -> sample.fixedBlockSpec != null).orElse(false)
+                && (table.getType() != TableIf.TableType.OLAP || !(table instanceof OlapTable)
+                || table instanceof OlapTableWrapper
+                || !unboundRelation.getTabletIds().isEmpty() || unboundRelation.getScanParams() != null
+                || unboundRelation.getTableSnapshot().isPresent())) {
+            throw new AnalysisException("FIXED_BLOCK requires an ordinary internal OLAP scan without explicit TABLET");
+        }
         validateOptionsTarget(table, unboundRelation.getScanParams());
 
         // Handle meta table like "table_name$partitions"
@@ -864,6 +885,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         Optional<LogicalPlan> logicalPlan = handleMetaTable(
                 table, unboundRelation, qualifiedTableName, cascadesContext);
         if (logicalPlan.isPresent()) {
+            if (unboundRelation.getTableSample().map(sample -> sample.fixedBlockSpec != null).orElse(false)) {
+                throw new AnalysisException("FIXED_BLOCK cannot read a metadata table");
+            }
             return logicalPlan.get();
         }
 

@@ -455,6 +455,8 @@ public class HeartbeatMgr extends MasterDaemon {
                             fragmentNum, lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory);
                     response.setPaimonRustReaderSupported(tBackendInfo.isSetSupportsPaimonRustReader()
                             && tBackendInfo.isSupportsPaimonRustReader());
+                    response.setSupportsFixedBlockSamplingV1(tBackendInfo.isSetSupportsFixedBlockSamplingV1()
+                            && tBackendInfo.isSupportsFixedBlockSamplingV1());
                     ok = true;
                     return response;
                 } else {

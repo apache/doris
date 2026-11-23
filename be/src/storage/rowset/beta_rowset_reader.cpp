@@ -296,7 +296,12 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             iter = std::make_unique<LazyInitSegmentIterator>(_rowset, seg, should_use_cache,
                                                              read_schema, _read_options);
         } else {
-            DCHECK_EQ(seg_end - seg_start, _segment_row_ranges.size());
+            DORIS_CHECK_EQ(seg_end - seg_start, _segment_row_ranges.size());
+            // An empty entry between two sampled segments means skip it. Passing an empty
+            // RowRanges to SegmentIterator would instead read every row of this segment.
+            if (_segment_row_ranges[i - seg_start].is_empty()) {
+                continue;
+            }
             auto local_options = _read_options;
             local_options.row_ranges = _segment_row_ranges[i - seg_start];
             if (local_options.condition_cache_digest) {

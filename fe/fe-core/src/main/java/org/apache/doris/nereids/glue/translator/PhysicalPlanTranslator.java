@@ -30,7 +30,6 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
-import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
@@ -852,8 +851,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // connector whose split ranges carry byte lengths (Hive) samples; the others no-op with a
             // warning. Without this forward the sample is silently dropped and the query scans the full table.
             if (fileScan.getTableSample().isPresent()) {
-                pluginScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
-                        fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
+                pluginScanNode.setTableSample(fileScan.getTableSample().get().translateToLegacyTableSample());
             }
             scanNode = pluginScanNode;
         } else if (table instanceof RemoteDorisExternalTable) {
@@ -975,6 +973,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // translate ann topn info
+        Preconditions.checkState(!olapScan.hasFixedBlockSample()
+                || (olapScan.getAnnOrderKeys().isEmpty() && !olapScan.getAnnLimit().isPresent()),
+                "ANN TopN cannot read a FIXED_BLOCK sample");
         if (!olapScan.getAnnOrderKeys().isEmpty()) {
             TupleDescriptor annSortTuple = olapScanNode.getTupleDesc();
             final SortInfo annSortInfo = getSortInfo(olapScan.getAnnOrderKeys(), context, annSortTuple);
@@ -1008,8 +1009,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         olapScanNode.setHasPartitionPredicate(olapScan.hasPartitionPredicate());
         olapScanNode.setNereidsPrunedTabletIds(new LinkedHashSet<>(olapScan.getSelectedTabletIds()));
         if (olapScan.getTableSample().isPresent()) {
-            olapScanNode.setTableSample(new TableSample(olapScan.getTableSample().get().isPercent,
-                    olapScan.getTableSample().get().sampleValue, olapScan.getTableSample().get().seek));
+            olapScanNode.setTableSample(olapScan.getTableSample().get().translateToLegacyTableSample());
         }
 
         // TODO:  remove this switch?
@@ -1036,7 +1036,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         translateRuntimeFilter(olapScan, olapScanNode, context);
 
-        olapScanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(olapScan.getRelationId()));
+        TPushAggOp pushAgg = context.getRelationPushAggOp(olapScan.getRelationId());
+        Preconditions.checkState(!olapScan.hasFixedBlockSample() || pushAgg == null || pushAgg == TPushAggOp.NONE,
+                "Storage aggregation cannot read a FIXED_BLOCK sample");
+        olapScanNode.setPushDownAggNoGrouping(pushAgg);
         // Create PlanFragment
         // TODO: use a util function to convert distribution to DataPartition
         DataPartition dataPartition = DataPartition.RANDOM;
@@ -2636,7 +2639,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 // limit/offset. Sort info and sort limit are always pushed together.
                 boolean limitOverflows = sortNode.getOffset() > 0
                         && Utils.addOverflows(sortNode.getLimit(), sortNode.getOffset());
-                if (checkPushSort(sortNode, scanNode.getOlapTable()) && !limitOverflows) {
+                if (!scanNode.hasFixedBlockSample() && !limitOverflows
+                        && checkPushSort(sortNode, scanNode.getOlapTable())) {
                     SortInfo sortInfo = sortNode.getSortInfo();
                     scanNode.setSortInfo(sortInfo);
                     if (sortNode.getOffset() > 0) {

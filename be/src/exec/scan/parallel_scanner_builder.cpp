@@ -30,6 +30,7 @@
 #include "runtime/query_context.h"
 #include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/rowset/beta_rowset.h"
+#include "storage/sampling/tablet_sample_plan.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/tablet/base_tablet.h"
 
@@ -79,6 +80,39 @@ Status ParallelScannerBuilder::build_scanners(std::list<ScannerSPtr>& scanners) 
     }
 }
 
+void ParallelScannerBuilder::_build_sampled_tablet_scanners(
+        size_t idx, const TabletReadSource& entire_read_source,
+        const std::shared_ptr<TabletCollectionStatistics>& tablet_collection_statistics,
+        std::list<ScannerSPtr>& scanners) {
+    const auto& tablet = _tablets[idx];
+    const auto& scan_range = *_scan_ranges[idx];
+    const auto& key_ranges = *_tablet_key_ranges[idx];
+    SampleRangeSplitter splitter(_rows_per_scanner);
+    std::vector<RowSetSplits> pending;
+    auto flush = [&] {
+        scanners.emplace_back(
+                _build_scanner(tablet.tablet, tablet.version, key_ranges, scan_range,
+                               {.rs_splits = std::move(pending),
+                                .delete_predicates = entire_read_source.delete_predicates,
+                                .delete_bitmap = entire_read_source.delete_bitmap},
+                               {}, tablet_collection_statistics));
+        pending.clear();
+    };
+    for (const auto& source : entire_read_source.rs_splits) {
+        for (auto& slice : splitter.split(source.segment_row_ranges)) {
+            auto& split = pending.emplace_back(source.rs_reader->clone());
+            split.segment_offsets = {slice.first_pos, slice.first_pos + slice.ranges.size()};
+            split.segment_row_ranges = std::move(slice.ranges);
+            if (slice.finishes_scanner) {
+                flush();
+            }
+        }
+    }
+    if (!pending.empty()) {
+        flush();
+    }
+}
+
 Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& scanners) {
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
@@ -97,6 +131,12 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
         if (config::is_cloud_mode()) {
             // FIXME(plat1ko): Avoid pointer cast
             ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
+        }
+
+        if (scan_range.__isset.sample_options) {
+            _build_sampled_tablet_scanners(tablet_idx, entire_read_source,
+                                           tablet_collection_statistics, scanners);
+            continue;
         }
 
         // `rs_splits` in `entire read source` will be devided into several partitial read sources
@@ -120,6 +160,11 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
 
             for (size_t i = 0; i != segments_rows.size(); ++i) {
                 const size_t rows_of_segment = segments_rows[i];
+                if (rows_of_segment == 0) {
+                    // Keep following segments aligned with segment_offsets even across an empty segment.
+                    split.segment_row_ranges.emplace_back();
+                    continue;
+                }
                 RowRanges row_ranges;
                 int64_t offset_in_segment = 0;
 
@@ -221,6 +266,9 @@ Status ParallelScannerBuilder::_build_scanners_by_per_segment(std::list<ScannerS
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
     for (size_t tablet_idx = 0; tablet_idx < _tablets.size(); ++tablet_idx) {
+        if (_scan_ranges[tablet_idx]->__isset.sample_options) {
+            return Status::NotSupported("Per-segment parallelism cannot read a fixed block sample");
+        }
         const auto& key_ranges = *_tablet_key_ranges[tablet_idx];
         if (key_ranges.empty()) {
             continue;
@@ -277,11 +325,22 @@ Status ParallelScannerBuilder::_build_scanners_by_per_segment(std::list<ScannerS
 /**
  * Load rowsets of each tablet with specified version, segments of each rowset.
  */
+Status ParallelScannerBuilder::load_segment_rows(RuntimeState* state, const RowsetSharedPtr& rowset,
+                                                 io::FileCacheStatistics* stats,
+                                                 std::vector<uint32_t>* rows) {
+    RETURN_IF_ERROR(rowset->load());
+    const auto& options = state->query_options();
+    const bool cache = !options.__isset.enable_segment_cache || options.enable_segment_cache;
+    OlapReaderStatistics preload;
+    auto ctx = create_preload_io_context(state, &preload);
+    RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->get_segment_num_rows(
+            rows, cache, &preload, &ctx));
+    stats->merge_from(preload.file_cache_stats);
+    return Status::OK();
+}
+
 Status ParallelScannerBuilder::_load() {
     _total_rows = 0;
-    bool enable_segment_cache = _state->query_options().__isset.enable_segment_cache
-                                        ? _state->query_options().enable_segment_cache
-                                        : true;
     for (size_t idx = 0; idx < _tablets.size(); ++idx) {
         if (_tablet_key_ranges[idx]->empty()) {
             continue;
@@ -290,22 +349,20 @@ Status ParallelScannerBuilder::_load() {
         const auto tablet_id = tablet->tablet_id();
         _all_read_sources[tablet_id] = _read_sources[idx];
         const auto& read_source = _all_read_sources[tablet_id];
-        for (auto& rs_split : read_source.rs_splits) {
+        for (const auto& rs_split : read_source.rs_splits) {
+            if (_scan_ranges[idx]->__isset.sample_options) {
+                for (const auto& ranges : rs_split.segment_row_ranges) {
+                    _total_rows += ranges.count();
+                }
+                continue;
+            }
             auto rowset = rs_split.rs_reader->rowset();
-            RETURN_IF_ERROR(rowset->load());
             const auto rowset_id = rowset->rowset_id();
 
-            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_rows;
-            OlapReaderStatistics preload_stats;
-            auto preload_io_ctx = create_preload_io_context(_state, &preload_stats);
-            RETURN_IF_ERROR(beta_rowset->get_segment_num_rows(&segment_rows, enable_segment_cache,
-                                                              &preload_stats, &preload_io_ctx));
-            _tablet_preload_file_cache_stats[tablet_id].merge_from(preload_stats.file_cache_stats);
-            auto segment_count = rowset->num_segments();
-            for (int64_t i = 0; i != segment_count; i++) {
-                _all_segments_rows[rowset_id].emplace_back(segment_rows[i]);
-            }
+            RETURN_IF_ERROR(load_segment_rows(
+                    _state, rowset, &_tablet_preload_file_cache_stats[tablet_id], &segment_rows));
+            _all_segments_rows[rowset_id].assign(segment_rows.begin(), segment_rows.end());
             _total_rows += rowset->num_rows();
         }
     }

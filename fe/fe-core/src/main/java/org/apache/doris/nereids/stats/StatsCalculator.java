@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.analysis.FixedBlockSampleSpec;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
@@ -24,13 +25,16 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTableWrapper;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -157,6 +161,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -539,6 +544,52 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * computeOlapScan
      */
     public Statistics computeOlapScan(OlapScan olapScan) {
+        Statistics population = computeOlapScanPopulation(olapScan);
+        if (!olapScan.hasFixedBlockSample()) {
+            return population;
+        }
+        FixedBlockSampleSpec spec = olapScan.getTableSample().get().fixedBlockSpec;
+        Set<Long> selected = Sets.newHashSet(olapScan.getSelectedTabletIds());
+        double rows = 0;
+        double matchedUnitRates = 0;
+        long partitionTabletCount = 0;
+        boolean hasReportedRows = false;
+        for (long partitionId : olapScan.getSelectedPartitionIds()) {
+            Partition partition = olapScan.getTable().getPartition(partitionId);
+            if (partition == null) {
+                continue;
+            }
+            MaterializedIndex index = olapScan.getTable().getPartitionIndex(partition, olapScan.getSelectedIndexId());
+            if (index == null) {
+                continue;
+            }
+            List<Tablet> tablets = index.getTablets();
+            partitionTabletCount += tablets.size();
+            for (Tablet tablet : tablets) {
+                FixedBlockSampleSpec.Group group = spec.groupFor(tablet.getId());
+                boolean matched = group != null && (selected.isEmpty() || selected.contains(tablet.getId()));
+                if (!matched && hasReportedRows) {
+                    continue;
+                }
+                long tabletRows = Math.max(0, tablet.getRowCount(true));
+                hasReportedRows |= tabletRows > 0;
+                if (matched) {
+                    rows += tabletRows * group.unitRate;
+                    matchedUnitRates += group.unitRate;
+                }
+            }
+        }
+        // Before the first tablet row reports, distribute the partition estimate evenly across its tablets.
+        // Each matched tablet contributes a positive unit rate and is included in partitionTabletCount.
+        if (!hasReportedRows && matchedUnitRates > 0 && population.getRowCount() > 1) {
+            rows = matchedUnitRates / partitionTabletCount * population.getRowCount();
+        }
+        Statistics sampled = population.withRowCount(Math.max(1, rows));
+        sampled.rescaleNumNulls(population.getRowCount());
+        return sampled;
+    }
+
+    private Statistics computeOlapScanPopulation(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
         double tableRowCount = Math.max(1, getOlapTableRowCount(olapScan));
 
@@ -623,9 +674,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             double selectedPartitionsRowCount = hasScanRowCountEstimates(olapScan)
                         ? tableRowCount : getSelectedPartitionRowCount(olapScan, () -> tableRowCount);
             List<String> selectedPartitionNames = new ArrayList<>(olapScan.getSelectedPartitionIds().size());
-            olapScan.getSelectedPartitionIds().forEach(id -> {
-                selectedPartitionNames.add(olapScan.getTable().getPartition(id).getName());
-            });
+            for (long id : olapScan.getSelectedPartitionIds()) {
+                Partition partition = olapTable.getPartition(id);
+                if (partition != null) {
+                    selectedPartitionNames.add(partition.getName());
+                }
+            }
             boolean enablePartitionStatics = connectContext != null
                     && connectContext.getSessionVariable().enablePartitionAnalyze;
             for (SlotReference slot : visibleOutputSlots) {

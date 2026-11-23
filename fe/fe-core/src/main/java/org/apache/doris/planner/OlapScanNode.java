@@ -585,6 +585,9 @@ public class OlapScanNode extends ScanNode {
             );
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
+            if (hasFixedBlockSample()) {
+                paloRange.setSampleOptions(tableSample.getFixedBlockSpec().toThrift(tabletId));
+            }
             if (olapTable instanceof OlapTableWrapper) {
                 TChangelogScanType changelogScanType =
                         parseChangelogScanType(scanParams, ((OlapTableWrapper) olapTable).getOriginTable());
@@ -661,7 +664,8 @@ public class OlapScanNode extends ScanNode {
                 // sort by replica id
                 replicas.sort(Replica.ID_COMPARATOR);
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
-                if (context.getSessionVariable().fallbackOtherReplicaWhenFixedCorrupt) {
+                boolean fallbackWhenCorrupt = context.getSessionVariable().fallbackOtherReplicaWhenFixedCorrupt;
+                if (fallbackWhenCorrupt || hasFixedBlockSample()) {
                     long beId;
                     if (replica instanceof CloudReplica) {
                         if (cachedClusterId == null) {
@@ -673,10 +677,11 @@ public class OlapScanNode extends ScanNode {
                         beId = replica.getBackendId();
                     }
                     Backend backend = allBackends.get(beId);
-                    // If the fixed replica is bad, then not clear the replicas using random replica
-                    if (backend == null || !backend.isQueryAvailable()) {
+                    // Check the sampling protocol even when fallback for corrupt replicas is disabled.
+                    if (backend == null || !supportsTableSample(backend)
+                            || (fallbackWhenCorrupt && !backend.isQueryAvailable())) {
                         if (LOG.isDebugEnabled()) {
-                            LOG.debug("backend {} not exists or is not query available for replica {}", beId,
+                            LOG.debug("Cannot pin query to backend {} for replica {}", beId,
                                     replica.getId());
                         }
                         Collections.shuffle(replicas);
@@ -705,7 +710,7 @@ public class OlapScanNode extends ScanNode {
                     if (replicaOptional.isPresent()) {
                         Replica replica = replicaOptional.get();
                         Backend backend = allBackends.get(replica.getBackendIdWithoutException());
-                        if (backend != null && backend.isQueryAvailable()) {
+                        if (backend != null && backend.isQueryAvailable() && supportsTableSample(backend)) {
                             replicas.clear();
                             replicas.add(replica);
                         }
@@ -764,6 +769,11 @@ public class OlapScanNode extends ScanNode {
                         LOG.debug(err);
                     }
                     errs.add(err);
+                    continue;
+                }
+                if (!supportsTableSample(backend)) {
+                    errs.add("Backend " + backendId + " does not support FIXED_BLOCK sampling v1 for tablet "
+                            + tabletId);
                     continue;
                 }
                 scanReplicaIds.add(replica.getId());
@@ -845,6 +855,10 @@ public class OlapScanNode extends ScanNode {
         return backend == null ? null : backend.getLocationTag();
     }
 
+    private boolean supportsTableSample(Backend backend) {
+        return !hasFixedBlockSample() || backend.isSupportsFixedBlockSamplingV1();
+    }
+
     private boolean isEnableCooldownReplicaAffinity(ConnectContext connectContext) {
         if (connectContext != null) {
             return connectContext.getSessionVariable().isEnableCooldownReplicaAffinity();
@@ -886,6 +900,9 @@ public class OlapScanNode extends ScanNode {
         scanRangeLocations = Lists.newArrayList();
         querySelectionPreferredHitTablets = 0;
         querySelectionFallbackTablets = 0;
+        if (hasFixedBlockSample()) {
+            tableSample.getFixedBlockSpec().validateTablets(olapTable, selectedIndexId, Optional.empty());
+        }
         if (selectedPartitionIds.isEmpty()) {
             return;
         }
@@ -899,12 +916,16 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
+    public boolean hasFixedBlockSample() {
+        return tableSample != null && tableSample.getFixedBlockSpec() != null;
+    }
+
     /**
      * Sample some tablets in the selected partition.
      * If Seek is specified, the tablets sampled each time are the same.
      */
     public void computeSampleTabletIds() {
-        if (tableSample == null) {
+        if (tableSample == null || hasFixedBlockSample()) {
             return;
         }
         OlapTable olapTable = (OlapTable) desc.getTable();
@@ -1039,7 +1060,15 @@ public class OlapScanNode extends ScanNode {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("distribution prune tablets: {}", prunedTabletIds);
             }
-            if (!sampleTabletIds.isEmpty()) {
+            if (hasFixedBlockSample()) {
+                Set<Long> sampled = tableSample.getFixedBlockSpec().tabletIds();
+                if (prunedTabletIds == null) {
+                    prunedTabletIds = selectedTable.getTablets().stream().map(Tablet::getId)
+                            .filter(sampled::contains).collect(Collectors.toList());
+                } else {
+                    prunedTabletIds.retainAll(sampled);
+                }
+            } else if (!sampleTabletIds.isEmpty()) {
                 if (prunedTabletIds != null) {
                     prunedTabletIds.retainAll(sampleTabletIds);
                 } else {
@@ -1253,6 +1282,13 @@ public class OlapScanNode extends ScanNode {
         String indexName = olapTable.getIndexNameById(selectedIndexIdForExplain);
         output.append(prefix).append("TABLE: ").append(olapTable.getQualifiedName())
                 .append("(").append(indexName).append(")");
+        if (detailLevel != TExplainLevel.BRIEF) {
+            output.append(isPreAggregation
+                    ? ", PREAGGREGATION: ON" : ", PREAGGREGATION: OFF. Reason: " + reasonOfPreAggregation);
+        }
+        if (hasFixedBlockSample()) {
+            output.append("\n").append(prefix).append("TABLET SAMPLE: ").append(tableSample.getFixedBlockSpec());
+        }
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append("\n").append(prefix).append(String.format("cardinality=%,d", cardinality));
             if (cardinalityAfterFilter != -1) {
@@ -1262,11 +1298,6 @@ public class OlapScanNode extends ScanNode {
                 output.append("\n").append(prefix).append("PREDICATES: ").append(conjuncts.size()).append("\n");
             }
             return output.toString();
-        }
-        if (isPreAggregation) {
-            output.append(", PREAGGREGATION: ON");
-        } else {
-            output.append(", PREAGGREGATION: OFF. Reason: ").append(reasonOfPreAggregation);
         }
         output.append("\n");
         output.append(getQuerySelectionExplain(prefix));
