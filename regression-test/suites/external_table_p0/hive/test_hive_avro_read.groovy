@@ -42,10 +42,12 @@ suite("test_hive_avro_read", "p0,external,hive,external_docker") {
             SELECT 1,'first',CAST(-123.45 AS DECIMAL(12,2)),CAST('1969-12-31' AS DATE),
                 CAST('1969-12-31 23:59:59.123' AS TIMESTAMP),array(1,CAST(NULL AS INT)),
                 map('a','one','b',CAST(NULL AS STRING)),named_struct('note','nested','n',CAST(7 AS BIGINT))"""
+        // Hive 2/3 infer array() as ARRAY<STRING>; a typed NULL aggregate produces empty ARRAY<INT>.
         hive_docker """INSERT INTO doris_hive_avro_read.avro_values
             SELECT 2,CAST(NULL AS STRING),CAST(0 AS DECIMAL(12,2)),CAST('2024-01-02' AS DATE),
-                CAST('2024-01-02 03:04:05.678' AS TIMESTAMP),array(),map(),
-                CASE WHEN true THEN NULL ELSE named_struct('note','unused','n',CAST(0 AS BIGINT)) END"""
+                CAST('2024-01-02 03:04:05.678' AS TIMESTAMP),empty_items,map(),
+                CASE WHEN true THEN NULL ELSE named_struct('note','unused','n',CAST(0 AS BIGINT)) END
+            FROM (SELECT collect_list(CAST(NULL AS INT)) AS empty_items) empty_array"""
         hive_docker "DROP TABLE IF EXISTS doris_hive_avro_read.avro_partitions"
         hive_docker """CREATE TABLE doris_hive_avro_read.avro_partitions (id INT,label STRING)
             PARTITIONED BY (p STRING) STORED AS AVRO"""
