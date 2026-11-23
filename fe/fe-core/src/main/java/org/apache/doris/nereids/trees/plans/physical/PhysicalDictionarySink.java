@@ -131,8 +131,9 @@ public class PhysicalDictionarySink<CHILD_TYPE extends Plan> extends PhysicalTab
 
     @Override
     public PhysicalDictionarySink<Plan> resetLogicalProperties() {
-        return new PhysicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
-                null, null, child());
+        return rebuildKeepingStates(this,
+                new PhysicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs,
+                        groupExpression, null, null, child()));
     }
 
     @Override
