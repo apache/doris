@@ -31,11 +31,13 @@
 #include "core/column/column_complex.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_hll.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/types.h"
 #include "core/value/hll.h"
 #include "exprs/function/function.h"
@@ -254,6 +256,14 @@ struct NameHllToBase64 {
     static constexpr auto name = "hll_to_base64";
 };
 
+struct NameHllFromBinary {
+    static constexpr auto name = "hll_from_binary";
+};
+
+struct NameHllToBinary {
+    static constexpr auto name = "hll_to_binary";
+};
+
 struct HllToBase64 {
     using ReturnType = DataTypeString;
     static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_HLL;
@@ -308,12 +318,119 @@ using FunctionHLLEmpty = FunctionConst<HLLEmptyImpl, false>;
 using FunctionHLLHash = FunctionAlwaysNotNullable<HLLHash>;
 using FunctionHllToBase64 = FunctionUnaryToType<HllToBase64, NameHllToBase64>;
 
+// hll_from_binary: the input VARBINARY holds the serialized bytes of a Doris HLL (see
+// HyperLogLog::serialize), e.g. a hive BINARY column read through a catalog with
+// enable.mapping.varbinary=true, or the output of hll_to_binary. Unlike the bitmap
+// counterpart, HyperLogLog::deserialize(Slice) validates the input length fully
+// (HyperLogLog::is_valid, including the exact total length), so deserialization is
+// bounded by the column value length. Invalid or truncated bytes yield row-level
+// NULL, consistent with the sibling hll_from_base64 tolerance for bad input.
+class FunctionHllFromBinary : public IFunction {
+public:
+    static constexpr auto name = NameHllFromBinary::name;
+
+    String get_name() const override { return name; }
+
+    static FunctionPtr create() { return std::make_shared<FunctionHllFromBinary>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeHLL>());
+    }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto res_data_column = ColumnHLL::create();
+        auto& null_map = res_null_map->get_data();
+        auto& res = res_data_column->get_data();
+
+        auto& argument_column = block.get_by_position(arguments[0]).column;
+        const auto& binary_column = static_cast<const ColumnVarbinary&>(*argument_column);
+        const auto& data = binary_column.get_data();
+
+        res.reserve(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const auto& src_value = data[i];
+            if (src_value.size() == 0) {
+                res.emplace_back();
+                null_map[i] = 1;
+                continue;
+            }
+            doris::HyperLogLog hll_val;
+            doris::Slice decoded_slice(src_value.data(), src_value.size());
+            if (!hll_val.deserialize(decoded_slice)) {
+                res.emplace_back();
+                null_map[i] = 1;
+            } else {
+                res.emplace_back(std::move(hll_val));
+            }
+        }
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res_data_column), std::move(res_null_map));
+        return Status::OK();
+    }
+};
+
+// hll_to_binary: serialize each HLL with HyperLogLog::serialize and return the raw bytes
+// as VARBINARY. This is the byte-level counterpart of hll_to_base64, meant for exporting
+// HLLs into binary file formats (parquet/orc) or hive BINARY columns. NULL input is
+// handled by the default NULL propagation (use_default_implementation_for_nulls), same
+// as hll_to_base64.
+class FunctionHllToBinary : public IFunction {
+public:
+    static constexpr auto name = NameHllToBinary::name;
+
+    String get_name() const override { return name; }
+
+    static FunctionPtr create() { return std::make_shared<FunctionHllToBinary>(); }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeVarbinary>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto& col_ptr = block.get_by_position(arguments[0]).column;
+        if (const auto* col = check_and_get_column<ColumnHLL>(col_ptr.get())) {
+            auto col_res = ColumnVarbinary::create();
+            const auto& data = col->get_data();
+            // Serialize into a reusable buffer; each value is bounded by its own
+            // max_serialized_size() and the destination StringView is filled by insert_data
+            // (inline vs arena).
+            std::string ser_buff;
+            size_t last_ser_size = 0;
+            for (size_t i = 0; i < data.size(); ++i) {
+                size_t cur_ser_size = data[i].max_serialized_size();
+                if (cur_ser_size > last_ser_size) {
+                    ser_buff.resize(cur_ser_size);
+                    last_ser_size = cur_ser_size;
+                }
+                size_t real_size = data[i].serialize(reinterpret_cast<uint8_t*>(ser_buff.data()));
+                col_res->insert_data(ser_buff.data(), real_size);
+            }
+            block.replace_by_position(result, std::move(col_res));
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        get_name());
+        }
+        return Status::OK();
+    }
+};
+
 void register_function_hll(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionHLLCardinality>();
     factory.register_function<FunctionHLLEmpty>();
     factory.register_function<FunctionHllFromBase64>();
     factory.register_function<FunctionHLLHash>();
     factory.register_function<FunctionHllToBase64>();
+    factory.register_function<FunctionHllFromBinary>();
+    factory.register_function<FunctionHllToBinary>();
 }
 
 } // namespace doris
