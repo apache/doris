@@ -32,12 +32,13 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
-#include "io/fs/file_system.h"
 #include "io/fs/obj_storage_file_system.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "testutil/mock/mock_query_context.h"
+#include "testutil/mock/obj_storage_client_test_stub.h"
+#include "util/s3_uri.h"
 
 namespace doris {
 
@@ -45,34 +46,44 @@ using testing::_;
 using testing::Invoke;
 using testing::Return;
 
-class ToFileMockFS : public io::FileSystem {
+class ToFileMockStorageClient : public io::ObjStorageClientTestStub {
 public:
-    ToFileMockFS() : FileSystem("test-resource", io::FileSystemType::OBJECT_STORAGE) {}
-    MOCK_METHOD(Status, stat_impl, (const io::Path&, io::FileStat*, io::FileStatContext*),
-                (const, override));
-    MOCK_METHOD(Status, create_file_impl,
-                (const io::Path&, io::FileWriterPtr*, const io::FileWriterOptions*), (override));
-    MOCK_METHOD(Status, open_file_impl,
-                (const io::Path&, io::FileReaderSPtr*, const io::FileReaderOptions*), (override));
-    MOCK_METHOD(Status, create_directory_impl, (const io::Path&, bool), (override));
-    MOCK_METHOD(Status, delete_file_impl, (const io::Path&), (override));
-    MOCK_METHOD(Status, batch_delete_impl, (const std::vector<io::Path>&), (override));
-    MOCK_METHOD(Status, delete_directory_impl, (const io::Path&), (override));
-    MOCK_METHOD(Status, exists_impl, (const io::Path&, bool*), (const, override));
-    MOCK_METHOD(Status, file_size_impl, (const io::Path&, int64_t*), (const, override));
-    MOCK_METHOD(Status, list_impl, (const io::Path&, bool, std::vector<io::FileInfo>*, bool*),
+    MOCK_METHOD(ObjStorageUploadResult, create_multipart_upload, (const ObjStoragePath&),
                 (override));
-    MOCK_METHOD(Status, rename_impl, (const io::Path&, const io::Path&), (override));
-    Status absolute_path(const io::Path& path, io::Path& result) const override {
-        result = path;
-        return Status::OK();
-    }
+    MOCK_METHOD(ObjStorageResponse, put_object, (const ObjStoragePath&, std::string_view),
+                (override));
+    MOCK_METHOD(ObjStorageUploadResult, upload_part,
+                (const ObjStoragePath&, const std::string&, std::string_view, int), (override));
+    MOCK_METHOD(ObjStorageResponse, complete_multipart_upload,
+                (const ObjStoragePath&, const std::string&,
+                 const std::vector<ObjStorageCompletedPart>&),
+                (override));
+    MOCK_METHOD(ObjStorageHeadResult, head_object, (const ObjStoragePath&), (override));
+    MOCK_METHOD(ObjStorageResponse, get_object,
+                (const ObjStoragePath&, void*, size_t, size_t, size_t*), (override));
+    MOCK_METHOD(ObjStorageResponse, delete_objects,
+                (const ObjStoragePath&, std::vector<std::string>), (override));
+    MOCK_METHOD(ObjStorageResponse, delete_object, (const ObjStoragePath&), (override));
+    MOCK_METHOD(std::string, generate_presigned_url, (const ObjStoragePath&, int64_t), (override));
+    MOCK_METHOD(ObjStorageListPageResult, list_objects_page,
+                (const ObjStoragePath&, std::string_view), (override));
 };
+
+std::shared_ptr<io::ObjStorageFileSystem> make_test_filesystem(
+        const std::shared_ptr<ToFileMockStorageClient>& client, std::string bucket = "bucket") {
+    ObjStorageResourceConfig config;
+    config.bucket = std::move(bucket);
+    auto fs = std::shared_ptr<io::ObjStorageFileSystem>(
+            new io::ObjStorageFileSystem(std::move(config), "test-resource"));
+    fs->_client->_client = client;
+    return fs;
+}
 
 class ToFileWithMockFS : public FunctionToFile {
 public:
     MOCK_METHOD(Status, create_filesystem,
-                (const TS3Resource&, const std::string&, std::shared_ptr<io::FileSystem>*),
+                (const TS3Resource&, const std::string&,
+                 std::shared_ptr<io::ObjStorageFileSystem>*),
                 (const, override));
 };
 
@@ -85,7 +96,8 @@ class FunctionToFileTest : public testing::Test {
 protected:
     DataTypePtr text = std::make_shared<DataTypeString>();
     DataTypePtr file = std::make_shared<DataTypeFile>();
-    std::shared_ptr<ToFileMockFS> filesystem = std::make_shared<ToFileMockFS>();
+    std::shared_ptr<ToFileMockStorageClient> client = std::make_shared<ToFileMockStorageClient>();
+    std::shared_ptr<io::ObjStorageFileSystem> filesystem = make_test_filesystem(client);
     ToFileWithMockFS function;
     std::shared_ptr<MockQueryContext> query = MockQueryContext::create();
     RuntimeState query_runtime;
@@ -143,7 +155,7 @@ protected:
     void expect_client_creation() {
         EXPECT_CALL(function, create_filesystem(_, _, _))
                 .WillOnce(Invoke([this](const TS3Resource& resource, const std::string&,
-                                        std::shared_ptr<io::FileSystem>* result) {
+                                        std::shared_ptr<io::ObjStorageFileSystem>* result) {
                     EXPECT_EQ(resource.properties.at("AWS_BUCKET"), "bucket");
                     *result = filesystem;
                     return Status::OK();
@@ -153,7 +165,7 @@ protected:
 
 TEST_F(FunctionToFileTest, AllNullBatchesAndQueriesNeverCreateClient) {
     EXPECT_CALL(function, create_filesystem(_, _, _)).Times(0);
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _)).Times(0);
+    EXPECT_CALL(*client, head_object(_)).Times(0);
     auto context = make_context();
     ASSERT_TRUE(
             function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
@@ -193,7 +205,7 @@ TEST_F(FunctionToFileTest, CreatesClientOnFirstNonNullUsingConfigurationCaptured
     resource.properties = {{"AWS_ENDPOINT", "http://original"}};
     set_resource_config(resource);
     EXPECT_CALL(function, create_filesystem(_, _, _)).Times(0);
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _)).Times(0);
+    EXPECT_CALL(*client, head_object(_)).Times(0);
     ASSERT_TRUE(
             function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     ASSERT_TRUE(
@@ -204,25 +216,21 @@ TEST_F(FunctionToFileTest, CreatesClientOnFirstNonNullUsingConfigurationCaptured
     ASSERT_TRUE(execute(context.get(), uris({Field(), Field()}), output).ok());
     ASSERT_TRUE(execute(clone.get(), uris({Field()}), output).ok());
     ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(&function));
-    ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(filesystem.get()));
+    ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(client.get()));
 
     // Lazy creation must retain the configuration pinned by fragment-local open.
     resource.properties["AWS_ENDPOINT"] = "http://changed";
     set_resource_config(resource);
     EXPECT_CALL(function, create_filesystem(_, _, _))
             .WillOnce(Invoke([&](const TS3Resource& resource, const std::string&,
-                                 std::shared_ptr<io::FileSystem>* result) {
+                                 std::shared_ptr<io::ObjStorageFileSystem>* result) {
                 EXPECT_EQ(resource.properties.at("AWS_ENDPOINT"), "http://original");
                 *result = filesystem;
                 return Status::OK();
             }));
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-            .Times(2)
-            .WillRepeatedly(
-                    Invoke([](const io::Path&, io::FileStat* metadata, io::FileStatContext*) {
-                        *metadata = io::FileStat {.size = 0};
-                        return Status::OK();
-                    }));
+    EXPECT_CALL(*client, head_object(_)).Times(2).WillRepeatedly(Invoke([](const ObjStoragePath&) {
+        return ObjStorageHeadResult {.file_size = 0};
+    }));
     ASSERT_TRUE(execute(clone.get(), uris({Field(), string("s3://bucket/a.txt")}), output).ok());
     EXPECT_TRUE(output->is_null_at(0));
     EXPECT_FALSE(output->is_null_at(1));
@@ -242,7 +250,7 @@ TEST_F(FunctionToFileTest, LazyClientCreationFailureDoesNotStatOrPublishOutput) 
     ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(&function));
     EXPECT_CALL(function, create_filesystem(_, _, _))
             .WillOnce(Return(Status::IOError("client connection failed")));
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _)).Times(0);
+    EXPECT_CALL(*client, head_object(_)).Times(0);
     ColumnPtr output = make_nullable(file)->create_column_const(2, Field());
     const auto original = output;
     EXPECT_FALSE(execute(context.get(), uris({Field(), string("s3://bucket/a.txt")}), output).ok());
@@ -256,7 +264,7 @@ TEST_F(FunctionToFileTest, CancellationBeforeLazyCreationDoesNotCreateClient) {
     RuntimeState runtime;
     auto context = make_context(&runtime);
     EXPECT_CALL(function, create_filesystem(_, _, _)).Times(0);
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _)).Times(0);
+    EXPECT_CALL(*client, head_object(_)).Times(0);
     ASSERT_TRUE(
             function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     runtime.cancel(Status::Cancelled("cancel before client creation"));
@@ -274,12 +282,12 @@ TEST_F(FunctionToFileTest, CancellationDuringLazyCreationDoesNotStat) {
     ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(&function));
     EXPECT_CALL(function, create_filesystem(_, _, _))
             .WillOnce(Invoke([&](const TS3Resource&, const std::string&,
-                                 std::shared_ptr<io::FileSystem>* result) {
+                                 std::shared_ptr<io::ObjStorageFileSystem>* result) {
                 *result = filesystem;
                 runtime.cancel(Status::Cancelled("cancel during client creation"));
                 return Status::OK();
             }));
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _)).Times(0);
+    EXPECT_CALL(*client, head_object(_)).Times(0);
     ColumnPtr output;
     EXPECT_FALSE(execute(context.get(), uris({string("s3://bucket/a.txt")}), output).ok());
     EXPECT_EQ(output.get(), nullptr);
@@ -294,20 +302,20 @@ TEST_F(FunctionToFileTest, RealS3FactoryUsesUriWithoutAwsBucketProperty) {
                            {"AWS_ACCESS_KEY", "test-ak"},
                            {"AWS_SECRET_KEY", "test-sk"},
                            {"use_path_style", "true"}};
-    std::shared_ptr<io::FileSystem> result;
+    std::shared_ptr<io::ObjStorageFileSystem> result;
     ASSERT_TRUE(real_function.create_filesystem(resource, "s3://uri-bucket/a.txt", &result).ok());
     ASSERT_NE(result, nullptr);
-    EXPECT_EQ(assert_cast<io::ObjStorageFileSystem&>(*result).bucket(), "uri-bucket");
+    EXPECT_EQ(result->bucket(), "uri-bucket");
     for (const auto* key : {"dir/a://b.txt", "dir/a?b.txt", "dir/a#b.txt", "dir/ a.txt "}) {
         ASSERT_TRUE(
                 real_function
                         .create_filesystem(resource, std::string("s3://uri-bucket/") + key, &result)
                         .ok());
-        EXPECT_EQ(assert_cast<io::ObjStorageFileSystem&>(*result).bucket(), "uri-bucket");
+        EXPECT_EQ(result->bucket(), "uri-bucket");
     }
     resource.properties["AWS_BUCKET"] = "different-resource-bucket";
     ASSERT_TRUE(real_function.create_filesystem(resource, "s3://other-bucket/a.txt", &result).ok());
-    EXPECT_EQ(assert_cast<io::ObjStorageFileSystem&>(*result).bucket(), "other-bucket");
+    EXPECT_EQ(result->bucket(), "other-bucket");
 }
 
 // A filesystem is bound to its S3 bucket. Reusing it for another bucket must
@@ -318,18 +326,14 @@ TEST_F(FunctionToFileTest, SwitchesFilesystemWhenUriBucketChanges) {
     EXPECT_CALL(function, create_filesystem(_, _, _))
             .Times(3)
             .WillRepeatedly(Invoke([&](const TS3Resource&, const std::string& uri,
-                                       std::shared_ptr<io::FileSystem>* result) {
+                                       std::shared_ptr<io::ObjStorageFileSystem>* result) {
                 created_uris.push_back(uri);
                 *result = filesystem;
                 return Status::OK();
             }));
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-            .Times(4)
-            .WillRepeatedly(
-                    Invoke([](const io::Path&, io::FileStat* metadata, io::FileStatContext*) {
-                        *metadata = io::FileStat {.size = 1};
-                        return Status::OK();
-                    }));
+    EXPECT_CALL(*client, head_object(_)).Times(4).WillRepeatedly(Invoke([](const ObjStoragePath&) {
+        return ObjStorageHeadResult {.file_size = 1};
+    }));
     ASSERT_TRUE(
             function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     ColumnPtr output;
@@ -353,22 +357,9 @@ TEST_F(FunctionToFileTest, ReusesClientAcrossBlocksAndClones) {
     EXPECT_EQ(clone->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL),
               context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     ASSERT_TRUE(function.open(clone.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
-    io::FileStatContext* first_context = nullptr;
-    size_t calls = 0;
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-            .Times(3)
-            .WillRepeatedly(Invoke([&](const io::Path&, io::FileStat* metadata,
-                                       io::FileStatContext* stat_context) {
-                if (calls++ == 0) {
-                    first_context = stat_context;
-                    EXPECT_TRUE(stat_context->is_cancelled);
-                    EXPECT_FALSE(stat_context->is_cancelled());
-                } else {
-                    EXPECT_EQ(stat_context, first_context);
-                }
-                *metadata = io::FileStat {.size = 1};
-                return Status::OK();
-            }));
+    EXPECT_CALL(*client, head_object(_)).Times(3).WillRepeatedly(Invoke([](const ObjStoragePath&) {
+        return ObjStorageHeadResult {.file_size = 1};
+    }));
     ColumnPtr output;
     ASSERT_TRUE(execute(context.get(), uris({string("s3://bucket/a.txt"), Field()}), output).ok());
     EXPECT_TRUE(output->is_null_at(1));
@@ -382,11 +373,12 @@ TEST_F(FunctionToFileTest, ClonesStatConcurrentlyDuringSameBucketReuseAndBucketS
     for (const bool switch_bucket : {false, true}) {
         SCOPED_TRACE(switch_bucket);
         auto context = make_context();
-        auto other_filesystem = std::make_shared<ToFileMockFS>();
+        auto other_client = std::make_shared<ToFileMockStorageClient>();
+        auto other_filesystem = make_test_filesystem(other_client, "other");
         EXPECT_CALL(function, create_filesystem(_, _, _))
                 .Times(switch_bucket ? 2 : 1)
                 .WillRepeatedly(Invoke([&](const TS3Resource&, const std::string& uri,
-                                           std::shared_ptr<io::FileSystem>* result) {
+                                           std::shared_ptr<io::ObjStorageFileSystem>* result) {
                     *result = uri.starts_with("s3://other/") ? other_filesystem : filesystem;
                     return Status::OK();
                 }));
@@ -402,24 +394,22 @@ TEST_F(FunctionToFileTest, ClonesStatConcurrentlyDuringSameBucketReuseAndBucketS
         auto first_ready = first_entered.get_future();
         auto second_ready = second_entered.get_future();
         auto release = release_first.get_future().share();
-        EXPECT_CALL(*filesystem, stat_impl(io::Path("s3://bucket/first.txt"), _, _))
-                .WillOnce(
-                        Invoke([&](const io::Path&, io::FileStat* metadata, io::FileStatContext*) {
-                            first_entered.set_value();
-                            release.wait();
-                            *metadata = io::FileStat {.size = 1};
-                            return Status::OK();
-                        }));
+        EXPECT_CALL(*client, head_object(testing::Field(&ObjStoragePath::key, "first.txt")))
+                .WillOnce(Invoke([&](const ObjStoragePath& object) {
+                    EXPECT_EQ(object.bucket, "bucket");
+                    first_entered.set_value();
+                    release.wait();
+                    return ObjStorageHeadResult {.file_size = 1};
+                }));
         const std::string second_uri =
                 switch_bucket ? "s3://other/second.txt" : "s3://bucket/second.txt";
-        EXPECT_CALL(*(switch_bucket ? other_filesystem : filesystem),
-                    stat_impl(io::Path(second_uri), _, _))
-                .WillOnce(
-                        Invoke([&](const io::Path&, io::FileStat* metadata, io::FileStatContext*) {
-                            second_entered.set_value();
-                            *metadata = io::FileStat {.size = 2};
-                            return Status::OK();
-                        }));
+        EXPECT_CALL(*(switch_bucket ? other_client : client),
+                    head_object(testing::Field(&ObjStoragePath::key, "second.txt")))
+                .WillOnce(Invoke([&](const ObjStoragePath& object) {
+                    EXPECT_EQ(object.bucket, switch_bucket ? "other" : "bucket");
+                    second_entered.set_value();
+                    return ObjStorageHeadResult {.file_size = 2};
+                }));
         ColumnPtr first_output;
         ColumnPtr second_output;
         auto first = std::async(std::launch::async, [&] {
@@ -427,7 +417,7 @@ TEST_F(FunctionToFileTest, ClonesStatConcurrentlyDuringSameBucketReuseAndBucketS
             return execute(context.get(), uris({string("s3://bucket/first.txt")}), first_output);
         });
         const auto first_status = first_ready.wait_for(std::chrono::seconds(5));
-        const std::weak_ptr<ToFileMockFS> first_filesystem = filesystem;
+        const std::weak_ptr<io::ObjStorageFileSystem> first_filesystem = filesystem;
         if (switch_bucket && first_status == std::future_status::ready) {
             // Leave ownership with function state and the pending request only.
             filesystem.reset();
@@ -448,11 +438,11 @@ TEST_F(FunctionToFileTest, ClonesStatConcurrentlyDuringSameBucketReuseAndBucketS
         EXPECT_EQ((*first_output)[0].get<TYPE_FILE>()[2].get<TYPE_BIGINT>(), 1);
         EXPECT_EQ((*second_output)[0].get<TYPE_FILE>()[2].get<TYPE_BIGINT>(), 2);
         ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(&function));
-        if (switch_bucket && !filesystem) {
+        if (switch_bucket) {
             EXPECT_TRUE(first_filesystem.expired());
-        } else {
-            ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(filesystem.get()));
+            ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(other_client.get()));
         }
+        ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(client.get()));
     }
 }
 
@@ -462,15 +452,12 @@ TEST_F(FunctionToFileTest, PreservesRawUriServerMetadataAndZeroSize) {
     expect_client_creation();
     ASSERT_TRUE(
             function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-            .WillOnce(
-                    Invoke([&](const io::Path& path, io::FileStat* metadata, io::FileStatContext*) {
-                        EXPECT_EQ(path.native(), uri);
-                        *metadata = io::FileStat {.size = 0,
-                                                  .content_type = "Image/PNG; name=Original",
-                                                  .checksum = "ETAG:Opaque-2"};
-                        return Status::OK();
-                    }));
+    EXPECT_CALL(*client, head_object(_)).WillOnce(Invoke([&](const ObjStoragePath& object) {
+        EXPECT_EQ(object.bucket, "bucket");
+        EXPECT_EQ(object.key, "a%2Fb.PNG?versionId=Ab%2FC");
+        return ObjStorageHeadResult {
+                .file_size = 0, .content_type = "Image/PNG; name=Original", .etag = "\"Opaque-2\""};
+    }));
     ColumnPtr output;
     ASSERT_TRUE(execute(context.get(), uris({string(uri)}), output).ok());
     ASSERT_FALSE(output->is_null_at(0));
@@ -492,14 +479,11 @@ TEST_F(FunctionToFileTest, InfersRawKeyExtensionsAndDefaultsUnknownNames) {
     ASSERT_TRUE(
             function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     size_t calls = 0;
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-            .Times(3)
-            .WillRepeatedly(
-                    Invoke([&](const io::Path&, io::FileStat* metadata, io::FileStatContext*) {
-                        *metadata = io::FileStat {.size = 5};
-                        if (calls++ == 1) metadata->content_type = "not a MIME type";
-                        return Status::OK();
-                    }));
+    EXPECT_CALL(*client, head_object(_)).Times(3).WillRepeatedly(Invoke([&](const ObjStoragePath&) {
+        ObjStorageHeadResult result {.file_size = 5};
+        if (calls++ == 1) result.content_type = "not a MIME type";
+        return result;
+    }));
     ColumnPtr output;
     ASSERT_TRUE(execute(context.get(),
                         uris({string("s3://bucket/a.PNG?name=wrong.txt"),
@@ -519,13 +503,14 @@ TEST_F(FunctionToFileTest, MetadataErrorsPropagateWithoutPublishingPartialOutput
             function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     {
         testing::InSequence sequence;
-        EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-                .WillOnce(Invoke([](const io::Path&, io::FileStat* metadata, io::FileStatContext*) {
-                    *metadata = io::FileStat {.size = 1};
-                    return Status::OK();
-                }));
-        EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-                .WillOnce(Return(Status::IOError("stat failed")));
+        EXPECT_CALL(*client, head_object(_)).WillOnce(Invoke([](const ObjStoragePath&) {
+            return ObjStorageHeadResult {.file_size = 1};
+        }));
+        EXPECT_CALL(*client, head_object(_)).WillOnce(Invoke([](const ObjStoragePath&) {
+            ObjStorageHeadResult result;
+            result.resp.status = {ObjStorageStatus::IO_ERROR, "stat failed"};
+            return result;
+        }));
     }
     ColumnPtr output = make_nullable(file)->create_column_const(2, Field());
     const auto original = output;
@@ -556,14 +541,15 @@ TEST_F(FunctionToFileTest, InfersExtensionFromCompleteRawKey) {
             {"https://host/bucket/dir/photo?part.jpg", "image/jpeg"},
             {"http://host/bucket/dir/photo#part.PNG", "image/png"}};
     size_t calls = 0;
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _))
+    EXPECT_CALL(*client, head_object(_))
             .Times(static_cast<int>(cases.size()))
-            .WillRepeatedly(
-                    Invoke([&](const io::Path& path, io::FileStat* metadata, io::FileStatContext*) {
-                        EXPECT_EQ(path.native(), cases[calls++].first);
-                        *metadata = io::FileStat {.size = 1};
-                        return Status::OK();
-                    }));
+            .WillRepeatedly(Invoke([&](const ObjStoragePath& object) {
+                S3URI expected(cases[calls++].first);
+                EXPECT_TRUE(expected.parse(true).ok());
+                EXPECT_EQ(object.bucket, expected.get_bucket());
+                EXPECT_EQ(object.key, expected.get_key());
+                return ObjStorageHeadResult {.file_size = 1};
+            }));
     for (const auto& [uri, content_type] : cases) {
         ColumnPtr output;
         ASSERT_TRUE(execute(context.get(), uris({string(uri)}), output).ok());
@@ -579,13 +565,9 @@ TEST_F(FunctionToFileTest, ConstantUriStillExecutesEachRow) {
     ASSERT_TRUE(
             function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     int64_t size = 0;
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-            .Times(2)
-            .WillRepeatedly(
-                    Invoke([&](const io::Path&, io::FileStat* metadata, io::FileStatContext*) {
-                        *metadata = io::FileStat {.size = ++size};
-                        return Status::OK();
-                    }));
+    EXPECT_CALL(*client, head_object(_)).Times(2).WillRepeatedly(Invoke([&](const ObjStoragePath&) {
+        return ObjStorageHeadResult {.file_size = ++size};
+    }));
     ColumnPtr output;
     ASSERT_TRUE(execute(context.get(), {uri, text, "uri"}, output).ok());
     EXPECT_FALSE(is_column_const(*output));
@@ -624,22 +606,18 @@ TEST_F(FunctionToFileTest, PreservesUriAndValidatesMetadataAfterSuccessfulStat) 
     ASSERT_TRUE(
             function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     ColumnPtr output;
-    for (const std::string uri : {"s3://bucket/a%ZZ.txt", "s3://bucket/a%"}) {
-        EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-                .WillOnce(Invoke(
-                        [&](const io::Path& path, io::FileStat* metadata, io::FileStatContext*) {
-                            EXPECT_EQ(path.native(), uri);
-                            *metadata = io::FileStat {.size = 1, .content_type = "text/plain"};
-                            return Status::OK();
-                        }));
+    for (const auto& [uri, expected_key] : std::vector<std::pair<std::string, std::string>> {
+                 {"s3://bucket/a%ZZ.txt", "a%ZZ.txt"}, {"s3://bucket/a%", "a%"}}) {
+        EXPECT_CALL(*client, head_object(_)).WillOnce(Invoke([&](const ObjStoragePath& object) {
+            EXPECT_EQ(object.key, expected_key);
+            return ObjStorageHeadResult {.file_size = 1, .content_type = "text/plain"};
+        }));
         ASSERT_TRUE(execute(context.get(), uris({string(uri)}), output).ok());
         EXPECT_EQ((*output)[0].get<TYPE_FILE>()[0].get<TYPE_STRING>(), uri);
     }
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-            .WillOnce(Invoke([](const io::Path&, io::FileStat* metadata, io::FileStatContext*) {
-                *metadata = io::FileStat {.size = -1};
-                return Status::OK();
-            }));
+    EXPECT_CALL(*client, head_object(_)).WillOnce(Invoke([](const ObjStoragePath&) {
+        return ObjStorageHeadResult {.file_size = -1};
+    }));
     EXPECT_FALSE(execute(context.get(), uris({string("s3://bucket/a.txt")}), output).ok());
 }
 
@@ -649,16 +627,10 @@ TEST_F(FunctionToFileTest, CancellationStopsFurtherMetadataCalls) {
     expect_client_creation();
     ASSERT_TRUE(
             function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-            .WillOnce(Invoke([&](const io::Path&, io::FileStat* metadata,
-                                 io::FileStatContext* stat_context) {
-                EXPECT_TRUE(stat_context->is_cancelled);
-                EXPECT_FALSE(stat_context->is_cancelled());
-                *metadata = io::FileStat {.size = 1};
-                runtime.cancel(Status::Cancelled("cancel during stat"));
-                EXPECT_TRUE(stat_context->is_cancelled());
-                return Status::OK();
-            }));
+    EXPECT_CALL(*client, head_object(_)).WillOnce(Invoke([&](const ObjStoragePath&) {
+        runtime.cancel(Status::Cancelled("cancel during stat"));
+        return ObjStorageHeadResult {.file_size = 1};
+    }));
     ColumnPtr output;
     EXPECT_FALSE(execute(context.get(),
                          uris({string("s3://bucket/a.txt"), string("s3://bucket/b.txt")}), output)
@@ -679,15 +651,12 @@ TEST_F(FunctionToFileTest, CancellationCallbackSurvivesOriginalContextCloseAndDe
                         .ok());
     context.reset();
     const auto cancellation = Status::Cancelled("cancel cloned metadata request");
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-            .WillOnce(
-                    Invoke([&](const io::Path&, io::FileStat*, io::FileStatContext* stat_context) {
-                        EXPECT_TRUE(stat_context->is_cancelled);
-                        EXPECT_FALSE(stat_context->is_cancelled());
-                        runtime.cancel(cancellation);
-                        EXPECT_TRUE(stat_context->is_cancelled());
-                        return Status::IOError("metadata request aborted");
-                    }));
+    EXPECT_CALL(*client, head_object(_)).WillOnce(Invoke([&](const ObjStoragePath&) {
+        runtime.cancel(cancellation);
+        ObjStorageHeadResult result;
+        result.resp.status = {ObjStorageStatus::IO_ERROR, "metadata request aborted"};
+        return result;
+    }));
     ColumnPtr output;
     const auto status = execute(
             clone.get(), uris({string("s3://bucket/a.txt"), string("s3://bucket/b.txt")}), output);
@@ -704,11 +673,12 @@ TEST_F(FunctionToFileTest, QueryCancellationReasonTakesPrecedenceOverAbortedStat
     ASSERT_TRUE(
             function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     const auto cancellation = Status::Cancelled("query cancelled during metadata request");
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-            .WillOnce(Invoke([&](const io::Path&, io::FileStat*, io::FileStatContext*) {
-                runtime.cancel(cancellation);
-                return Status::IOError("metadata request aborted");
-            }));
+    EXPECT_CALL(*client, head_object(_)).WillOnce(Invoke([&](const ObjStoragePath&) {
+        runtime.cancel(cancellation);
+        ObjStorageHeadResult result;
+        result.resp.status = {ObjStorageStatus::IO_ERROR, "metadata request aborted"};
+        return result;
+    }));
     ColumnPtr output;
     const auto status =
             execute(context.get(), uris({string("s3://bucket/a.txt"), string("s3://bucket/b.txt")}),
@@ -754,18 +724,14 @@ TEST_F(FunctionToFileTest, SelectsResourcesByNameWithinOneQuery) {
     expect_client_creation();
     EXPECT_CALL(function, create_filesystem(_, "s3://other-bucket/a.txt", _))
             .WillOnce(Invoke([&](const TS3Resource& resource, const std::string&,
-                                 std::shared_ptr<io::FileSystem>* result) {
+                                 std::shared_ptr<io::ObjStorageFileSystem>* result) {
                 EXPECT_EQ(resource.properties, other.properties);
                 *result = filesystem;
                 return Status::OK();
             }));
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-            .Times(2)
-            .WillRepeatedly(
-                    Invoke([](const io::Path&, io::FileStat* metadata, io::FileStatContext*) {
-                        *metadata = io::FileStat {.size = 1};
-                        return Status::OK();
-                    }));
+    EXPECT_CALL(*client, head_object(_)).Times(2).WillRepeatedly(Invoke([](const ObjStoragePath&) {
+        return ObjStorageHeadResult {.file_size = 1};
+    }));
     ColumnPtr output;
     ASSERT_TRUE(execute(first.get(), uris({string("s3://bucket/a.txt")}), output).ok());
     EXPECT_EQ((*output)[0].get<TYPE_FILE>()[0].get<TYPE_STRING>(), "s3://bucket/a.txt");

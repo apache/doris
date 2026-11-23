@@ -21,7 +21,7 @@
 
 namespace doris {
 namespace io {
-class FileSystem;
+class ObjStorageFileSystem;
 }
 
 class FunctionToFile : public IFunction {
@@ -43,7 +43,7 @@ public:
 
 protected:
     virtual Status create_filesystem(const TS3Resource& resource, const std::string& uri,
-                                     std::shared_ptr<io::FileSystem>* filesystem) const;
+                                     std::shared_ptr<io::ObjStorageFileSystem>* filesystem) const;
 };
 
 } // namespace doris

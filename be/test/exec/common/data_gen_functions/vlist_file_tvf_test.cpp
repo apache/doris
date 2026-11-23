@@ -77,6 +77,18 @@ std::vector<TScanRangeParams> ranges(std::string uri = "s3://bucket/dir", bool r
     return {range};
 }
 
+class ToFileWithListedFilesystem : public FunctionToFile {
+public:
+    explicit ToFileWithListedFilesystem(std::shared_ptr<io::ObjStorageFileSystem> filesystem)
+            : _filesystem(std::move(filesystem)) {}
+    Status create_filesystem(const TS3Resource&, const std::string&,
+                             std::shared_ptr<io::ObjStorageFileSystem>* result) const override {
+        *result = _filesystem;
+        return Status::OK();
+    }
+    std::shared_ptr<io::ObjStorageFileSystem> _filesystem;
+};
+
 class ListFileTVFTest : public testing::Test {
 protected:
     static void SetUpTestSuite() { ObjStorageClientFactory::instance(); }
@@ -173,16 +185,36 @@ protected:
 
     void check_etag_consistency(const Block& block, size_t index) {
         const auto value = row(block, index);
-        io::FileStat metadata;
-        ASSERT_TRUE(function->_filesystem->stat(value[0].get<TYPE_STRING>(), &metadata).ok());
+        ToFileWithListedFilesystem to_file(function->_filesystem);
+        auto text = std::make_shared<DataTypeString>();
+        auto file = std::make_shared<DataTypeFile>();
+        auto query = MockQueryContext::create();
+        query->set_s3_resources({{"resource", TS3Resource {}}});
+        state._query_ctx = query.get();
+        auto resource = text->create_column_const(1, Field::create_field<TYPE_STRING>("resource"));
+        auto uri = text->create_column();
+        uri->insert(value[0]);
+        auto context = FunctionContext::create_context(&state, file, {text, text});
+        context->set_constant_cols({std::make_shared<ConstantExprResult>(resource), nullptr});
+        ASSERT_TRUE(to_file.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                            .ok());
+        Block head_block {{resource, text, "resource"},
+                          {std::move(uri), text, "uri"},
+                          {nullptr, file, "res"}};
+        ASSERT_TRUE(to_file.execute(context.get(), head_block, {0, 1}, 2, 1).ok());
+        const auto head_value = (*head_block.get_by_position(2).column)[0].get<TYPE_FILE>();
+        ASSERT_TRUE(
+                to_file.close(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                        .ok());
+        state._query_ctx = nullptr;
         if (index < 3) {
             EXPECT_TRUE(value[4].is_null());
-            EXPECT_FALSE(metadata.checksum.has_value());
+            EXPECT_TRUE(head_value[4].is_null());
             return;
         }
         ASSERT_FALSE(value[4].is_null());
         EXPECT_EQ(value[4].get<TYPE_STRING>(), "ETAG:MiXeD:opaque-2");
-        EXPECT_EQ(metadata.checksum, value[4].get<TYPE_STRING>());
+        EXPECT_EQ(head_value[4], value[4]);
     }
 
     ObjectPool pool;
@@ -487,18 +519,6 @@ TEST_F(ListFileTVFTest, EmptyListingReturnsEmptyFileColumn) {
     EXPECT_EQ(block.get_by_position(1).type->get_name(), "Nullable(File)");
     EXPECT_TRUE(eos);
 }
-
-class ToFileWithListedFilesystem : public FunctionToFile {
-public:
-    explicit ToFileWithListedFilesystem(std::shared_ptr<io::FileSystem> filesystem)
-            : _filesystem(std::move(filesystem)) {}
-    Status create_filesystem(const TS3Resource&, const std::string&,
-                             std::shared_ptr<io::FileSystem>* result) const override {
-        *result = _filesystem;
-        return Status::OK();
-    }
-    std::shared_ptr<io::FileSystem> _filesystem;
-};
 
 TEST_F(ListFileTVFTest, RawPathsRoundTripThroughToFileAndS3Head) {
     ToFileWithListedFilesystem to_file(function->_filesystem);

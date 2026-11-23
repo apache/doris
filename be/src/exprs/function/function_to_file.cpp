@@ -17,7 +17,11 @@
 
 #include "exprs/function/function_to_file.h"
 
+#include <bthread/bthread.h>
+#include <fmt/format.h>
+
 #include <mutex>
+#include <optional>
 #include <string_view>
 
 #include "core/column/column_const.h"
@@ -25,10 +29,13 @@
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_file.h"
 #include "core/value/file_value.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
 #include "exprs/function/simple_function_factory.h"
 #include "io/file_factory.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "util/async_io.h"
 #include "util/s3_uri.h"
 
 namespace doris {
@@ -39,17 +46,38 @@ struct ToFileState {
             : resource(std::move(resource_)) {}
 
     const std::shared_ptr<const TS3Resource> resource;
-    std::shared_ptr<io::FileSystem> filesystem;
+    std::shared_ptr<io::ObjStorageFileSystem> filesystem;
     std::string bucket;
     std::mutex mutex;
-    io::FileStatContext stat_context;
 };
 
-std::string to_file_content_type(std::string_view key, const io::FileStat& metadata) {
-    if (metadata.content_type && is_valid_file_content_type(*metadata.content_type)) {
-        return *metadata.content_type;
+std::string to_file_content_type(std::string_view key,
+                                 const std::optional<std::string>& content_type) {
+    if (content_type && is_valid_file_content_type(*content_type)) {
+        return *content_type;
     }
     return std::string(infer_file_content_type_from_name(key));
+}
+
+Status head_object_metadata(const io::ObjStorageFileSystem& filesystem, const std::string& key,
+                            ObjStorageHeadResult* result) {
+    const auto client = filesystem.client_holder()->get();
+    if (!client) {
+        return Status::InternalError("init obj storage client failed");
+    }
+    const ObjStoragePath object {.bucket = filesystem.bucket(), .key = key};
+    if (bthread_self() == 0) {
+        *result = client->head_object(object);
+    } else {
+        auto task = [&] { *result = client->head_object(object); };
+        AsyncIO::run_task(task, io::FileSystemType::OBJECT_STORAGE);
+    }
+    if (!result->resp.ok()) {
+        return std::move(Status(result->resp.status.code, std::move(result->resp.status.msg))
+                                 .append(fmt::format("failed to head s3 file s3://{}/{}",
+                                                     filesystem.bucket(), key)));
+    }
+    return Status::OK();
 }
 
 } // namespace
@@ -70,15 +98,21 @@ DataTypePtr FunctionToFile::get_return_type_impl(const ColumnsWithTypeAndName& a
     return uri.type->is_nullable() || uri.type->is_null_literal() ? make_nullable(result) : result;
 }
 
-Status FunctionToFile::create_filesystem(const TS3Resource& resource, const std::string& uri,
-                                         std::shared_ptr<io::FileSystem>* filesystem) const {
+Status FunctionToFile::create_filesystem(
+        const TS3Resource& resource, const std::string& uri,
+        std::shared_ptr<io::ObjStorageFileSystem>* filesystem) const {
     io::FSPropertiesRef properties(TFileType::FILE_S3);
     properties.properties = &resource.properties;
     io::FileDescription description;
     S3URI s3_uri(uri);
     RETURN_IF_ERROR(s3_uri.parse(true));
     description.path = "s3://" + s3_uri.get_bucket();
-    *filesystem = DORIS_TRY(FileFactory::create_fs(properties, description));
+    auto fs = DORIS_TRY(FileFactory::create_fs(properties, description));
+    auto obj_fs = std::dynamic_pointer_cast<io::ObjStorageFileSystem>(std::move(fs));
+    if (!obj_fs) {
+        return Status::InternalError("TO_FILE requires an object storage filesystem");
+    }
+    *filesystem = std::move(obj_fs);
     return Status::OK();
 }
 
@@ -108,8 +142,6 @@ Status FunctionToFile::open(FunctionContext* context, FunctionContext::FunctionS
     // Share the immutable query map's ownership without copying this resource per function.
     auto state = std::make_shared<ToFileState>(
             std::shared_ptr<const TS3Resource>(resources, &resource->second));
-    // RuntimeState outlives the fragment contexts, including their clones.
-    state->stat_context.is_cancelled = [runtime] { return runtime->is_cancelled(); };
     context->set_function_state(scope, std::move(state));
     return Status::OK();
 }
@@ -142,12 +174,11 @@ Status FunctionToFile::execute_impl(FunctionContext* context, Block& block,
             continue;
         }
         const auto uri = source->get_data_at(row).to_string();
-        io::FileStat metadata;
         std::string bucket;
         S3URI s3_uri(uri);
         RETURN_IF_ERROR(s3_uri.parse(true));
         bucket = s3_uri.get_bucket();
-        std::shared_ptr<io::FileSystem> filesystem;
+        std::shared_ptr<io::ObjStorageFileSystem> filesystem;
         {
             // FunctionContext clones share client initialization and bucket switching.
             std::scoped_lock lock(state->mutex);
@@ -155,7 +186,7 @@ Status FunctionToFile::execute_impl(FunctionContext* context, Block& block,
             // ObjStorageFileSystem binds its bucket at construction. Keep only the current
             // filesystem and switch when a row references a different bucket.
             if (!state->filesystem || state->bucket != bucket) {
-                std::shared_ptr<io::FileSystem> new_filesystem;
+                std::shared_ptr<io::ObjStorageFileSystem> new_filesystem;
                 RETURN_IF_ERROR(create_filesystem(*state->resource, uri, &new_filesystem));
                 DORIS_CHECK(new_filesystem != nullptr);
                 state->filesystem = std::move(new_filesystem);
@@ -166,21 +197,22 @@ Status FunctionToFile::execute_impl(FunctionContext* context, Block& block,
         }
         // Pin this request's filesystem across concurrent bucket switches. Remote
         // metadata calls must not serialize all scanners sharing the fragment state.
-        const auto stat_status = filesystem->stat(uri, &metadata, &state->stat_context);
+        ObjStorageHeadResult head;
+        const auto head_status = head_object_metadata(*filesystem, s3_uri.get_key(), &head);
         RETURN_IF_CANCELLED(runtime);
-        RETURN_IF_ERROR(stat_status);
-        if (metadata.size < 0) {
+        RETURN_IF_ERROR(head_status);
+        if (head.file_size < 0) {
             return Status::InvalidArgument("FILE size must be nonnegative");
         }
-        auto content_type = to_file_content_type(s3_uri.get_key(), metadata);
+        auto content_type = to_file_content_type(s3_uri.get_key(), head.content_type);
         File value(DataTypeFile::FIELD_COUNT);
         value[DataTypeFile::URI_FIELD_INDEX] = Field::create_field<TYPE_STRING>(uri);
-        value[DataTypeFile::SIZE_FIELD_INDEX] = Field::create_field<TYPE_BIGINT>(metadata.size);
+        value[DataTypeFile::SIZE_FIELD_INDEX] = Field::create_field<TYPE_BIGINT>(head.file_size);
         value[DataTypeFile::CONTENT_TYPE_FIELD_INDEX] =
                 Field::create_field<TYPE_STRING>(std::move(content_type));
-        if (metadata.checksum) {
+        if (auto checksum = file_checksum_from_etag(head.etag)) {
             value[DataTypeFile::CHECKSUM_FIELD_INDEX] =
-                    Field::create_field<TYPE_STRING>(*metadata.checksum);
+                    Field::create_field<TYPE_STRING>(std::move(*checksum));
         }
         output->insert(Field::create_field<TYPE_FILE>(std::move(value)));
     }

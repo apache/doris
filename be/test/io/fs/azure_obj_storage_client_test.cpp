@@ -232,17 +232,17 @@ protected:
 
 class ToFileWithAzureFilesystem : public FunctionToFile {
 public:
-    explicit ToFileWithAzureFilesystem(std::shared_ptr<io::FileSystem> filesystem)
+    explicit ToFileWithAzureFilesystem(std::shared_ptr<io::ObjStorageFileSystem> filesystem)
             : _filesystem(std::move(filesystem)) {}
 
     Status create_filesystem(const TS3Resource&, const std::string&,
-                             std::shared_ptr<io::FileSystem>* result) const override {
+                             std::shared_ptr<io::ObjStorageFileSystem>* result) const override {
         *result = _filesystem;
         return Status::OK();
     }
 
 private:
-    std::shared_ptr<io::FileSystem> _filesystem;
+    std::shared_ptr<io::ObjStorageFileSystem> _filesystem;
 };
 
 TEST_F(AzureFileMetadataTest, HeadMetadataOverridesFilenameInferenceAndProvidesChecksum) {
