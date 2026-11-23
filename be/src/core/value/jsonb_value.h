@@ -60,7 +60,7 @@ struct JsonBinaryValue final {
         ptr = nullptr;
         len = 0;
         writer.reset();
-        RETURN_IF_ERROR(JsonbParser::parse(s, length, writer));
+        RETURN_IF_ERROR(JsonbParser::parse(s, length, writer, parse_buffers));
         ptr = writer.getOutput()->getBuffer();
         len = writer.getOutput()->getSize();
         if (len > MAX_LENGTH) {
@@ -78,6 +78,7 @@ private:
     const char* ptr = nullptr;
     size_t len = 0;
     JsonbWriter writer;
+    JsonbParser::ParseBuffers parse_buffers;
 };
 
 } // namespace doris
