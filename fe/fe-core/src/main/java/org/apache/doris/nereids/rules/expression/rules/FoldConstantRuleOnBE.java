@@ -352,6 +352,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             queryGlobals.setTimestampMs(System.currentTimeMillis());
             queryGlobals.setTimeZone(
                     TimeUtils.getCanonicalTimeZone(context.getSessionVariable().getTimeZone()));
+            queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
 
             TQueryOptions tQueryOptions = new TQueryOptions();
             tQueryOptions.setBeExecVersion(Config.be_exec_version);
@@ -360,6 +361,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             tQueryOptions.setNewVersionPercentile(true);
             tQueryOptions.setNewVersionBitmapOpCount(true);
             tQueryOptions.setEnableStrictCast(SessionVariable.enableStrictCast());
+            tQueryOptions.setEnableHyperscanFallback(context.getSessionVariable().enableHyperscanFallback);
 
             TFoldConstantParams tParams = new TFoldConstantParams(paramMap, queryGlobals);
             tParams.setVecExec(true);

@@ -73,7 +73,11 @@ public:
 
     Status init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                 const TQueryOptions& query_options, const std::string& timezone,
-                const TabletSchema& schema, size_t block_size = 1);
+                const std::string& lc_time_names, const TabletSchema& schema,
+                size_t block_size = 1);
+
+    bool matches_timezone_and_locale(const std::string& timezone,
+                                     const std::string& lc_time_names) const;
 
     std::unique_ptr<Block> get_block();
 

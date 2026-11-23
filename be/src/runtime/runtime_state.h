@@ -251,6 +251,7 @@ public:
         DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj));
     }
     const std::string& lc_time_names() const { return _lc_time_names; }
+    void set_lc_time_names(const std::string& lc_time_names) { _lc_time_names = lc_time_names; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     // should only be called in pipeline engine

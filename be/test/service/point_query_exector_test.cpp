@@ -489,7 +489,8 @@ public:
         return dtb.desc_tbl();
     }
 
-    static std::shared_ptr<Reusable> create_reusable(const std::string& timezone = "+08:00") {
+    static std::shared_ptr<Reusable> create_reusable(const std::string& timezone = "+08:00",
+                                                     const std::string& lc_time_names = "") {
         auto obj_pool = std::make_unique<ObjectPool>();
         auto runtime_state = RuntimeState::create_unique();
         auto reusable = std::make_shared<Reusable>();
@@ -498,7 +499,7 @@ public:
         TDescriptorTable t_desc_tbl = create_descriptor_tablet();
 
         // Initialize Reusable
-        Status st = reusable->init(t_desc_tbl, output_exprs, query_options, timezone,
+        Status st = reusable->init(t_desc_tbl, output_exprs, query_options, timezone, lc_time_names,
                                    *tablet_schema, 2);
         if (!st.ok()) {
             return nullptr;
@@ -723,6 +724,37 @@ TEST_F(LookupConnectionCacheTest, PQTestInvalidKeys) {
     auto large_reusable = std::make_shared<Reusable>();
     large_reusable->_block_pool.resize(1024 * 1024); // 1MB block
     cache.add(1, large_reusable);
+}
+
+// Replacing a locale-specific context must not mutate in-flight requests.
+TEST_F(LookupConnectionCacheTest, PQTestLocaleContext) {
+    const __int128 uuid = 302;
+    auto chinese = ReusableTestHelper::create_reusable("UTC", "zh_CN");
+    ASSERT_NE(chinese, nullptr);
+    EXPECT_EQ(chinese->runtime_state()->lc_time_names(), "zh_CN");
+    EXPECT_TRUE(chinese->matches_timezone_and_locale("UTC", "zh_CN"));
+    EXPECT_FALSE(chinese->matches_timezone_and_locale("UTC", "en_US"));
+    EXPECT_FALSE(chinese->matches_timezone_and_locale("+08:00", "zh_CN"));
+    _lookup_cache->add(uuid, chinese);
+    auto retained = _lookup_cache->get(uuid);
+    ASSERT_EQ(retained, chinese);
+
+    auto english = ReusableTestHelper::create_reusable("UTC", "en_US");
+    ASSERT_NE(english, nullptr);
+    _lookup_cache->add(uuid, english);
+    auto current = _lookup_cache->get(uuid);
+    ASSERT_EQ(current, english);
+    EXPECT_TRUE(current->matches_timezone_and_locale("UTC", "en_US"));
+    EXPECT_FALSE(current->matches_timezone_and_locale("UTC", "zh_CN"));
+    EXPECT_EQ(retained->runtime_state()->lc_time_names(), "zh_CN");
+
+    PTabletKeyLookupRequest legacy_request;
+    EXPECT_FALSE(legacy_request.has_lc_time_names());
+    auto legacy = ReusableTestHelper::create_reusable("UTC", legacy_request.lc_time_names());
+    ASSERT_NE(legacy, nullptr);
+    EXPECT_EQ(legacy->runtime_state()->lc_time_names(), "");
+    EXPECT_TRUE(legacy->matches_timezone_and_locale("UTC", ""));
+    EXPECT_FALSE(legacy->matches_timezone_and_locale("UTC", "en_US"));
 }
 
 // A prepared statement can replace its cached context after SET time_zone.
@@ -954,7 +986,7 @@ protected:
         TQueryOptions options;
         executor->_tablet = _tablet;
         executor->_reusable = std::make_shared<Reusable>();
-        RETURN_IF_ERROR(executor->_reusable->init(descriptor, output_exprs, options, "+08:00",
+        RETURN_IF_ERROR(executor->_reusable->init(descriptor, output_exprs, options, "+08:00", "",
                                                   *_tablet->tablet_schema(), 1));
         PTabletKeyLookupRequest request;
         ThriftSerializer serializer(false, 128);
