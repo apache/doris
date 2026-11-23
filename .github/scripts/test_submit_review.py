@@ -52,6 +52,7 @@ class FinalReviewTest(unittest.TestCase):
         self.comments = []
         self.existing = []
         self.posts = []
+        self.timeline = []
         self.thread_inputs = []
         self.final_events = []
         self.deletes = []
@@ -113,6 +114,8 @@ class FinalReviewTest(unittest.TestCase):
             return copy.deepcopy(self.reviews[-1])
         if path == self.root + "/reviews/99/comments":
             return copy.deepcopy(self.comments)
+        if path == f"repos/{self.run['repository']}/issues/{self.run['pr_number']}/timeline":
+            return self.timeline
         if path == self.root + "/comments":
             return copy.deepcopy(self.existing)
         self.fail(f"Unexpected API path {path}")
@@ -517,6 +520,14 @@ class FinalReviewTest(unittest.TestCase):
             with self.subTest(comments=comments), self.assertRaisesRegex(ValueError, "inline"):
                 self.comments = comments
                 self.verify()
+
+    def test_dismissal_before_final_readback_keeps_blocking_verdict(self):
+        self.submit()
+        self.reviews[0]["state"] = "DISMISSED"
+        self.timeline = [{"event": "review_dismissed",
+                          "dismissed_review": {"review_id": 99, "state": "changes_requested"}}]
+        result = self.verify()
+        self.assertEqual(("failure", 1, 99), (result["state"], result["p1"], result["review_id"]))
 
     def test_changed_review_identity_or_summary_cannot_pass(self):
         self.submit()

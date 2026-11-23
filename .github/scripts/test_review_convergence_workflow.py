@@ -75,6 +75,7 @@ class ReviewConvergenceWorkflowTest(unittest.TestCase):
         for converged, p0, p1, expected in (
             (True, 0, 0, "success"),
             (True, 1, 0, "failure"),
+            (True, 1, 2, "failure"),
             (True, 0, 1, "failure"),
             (False, 0, 0, "failure"),
             (False, 0, 1, "failure"),
@@ -83,7 +84,7 @@ class ReviewConvergenceWorkflowTest(unittest.TestCase):
                 root = Path(tmp)
                 (root / "review-result.json").write_text(json.dumps({
                     "state": expected, "p0": p0, "p1": p1, "converged": converged,
-                    "rounds": 3, "incomplete_reason": "" if converged else "Coverage incomplete",
+                    "review_id": 99, "rounds": 3, "incomplete_reason": "" if converged else "Coverage incomplete",
                 }))
                 env = {**os.environ, "status": "0", "REVIEW_CONTEXT_DIR": tmp,
                        "GITHUB_OUTPUT": str(root / "output"), "GITHUB_STEP_SUMMARY": str(root / "summary")}
@@ -97,10 +98,12 @@ class ReviewConvergenceWorkflowTest(unittest.TestCase):
                     "REVIEW_CONTEXT_OUTCOME": "success", "REVIEW_OUTCOME": "success",
                     "REVIEW_STATE": outputs["review_state"], "REVIEW_P0": outputs["p0"],
                     "REVIEW_P1": outputs["p1"], "REVIEW_CONVERGED": outputs["converged"],
-                    "REVIEW_ROUNDS": outputs["rounds"],
+                    "REVIEW_ID": outputs["review_id"], "REVIEW_ROUNDS": outputs["rounds"],
                 }, capture_output=True, text=True, check=True)
                 args = json.loads(result.stdout)
                 posted = dict(args[i + 1].split("=", 1) for i in range(len(args)) if args[i] == "-f")
+                eligible = converged and p0 == 0 and p1 > 0
+                self.assertEqual(eligible, posted["target_url"].endswith("/pull/123#pullrequestreview-99"))
                 self.assertEqual(expected, posted["state"])
                 self.assertIn("repos/apache/doris/statuses/" + "a" * 40, args)
                 resolution = resolve_status([{
