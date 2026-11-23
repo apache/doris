@@ -88,8 +88,12 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_version(get_short_version());
         heartbeat_result.backend_info.__set_be_start_time(_be_epoch);
         heartbeat_result.backend_info.__set_be_node_role(config::be_node_role);
-        // If be is gracefully stop, then k_doris_exist is set to true
-        heartbeat_result.backend_info.__set_is_shutdown(doris::k_doris_exit);
+        const bool is_shutdown = doris::k_doris_exit;
+        heartbeat_result.backend_info.__set_is_shutdown(is_shutdown);
+        // Use the same snapshot as the response: shutdown can start during this heartbeat.
+        if (is_shutdown) {
+            doris::k_shutdown_heartbeat_sent = true;
+        }
         heartbeat_result.backend_info.__set_fragment_executing_count(
                 get_fragment_executing_count());
         heartbeat_result.backend_info.__set_fragment_last_active_time(
@@ -336,6 +340,12 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         _engine.notify_listeners();
     }
 
+    // Only an accepted, authenticated master heartbeat may change rolling-restart mode.
+    if (master_info.epoch == _fe_epoch) {
+        // A delayed heartbeat from the same address must not reset a newer master's flag.
+        _cluster_info->set_in_graceful_shutdown(master_info.__isset.in_graceful_shutdown &&
+                                                master_info.in_graceful_shutdown);
+    }
     return Status::OK();
 }
 

@@ -28,9 +28,11 @@
 #include <thread>
 
 #include "common/status.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h" // IWYU pragma: keep
 #include "util/client_cache.h"
 #include "util/debug_points.h"
+#include "util/dns_cache.h"
 #include "util/network_util.h"
 
 namespace apache {
@@ -155,5 +157,50 @@ template Status ThriftRpcHelper::rpc<BackendServiceClient>(
 template Status ThriftRpcHelper::rpc<TPaloBrokerServiceClient>(
         const std::string& ip, const int32_t port,
         std::function<void(ClientConnection<TPaloBrokerServiceClient>&)> callback, int timeout_ms);
+
+Status ThriftRpcHelper::rpc_fe_with_master_refresh(
+        std::function<TNetworkAddress()> address_provider,
+        std::function<void(ClientConnection<FrontendServiceClient>&)> callback,
+        std::function<TStatus()> response_status, int timeout_ms) {
+    const bool enabled = _s_exec_env->cluster_info()->in_graceful_shutdown();
+    // With graceful mode disabled, preserve the existing transport retry's live
+    // provider: a new-master heartbeat may arrive after the old master's socket closes.
+    if (!enabled) {
+        return rpc<FrontendServiceClient>(address_provider, callback, timeout_ms);
+    }
+    return _retry_fe_rpc(
+            address_provider,
+            [&](const TNetworkAddress& address) {
+                auto status = rpc<FrontendServiceClient>(address.hostname, address.port, callback,
+                                                         timeout_ms);
+                // A restarted FE can keep its hostname but get a different pod IP.
+                // Reopening a socket against the cached old IP cannot recover.
+                if (!status.ok()) {
+                    _s_exec_env->dns_cache()->invalidate(address.hostname);
+                }
+                return status;
+            },
+            response_status, 1000);
+}
+
+Status ThriftRpcHelper::_retry_fe_rpc(const std::function<TNetworkAddress()>& address_provider,
+                                      const std::function<Status(const TNetworkAddress&)>& attempt,
+                                      const std::function<TStatus()>& response_status,
+                                      int retry_interval_ms) {
+    constexpr int max_retries = 5;
+    for (int retry = 0;; ++retry) {
+        // Heartbeats already publish the elected master. Re-read it for every attempt,
+        // including NOT_MASTER replies received before the new heartbeat arrives.
+        TNetworkAddress target = address_provider();
+        Status st = attempt(target);
+        if ((st.ok() && response_status().status_code != TStatusCode::NOT_MASTER) ||
+            retry == max_retries) {
+            return st;
+        }
+        LOG(INFO) << "retry stream-load FE RPC " << retry + 1 << "/" << max_retries
+                  << ", previous target=" << target;
+        std::this_thread::sleep_for(std::chrono::milliseconds(retry_interval_ms * (2 * retry + 1)));
+    }
+}
 
 } // namespace doris

@@ -115,7 +115,7 @@ const auto dest_ins_id_3 = dest_fragment_ins_id_3.lo;
 class MockSinkBuffer : public ExchangeSinkBuffer {
 public:
     MockSinkBuffer(RuntimeState* state, int64_t sinknum) : ExchangeSinkBuffer(state, sinknum) {};
-    void _failed(InstanceLoId id, const std::string& err) override {
+    void _failed(InstanceLoId id, Status err) override {
         _is_failed = true;
         std::cout << "_failed\n";
     }

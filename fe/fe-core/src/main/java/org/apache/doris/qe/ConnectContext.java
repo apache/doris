@@ -227,6 +227,8 @@ public class ConnectContext {
     protected volatile StmtExecutor executor;
     // Command this connection is processing.
     protected volatile MysqlCommand command;
+    // Guarded by this. Protocol reset can publish COM_SLEEP before its response is sent.
+    private boolean mysqlCommandInProgress;
     // Timestamp in millisecond last command starts at
     protected volatile long startTime;
     // Cache thread info for this connection.
@@ -856,6 +858,39 @@ public class ConnectContext {
 
     public void setCommand(MysqlCommand command) {
         this.command = command;
+    }
+
+    /** Reserve an idle MySQL connection before dispatching a newly received packet. */
+    public synchronized boolean startMysqlCommand() {
+        if (isKilled) {
+            return false;
+        }
+        // COM_QUERY also covers the short interval before dispatch decodes the command.
+        // Otherwise the shutdown thread could mistake a received packet for an idle socket.
+        command = MysqlCommand.COM_QUERY;
+        mysqlCommandInProgress = true;
+        return true;
+    }
+
+    public synchronized void finishMysqlCommand() {
+        command = MysqlCommand.COM_SLEEP;
+        mysqlCommandInProgress = false;
+    }
+
+    /** Close an idle socket without cancelling an executor that has just finished. */
+    public boolean closeIdleMysqlConnection() {
+        synchronized (this) {
+            if (getConnectType() != ConnectType.MYSQL || command != MysqlCommand.COM_SLEEP
+                    || mysqlCommandInProgress || isKilled) {
+                return false;
+            }
+            // Paired with startMysqlCommand: a packet racing idle closure must not run.
+            isKilled = true;
+        }
+        // The socket close listener only unregisters the connection and rolls back its
+        // transaction. Finish the normal session cleanup here, including temporary tables.
+        cleanup();
+        return true;
     }
 
     public long getStartTime() {

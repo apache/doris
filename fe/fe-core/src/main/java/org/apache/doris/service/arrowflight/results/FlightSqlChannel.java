@@ -156,6 +156,12 @@ public class FlightSqlChannel {
         resultCache.invalidate(handle);
     }
 
+    public boolean hasPendingResults() {
+        // Expired local tickets no longer need to hold up shutdown.
+        resultCache.cleanUp();
+        return resultCache.size() > 0;
+    }
+
     public long resultNum() {
         return resultCache.size();
     }

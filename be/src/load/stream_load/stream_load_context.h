@@ -24,6 +24,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <atomic>
 #include <future>
 #include <map>
 #include <memory>
@@ -96,6 +97,7 @@ class StreamLoadContext {
 public:
     StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env) {
         start_millis = UnixMillis();
+        _active_contexts.fetch_add(1);
     }
 
     ~StreamLoadContext() {
@@ -103,8 +105,17 @@ public:
             _exec_env->stream_load_executor()->rollback_txn(this);
             need_rollback = false;
         }
+        _active_contexts.fetch_sub(1);
     }
 
+    // Includes upload, planning, transaction commit/rollback and HTTP reply lifetime,
+    // even when the load has no running fragment or receiver channel yet.
+    static size_t num_active_contexts() { return _active_contexts.load(); }
+
+private:
+    inline static std::atomic<size_t> _active_contexts {0};
+
+public:
     std::string data_saved_path;
 
     std::string to_json() const;
