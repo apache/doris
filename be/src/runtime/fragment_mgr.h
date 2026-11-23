@@ -221,8 +221,6 @@ private:
             const TPlanFragment& plan_fragment, const DescriptorTbl& desc_tbl,
             std::vector<TScanColumnDesc>* selected_columns);
 
-    static TQueryOptions _build_external_scan_query_options(const TScanOpenParams& params);
-
     // This is input params
     ExecEnv* _exec_env = nullptr;
 

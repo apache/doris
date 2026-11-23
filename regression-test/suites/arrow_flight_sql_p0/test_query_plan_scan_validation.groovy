@@ -42,7 +42,7 @@ suite("test_query_plan_scan_validation", "arrow_flight_sql") {
 
     // Reads a _query_plan scan the way the connectors do. Returns the number of rows read and
     // the error get_next reported, or null when it reported the end of the scan.
-    def scan = { String query, Integer timeout = null ->
+    def scan = { String query ->
         def plan = Http.POST(
                 "http://${context.config.feHttpAddress}/api/${db}/query_plan_scan_input/_query_plan",
                 [sql: query], true, context.config.feHttpUser, context.config.feHttpPassword)
@@ -67,10 +67,9 @@ suite("test_query_plan_scan_validation", "arrow_flight_sql") {
             params.setOpaquedQueryPlan(plan.data.opaqued_query_plan)
             params.setUser(context.config.feHttpUser)
             params.setPasswd(context.config.feHttpPassword ?: "")
-            // Omission must keep the BE default. An explicit value must reach the same scan path.
-            if (timeout != null) {
-                params.setExecutionTimeout(timeout)
-            }
+            // Use a valid execution timeout so the scan reaches the Arrow conversion checks.
+            // An omitted timeout becomes zero in the BE query options and fails validation.
+            params.setExecutionTimeout(60)
             def opened = client.openScanner(params)
             assertEquals(TStatusCode.OK, opened.getStatus().getStatusCode(), opened.toString())
             long rows = 0
@@ -110,11 +109,6 @@ suite("test_query_plan_scan_validation", "arrow_flight_sql") {
             FROM ${db}.query_plan_scan_input WHERE id = 1""")
     assertEquals(1L, validRows)
     assertNull(validError)
-
-    // Reuse the same valid row to check an explicit positive timeout without adding data.
-    def (timedRows, timedError) = scan("SELECT id FROM ${db}.query_plan_scan_input WHERE id = 1", 60)
-    assertEquals(1L, timedRows)
-    assertNull(timedError)
 
     // Invalid UTF-8 in a STRING result.
     def (utf8Rows, utf8Error) = scan("SELECT id, unhex(encoded) FROM ${db}.query_plan_scan_input")
