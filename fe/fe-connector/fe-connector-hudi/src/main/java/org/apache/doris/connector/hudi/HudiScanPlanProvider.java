@@ -67,6 +67,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -222,7 +223,10 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         Map<HudiScanReuseKey, List<ConnectorScanRange>> scanReuse =
                 session.getStatementScope().computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
         HudiScanReuseKey reuseKey = hudiScanReuseKey(
-                (HudiTableHandle) request.getTableHandle(), statementTable.generation);
+                (HudiTableHandle) request.getTableHandle(),
+                statementTable.generation,
+                request.getRequiredPartitions(),
+                request.isPartitionsPrunedToEmpty());
         AtomicReference<List<ConnectorScanRange>> uncached = new AtomicReference<>();
         List<ConnectorScanRange> cached = scanReuse.computeIfAbsent(reuseKey, key -> {
             PlannedScan plannedScan = doPlanScanForReuse(session, request, statementTable);
@@ -289,6 +293,9 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
     private List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request,
             HudiStatementTable statementTable, PlanCompleteness completeness) {
+        if (request.isPartitionsPrunedToEmpty()) {
+            return Collections.emptyList();
+        }
         HudiTableHandle hudiHandle = (HudiTableHandle) request.getTableHandle();
         String basePath = hudiHandle.getBasePath();
         HoodieTableMetaClient metaClient = statementTable.metaClient;
@@ -418,11 +425,12 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
         try (HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemView(
                 engineCtx, metaClient, metadataConfig)) {
-            // Resolve partitions
-            List<String> partitionPaths = resolvePartitions(hudiHandle, metaClient);
+            boolean urlEncoded = urlEncodePartitioning(metaClient);
+            // Resolve partitions (combining applyFilter EQ/IN paths with Nereids requiredPartitions)
+            List<String> partitionPaths = resolvePartitions(
+                    session, hudiHandle, metaClient, request.getRequiredPartitions(), urlEncoded);
 
             List<ConnectorScanRange> ranges = new ArrayList<>();
-            boolean urlEncoded = urlEncodePartitioning(metaClient);
             for (String partitionPath : partitionPaths) {
                 Map<String, String> partValues = parsePartitionValues(
                         partitionPath, hudiHandle.getPartitionKeyNames(), urlEncoded,
@@ -851,29 +859,68 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Resolve partition paths from handle or by listing all partitions.
+     * Resolve partition paths from handle or by listing all partitions, then intersect with Nereids'
+     * {@code requiredPartitions} so range / OR / NOT / expression partition pruning narrows Hudi splits too.
      */
     private List<String> resolvePartitions(
-            HudiTableHandle handle, HoodieTableMetaClient metaClient) {
-        // Check if partitions were pruned via applyFilter
-        List<String> prunedPaths = handle.getPrunedPartitionPaths();
-        if (prunedPaths != null) {
-            return prunedPaths;
-        }
-
-        // No pruning — list all partitions
+            ConnectorSession session, HudiTableHandle handle, HoodieTableMetaClient metaClient,
+            List<String> requiredPartitions, boolean urlEncoded) {
         List<String> partKeyNames = handle.getPartitionKeyNames();
-        if (partKeyNames == null || partKeyNames.isEmpty()) {
-            // Unpartitioned table
-            return Collections.singletonList("");
+        List<String> candidatePaths = handle.getPrunedPartitionPaths();
+        if (candidatePaths == null) {
+            if (partKeyNames == null || partKeyNames.isEmpty()) {
+                // Unpartitioned table
+                return Collections.singletonList("");
+            }
+            HudiConnectorMetadata.Listing listing = HudiStatementScope.sharedMetadataPartitions(
+                    session, handle, () -> {
+                        try {
+                            List<String> rawPaths = listAllPartitionPaths(metaClient);
+                            long lastModifiedMillis = instantToEpochMillis(
+                                    latestCompletedInstant(metaClient), timelineZone(metaClient));
+                            return HudiConnectorMetadata.unpinnedListing(
+                                    lastModifiedMillis, rawPaths, urlEncoded);
+                        } catch (Exception e) {
+                            throw new DorisConnectorException(
+                                    "Failed to list partitions for " + handle.getBasePath(), e);
+                        }
+                    });
+            candidatePaths = listing.rawPaths();
+            if (candidatePaths == null) {
+                candidatePaths = Collections.emptyList();
+            }
         }
+        return filterPartitionPathsByRequiredPartitions(
+                candidatePaths, partKeyNames, requiredPartitions, urlEncoded, handle.getTimestampPartitionKeys());
+    }
 
-        try {
-            return listAllPartitionPaths(metaClient);
-        } catch (Exception e) {
-            throw new DorisConnectorException(
-                    "Failed to list partitions for " + handle.getBasePath(), e);
+    /**
+     * Intersects relative Hudi partition paths (positional {@code "2024/01"} or hive-style
+     * {@code "year=2024/month=01"}) with Nereids' Hive-style {@code requiredPartitions} using the identical
+     * {@link #parsePartitionValues} + {@link #renderHiveStylePartitionName} canon that
+     * {@code HudiConnectorMetadata.buildPartitionInfos} produces. An empty {@code requiredPartitions} means
+     * "not pruned by Nereids — keep all {@code candidatePaths}".
+     */
+    static List<String> filterPartitionPathsByRequiredPartitions(
+            List<String> candidatePaths,
+            List<String> partKeyNames,
+            List<String> requiredPartitions,
+            boolean urlEncoded,
+            Set<String> timestampPartitionKeys) {
+        if (candidatePaths.isEmpty() || requiredPartitions == null || requiredPartitions.isEmpty()
+                || partKeyNames == null || partKeyNames.isEmpty()) {
+            return candidatePaths;
         }
+        Set<String> required = new HashSet<>(requiredPartitions);
+        List<String> matched = new ArrayList<>(Math.min(candidatePaths.size(), required.size()));
+        for (String path : candidatePaths) {
+            Map<String, String> values = parsePartitionValues(
+                    path, partKeyNames, urlEncoded, timestampPartitionKeys);
+            if (required.contains(renderHiveStylePartitionName(partKeyNames, values))) {
+                matched.add(path);
+            }
+        }
+        return matched;
     }
 
     /**
@@ -1342,7 +1389,12 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
     /** Package-private for offline unit tests of key construction. */
     static HudiScanReuseKey hudiScanReuseKey(HudiTableHandle handle, String generation) {
-        return new HudiScanReuseKey(handle, generation);
+        return hudiScanReuseKey(handle, generation, Collections.emptyList(), false);
+    }
+
+    static HudiScanReuseKey hudiScanReuseKey(HudiTableHandle handle, String generation,
+            List<String> requiredPartitions, boolean partitionsPrunedToEmpty) {
+        return new HudiScanReuseKey(handle, generation, requiredPartitions, partitionsPrunedToEmpty);
     }
 
     /** One statement-stable Hudi meta client paired with the generation read from that client. */
@@ -1412,15 +1464,19 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         private final String endInstant;
         private final Map<String, String> incrementalParams;
         private final List<String> prunedPartitionPaths;
+        private final List<String> requiredPartitions;
+        private final boolean partitionsPrunedToEmpty;
         private final List<String> partitionKeyNames;
         private final String inputFormat;
         private final String serdeLib;
         private final String generation;
 
-        // Hudi scan-planning identity is fully captured by the handle, its query/incremental
-        // parameters, and the resolved table generation; request-level filter, columns, and
-        // countPushdown do not affect split planning and are deliberately excluded from the key.
-        private HudiScanReuseKey(HudiTableHandle handle, String generation) {
+        // Hudi scan-planning identity is captured by the handle, its query/incremental parameters,
+        // the request-level partition selection (requiredPartitions + partitionsPrunedToEmpty), and
+        // the resolved table generation; request-level filter, columns, and countPushdown do not
+        // affect split planning and are deliberately excluded from the key.
+        private HudiScanReuseKey(HudiTableHandle handle, String generation,
+                List<String> requiredPartitions, boolean partitionsPrunedToEmpty) {
             // Catalog and query isolation are provided by the statement-scope memo key.
             this.dbName = handle.getDbName();
             this.tableName = handle.getTableName();
@@ -1434,6 +1490,10 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             this.prunedPartitionPaths = handle.getPrunedPartitionPaths() == null
                     ? null
                     : Collections.unmodifiableList(new ArrayList<>(handle.getPrunedPartitionPaths()));
+            this.requiredPartitions = requiredPartitions == null || requiredPartitions.isEmpty()
+                    ? Collections.emptyList()
+                    : Collections.unmodifiableList(new ArrayList<>(requiredPartitions));
+            this.partitionsPrunedToEmpty = partitionsPrunedToEmpty;
             this.partitionKeyNames = handle.getPartitionKeyNames() == null
                     ? Collections.emptyList()
                     : Collections.unmodifiableList(new ArrayList<>(handle.getPartitionKeyNames()));
@@ -1451,7 +1511,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 return false;
             }
             HudiScanReuseKey that = (HudiScanReuseKey) object;
-            return Objects.equals(dbName, that.dbName)
+            return partitionsPrunedToEmpty == that.partitionsPrunedToEmpty
+                    && Objects.equals(dbName, that.dbName)
                     && Objects.equals(tableName, that.tableName)
                     && Objects.equals(basePath, that.basePath)
                     && Objects.equals(queryInstant, that.queryInstant)
@@ -1459,6 +1520,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                     && Objects.equals(endInstant, that.endInstant)
                     && Objects.equals(incrementalParams, that.incrementalParams)
                     && Objects.equals(prunedPartitionPaths, that.prunedPartitionPaths)
+                    && Objects.equals(requiredPartitions, that.requiredPartitions)
                     && Objects.equals(partitionKeyNames, that.partitionKeyNames)
                     && Objects.equals(inputFormat, that.inputFormat)
                     && Objects.equals(serdeLib, that.serdeLib)
@@ -1469,7 +1531,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         public int hashCode() {
             return Objects.hash(dbName, tableName, basePath,
                     queryInstant, beginInstant, endInstant, incrementalParams,
-                    prunedPartitionPaths, partitionKeyNames, inputFormat, serdeLib, generation);
+                    prunedPartitionPaths, requiredPartitions, partitionsPrunedToEmpty,
+                    partitionKeyNames, inputFormat, serdeLib, generation);
         }
 
         @Override

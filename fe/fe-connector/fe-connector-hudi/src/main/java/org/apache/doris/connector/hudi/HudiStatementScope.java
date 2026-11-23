@@ -51,6 +51,12 @@ final class HudiStatementScope {
     /** Namespace for hudi's per-statement latest-completed-instant memo. Source-prefixed with the type ("hudi"). */
     static final String LATEST_INSTANT_NAMESPACE = "hudi.latest_instant";
 
+    /** Namespace for hudi's per-statement unpinned metadata partition listing memo. */
+    static final String METADATA_PARTITIONS_NAMESPACE = "hudi.metadata_partitions";
+
+    /** Namespace for hudi's per-statement HMS partition path listing memo. */
+    static final String HMS_PARTITIONS_NAMESPACE = "hudi.hms_partitions";
+
     private HudiStatementScope() {}
 
     /**
@@ -74,5 +80,46 @@ final class HudiStatementScope {
             Supplier<Long> loader) {
         return ConnectorStatementScopes.resolveInStatement(
                 session, LATEST_INSTANT_NAMESPACE, dbName, tableName, loader);
+    }
+
+    /**
+     * Resolves the unpinned Hudi metadata-table partition listing once per statement for the physical table identity
+     * ({@code tableName@basePath}), sharing it across {@code listPartitions}, {@code applyFilter}, and
+     * {@code HudiScanPlanProvider.resolvePartitions}.
+     */
+    static HudiConnectorMetadata.Listing sharedMetadataPartitions(ConnectorSession session, HudiTableHandle handle,
+            Supplier<HudiConnectorMetadata.Listing> loader) {
+        return ConnectorStatementScopes.resolveInStatement(
+                session, METADATA_PARTITIONS_NAMESPACE, handle.getDbName(), physicalTableKey(handle), loader);
+    }
+
+    /**
+     * Records an already-loaded unpinned metadata-table partition listing in the current statement scope (e.g. from a
+     * pinned {@code listPartitions} visit that already enumerated all metadata paths on the same metaClient), so a
+     * later {@code applyFilter} or {@code resolvePartitions} in the same statement reuses it without re-listing.
+     */
+    static void rememberMetadataPartitions(ConnectorSession session, HudiTableHandle handle,
+            HudiConnectorMetadata.Listing unpinnedListing) {
+        if (session != null && unpinnedListing != null) {
+            ConnectorStatementScopes.resolveInStatement(session, METADATA_PARTITIONS_NAMESPACE,
+                    handle.getDbName(), physicalTableKey(handle), () -> unpinnedListing);
+        }
+    }
+
+    /**
+     * Resolves the HMS-backed relative partition paths once per statement for the physical table identity
+     * ({@code tableName@basePath}), sharing them between {@code listPartitions} and {@code applyFilter}.
+     */
+    static HudiConnectorMetadata.HmsPartitionListing sharedHmsPartitions(ConnectorSession session,
+            HudiTableHandle handle, Supplier<HudiConnectorMetadata.HmsPartitionListing> loader) {
+        return ConnectorStatementScopes.resolveInStatement(
+                session, HMS_PARTITIONS_NAMESPACE, handle.getDbName(), physicalTableKey(handle), loader);
+    }
+
+    private static String physicalTableKey(HudiTableHandle handle) {
+        String basePath = handle.getBasePath();
+        return basePath == null || basePath.isEmpty()
+                ? handle.getTableName()
+                : handle.getTableName() + "@" + basePath;
     }
 }

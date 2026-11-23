@@ -32,6 +32,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorFunctionCall;
 import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
@@ -397,6 +399,82 @@ public class HudiPartitionPruningTest {
                 metadata.applyFilter(null, handle, new ConnectorFilterConstraint(withCall)).isPresent());
         Assertions.assertEquals(Collections.singletonList("x"),
                 prunedPaths(metadata.applyFilter(null, handle, new ConnectorFilterConstraint(withNull))));
+    }
+
+    @Test
+    public void filterPartitionPathsByRequiredPartitionsCoversAllLayoutsAndEncodings() {
+        // 1. Pure range filter on positional Hudi layout ("2023/12", "2024/01", "2024/02")
+        List<String> positional = Arrays.asList("2023/12", "2024/01", "2024/02");
+        Assertions.assertEquals(
+                Collections.singletonList("2024/02"),
+                HudiScanPlanProvider.filterPartitionPathsByRequiredPartitions(
+                        positional, PART_KEYS, Collections.singletonList("year=2024/month=02"),
+                        true, Collections.emptySet()));
+
+        // 2. Mixed applyFilter EQ subset + Nereids range subset (year = '2024' AND month > '01')
+        List<String> eqPruned = Arrays.asList("year=2024/month=01", "year=2024/month=02");
+        Assertions.assertEquals(
+                Collections.singletonList("year=2024/month=02"),
+                HudiScanPlanProvider.filterPartitionPathsByRequiredPartitions(
+                        eqPruned, PART_KEYS, Collections.singletonList("year=2024/month=02"),
+                        true, Collections.emptySet()));
+
+        // 3. Empty/null requiredPartitions means unpruned by Nereids -> keep all candidate paths
+        Assertions.assertEquals(positional, HudiScanPlanProvider.filterPartitionPathsByRequiredPartitions(
+                positional, PART_KEYS, Collections.emptyList(), true, Collections.emptySet()));
+        Assertions.assertEquals(positional, HudiScanPlanProvider.filterPartitionPathsByRequiredPartitions(
+                positional, PART_KEYS, null, true, Collections.emptySet()));
+
+        // 4. Single-column slash-valued partition ("2024/01/02" -> "dt=2024%2F01%2F02")
+        Assertions.assertEquals(
+                Collections.singletonList("2024/01/02"),
+                HudiScanPlanProvider.filterPartitionPathsByRequiredPartitions(
+                        Arrays.asList("2024/01/02", "2024/03/04"),
+                        Collections.singletonList("dt"),
+                        Collections.singletonList("dt=2024%2F01%2F02"),
+                        true, Collections.emptySet()));
+
+        // 5. Spark SQL escaped timestamp key + non-URL-encoded literal "%3A" string key
+        List<String> tsPaths = Arrays.asList(
+                "event_time=2024-01-01 10%3A00%3A00/label=%3A",
+                "event_time=2024-01-02 11%3A00%3A00/label=%3A");
+        Set<String> tsKeys = Collections.singleton("event_time");
+        List<ConnectorPartitionInfoRef> expectedName = Collections.singletonList(
+                new ConnectorPartitionInfoRef("event_time=2024-01-02 11%3A00%3A00/label=%253A"));
+        Assertions.assertEquals(
+                Collections.singletonList(tsPaths.get(1)),
+                HudiScanPlanProvider.filterPartitionPathsByRequiredPartitions(
+                        tsPaths, Arrays.asList("event_time", "label"),
+                        Collections.singletonList(expectedName.get(0).name),
+                        false, tsKeys));
+
+        // 6. SQL NULL partition values in both __HIVE_DEFAULT_PARTITION__ and \N spellings
+        List<String> nullPaths = Arrays.asList("dt=__HIVE_DEFAULT_PARTITION__", "dt=\\N", "dt=2024-01-01");
+        Assertions.assertEquals(
+                Arrays.asList("dt=__HIVE_DEFAULT_PARTITION__", "dt=\\N"),
+                HudiScanPlanProvider.filterPartitionPathsByRequiredPartitions(
+                        nullPaths, Collections.singletonList("dt"),
+                        Arrays.asList("dt=__HIVE_DEFAULT_PARTITION__", "dt=%5CN"),
+                        true, Collections.emptySet()));
+    }
+
+    @Test
+    public void doPlanScanShortCircuitsWhenPartitionsPrunedToEmpty() {
+        HudiScanPlanProvider provider = new HudiScanPlanProvider(Collections.emptyMap(), null);
+        ConnectorScanRequest request = ConnectorScanRequest.builder(partitionedHandle(), Collections.emptyList())
+                .partitionsPrunedToEmpty(true)
+                .build();
+        // metaClient is null: a failure to short-circuit would immediately NPE on metaClient.getTableType().
+        Assertions.assertTrue(provider.doPlanScan(
+                null, request, new HudiScanPlanProvider.HudiStatementTable(null, "gen", null)).isEmpty());
+    }
+
+    private static final class ConnectorPartitionInfoRef {
+        private final String name;
+
+        private ConnectorPartitionInfoRef(String name) {
+            this.name = name;
+        }
     }
 
     // ========== helpers ==========
