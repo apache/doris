@@ -346,6 +346,8 @@ void FileRangeRead::_publish_from_running(State state, Status status, FileRangeR
 FileRangeReadIOContext FileRangeReadIOContext::from_caller(const IOContext& source) {
     FileRangeReadIOContext result;
     result.io_context = source;
+    // A file binding owns this async snapshot. Keeping it here would form a shared_ptr cycle.
+    result.io_context.file_read_ahead.reset();
     if (source.query_id != nullptr) {
         result.query_id = std::make_shared<TUniqueId>(*source.query_id);
     }

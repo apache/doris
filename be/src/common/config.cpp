@@ -1951,7 +1951,6 @@ DEFINE_mBool(enable_query_segment_file_cache_prefetch, "false");
 // Number of blocks to prefetch ahead in segment iterator for query
 DEFINE_mInt32(query_segment_file_cache_prefetch_block_size, "2");
 // Enable exact range read-ahead for query data pages
-DEFINE_mBool(enable_query_read_ahead, "false");
 DEFINE_mBool(enable_read_io_trace, "false");
 // Separate diagnostic files; empty uses the BE log directory's read_io_trace subdirectory.
 DEFINE_String(read_io_trace_dir, "");

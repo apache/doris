@@ -26,9 +26,9 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "io/fs/read_ahead_io_resources.h"
 #include "storage/olap_common.h"
 #include "storage/segment/column_read_ahead.h"
-#include "storage/segment/column_read_ahead_resources.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/mock/mock_segment.h"
 #include "storage/tablet/tablet_schema.h"
@@ -153,10 +153,10 @@ protected:
         auto iterator =
                 std::make_unique<SegmentIterator>(std::make_shared<MockSegment>(_tablet_schema),
                                                   _read_schema, StorageReadOptions(_stats));
-        iterator->_read_ahead_resources = std::make_shared<ColumnReadAheadResources>(
+        iterator->_opts.io_ctx.file_read_ahead = std::make_shared<io::FileReadAheadResources>(
                 std::make_shared<HintOnlyFileReader>(), _scheduler.get(),
                 _scheduler->create_context(), io::FileRangeReadIOContext {},
-                ColumnReadAheadIOOptions {});
+                io::ReadAheadIOOptions {});
         iterator->_row_bitmap.addRange(0, 100);
         return iterator;
     }
@@ -283,7 +283,7 @@ TEST_F(SegmentIteratorReadAheadTest, EmptySelectionAndDisabledReadAheadSkipPlann
     EXPECT_TRUE(column->calls.empty());
 
     iterator->_row_bitmap.add(20);
-    iterator->_read_ahead_resources.reset();
+    iterator->_opts.io_ctx.file_read_ahead.reset();
     iterator->_prepare_scan_read_ahead();
     EXPECT_TRUE(column->calls.empty());
 }

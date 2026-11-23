@@ -31,8 +31,6 @@ class FileReader;
 }
 namespace segment_v2 {
 
-struct ColumnReadAheadResources;
-
 struct ColumnIteratorOptions {
     bool use_page_cache = false;
     bool is_predicate_column = false;
@@ -45,7 +43,6 @@ struct ColumnIteratorOptions {
     OlapReaderStatistics* stats = nullptr; // Ref
     io::IOContext io_ctx;
     bool only_read_offsets = false;
-    std::shared_ptr<const ColumnReadAheadResources> read_ahead = nullptr;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);

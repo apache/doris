@@ -531,6 +531,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
     public static final String ENABLE_FILE_CACHE_IO_ADAPTOR = "enable_file_cache_io_adaptor";
+    public static final String ENABLE_QUERY_READ_AHEAD = "enable_query_read_ahead";
 
     public static final String DISABLE_FILE_CACHE = "disable_file_cache";
 
@@ -2426,6 +2427,10 @@ public class SessionVariable implements Serializable, Writable {
             description = "Allow external queries to adaptively read remote data "
                     + "when local file-cache reads are slower.")
     public boolean enableFileCacheIoAdaptor = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_QUERY_READ_AHEAD, needForward = true,
+            description = "Enable data-page read-ahead for cloud scans; requires asynchronous file-cache writes.")
+    public boolean enableQueryReadAhead = false;
 
     // Specify base path for file cache, or chose a random path.
     @VarAttrDef.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, description = "Specify the storage path of "
@@ -5917,6 +5922,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableFileCache(enableFileCache);
         tResult.setEnableFileCacheIoAdaptor(enableFileCacheIoAdaptor);
+        tResult.setEnableQueryReadAhead(enableQueryReadAhead);
 
         tResult.setEnablePageCache(enablePageCache);
 

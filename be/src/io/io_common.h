@@ -22,6 +22,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -43,6 +44,8 @@ enum class ReaderType : uint8_t {
 namespace io {
 
 class RemoteScanCacheWriteLimiter;
+struct QueryReadAheadResources;
+struct FileReadAheadResources;
 enum class CacheWriteMode : uint8_t;
 
 enum class FileCacheMissPolicy : uint8_t {
@@ -261,6 +264,9 @@ struct FileCacheStatistics {
 };
 
 struct IOContext {
+    // Copies share query admission/cancellation, while each reader binds its own file/statistics.
+    std::shared_ptr<const QueryReadAheadResources> query_read_ahead {};
+    std::shared_ptr<const FileReadAheadResources> file_read_ahead {};
     FileReadTraceSource read_trace_source {FileReadTraceSource::NORMAL};
     uint64_t read_trace_id {0}; // read-ahead range or hole-fill task; zero when not traced
     ReaderType reader_type = ReaderType::UNKNOWN;

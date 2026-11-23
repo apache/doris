@@ -1069,12 +1069,18 @@ Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColu
 }
 
 Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column,
-                                  const StorageReadOptions* opt, bool enable_read_ahead) {
+                                  const StorageReadOptions* opt) {
     if (is_empty()) {
         *iterator = std::make_unique<EmptyFileColumnIterator>();
         return Status::OK();
     }
     if (is_scalar_type(_meta_type)) {
+        // Recursive child factories have no read options. Only a top-level scan's bound
+        // file IOContext selects read-ahead; point reads retain ordinary iterators.
+        const bool enable_read_ahead =
+                opt != nullptr && opt->io_ctx.file_read_ahead != nullptr &&
+                opt->io_ctx.reader_type == ReaderType::READER_QUERY &&
+                (tablet_column == nullptr || !tablet_column->is_extracted_column());
         if (is_string_type(_meta_type)) {
             if (enable_read_ahead) {
                 *iterator = std::make_unique<ReadAheadStringColumnIterator>(shared_from_this());

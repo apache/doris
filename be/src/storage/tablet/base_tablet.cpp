@@ -498,27 +498,25 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
                                    std::string& values, bool write_to_cache,
                                    const io::IOContext* io_ctx) {
     return _lookup_row_data(encoded_key, row_location, nullptr, std::move(input_rowset), stats,
-                            values, write_to_cache, io_ctx, {});
+                            values, write_to_cache, io_ctx);
 }
 
-Status BaseTablet::lookup_row_data(
-        const Slice& encoded_key, const RowLocation& row_location,
-        const segment_v2::SegmentSharedPtr& segment, RowsetSharedPtr input_rowset,
-        OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
-        const io::IOContext* io_ctx,
-        const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context) {
+Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
+                                   const segment_v2::SegmentSharedPtr& segment,
+                                   RowsetSharedPtr input_rowset, OlapReaderStatistics& stats,
+                                   std::string& values, bool write_to_cache,
+                                   const io::IOContext* io_ctx) {
     DCHECK(segment != nullptr);
     DCHECK_EQ(segment->id(), row_location.segment_id);
     return _lookup_row_data(encoded_key, row_location, &segment, std::move(input_rowset), stats,
-                            values, write_to_cache, io_ctx, read_ahead_context);
+                            values, write_to_cache, io_ctx);
 }
 
-Status BaseTablet::_lookup_row_data(
-        const Slice& encoded_key, const RowLocation& row_location,
-        const segment_v2::SegmentSharedPtr* segment, RowsetSharedPtr input_rowset,
-        OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
-        const io::IOContext* io_ctx,
-        const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context) const {
+Status BaseTablet::_lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
+                                    const segment_v2::SegmentSharedPtr* segment,
+                                    RowsetSharedPtr input_rowset, OlapReaderStatistics& stats,
+                                    std::string& values, bool write_to_cache,
+                                    const io::IOContext* io_ctx) const {
     MonotonicStopWatch watch;
     size_t row_size = 1;
     watch.start();
@@ -537,19 +535,12 @@ Status BaseTablet::_lookup_row_data(
                                       &resolved_segment, stats, io_ctx));
     }
     const auto& column = *DORIS_TRY(tablet_schema->column(BeConsts::ROW_STORE_COL));
-    StorageReadOptions read_options(stats);
-    read_options.version = rowset->version();
-    read_options.commit_tso = rowset->commit_tso();
-    read_options.use_page_cache = !config::disable_storage_page_cache;
-    if (io_ctx != nullptr) {
-        read_options.io_ctx = *io_ctx;
-    }
-    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
-    read_options.io_ctx.file_cache_stats = &stats.file_cache_stats;
+    std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
+    RETURN_IF_ERROR(_init_segment_column_iterator(rowset, resolved_segment, column,
+                                                  &column_iterator, stats, io_ctx));
     MutableColumnPtr column_ptr = ColumnString::create();
     std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
-    RETURN_IF_ERROR(resolved_segment->read_column_by_rowids(column, rowids, column_ptr,
-                                                            read_options, read_ahead_context));
+    RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), column_ptr));
     assert(column_ptr->size() == 1);
     auto* string_column = static_cast<ColumnString*>(column_ptr.get());
     StringRef value = string_column->get_data_at(0);

@@ -27,7 +27,6 @@
 #include <stdlib.h>
 
 #include <memory>
-#include <sstream>
 #include <unordered_map>
 #include <vector>
 
@@ -44,7 +43,6 @@
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
-#include "io/fs/read_ahead_metrics.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -56,7 +54,7 @@
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/schema.h"
-#include "storage/segment/column_read_ahead_resources.h"
+#include "storage/segment/column_reader.h"
 #include "storage/segment/segment.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
@@ -430,29 +428,13 @@ void PointQueryExecutor::print_profile() {
             _profile_metrics.read_stats.file_cache_stats.remote_io_timer,
             _profile_metrics.read_stats.file_cache_stats.write_cache_io_timer);
 
-    const auto read_ahead_profile = [&]() {
-        if (_profile_metrics.read_stats.read_ahead_stats == nullptr &&
-            _read_stats.read_ahead_stats == nullptr) {
-            return std::string {};
-        }
-        RuntimeProfile profile("PageReadAhead");
-        for (auto* stats : {&_profile_metrics.read_stats, &_read_stats}) {
-            if (stats->read_ahead_stats != nullptr) {
-                stats->read_ahead_stats->update_profile(&profile);
-            }
-        }
-        std::ostringstream output;
-        profile.pretty_print(&output);
-        return "\n" + output.str();
-    };
-
     constexpr static int kSlowThreholdUs = 50 * 1000; // 50ms
     if (total_us > kSlowThreholdUs) {
-        LOG(WARNING) << "slow query, " << stats_str << read_ahead_profile();
+        LOG(WARNING) << "slow query, " << stats_str;
     } else if (VLOG_DEBUG_IS_ON) {
-        VLOG_DEBUG << stats_str << read_ahead_profile();
+        VLOG_DEBUG << stats_str;
     } else {
-        LOG_EVERY_N(INFO, 1000) << stats_str << read_ahead_profile();
+        LOG_EVERY_N(INFO, 1000) << stats_str;
     }
 }
 
@@ -557,12 +539,6 @@ Status PointQueryExecutor::_lookup_row_key() {
 Status PointQueryExecutor::_lookup_row_data() {
     // 3. get values
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
-    std::shared_ptr<io::FileRangeReadContext> read_ahead_context;
-    if (segment_v2::ColumnReadAheadResources::enabled()) {
-        auto* scheduler = ExecEnv::GetInstance()->file_range_read_scheduler();
-        DORIS_CHECK(scheduler != nullptr);
-        read_ahead_context = scheduler->create_context();
-    }
     {
         auto result_columns_guard = _result_block->mutate_columns_scoped();
         MutableColumns& result_columns = result_columns_guard.mutable_columns();
@@ -590,8 +566,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                 RETURN_IF_ERROR(_tablet->lookup_row_data(
                         _row_read_ctxs[i]._primary_key, _row_read_ctxs[i]._row_location.value(),
                         _row_read_ctxs[i]._segment, *(_row_read_ctxs[i]._rowset_ptr),
-                        _profile_metrics.read_stats, value, use_row_cache, &io_ctx,
-                        read_ahead_context));
+                        _profile_metrics.read_stats, value, use_row_cache, &io_ctx));
                 // serialize value to block, currently only jsonb row format
                 RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
                         _reusable->get_data_type_serdes(), value.data(), value.size(),
@@ -634,24 +609,36 @@ Status PointQueryExecutor::_lookup_row_data() {
                                            return seg->id() == row_loc.segment_id;
                                        });
                 const auto& segment = *it;
-                StorageReadOptions read_options(_read_stats);
-                read_options.use_page_cache = !config::disable_storage_page_cache;
-                read_options.io_ctx = io_ctx;
-                // Point reads bypass TabletReader, so supply the rowset's synthesized constants.
-                read_options.version = rowset->version();
-                read_options.commit_tso = rowset->commit_tso();
-                std::vector<segment_v2::RowIdColumnRead> column_reads;
-                column_reads.reserve(_reusable->missing_col_uids().size());
+                const auto tablet_schema = _tablet->tablet_schema();
                 for (int cid : _reusable->missing_col_uids()) {
-                    const int pos = _reusable->get_col_uid_to_idx().at(cid);
-                    column_reads.push_back({.slot = _reusable->tuple_desc()->slots()[pos],
-                                            .result = &result_columns[pos]});
+                    int pos = _reusable->get_col_uid_to_idx().at(cid);
+                    std::vector<segment_v2::rowid_t> row_ids {
+                            static_cast<segment_v2::rowid_t>(row_loc.row_id)};
+                    auto& column = result_columns[pos];
+                    std::unique_ptr<ColumnIterator> iter;
+                    SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
+                    int32_t index = slot->col_unique_id() >= 0
+                                            ? tablet_schema->field_index(slot->col_unique_id())
+                                            : tablet_schema->field_index(slot->col_name());
+                    // A light schema change can reach the FE before the tablet schema advances.
+                    // Describe a missing column from its slot so the segment can resolve either
+                    // its stored data or its default, e.g. an added INT DEFAULT "42".
+                    TabletColumn column_awaiting_a_load;
+                    if (index < 0) {
+                        column_awaiting_a_load = ReadSchema::tablet_column_from_slot(*slot);
+                    }
+                    const TabletColumn& read_column =
+                            index >= 0 ? tablet_schema->column(index) : column_awaiting_a_load;
+                    StorageReadOptions storage_read_options(_read_stats);
+                    storage_read_options.io_ctx = io_ctx;
+                    // A point lookup bypasses TabletReader, so supply the rowset context here. For
+                    // example, reading __DORIS_VERSION_COL__ from rowset [7-7] must return 7
+                    // instead of its on-disk placeholder 0.
+                    storage_read_options.version = rowset->version();
+                    storage_read_options.commit_tso = rowset->commit_tso();
+                    RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
+                            read_column, slot, row_ids, column, storage_read_options, iter));
                 }
-                const std::vector<segment_v2::rowid_t> row_ids {
-                        static_cast<segment_v2::rowid_t>(row_loc.row_id)};
-                RETURN_IF_ERROR(segment->read_columns_by_rowids(*_tablet->tablet_schema(), row_ids,
-                                                                column_reads, read_options,
-                                                                read_ahead_context));
             }
         }
         if (result_columns.size() > _reusable->include_col_uids().size()) {

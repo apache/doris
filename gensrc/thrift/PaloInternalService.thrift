@@ -568,6 +568,8 @@ struct TQueryOptions {
   // Use the cache option range to avoid unrelated query-option IDs allocated on other branches.
   // Explicitly sent by new FEs; an omitted field keeps older-FE queries on the local policy.
   1007: optional bool enable_file_cache_io_adaptor = false;
+  // Session-scoped scan read-ahead; absent fields from older FEs keep it disabled.
+  1008: optional bool enable_query_read_ahead = false;
 }
 
 

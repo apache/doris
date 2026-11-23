@@ -146,7 +146,7 @@ public:
 
     // create a new column iterator. Client should delete returned iterator
     virtual Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
-                                const StorageReadOptions*, bool enable_read_ahead = false);
+                                const StorageReadOptions*);
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_array_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_struct_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
@@ -1105,8 +1105,7 @@ public:
                            bool* matched) const override;
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* /*col*/,
-                        const StorageReadOptions* /*opt*/,
-                        bool /*enable_read_ahead*/ = false) override {
+                        const StorageReadOptions* /*opt*/) override {
         *iterator = std::make_unique<ConstantColumnIterator>(_value);
         return Status::OK();
     }

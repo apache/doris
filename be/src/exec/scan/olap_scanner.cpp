@@ -83,6 +83,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
           _tablet_reader_params({.tablet = std::move(params.tablet),
                                  .tablet_schema {},
                                  .reader_type = ReaderType::READER_QUERY,
+                                 .io_ctx {},
                                  .read_changelog = params.read_changelog,
                                  .aggregation = params.aggregation,
                                  .version = {0, params.version},
@@ -151,16 +152,16 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
 io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, ReaderType reader_type,
                                                         int64_t expiration_time,
                                                         io::FileCacheStatistics* file_cache_stats) {
-    io::IOContext io_ctx {
-            .reader_type = reader_type,
-            .expiration_time = expiration_time,
-            .query_id = &state->query_id(),
-            .file_cache_stats = file_cache_stats,
-            .is_inverted_index = true,
-    };
+    io::IOContext io_ctx;
     if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
-        io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
+        io_ctx = query_ctx->io_context();
     }
+    io_ctx.file_read_ahead.reset();
+    io_ctx.reader_type = reader_type;
+    io_ctx.expiration_time = expiration_time;
+    io_ctx.query_id = &state->query_id();
+    io_ctx.file_cache_stats = file_cache_stats;
+    io_ctx.is_inverted_index = true;
     // The statistics read the index before the scan does, so they follow the query's file cache
     // choices as the scan's reads do.
     if (reader_type == ReaderType::READER_QUERY) {
@@ -458,6 +459,16 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.profile = _local_state->custom_profile();
     _tablet_reader_params.runtime_state = _state;
+    auto& io_ctx = _tablet_reader_params.io_ctx;
+    if (auto* query_ctx = _state->get_query_ctx(); query_ctx != nullptr) {
+        io_ctx = query_ctx->io_context();
+    }
+    // Standalone scanner callers can supply RuntimeState without a QueryContext.
+    io_ctx.query_id = &_state->query_id();
+    io_ctx.read_file_cache = _state->query_options().enable_file_cache;
+    io_ctx.is_disposable = _state->query_options().disable_file_cache;
+    io_ctx.inverted_index_snii_read_no_write_file_cache =
+            _state->query_options().inverted_index_snii_read_no_write_file_cache;
 
     const bool is_changelog_merge_scan =
             _tablet_reader_params.changelog_scan_type == TChangelogScanType::MIN_DELTA ||

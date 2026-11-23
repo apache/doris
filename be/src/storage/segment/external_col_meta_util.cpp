@@ -35,6 +35,7 @@ io::IOContext create_ext_meta_io_context(const io::IOContext* source_io_ctx,
     if (source_io_ctx != nullptr) {
         io_ctx = *source_io_ctx;
     }
+    io_ctx.file_read_ahead.reset();
     io_ctx.is_index_data = true;
     io_ctx.is_inverted_index = false;
     if (stats != nullptr) {

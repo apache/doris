@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 
 #include "io/fs/read_ahead_range_buffer.h"
@@ -24,16 +25,21 @@
 
 namespace doris {
 struct OlapReaderStatistics;
+namespace io {
+struct FileReadAheadResources;
+}
 namespace segment_v2 {
 class ColumnReader;
-struct ColumnReadAheadResources;
+
+std::function<bool(const io::FileRange&)> make_storage_page_cache_probe(
+        const io::FileReaderSPtr& file_reader);
 
 /// One iterator's foreground-owned policy. Async workers retain only their range handles and
 /// source readers; completion never calls back into this controller or its column window.
 class ColumnReadAheadController {
 public:
     ColumnReadAheadController(std::shared_ptr<ColumnReader> reader, OlapReaderStatistics* stats,
-                              std::shared_ptr<const ColumnReadAheadResources> resources);
+                              std::shared_ptr<const io::FileReadAheadResources> resources);
     ~ColumnReadAheadController();
 
     Status prepare(const ColumnReadAheadHint& hint);
@@ -47,7 +53,7 @@ private:
 
     const std::shared_ptr<ColumnReader> _reader;
     OlapReaderStatistics* const _stats;
-    const std::shared_ptr<const ColumnReadAheadResources> _resources;
+    const std::shared_ptr<const io::FileReadAheadResources> _resources;
     std::unique_ptr<ColumnReadAhead> _window;
     io::ReadAheadRangeBuffer _buffer;
     bool _page_driven {false};

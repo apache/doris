@@ -49,8 +49,7 @@
 namespace doris {
 
 namespace io {
-class FileRangeReadContext;
-class FileRangeReadScheduler;
+struct IOContext;
 class RemoteScanCacheWriteLimiter;
 } // namespace io
 
@@ -265,10 +264,7 @@ public:
         return _remote_scan_cache_write_limiter.get();
     }
 
-    /// Return the query-wide read-ahead context, creating it from `scheduler` on first use. Query
-    /// cancellation propagates to every range registered through the returned context.
-    std::shared_ptr<io::FileRangeReadContext> get_or_create_file_range_read_context(
-            io::FileRangeReadScheduler* scheduler);
+    const io::IOContext& io_context() const;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
@@ -431,9 +427,7 @@ private:
     std::mutex _cte_scan_lock;
     std::shared_ptr<MemShareArbitrator> _mem_arb = nullptr;
     std::unique_ptr<io::RemoteScanCacheWriteLimiter> _remote_scan_cache_write_limiter;
-    std::mutex _file_range_read_context_mutex;
-    io::FileRangeReadScheduler* _file_range_read_scheduler = nullptr;
-    std::shared_ptr<io::FileRangeReadContext> _file_range_read_context;
+    std::unique_ptr<io::IOContext> _io_context;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

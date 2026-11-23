@@ -69,6 +69,7 @@
 #include "exprs/vmatch_predicate.h"
 #include "exprs/vslot_ref.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/read_ahead_io_resources.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -101,7 +102,7 @@
 #include "storage/predicate/shared_predicate.h"
 #include "storage/schema.h"
 #include "storage/segment/column_read_ahead.h"
-#include "storage/segment/column_read_ahead_resources.h"
+#include "storage/segment/column_read_ahead_controller.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/condition_cache.h"
@@ -388,30 +389,6 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     return status;
 }
 
-Status SegmentIterator::_init_query_read_ahead() {
-    if (!ColumnReadAheadResources::enabled() ||
-        _opts.io_ctx.reader_type != ReaderType::READER_QUERY) {
-        return Status::OK();
-    }
-
-    DORIS_CHECK(_opts.runtime_state != nullptr);
-    auto* exec_env = _opts.runtime_state->exec_env();
-    DORIS_CHECK(exec_env != nullptr);
-    auto* scheduler = exec_env->file_range_read_scheduler();
-    DORIS_CHECK(scheduler != nullptr);
-    auto* query_context = _opts.runtime_state->get_query_ctx();
-    DORIS_CHECK(query_context != nullptr);
-    auto read_context = query_context->get_or_create_file_range_read_context(scheduler);
-    const auto status = ColumnReadAheadResources::create_for_query(
-            _file_reader, exec_env, std::move(read_context), _opts, &_read_ahead_resources);
-    if (!status.ok()) {
-        LOG_EVERY_N(WARNING, 100)
-                << "failed to initialize query read-ahead; use the original read path: " << status;
-        return Status::OK();
-    }
-    return Status::OK();
-}
-
 std::unique_ptr<AdaptiveBlockSizePredictor> SegmentIterator::_make_block_size_predictor() const {
     if (!config::enable_adaptive_batch_size || _opts.preferred_block_size_bytes == 0) {
         return nullptr;
@@ -447,7 +424,16 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_timer_ns);
     _inited = true;
     _file_reader = _segment->_file_reader;
-    RETURN_IF_ERROR(_init_query_read_ahead());
+    if (_opts.io_ctx.query_read_ahead != nullptr &&
+        _opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
+        if (_opts.stats->read_ahead_stats == nullptr) {
+            _opts.stats->read_ahead_stats = std::make_shared<io::ReadAheadStatistics>();
+        }
+        auto probe = _opts.use_page_cache ? make_storage_page_cache_probe(_file_reader)
+                                          : io::ReadAheadPageCacheProbe {};
+        _opts.io_ctx.file_read_ahead = io::FileReadAheadResources::create(
+                _file_reader, _opts.io_ctx, _opts.stats->read_ahead_stats, std::move(probe));
+    }
     _col_predicates.clear();
 
     for (const auto& predicate : opts.column_predicates) {
@@ -747,7 +733,7 @@ void SegmentIterator::_init_segment_prefetchers() {
 }
 
 void SegmentIterator::_prepare_scan_read_ahead() {
-    if (_read_ahead_resources == nullptr || _row_bitmap.isEmpty()) {
+    if (_opts.io_ctx.file_read_ahead == nullptr || _row_bitmap.isEmpty()) {
         return;
     }
     const auto prepare_columns = [&](const std::vector<ColumnId>& ordinals,
@@ -2102,7 +2088,6 @@ Status SegmentIterator::_init_column_iterators() {
                     .file_reader = _file_reader.get(),
                     .stats = _opts.stats,
                     .io_ctx = _opts.io_ctx,
-                    .read_ahead = _read_ahead_resources,
             };
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }

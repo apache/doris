@@ -21,17 +21,19 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
+#include "io/fs/read_ahead_io_resources.h"
 #include "io/fs/read_ahead_metrics.h"
 #include "runtime/runtime_profile.h"
-#include "storage/segment/column_read_ahead_resources.h"
+#include "storage/cache/page_cache.h"
 #include "storage/segment/column_reader.h"
 
 namespace doris::segment_v2 {
 
 ColumnReadAheadController::ColumnReadAheadController(
         std::shared_ptr<ColumnReader> reader, OlapReaderStatistics* stats,
-        std::shared_ptr<const ColumnReadAheadResources> resources)
+        std::shared_ptr<const io::FileReadAheadResources> resources)
         : _reader(std::move(reader)),
           _stats(stats),
           _resources(std::move(resources)),
@@ -64,9 +66,11 @@ Status ColumnReadAheadController::prepare(const ColumnReadAheadHint& hint) {
     if (_page_driven) {
         const auto& scan = std::get<ScanReadAheadHint>(hint.request);
         DORIS_CHECK(_window->reverse() == scan.reverse);
-        DORIS_CHECK(_window->options() == (scan.role == ColumnReadAheadRole::EAGER
-                                                   ? _resources->eager_options
-                                                   : _resources->lazy_options));
+        DORIS_CHECK(
+                _window->options() ==
+                (scan.role == ColumnReadAheadRole::EAGER
+                         ? ColumnReadAheadOptions {.window_bytes = _resources->eager_window_bytes}
+                         : ColumnReadAheadOptions {.window_bytes = _resources->lazy_window_bytes}));
         return Status::OK();
     }
     auto* statistics = _resources->statistics.get();
@@ -76,9 +80,12 @@ Status ColumnReadAheadController::prepare(const ColumnReadAheadHint& hint) {
         if (const auto* scan = std::get_if<ScanReadAheadHint>(&hint.request)) {
             DORIS_CHECK(scan->candidate_rows != nullptr);
             DORIS_CHECK(!scan->candidate_rows->isEmpty());
-            const auto options = scan->role == ColumnReadAheadRole::EAGER
-                                         ? _resources->eager_options
-                                         : _resources->lazy_options;
+            const auto options =
+                    scan->role == ColumnReadAheadRole::EAGER
+                            ? ColumnReadAheadOptions {.window_bytes =
+                                                              _resources->eager_window_bytes}
+                            : ColumnReadAheadOptions {.window_bytes =
+                                                              _resources->lazy_window_bytes};
             {
                 SCOPED_TIMER(&statistics->column_init_time);
                 RETURN_IF_ERROR(_init_window(options, scan->reverse));
@@ -93,7 +100,9 @@ Status ColumnReadAheadController::prepare(const ColumnReadAheadHint& hint) {
             DORIS_CHECK(!_page_driven);
             {
                 SCOPED_TIMER(&statistics->column_init_time);
-                RETURN_IF_ERROR(_init_window(_resources->eager_options, false));
+                RETURN_IF_ERROR(_init_window(
+                        ColumnReadAheadOptions {.window_bytes = _resources->eager_window_bytes},
+                        false));
             }
             roaring::Roaring selection;
             selection.addMany(rowids.size(), rowids.data());
@@ -216,6 +225,20 @@ Status ColumnReadAheadController::_submit_pages(const std::vector<ColumnReadAhea
         }
     }
     return Status::OK();
+}
+
+io::ReadAheadPageCacheProbe make_storage_page_cache_probe(const io::FileReaderSPtr& file_reader) {
+    DORIS_CHECK(file_reader != nullptr);
+    return [file_reader](const io::FileRange& page_range) {
+        auto* cache = StoragePageCache::instance();
+        if (cache == nullptr) {
+            return false;
+        }
+        PageCacheHandle handle;
+        StoragePageCache::CacheKey key(file_reader->path().native(), file_reader->size(),
+                                       cast_set<int64_t>(page_range.offset));
+        return cache->lookup(key, &handle, DATA_PAGE);
+    };
 }
 
 } // namespace doris::segment_v2
