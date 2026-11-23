@@ -702,7 +702,10 @@ public abstract class RoutineLoadJob
     }
 
     public long getMaxBatchIntervalS() {
-        return maxBatchIntervalS;
+        // Historical metadata and ALTER logs can contain Long.MAX_VALUE seconds. BE consumers
+        // use int64 milliseconds, so cap the effective interval. Keep the stored value for SHOW
+        // and replay. New CREATE and ALTER statements reject values above this bound.
+        return Math.min(maxBatchIntervalS, CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SECONDS);
     }
 
     public long getMaxBatchRows() {

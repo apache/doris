@@ -73,6 +73,28 @@ public class RoutineLoadJobReplayTest extends TestWithFeService {
     }
 
     @Test
+    public void testReplayBoundsHistoricalBatchInterval() throws Exception {
+        // Reuse the empty table. Build a valid job, then restore the field and original statement
+        // that an old FE could persist. No broker or data rows are needed for the image round trip.
+        String sql = "CREATE ROUTINE LOAD rl_replay_db.job_interval ON dup_tbl "
+                + "PROPERTIES ('max_batch_interval' = '1') "
+                + "FROM KAFKA ('kafka_broker_list' = '127.0.0.1:9092', 'kafka_topic' = 'topic_interval')";
+        KafkaRoutineLoadJob job = createJob(sql);
+        Deencapsulation.setField(job, "maxBatchIntervalS", Long.MAX_VALUE);
+        job.setOrigStmt(new OriginStatement(sql.replace("'1'", "'9223372036854775807'"), 0));
+        KafkaRoutineLoadJob replayed = replay(job);
+        Assertions.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, replayed.getState());
+        Assertions.assertEquals(9223372036854775L, replayed.getMaxBatchIntervalS());
+
+        // A later valid ALTER must take effect even though the original CREATE still has the old value.
+        replayed.replayModifyProperties(new AlterRoutineLoadJobOperationLog(replayed.getId(),
+                Map.of("max_batch_interval", "1"), null));
+        KafkaRoutineLoadJob corrected = replay(replayed);
+        Assertions.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, corrected.getState());
+        Assertions.assertEquals(1, corrected.getMaxBatchIntervalS());
+    }
+
+    @Test
     public void testReplayKeepsTheDeclaredProperties() throws Exception {
         KafkaRoutineLoadJob job = createJob("CREATE ROUTINE LOAD rl_replay_db.job_declared ON dup_tbl\n"
                 + "PROPERTIES (\n"

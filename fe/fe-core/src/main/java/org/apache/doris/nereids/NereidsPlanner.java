@@ -94,6 +94,7 @@ import org.apache.doris.tso.MasterTsoProvider;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
+import com.google.common.primitives.Ints;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -384,9 +385,12 @@ public class NereidsPlanner extends Planner {
                 == VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs()) {
             SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
             if (Config.isCloudMode()) {
+                // The session and wire fields store int32 milliseconds. For example, 2147484 seconds
+                // exceeds that range. Multiply as long, then cap the result before setting the wait.
+                int queryTimeoutMs = Ints.saturatedCast(1000L * sessionVariable.getQueryTimeoutS());
                 sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS,
                         String.valueOf(Math.max(VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs(),
-                                1000 * sessionVariable.getQueryTimeoutS())));
+                                queryTimeoutMs)));
             } else {
                 List<LogicalCatalogRelation> scans = cascadesContext.getRewritePlan()
                         .collectToList(LogicalCatalogRelation.class::isInstance);

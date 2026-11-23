@@ -26,12 +26,15 @@ import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisTaskInfo;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.thrift.TRoutineLoadTask;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -129,10 +132,38 @@ class RoutineLoadTimeoutBoundaryTest {
         Deencapsulation.setField(job, "maxBatchIntervalS", Long.MAX_VALUE);
         Deencapsulation.invoke(task, "adaptiveBatchParam", request, job);
         Assertions.assertEquals(2147483647000L, task.getTimeoutMs());
-        Assertions.assertEquals(Long.MAX_VALUE, request.getMaxIntervalS());
+        Assertions.assertEquals(9223372036854775L, request.getMaxIntervalS());
         Deencapsulation.setField(job, "maxBatchIntervalS", 1L);
         Deencapsulation.invoke(task, "adaptiveBatchParam", request, job);
         Assertions.assertEquals(1000L, task.getTimeoutMs());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"1, 1", "9223372036854775, 9223372036854775", "9223372036854776, 9223372036854775",
+            "9223372036854775807, 9223372036854775"})
+    void historicalIntervalsFitBothTaskRequests(long seconds, long expected) {
+        // One empty task per source is sufficient. Legacy ALTER logs can store any positive long.
+        // BE accepts at most 9223372036854775 seconds because its consumers use int64 milliseconds.
+        // Check both request builders and both batch modes, without connecting to a data source.
+        KafkaRoutineLoadJob kafka = new KafkaRoutineLoadJob();
+        KinesisRoutineLoadJob kinesis = new KinesisRoutineLoadJob();
+        KafkaTaskInfo kafkaTask = new KafkaTaskInfo(new UUID(0, 1), 1, 0, Map.of(), false, 0, false);
+        KinesisTaskInfo kinesisTask = new KinesisTaskInfo(new UUID(0, 2), 2, 0, Map.of(), false, 0, true);
+        for (boolean adaptive : List.of(false, true)) {
+            Deencapsulation.setField(kafkaTask, "isAdaptiveBatch", adaptive);
+            Deencapsulation.setField(kafkaTask, "adaptiveMinBatchInterval", 1);
+            Deencapsulation.setField(kinesisTask, "isEof", !adaptive);
+            for (RoutineLoadJob job : List.of(kafka, kinesis)) {
+                job.replayModifyProperties(new AlterRoutineLoadJobOperationLog(job.getId(),
+                        Map.of("max_batch_interval", Long.toString(seconds)), null));
+                RoutineLoadTaskInfo task = job == kafka ? kafkaTask : kinesisTask;
+                TRoutineLoadTask request = new TRoutineLoadTask();
+                Deencapsulation.invoke(task, "adaptiveBatchParam", request, job);
+                Assertions.assertEquals(expected, request.getMaxIntervalS());
+                // Keep the stored value for metadata replay and SHOW. Only the effective duration is capped.
+                Assertions.assertEquals(seconds, (long) Deencapsulation.getField(job, "maxBatchIntervalS"));
+            }
+        }
     }
 
     @Test

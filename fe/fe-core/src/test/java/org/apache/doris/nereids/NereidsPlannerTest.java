@@ -17,20 +17,60 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.jobs.executor.TableCollectAndHookInitializer;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TQueryOptions;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 public class NereidsPlannerTest {
+
+    @ParameterizedTest
+    @CsvSource({"1, 1000", "2147483, 2147483000", "2147484, 2147483647", "2147483647, 2147483647"})
+    public void testCloudRuntimeFilterWaitFitsMilliseconds(int seconds, int expectedMs) throws Exception {
+        // No plan or table is needed. Invoke the real cloud configuration path with a fresh session.
+        // 2147484 is the first whole-second timeout that exceeds int32 milliseconds.
+        SessionVariable session = new SessionVariable();
+        int defaultWaitMs = VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs();
+        session.setRuntimeFilterWaitTimeMs(defaultWaitMs);
+        session.setQueryTimeoutS(seconds);
+        // Avoid cluster discovery when serializing this isolated session to query options.
+        session.setPipelineTaskNum("1");
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        Mockito.when(context.getSessionVariable()).thenReturn(session);
+        Mockito.when(context.getState()).thenReturn(new QueryState());
+        try (MockedStatic<ConnectContext> contextMock = Mockito.mockStatic(ConnectContext.class);
+                MockedStatic<Config> configMock = Mockito.mockStatic(Config.class)) {
+            contextMock.when(ConnectContext::get).thenReturn(context);
+            configMock.when(Config::isCloudMode).thenReturn(true);
+            NereidsPlanner planner = new NereidsPlanner(new StatementContext());
+            Deencapsulation.invoke(planner, "configRuntimeFilterWaitTime");
+            Assertions.assertEquals(expectedMs, session.getRuntimeFilterWaitTimeMs());
+            Assertions.assertEquals(expectedMs, session.toThrift().getRuntimeFilterWaitTimeMs());
+
+            // The derived wait belongs to this statement. Restore the original session value afterward.
+            VariableMgr.revertSessionValue(session);
+            Assertions.assertEquals(defaultWaitMs, session.getRuntimeFilterWaitTimeMs());
+            // An explicit wait must remain unchanged, even when query_timeout is large.
+            session.setRuntimeFilterWaitTimeMs(1234);
+            Deencapsulation.invoke(planner, "configRuntimeFilterWaitTime");
+            Assertions.assertEquals(1234, session.getRuntimeFilterWaitTimeMs());
+        }
+    }
 
     @Test
     public void testReplanningReusesPinnedBeExecVersion() {
