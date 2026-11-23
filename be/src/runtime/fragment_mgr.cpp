@@ -1051,6 +1051,21 @@ Status FragmentMgr::_build_external_scan_selected_columns(
     return Status::OK();
 }
 
+TQueryOptions FragmentMgr::_build_external_scan_query_options(const TScanOpenParams& params) {
+    TQueryOptions query_options;
+    query_options.batch_size = params.batch_size;
+    // An omitted scan timeout has a zero storage value. Keep the query default of 3600 seconds
+    // instead of copying that zero. Explicit 0 and -1 must still reach the range validator.
+    if (params.__isset.execution_timeout) {
+        query_options.__set_execution_timeout(params.execution_timeout);
+    }
+    query_options.mem_limit = params.mem_limit;
+    query_options.__isset.mem_limit = params.__isset.mem_limit;
+    query_options.query_type = TQueryType::EXTERNAL;
+    query_options.be_exec_version = BeExecVersionManager::get_newest_version();
+    return query_options;
+}
+
 /*
  * 1. resolve opaqued_query_plan to thrift structure
  * 2. build TPipelineFragmentParams
@@ -1123,14 +1138,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     per_node_scan_ranges.insert(std::make_pair((::doris::TPlanNodeId)0, scan_ranges));
     fragment_exec_params.per_node_scan_ranges = per_node_scan_ranges;
     exec_fragment_params.local_params.push_back(fragment_exec_params);
-    TQueryOptions query_options;
-    query_options.batch_size = params.batch_size;
-    query_options.execution_timeout = params.execution_timeout;
-    query_options.mem_limit = params.mem_limit;
-    query_options.__isset.mem_limit = params.__isset.mem_limit;
-    query_options.query_type = TQueryType::EXTERNAL;
-    query_options.be_exec_version = BeExecVersionManager::get_newest_version();
-    exec_fragment_params.__set_query_options(query_options);
+    exec_fragment_params.__set_query_options(_build_external_scan_query_options(params));
     VLOG_ROW << "external exec_plan_fragment "
              << print_fragment_params_summary(exec_fragment_params);
 
