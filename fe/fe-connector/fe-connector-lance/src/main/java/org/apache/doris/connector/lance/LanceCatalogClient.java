@@ -209,7 +209,8 @@ final class LanceCatalogClient implements AutoCloseable {
 
     /**
      * REFRESH TABLE / DATABASE: the next read describes its table again; the Session and its cached metadata
-     * stay. Opens nothing: before the first call nothing is cached.
+     * stay, as {@link LanceConnector#invalidateDb} explains. Opens nothing: before the first call nothing is
+     * cached.
      */
     void invalidateTableAccess() {
         Generation generation;

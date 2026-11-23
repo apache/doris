@@ -33,9 +33,9 @@ public final class LanceConf {
 
     /**
      * Java Arrow memory, in bytes, that one catalog may use while it reads dataset metadata. Must be
-     * positive. It bounds each generation of the catalog's resources ({@link LanceCatalogClient}), and REFRESH
-     * CATALOG lets two overlap until the old one's reads finish; the Lance Session's caches are native memory
-     * and not counted.
+     * positive. It bounds each generation of the catalog's resources ({@link LanceCatalogClient}); after a
+     * REFRESH CATALOG, each older generation still serving a read keeps its own limit in use until its last read
+     * ends. The Lance Sessions' caches are native memory and not counted.
      */
     public static final String CONF_ARROW_MEMORY_LIMIT_BYTES = "lance_catalog_arrow_memory_limit_bytes";
 

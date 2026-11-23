@@ -126,8 +126,12 @@ public final class LanceConnector implements Connector {
     }
 
     /**
-     * REFRESH DATABASE: every table is described again on its next read. Its cached metadata stays: Lance
-     * versions are immutable, and a read of the newest version still finds the newest one.
+     * REFRESH DATABASE: every table is described again on its next read, and the Session keeps its cached
+     * metadata. That is safe while a dataset lives: a committed version never changes, and a read of the newest
+     * version still finds the newest one. A dataset deleted and written again at the same URI starts its
+     * versions over, though, and for one with V1 manifest names Lance keys a version's index list by the version
+     * alone, so the Session can serve the deleted dataset's indexes for the new one: that case needs REFRESH
+     * CATALOG ({@link #invalidateAll}).
      */
     @Override
     public void invalidateDb(String dbName) {
