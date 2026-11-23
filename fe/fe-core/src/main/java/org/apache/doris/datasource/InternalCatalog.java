@@ -1045,6 +1045,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getTableStreamManager().removeTableStream((BaseTableStream) table);
         }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
+        // createOlapTable records runtime info for every OLAP table, so it has to go with the table,
+        // otherwise the scheduler map keeps one entry per dropped table until the FE restarts.
+        Env.getCurrentEnv().getDynamicPartitionScheduler().removeRuntimeInfo(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
         Env.getCurrentEnv().getConstraintManager().checkAndDropTableConstraints(
