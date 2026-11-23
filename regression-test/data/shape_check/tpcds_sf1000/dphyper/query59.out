@@ -11,7 +11,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[store_sales] apply RFs: RF0
+----------------------filter(( not store_sales.ss_sold_date_sk IS NULL))
+------------------------PhysicalOlapScan[store_sales] apply RFs: RF0
 --------------PhysicalProject
 ----------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink

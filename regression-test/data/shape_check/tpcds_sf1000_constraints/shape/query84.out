@@ -9,7 +9,8 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_returns.sr_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF4 cd_demo_sk->sr_cdemo_sk
 ----------------PhysicalProject
-------------------PhysicalOlapScan[store_returns] apply RFs: RF4
+------------------filter(( not store_returns.sr_cdemo_sk IS NULL))
+--------------------PhysicalOlapScan[store_returns] apply RFs: RF4
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_demographics.cd_demo_sk = customer.c_current_cdemo_sk)) otherCondition=() build RFs:RF3 c_current_cdemo_sk->cd_demo_sk
 --------------------PhysicalProject

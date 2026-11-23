@@ -41,7 +41,8 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------------------------------------------------------PhysicalProject
 ------------------------------------------------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF2 sr_item_sk->ss_item_sk;RF3 sr_ticket_number->ss_ticket_number
 --------------------------------------------------------------------------------PhysicalProject
-----------------------------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3 RF4 RF6 RF7 RF8 RF11 RF13 RF14 RF16 RF21
+----------------------------------------------------------------------------------filter(( not store_sales.ss_addr_sk IS NULL) and ( not store_sales.ss_cdemo_sk IS NULL) and ( not store_sales.ss_customer_sk IS NULL) and ( not store_sales.ss_hdemo_sk IS NULL) and ( not store_sales.ss_promo_sk IS NULL) and ( not store_sales.ss_sold_date_sk IS NULL) and ( not store_sales.ss_store_sk IS NULL))
+------------------------------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3 RF4 RF6 RF7 RF8 RF11 RF13 RF14 RF16 RF21
 --------------------------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF5 RF22
 ----------------------------------------------------------------------------PhysicalProject

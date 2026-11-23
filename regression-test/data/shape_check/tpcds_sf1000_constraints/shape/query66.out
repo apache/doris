@@ -46,7 +46,8 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_ship_mode_sk = ship_mode.sm_ship_mode_sk)) otherCondition=() build RFs:RF4 sm_ship_mode_sk->cs_ship_mode_sk
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5 RF6 RF7
+--------------------------------------------filter(( not catalog_sales.cs_ship_mode_sk IS NULL) and ( not catalog_sales.cs_sold_date_sk IS NULL) and ( not catalog_sales.cs_sold_time_sk IS NULL) and ( not catalog_sales.cs_warehouse_sk IS NULL))
+----------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5 RF6 RF7
 ------------------------------------------PhysicalProject
 --------------------------------------------filter(ship_mode.sm_carrier IN ('BOXBUNDLES', 'ORIENTAL'))
 ----------------------------------------------PhysicalOlapScan[ship_mode]

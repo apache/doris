@@ -17,7 +17,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->cs_item_sk
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1
+------------------------------filter(( not catalog_sales.cs_sold_date_sk IS NULL))
+--------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1
 ----------------------------PhysicalProject
 ------------------------------filter((item.i_category = 'Sports'))
 --------------------------------PhysicalOlapScan[item]
@@ -34,7 +35,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = store_sales.ss_item_sk)) otherCondition=() build RFs:RF4 i_item_sk->ss_item_sk
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[store_sales] apply RFs: RF4 RF5
+------------------------------filter(( not store_sales.ss_sold_date_sk IS NULL))
+--------------------------------PhysicalOlapScan[store_sales] apply RFs: RF4 RF5
 ----------------------------PhysicalProject
 ------------------------------filter((item.i_category = 'Sports'))
 --------------------------------PhysicalOlapScan[item]

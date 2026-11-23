@@ -21,7 +21,8 @@ PhysicalResultSink
 ------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------hashAgg[LOCAL]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF10 RF11
+------------------------------------------filter(( not store_returns.sr_returned_date_sk IS NULL))
+--------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF10 RF11
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF9 d_date->d_date
 --------------------------------------PhysicalProject
@@ -73,7 +74,8 @@ PhysicalResultSink
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------hashAgg[LOCAL]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF2 RF3
+--------------------------------------filter(( not web_returns.wr_returned_date_sk IS NULL))
+----------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF2 RF3
 ------------------------------PhysicalProject
 --------------------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF1 d_date->d_date
 ----------------------------------PhysicalProject

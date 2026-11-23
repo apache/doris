@@ -18,7 +18,8 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------hashJoin[LEFT_ANTI_JOIN bucketShuffle] hashCondition=((store_returns.sr_ticket_number = store_sales.ss_ticket_number) and (store_sales.ss_item_sk = store_returns.sr_item_sk)) otherCondition=()
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2
+------------------------------------filter(( not store_sales.ss_sold_date_sk IS NULL))
+--------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[store_returns]
 ------------------------------PhysicalProject
@@ -48,7 +49,8 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[LEFT_ANTI_JOIN bucketShuffle] hashCondition=((catalog_returns.cr_order_number = catalog_sales.cs_order_number) and (catalog_sales.cs_item_sk = catalog_returns.cr_item_sk)) otherCondition=()
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0
+--------------------------------filter(( not catalog_sales.cs_sold_date_sk IS NULL))
+----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[catalog_returns]
 --------------------------PhysicalProject

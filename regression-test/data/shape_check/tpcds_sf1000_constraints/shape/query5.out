@@ -23,12 +23,14 @@ PhysicalResultSink
 ----------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------hashAgg[LOCAL]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF2
+----------------------------------------------filter(( not store_sales.ss_sold_date_sk IS NULL) and ( not store_sales.ss_store_sk IS NULL))
+------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF2
 --------------------------------------hashAgg[GLOBAL]
 ----------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------hashAgg[LOCAL]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF1 RF3
+----------------------------------------------filter(( not store_returns.sr_returned_date_sk IS NULL) and ( not store_returns.sr_store_sk IS NULL))
+------------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF1 RF3
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
 ----------------------------------------PhysicalOlapScan[date_dim]
@@ -47,12 +49,14 @@ PhysicalResultSink
 ----------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------hashAgg[LOCAL]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF6
+----------------------------------------------filter(( not catalog_sales.cs_catalog_page_sk IS NULL) and ( not catalog_sales.cs_sold_date_sk IS NULL))
+------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF6
 --------------------------------------hashAgg[GLOBAL]
 ----------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------hashAgg[LOCAL]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF5 RF7
+----------------------------------------------filter(( not catalog_returns.cr_catalog_page_sk IS NULL))
+------------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF5 RF7
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
 ----------------------------------------PhysicalOlapScan[date_dim]
@@ -76,7 +80,8 @@ PhysicalResultSink
 --------------------------------------------PhysicalProject
 ----------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF8 RF9 RF13
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF11
+----------------------------------------------filter(( not web_returns.wr_returned_date_sk IS NULL))
+------------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF11
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
 ----------------------------------------PhysicalOlapScan[date_dim]
