@@ -21,12 +21,16 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.property.fileformat.AvroFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
+import org.apache.doris.thrift.TBrokerFileStatus;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -36,34 +40,36 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
 public class BrokerLoadPendingTaskTest {
 
-    /** Minimal FileSystem stub that lists a single file entry for any location. */
-    private static final class SingleFileSystem implements org.apache.doris.filesystem.FileSystem {
-        private final long fileSize;
+    /** Minimal FileSystem stub that returns a fixed listing for any location. */
+    private static final class ListingFileSystem implements org.apache.doris.filesystem.FileSystem {
+        private final List<FileEntry> entries;
 
-        SingleFileSystem(long fileSize) {
-            this.fileSize = fileSize;
+        ListingFileSystem(long fileSize) {
+            this(List.of(new FileEntry(Location.of("s3://bucket/rows.csv"), fileSize, false, 0L, null)));
+        }
+
+        ListingFileSystem(List<FileEntry> entries) {
+            this.entries = entries;
         }
 
         @Override
         public FileIterator list(Location location) {
-            FileEntry entry = new FileEntry(location, fileSize, false, 0L, null);
+            Iterator<FileEntry> iterator = entries.iterator();
             return new FileIterator() {
-                boolean consumed = false;
-
                 @Override
                 public boolean hasNext() {
-                    return !consumed;
+                    return iterator.hasNext();
                 }
 
                 @Override
                 public FileEntry next() {
-                    consumed = true;
-                    return entry;
+                    return iterator.next();
                 }
 
                 @Override
@@ -109,6 +115,45 @@ public class BrokerLoadPendingTaskTest {
     }
 
     @Test
+    public void inferredAndExplicitAvroIgnoreZeroByteFiles() throws Exception {
+        for (boolean inferred : new boolean[] {false, true}) {
+            for (boolean onlyEmpty : new boolean[] {false, true}) {
+                BrokerFileGroup group = Deencapsulation.newInstance(BrokerFileGroup.class);
+                FileFormatProperties properties = inferred
+                        ? new DeferredFileFormatProperties() : new AvroFileFormatProperties();
+                properties.analyzeFileFormatProperties(Maps.newHashMap(), false);
+                Deencapsulation.setField(group, "fileFormatProperties", properties);
+                Deencapsulation.setField(group, "filePaths", List.of("s3://bucket/*.avro"));
+                List<FileEntry> entries = Lists.newArrayList(
+                        new FileEntry(Location.of("s3://bucket/empty.avro"), 0, false, 0L, null));
+                if (!onlyEmpty) {
+                    entries.add(new FileEntry(Location.of("s3://bucket/rows.avro"), 100, false, 0L, null));
+                }
+                Env env = Mockito.mock(Env.class);
+                BrokerDesc desc = Mockito.mock(BrokerDesc.class);
+                try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                        MockedStatic<FileSystemFactory> fsMock = Mockito.mockStatic(FileSystemFactory.class)) {
+                    envMock.when(Env::getCurrentEnv).thenReturn(env);
+                    fsMock.when(() -> FileSystemFactory.getFileSystem(Mockito.any(BrokerDesc.class)))
+                            .thenReturn(new ListingFileSystem(entries));
+                    FileGroupAggKey key = new FileGroupAggKey(1L, null);
+                    BrokerLoadPendingTask task = new BrokerLoadPendingTask(Mockito.mock(BrokerLoadJob.class),
+                            Map.of(key, List.of(group)), desc, LoadTask.Priority.NORMAL);
+                    task.executeTask();
+                    BrokerPendingTaskAttachment attachment = Deencapsulation.getField(task, "attachment");
+                    Assertions.assertEquals(onlyEmpty ? 0 : 1, attachment.getFileNumByTable(key),
+                            "inferred=" + inferred + ", onlyEmpty=" + onlyEmpty);
+                    List<TBrokerFileStatus> statuses =
+                            attachment.getFileStatusByTable(key).get(0);
+                    if (!onlyEmpty) {
+                        Assertions.assertEquals("s3://bucket/rows.avro", statuses.get(0).getPath());
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     public void testExecuteTask() throws UserException {
         BrokerLoadJob brokerLoadJob = Mockito.mock(BrokerLoadJob.class);
         BrokerFileGroup brokerFileGroup = Mockito.mock(BrokerFileGroup.class);
@@ -124,7 +169,7 @@ public class BrokerLoadPendingTaskTest {
                     .thenReturn(Lists.newArrayList("hdfs://localhost:8900/test_column"));
 
             mockedFsFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(BrokerDesc.class)))
-                    .thenReturn(new SingleFileSystem(1L));
+                    .thenReturn(new ListingFileSystem(1L));
 
             Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
             List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();

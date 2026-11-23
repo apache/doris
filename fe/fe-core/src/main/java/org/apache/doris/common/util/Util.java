@@ -402,13 +402,13 @@ public class Util {
     @NotNull
     public static TFileFormatType getFileFormatTypeFromPath(String path) {
         String lowerCasePath = path.toLowerCase();
-        if (lowerCasePath.contains(".parquet") || lowerCasePath.contains(".parq")) {
+        // A final Avro suffix takes precedence over directories and earlier suffixes.
+        if (lowerCasePath.endsWith(".avro")) {
+            return TFileFormatType.FORMAT_AVRO;
+        } else if (lowerCasePath.contains(".parquet") || lowerCasePath.contains(".parq")) {
             return TFileFormatType.FORMAT_PARQUET;
         } else if (lowerCasePath.contains(".orc")) {
             return TFileFormatType.FORMAT_ORC;
-        } else if (lowerCasePath.endsWith(".avro")) {
-            // A directory or an earlier suffix does not determine the file encoding.
-            return TFileFormatType.FORMAT_AVRO;
         } else if (lowerCasePath.contains(".json")) {
             return TFileFormatType.FORMAT_JSON;
         } else {

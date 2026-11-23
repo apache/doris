@@ -375,6 +375,20 @@ private:
     size_t _buffer_size = 0;
 };
 
+struct MetadataCursor {
+    FileCursor& file;
+    size_t end;
+    size_t remaining() const { return end - file.position(); }
+    uint8_t byte() {
+        require(remaining() != 0, "Truncated Avro metadata block");
+        return file.byte();
+    }
+    void read(void* output, size_t size) {
+        require(size <= remaining(), "Truncated Avro metadata block");
+        file.read(output, size);
+    }
+};
+
 ::avro::NodePtr resolved(const ::avro::NodePtr& node) {
     return node->type() == ::avro::AVRO_SYMBOLIC ? ::avro::resolveSymbol(node) : node;
 }
@@ -416,6 +430,7 @@ struct AvroContainerReader::Impl {
         file.read(magic.data(), magic.size());
         require(magic == std::array<uint8_t, 4> {'O', 'b', 'j', 1}, "Invalid Avro magic");
         for (int64_t count = read_long(file); count != 0; count = read_long(file)) {
+            std::optional<size_t> block_end;
             if (count < 0) {
                 require(count != std::numeric_limits<int64_t>::min(),
                         "Invalid Avro metadata count");
@@ -423,15 +438,21 @@ struct AvroContainerReader::Impl {
                 const auto bytes = read_long(file);
                 require(bytes >= 0 && static_cast<uint64_t>(bytes) <= file.remaining(),
                         "Invalid Avro metadata block");
+                block_end = file.position() + static_cast<size_t>(bytes);
             }
+            // A negative map block cannot borrow bytes from its successor or the sync marker.
+            MetadataCursor block_input {
+                    .file = file, .end = block_end.value_or(file.position() + file.remaining())};
             growth(0, count, 128);
-            require(static_cast<uint64_t>(count) <= file.remaining() / 2,
+            require(static_cast<uint64_t>(count) <= block_input.remaining() / 2,
                     "Truncated Avro metadata");
             for (int64_t i = 0; i < count; ++i) {
-                auto key = read_string(file);
-                auto value = read_string(file);
+                auto key = read_string(block_input);
+                auto value = read_string(block_input);
                 metadata.insert_or_assign(std::move(key), std::move(value));
             }
+            require(!block_end || file.position() == *block_end,
+                    "Avro metadata block size mismatch");
         }
         file.read(sync.data(), sync.size());
         header_end = file.position();
@@ -455,8 +476,9 @@ struct AvroContainerReader::Impl {
     std::string read_string(Cursor& input) {
         const auto length = read_long(input);
         require(length >= 0, "Invalid Avro string length");
-        growth(0, length);
+        // Check the current block's boundary before admitting or allocating the string.
         require(static_cast<uint64_t>(length) <= input.remaining(), "Truncated Avro string");
+        growth(0, length);
         std::string value(static_cast<size_t>(length), '\0');
         input.read(value.data(), value.size());
         return value;
@@ -602,6 +624,13 @@ struct AvroContainerReader::Impl {
     }
 
     void decompress_deflate() {
+        if (compressed.empty()) {
+            // Avro C++ omits the deflate frame for zero-byte records, even with a positive count.
+            // Check the writer schema: an empty COUNT projection cannot legitimize missing data.
+            require(remaining_rows == 0 || zero_width(schema.root()),
+                    "Truncated Avro deflate block");
+            return;
+        }
         auto workspace_lease = workspace(256 * 1024);
         z_stream stream {};
         require(inflateInit2(&stream, -15) == Z_OK, "Cannot initialize Avro deflate decoder");
@@ -609,7 +638,7 @@ struct AvroContainerReader::Impl {
         std::array<uint8_t, 64 * 1024> chunk;
         size_t offset = 0;
         int result = Z_OK;
-        while (result != Z_STREAM_END && !(remaining_rows == 0 && compressed.empty())) {
+        while (result != Z_STREAM_END) {
             if (stream.avail_in == 0) {
                 const size_t length = std::min<size_t>(std::numeric_limits<uInt>::max(),
                                                        compressed.size() - offset);
@@ -630,10 +659,7 @@ struct AvroContainerReader::Impl {
             require(result == Z_STREAM_END || before != stream.avail_in || produced != 0,
                     "Truncated Avro deflate block");
         }
-        // Avro C++ may emit a zero-byte empty block when closing an empty writer.
-        require((remaining_rows == 0 && compressed.empty()) ||
-                        (result == Z_STREAM_END && stream.avail_in == 0 &&
-                         offset == compressed.size()),
+        require(result == Z_STREAM_END && stream.avail_in == 0 && offset == compressed.size(),
                 "Truncated Avro deflate block");
     }
 

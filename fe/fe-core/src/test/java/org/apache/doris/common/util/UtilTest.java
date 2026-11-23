@@ -45,6 +45,15 @@ public class UtilTest {
     }
 
     @Test
+    public void finalAvroSuffixTakesPrecedenceOverDirectoryAndEarlierSuffixes() {
+        for (String path : new String[] {"s3://bucket/archive.orc/data.avro",
+                "s3://bucket/archive.parquet/data.AVRO", "s3://bucket/data.orc.avro",
+                "s3://bucket/data.parquet.avro"}) {
+            Assertions.assertEquals(TFileFormatType.FORMAT_AVRO, Util.getFileFormatTypeFromPath(path), path);
+        }
+    }
+
+    @Test
     public void getRootCauseWithSuppressedMessageRootCauseWithMessageNoSuppressed() {
         Exception rootCause = new Exception("Root cause message");
         Assertions.assertEquals("java.lang.Exception: Root cause message",

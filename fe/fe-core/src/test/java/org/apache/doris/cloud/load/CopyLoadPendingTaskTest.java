@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.load;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
@@ -26,11 +27,18 @@ import org.apache.doris.cloud.storage.ObjectInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.property.fileformat.AvroFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.utframe.TestWithFeService;
@@ -54,6 +62,54 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class CopyLoadPendingTaskTest extends TestWithFeService {
+
+    @Test
+    public void inferredAvroFiltersEmptyFilesAndPreservesEmptySelections() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(env);
+            for (boolean inferred : new boolean[] {false, true}) {
+                for (int fileCount : new int[] {0, 1, 2}) {
+                    BrokerFileGroup group = Deencapsulation.newInstance(BrokerFileGroup.class);
+                    FileFormatProperties properties = inferred
+                            ? new DeferredFileFormatProperties() : new AvroFileFormatProperties();
+                    properties.analyzeFileFormatProperties(new LinkedHashMap<>(), false);
+                    Deencapsulation.setField(group, "fileFormatProperties", properties);
+                    Deencapsulation.setField(group, "filePaths", List.of("s3://bucket/*.avro"));
+                    CopyJob job = Mockito.mock(CopyJob.class);
+                    FileGroupAggKey key = new FileGroupAggKey(1L, null);
+                    CopyLoadPendingTask task = new CopyLoadPendingTask(job, Map.of(key, List.of(group)),
+                            Mockito.mock(BrokerDesc.class)) {
+                        @Override
+                        protected void parseFileForCopyJob(String stageId, long tableId, String copyId,
+                                String pattern, long sizeLimit, int fileNum, int metaSize,
+                                List<Pair<TBrokerFileStatus, ObjectFilePB>> statuses,
+                                ObjectInfo info, boolean force) {
+                            if (fileCount > 0) {
+                                statuses.add(Pair.of(new TBrokerFileStatus("s3://bucket/empty.avro", false, 0, true),
+                                        ObjectFilePB.newBuilder().setRelativePath("empty.avro").build()));
+                            }
+                            if (fileCount > 1) {
+                                statuses.add(Pair.of(new TBrokerFileStatus("s3://bucket/rows.avro", false, 100, true),
+                                        ObjectFilePB.newBuilder().setRelativePath("rows.avro").build()));
+                            }
+                        }
+                    };
+                    if (fileCount < 2) {
+                        UserException error = Assertions.assertThrows(UserException.class, task::getAllFileStatus);
+                        Assertions.assertTrue(error.getMessage().contains("No files can be copied"));
+                        Mockito.verify(job).setAbortedCopy(true);
+                    } else {
+                        task.getAllFileStatus();
+                        Map<FileGroupAggKey, List<List<Pair<TBrokerFileStatus, ObjectFilePB>>>> statuses =
+                                Deencapsulation.getField(task, "fileStatusMap");
+                        Assertions.assertEquals(1, statuses.get(key).get(0).size());
+                        Assertions.assertEquals("s3://bucket/rows.avro", statuses.get(key).get(0).get(0).first.path);
+                    }
+                }
+            }
+        }
+    }
 
     private static final String STORAGE_PREFIX = "test_prefix";
 

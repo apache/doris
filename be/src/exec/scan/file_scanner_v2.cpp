@@ -1195,6 +1195,8 @@ bool FileScannerV2::_should_enable_adaptive_batch_size(TFileFormatType::type for
     switch (format_type) {
     case TFileFormatType::FORMAT_PARQUET:
     case TFileFormatType::FORMAT_ORC:
+    // Avro produces materialized blocks and needs the same probe/EWMA byte budget.
+    case TFileFormatType::FORMAT_AVRO:
     case TFileFormatType::FORMAT_CSV_PLAIN:
     case TFileFormatType::FORMAT_CSV_GZ:
     case TFileFormatType::FORMAT_CSV_BZ2:

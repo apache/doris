@@ -40,9 +40,11 @@ public class HttpStreamTableValuedFunction extends ExternalFileTableValuedFuncti
         // 1. analyze common properties
         super.parseCommonProperties(properties);
 
+        // These readers need a seekable file with a known size, which the HTTP pipe cannot provide.
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_PARQUET
-                || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_ORC) {
-            throw new AnalysisException("http_stream does not yet support parquet and orc");
+                || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_ORC
+                || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_AVRO) {
+            throw new AnalysisException("http_stream does not yet support parquet, orc and avro");
         }
     }
 

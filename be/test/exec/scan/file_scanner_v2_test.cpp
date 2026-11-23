@@ -61,6 +61,7 @@
 #include "format_v2/table/fluss_hybrid_reader.h"
 #include "storage/id_manager.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/defer_op.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -119,6 +120,44 @@ TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
     EXPECT_TRUE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, false));
     EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, true));
     EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(false, false));
+}
+
+TEST(FileScannerV2Test, AvroUsesAdaptiveProbeAndLearnsNarrowAndWideRows) {
+    const bool original = std::exchange(config::enable_adaptive_batch_size, true);
+    Defer restore([&] { config::enable_adaptive_batch_size = original; });
+    TQueryOptions options;
+    options.__set_batch_size(8192);
+    options.__set_preferred_block_size_bytes(1024 * 1024);
+    RuntimeState state(options, TQueryGlobals());
+    RuntimeProfile profile("avro_adaptive");
+    FileScannerV2 scanner(&state, &profile, std::make_unique<format::TableReader>());
+    scanner._adaptive_batch_predicted_rows_counter =
+            ADD_COUNTER(&profile, "Predicted", TUnit::UNIT);
+    scanner._adaptive_batch_actual_bytes_counter = ADD_COUNTER(&profile, "Actual", TUnit::BYTES);
+    scanner._adaptive_batch_probe_count_counter = ADD_COUNTER(&profile, "Probes", TUnit::UNIT);
+    for (size_t width : {size_t(16), size_t(65536)}) {
+        scanner._init_adaptive_batch_size_state(TFileFormatType::FORMAT_AVRO);
+        ASSERT_NE(scanner._block_size_predictor, nullptr);
+        const auto probe = scanner._predict_reader_batch_rows();
+        auto type = std::make_shared<DataTypeString>();
+        auto column = type->create_column();
+        const std::string value(width, 'x');
+        for (size_t i = 0; i < 64; ++i) {
+            column->insert_data(value.data(), value.size());
+        }
+        Block block {{std::move(column), type, "value"}};
+        scanner._update_adaptive_batch_size(block);
+        EXPECT_TRUE(scanner._block_size_predictor->has_history());
+        const auto predicted = scanner._predict_reader_batch_rows();
+        if (width == 16) {
+            EXPECT_GE(predicted, probe);
+        } else {
+            EXPECT_LT(predicted, probe);
+        }
+    }
+    config::enable_adaptive_batch_size = false;
+    scanner._init_adaptive_batch_size_state(TFileFormatType::FORMAT_AVRO);
+    EXPECT_EQ(scanner._block_size_predictor, nullptr);
 }
 
 TEST(FileScannerV2Test, ReaderDispatchIgnoresDeprecatedOptionAndRejectsUnknownTables) {

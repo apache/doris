@@ -35,12 +35,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.property.fileformat.AvroFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
-import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
-import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsImportColumnDesc;
@@ -259,9 +256,11 @@ public class BrokerFileGroup {
 
     public boolean isBinaryFileFormat() {
         // Must call initDeferredFileFormatPropertiesIfNecessary before
-        return fileFormatProperties instanceof ParquetFileFormatProperties
-                || fileFormatProperties instanceof OrcFileFormatProperties
-                || fileFormatProperties instanceof AvroFileFormatProperties;
+        // Deferred properties retain their wrapper class after inferring the actual file format.
+        TFileFormatType formatType = fileFormatProperties.getFileFormatType();
+        return formatType == TFileFormatType.FORMAT_PARQUET
+                || formatType == TFileFormatType.FORMAT_ORC
+                || formatType == TFileFormatType.FORMAT_AVRO;
     }
 
     public FileFormatProperties getFileFormatProperties() {

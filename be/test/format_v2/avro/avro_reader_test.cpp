@@ -486,6 +486,141 @@ TEST_F(AvroReaderTest, CountWithoutProjectedColumnsAndEmptyContainer) {
     }
 }
 
+TEST_F(AvroReaderTest, NegativeMetadataBlocksEnforceExactBounds) {
+    const std::string json =
+            R"({"type":"record","name":"r","fields":[{"name":"v","type":"long"}]})";
+    write_header_json(json);
+    std::ifstream input_file(path, std::ios::binary);
+    const std::string original((std::istreambuf_iterator<char>(input_file)), {});
+    input_file.close();
+    const std::string entry = original.substr(5, original.size() - 5 - 17);
+    const std::string tail = original.substr(original.size() - 17);
+    auto encode = [](uint64_t value) {
+        std::string bytes;
+        value *= 2;
+        while (value >= 128) {
+            bytes.push_back(static_cast<char>((value & 127) | 128));
+            value >>= 7;
+        }
+        bytes.push_back(static_cast<char>(value));
+        return bytes;
+    };
+    for (const int delta : {-1, 0, 1}) {
+        SCOPED_TRACE(delta);
+        // A negative block can be followed by another positive metadata block.
+        const std::string bytes = "Obj\x01" + std::string(1, '\x01') +
+                                  encode(entry.size() + delta) + entry + encode(1) + encode(10) +
+                                  "avro.codec" + encode(4) + "null" + tail;
+        std::ofstream output(path, std::ios::binary);
+        output.write(bytes.data(), bytes.size());
+        output.close();
+        auto input = reader();
+        const auto status = initialize(input.get());
+        EXPECT_EQ(status.ok(), delta == 0) << status;
+        EXPECT_TRUE(input->close().ok());
+    }
+}
+
+TEST_F(AvroReaderTest, EmptyRootRecordsKeepZeroByteRowsAndSplitPositions) {
+    const auto empty = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"empty_root","fields":[]})");
+    for (auto codec :
+         {::avro::NULL_CODEC, ::avro::DEFLATE_CODEC, ::avro::SNAPPY_CODEC, ::avro::ZSTD_CODEC}) {
+        for (size_t count : {size_t(0), size_t(7)}) {
+            SCOPED_TRACE(std::to_string(codec) + " count=" + std::to_string(count));
+            {
+                ::avro::DataFileWriter<::avro::GenericDatum> output(path.c_str(), empty, 32, codec);
+                ::avro::GenericDatum datum(empty);
+                for (size_t i = 0; i < count; ++i) {
+                    output.write(datum);
+                    if (i % 2 == 1) {
+                        output.flush();
+                    }
+                }
+                output.close();
+            }
+            auto input = reader();
+            ASSERT_TRUE(initialize(input.get()).ok());
+            EXPECT_TRUE(schema.empty());
+            input->set_batch_size(2);
+            ASSERT_TRUE(input->open(std::make_shared<FileScanRequest>()).ok());
+            EXPECT_EQ(read_all(input.get(), Block()).size(), count);
+            EXPECT_TRUE(input->close().ok());
+            const int64_t bytes = std::filesystem::file_size(path);
+            for (int64_t cut : {int64_t(0), int64_t(4), bytes / 2, bytes - 1, bytes}) {
+                std::vector<std::vector<std::string>> combined;
+                for (auto [offset, size] :
+                     {std::pair<int64_t, int64_t> {0, cut}, {cut, bytes - cut}}) {
+                    auto split = reader(offset, size);
+                    ASSERT_TRUE(initialize(split.get()).ok());
+                    auto request = std::make_shared<FileScanRequest>();
+                    auto block = block_for({ROW_POSITION_COLUMN_ID}, request.get());
+                    split->set_batch_size(2);
+                    ASSERT_TRUE(split->open(request).ok());
+                    const auto rows = read_all(split.get(), block);
+                    combined.insert(combined.end(), rows.begin(), rows.end());
+                }
+                ASSERT_EQ(combined.size(), count);
+                for (size_t i = 0; i < count; ++i) {
+                    EXPECT_EQ(combined[i][0], std::to_string(i));
+                }
+            }
+        }
+    }
+}
+
+TEST_F(AvroReaderTest, EmptyRootRecordsKeepTableCountRowsThroughANullableCarrier) {
+    const auto empty = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"empty_root","fields":[]})");
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> output(path.c_str(), empty);
+        ::avro::GenericDatum datum(empty);
+        for (int i = 0; i < 5; ++i) {
+            output.write(datum);
+        }
+        output.close();
+    }
+    TFileScanRangeParams params;
+    params.__set_file_type(TFileType::FILE_LOCAL);
+    params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+    ColumnDefinition carrier;
+    carrier.name = "__dummy_col";
+    carrier.identifier = Field::create_field<TYPE_STRING>(carrier.name);
+    carrier.type = make_nullable(std::make_shared<DataTypeString>());
+    TableReader table;
+    ASSERT_TRUE(table.init({.projected_columns = {carrier},
+                            .conjuncts = {},
+                            .format = FileFormat::AVRO,
+                            .scan_params = &params,
+                            .io_ctx = std::make_shared<io::IOContext>(),
+                            .runtime_state = &state,
+                            .scanner_profile = &profile,
+                            .push_down_agg_type = TPushAggOp::COUNT,
+                            .push_down_count_columns = std::vector<GlobalIndex> {}})
+                        .ok());
+    SplitReadOptions split;
+    split.current_range.__set_path(path);
+    split.current_range.__set_start_offset(0);
+    split.current_range.__set_size(std::filesystem::file_size(path));
+    split.current_range.__set_file_size(std::filesystem::file_size(path));
+    split.current_split_format = FileFormat::AVRO;
+    ASSERT_TRUE(table.prepare_split(split).ok());
+    Block block {{carrier.type->create_column(), carrier.type, carrier.name}};
+    bool eof = false;
+    size_t rows = 0;
+    while (!eof) {
+        block.clear_column_data();
+        const auto status = table.get_block(&block, &eof);
+        ASSERT_TRUE(status.ok()) << status;
+        rows += block.rows();
+        for (size_t row = 0; row < block.rows(); ++row) {
+            EXPECT_TRUE(block.get_by_position(0).column->is_null_at(row));
+        }
+    }
+    EXPECT_EQ(rows, 5);
+    EXPECT_TRUE(table.close().ok());
+}
+
 TEST_F(AvroReaderTest, NullableNestedValuesAndFieldIdentifiers) {
     const auto avro_schema =
             ::avro::compileJsonSchemaFromString(R"({"type":"record","name":"row","fields":[
@@ -1271,6 +1406,45 @@ TEST_F(AvroReaderTest, EmptyDeflateBlocksReleaseTheirCodecWorkspaces) {
     EXPECT_TRUE(status.ok()) << status;
     EXPECT_EQ(rows, 0);
     EXPECT_TRUE(eof);
+}
+
+TEST_F(AvroReaderTest, EmptyDeflatePayloadStillRejectsRecordsRequiringBytes) {
+    for (const auto& json :
+         {std::string(ID_SCHEMA), std::string(R"({"type":"record","name":"r","fields":[
+                                {"name":"v","type":["null","int"]}]})"),
+          std::string(R"({"type":"record","name":"r","fields":[
+                                {"name":"v","type":{"type":"array","items":"null"}}]})")}) {
+        const auto avro_schema = ::avro::compileJsonSchemaFromString(json);
+        for (bool projected : {false, true}) {
+            write_raw_block(avro_schema, ::avro::DEFLATE_CODEC, {});
+            auto input = reader();
+            ASSERT_TRUE(initialize(input.get()).ok());
+            auto request = std::make_shared<FileScanRequest>();
+            Block block = projected ? block_for({0}, request.get()) : Block();
+            ASSERT_TRUE(input->open(request).ok());
+            size_t rows = 0;
+            bool eof = false;
+            EXPECT_FALSE(input->get_block(&block, &rows, &eof).ok());
+            EXPECT_EQ(rows, 0);
+            EXPECT_TRUE(input->close().ok());
+        }
+    }
+}
+
+TEST_F(AvroReaderTest, DeflateZeroByteRecordsRetainNullColumns) {
+    const auto avro_schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"r","fields":[{"name":"v","type":"null"}]})");
+    write_raw_block(avro_schema, ::avro::DEFLATE_CODEC, {}, 3);
+    auto input = reader();
+    ASSERT_TRUE(initialize(input.get()).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    auto block = block_for({0}, request.get());
+    ASSERT_TRUE(input->open(request).ok());
+    const auto rows = read_all(input.get(), block);
+    ASSERT_EQ(rows.size(), 3);
+    for (const auto& row : rows) {
+        EXPECT_EQ(row[0], "NULL");
+    }
 }
 
 TEST_F(AvroReaderTest, ZstandardRequiresAFrameEvenForNullValues) {

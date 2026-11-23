@@ -352,7 +352,9 @@ Status build_schema(const ::avro::NodePtr& input, const std::string& name, int32
                 column->children.push_back(std::move(child));
             }
             if (types.empty()) {
-                return Status::NotSupported("Empty Avro records are unsupported");
+                // A nested STRUCT needs a child column to retain its row count.
+                return Status::NotSupported(
+                        "Nested empty Avro records cannot be represented as a Doris STRUCT");
             }
             type = std::make_shared<DataTypeStruct>(types, names);
             break;
@@ -976,10 +978,13 @@ Status AvroReader::init(RuntimeState* state) {
         // their retained/transient full-schema copies and mapping names before building any tree.
         _impl->schema_scratch = schema_cost_add(schema_cost.retained, schema_cost.copy, 16);
         Impl::reserve_callback(_impl.get(), _impl->schema_scratch);
-        ColumnDefinition record;
-        RETURN_IF_ERROR(build_schema(root, "row", 0, _impl->timestamp_tz, _impl->varbinary,
-                                     &ancestors, &record));
-        _impl->schema = std::move(record.children);
+        // Root fields are flattened, so an empty root needs no STRUCT row-count carrier.
+        if (root->leaves() != 0) {
+            ColumnDefinition record;
+            RETURN_IF_ERROR(build_schema(root, "row", 0, _impl->timestamp_tz, _impl->varbinary,
+                                         &ancestors, &record));
+            _impl->schema = std::move(record.children);
+        }
         _impl->reconcile_scratch();
         return Status::OK();
     } catch (const doris::Exception& e) {

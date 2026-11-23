@@ -123,13 +123,13 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
                             .map(pair -> pair.first)
                             .collect(Collectors.toList()));
                 }
-                boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
+                // No selected files means deferred properties have not been initialized.
+                boolean isBinaryFileFormat = !fileStatuses.isEmpty() && fileGroup.isBinaryFileFormat();
                 List<Pair<TBrokerFileStatus, ObjectFilePB>> filteredFileStatuses = Lists.newArrayList();
                 for (Pair<TBrokerFileStatus, ObjectFilePB> pair : fileStatuses) {
                     TBrokerFileStatus fstatus = pair.first;
                     if (fstatus.getSize() == 0 && isBinaryFileFormat) {
-                        // For parquet or orc file, if it is an empty file, ignore it.
-                        // Because we can not read an empty parquet or orc file.
+                        // Binary readers require a container header even when there are no rows.
                         if (LOG.isDebugEnabled()) {
                             LOG.debug(
                                     new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId()).add("empty file", fstatus)

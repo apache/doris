@@ -129,8 +129,7 @@ public class BrokerLoadPendingTask extends LoadTask {
                         List<TBrokerFileStatus> filteredFileStatuses = Lists.newArrayList();
                         for (TBrokerFileStatus fstatus : fileStatuses) {
                             if (fstatus.getSize() == 0 && isBinaryFileFormat) {
-                                // For parquet or orc file, if it is an empty file, ignore it.
-                                // Because we can not read an empty parquet or orc file.
+                                // Binary readers require a container header even when there are no rows.
                                 if (LOG.isDebugEnabled()) {
                                     LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
                                             .add("empty file", fstatus).build());

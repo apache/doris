@@ -34,6 +34,7 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.proto.InternalService.PFetchTableSchemaResult;
 import org.apache.doris.proto.Types.PScalarType;
 import org.apache.doris.proto.Types.PStructField;
 import org.apache.doris.proto.Types.PTypeNode;
@@ -50,11 +51,31 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
 public class ExternalFileTableValuedFunctionTest {
+    @Test
+    public void emptyAvroSchemaKeepsACountCarrierWithoutReplacingPathColumns() throws Exception {
+        Method fill = ExternalFileTableValuedFunction.class.getDeclaredMethod(
+                "fillColumns", PFetchTableSchemaResult.class);
+        fill.setAccessible(true);
+        for (boolean withPath : new boolean[] {false, true}) {
+            ListingTvf tvf = new ListingTvf(null);
+            tvf.parseCommonProperties(withPath ? Map.of("format", "avro", "path_partition_keys", "part")
+                    : Map.of("format", "avro"));
+            tvf.columns = new ArrayList<>();
+            fill.invoke(tvf, PFetchTableSchemaResult.newBuilder().setColumnNums(0).build());
+            Assertions.assertEquals(1, tvf.columns.size());
+            Assertions.assertEquals(withPath ? "part" : "__dummy_col", tvf.columns.get(0).getName());
+            if (!withPath) {
+                Assertions.assertTrue(tvf.columns.get(0).isAllowNull());
+            }
+        }
+    }
+
     @Test
     public void testListedFilesCarryTheirModificationTime() throws Exception {
         // BE keys cached blocks of an external file by path and modification time. Listing files
