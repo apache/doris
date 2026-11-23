@@ -2557,6 +2557,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     // failure is an error, not an absence.
     @Override
     public Long getTransactionId(Long dbId, String label) throws AnalysisException {
+        TxnInfoPB txnInfo = getLatestTxnInfoByLabel(dbId, label);
+        return txnInfo == null ? null : txnInfo.getTxnId();
+    }
+
+    private TxnInfoPB getLatestTxnInfoByLabel(long dbId, String label) throws AnalysisException {
         GetTxnResponse getTxnResponse = getTxnByLabel(dbId, label);
         if (getTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ID_NOT_FOUND) {
             return null;
@@ -2567,7 +2572,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new AnalysisException("get transaction id by label " + label + " failed, errMsg:"
                     + getTxnResponse.getStatus().getMsg());
         }
-        return getTxnResponse.getTxnInfo().getTxnId();
+        return getTxnResponse.getTxnInfo();
     }
 
     private GetTxnResponse getTxnByLabel(long dbId, String label) throws AnalysisException {
@@ -2796,12 +2801,50 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public List<List<String>> getSingleTranInfo(long dbId, long txnId) throws AnalysisException {
-        List<List<String>> infos = new ArrayList<List<String>>();
-        TransactionState txnState = this.getTransactionState(dbId, txnId);
-        if (txnState == null) {
+        TxnInfoPB txnInfo = getTxnInfoById(dbId, txnId);
+        if (txnInfo == null) {
             throw new AnalysisException("transaction with id " + txnId + " does not exist");
         }
+        return toSingleTranInfo(dbId, TxnUtil.transactionStateFromPb(txnInfo));
+    }
+
+    private TxnInfoPB getTxnInfoById(long dbId, long txnId) throws AnalysisException {
+        long parentTxnId = subTxnIdToTxnId.getOrDefault(txnId, txnId);
+        GetTxnRequest getTxnRequest = GetTxnRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
+                .setDbId(dbId).setTxnId(parentTxnId).setCloudUniqueId(Config.cloud_unique_id).build();
+        GetTxnResponse getTxnResponse;
+        try {
+            getTxnResponse = MetaServiceProxy.getInstance().getTxn(getTxnRequest);
+        } catch (RpcException e) {
+            LOG.warn("get transaction by id failed, dbId:{} txnId:{}", dbId, parentTxnId, e);
+            throw new AnalysisException("get transaction " + parentTxnId + " failed, errMsg:" + e.getMessage());
+        }
+        if (getTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ID_NOT_FOUND) {
+            return null;
+        }
+        if (getTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {
+            LOG.warn("get transaction by id failed, dbId:{} txnId:{} getTxnResponse:{}",
+                    dbId, parentTxnId, getTxnResponse);
+            throw new AnalysisException("get transaction " + parentTxnId + " failed, errMsg:"
+                    + getTxnResponse.getStatus().getMsg());
+        }
+        return getTxnResponse.getTxnInfo();
+    }
+
+    @Override
+    public List<List<String>> getSingleTranInfoByLabel(long dbId, String label) throws AnalysisException {
+        TxnInfoPB txnInfo = getLatestTxnInfoByLabel(dbId, label);
+        if (txnInfo == null) {
+            throw new AnalysisException("transaction with label " + label + " does not exist");
+        }
+        return toSingleTranInfo(dbId, TxnUtil.transactionStateFromPb(txnInfo));
+    }
+
+    private static List<List<String>> toSingleTranInfo(long dbId, TransactionState txnState)
+            throws AnalysisException {
         TransactionUtil.checkAuth(dbId, txnState);
+        List<List<String>> infos = new ArrayList<List<String>>();
         infos.add(TransactionUtil.getTxnStateInfo(txnState, Lists.newArrayList()));
         return infos;
     }

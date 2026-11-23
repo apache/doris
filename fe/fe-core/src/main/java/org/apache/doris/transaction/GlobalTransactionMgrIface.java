@@ -217,6 +217,8 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public List<List<String>> getSingleTranInfo(long dbId, long txnId) throws AnalysisException;
 
+    public List<List<String>> getSingleTranInfoByLabel(long dbId, String label) throws AnalysisException;
+
     public long getAllRunningTxnNum();
 
     public int getRunningTxnNums(Long dbId) throws AnalysisException;

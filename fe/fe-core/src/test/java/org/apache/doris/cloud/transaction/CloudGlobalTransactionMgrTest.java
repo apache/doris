@@ -1378,6 +1378,147 @@ public class CloudGlobalTransactionMgrTest {
         }
     }
 
+    @ParameterizedTest
+    @CsvSource({"TXN_STATUS_PREPARED,PREPARE", "TXN_STATUS_PRECOMMITTED,PRECOMMITTED",
+            "TXN_STATUS_COMMITTED,COMMITTED", "TXN_STATUS_VISIBLE,VISIBLE", "TXN_STATUS_ABORTED,ABORTED"})
+    public void testGetSingleTranInfoByLabelReadsTheLabelOnce(String txnStatus, String shownStatus)
+            throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.getTxn(Mockito.any())).thenReturn(okGetTxnResponse(123535, txnStatus));
+
+            List<List<String>> infos = masterTransMgr.getSingleTranInfoByLabel(CatalogTestUtil.testDbId1,
+                    CatalogTestUtil.testTxnLabel1);
+            Assertions.assertEquals(1, infos.size());
+            Assertions.assertEquals("123535", infos.get(0).get(0));
+            Assertions.assertEquals(CatalogTestUtil.testTxnLabel1, infos.get(0).get(1));
+            Assertions.assertEquals(shownStatus, infos.get(0).get(3));
+            ArgumentCaptor<Cloud.GetTxnRequest> request = ArgumentCaptor.forClass(Cloud.GetTxnRequest.class);
+            Mockito.verify(proxy, Mockito.times(1)).getTxn(request.capture());
+            Assertions.assertEquals(CatalogTestUtil.testTxnLabel1, request.getValue().getLabel());
+            Assertions.assertFalse(request.getValue().hasTxnId());
+            Mockito.verify(proxy, Mockito.never()).getTxnId(Mockito.any());
+        }
+    }
+
+    @Test
+    public void testGetSingleTranInfoByMissingLabel() throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.getTxn(Mockito.any())).thenReturn(Cloud.GetTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.TXN_ID_NOT_FOUND).setMsg("Label [missing] has not found"))
+                    .build());
+
+            AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                    () -> masterTransMgr.getSingleTranInfoByLabel(CatalogTestUtil.testDbId1, "missing"));
+            Assertions.assertTrue(e.getMessage().contains("transaction with label missing does not exist"),
+                    e.getMessage());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"KV_TXN_GET_ERR", "MAX_QPS_LIMIT", "INVALID_ARGUMENT", "UNDEFINED_ERR", RPC_ERROR})
+    public void testGetSingleTranInfoByLabelFailsOnLookupError(String error) throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            stubLookupFailure(Mockito.when(proxy.getTxn(Mockito.any())), error,
+                    status -> Cloud.GetTxnResponse.newBuilder().setStatus(status).build());
+
+            AnalysisException e = Assertions.assertThrows(AnalysisException.class, () -> masterTransMgr
+                    .getSingleTranInfoByLabel(CatalogTestUtil.testDbId1, CatalogTestUtil.testTxnLabel1));
+            Assertions.assertFalse(e.getMessage().contains("does not exist"), e.getMessage());
+            Assertions.assertTrue(e.getMessage().contains(error.equals(RPC_ERROR) ? "unavailable" : "lookup failed"),
+                    e.getMessage());
+            Mockito.verify(proxy, Mockito.times(1)).getTxn(Mockito.any());
+        }
+    }
+
+    @Test
+    public void testGetSingleTranInfoByIdReadsTheTxnOnce() throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.getTxn(Mockito.any())).thenReturn(okGetTxnResponse(123535, "TXN_STATUS_VISIBLE"));
+
+            List<List<String>> infos = masterTransMgr.getSingleTranInfo(CatalogTestUtil.testDbId1, 123535);
+            Assertions.assertEquals(1, infos.size());
+            Assertions.assertEquals("123535", infos.get(0).get(0));
+            Assertions.assertEquals("VISIBLE", infos.get(0).get(3));
+            ArgumentCaptor<Cloud.GetTxnRequest> request = ArgumentCaptor.forClass(Cloud.GetTxnRequest.class);
+            Mockito.verify(proxy, Mockito.times(1)).getTxn(request.capture());
+            Assertions.assertEquals(123535L, request.getValue().getTxnId());
+            Assertions.assertEquals(CatalogTestUtil.testDbId1, request.getValue().getDbId());
+            Assertions.assertFalse(request.getValue().hasLabel());
+        }
+    }
+
+    @Test
+    public void testGetSingleTranInfoBySubTxnIdReadsTheParent() throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.getTxn(Mockito.any())).thenReturn(okGetTxnResponse(123535, "TXN_STATUS_PREPARED"));
+            masterTransMgr.addSubTransaction(CatalogTestUtil.testDbId1, 123535, 123536);
+
+            List<List<String>> infos = masterTransMgr.getSingleTranInfo(CatalogTestUtil.testDbId1, 123536);
+            Assertions.assertEquals("123535", infos.get(0).get(0));
+            ArgumentCaptor<Cloud.GetTxnRequest> request = ArgumentCaptor.forClass(Cloud.GetTxnRequest.class);
+            Mockito.verify(proxy, Mockito.times(1)).getTxn(request.capture());
+            Assertions.assertEquals(123535L, request.getValue().getTxnId());
+        }
+    }
+
+    @Test
+    public void testGetSingleTranInfoByMissingId() throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.getTxn(Mockito.any())).thenReturn(Cloud.GetTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.TXN_ID_NOT_FOUND).setMsg("txn not found"))
+                    .build());
+
+            AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                    () -> masterTransMgr.getSingleTranInfo(CatalogTestUtil.testDbId1, 123535));
+            Assertions.assertTrue(e.getMessage().contains("transaction with id 123535 does not exist"),
+                    e.getMessage());
+        }
+    }
+
+    // A failed lookup by id must not be reported as a missing transaction either.
+    @ParameterizedTest
+    @ValueSource(strings = {"KV_TXN_GET_ERR", "MAX_QPS_LIMIT", "INVALID_ARGUMENT", "UNDEFINED_ERR", RPC_ERROR})
+    public void testGetSingleTranInfoByIdFailsOnLookupError(String error) throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            stubLookupFailure(Mockito.when(proxy.getTxn(Mockito.any())), error,
+                    status -> Cloud.GetTxnResponse.newBuilder().setStatus(status).build());
+
+            AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                    () -> masterTransMgr.getSingleTranInfo(CatalogTestUtil.testDbId1, 123535));
+            Assertions.assertFalse(e.getMessage().contains("does not exist"), e.getMessage());
+            Assertions.assertTrue(e.getMessage().contains(error.equals(RPC_ERROR) ? "unavailable" : "lookup failed"),
+                    e.getMessage());
+            Mockito.verify(proxy, Mockito.times(1)).getTxn(Mockito.any());
+        }
+    }
+
+    private Cloud.GetTxnResponse okGetTxnResponse(long txnId, String txnStatus) {
+        return Cloud.GetTxnResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
+                .setTxnInfo(buildTxnInfo(txnId).toBuilder()
+                        .setStatus(Cloud.TxnStatusPB.valueOf(txnStatus))
+                        .setCoordinator(Cloud.TxnCoordinatorPB.newBuilder()
+                                .setSourceType(Cloud.TxnSourceTypePB.TXN_SOURCE_TYPE_BE).setIp("127.0.0.1"))
+                        .setLoadJobSourceType(Cloud.LoadJobSourceTypePB.LOAD_JOB_SRC_TYPE_BACKEND_STREAMING))
+                .build();
+    }
+
     private static <T> void stubLookupFailure(OngoingStubbing<T> lookup, String code,
             Function<Cloud.MetaServiceResponseStatus, T> buildResponse) {
         if (code.equals(RPC_ERROR)) {
