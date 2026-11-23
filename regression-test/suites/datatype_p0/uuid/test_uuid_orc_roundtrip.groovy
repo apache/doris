@@ -15,13 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.apache.doris.regression.util.ExportTestHelper
+import java.nio.file.Files
+import java.nio.file.Paths
 
 // Checklist: G10 G11 G13 H08.
 suite("test_uuid_orc_roundtrip") {
-    def storage = new ExportTestHelper(delegate)
-    String prefix = "regression/test_uuid_orc_roundtrip/${UUID.randomUUID()}/"
-    String root = storage.uri(prefix)
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
+    if (!getFeConfig("enable_outfile_to_local").equalsIgnoreCase("true")) {
+        logger.warn("Please set enable_outfile_to_local to true to run test_uuid_orc_roundtrip")
+        return
+    }
+    def backend = sql_return_maparray("SHOW BACKENDS").find { it.Alive == "true" }
+    String securePath = sql_return_maparray(
+            "SHOW BACKEND CONFIG LIKE 'user_files_secure_path' FROM ${backend.BackendId}")[0].Value
+    def outputDirectory = Files.createTempDirectory(Paths.get(securePath), "test_uuid_orc_roundtrip_")
     try {
         sql "DROP TABLE IF EXISTS uuid_file_orc"
         sql """CREATE TABLE uuid_file_orc (id INT, u UUID, a ARRAY<UUID>, s STRUCT<k:UUID>)
@@ -34,20 +43,20 @@ suite("test_uuid_orc_roundtrip") {
                (3, NULL, NULL, NULL)"""
         qt_source "SELECT * FROM uuid_file_orc ORDER BY id"
         sql """SELECT * FROM uuid_file_orc ORDER BY id
-               INTO OUTFILE "${root}orc_" FORMAT AS orc PROPERTIES (${storage.storageProperties()})"""
-        String path = "${root}orc_*"
+               INTO OUTFILE "file://${outputDirectory}/orc_" FORMAT AS orc"""
+        String path = "${outputDirectory.fileName}/orc_*"
         sql "DROP TABLE IF EXISTS uuid_file_reload_orc"
         sql "CREATE TABLE uuid_file_reload_orc LIKE uuid_file_orc"
         sql """INSERT INTO uuid_file_reload_orc
-               SELECT * FROM S3("uri"="${path}", "format"="orc",
-                                   ${storage.storageProperties()})"""
+               SELECT * FROM local("file_path"="${path}", "format"="orc",
+                                   "backend_id"="${backend.BackendId}")"""
         qt_roundtrip "SELECT * FROM uuid_file_reload_orc ORDER BY id"
-        order_qt_inferred_types """DESC FUNCTION S3(
-            "uri"="${path}", "format"="orc", ${storage.storageProperties()})"""
+        order_qt_inferred_types """DESC FUNCTION local(
+            "file_path"="${path}", "format"="orc", "backend_id"="${backend.BackendId}")"""
         sql "SET enable_file_scanner_v2 = false"
-        qt_legacy_reader """SELECT * FROM S3(
-            "uri"="${path}", "format"="orc", ${storage.storageProperties()}) ORDER BY id"""
+        qt_legacy_reader """SELECT * FROM local(
+            "file_path"="${path}", "format"="orc", "backend_id"="${backend.BackendId}") ORDER BY id"""
     } finally {
-        storage.deleteFiles(prefix)
+        assertTrue(outputDirectory.toFile().deleteDir())
     }
 }

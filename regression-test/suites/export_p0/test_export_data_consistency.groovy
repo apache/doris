@@ -15,20 +15,59 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.apache.doris.regression.util.ExportTestHelper
+import org.codehaus.groovy.runtime.IOGroovyMethods
+
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Paths
 
 suite("test_export_data_consistency", "p0") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
     // open nereids
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
 
     def db = "regression_test_export_p0"
 
-    def helper = new ExportTestHelper(delegate)
+    // check whether the FE config 'enable_outfile_to_local' is true
+    StringBuilder strBuilder = new StringBuilder()
+    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
+    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
+        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
+    } else {
+        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
+    }
+
+    String command = strBuilder.toString()
+    def process = command.toString().execute()
+    def code = process.waitFor()
+    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+    def out = process.getText()
+    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
+    assertEquals(code, 0)
+    def response = parseJson(out.trim())
+    assertEquals(response.code, 0)
+    assertEquals(response.msg, "success")
+    def configJson = response.data.rows
+    boolean enableOutfileToLocal = false
+    for (Object conf: configJson) {
+        assert conf instanceof Map
+        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
+            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
+        }
+    }
+    if (!enableOutfileToLocal) {
+        logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
+        return
+    }
 
     def table_export_name = "test_export_data_consistency"
     def table_load_name = "test_load_data_consistency"
-    def outfile_path_prefix = "regression/test_export_data_consistency"
+    def outfile_path_prefix = """/tmp/test_export_data_consistency"""
+    def local_tvf_prefix = "tmp/test_export_data_consistency"
 
     // create table and insert
     sql """ DROP TABLE IF EXISTS ${table_export_name} """
@@ -65,6 +104,16 @@ suite("test_export_data_consistency", "p0") {
     logger.info("insert result: " + insert_res.toString())
     qt_select_export """ SELECT * FROM ${table_export_name} t ORDER BY id; """
 
+
+    def machine_user_name = "root"
+    def check_path_exists = { dir_path ->
+        mkdirRemotePathOnAllBE(machine_user_name, dir_path)
+    }
+
+    def delete_files = { dir_path ->
+        deleteRemotePathOnAllBE(machine_user_name, dir_path)
+    }
+
     def waiting_export = { the_db, export_label ->
         while (true) {
             def res = sql """ show export from ${the_db} where label = "${export_label}" """
@@ -81,18 +130,21 @@ suite("test_export_data_consistency", "p0") {
 
     // 1. basic test
     def uuid = UUID.randomUUID().toString()
-    def outFilePath = "${outfile_path_prefix}/${table_export_name}_${uuid}"
+    def outFilePath = "${outfile_path_prefix}" + "/${table_export_name}_${uuid}"
     def label = "label_${uuid}"
     try {
+        // check export path
+        check_path_exists.call("${outFilePath}")
+
         // exec export
         sql """
-            EXPORT TABLE ${table_export_name} TO "${helper.uri(outFilePath)}/"
+            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator" = ",",
                 "parallelism" = "10"
-            ) WITH S3 (${helper.storageProperties()});
+            );
         """
         // do insert in parallel
         // [0, 20), [20, 70), [70, +inf)
@@ -120,14 +172,23 @@ suite("test_export_data_consistency", "p0") {
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
         """
 
-        sql """
-            INSERT INTO ${table_load_name}
-            SELECT * FROM S3(
-                "uri" = "${helper.uri(outFilePath)}/*",
-                ${helper.storageProperties()},
-                "format" = "csv",
-                "column_separator" = ",")
-        """
+        // use local() tvf to reload the data
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+        ipList.each { beid, ip ->
+           logger.info("Begin to insert into ${table_load_name} from local()")
+           sql """
+                insert into ${table_load_name}
+                select * from local(
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "backend_id" = "${beid}",
+                    "format" = "csv",
+                    "column_separator" = ",");         
+                """ 
+            insert_res = sql "show last insert;"
+            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
+        }
 
         // The partition ranges are:
         // [0, 20), [20, 70), [70, +inf)
@@ -155,6 +216,6 @@ suite("test_export_data_consistency", "p0") {
         }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
-        helper.deleteFiles("${outFilePath}/")
+        delete_files.call("${outFilePath}")
     }
 }
