@@ -1004,7 +1004,7 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
         ctx->group_commit = false;
     } else {
         if (!group_commit_header.empty()) {
-            ctx->group_commit_mode = group_commit_header;
+            ctx->group_commit_mode = to_lower(group_commit_header);
             ctx->group_commit = true;
         } else {
             // use table property to decide group commit or not

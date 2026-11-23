@@ -2410,10 +2410,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     private static String resolveTextCompressionDefault(ConnectorSession session) {
         String textCompression = session.getSessionProperties()
                 .get(SESSION_HIVE_TEXT_COMPRESSION);
-        if (TEXT_COMPRESSION_UNCOMPRESSED.equals(textCompression)) {
+        if (TEXT_COMPRESSION_UNCOMPRESSED.equalsIgnoreCase(textCompression)) {
             return TEXT_COMPRESSION_PLAIN;
         }
-        return textCompression;
+        return textCompression == null ? null : textCompression.toLowerCase(Locale.ROOT);
     }
 
     // ========== Internal helpers ==========

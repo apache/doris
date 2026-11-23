@@ -300,4 +300,14 @@ suite("test_encryption_function") {
 
     //four arg (column/const) with wrong mode
     qt_sql57 """ select sm4_decrypt(sm4_encrypt(k,"doris","abcdefghij", "SM4_128_CBC"),"doris","abcdefghij","SM4_555_CBC") from quantile_table2; """
+
+    // the session variable accepts the mode name in any letter case
+    sql "set block_encryption_mode=\"aes_256_cbc\";"
+    order_qt_sql58 "SELECT TO_BASE64(AES_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3'));"
+    order_qt_sql59 "SELECT AES_DECRYPT(FROM_BASE64('3dym0E7/+1zbrLIaBVNHSw=='),'F3229A0B371ED2D9441B830D21A390C3');"
+    sql "set block_encryption_mode=\"sm4_128_cbc\";"
+    order_qt_sql60 "SELECT TO_BASE64(SM4_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3'));"
+    order_qt_sql61 "SELECT SM4_DECRYPT(FROM_BASE64('FSYstvOmH2cXy7B/072Mug=='),'F3229A0B371ED2D9441B830D21A390C3');"
+    sql "set block_encryption_mode=\"\";"
+    order_qt_sql62 "SELECT AES_DECRYPT(AES_ENCRYPT('text', 'doris', '0123456789abcdef', 'aes_256_cfb'), 'doris', '0123456789abcdef', 'Aes_256_Cfb');"
 }

@@ -56,6 +56,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -942,10 +943,11 @@ public class Backend implements Writable {
                 this.backendStatus.isShutdown = hbResponse.isShutDown();
             }
 
-            if (!this.getNodeRoleTag().value.equals(hbResponse.getNodeRole()) && Tag.validNodeRoleTag(
-                    hbResponse.getNodeRole())) {
+            String hbNodeRole = hbResponse.getNodeRole() == null
+                    ? null : hbResponse.getNodeRole().toLowerCase(Locale.ROOT);
+            if (!this.getNodeRoleTag().value.equals(hbNodeRole) && Tag.validNodeRoleTag(hbNodeRole)) {
                 isChanged = true;
-                this.nodeRoleTag = Tag.createNotCheck(Tag.TYPE_ROLE, hbResponse.getNodeRole());
+                this.nodeRoleTag = Tag.createNotCheck(Tag.TYPE_ROLE, hbNodeRole);
             }
             if (this.beMemory != hbResponse.getBeMemory()) {
                 isChanged = true;
@@ -1107,20 +1109,23 @@ public class Backend implements Writable {
     }
 
     public boolean isMixNode() {
-        return nodeRoleTag.value.equals(Tag.VALUE_MIX);
+        return nodeRoleTag.value.equalsIgnoreCase(Tag.VALUE_MIX);
     }
 
     public boolean isComputeNode() {
-        return nodeRoleTag.value.equals(Tag.VALUE_COMPUTATION);
+        return nodeRoleTag.value.equalsIgnoreCase(Tag.VALUE_COMPUTATION);
     }
 
     public void setTagMap(Map<String, String> tagMap) {
         Preconditions.checkState(tagMap.containsKey(Tag.TYPE_LOCATION));
-        this.tagMap = tagMap;
-        this.locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, tagMap.get(Tag.TYPE_LOCATION));
-        if (tagMap.containsKey(Tag.TYPE_ROLE) && Tag.validNodeRoleTag(tagMap.get(Tag.TYPE_ROLE))) {
-            this.nodeRoleTag = Tag.createNotCheck(Tag.TYPE_ROLE, tagMap.get(Tag.TYPE_ROLE));
+        Map<String, String> normalizedMap = Maps.newHashMap(tagMap);
+        if (normalizedMap.containsKey(Tag.TYPE_ROLE) && Tag.validNodeRoleTag(normalizedMap.get(Tag.TYPE_ROLE))) {
+            String normalizedRole = normalizedMap.get(Tag.TYPE_ROLE).toLowerCase(Locale.ROOT);
+            normalizedMap.put(Tag.TYPE_ROLE, normalizedRole);
+            this.nodeRoleTag = Tag.createNotCheck(Tag.TYPE_ROLE, normalizedRole);
         }
+        this.tagMap = normalizedMap;
+        this.locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, normalizedMap.get(Tag.TYPE_LOCATION));
     }
 
     public Map<String, String> getTagMap() {

@@ -219,9 +219,9 @@ public class Log4jConfig extends XmlConfiguration {
 
         String sysLogRollPattern = "%d{yyyyMMdd}";
         String sysRollMaxSize = String.valueOf(Config.log_roll_size_mb);
-        if (Config.sys_log_roll_interval.equals("HOUR")) {
+        if (Config.sys_log_roll_interval.equalsIgnoreCase("HOUR")) {
             sysLogRollPattern = "%d{yyyyMMddHH}";
-        } else if (Config.sys_log_roll_interval.equals("DAY")) {
+        } else if (Config.sys_log_roll_interval.equalsIgnoreCase("DAY")) {
             sysLogRollPattern = "%d{yyyyMMdd}";
         } else {
             throw new IOException("sys_log_roll_interval config error: " + Config.sys_log_roll_interval);
@@ -234,9 +234,9 @@ public class Log4jConfig extends XmlConfiguration {
         String auditRollMaxSize = String.valueOf(Config.log_roll_size_mb);
         String auditDeleteAge = String.valueOf(Config.audit_log_delete_age);
         boolean compressAuditLog = Config.audit_log_enable_compress;
-        if (Config.audit_log_roll_interval.equals("HOUR")) {
+        if (Config.audit_log_roll_interval.equalsIgnoreCase("HOUR")) {
             auditLogRollPattern = "%d{yyyyMMddHH}";
-        } else if (Config.audit_log_roll_interval.equals("DAY")) {
+        } else if (Config.audit_log_roll_interval.equalsIgnoreCase("DAY")) {
             auditLogRollPattern = "%d{yyyyMMdd}";
         } else {
             throw new IOException("audit_log_roll_interval config error: " + Config.audit_log_roll_interval);

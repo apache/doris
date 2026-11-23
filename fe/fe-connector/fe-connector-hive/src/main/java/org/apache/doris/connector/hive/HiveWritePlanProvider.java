@@ -384,7 +384,7 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
     private static String resolveTextCompressionDefault(ConnectorSession session) {
         String textCompression = session.getSessionProperties()
                 .get(HiveConnectorMetadata.SESSION_HIVE_TEXT_COMPRESSION);
-        if (HiveConnectorMetadata.TEXT_COMPRESSION_UNCOMPRESSED.equals(textCompression)) {
+        if (HiveConnectorMetadata.TEXT_COMPRESSION_UNCOMPRESSED.equalsIgnoreCase(textCompression)) {
             return HiveConnectorMetadata.TEXT_COMPRESSION_PLAIN;
         }
         return textCompression;

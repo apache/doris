@@ -349,6 +349,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -4145,7 +4146,8 @@ public class Env {
         }
 
         // compression type
-        if (olapTable.getCompressionType() != TCompressionType.valueOf(Config.default_compression_type)) {
+        if (olapTable.getCompressionType()
+                != TCompressionType.valueOf(Config.default_compression_type.toUpperCase(Locale.ROOT))) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPRESSION).append("\" = \"");
             sb.append(olapTable.getCompressionType()).append("\"");
         }

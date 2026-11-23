@@ -413,6 +413,12 @@ public class HiveWritePlanProviderTest {
         Assertions.assertEquals(TFileCompressType.PLAIN,
                 compressionFor(TEXT_INPUT_FORMAT, Collections.emptyMap(),
                         Collections.singletonMap("hive_text_compression", "uncompressed")));
+        Assertions.assertEquals(TFileCompressType.PLAIN,
+                compressionFor(TEXT_INPUT_FORMAT, Collections.emptyMap(),
+                        Collections.singletonMap("hive_text_compression", "UNCOMPRESSED")));
+        Assertions.assertEquals(TFileCompressType.ZSTD,
+                compressionFor(TEXT_INPUT_FORMAT, Collections.emptyMap(),
+                        Collections.singletonMap("hive_text_compression", "ZSTD")));
     }
 
     private TFileCompressType compressionFor(String inputFormat, Map<String, String> tableParams,

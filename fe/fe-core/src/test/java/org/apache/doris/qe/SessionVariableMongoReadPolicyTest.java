@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 class SessionVariableMongoReadPolicyTest {
@@ -59,13 +60,15 @@ class SessionVariableMongoReadPolicyTest {
             set(variables, "mongodb_read_preference", value);
             Assertions.assertEquals(value, VariableMgr.toMap(variables).get("mongodb_read_preference"));
         }
-        for (String value : List.of("inherit", "local", "majority", "available", "snapshot", "SNAPSHOT", "LOCAL", "INHERIT")) {
+        for (String value : List.of("inherit", "local", "majority", "available", "snapshot",
+                "SNAPSHOT", "LOCAL", "INHERIT")) {
             set(variables, "mongodb_read_concern", value);
-            Assertions.assertEquals(value, VariableMgr.toMap(variables).get("mongodb_read_concern"));
+            Assertions.assertEquals(value.toLowerCase(Locale.ROOT),
+                    VariableMgr.toMap(variables).get("mongodb_read_concern"));
         }
         Map<String, String> forwarded = variables.getForwardVariables();
         Assertions.assertEquals("INHERIT", forwarded.get("mongodb_read_preference"));
-        Assertions.assertEquals("INHERIT", forwarded.get("mongodb_read_concern"));
+        Assertions.assertEquals("inherit", forwarded.get("mongodb_read_concern"));
     }
 
     @Test

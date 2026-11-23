@@ -49,6 +49,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -1849,7 +1850,8 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_REWRITE_ELEMENT_AT_TO_SLOT, fuzzy = true)
     private boolean enableRewriteElementAtToSlot = true;
 
-    @VarAttrDef.VarAttr(name = FORCE_SORT_ALGORITHM, needForward = true, description = "Force the sort algorithm of "
+    @VarAttrDef.VarAttr(name = FORCE_SORT_ALGORITHM, needForward = true, setter = "setForceSortAlgorithm",
+            description = "Force the sort algorithm of "
             + "SortNode to be specified")
     public String forceSortAlgorithm = "";
 
@@ -1908,7 +1910,8 @@ public class SessionVariable implements Serializable, Writable {
             description = "set the number of sort phases 1 or 2. if set other value, let cbo decide the sort type")
     public int sortPhaseNum = 0;
 
-    @VarAttrDef.VarAttr(name = HIVE_TEXT_COMPRESSION, fuzzy = true, needForward = true)
+    @VarAttrDef.VarAttr(name = HIVE_TEXT_COMPRESSION, fuzzy = true, needForward = true,
+            setter = "setHiveTextCompression")
     private String hiveTextCompression = "plain";
 
     @VarAttrDef.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
@@ -2074,7 +2077,8 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY, affectQueryResultInExecution = true)
     private boolean returnObjectDataAsBinary = false;
 
-    @VarAttrDef.VarAttr(name = BLOCK_ENCRYPTION_MODE, affectQueryResultInPlan = true)
+    @VarAttrDef.VarAttr(name = BLOCK_ENCRYPTION_MODE, affectQueryResultInPlan = true,
+            setter = "setBlockEncryptionMode")
     private String blockEncryptionMode = "";
 
     @VarAttrDef.VarAttr(name = ENABLE_PROJECTION)
@@ -2458,7 +2462,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableFileCacheIoAdaptor = true;
 
     // Specify base path for file cache, or chose a random path.
-    @VarAttrDef.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, description = "Specify the storage path of "
+    @VarAttrDef.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, setter = "setFileCacheBasePath",
+            description = "Specify the storage path of "
             + "the block file cache on BE, default 'random', "
             + "and randomly select the storage path configured by BE.")
     public String fileCacheBasePath = "random";
@@ -2903,7 +2908,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = LOAD_STREAM_PER_NODE, checker = "checkLoadStreamPerNode")
     public int loadStreamPerNode = 2;
 
-    @VarAttrDef.VarAttr(name = GROUP_COMMIT, needForward = true)
+    @VarAttrDef.VarAttr(name = GROUP_COMMIT, needForward = true, setter = "setGroupCommit")
     public String groupCommit = "off_mode";
 
     @VarAttrDef.VarAttr(name = ENABLE_PREPARED_STMT_AUDIT_LOG, needForward = true)
@@ -2935,6 +2940,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean invertedIndexCompatibleRead = false;
 
     @VarAttrDef.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
+            setter = "setSqlDialect",
             description = "The dialect used to parse sql.",
             affectQueryResultInPlan = true
     )
@@ -2945,8 +2951,9 @@ public class SessionVariable implements Serializable, Writable {
     public boolean retryOriginSqlOnConvertFail = false;
 
     @VarAttrDef.VarAttr(name = SERDE_DIALECT, needForward = true, checker = "checkSerdeDialect",
+            setter = "setSerdeDialect",
             description = "The output format dialect of each data type returned to the MySQL client.",
-            options = {"doris", "presto", "trino"},
+            options = {"doris", "presto", "trino", "hive"},
             affectQueryResultInPlan = true, affectQueryResultInExecution = true
     )
     public String serdeDialect = "doris";
@@ -3053,6 +3060,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableMaterializedViewRewrite = true;
 
     @VarAttrDef.VarAttr(name = PRE_MATERIALIZED_VIEW_REWRITE_STRATEGY, needForward = true, fuzzy = true,
+            setter = "setPreMaterializedViewRewriteStrategy",
             description = "Whether to enable pre materialized view rewriting based on struct info,"
                     + "FORCE_IN_RBO : Force transparent rewriting in the RBO phase,"
                     + "TRY_IN_RBO : Attempt transparent rewriting in the RBO phase "
@@ -3150,7 +3158,7 @@ public class SessionVariable implements Serializable, Writable {
                     + "inherit follows the catalog policy, including URI routing criteria")
     public String mongodbReadPreference = "inherit";
 
-    @VarAttrDef.VarAttr(name = MONGODB_READ_CONCERN, needForward = true,
+    @VarAttrDef.VarAttr(name = MONGODB_READ_CONCERN, needForward = true, setter = "setMongoDBReadConcern",
             checker = "checkMongoDBReadConcern", affectQueryResultInExecution = true,
             options = {"inherit", "local", "majority", "available", "snapshot"},
             description = "MongoDB data-read visibility for this session or SET_VAR statement. "
@@ -3410,7 +3418,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SEGMENT_CACHE = "enable_segment_cache";
 
     public Set<String> getIgnoreShapePlanNodes() {
-        return Arrays.stream(ignoreShapePlanNodes.split(",[\\s]*")).collect(ImmutableSet.toImmutableSet());
+        return Arrays.stream(ignoreShapePlanNodes.split(",[\\s]*"))
+                .collect(ImmutableSortedSet.toImmutableSortedSet(String.CASE_INSENSITIVE_ORDER));
     }
 
     public void setIgnoreShapePlanNodes(String ignoreShapePlanNodes) {
@@ -3437,7 +3446,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setDetailShapePlanNodes(String detailShapePlanNodes) {
         this.detailShapePlanNodesSet = Arrays.stream(detailShapePlanNodes.split(",[\\s]*"))
-                .collect(ImmutableSet.toImmutableSet());
+                .collect(ImmutableSortedSet.toImmutableSortedSet(String.CASE_INSENSITIVE_ORDER));
         this.detailShapePlanNodes = detailShapePlanNodes;
     }
 
@@ -3692,6 +3701,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableTextValidateUtf8 = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_SQL_CONVERTOR_FEATURES, needForward = true,
+            setter = "setEnableSqlConvertorFeatures",
             checker = "checkSqlConvertorFeatures",
             description = "enable SQL convertor features. Multiple features are separated by commas")
     public String enableSqlConvertorFeatures = "";
@@ -4202,7 +4212,29 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setBlockEncryptionMode(String blockEncryptionMode) {
-        this.blockEncryptionMode = blockEncryptionMode;
+        this.blockEncryptionMode = blockEncryptionMode == null ? null : blockEncryptionMode.toUpperCase(Locale.ROOT);
+    }
+
+    public void setForceSortAlgorithm(String forceSortAlgorithm) {
+        this.forceSortAlgorithm = forceSortAlgorithm == null
+                ? null : forceSortAlgorithm.toLowerCase(Locale.ROOT);
+    }
+
+    public void setSerdeDialect(String serdeDialect) {
+        this.serdeDialect = serdeDialect == null ? null : serdeDialect.toLowerCase(Locale.ROOT);
+    }
+
+    public void setGroupCommit(String groupCommit) {
+        this.groupCommit = groupCommit == null ? null : groupCommit.toLowerCase(Locale.ROOT);
+    }
+
+    public void setEnableSqlConvertorFeatures(String enableSqlConvertorFeatures) {
+        this.enableSqlConvertorFeatures = enableSqlConvertorFeatures == null
+                ? null : enableSqlConvertorFeatures.toLowerCase(Locale.ROOT);
+    }
+
+    public void setMongoDBReadConcern(String value) {
+        this.mongodbReadConcern = value == null ? null : value.toLowerCase(Locale.ROOT);
     }
 
     public void setRewriteOrToInPredicateThreshold(int threshold) {
@@ -5303,7 +5335,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setSqlDialect(String sqlDialect) {
-        this.sqlDialect = sqlDialect == null ? null : sqlDialect.toLowerCase();
+        this.sqlDialect = sqlDialect == null ? null : sqlDialect.toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -5779,7 +5811,12 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setFileCacheBasePath(String basePath) {
-        this.fileCacheBasePath = basePath;
+        // "random" is a keyword compared case-insensitively; any other value is a directory path whose case matters.
+        if (basePath != null && basePath.equalsIgnoreCase("random")) {
+            this.fileCacheBasePath = "random";
+        } else {
+            this.fileCacheBasePath = basePath;
+        }
     }
 
     public boolean isEnableInvertedIndexQuery() {
@@ -6397,7 +6434,7 @@ public class SessionVariable implements Serializable, Writable {
             if (innerParts.length != 2) {
                 continue;
             }
-            if (innerParts[0].equals("trace_id")) {
+            if (innerParts[0].equalsIgnoreCase("trace_id")) {
                 return innerParts[1];
             }
         }
@@ -6514,7 +6551,8 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setHiveTextCompression(String hiveTextCompression) {
-        this.hiveTextCompression = hiveTextCompression;
+        this.hiveTextCompression = hiveTextCompression == null
+                ? null : hiveTextCompression.toLowerCase(Locale.ROOT);
     }
 
     public boolean enableSyncRuntimeFilterSize() {
@@ -6774,7 +6812,8 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setPreMaterializedViewRewriteStrategy(String preMaterializedViewRewriteStrategy) {
-        this.preMaterializedViewRewriteStrategy = preMaterializedViewRewriteStrategy;
+        this.preMaterializedViewRewriteStrategy = preMaterializedViewRewriteStrategy == null
+                ? null : preMaterializedViewRewriteStrategy.toUpperCase(Locale.ROOT);
     }
 
     public boolean isEnableDmlMaterializedViewRewrite() {
@@ -6913,7 +6952,8 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public TSerdeDialect getSerdeDialect() {
-        switch (serdeDialect) {
+        String normalized = serdeDialect == null ? "" : serdeDialect.toLowerCase(Locale.ROOT);
+        switch (normalized) {
             case "doris":
                 return TSerdeDialect.DORIS;
             case "presto":

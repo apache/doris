@@ -3139,7 +3139,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         try {
             checkGroupCommitStreamLoadAuth(request);
-            if (groupCommitMode != null && !groupCommitMode.equals("off_mode") && Env.getCurrentEnv().isMaster()
+            if (groupCommitMode != null && !groupCommitMode.equalsIgnoreCase("off_mode")
+                    && Env.getCurrentEnv().isMaster()
                     && Config.enable_forward_group_commit_stream_load_to_follower) {
                 TStreamLoadPutResult forwardedResult = forwardGroupCommitStreamLoad(request);
                 if (forwardedResult != null) {
@@ -3310,7 +3311,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             ctx.getSessionVariable().enableMemtableOnSinkNode = Config.stream_load_default_memtable_on_sink_node;
         }
-        ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
+        ctx.getSessionVariable().setGroupCommit(request.getGroupCommitMode());
         ctx.getSessionVariable().setEnableInsertStrict(false);
         if (request.isSetPartialUpdate() && !request.isPartialUpdate()) {
             ctx.getSessionVariable().setEnableUniqueKeyPartialUpdate(false);

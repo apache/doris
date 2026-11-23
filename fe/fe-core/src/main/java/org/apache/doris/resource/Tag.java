@@ -29,6 +29,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -125,6 +126,9 @@ public class Tag implements Writable {
         } else if (!value.matches(TAG_VALUE_REGEX)) {
             throw new AnalysisException("Invalid tag value format: " + value);
         }
+        if (TYPE_ROLE.equals(type) && validNodeRoleTag(value)) {
+            value = value.toLowerCase(Locale.ROOT);
+        }
         return new Tag(type, value);
     }
 
@@ -134,7 +138,7 @@ public class Tag implements Writable {
 
     // only support be and cn node role tag for be.
     public static boolean validNodeRoleTag(String value) {
-        return value != null && (value.equals(VALUE_MIX) || value.equals(VALUE_COMPUTATION));
+        return value != null && (VALUE_MIX.equalsIgnoreCase(value) || VALUE_COMPUTATION.equalsIgnoreCase(value));
     }
 
     public String toKey() {

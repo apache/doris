@@ -108,4 +108,10 @@ suite("test_serde_dialect", "p0") {
         sql """set serde_dialect="invalid""""
         exception "sqlDialect value is invalid"
     }
+
+    // the dialect name is accepted in any letter case and takes effect
+    sql """set serde_dialect="PRESTO";"""
+    order_qt_sql_upper_presto """select * from test_serde_dialect_tbl"""
+    sql """set serde_dialect="Doris";"""
+    order_qt_sql_mixed_doris """select * from test_serde_dialect_tbl"""
 }

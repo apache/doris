@@ -43,6 +43,7 @@
 #include "util/mem_info.h"
 #include "util/network_util.h"
 #include "util/private_rpc_tls.h"
+#include "util/string_util.h"
 #include "util/thrift_server.h"
 #include "util/time.h"
 
@@ -96,7 +97,7 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_arrow_flight_sql_port(config::arrow_flight_sql_port);
         heartbeat_result.backend_info.__set_version(get_short_version());
         heartbeat_result.backend_info.__set_be_start_time(_be_epoch);
-        heartbeat_result.backend_info.__set_be_node_role(config::be_node_role);
+        heartbeat_result.backend_info.__set_be_node_role(to_lower(config::be_node_role));
         // If be is gracefully stop, then k_doris_exist is set to true
         heartbeat_result.backend_info.__set_is_shutdown(doris::k_doris_exit);
         heartbeat_result.backend_info.__set_fragment_executing_count(
