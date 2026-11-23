@@ -31,6 +31,7 @@ import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.processor.post.RuntimeFilterPushDownVisitor;
 import org.apache.doris.nereids.processor.post.RuntimeFilterPushDownVisitor.PushDownContext;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -48,7 +49,9 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.WindowFuncType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
@@ -56,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -365,7 +369,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 PushDownContext pushDown = PushDownContext.createPushDownContext(context,
                         newHashJoinBuilder(nullSafeBuilder), source, condition.left(),
                         TRuntimeFilterType.IN_OR_BLOOM, false, 1, 0);
-                join.accept(new RuntimeFilterPushDownVisitor(), pushDown);
+                new RuntimeFilterPushDownVisitor().pushDown(join, pushDown);
                 Assertions.assertEquals(nullSafeBuilder ? 0 : 1, context.getNereidsRuntimeFilter().size());
             }
         } finally {
@@ -392,7 +396,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 PushDownContext pushDown = PushDownContext.createPushDownContext(context,
                         newHashJoinBuilder(false), source, probe, TRuntimeFilterType.IN_OR_BLOOM,
                         false, 1, 0);
-                join.accept(new RuntimeFilterPushDownVisitor(), pushDown);
+                new RuntimeFilterPushDownVisitor().pushDown(join, pushDown);
                 List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
                 Assertions.assertEquals(1, filters.size());
                 Assertions.assertEquals(probe, filters.get(0).getTargetExpression());
@@ -420,7 +424,7 @@ public class RuntimeFilterTest extends SSBTestBase {
                 AbstractPhysicalPlan builder = newHashJoinBuilder(false);
                 PushDownContext pushDown = PushDownContext.createPushDownContext(context, builder,
                         source, probe, TRuntimeFilterType.IN_OR_BLOOM, false, 1, 0).withNonBlocking(true);
-                join.accept(new RuntimeFilterPushDownVisitor(), pushDown);
+                new RuntimeFilterPushDownVisitor().pushDown(join, pushDown);
                 List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
                 Assertions.assertEquals(2, filters.size());
                 for (RuntimeFilter filter : filters) {
@@ -712,6 +716,31 @@ public class RuntimeFilterTest extends SSBTestBase {
         String sql = "SELECT * FROM (select lo_custkey from lineorder order by lo_custkey limit 10) t JOIN customer on lo_custkey = c_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(0, filters.size());
+    }
+
+    @Test
+    public void testRuntimeFilterThroughPartitionTopN() {
+        PhysicalOlapScan scan = (PhysicalOlapScan) planAfterPostProcess(
+                "SELECT lo_partkey, lo_custkey FROM lineorder")
+                .collect(PhysicalOlapScan.class::isInstance).iterator().next();
+        Slot partitionKey = scan.getOutput().get(0);
+        Slot orderKey = scan.getOutput().get(1);
+        for (boolean globalLimit : ImmutableList.of(false, true)) {
+            PhysicalPartitionTopN<PhysicalOlapScan> partitionTopN = new PhysicalPartitionTopN<>(
+                    WindowFuncType.ROW_NUMBER, ImmutableList.of(partitionKey),
+                    ImmutableList.of(new OrderKey(orderKey, true, true)), globalLimit, 1,
+                    PartitionTopnPhase.TWO_PHASE_GLOBAL_PTOPN, scan.getLogicalProperties(), scan);
+            for (Slot probe : ImmutableList.of(partitionKey, orderKey)) {
+                RuntimeFilterContext context = new RuntimeFilterContext(connectContext.getSessionVariable(),
+                        RuntimeFilterId.createGenerator());
+                PushDownContext pushDown = PushDownContext.createPushDownContext(context,
+                        newHashJoinBuilder(false), new SlotReference("source_key", probe.getDataType()),
+                        probe, TRuntimeFilterType.IN_OR_BLOOM, false, 1, 0);
+                boolean expected = !globalLimit && probe.equals(partitionKey);
+                Assertions.assertEquals(expected, new RuntimeFilterPushDownVisitor().pushDown(partitionTopN, pushDown));
+                Assertions.assertEquals(expected ? 1 : 0, context.getNereidsRuntimeFilter().size());
+            }
+        }
     }
 
     @Test

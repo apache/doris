@@ -30,19 +30,14 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
-import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -60,7 +55,7 @@ import java.util.Set;
  * Rewrites probeExpr through Projects and SetOperations, expands through join conditions,
  * and creates RuntimeFilter at scan nodes when probeExpr resolves to a scan slot.
  */
-public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownContext> {
+public class RuntimeFilterPushDownVisitor extends AbstractRuntimeFilterPushDownVisitor<PushDownContext> {
 
     /**
      * PushDownContext carries the information needed to push a runtime filter down the plan tree.
@@ -150,11 +145,16 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
     }
 
     @Override
+    protected Expression getProbeExpression(PushDownContext ctx) {
+        return ctx.probeExpr;
+    }
+
+    @Override
     public Boolean visit(Plan plan, PushDownContext ctx) {
         boolean pushed = false;
         for (Plan child : plan.children()) {
             if (child.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
-                pushed |= child.accept(this, ctx);
+                pushed |= pushDown(child, ctx);
             }
         }
         return pushed;
@@ -290,11 +290,11 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         Plan rightNode = join.child(1);
         if (leftNode.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
                 && canPushThroughJoinChild(join, true, ctx)) {
-            pushed |= leftNode.accept(this, ctx);
+            pushed |= pushDown(leftNode, ctx);
         }
         if (rightNode.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
                 && canPushThroughJoinChild(join, false, ctx)) {
-            pushed |= rightNode.accept(this, ctx);
+            pushed |= pushDown(rightNode, ctx);
         }
 
         // Outer joins only propagate a parent's ordinary join RF from the preserved side.
@@ -339,10 +339,10 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                     }
                     PushDownContext expanded = ctx.withNewProbeExpression(newTarget);
                     if (leftNode.getOutputSet().containsAll(newTarget.getInputSlots())) {
-                        pushed |= leftNode.accept(this, expanded);
+                        pushed |= pushDown(leftNode, expanded);
                     }
                     if (rightNode.getOutputSet().containsAll(newTarget.getInputSlots())) {
-                        pushed |= rightNode.accept(this, expanded);
+                        pushed |= pushDown(rightNode, expanded);
                     }
                 }
             }
@@ -380,11 +380,11 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         Plan right = join.right();
         if (left.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
                 && canPushThroughJoinChild(join, true, ctx)) {
-            pushed |= left.accept(this, ctx);
+            pushed |= pushDown(left, ctx);
         }
         if (right.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
                 && canPushThroughJoinChild(join, false, ctx)) {
-            pushed |= right.accept(this, ctx);
+            pushed |= pushDown(right, ctx);
         }
         return pushed;
     }
@@ -430,9 +430,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalProject(PhysicalProject<? extends Plan> project, PushDownContext ctx) {
-        // A runtime filter below this project can remove rows that would fail assert_true.
-        if (!project.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
-                || project.containsNoneMovableFunction()) {
+        if (!project.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
             return false;
         }
         // Rewrite probeExpr through project aliases using v2-style replaceMap
@@ -440,7 +438,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         Expression newProbeExpr = ctx.probeExpr.rewriteDownShortCircuit(
                 e -> replaceMap.getOrDefault(e, e));
         if (newProbeExpr.getInputSlots().size() == 1) {
-            return project.child().accept(this, ctx.withNewProbeExpression(newProbeExpr));
+            return pushDown(project.child(), ctx.withNewProbeExpression(newProbeExpr));
         }
         return false;
     }
@@ -464,43 +462,10 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             Expression newProbeExpr = ctx.probeExpr.rewriteDownShortCircuit(
                     e -> replaceMap.getOrDefault(e, e));
             if (newProbeExpr.getInputSlots().size() == 1) {
-                pushedDown |= setOperation.child(i).accept(this, ctx.withNewProbeExpression(newProbeExpr));
+                pushedDown |= pushDown(setOperation.child(i), ctx.withNewProbeExpression(newProbeExpr));
             }
         }
         return pushedDown;
-    }
-
-    @Override
-    public Boolean visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, PushDownContext ctx) {
-        if (!repeat.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
-            return false;
-        }
-        // Only push through Repeat if the probe slot appears in ALL grouping sets.
-        // A slot absent from a grouping set is erased to NULL for rows of that group,
-        // so filtering on it would incorrectly discard needed rows.
-        Set<Expression> commonGroupingExprs = repeat.getCommonGroupingSetExpressions();
-        if (!commonGroupingExprs.containsAll(ctx.probeExpr.getInputSlots())) {
-            return false;
-        }
-        return repeat.child().accept(this, ctx);
-    }
-
-    @Override
-    public Boolean visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
-            PushDownContext ctx) {
-        // Filtering the input can hide a row count violation.
-        return false;
-    }
-
-    @Override
-    public Boolean visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, PushDownContext ctx) {
-        // Filtering the input can change which rows the limit selects.
-        return false;
-    }
-
-    @Override
-    public Boolean visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, PushDownContext ctx) {
-        return false;
     }
 
     @Override
@@ -511,7 +476,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
         Set<SlotReference> commonPartitionKeys = window.getCommonPartitionKeyFromWindowExpressions();
         if (commonPartitionKeys.containsAll(ctx.probeExpr.getInputSlots())) {
-            return window.child().accept(this, ctx);
+            return pushDown(window.child(), ctx);
         }
         return false;
     }

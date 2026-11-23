@@ -32,3 +32,88 @@ PhysicalResultSink
 -- !limit_result --
 2	\N
 
+-- !project_plan --
+PhysicalResultSink
+--PhysicalProject
+----hashJoin[INNER_JOIN broadcast] hashCondition=((l.k = e.k)) otherCondition=() build RFs:RF0 k->k
+------PhysicalProject
+--------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((l.k = r.k)) otherCondition=()
+----------PhysicalOlapScan[outer_rf_row_count_left(l)] apply RFs: RF0
+----------PhysicalProject
+------------PhysicalOlapScan[outer_rf_row_count_right]
+------PhysicalOlapScan[outer_rf_row_count_build(e)]
+
+-- !filter_plan --
+PhysicalResultSink
+--PhysicalProject
+----hashJoin[INNER_JOIN broadcast] hashCondition=((l.k = e.k)) otherCondition=() build RFs:RF0 k->k
+------PhysicalProject
+--------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((l.k = r.k)) otherCondition=()
+----------PhysicalOlapScan[outer_rf_row_count_left(l)] apply RFs: RF0
+----------PhysicalProject
+------------filter(assert_true((outer_rf_row_count_right.v > 10), 'bad'))
+--------------PhysicalOlapScan[outer_rf_row_count_right]
+------PhysicalOlapScan[outer_rf_row_count_build(e)]
+
+-- !window_plan --
+PhysicalResultSink
+--PhysicalProject
+----hashJoin[INNER_JOIN broadcast] hashCondition=((l.k = e.k)) otherCondition=() build RFs:RF0 k->k
+------PhysicalProject
+--------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((l.k = r.k)) otherCondition=()
+----------PhysicalOlapScan[outer_rf_row_count_left(l)] apply RFs: RF0
+----------PhysicalProject
+------------PhysicalWindow
+--------------PhysicalQuickSort[LOCAL_SORT]
+----------------PhysicalProject
+------------------PhysicalOlapScan[outer_rf_row_count_right]
+------PhysicalOlapScan[outer_rf_row_count_build(e)]
+
+-- !aggregate_plan --
+PhysicalResultSink
+--PhysicalProject
+----hashJoin[INNER_JOIN broadcast] hashCondition=((l.k = e.k)) otherCondition=() build RFs:RF0 k->k
+------PhysicalProject
+--------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((l.k = r.k)) otherCondition=()
+----------PhysicalOlapScan[outer_rf_row_count_left(l)] apply RFs: RF0
+----------hashAgg[GLOBAL]
+------------PhysicalOlapScan[outer_rf_row_count_right]
+------PhysicalOlapScan[outer_rf_row_count_build(e)]
+
+-- !sort_plan --
+PhysicalResultSink
+--PhysicalProject
+----hashJoin[INNER_JOIN broadcast] hashCondition=((l.k = e.k)) otherCondition=() build RFs:RF0 k->k
+------PhysicalProject
+--------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((l.k = r.k)) otherCondition=()
+----------PhysicalOlapScan[outer_rf_row_count_left(l)] apply RFs: RF0
+----------PhysicalProject
+------------PhysicalQuickSort[MERGE_SORT]
+--------------PhysicalDistribute[DistributionSpecGather]
+----------------PhysicalQuickSort[LOCAL_SORT]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[outer_rf_row_count_right]
+------PhysicalOlapScan[outer_rf_row_count_build(e)]
+
+-- !plain_sort_plan --
+PhysicalResultSink
+--PhysicalProject
+----hashJoin[INNER_JOIN broadcast] hashCondition=((l.k = e.k)) otherCondition=() build RFs:RF0 k->k;RF1 k->k
+------PhysicalProject
+--------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((l.k = r.k)) otherCondition=()
+----------PhysicalOlapScan[outer_rf_row_count_left(l)] apply RFs: RF0
+----------PhysicalQuickSort[MERGE_SORT]
+------------PhysicalDistribute[DistributionSpecGather]
+--------------PhysicalQuickSort[LOCAL_SORT]
+----------------PhysicalOlapScan[outer_rf_row_count_right] apply RFs: RF1
+------PhysicalOlapScan[outer_rf_row_count_build(e)]
+
+-- !direct_filter_plan --
+PhysicalResultSink
+--PhysicalProject
+----hashJoin[INNER_JOIN broadcast] hashCondition=((r.k = e.k)) otherCondition=()
+------PhysicalProject
+--------filter(assert_true((outer_rf_row_count_right.v > 10), 'bad'))
+----------PhysicalOlapScan[outer_rf_row_count_right]
+------PhysicalOlapScan[outer_rf_row_count_build(e)]
+

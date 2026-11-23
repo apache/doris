@@ -66,18 +66,45 @@ suite("outer_join_runtime_filter_row_count") {
         exception "Expected EQ 1 to be returned by expression"
     }
 
-    // The build-side projection must evaluate the row with k = 1 before the ancestor join filters it.
+    // Every derived input must evaluate the row with k = 1 before the ancestor join filters it.
     sql "insert into outer_rf_row_count_left values (1)"
-    def projectQuery = """select l.k, r.checked from outer_rf_row_count_left l
-        left join (
-            select k, assert_true(v > 10, 'bad') as checked from outer_rf_row_count_right
-        ) r on l.k = r.k
-        inner join outer_rf_row_count_build e on l.k = e.k"""
+    sql "set disable_nereids_rules = 'ELIMINATE_SORT,ELIMINATE_ORDER_BY_UNDER_SUBQUERY'"
+    def inputs = [
+        project: """select k, assert_true(v > 10, 'bad') as checked from outer_rf_row_count_right""",
+        filter: """select k, v as checked from outer_rf_row_count_right where assert_true(v > 10, 'bad')""",
+        window: """select k, sum(cast(assert_true(v > 10, 'bad') as int)) over (partition by k) as checked
+            from outer_rf_row_count_right""",
+        aggregate: """select k, sum(cast(assert_true(v > 10, 'bad') as int)) as checked
+            from outer_rf_row_count_right group by k""",
+        sort: """select k, v as checked from outer_rf_row_count_right order by assert_true(v > 10, 'bad')"""
+    ]
     for (def expand : [false, true]) {
         sql "set expand_runtime_filter_by_inner_join = ${expand}"
-        test {
-            sql projectQuery
-            exception "bad"
+        inputs.each { name, input ->
+            def query = """select l.k, r.checked from outer_rf_row_count_left l
+                left join (${input}) r on l.k = r.k
+                inner join outer_rf_row_count_build e on l.k = e.k"""
+            if (expand) {
+                "qt_${name}_plan"("explain shape plan ${query}")
+            }
+            test {
+                sql query
+                exception "bad"
+            }
         }
+    }
+
+    qt_plain_sort_plan """explain shape plan select l.k, r.v from outer_rf_row_count_left l
+        left join (select k, v from outer_rf_row_count_right order by v) r on l.k = r.k
+        inner join outer_rf_row_count_build e on l.k = e.k"""
+
+    // The same barrier applies when the derived input is the direct probe side of the producer.
+    sql "set expand_runtime_filter_by_inner_join = false"
+    def directQuery = """select r.k, r.checked from (${inputs.filter}) r
+        inner join outer_rf_row_count_build e on r.k = e.k"""
+    qt_direct_filter_plan "explain shape plan ${directQuery}"
+    test {
+        sql directQuery
+        exception "bad"
     }
 }
