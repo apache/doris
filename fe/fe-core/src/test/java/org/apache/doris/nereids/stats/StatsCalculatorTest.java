@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.PartitionPrunablePredicate;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -282,6 +283,28 @@ public class StatsCalculatorTest {
             Assertions.assertEquals(4, result.count, 0.001);
             // the table level statistic covers the whole table, so numNulls is scaled: 3 * 4 / 12
             Assertions.assertEquals(1, result.numNulls, 0.001);
+        }
+    }
+
+    @Test
+    public void testProvenPartitionFilterUsesSelectedRows() {
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(false, newTableStatistic(2), null)) {
+            EqualTo predicate = new EqualTo(fixture.slot, new IntegerLiteral(2));
+            LogicalFilter<Plan> filter = new LogicalFilter<>(ImmutableSet.of(predicate), new DummyPlan());
+            StatsCalculator calculator = new StatsCalculator(null);
+            Assertions.assertEquals(1.5, calculator.computeFilter(filter, fixture.computeOlapScan()).getRowCount());
+
+            PartitionPrunablePredicate proof = new PartitionPrunablePredicate(
+                    ImmutableSet.copyOf(fixture.scan.getSelectedPartitionIds()), ImmutableList.of(fixture.slot),
+                    ImmutableSet.of(predicate));
+            Mockito.when(fixture.scan.getPartitionPrunablePredicates()).thenReturn(Optional.of(proof));
+
+            Statistics selected = fixture.computeOlapScan();
+            Assertions.assertEquals(4, calculator.computeFilter(filter, selected).getRowCount());
+            Assertions.assertEquals(4, calculator.computeFilter(filter,
+                    selected.withRowCountAndEnforceValid(4)).getRowCount());
+            Assertions.assertEquals(1, selected.findColumnStatistics(fixture.slot).ndv);
+            Assertions.assertEquals(0, selected.findColumnStatistics(fixture.slot).numNulls);
         }
     }
 

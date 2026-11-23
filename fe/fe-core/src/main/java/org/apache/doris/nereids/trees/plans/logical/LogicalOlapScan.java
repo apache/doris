@@ -436,6 +436,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation
         return hasPartitionPredicate;
     }
 
+    @Override
     public Optional<PartitionPrunablePredicate> getPartitionPrunablePredicates() {
         return partitionPrunablePredicates;
     }

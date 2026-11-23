@@ -39,6 +39,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -136,6 +137,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
@@ -157,6 +159,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -659,6 +662,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(selectedPartitionsRowCount);
+            Statistics selectedStats = computeVirtualColumnStats(olapScan, builder.build());
+            return olapScan.getPartitionPrunablePredicates()
+                    .filter(proof -> proof.getSelectedPartitionIds().containsAll(olapScan.getSelectedPartitionIds()))
+                    .map(proof -> withPartitionPredicateProof(selectedStats, proof.getPrunableConjuncts()))
+                    .orElse(selectedStats);
         } else {
             // get table level stats
             for (SlotReference slot : visibleOutputSlots) {
@@ -1224,7 +1232,54 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * computeFilter
      */
     public Statistics computeFilter(Filter filter, Statistics inputStats) {
+        if (inputStats instanceof PartitionScanStatistics) {
+            PartitionScanStatistics partitionStats = (PartitionScanStatistics) inputStats;
+            Set<Expression> residual = Sets.difference(filter.getConjuncts(), partitionStats.provenConjuncts);
+            Statistics filterInput = new Statistics(inputStats);
+            if (residual.isEmpty()) {
+                filterInput.enforceValid();
+                return filterInput;
+            }
+            return new FilterEstimation().estimate(ExpressionUtils.and(residual), filterInput);
+        }
         return new FilterEstimation().estimate(filter.getPredicate(), inputStats);
+    }
+
+    private static Statistics withPartitionPredicateProof(Statistics statistics, Set<Expression> provenConjuncts) {
+        PartitionScanStatistics scanStats = new PartitionScanStatistics(statistics, provenConjuncts);
+        for (Expression conjunct : provenConjuncts) {
+            if (conjunct instanceof EqualTo && conjunct.child(0) instanceof SlotReference
+                    && conjunct.child(1) instanceof Literal && !conjunct.child(1).isNullLiteral()) {
+                Expression slot = conjunct.child(0);
+                ColumnStatistic columnStats = scanStats.findColumnStatistics(slot);
+                ColumnStatistic literalStats = ExpressionEstimation.estimate(conjunct.child(1), scanStats);
+                if (columnStats != null && !columnStats.isUnKnown && !literalStats.isUnKnown) {
+                    scanStats.addColumnStats(slot, new ColumnStatisticBuilder(columnStats)
+                            .setNdv(Math.min(1, scanStats.getRowCount())).setNumNulls(0).setHotValues(null)
+                            .setMinValue(literalStats.minValue).setMinExpr(literalStats.minExpr)
+                            .setMaxValue(literalStats.maxValue).setMaxExpr(literalStats.maxExpr).build());
+                }
+            }
+        }
+        return scanStats;
+    }
+
+    /** Proof follows the estimate that actually used the selected partition population. */
+    private static final class PartitionScanStatistics extends Statistics {
+        private final Set<Expression> provenConjuncts;
+
+        private PartitionScanStatistics(Statistics statistics, Set<Expression> provenConjuncts) {
+            super(statistics);
+            this.provenConjuncts = provenConjuncts;
+        }
+
+        @Override
+        public Statistics withRowCountAndEnforceValid(double rowCount) {
+            // Memo recomputation preserves proof when the originating scan estimate is unchanged.
+            Statistics result = withRowCount(rowCount);
+            result.enforceValid();
+            return rowCount == getRowCount() ? new PartitionScanStatistics(result, provenConjuncts) : result;
+        }
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId) {

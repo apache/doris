@@ -214,6 +214,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         return hasPartitionPredicate;
     }
 
+    @Override
     public Optional<PartitionPrunablePredicate> getPartitionPrunablePredicates() {
         return partitionPrunablePredicates;
     }
