@@ -41,6 +41,9 @@ public:
 
     bool can_push_down_to_index() const override { return true; }
 
+    // The condition cache key must cover the DSL, which lives in _search_param, not in children.
+    uint64_t get_digest(uint64_t seed) const override;
+
     const TSearchParam& get_search_param() const { return _search_param; }
     bool enable_cache() const { return _enable_cache; }
 
@@ -50,6 +53,8 @@ public:
 private:
     TSearchParam _search_param;
     std::string _original_dsl;
+    // Serialized _search_param, so every DSL field joins the digest. Empty disables the cache.
+    std::string _search_param_key;
     bool _enable_cache = true;
 };
 
