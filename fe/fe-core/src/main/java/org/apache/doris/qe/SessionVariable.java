@@ -2577,7 +2577,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableParquetWritePageIndex = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_PARQUET_WRITE_BLOOM_FILTER, needForward = true,
-            description = "Write Bloom filters to new Parquet files, except BOOLEAN and INT96 columns. Default is false.")
+            description = "Write Bloom filters to new Parquet files, except BOOLEAN and INT96 columns. "
+                    + "Default is false.")
     public boolean enableParquetWriteBloomFilter = false;
 
     @VarAttrDef.VarAttr(name = PARQUET_WRITE_DATA_PAGE_SIZE, needForward = true,
