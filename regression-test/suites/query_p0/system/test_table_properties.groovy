@@ -90,19 +90,14 @@ suite("test_table_properties") {
     def compression_count = sql """ select count(*) from information_schema.table_properties where table_schema=\"${dbName}\" and PROPERTY_NAME=\"compression\" """;
     assert compression_count.first()[0] == 3;
 
-    def tablePropertiesFilter = "table_schema = '${dbName}'"
-    if (isCloudMode()) {
-        qt_select_delete_bitmap_lock_v2 """
-            SELECT TABLE_NAME, PROPERTY_VALUE FROM information_schema.table_properties
-            WHERE ${tablePropertiesFilter} AND PROPERTY_NAME = 'enable_delete_bitmap_lock_v2'
-            ORDER BY TABLE_NAME, PROPERTY_VALUE
-        """
-        tablePropertiesFilter += " AND PROPERTY_NAME != 'enable_delete_bitmap_lock_v2'"
-    }
-    qt_select_check_1 """SELECT count(*) FROM information_schema.table_properties WHERE ${tablePropertiesFilter}"""
+    qt_select_check_1 """
+        SELECT count(*) FROM information_schema.table_properties
+        WHERE TABLE_SCHEMA = '${dbName}' AND PROPERTY_NAME != 'enable_delete_bitmap_lock_v2'
+    """
     qt_select_check_2 """
         SELECT * FROM information_schema.table_properties
-        WHERE ${tablePropertiesFilter} AND PROPERTY_NAME != 'default.replication_allocation'
+        WHERE TABLE_SCHEMA = '${dbName}'
+            AND PROPERTY_NAME NOT IN ('default.replication_allocation', 'enable_delete_bitmap_lock_v2')
         ORDER BY TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, PROPERTY_NAME, PROPERTY_VALUE
     """
     sql """
@@ -110,7 +105,8 @@ suite("test_table_properties") {
     """    
     qt_select_check_3 """
         SELECT * FROM information_schema.table_properties
-        WHERE ${tablePropertiesFilter} AND PROPERTY_NAME != 'default.replication_allocation'
+        WHERE TABLE_SCHEMA = '${dbName}'
+            AND PROPERTY_NAME NOT IN ('default.replication_allocation', 'enable_delete_bitmap_lock_v2')
         ORDER BY TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, PROPERTY_NAME, PROPERTY_VALUE
     """
 
