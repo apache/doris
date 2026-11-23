@@ -52,7 +52,7 @@ apt-get "${apt_options[@]}" upgrade -y --with-new-pkgs
 # build-only packages so the same patch policy does not add unused tooling.
 if [[ $# -eq 0 ]]; then
     set -- curl fontconfig hostname iproute2 iputils-ping jq libstdc++6 \
-        "${mysql_client}" net-tools numactl openssl procps tzdata util-linux wget
+        "${mysql_client}" net-tools numactl openssl passwd procps tzdata util-linux wget
 fi
 # Accept the core-client name from either supported Ubuntu release so test
 # images and explicit Jammy overrides use the same installer.

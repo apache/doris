@@ -138,6 +138,7 @@ for role in fe be ms; do
     image="${DORIS_IMAGE_PREFIX:-doris}.${role}:${version}${DORIS_IMAGE_TAG_SUFFIX-${runtime_tag_suffix}}"
     docker build --no-cache --platform "linux/${arch}" \
         --build-arg "BASE_IMAGE=${base_image}" --build-arg "JAVA_VERSION=${java_version}" \
+        --build-arg "DORIS_UID=${DORIS_UID:-10001}" --build-arg "DORIS_GID=${DORIS_GID:-10001}" \
         --build-arg "DORIS_VERSION=${version}" -t "${image}" "${context}"
     docker image inspect "${image}" > "${work_dir}/${role}-${version}-${arch}.image.json"
 done
