@@ -591,7 +591,7 @@ public class SPMRound63ManagerTest {
         }
 
         @Override
-        public void append(long lastId, long tick, long pending) {
+        public void append(long lastId, long tick, long pending, String owner) {
         }
 
         @Override
@@ -599,11 +599,11 @@ public class SPMRound63ManagerTest {
         }
 
         @Override
-        public void closeWindow(long windowTick) {
+        public void closeWindow(long windowTick, String owner) {
         }
 
         @Override
-        public long countVisiblePending(long tick) {
+        public long countVisiblePending(long tick, String owner) {
             return 1L;
         }
     }

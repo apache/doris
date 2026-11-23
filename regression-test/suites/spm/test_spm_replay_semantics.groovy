@@ -207,10 +207,16 @@ suite("test_spm_replay_semantics", "spm") {
 
     def wholeContainers = [
         whole_map_key: "element_at(map_keys({NULL:1}), 1)",
-        whole_nested_array: "element_at(element_at([[NULL]], 1), 1)"
+        whole_nested_array: "element_at(element_at([[NULL]], 1), 1)",
+        whole_nested_map: "element_at(element_at({'a':{'b':NULL}}, 'a'), 'b')",
+        nested_map: "element_at(element_at(map('a', map('b', NULL)), 'a'), 'b')",
+        any_value: "any_value(NULL)"
     ]
     wholeContainers.each { tag, payload ->
         String bind = "SELECT k, k > 0 OR ${payload} AS c FROM spm_replay_semantics_t"
+        if (tag == "any_value") {
+            bind += " GROUP BY k"
+        }
         String variant = bind.replace("NULL", "TRUE")
         withBaseline(bind) { long id ->
             quickTest(tag + "_frozen", "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}")
@@ -218,6 +224,25 @@ suite("test_spm_replay_semantics", "spm") {
             quickTest(tag + "_variant_rows", variant, true)
             quickTest(tag + "_hit", "SELECT ${explainHit(bind, id)}, ${explainHit(variant, id)}")
         }
+    }
+
+    String decimalLiteral = "1.1234567890123456789012345678901234567"
+    String decimal = "SELECT * REPLACE(${decimalLiteral} * ${decimalLiteral} AS k) FROM spm_replay_ids"
+    def oldFold = sql("SELECT @@enable_fold_constant_by_be")[0][0]
+    def oldDecimal256 = sql("SELECT @@enable_decimal256")[0][0]
+    try {
+        sql "SET enable_fold_constant_by_be = true"
+        sql "SET enable_decimal256 = false"
+        withBaseline(decimal) { long id ->
+            qt_decimal_settings_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+            sql "SET enable_decimal256 = true"
+            def (rows, metadata) = JdbcUtils.executeToList(context.getConnection(), decimal)
+            qt_decimal_settings_replayed """SELECT '${rows[0][0]}',
+                ${metadata.getPrecision(1)}, ${metadata.getScale(1)}, ${explainHit(decimal, id)}"""
+        }
+    } finally {
+        sql "SET enable_decimal256 = ${oldDecimal256}"
+        sql "SET enable_fold_constant_by_be = ${oldFold}"
     }
 
     String starSubquery = "SELECT * REPLACE((SELECT max(k) + 1 FROM spm_replay_semantics_u) AS k)" +

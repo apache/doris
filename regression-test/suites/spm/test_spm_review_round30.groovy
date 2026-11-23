@@ -41,6 +41,7 @@ suite("test_spm_review_round30", "spm") {
     // surface as an error, never silently re-run the original query.
     sql """set enable_spm_fallback = false"""
     sql """set enable_spm_rewrite = true"""
+    sql """set enable_sql_cache = false"""
     // The unix_timestamp(k2) assertion below converts DATETIME values using the
     // SESSION time_zone, and this suite's .out file pins the +08:00 epochs. Without
     // this the FE default comes from the runner's HOST zone: on a UTC runner the same
@@ -117,7 +118,7 @@ suite("test_spm_review_round30", "spm") {
         long clockId = Long.parseLong(created[0][0].toString())
         assertTrue(explainOf(clockOk).contains("SPM baseline hit: id=${clockId}"),
                 "unix_timestamp with arguments must stay allowed: " + explainOf(clockOk))
-        order_qt_clock_function_allowed """SELECT unix_timestamp(k2) AS ts FROM spm_r30_t1 ORDER BY k1"""
+        order_qt_clock_function_allowed clockOk
 
         // leave no baselines behind for other runs
         dropOwnBaselines()

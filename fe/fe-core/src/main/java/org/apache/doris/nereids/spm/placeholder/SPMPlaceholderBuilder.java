@@ -467,7 +467,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         String name = ((Function) expression).getName();
         return "min".equalsIgnoreCase(name) || "max".equalsIgnoreCase(name)
                 || "first_value".equalsIgnoreCase(name) || "last_value".equalsIgnoreCase(name)
-                || "nth_value".equalsIgnoreCase(name);
+                || "nth_value".equalsIgnoreCase(name) || "any_value".equalsIgnoreCase(name);
     }
 
     private static boolean hasConditionalResultInputs(Expression expression) {
@@ -546,23 +546,25 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     /** Follows a map's value type through constructors and type-preserving wrappers. */
     private static boolean isAllNullMap(Expression expr) {
-        return isAllNullMapComponent(expr, 0, false);
+        return allMapComponentsMatch(expr, false, SPMPlaceholderBuilder::producesNullType);
     }
 
-    /** Tests the requested map component, optionally through further array elements. */
-    private static boolean isAllNullMapComponent(Expression expr, int arrayDepth, boolean key) {
+    private static boolean allMapComponentsMatch(Expression expr, boolean key, Predicate<Expression> predicate) {
         if (expr.isNullLiteral()) {
             return true;
         }
         if (hasConditionalResultInputs(expr)) {
-            return allConditionalContainersMatch(expr, input -> isAllNullMapComponent(input, arrayDepth, key));
+            return allConditionalContainersMatch(expr, input -> allMapComponentsMatch(input, key, predicate));
+        }
+        if (isElementAtCall(expr)) {
+            return allElementAtInputsMatch(expr, input -> allMapComponentsMatch(input, key, predicate));
         }
         if (expr instanceof MapLiteral) {
             Map<Literal, Literal> entries = ((MapLiteral) expr).getValue();
-            return allNullAtArrayDepth(key ? entries.keySet() : entries.values(), arrayDepth);
+            return (key ? entries.keySet() : entries.values()).stream().allMatch(predicate);
         }
         if (isTypePreservingMapCall(expr)) {
-            return expr.arity() > 0 && isAllNullMapComponent(expr.child(0), arrayDepth, key);
+            return expr.arity() > 0 && allMapComponentsMatch(expr.child(0), key, predicate);
         }
         if (!isMapConstructor(expr)) {
             return false;
@@ -572,7 +574,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return false;
         }
         for (int i = key ? 0 : 1; i < pairs.size(); i += 2) {
-            if (!nullAtArrayDepth(pairs.get(i), arrayDepth)) {
+            if (!predicate.test(pairs.get(i))) {
                 return false;
             }
         }
@@ -581,11 +583,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     /** Tests whether the element of a recognized array producer has NullType. */
     private static boolean isAllNullArray(Expression expr) {
-        return isAllNullArray(expr, 1);
+        return allArrayElementsMatch(expr, SPMPlaceholderBuilder::producesNullType);
     }
 
-    /** Follows the result type through the requested number of array element selections. */
-    private static boolean isAllNullArray(Expression expr, int depth) {
+    private static boolean allArrayElementsMatch(Expression expr, Predicate<Expression> predicate) {
         if (expr == null) {
             return false;
         }
@@ -593,49 +594,41 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return true;
         }
         if (hasConditionalResultInputs(expr)) {
-            return allConditionalContainersMatch(expr, input -> isAllNullArray(input, depth));
+            return allConditionalContainersMatch(expr, input -> allArrayElementsMatch(input, predicate));
         }
         if (isElementAtCall(expr)) {
-            return expr.arity() > 0 && (isAllNullArray(expr.child(0), depth + 1)
-                    || isAllNullMapComponent(expr.child(0), depth, false));
+            return allElementAtInputsMatch(expr, input -> allArrayElementsMatch(input, predicate));
         }
         if (isArrayMapCall(expr)) {
-            return !expr.children().isEmpty() && expr.child(0) instanceof Lambda
-                    && nullAtArrayDepth(((Lambda) expr.child(0)).getLambdaFunction(), depth - 1);
+            return expr.arity() > 0 && expr.child(0) instanceof Lambda
+                    && predicate.test(((Lambda) expr.child(0)).getLambdaFunction());
         }
         int elementIndex = elementTypeArgumentIndex(expr);
         if (elementIndex >= 0) {
-            return elementIndex < expr.arity() && nullAtArrayDepth(expr.child(elementIndex), depth - 1);
+            return elementIndex < expr.arity() && predicate.test(expr.child(elementIndex));
         }
         if (isArrayConcatCall(expr)) {
             return !expr.children().isEmpty()
-                    && expr.children().stream().allMatch(part -> isAllNullArray(part, depth));
+                    && expr.children().stream().allMatch(part -> allArrayElementsMatch(part, predicate));
         }
         if (isMapValuesCall(expr) || isMapKeysCall(expr)) {
-            return expr.arity() == 1 && isAllNullMapComponent(expr.child(0), depth - 1, isMapKeysCall(expr));
+            return expr.arity() == 1 && allMapComponentsMatch(expr.child(0), isMapKeysCall(expr), predicate);
         }
         if (isTypePreservingArrayCall(expr)) {
-            return !expr.children().isEmpty() && isAllNullArray(expr.child(0), depth);
+            return expr.arity() > 0 && allArrayElementsMatch(expr.child(0), predicate);
         }
         if (!isArrayConstructor(expr)) {
             return false;
         }
         List<? extends Expression> elements = expr instanceof ArrayLiteral
                 ? ((ArrayLiteral) expr).getValue() : expr.children();
-        return allNullAtArrayDepth(elements, depth - 1);
+        return elements.stream().allMatch(predicate);
     }
 
-    private static boolean allNullAtArrayDepth(Iterable<? extends Expression> values, int depth) {
-        for (Expression value : values) {
-            if (!nullAtArrayDepth(value, depth)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean nullAtArrayDepth(Expression value, int depth) {
-        return depth == 0 ? producesNullType(value) : isAllNullArray(value, depth);
+    /** Follows the first argument of element_at through its array or map overload. */
+    private static boolean allElementAtInputsMatch(Expression expr, Predicate<Expression> predicate) {
+        return expr.arity() > 0 && (allArrayElementsMatch(expr.child(0), predicate)
+                || allMapComponentsMatch(expr.child(0), false, predicate));
     }
 
     /** ARRAY_MAP derives its element type from the lambda body at argument zero. */
@@ -1123,9 +1116,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             DataType key = mapType.getKeyType();
             DataType value = mapType.getValueType();
             if (mapKeyDependency) {
-                targetType = MapType.of(booleanArrayLeafType(key), value);
+                targetType = MapType.of(booleanContainerLeafType(key), value);
             } else {
-                DataType booleanValue = booleanArrayLeafType(value);
+                DataType booleanValue = booleanContainerLeafType(value);
                 if (booleanValue.equals(value)) {
                     return null;
                 }
@@ -1133,7 +1126,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 targetType = MapType.of(key.isNullType() ? StringType.INSTANCE : key, booleanValue);
             }
         } else if (literal instanceof ArrayLiteral) {
-            targetType = booleanArrayLeafType(type);
+            targetType = booleanContainerLeafType(type);
         } else {
             return null;
         }
@@ -1141,15 +1134,20 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         return targetType.equals(type) ? null : (Literal) literal.checkedCastWithStrictChecking(targetType, true);
     }
 
-    /** Replaces a NullType leaf through any number of array layers. */
-    private static DataType booleanArrayLeafType(DataType type) {
+    /** Types a NullType leaf through array elements and map values. */
+    private static DataType booleanContainerLeafType(DataType type) {
         if (type.isNullType()) {
             return BooleanType.INSTANCE;
         }
         if (type instanceof ArrayType) {
             DataType item = ((ArrayType) type).getItemType();
-            DataType booleanItem = booleanArrayLeafType(item);
+            DataType booleanItem = booleanContainerLeafType(item);
             return item.equals(booleanItem) ? type : ArrayType.of(booleanItem);
+        }
+        if (type instanceof MapType) {
+            MapType map = (MapType) type;
+            DataType value = booleanContainerLeafType(map.getValueType());
+            return value.equals(map.getValueType()) ? type : MapType.of(map.getKeyType(), value);
         }
         return type;
     }

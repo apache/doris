@@ -493,11 +493,13 @@ class InternalSchemaInitializerTest {
                 "the slot carries the bounded mutation clock: " + sql);
         Assertions.assertTrue(sql.contains("`pending`"),
                 "the slot carries the open mutation window: " + sql);
+        Assertions.assertTrue(sql.contains("`window_owner`"),
+                "the slot records which FE process owns each open mutation window: " + sql);
         Assertions.assertFalse(sql.contains("UNIQUE KEY"),
                 "the record is append-only (a superseded row never regresses the MAX): " + sql);
-        Assertions.assertEquals(4, InternalSchema.getCopiedSchema(
+        Assertions.assertEquals(5, InternalSchema.getCopiedSchema(
                         InternalSchema.SPM_BASELINES_HWM_TBL_NAME).size(),
-                "the copied schema carries exactly watermark / update_time / tick / pending");
+                "the copied schema carries exactly watermark / update_time / tick / pending / window_owner");
         Assertions.assertTrue(InternalSchemaInitializer.REPLICA_UPGRADED_INTERNAL_TABLES
                         .contains(InternalSchema.SPM_BASELINES_HWM_TBL_NAME),
                 "losing the hosting BE must not make the id watermark unreadable");

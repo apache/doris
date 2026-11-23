@@ -511,7 +511,7 @@ public interface BaselinePersistence {
     }
 
     /** Appends one high-water-mark / clock row. */
-    default void appendHwmRecord(long lastId, long tick, long pending) {
+    default void appendHwmRecord(long lastId, long tick, long pending, String owner) {
     }
 
     /** Best-effort prune of the HWM rows the just-written one supersedes. */
@@ -519,7 +519,7 @@ public interface BaselinePersistence {
     }
 
     /** Closes the OPEN window of one completed mutation (exact-row delete). */
-    default void closeMutationWindow(long windowTick) {
+    default void closeMutationWindow(long windowTick, String owner) {
     }
 
     /** The greatest watermark and tick of expired windows, or zeroes when none exist. */
@@ -537,11 +537,11 @@ public interface BaselinePersistence {
     }
 
     /**
-     * Whether the OPEN window just appended is READABLE by other readers (the
+     * Counts readable OPEN markers matching the tick and owner (the
      * bounded read-back that makes the statement's dispatch conditional on the window
      * being shared). Substituted stores are synchronous: the default answers 1.
      */
-    default long countVisiblePending(long tick) {
+    default long countVisiblePending(long tick, String owner) {
         return 1L;
     }
 }

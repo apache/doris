@@ -152,7 +152,7 @@ public class SPMRound76ManagerTest {
         }
 
         @Override
-        public void appendHwmRecord(long lastId, long tick, long pending) {
+        public void appendHwmRecord(long lastId, long tick, long pending, String owner) {
             if (pending != 0) {
                 pendingTicks.add(pending);
                 if (windowOpenHook != null) {
@@ -162,12 +162,12 @@ public class SPMRound76ManagerTest {
         }
 
         @Override
-        public void closeMutationWindow(long windowTick) {
+        public void closeMutationWindow(long windowTick, String owner) {
             closedWindows.add(windowTick);
         }
 
         @Override
-        public long countVisiblePending(long tick) {
+        public long countVisiblePending(long tick, String owner) {
             return pendingTicks.contains(tick) ? 1L : 0L;
         }
 

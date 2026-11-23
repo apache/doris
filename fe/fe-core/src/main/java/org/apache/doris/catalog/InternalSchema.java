@@ -423,6 +423,9 @@ public class InternalSchema {
         // overlapping an open window retries.
         SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("pending",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        // Tick ordering and window ownership are separate. A process instance owns its marker.
+        SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("window_owner",
+                ScalarType.createVarchar(36), ColumnNullableType.NOT_NULLABLE));
 
     }
 

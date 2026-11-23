@@ -595,4 +595,8 @@ public final class BaselineManagerTestAccess {
                 (String) staticValue("PRUNE_HWM_SAME_WATERMARK_SQL"),
                 (String) staticValue("PRUNE_HWM_OPEN_SQL")};
     }
+
+    public static String pendingWindowReadSql() {
+        return (String) staticValue("SELECT_PENDING_TICK_SQL");
+    }
 }

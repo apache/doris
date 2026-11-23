@@ -80,21 +80,28 @@ public class BaselineManagerMutationClockTest {
         return plan;
     }
 
-    /** The simulated slot store: one row per append ({lastId, tick, pending, writtenAt}). */
-    private static final class MutationClockSimulator
-            implements BaselineTestDoubles.MutationClockStore {
-        private final List<long[]> rows = new ArrayList<>();
-        /** Visibility probes that still report the open window as NOT readable. */
+    /** The simulated slot store, including markers that have committed but are not readable. */
+    private static final class MutationClockSimulator implements BaselineTestDoubles.MutationClockStore {
+        private static final String FOREIGN_OWNER = "other-process";
+
+        private record ClockRow(long watermark, long tick, long pending, long writtenAt, String owner) {
+            boolean belongsTo(long windowTick, String windowOwner) {
+                return tick == windowTick && pending == windowTick && owner.equals(windowOwner);
+            }
+        }
+
+        private final List<ClockRow> rows = new ArrayList<>();
+        private ClockRow unpublished;
+        private boolean hideNextOpen;
         private int invisibleProbes;
-        /** Runs INSIDE every visibility probe (e.g. to age the window mid-probe). */
         private Runnable visibilityProbeHook;
 
         void seedOpenWindow(long lastId, long tick) {
-            rows.add(new long[] {lastId, tick, tick, System.currentTimeMillis()});
+            rows.add(new ClockRow(lastId, tick, tick, System.currentTimeMillis(), FOREIGN_OWNER));
         }
 
         void seedClosedRow(long lastId, long tick) {
-            rows.add(new long[] {lastId, tick, 0L, System.currentTimeMillis()});
+            append(lastId, tick, 0L, "");
         }
 
         void makeWindowsInvisible(int probes) {
@@ -102,20 +109,20 @@ public class BaselineManagerMutationClockTest {
         }
 
         boolean hasOpenWindow(long tick) {
-            return rows.stream().anyMatch(row -> row[1] == tick && row[2] == tick);
+            return rows.stream().anyMatch(row -> row.tick == tick && row.pending == tick);
         }
 
         boolean hasRow(long lastId, long tick) {
-            return rows.stream().anyMatch(row -> row[0] == lastId && row[1] == tick);
+            return rows.stream().anyMatch(row -> row.watermark == lastId && row.tick == tick);
         }
 
         @Override
         public long[] slotState() {
             long maxId = 0;
             long maxTick = 0;
-            for (long[] row : rows) {
-                maxId = Math.max(maxId, row[0]);
-                maxTick = Math.max(maxTick, row[1]);
+            for (ClockRow row : rows) {
+                maxId = Math.max(maxId, row.watermark);
+                maxTick = Math.max(maxTick, row.tick);
             }
             return new long[] {maxId, maxTick};
         }
@@ -123,42 +130,51 @@ public class BaselineManagerMutationClockTest {
         @Override
         public long[] clock() {
             long maxTick = 0;
-            long count = 0;
             long sum = 0;
             long maxPending = 0;
             long oldestCounted = System.currentTimeMillis() - OPEN_WINDOW_MAX_AGE_MILLIS;
-            for (long[] row : rows) {
-                maxTick = Math.max(maxTick, row[1]);
-                count++;
-                sum += row[1];
-                if (row[3] >= oldestCounted && row[2] > maxPending) {
-                    maxPending = row[2];
+            for (ClockRow row : rows) {
+                maxTick = Math.max(maxTick, row.tick);
+                sum += row.tick;
+                if (row.writtenAt >= oldestCounted && row.pending > maxPending) {
+                    maxPending = row.pending;
                 }
             }
-            return new long[] {maxTick, count, sum, maxPending};
+            return new long[] {maxTick, rows.size(), sum, maxPending};
         }
 
         @Override
-        public void append(long lastId, long tick, long pending) {
-            rows.add(new long[] {lastId, tick, pending, System.currentTimeMillis()});
+        public void append(long lastId, long tick, long pending, String owner) {
+            ClockRow row = new ClockRow(lastId, tick, pending, System.currentTimeMillis(), owner);
+            if (pending != 0 && hideNextOpen) {
+                hideNextOpen = false;
+                unpublished = row;
+                seedOpenWindow(lastId, tick);
+                return;
+            }
+            rows.add(row);
         }
 
         @Override
         public void prune(long lastId, long tick) {
-            // PRUNE_HWM_SQL ('watermark' < lastId OR same watermark with an older tick) with
-            // its OPEN-WINDOW guard: a pending row is never a victim
-            rows.removeIf(row -> (row[0] < lastId || (row[0] == lastId && row[1] < tick))
-                    && row[2] == 0);
+            rows.removeIf(row -> (row.watermark < lastId || row.watermark == lastId && row.tick < tick)
+                    && row.pending == 0);
+        }
+
+        void closeWindow(long windowTick) {
+            closeWindow(windowTick, FOREIGN_OWNER);
         }
 
         @Override
-        public void closeWindow(long windowTick) {
-            // PRUNE_HWM_OPEN_SQL: the window's OWN row, named by its tick
-            rows.removeIf(row -> row[1] == windowTick && row[2] == windowTick);
+        public void closeWindow(long windowTick, String owner) {
+            rows.removeIf(row -> row.belongsTo(windowTick, owner));
+            if (unpublished != null && unpublished.belongsTo(windowTick, owner)) {
+                unpublished = null;
+            }
         }
 
         @Override
-        public long countVisiblePending(long tick) {
+        public long countVisiblePending(long tick, String owner) {
             if (visibilityProbeHook != null) {
                 visibilityProbeHook.run();
             }
@@ -166,7 +182,7 @@ public class BaselineManagerMutationClockTest {
                 invisibleProbes--;
                 return 0;
             }
-            return rows.stream().filter(row -> row[1] == tick && row[2] == tick).count();
+            return rows.stream().filter(row -> row.belongsTo(tick, owner)).count();
         }
     }
 
@@ -260,6 +276,49 @@ public class BaselineManagerMutationClockTest {
         }
     }
 
+    @Test
+    public void testVisibleForeignMarkerCannotConfirmAnUnpublishedLocalWindow() {
+        manager = newManager();
+        BaselineManagerTestAccess.clear(manager);
+        MutationClockSimulator clock = new MutationClockSimulator();
+        try {
+            doubles.mutationClockStore = clock;
+            clock.hideNextOpen = true;
+            Assertions.assertThrows(RuntimeException.class,
+                    () -> BaselineManagerTestAccess.beginRowMutation(manager));
+            Assertions.assertNull(clock.unpublished, "the failed open cleans up only its own marker");
+            Assertions.assertTrue(clock.rows.stream().anyMatch(row -> row.pending != 0),
+                    "another FE owns the still-visible marker for the same tick");
+            Assertions.assertFalse(BaselineManagerTestAccess.snapshotFence(manager).quiet());
+        } finally {
+            doubles.mutationClockStore = null;
+            BaselineManagerTestAccess.clear(manager);
+        }
+    }
+
+    @Test
+    public void testCloseKeepsAForeignMarkerWithTheSameTick() {
+        manager = newManager();
+        BaselineManagerTestAccess.clear(manager);
+        MutationClockSimulator clock = new MutationClockSimulator();
+        try {
+            doubles.mutationClockStore = clock;
+            long tick = BaselineManagerTestAccess.beginRowMutation(manager);
+            clock.unpublished = new MutationClockSimulator.ClockRow(
+                    0, tick, tick, System.currentTimeMillis(), MutationClockSimulator.FOREIGN_OWNER);
+            BaselineManagerTestAccess.endRowMutation(manager, tick);
+            Assertions.assertFalse(clock.hasOpenWindow(tick), "the visible local marker was closed");
+            Assertions.assertNotNull(clock.unpublished, "the same-tick foreign marker still belongs to its writer");
+            clock.rows.add(clock.unpublished);
+            clock.unpublished = null;
+            Assertions.assertTrue(clock.hasOpenWindow(tick));
+            Assertions.assertFalse(BaselineManagerTestAccess.snapshotFence(manager).quiet());
+        } finally {
+            doubles.mutationClockStore = null;
+            BaselineManagerTestAccess.clear(manager);
+        }
+    }
+
     /**
      * Round-54 #5: another master's append must not prune THIS master's still-open window,
      * and the paginated refresh must not publish a mixed snapshot while that window is
@@ -290,6 +349,9 @@ public class BaselineManagerMutationClockTest {
                         "the delete fallback rejects an OR predicate outright (the whole"
                                 + " prune would silently fail): " + prunes[i]);
             }
+            Assertions.assertTrue(prunes[2].contains("`window_owner` = '${owner}'"));
+            Assertions.assertTrue(BaselineManagerTestAccess.pendingWindowReadSql()
+                    .contains("`window_owner` = '${owner}'"));
 
             // master B (the new leader) appends its completion at the SAME watermark with a
             // newer tick and runs both history sweeps
@@ -361,7 +423,7 @@ public class BaselineManagerMutationClockTest {
             Assertions.assertFalse(BaselineManagerTestAccess.hasPendingMutationFence(manager, id),
                     "a statement that never ran must not fence the id");
             Assertions.assertEquals(0, clock.rows.stream().filter(
-                            row -> row[2] != 0).count(),
+                            row -> row.pending != 0).count(),
                     "the unusable window must be closed again instead of poisoning the"
                             + " fence for its whole age bound");
 
@@ -532,7 +594,7 @@ public class BaselineManagerMutationClockTest {
                     "the cache must not be published for a statement that never ran");
             Assertions.assertFalse(BaselineManagerTestAccess.hasPendingMutationFence(manager, id),
                     "a statement that never ran must not fence the id");
-            Assertions.assertEquals(0, clock.rows.stream().filter(row -> row[2] != 0).count(),
+            Assertions.assertEquals(0, clock.rows.stream().filter(row -> row.pending != 0).count(),
                     "the expired window must be CLOSED again, so no successor keeps retrying"
                             + " until the bound elapses");
             Assertions.assertTrue(BaselineManagerTestAccess.snapshotFence(manager).quiet(),
@@ -660,7 +722,7 @@ public class BaselineManagerMutationClockTest {
 
         sweeper.pruneExpiredMutationWindows();
         Mockito.verify(store).appendHwmRecord(Mockito.eq(70L), Mockito.longThat(tick -> tick > 500L),
-                Mockito.eq(0L));
+                Mockito.eq(0L), Mockito.eq(""));
         Mockito.verify(store, Mockito.never()).pruneExpiredMutationWindows(70L, 500L);
 
         sweeper.pruneExpiredMutationWindows();

@@ -51,10 +51,6 @@ import java.util.concurrent.atomic.AtomicLong;
  *   <li>#5 the no-op INSERT and its visibility probes can consume the shared window's lifetime
  *       before the version prune starts: an aged window is IGNORED by every other FE, so the
  *       DELETE ran unfenced. The prune now checks its lease and gets a RENEWED window.</li>
- *   <li>#6 a 16-bit random process salt could give two windows one identity in the same
- *       millisecond, and either writer's exact-row close would then delete the other's still
- *       open marker. The salt is wider and the open VERIFIES that the marker it appended is the
- *       only one carrying its tick.</li>
  * </ul>
  */
 public class SPMRound73ManagerTest {
@@ -79,8 +75,6 @@ public class SPMRound73ManagerTest {
         final Map<Long, SeqReservation> batchedStatesBySlot = new ConcurrentHashMap<>();
         /** The state the single (history-reconciling) identity read answers. */
         SeqReservation singleState;
-        /** How many rows the first pending-window probe reports (2 = a colliding identity). */
-        long firstWindowProbeCount = 1L;
         int batchedReads;
         int singleReads;
         final AtomicLong clockJumpMillis = new AtomicLong();
@@ -190,25 +184,19 @@ public class SPMRound73ManagerTest {
         }
 
         @Override
-        public void appendHwmRecord(long lastId, long tick, long pending) {
+        public void appendHwmRecord(long lastId, long tick, long pending, String owner) {
             if (pending != 0) {
                 pendingTicks.add(pending);
             }
         }
 
         @Override
-        public void closeMutationWindow(long windowTick) {
+        public void closeMutationWindow(long windowTick, String owner) {
             closedWindows.add(windowTick);
         }
 
         @Override
-        public long countVisiblePending(long tick) {
-            if (pendingTicks.isEmpty()) {
-                return 0L;
-            }
-            if (tick == pendingTicks.get(0) && pendingTicks.size() == 1) {
-                return firstWindowProbeCount;
-            }
+        public long countVisiblePending(long tick, String owner) {
             return pendingTicks.contains(tick) ? 1L : 0L;
         }
 
@@ -406,40 +394,9 @@ public class SPMRound73ManagerTest {
                 "the renewed window is closed when the statement finishes");
     }
 
-    // ==================== #6: a colliding window identity is abandoned ====================
-
-    /**
-     * Two FEs can draw the SAME salt in the SAME millisecond. Their windows then share one
-     * identity, and either writer's exact-row close deletes the other's still-open marker. The
-     * open now verifies that the marker it appended is the only one carrying its tick: a
-     * colliding tick is ABANDONED (closing it would delete the other FE's marker) and the window
-     * is re-opened with a fresh one.
-     */
+    /** The owner can open a window when its marker is readable. */
     @Test
-    public void testCollidingWindowIdentityIsAbandonedAndRetried() {
-        TestStore store = new TestStore();
-        BaselineManager manager = manager(store);
-        store.firstWindowProbeCount = 2L;
-
-        long tick = BaselineManagerTestAccess.beginRowMutation(manager);
-        try {
-            Assertions.assertEquals(2, store.pendingTicks.size(),
-                    "the colliding tick is abandoned and a fresh one is opened: "
-                            + store.pendingTicks);
-            Assertions.assertEquals(store.pendingTicks.get(1).longValue(), tick,
-                    "the returned window is the fresh one");
-            Assertions.assertFalse(store.closedWindows.contains(store.pendingTicks.get(0)),
-                    "the collided row is NOT closed: its tick also names another FE's window");
-        } finally {
-            BaselineManagerTestAccess.endRowMutation(manager, tick);
-        }
-        Assertions.assertTrue(store.closedWindows.contains(tick),
-                "the accepted window is closed normally");
-    }
-
-    /** A window identity that is unique cluster-wide opens on the FIRST attempt. */
-    @Test
-    public void testUniqueWindowIdentityOpensImmediately() {
+    public void testOwnedWindowOpensImmediately() {
         TestStore store = new TestStore();
         BaselineManager manager = manager(store);
 

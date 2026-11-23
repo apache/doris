@@ -186,24 +186,8 @@ public class BaselineManager {
      */
     private static final long MAX_STORED_UPDATE_LEAD_MICROS = 60_000_000L;
 
-    /**
-     * How many low bits of a mutation tick carry the window's FE identity (see
-     * mutationTickSalt): enough range that two FEs writing in the same millisecond almost never
-     * collide, small enough that the millisecond stays in the high bits (the clock's
-     * cluster-wide ordering: the remaining 43 positive bits cover roughly 279 years of millis).
-     *
-     * The salt only makes a collision UNLIKELY; beginRowMutation therefore VERIFIES that the
-     * marker it appended is the only one carrying its tick (see MUTATION_TICK_OPEN_ATTEMPTS).
-     */
+    /** The low bits of a mutation tick spread appends from different FEs in the same millisecond. */
     private static final int MUTATION_TICK_FE_BITS = 20;
-
-    /**
-     * How many fresh ticks one window open may try when the marker it appended shares its tick
-     * with another FE's window (see beginRowMutation): a random salt is not a guarantee, and two
-     * windows sharing one identity would let either writer's exact-row close delete the OTHER's
-     * still-open marker - turning an in-flight row statement into a quiet clock.
-     */
-    private static final int MUTATION_TICK_OPEN_ATTEMPTS = 3;
 
     /** The value mask of MUTATION_TICK_FE_BITS (see nextMutationTick). */
     private static final long MUTATION_TICK_FE_MASK = (1L << MUTATION_TICK_FE_BITS) - 1;
@@ -243,24 +227,15 @@ public class BaselineManager {
     private static final String SELECT_SLOT_STATE_SQL = "SELECT MAX(`watermark`),"
             + " MAX(`tick`) FROM " + SPM_BASELINES_HWM_TABLE;
 
-    /**
-     * Whether the OPEN mutation window just appended is READABLE: the row carrying the very
-     * tick this process wrote in pending (see beginRowMutation). A plain append can
-     * report SQL OK while its row is still unreadable - and with the window marker only
-     * readable LOCALLY, a successor's fence read (SELECT_CLOCK_SQL, the MATCHES path of
-     * updateStatus) sees a QUIET clock while this process's row statement is already in
-     * flight: the statement then publishes AFTER the successor accepted a matching read
-     * and reversed it. The bounded read-back makes the statement's dispatch
-     * conditional on the window being SHARED.
-     */
+    /** Reads back this FE process's marker before dispatching the fenced write. */
     private static final String SELECT_PENDING_TICK_SQL = "SELECT COUNT(*) FROM "
             + SPM_BASELINES_HWM_TABLE
-            + " WHERE `tick` = ${tick} AND `pending` = ${tick}";
+            + " WHERE `tick` = ${tick} AND `pending` = ${tick} AND `window_owner` = '${owner}'";
 
     /** Append one high-water-mark / clock row (see SELECT_HWM_SQL, SELECT_CLOCK_SQL). */
     private static final String INSERT_HWM_SQL = "INSERT INTO " + SPM_BASELINES_HWM_TABLE
-            + " (`watermark`, `update_time`, `tick`, `pending`)"
-            + " VALUES (${lastId}, NOW(), ${tick}, ${pending})";
+            + " (`watermark`, `update_time`, `tick`, `pending`, `window_owner`)"
+            + " VALUES (${lastId}, NOW(), ${tick}, ${pending}, '${owner}')";
 
     /**
      * Best-effort pruning of completed high-watermark rows superseded by the latest watermark or tick. Higher
@@ -278,13 +253,9 @@ public class BaselineManager {
             + " WHERE `watermark` = ${lastId} AND `tick` < ${tick}"
             + " AND `pending` = 0";
 
-    /**
-     * Deletes the completed mutation's own open-window row using both its tick and pending token. General
-     * watermark pruning keeps open rows, so only this writer's completion closes this window. Tick generation uses
-     * a random FE salt; beginRowMutation checks for readable collisions before dispatching the row mutation.
-     */
+    /** Closes one marker, even when another FE owns a window with the same tick. */
     private static final String PRUNE_HWM_OPEN_SQL = "DELETE FROM " + SPM_BASELINES_HWM_TABLE
-            + " WHERE `tick` = ${windowTick} AND `pending` = ${windowTick}";
+            + " WHERE `tick` = ${windowTick} AND `pending` = ${windowTick} AND `window_owner` = '${owner}'";
 
     private static final String EXPIRED_MUTATION_WINDOWS = "`pending` > 0 AND `update_time` <= "
             + MUTATION_WINDOW_CUTOFF;
@@ -984,21 +955,9 @@ public class BaselineManager {
     private static final java.util.concurrent.atomic.AtomicLong lastMutationTick =
             new java.util.concurrent.atomic.AtomicLong();
 
-    /**
-     * The process-unique low bits of every mutation tick (see nextMutationTick). The
-     * millisecond alone does NOT identify a window: two FEs can open one within the SAME
-     * millisecond, and a tick-only identity made their markers indistinguishable - a
-     * visibility probe could confirm ANOTHER FE's already-readable marker as its own,
-     * reporting the window shared while this FE's own marker was still unreadable, and
-     * either FE's completion DELETE (PRUNE_HWM_OPEN_SQL) removed BOTH markers, so
-     * SELECT_CLOCK_SQL reported a QUIET clock while the other FE's DISABLE / DELETE was
-     * still in flight - a successor could then report a matching ENABLE as successful or
-     * accept a paginated snapshot before that write committed. The salt keeps the windows
-     * of concurrently writing FEs apart; the millisecond in the high bits preserves the
-     * cluster-wide ORDER of the clock (the count / sum tie-breakers still normalize a
-     * residual same-millisecond ordering).
-     */
+    /** Salt for spreading clock ticks and independent ownership of this FE process's windows. */
     private static volatile long mutationTickSalt = initialMutationTickSalt();
+    private static final String MUTATION_WINDOW_OWNER = java.util.UUID.randomUUID().toString();
 
     // priority ordering.
 
@@ -5940,7 +5899,7 @@ public class BaselineManager {
      */
     private void writeHwmRecord(long id, long tick, long pending, boolean strict) {
         try {
-            persistence.appendHwmRecord(id, tick, pending);
+            persistence.appendHwmRecord(id, tick, pending, pending == 0 ? "" : MUTATION_WINDOW_OWNER);
         } catch (Exception e) {
             if (strict) {
                 throw new RuntimeException("SPM baseline id high-water-mark write failed"
@@ -5992,31 +5951,16 @@ public class BaselineManager {
         }
     }
 
-    /**
-     * How many READABLE markers carry the open-window tick beginRowMutation just appended (see
-     * SELECT_PENDING_TICK_SQL): the confirmation that the window it opens is SHARED before its
-     * statement is dispatched - and, because a window identity must be unique cluster-wide, the
-     * count of the windows that identity currently names (see tryOpenRowMutationWindow).
-     *
-     * Parameter tick: the window tick to probe
-     * Returns: the number of visible rows carrying this tick in pending
-     */
-    private long pendingWindowVisible(long tick) throws Exception {
-        return persistence.countVisiblePending(tick);
-    }
-
-    /** The live implementation half of BaselinePersistence.countVisiblePending. */
-    private static long countVisiblePendingFromTable(long tick) {
+    /** Counts only readable markers matching the given window owner. */
+    private static long countVisiblePendingFromTable(long tick, String owner) {
         if (!persistenceEnabled()) {
             return 0;
         }
         try {
-            Map<String, String> params = new HashMap<>();
-            params.put("tick", String.valueOf(tick));
+            Map<String, String> params = Map.of("tick", String.valueOf(tick), "owner", owner);
             List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
                     SELECT_PENDING_TICK_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
-            return rows != null && !rows.isEmpty()
-                    ? parseWatermark(rows.get(0).getWithDefault(0, "")) : 0;
+            return rows.isEmpty() ? 0 : parseWatermark(rows.get(0).getWithDefault(0, ""));
         } catch (Exception e) {
             throw new RuntimeException("SPM mutation clock read failed (retry the"
                     + " operation): " + e.getMessage(), e);
@@ -6029,9 +5973,9 @@ public class BaselineManager {
     }
 
     /**
-     * Generates a process-monotonic tick from wall-clock milliseconds and a random FE salt. The salt reduces
-     * cross-FE collisions but does not guarantee uniqueness. Window opening and closing probe visible marker
-     * counts before relying on tick ownership.
+     * Generates a process-monotonic tick from wall-clock milliseconds and a random FE salt. The salt spreads
+     * ticks across FEs writing in the same millisecond. The separate process owner scopes marker read-back and
+     * deletion when multiple FEs generate the same tick.
      */
     private long nextMutationTick() {
         long now = (mutationWindowNow() << MUTATION_TICK_FE_BITS)
@@ -6087,35 +6031,6 @@ public class BaselineManager {
             throw new RuntimeException("SPM mutation clock read failed (retry the"
                     + " operation): " + e.getMessage(), e);
         }
-        for (int attempt = 0; attempt < MUTATION_TICK_OPEN_ATTEMPTS; attempt++) {
-            long opened = tryOpenRowMutationWindow(watermark);
-            if (opened != 0) {
-                return opened;
-            }
-        }
-        throw new MutationWindowUnavailableException("SPM cannot open a mutation window whose"
-                + " identity is unique cluster-wide (every attempted tick is already held by"
-                + " another FE's window); nothing was changed - retry the operation");
-    }
-
-    /**
-     * One attempt of beginRowMutation: appends the window marker for a fresh tick,
-     * waits for it to become READABLE and verifies that it is UNIQUE.
-     *
-     * The uniqueness check is what makes the window identity trustworthy: the tick carries this
-     * FE's random salt (see mutationTickSalt), and two processes drawing the SAME salt in the
-     * SAME millisecond would open two windows with one identity - either writer's exact-row
-     * close (PRUNE_HWM_OPEN_SQL) would then delete the OTHER's still-open marker, so a
-     * successor reading the clock after that close sees QUIET while the other row statement is
-     * still in flight. A collision is detected by the marker read itself (the probe counts the
-     * rows carrying this tick), the collided tick is ABANDONED - closing it would delete the
-     * other FE's marker - and the caller retries with a NEWER tick. The abandoned row carries a
-     * pending marker of its own and therefore ages out like any other window.
-     *
-     * Parameter watermark: the slot watermark the marker records
-     * Returns: the open window tick, or 0 when this attempt's tick collided
-     */
-    private long tryOpenRowMutationWindow(long watermark) {
         long tick = nextMutationTick();
         // The instant the window's marker is about to be written: the pre-write budget below
         // (marker INSERT, its prunes, the visibility probes) already consumes part of the
@@ -6124,9 +6039,8 @@ public class BaselineManager {
         // MUTATION_WINDOW_MAX_AGE_SECONDS).
         long windowOpenedAt = mutationWindowNow();
         writeHwmRecord(watermark, tick, tick, true);
-        long sharedWindows;
         try {
-            sharedWindows = awaitMutationWindowVisible(tick);
+            awaitMutationWindowVisible(tick);
         } catch (MutationWindowUnavailableException e) {
             // The statement will NOT be dispatched, so the window must not stay open: close
             // it best effort exactly like a completed mutation would (the completion append
@@ -6134,13 +6048,6 @@ public class BaselineManager {
             // reason to leave every snapshot read retrying for the age bound.
             endRowMutation(tick);
             throw e;
-        }
-        if (sharedWindows > 1) {
-            LOG.warn("SPM abandoned mutation window {}: {} rows carry that tick, so another"
-                    + " FE opened a window with the same identity (equal salt in the same"
-                    + " millisecond); retrying with a fresh tick - the abandoned row ages out",
-                    tick, sharedWindows);
-            return 0;
         }
         long elapsedMillis = mutationWindowNow() - windowOpenedAt;
         if (elapsedMillis + BASELINE_WRITE_TIMEOUT_SECONDS * 1000L
@@ -6168,25 +6075,12 @@ public class BaselineManager {
         return tick;
     }
 
-    /**
-     * The bounded read-back of the open-window marker beginRowMutation appended: a
-     * mutation whose window never becomes READABLE fails retryably BEFORE its statement
-     * runs, because the fence it opened is invisible to every other FE - exactly the
-     * unshared window that let a successor accept a matching read while this statement was
-     * in flight (see beginRowMutation). The row is never pruned while it is open
-     * (PRUNE_HWM_SQL), so the confirmation cannot be raced away by a concurrent append.
-     *
-     * Parameter tick: the window tick just written
-     * Returns: the number of visible markers carrying this tick (1 = this process's window
-     *         alone, more = the identity is shared with another FE, see
-     *         tryOpenRowMutationWindow)
-     */
-    private long awaitMutationWindowVisible(long tick) {
+    /** Waits for this process's open marker to become readable before dispatch. */
+    private void awaitMutationWindowVisible(long tick) {
         for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
             try {
-                long visible = pendingWindowVisible(tick);
-                if (visible > 0) {
-                    return visible;
+                if (persistence.countVisiblePending(tick, MUTATION_WINDOW_OWNER) > 0) {
+                    return;
                 }
             } catch (Exception e) {
                 LOG.debug("SPM mutation window visibility probe failed: {}", e.getMessage());
@@ -6284,40 +6178,8 @@ public class BaselineManager {
                     + " keep retrying until the next mutation: {}", e.getMessage());
             return;
         }
-        // the completion append does NOT prune the open row any more (the OPEN-WINDOW guard
-        // keeps every pending row alive): close THIS window with the exact-row delete (see
-        // PRUNE_HWM_OPEN_SQL). Best effort like the append itself: a lost delete only keeps
-        // the fence retrying until the age bound elapses.
-        //
-        // CLOSE ONLY A WINDOW THIS PROCESS OWNS: the tick carries this FE's salt
-        // plus the millisecond, so two FEs drawing the SAME salt in the SAME millisecond hold
-        // ONE identity - and then the exact-row delete removes BOTH markers, including the
-        // other writer's still-open one, whose statement may be in flight (a successor reading
-        // the clock right after that close sees QUIET and accepts a matching row the other
-        // statement then reverses). An OPEN-time probe cannot prove ownership here: the other
-        // marker may still be UNREADABLE when it runs, so it sees a single row. The CLOSE-time
-        // probe can: by now both markers are published (each writer waited for its own
-        // visibility), so a count above one means the identity is shared and neither writer may
-        // delete it - the rows then age out together, and the conservative direction (a noisy
-        // clock for one window bound) is exactly what the bound exists for.
         try {
-            long holders = pendingWindowVisible(tick);
-            if (holders > 1) {
-                LOG.warn("SPM leaves mutation window {} open: {} rows carry that tick, so the"
-                        + " identity is shared with another FE's window and closing it would"
-                        + " remove their marker as well; both age out after {} s", tick, holders,
-                        MUTATION_WINDOW_MAX_AGE_SECONDS);
-                return;
-            }
-        } catch (Exception e) {
-            // an unanswerable count must not authorize the delete: it could be the shared case
-            LOG.warn("SPM cannot verify the ownership of mutation window {} ({}); leaving it to"
-                    + " its age bound instead of risking another FE's marker", tick,
-                    e.getMessage());
-            return;
-        }
-        try {
-            persistence.closeMutationWindow(tick);
+            persistence.closeMutationWindow(tick, MUTATION_WINDOW_OWNER);
         } catch (Exception e) {
             LOG.warn("SPM mutation clock window {} could not be closed ({}); the snapshot"
                     + " fence keeps retrying until its age bound", tick, e.getMessage());
@@ -9794,8 +9656,8 @@ public class BaselineManager {
         }
 
         @Override
-        public void appendHwmRecord(long lastId, long tick, long pending) {
-            appendHwmRecordIntoTable(lastId, tick, pending);
+        public void appendHwmRecord(long lastId, long tick, long pending, String owner) {
+            appendHwmRecordIntoTable(lastId, tick, pending, owner);
         }
 
         @Override
@@ -9804,8 +9666,8 @@ public class BaselineManager {
         }
 
         @Override
-        public void closeMutationWindow(long windowTick) {
-            closeMutationWindowFromTable(windowTick);
+        public void closeMutationWindow(long windowTick, String owner) {
+            closeMutationWindowFromTable(windowTick, owner);
         }
 
         @Override
@@ -9829,8 +9691,8 @@ public class BaselineManager {
         }
 
         @Override
-        public long countVisiblePending(long tick) {
-            return countVisiblePendingFromTable(tick);
+        public long countVisiblePending(long tick, String owner) {
+            return countVisiblePendingFromTable(tick, owner);
         }
     }
 
@@ -9860,7 +9722,7 @@ public class BaselineManager {
     }
 
     /** The live implementation halves of the mutation-clock writes. */
-    private static void appendHwmRecordIntoTable(long id, long tick, long pending) {
+    private static void appendHwmRecordIntoTable(long id, long tick, long pending, String owner) {
         if (!persistenceEnabled()) {
             return;
         }
@@ -9868,6 +9730,7 @@ public class BaselineManager {
         params.put("lastId", String.valueOf(id));
         params.put("tick", String.valueOf(tick));
         params.put("pending", String.valueOf(pending));
+        params.put("owner", owner);
         try {
             inInternalIoMode(() -> StatisticsUtil.execUpdate(INSERT_HWM_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
@@ -9893,12 +9756,13 @@ public class BaselineManager {
         }
     }
 
-    private static void closeMutationWindowFromTable(long windowTick) {
+    private static void closeMutationWindowFromTable(long windowTick, String owner) {
         if (!persistenceEnabled()) {
             return;
         }
         Map<String, String> params = new HashMap<>();
         params.put("windowTick", String.valueOf(windowTick));
+        params.put("owner", owner);
         try {
             inInternalIoMode(() -> StatisticsUtil.execUpdate(PRUNE_HWM_OPEN_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));

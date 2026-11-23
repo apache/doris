@@ -124,7 +124,7 @@ public class SPMRound71ManagerTest {
         }
 
         @Override
-        public void appendHwmRecord(long lastId, long tick, long pending) {
+        public void appendHwmRecord(long lastId, long tick, long pending, String owner) {
             hwm.add(new long[] {tick, pending});
         }
 

@@ -46,6 +46,7 @@ import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -8971,8 +8972,17 @@ public final class SPMPlanTreeSupport {
         if (expression instanceof Function) {
             return isZoneSensitiveCall(expression) || isLocaleSensitiveCall(expression);
         }
-        return isFoldableSessionCast(expression)
+        return isConcreteDecimalArithmetic(expression, Expression::getDataType)
+                || isFoldableSessionCast(expression)
                 && castMayDependOnSession((Cast) expression, expression.child(0).getDataType());
+    }
+
+    /** Decimal arithmetic can fold under the creator's precision and overflow scale settings. */
+    private static boolean isConcreteDecimalArithmetic(Expression expression,
+            java.util.function.Function<Expression, DataType> operandType) {
+        return expression instanceof BinaryArithmetic && isLiteralOnly(expression)
+                && expression.children().stream().map(operandType)
+                        .anyMatch(type -> type != null && type.isDecimalLikeType());
     }
 
     private static DataType typeKnownBeforeAnalysis(Expression expression) {
@@ -8992,7 +9002,7 @@ public final class SPMPlanTreeSupport {
      * a * REPLACE payload (stored outside the star's expression children and compared
      *   concretely, see SPMAstCheckVisitor): SELECT * REPLACE(from_unixtime(0) AS a) FROM t
      *
-     * A constant call in either position can fold using the creator's time zone, locale or cast mode.
+     * A constant call in either position can fold using the creator's time zone, locale, cast mode or decimal settings.
      * Keeping raw plan SQL allows replay through the parameterized tree to evaluate the
      * call under the caller's settings. A call over a column is evaluated per row.
      *
@@ -9001,7 +9011,8 @@ public final class SPMPlanTreeSupport {
      */
     public static boolean containsFoldedSessionSensitivePayload(LogicalPlan plan) {
         return containsFoldablePayload(plan, expression -> isZoneSensitiveCall(expression)
-                || isLocaleSensitiveCall(expression) || isStrictCastSensitiveCall(expression));
+                || isLocaleSensitiveCall(expression) || isStrictCastSensitiveCall(expression)
+                || isConcreteDecimalArithmetic(expression, SPMPlanTreeSupport::typeKnownBeforeAnalysis));
     }
 
     /** Detects casts that can already have been folded in older frozen baselines. */

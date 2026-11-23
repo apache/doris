@@ -177,16 +177,16 @@ public final class BaselineTestDoubles {
         long[] clock();
 
         /** INSERT_HWM_SQL: appends one slot row. */
-        void append(long lastId, long tick, long pending);
+        void append(long lastId, long tick, long pending, String owner);
 
         /** PRUNE_HWM_SQL then PRUNE_HWM_SAME_WATERMARK_SQL, in that order. */
         void prune(long lastId, long tick);
 
         /** PRUNE_HWM_OPEN_SQL: removes the OPEN row of the window being closed. */
-        void closeWindow(long windowTick);
+        void closeWindow(long windowTick, String owner);
 
-        /** SELECT_PENDING_TICK_SQL: how many rows carry (tick, pending) = (tick, tick). */
-        long countVisiblePending(long tick);
+        /** SELECT_PENDING_TICK_SQL: counts visible open markers matching both tick and owner. */
+        long countVisiblePending(long tick, String owner);
     }
 
     /**
@@ -520,9 +520,9 @@ public final class BaselineTestDoubles {
         }
 
         @Override
-        public void appendHwmRecord(long lastId, long tick, long pending) {
+        public void appendHwmRecord(long lastId, long tick, long pending, String owner) {
             if (mutationClockStore != null) {
-                mutationClockStore.append(lastId, tick, pending);
+                mutationClockStore.append(lastId, tick, pending, owner);
             } else if (idAllocatorStore != null) {
                 // the historic id-allocator simulators carried the clock bump themselves
                 idAllocatorStore.bumpMutationClock();
@@ -537,16 +537,16 @@ public final class BaselineTestDoubles {
         }
 
         @Override
-        public void closeMutationWindow(long windowTick) {
+        public void closeMutationWindow(long windowTick, String owner) {
             if (mutationClockStore != null) {
-                mutationClockStore.closeWindow(windowTick);
+                mutationClockStore.closeWindow(windowTick, owner);
             }
         }
 
         @Override
-        public long countVisiblePending(long tick) {
+        public long countVisiblePending(long tick, String owner) {
             return mutationClockStore == null ? 1L
-                    : (mutationClockStore.countVisiblePending(tick) > 0 ? 1L : 0L);
+                    : mutationClockStore.countVisiblePending(tick, owner);
         }
 
         private static boolean rowMatches(BaselinePlan row, long id, String bindSqlDigest,

@@ -152,6 +152,66 @@ true
 -- !whole_nested_array_hit --
 true	true
 
+-- !whole_nested_map_frozen --
+true
+
+-- !whole_nested_map_bind_rows --
+-1	\N
+-1	\N
+-1	\N
+-1	\N
+1	true
+
+-- !whole_nested_map_variant_rows --
+-1	true
+-1	true
+-1	true
+-1	true
+1	true
+
+-- !whole_nested_map_hit --
+true	true
+
+-- !nested_map_frozen --
+true
+
+-- !nested_map_bind_rows --
+-1	\N
+-1	\N
+-1	\N
+-1	\N
+1	true
+
+-- !nested_map_variant_rows --
+-1	true
+-1	true
+-1	true
+-1	true
+1	true
+
+-- !nested_map_hit --
+true	true
+
+-- !any_value_frozen --
+true
+
+-- !any_value_bind_rows --
+-1	\N
+1	true
+
+-- !any_value_variant_rows --
+-1	true
+1	true
+
+-- !any_value_hit --
+true	true
+
+-- !decimal_settings_frozen --
+false
+
+-- !decimal_settings_replayed --
+1.26215515677793019455296448734281359532303002611342783114345526596755677489	76	74	true
+
 -- !star_subquery_whitespace --
 3	2
 

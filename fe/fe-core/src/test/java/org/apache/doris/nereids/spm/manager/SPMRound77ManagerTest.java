@@ -43,9 +43,6 @@ import java.util.concurrent.atomic.AtomicLong;
  *   <li>#8 a status statement's stored second may only lead wall time by a BOUNDED amount, because
  *       every shared fence is wall-clock bounded: an unbounded lead let an already committed no-op
  *       intent outlive the fence and reverse a successor's successful ALTER;</li>
- *   <li>#10 the close of a mutation window verifies that the window identity is NOT shared before
- *       deleting it: two FEs with equal salts in the same millisecond hold one identity, and the
- *       exact-tick delete then removed the other writer's still-open marker as well.</li>
  * </ul>
  */
 public class SPMRound77ManagerTest {
@@ -56,8 +53,6 @@ public class SPMRound77ManagerTest {
         final Set<String> tombstones = ConcurrentHashMap.newKeySet();
         final List<Long> pendingTicks = new java.util.concurrent.CopyOnWriteArrayList<>();
         final List<Long> closedWindows = new java.util.concurrent.CopyOnWriteArrayList<>();
-        /** How many rows the window probe reports (2 = the identity is shared). */
-        long windowHolders = 1L;
         long failDeletesForId = -1L;
         long newestStoredMicros;
         final AtomicLong clockJumpMillis = new AtomicLong();
@@ -148,23 +143,20 @@ public class SPMRound77ManagerTest {
         }
 
         @Override
-        public void appendHwmRecord(long lastId, long tick, long pending) {
+        public void appendHwmRecord(long lastId, long tick, long pending, String owner) {
             if (pending != 0) {
                 pendingTicks.add(pending);
             }
         }
 
         @Override
-        public void closeMutationWindow(long windowTick) {
+        public void closeMutationWindow(long windowTick, String owner) {
             closedWindows.add(windowTick);
         }
 
         @Override
-        public long countVisiblePending(long tick) {
-            if (!pendingTicks.contains(tick)) {
-                return 0L;
-            }
-            return windowHolders;
+        public long countVisiblePending(long tick, String owner) {
+            return pendingTicks.contains(tick) ? 1L : 0L;
         }
 
         @Override
@@ -302,31 +294,9 @@ public class SPMRound77ManagerTest {
                 "a lead inside the fence bound is the ordinary bump");
     }
 
-    // ==================== #10: closing a window verifies its ownership ================
-
-    /**
-     * Two FEs with equal salts in the same millisecond hold ONE tick, and the exact-tick delete
-     * removes BOTH markers - including the other writer's still-open one. An open-time probe
-     * cannot see it (that row may still be unreadable), so the CLOSE verifies the identity is not
-     * shared and leaves the rows to their age bound instead.
-     */
+    /** A completed mutation closes its own marker. */
     @Test
-    public void testSharedWindowIdentityIsNotClosed() {
-        TestStore store = new TestStore();
-        BaselineManager manager = manager(store);
-        // the open-time probe reports a single row, the close-time probe sees two
-        long tick = BaselineManagerTestAccess.beginRowMutation(manager);
-        store.windowHolders = 2L;
-        BaselineManagerTestAccess.endRowMutation(manager, tick);
-
-        Assertions.assertFalse(store.closedWindows.contains(tick),
-                "a SHARED window identity must not be deleted: it also names another FE's"
-                        + " still-open marker");
-    }
-
-    /** An unshared window is closed exactly like before. */
-    @Test
-    public void testUnsharedWindowIdentityIsClosed() {
+    public void testOwnedWindowIsClosed() {
         TestStore store = new TestStore();
         BaselineManager manager = manager(store);
         long tick = BaselineManagerTestAccess.beginRowMutation(manager);
