@@ -58,7 +58,10 @@ import java.util.function.Supplier;
 final class LanceCatalogClient implements AutoCloseable {
 
     private static final Logger LOG = LogManager.getLogger(LanceCatalogClient.class);
-    /** Metadata cache of each dataset FE opens; FE plans from manifests and never reads an index. */
+    /**
+     * Metadata cache of each dataset FE opens. FE plans from manifests; describing indexes reads index
+     * metadata, not index pages, so no index cache is kept.
+     */
     private static final long METADATA_CACHE_SIZE_BYTES = 64L * 1024 * 1024;
 
     private final LanceCatalogProperties properties;
@@ -128,6 +131,19 @@ final class LanceCatalogClient implements AutoCloseable {
     }
 
     /**
+     * Reads the field ids and the user indexes of one table at the fixed {@code version}, for planning ranges
+     * over index segments.
+     */
+    LanceIndexMetadata loadIndexMetadata(String dbName, String tableName, long version) {
+        OptionalLong pinned = OptionalLong.of(version);
+        return readTable(dbName, tableName, pinned, (access, readAllocator) -> {
+            try (Dataset dataset = openDataset(readAllocator, access, pinned)) {
+                return LanceIndexMetadata.read(dataset);
+            }
+        });
+    }
+
+    /**
      * Reads the metadata of the main-chain version committed last at or before {@code timestampMillis}, by
      * the commit times the manifests record; see {@link LanceSnapshotResolver#versionAtOrBefore}.
      */
@@ -158,8 +174,7 @@ final class LanceCatalogClient implements AutoCloseable {
     }
 
     /** Resolves the table's access, then reads it with a child allocator that this one read owns. */
-    private LanceTableMetadata readTable(String dbName, String tableName, OptionalLong version,
-            TableRead read) {
+    private <T> T readTable(String dbName, String tableName, OptionalLong version, TableRead<T> read) {
         String what = dbName + "." + tableName;
         return call(namespaceClient -> {
             LanceTableAccess access = null;
@@ -360,8 +375,8 @@ final class LanceCatalogClient implements AutoCloseable {
     }
 
     @FunctionalInterface
-    private interface TableRead {
-        LanceTableMetadata read(LanceTableAccess access, BufferAllocator readAllocator) throws Exception;
+    private interface TableRead<T> {
+        T read(LanceTableAccess access, BufferAllocator readAllocator) throws Exception;
     }
 
     /** A failure whose message is already what the user should read; it is neither wrapped nor sanitized. */

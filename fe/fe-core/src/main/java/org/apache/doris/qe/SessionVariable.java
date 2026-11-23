@@ -3139,6 +3139,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
 
+    /** Read by the lance connector, which matches this name byte for byte; it must stay visible. */
+    public static final String LANCE_FRAGMENTS_PER_SPLIT = "lance_fragments_per_split";
+
     @VarAttrDef.VarAttr(name = FLUSS_UNION_READ_MODE,
             checker = "checkFlussUnionReadMode",
             options = {"", "auto", "required", "disabled"},
@@ -3148,6 +3151,13 @@ public class SessionVariable implements Serializable, Writable {
                     + "alone. The default, empty, follows the catalog's fluss.union_read.mode property. "
                     + "The value set belongs to the fluss connector, which rejects anything else")
     public String flussUnionReadMode = "";
+
+    @VarAttrDef.VarAttr(name = LANCE_FRAGMENTS_PER_SPLIT, needForward = true,
+            checker = "checkLanceFragmentsPerSplit",
+            description = "Debug override for ordinary Lance scans. Default 0 uses automatic splitting; "
+                    + "a positive value groups that many fragments per split, bypassing scalar index segment "
+                    + "scans. Does not affect vector or full-text searches")
+    public int lanceFragmentsPerSplit = 0;
 
     @VarAttrDef.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,
             description = "The minimum memory required to be used by an operator, if not meet, the operator will not "
@@ -4635,6 +4645,12 @@ public class SessionVariable implements Serializable, Writable {
         if (!Set.of("inherit", "local", "majority", "available", "snapshot").contains(value.toLowerCase(Locale.ROOT))) {
             throw new UnsupportedOperationException("Invalid mongodb_read_concern; expected inherit, local, "
                     + "majority, available or snapshot");
+        }
+    }
+
+    public void checkLanceFragmentsPerSplit(String value) {
+        if (Integer.parseInt(value) < 0) {
+            throw new InvalidParameterException("lance_fragments_per_split must be non-negative");
         }
     }
 
