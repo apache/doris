@@ -557,7 +557,7 @@ public final class BaselineTestDoubles {
                     && Objects.equals(row.getPlanSql(), planSql)
                     && (status == null || row.getStatus() == status)
                     && (schemaFingerprint == null
-                            || Objects.equals(row.getSchemaFingerprint(), schemaFingerprint))
+                            || schemaFingerprint.equals(Objects.toString(row.getSchemaFingerprint(), "")))
                     && (requiredUpdateTimeMicros == null
                             || row.getUpdateTime() == requiredUpdateTimeMicros);
         }

@@ -4034,6 +4034,36 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
+    @Test
+    public void testAmbiguousCreateRequiresTheAttemptedSchemaFingerprint() {
+        manager = newManager();
+        BaselineManagerTestAccess.clear(manager);
+        SimulatedStore store = new SimulatedStore();
+        BaselinePlan attempted = baseline("d-amb-schema", "p-amb-schema");
+        attempted.setSchemaFingerprint("attempted-schema");
+        doubles.idAllocatorStore = store;
+        store.onInsert = () -> {
+            BaselinePlan foreign = attempted.copyPersistedScalars();
+            foreign.setSchemaFingerprint("foreign-schema");
+            store.replaceRows(attempted.getId(), List.of(foreign));
+            throw new RuntimeException("insert timed out");
+        };
+        try {
+            IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(attempted));
+
+            Assertions.assertEquals("AmbiguousInsertException", failure.getClass().getSimpleName());
+            Assertions.assertEquals(1, BaselineManagerTestAccess.pendingCreateCount(manager));
+            Assertions.assertNull(manager.getBaseline(attempted.getId()));
+            List<BaselinePlan> rows = store.rowsOf(attempted.getId());
+            Assertions.assertEquals(1, rows.size());
+            Assertions.assertEquals("foreign-schema", rows.get(0).getSchemaFingerprint());
+        } finally {
+            doubles.idAllocatorStore = null;
+            BaselineManagerTestAccess.clear(manager);
+        }
+    }
+
     /**
      * The promotion reload must NOT clear the pending-create registry - the
      * reload cannot see an unpublished row, so the identity it describes is still the only

@@ -8857,9 +8857,8 @@ public class BaselineManager {
         } catch (Exception e) {
             // An INSERT that reports an error (typically a statement timeout) may still
             // have COMMITTED: reconcile against the durable table before failing the
-            // write. The row carrying this id + key + REQUESTED STATUS + the ATTEMPTED
-            // stored SECOND is the proof it landed. An outcome that cannot be PROVEN
-            // counts as AMBIGUOUS, never as a genuine failure.
+            // write. Proof requires the same id, SQL identity, schema fingerprint,
+            // status and exact stored update time. Otherwise the outcome is ambiguous.
             throwAmbiguousInsertUnlessDurable(p, e);
         }
     }
@@ -9060,8 +9059,7 @@ public class BaselineManager {
                 if (Objects.equals(row.getBindSqlDigest(), bindSqlDigest)
                         && Objects.equals(row.getPlanSql(), planSql)
                         && (status == null || row.getStatus() == status)
-                        && (schemaFingerprint == null || Objects.equals(
-                                row.getSchemaFingerprint(), schemaFingerprint))
+                        && (schemaFingerprint == null || schemaFingerprint.equals(normalizedFingerprint(row)))
                         && (requiredUpdateTimeMicros == null || sameStoredInstant(
                                 row.getUpdateTime(), requiredUpdateTimeMicros))) {
                     return BaselinePersistence.DurablePresence.PRESENT;
@@ -9076,22 +9074,13 @@ public class BaselineManager {
     }
 
     /**
-     * Probes for a readable row matching id, bind digest, plan SQL, status and the exact attempted update
-     * timestamp. This probe does not constrain the schema fingerprint; identity-scoped deletion and duplicate
-     * checks apply their own fingerprint conditions.
+     * Probes for a readable row matching the attempted id, bind digest, plan SQL, schema fingerprint, status,
+     * and exact stored update time. An unset fingerprint is written as the empty string.
      */
     private boolean observedInsertRowIsOurs(BaselinePlan p) {
-        // Check the attempted id, SQL identity, status and exact epoch-microsecond update time. The fingerprint
-        // argument is left unconstrained in this probe.
         return probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql(),
-                p.getStatus(), null, p.getUpdateTime())
+                p.getStatus(), normalizedFingerprint(p), p.getUpdateTime())
                 == BaselinePersistence.DurablePresence.PRESENT;
-    }
-
-    /** The live implementation half of BaselinePersistence.isRowReadable. */
-    private boolean observedInsertRowIsOursFromTable(BaselinePlan p) {
-        return probeRowFromTable(p.getId(), p.getBindSqlDigest(), p.getPlanSql(), p.getStatus(),
-                null, p.getUpdateTime()) == BaselinePersistence.DurablePresence.PRESENT;
     }
 
     /**
@@ -9678,7 +9667,7 @@ public class BaselineManager {
 
         @Override
         public boolean isRowReadable(BaselinePlan plan) {
-            return owner.observedInsertRowIsOursFromTable(plan);
+            return owner.observedInsertRowIsOurs(plan);
         }
 
         @Override
