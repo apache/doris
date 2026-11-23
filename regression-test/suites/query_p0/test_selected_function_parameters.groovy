@@ -58,13 +58,13 @@ suite("test_selected_function_parameters", "p0") {
         // CRC32 has no FE executor. Its zero result makes BE receive -1 with one false event.
         sql """select window_funnel_v2(cast(crc32('') as bigint) - 1, 'default',
             cast('2024-01-01' as datetime), false)"""
-        exception "window must be a nonnegative BIGINT"
+        exception "window must be a positive integer"
     }
     test {
         // The literal takes the FE validation path. The same negative window must fail there.
         sql """select window_funnel_v2(-1, 'default',
             cast('2024-01-01' as datetime), false)"""
-        exception "window must be a nonnegative BIGINT"
+        exception "window must be a positive integer"
     }
     order_qt_zero_window """select window_funnel_v2(0, 'default',
         cast('2024-01-01' as datetime), false)"""
