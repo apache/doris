@@ -141,6 +141,9 @@ Status DataTypeFileSerDe::serialize_column_to_json(const IColumn& column, int64_
 
 Status DataTypeFileSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                          const FormatOptions&) const {
+    if (slice.empty()) {
+        return Status::InvalidArgument("FILE aggregate state requires a JSON object");
+    }
     rapidjson::Document document;
     document.Parse(slice.data, slice.size);
     if (document.HasParseError() || !document.IsObject()) {
@@ -149,16 +152,25 @@ Status DataTypeFileSerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
     File value(FILE_FIELDS);
     DorisVector<char> inline_bytes;
     for (size_t i = 0; i < FILE_FIELDS; ++i) {
-        DCHECK(document.HasMember(_names[i].c_str()));
-        const auto& field = document[_names[i].c_str()];
+        const auto member = document.FindMember(_names[i].c_str());
+        if (member == document.MemberEnd()) {
+            return Status::InvalidArgument("Missing FILE JSON field '{}'", _names[i]);
+        }
+        const auto& field = member->value;
         if (field.IsNull()) {
             continue;
         }
         if (i == DataTypeFile::OFFSET_FIELD_INDEX || i == DataTypeFile::SIZE_FIELD_INDEX) {
+            if (!field.IsInt64()) {
+                return Status::InvalidArgument("Invalid FILE JSON integer field '{}'", _names[i]);
+            }
             value[i] = Field::create_field<TYPE_BIGINT>(field.GetInt64());
         } else if (i == INLINE_FIELD_INDEX) {
+            if (!field.IsString()) {
+                return Status::InvalidArgument("Invalid FILE JSON string field '{}'", _names[i]);
+            }
             const auto encoded_size = field.GetStringLength();
-            inline_bytes.resize(static_cast<size_t>(encoded_size) / 4 * 3);
+            inline_bytes.resize((static_cast<size_t>(encoded_size) + 3) / 4 * 3);
             const auto size = encoded_size == 0 ? 0
                                                 : base64_decode(field.GetString(), encoded_size,
                                                                 inline_bytes.data());
@@ -168,6 +180,9 @@ Status DataTypeFileSerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
             value[i] = Field::create_field<TYPE_VARBINARY>(
                     StringView(inline_bytes.data(), cast_set<uint32_t>(size)));
         } else {
+            if (!field.IsString()) {
+                return Status::InvalidArgument("Invalid FILE JSON string field '{}'", _names[i]);
+            }
             value[i] = Field::create_field<TYPE_STRING>(
                     std::string(field.GetString(), field.GetStringLength()));
         }

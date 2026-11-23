@@ -210,4 +210,76 @@ TEST_F(DataTypeFileSerDeTest, MysqlNullableWrapperUsesProtocolNull) {
     ASSERT_EQ(binary.length(), 2);
     EXPECT_EQ(static_cast<unsigned char>(binary.buf()[1]), 4);
 }
+
+TEST_F(DataTypeFileSerDeTest, JsonRoundTripPreservesFieldsAndNulls) {
+    auto source = type.create_column();
+    source->insert(Field::create_field<TYPE_FILE>(File(6)));
+    source->insert(value());
+    const std::vector<std::string> fixtures = {"", "f", "fo", "foo", std::string("\0\xff\x80", 3)};
+    for (const auto& bytes : fixtures) {
+        auto field = value(&bytes);
+        field.get<TYPE_FILE>()[1] = Field::create_field<TYPE_BIGINT>(4096);
+        source->insert(field);
+    }
+    auto target = type.create_column();
+    for (size_t row = 0; row < source->size(); ++row) {
+        const auto encoded = text(*source, row, true);
+        Slice slice(encoded.data(), encoded.size());
+        ASSERT_TRUE(serde.deserialize_one_cell_from_json(*target, slice, options).ok()) << encoded;
+    }
+    ASSERT_EQ(target->size(), source->size());
+    for (size_t row = 0; row < source->size(); ++row) {
+        EXPECT_EQ((*target)[row], (*source)[row]) << row;
+    }
+}
+
+TEST_F(DataTypeFileSerDeTest, DeserializeJsonRejectsMissingOrWronglyTypedMembers) {
+    const std::vector<std::string> names = {"uri",          "offset",   "size",
+                                            "content_type", "checksum", "inline"};
+    // Builds an object where `field` carries `json` and every other member is null.
+    auto build = [&](const std::string& field, const std::string& json) {
+        std::string result = "{";
+        for (const auto& name : names) {
+            if (result.size() > 1) result += ",";
+            result += "\"" + name + "\":" + (name == field ? json : "null");
+        }
+        return result + "}";
+    };
+    std::vector<std::string> invalid = {
+            "",
+            "{",
+            "null",
+            "[]",
+            "123",
+            "\"str\"",
+            "{}",
+            R"({"uri":1,"offset":null,"size":null,"content_type":null,"checksum":null,"inline":null})"};
+    for (const auto& omitted : names) {
+        std::string result = "{";
+        for (const auto& name : names) {
+            if (name == omitted) continue;
+            if (result.size() > 1) result += ",";
+            result += "\"" + name + "\":null";
+        }
+        invalid.push_back(result + "}");
+    }
+    for (const auto* field : {"uri", "content_type", "checksum"}) {
+        for (const auto* json : {"1", "true", "[]", "{}"}) invalid.push_back(build(field, json));
+    }
+    for (const auto* field : {"offset", "size"}) {
+        for (const auto* json : {"\"10\"", "1.5", "true", "9223372036854775808", "[]", "{}"}) {
+            invalid.push_back(build(field, json));
+        }
+    }
+    for (const auto* json : {"1", "false", "[]", "{}", "\"!\"", "\"Zg\"", "\"Zm8\"", "\"!!!!\""}) {
+        invalid.push_back(build("inline", json));
+    }
+    for (const auto& input : invalid) {
+        auto column = type.create_column();
+        Slice slice(input.data(), input.size());
+        const auto st = serde.deserialize_one_cell_from_json(*column, slice, options);
+        EXPECT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT) << input;
+        EXPECT_EQ(column->size(), 0) << input;
+    }
+}
 } // namespace doris
