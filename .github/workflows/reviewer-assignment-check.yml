@@ -1,0 +1,45 @@
+name: Reviewer Assignment Checks
+
+on:
+  pull_request:
+    paths:
+      - '.github/scripts/reviewer_assignment*.py'
+      - '.github/scripts/replay_reviewer_assignment.py'
+      - '.github/scripts/test_reviewer_assignment*.py'
+      - '.github/scripts/review_github_api.py'
+      - '.github/scripts/test_review_github_api.py'
+      - '.github/workflows/reviewer-assignment*.yml'
+      - 'tools/reviewer-routing/**'
+  push:
+    paths:
+      - '.github/scripts/reviewer_assignment*.py'
+      - '.github/scripts/replay_reviewer_assignment.py'
+      - '.github/scripts/test_reviewer_assignment*.py'
+      - '.github/scripts/review_github_api.py'
+      - '.github/scripts/test_review_github_api.py'
+      - '.github/workflows/reviewer-assignment*.yml'
+      - 'tools/reviewer-routing/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+            .github/workflows
+            tools/reviewer-routing
+      - name: Check routing and executable workflow paths without secrets
+        run: |
+          python3 tools/reviewer-routing/routing_config.py --check
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+            -s .github/scripts -p 'test_reviewer_assignment*.py'
+          RUN_GH_HTTP_TESTS=1 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+            -s .github/scripts -p test_review_github_api.py

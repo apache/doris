@@ -19,11 +19,21 @@ package org.apache.doris.tls.server;
 
 import org.apache.doris.qe.ConnectScheduler;
 
+import java.io.IOException;
+import java.net.ServerSocket;
+
 // FE startup splits at the starter provider boundary. OSS and TLS-enabled builds
 // return different protocol starters while DorisFE and QeService keep a stable
 // startup flow.
 public interface FeServerStarterProvider {
     ServerStarter createThriftServerStarter(int port);
+
+    /** Mock FEs supply a bound listener. Providers with their own transport bind at startup as usual. */
+    default ServerStarter createThriftServerStarter(ServerSocket listener) throws IOException {
+        int port = listener.getLocalPort();
+        listener.close();
+        return createThriftServerStarter(port);
+    }
 
     ServerStarter createMysqlServerStarter(int port, ConnectScheduler scheduler);
 

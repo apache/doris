@@ -24,11 +24,11 @@
 #include <string_view>
 #include <vector>
 
-#include "CLucene.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/KuromojiTokenizer.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/dict/kuromoji_dict_format.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/dict/kuromoji_dictionary.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/dict/kuromoji_dictionary_builder.h"
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "testutil/scoped_temp_dir.h"
 
 namespace doris::segment_v2::inverted_index::kuromoji {
@@ -133,22 +133,46 @@ TEST_F(KuromojiViterbiTest, AllUnknown) {
     EXPECT_EQ(ms[0].byte_len, 3U);
 }
 
-// End-to-end through the CLucene Tokenizer wrapper: with a dictionary, the
-// tokenizer emits Viterbi morphemes ("U+6771 U+4EAC", "U+5E9C") rather than unigrams.
+// End-to-end through the tokenizer: with a dictionary, it emits Viterbi morphemes
+// ("U+6771 U+4EAC", "U+5E9C") rather than unigrams.
 TEST_F(KuromojiViterbiTest, TokenizerUsesDictionary) {
     const std::string s = TOU + KYO + FU;
-    lucene::util::SStringReader<char> reader;
-    reader.init(s.data(), s.size(), false);
+    KuromojiTokenizer tk(KuromojiMode::Search, true, _dict.get());
+    EXPECT_EQ(collect_terms(tk, s), (std::vector<std::string> {TOU + KYO, FU}));
+}
 
-    KuromojiTokenizer tk(KuromojiMode::Search, true, false, _dict.get());
-    tk.reset(&reader);
-
-    std::vector<std::string> toks;
-    lucene::analysis::Token t;
-    while (tk.next(&t) != nullptr) {
-        toks.emplace_back(t.termBuffer<char>(), static_cast<std::size_t>(t.termLength<char>()));
+// The stream contract, and the terms of a long value released at the next value: what the
+// tokenizer keeps is then at most 1 MiB, and exactly its terms (read with -fno-access-control).
+TEST_F(KuromojiViterbiTest, TokenizerReleasesALongValueAtTheNextValue) {
+    std::string many_batches;
+    for (int i = 0; i < 600; ++i) {
+        many_batches += TOU + KYO + FU;
     }
-    EXPECT_EQ(toks, (std::vector<std::string> {TOU + KYO, FU}));
+    expect_text_stream_contract(
+            [&] {
+                return std::make_unique<KuromojiTokenizer>(KuromojiMode::Search, true, _dict.get());
+            },
+            {"", TOU, TOU + KYO + FU, many_batches});
+
+    KuromojiTokenizer tk(KuromojiMode::Search, true, _dict.get());
+    const auto member_bytes = [&] {
+        size_t bytes = tk.tokens_text_.capacity() * sizeof(std::string);
+        for (const std::string& text : tk.tokens_text_) {
+            bytes += text.capacity();
+        }
+        return bytes;
+    };
+    constexpr size_t kOneMiB = 1024 * 1024;
+    std::string long_value;
+    while (long_value.size() < 2 * kOneMiB) {
+        long_value += TOU + KYO + FU;
+    }
+    collect_checked(tk, long_value);
+    EXPECT_GT(tk.reserved_bytes(), kOneMiB);
+    EXPECT_EQ(tk.reserved_bytes(), member_bytes());
+    EXPECT_EQ(collect_terms(tk, TOU), std::vector<std::string> {TOU});
+    EXPECT_LE(tk.reserved_bytes(), kOneMiB);
+    EXPECT_EQ(tk.reserved_bytes(), member_bytes());
 }
 
 // U+90FD  = E9 83 BD (U+90FD), U+5C71  = E5 B1 B1 (U+5C71), U+5DDD  = E5 B7 9D (U+5DDD)

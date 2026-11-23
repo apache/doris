@@ -1197,6 +1197,84 @@ public class ScopedMetaCacheConcurrencyTest {
     }
 
     @Test
+    public void bulkPublicationAfterOwnerCloseDeclinesWithoutRetaining() {
+        for (boolean closeRegistry : new boolean[] {false, true}) {
+            try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+                ScopedMetaCache<String, String> cache = registry.createCache("test", ENABLED);
+                try (BulkLoadHandle handle = cache.beginBulkLoad(TABLE)) {
+                    if (closeRegistry) {
+                        registry.close();
+                    } else {
+                        cache.close();
+                    }
+                    Assertions.assertFalse(cache.publish(handle, "key", PARTITION, "completed"));
+                    Assertions.assertThrows(IllegalStateException.class, () -> cache.beginBulkLoad(TABLE),
+                            "retirement still rejects new loads");
+                }
+                assertEmpty(registry, cache);
+            }
+        }
+    }
+
+    @Test
+    public void ownerCloseBetweenBulkStagingAndCommitDeclinesPublication() throws Exception {
+        for (boolean closeRegistry : new boolean[] {false, true}) {
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            CountDownLatch valueStaged = new CountDownLatch(1);
+            CountDownLatch allowCommit = new CountDownLatch(1);
+            try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+                ScopedMetaCache<String, String> cache = registry.createCache("test", ENABLED, null, null, () -> {
+                    valueStaged.countDown();
+                    await(allowCommit);
+                });
+                try (BulkLoadHandle handle = cache.beginBulkLoad(TABLE)) {
+                    Future<Boolean> publication = executor.submit(
+                            () -> cache.publish(handle, "key", PARTITION, "completed"));
+                    await(valueStaged);
+                    if (closeRegistry) {
+                        registry.close();
+                    } else {
+                        cache.close();
+                    }
+                    allowCommit.countDown();
+                    Assertions.assertFalse(publication.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+                }
+                assertEmpty(registry, cache);
+            } finally {
+                allowCommit.countDown();
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void registryRetirementBeforeCacheClosureDeclinesBulkScopeAcquisition() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch removalStarted = new CountDownLatch(1);
+        CountDownLatch allowRemoval = new CountDownLatch(1);
+        try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+            ScopedMetaCache<String, String> cache = registry.createCache("test", ENABLED, null, (key, value) -> {
+                removalStarted.countDown();
+                await(allowRemoval);
+            });
+            cache.put("existing", PARTITION, "value");
+            try (BulkLoadHandle handle = cache.beginBulkLoad(TABLE)) {
+                Future<?> closure = executor.submit(registry::close);
+                await(removalStarted);
+                // Registry close invalidates scopes and removes values before it closes the physical cache.
+                // No actual-scope lease can be acquired now, although the load's handle is still open.
+                Assertions.assertFalse(cache.publish(handle, "late", PARTITION, "completed"));
+                allowRemoval.countDown();
+                closure.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            }
+            assertEmpty(registry, cache);
+        } finally {
+            allowRemoval.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void closeCannotRaceWithLateExactInvalidationTombstone() throws Exception {
         assertCloseFencesLateExactInvalidation(false);
         assertCloseFencesLateExactInvalidation(true);

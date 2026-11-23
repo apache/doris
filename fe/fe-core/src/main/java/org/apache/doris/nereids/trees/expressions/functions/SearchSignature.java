@@ -50,8 +50,7 @@ public class SearchSignature {
     private final List<FunctionSignature> signatures;
     private final List<Expression> arguments;
     private final boolean hasTimeStampNsArgument;
-    private final boolean hasOtherDateLikeArgument;
-    private final boolean hasHomogeneousDateLikeSignature;
+    private final boolean requiresTimeStampNsSignature;
 
     // param1: signature type
     // param2: real argument type
@@ -64,27 +63,22 @@ public class SearchSignature {
         this.computeSignature = computeSignature;
         this.signatures = signatures;
         this.arguments = arguments;
-        this.hasTimeStampNsArgument = arguments.stream()
-                .anyMatch(argument -> argument.getDataType().isTimeStampNsType());
-        this.hasOtherDateLikeArgument = arguments.stream()
-                .anyMatch(argument -> argument.getDataType().isDateLikeType()
-                        && !argument.getDataType().isTimeStampNsType());
-        this.hasHomogeneousDateLikeSignature = signatures.stream()
-                .anyMatch(SearchSignature::hasHomogeneousDateLikeArguments);
-    }
-
-    private static boolean hasHomogeneousDateLikeArguments(FunctionSignature signature) {
-        Optional<DataType> temporalType = signature.argumentsTypes.stream()
-                .filter(DataType::isDateLikeType).findFirst();
-        if (!temporalType.isPresent()) {
-            return signature.getVarArgType().filter(DataType::isDateLikeType).isPresent();
+        boolean hasNs = false;
+        boolean hasOtherDateLike = false;
+        for (Expression argument : arguments) {
+            DataType type = argument.getDataType();
+            if (type.isTimeStampNsType()) {
+                hasNs = true;
+            } else if (type.isDateLikeType()) {
+                hasOtherDateLike = true;
+            }
+            if (hasNs && hasOtherDateLike) {
+                break;
+            }
         }
-        // Temporal overloads share one argument type. STRUCT fields and MAP keys/values
-        // can instead have independent types, e.g. struct(DATEV2, TIMESTAMP_NS).
-        return signature.argumentsTypes.stream().filter(DataType::isDateLikeType)
-                .allMatch(temporalType.get()::equals)
-                && signature.getVarArgType().filter(DataType::isDateLikeType)
-                        .map(temporalType.get()::equals).orElse(true);
+        this.hasTimeStampNsArgument = hasNs;
+        this.requiresTimeStampNsSignature = hasNs && hasOtherDateLike
+                && signatures.stream().anyMatch(SearchSignature::hasHomogeneousDateLikeArguments);
     }
 
     public static SearchSignature from(ComputeSignature computeSignature,
@@ -279,25 +273,7 @@ public class SearchSignature {
             DataType sigArgType = sig.getArgType(i);
             Expression argument = arguments.get(i);
             DataType realType = argument.getDataType();
-            if (hasTimeStampNsArgument && hasOtherDateLikeArgument && hasHomogeneousDateLikeSignature
-                    && realType.isDateLikeType() && !sigArgType.isDateLikeType()) {
-                // Do not bypass temporal exactness checks through a generic string overload.
-                return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
-            }
-            if (hasTimeStampNsArgument && hasOtherDateLikeArgument && hasHomogeneousDateLikeSignature
-                    && realType.isDateLikeType()
-                    && sigArgType.isDateLikeType() && !sigArgType.isTimeStampNsType()) {
-                // Mixed temporal calls use TIMESTAMP_NS without truncation or nullable overflow.
-                return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
-            }
-            if (sigArgType.isTimeStampNsType() && !hasTimeStampNsArgument) {
-                // TIMESTAMP_NS overloads preserve a typed nanosecond argument. They must not
-                // change the historical binding of character or other temporal input.
-                return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
-            }
-            if (realType.isTimeStampNsType() && sigArgType.isDateLikeType()
-                    && !sigArgType.isTimeStampNsType()
-                    && !TypeCoercionUtils.canExactlyCastTimeStampNsTo(argument, sigArgType)) {
+            if (!matchesTemporalArgument(argument, sigArgType)) {
                 return Pair.of(false, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
             }
             // we need to try to do string literal coercion when search signature.
@@ -306,19 +282,14 @@ public class SearchSignature {
             Optional<Literal> literalAfterUnwrapNullable = ExpressionUtils.getLiteralAfterUnwrapNullable(argument);
             if (!argument.isNullLiteral() && literalAfterUnwrapNullable.isPresent() && realType.isStringLikeType()) {
                 String literalValue = literalAfterUnwrapNullable.get().getStringValue();
-                realType = TypeCoercionUtils.characterLiteralTypeCoercion(literalValue,
-                        sigArgType).orElse(argument).getDataType();
+                realType = TypeCoercionUtils.characterLiteralTypeCoercion(literalValue, sigArgType)
+                        .orElse(argument).getDataType();
                 if (!realType.isStringLikeType()) {
                     stringLiteralCoersionCount++;
                 }
 
                 if (sigArgType.isTimeStampTzType()) {
-                    boolean hasTimeZone = DateTimeChecker.hasTimeZone(literalValue);
-                    if (hasTimeZone) {
-                        timeZoneCoersionScore++;
-                    } else {
-                        timeZoneCoersionScore--;
-                    }
+                    timeZoneCoersionScore += DateTimeChecker.hasTimeZone(literalValue) ? 1 : -1;
                 }
             }
             if (!typePredicate.apply(sigArgType, realType)) {
@@ -326,6 +297,39 @@ public class SearchSignature {
             }
         }
         return Pair.of(true, Pair.of(stringLiteralCoersionCount, timeZoneCoersionScore));
+    }
+
+    /** Constraints shared by all matching rounds; they depend on the whole argument/signature set. */
+    private boolean matchesTemporalArgument(Expression argument, DataType signatureType) {
+        DataType realType = argument.getDataType();
+        if (requiresTimeStampNsSignature && realType.isDateLikeType() && !signatureType.isTimeStampNsType()) {
+            // Mixed temporal calls preserve nanoseconds and range checks; neither a lower-precision
+            // temporal overload nor a string overload may bypass that requirement.
+            return false;
+        }
+        if (signatureType.isTimeStampNsType()) {
+            // NS overloads preserve typed NS input without changing historical bindings for other inputs.
+            return hasTimeStampNsArgument;
+        }
+        // Check the literal value without replacing its NS type in the matching rounds below.
+        // Unlike character literal parsing, this must not turn a lossy temporal conversion into
+        // an identical match or change the preference for a native NS overload.
+        return !realType.isTimeStampNsType() || !signatureType.isDateLikeType()
+                || TypeCoercionUtils.getExactTimeStampNsLiteralCastType(argument, signatureType).isPresent();
+    }
+
+    private static boolean hasHomogeneousDateLikeArguments(FunctionSignature signature) {
+        Optional<DataType> temporalType = signature.argumentsTypes.stream()
+                .filter(DataType::isDateLikeType).findFirst();
+        if (!temporalType.isPresent()) {
+            return signature.getVarArgType().filter(DataType::isDateLikeType).isPresent();
+        }
+        // Temporal overloads share one argument type. STRUCT fields and MAP keys/values
+        // can instead have independent types, e.g. struct(DATEV2, TIMESTAMP_NS).
+        return signature.argumentsTypes.stream().filter(DataType::isDateLikeType)
+                .allMatch(temporalType.get()::equals)
+                && signature.getVarArgType().filter(DataType::isDateLikeType)
+                        .map(temporalType.get()::equals).orElse(true);
     }
 
     public static void throwCanNotFoundFunctionException(String name, List<Expression> arguments) {

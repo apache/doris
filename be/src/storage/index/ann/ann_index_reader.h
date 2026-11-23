@@ -22,9 +22,9 @@
 
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_index.h"
+#include "storage/index/ann/ann_index_storage.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_common.h"
-#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/once.h"
@@ -70,13 +70,13 @@ public:
 private:
     TabletIndex _index_meta;
     std::shared_ptr<IndexFileReader> _index_file_reader;
-    // IMPORTANT: _compound_dir MUST be declared before _vector_index so that it is
+    // IMPORTANT: _source MUST be declared before _vector_index so that it is
     // destroyed AFTER _vector_index (C++ destroys members in reverse declaration order).
-    // For IVF_ON_DISK, the CachedRandomAccessReader inside _vector_index holds a cloned
-    // CSIndexInput whose `base` raw pointer references the compound directory's underlying
-    // stream. If _compound_dir were destroyed first, that `base` would dangle, causing
-    // a use-after-free when ~CachedRandomAccessReader() calls _input->close().
-    std::unique_ptr<DorisCompoundReader, DirectoryDeleter> _compound_dir;
+    // For IVF_ON_DISK, the CachedRandomAccessReader inside _vector_index keeps an
+    // AnnIndexInput it opened from _source and reads it on every search. An input may
+    // use what its source holds -- on V1/V2 it reads through the compound reader's one
+    // file stream -- so a source destroyed first would leave that input dangling.
+    std::unique_ptr<AnnIndexSource> _source;
     std::unique_ptr<VectorIndex> _vector_index;
     AnnIndexType _index_type;
     AnnIndexMetric _metric_type;

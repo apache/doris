@@ -25,6 +25,7 @@
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "util/private_rpc_tls.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -124,6 +125,16 @@ std::map<std::string, std::string> VMCTableWriter::_build_base_writer_params() {
     params["fe_port"] = std::to_string(master_fe_addr.port);
     params["fe_rpc_timeout_ms"] = std::to_string(config::thrift_rpc_timeout_ms);
     params["fe_thrift_server_type"] = config::thrift_server_type_of_fe;
+    // This JNI callback reaches our FE, not MaxCompute. Sink properties cannot override node trust.
+    const bool private_tls = rpc_tls::enabled_for_java_thrift();
+    params["fe_rpc_tls_enabled"] = private_tls ? "true" : "false";
+    if (private_tls) {
+        params["fe_rpc_tls_certificate_path"] = config::tls_certificate_path;
+        params["fe_rpc_tls_private_key_path"] = config::tls_private_key_path;
+        params["fe_rpc_tls_ca_certificate_path"] = config::tls_ca_certificate_path;
+        params["fe_rpc_connect_timeout_ms"] =
+                std::to_string(static_cast<int64_t>(config::thrift_connect_timeout_seconds) * 1000);
+    }
     return params;
 }
 

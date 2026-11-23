@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "storage/index/inverted/snii/writer/memory_reporter.h"
 
 namespace doris {
@@ -37,7 +39,28 @@ enum class BuildMemoryPopulation {
     kUnregistered,
 };
 
-// Mirrors a reporter's live bytes into the process tracker.
+// A reporter holds its changes back from the two process-wide counters until they
+// add up to this many bytes. Reservations move several times per term, so writing
+// every change would have all flush threads bouncing the same cache lines: a log
+// column of mostly unique terms spent over half of its flush CPU there. The step has
+// to exceed what one term swings, for example 32 KiB of window scratch plus a ZSTD
+// context.
+//
+// The price is that the counters can lag a reporter by less than one step while its live
+// bytes are above zero. They are exact again whenever the live bytes are zero, so a
+// finished writer leaves nothing behind even though IndexFileWriter keeps its reporter
+// until the rowset writer closes. The reporter itself stays exact, so its budget and
+// spill threshold do not change. The forced-spill decision reads the sum, so it can start
+// late by the lag of the writers still building: at most 1 GiB with 100 flush threads on
+// a 10-index table, against a share of at least 4 * inverted_index_ram_buffer_size. A
+// writer below the step could not be a victim anyway, because forced spills only pick
+// arenas above snii_forced_spill_min_arena_bytes (default 64 MiB), and the process-level
+// backstops read real memory.
+inline constexpr int64_t kBuildBytesPublishStep = 1LL << 20;
+
+// Mirrors a reporter's live bytes into the process tracker, to within one publish step
+// while they are above zero, and exactly whenever they are zero or the reporter is
+// destroyed.
 MemoryReporter::ConsumeReleaseFn snii_build_consume_release(BuildMemoryPopulation population);
 
 // Returns reclaimable build bytes from registered writers.

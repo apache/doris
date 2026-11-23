@@ -27,8 +27,8 @@
 
 #include "common/config.h"
 #include "common/simple_thread_pool.h"
-#include "cpp/obj-client/obj_storage_client.h"
-#include "cpp/obj-client/rate_limited_obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
+#include "cpp/obj-storage/rate_limit/rate_limited_obj_storage_client.h"
 #include "recycler/s3_accessor.h"
 
 namespace doris {
@@ -223,8 +223,8 @@ public:
     CountingRateLimitPolicy(size_t* get_requests, size_t* put_requests)
             : get_requests_(get_requests), put_requests_(put_requests) {}
 
-    ObjStorageAdmission acquire(S3RateLimitType type, size_t) const override {
-        if (type == S3RateLimitType::GET) {
+    ObjStorageAdmission acquire(ObjStorageRateLimitType type, size_t) const override {
+        if (type == ObjStorageRateLimitType::GET) {
             ++*get_requests_;
         } else {
             ++*put_requests_;

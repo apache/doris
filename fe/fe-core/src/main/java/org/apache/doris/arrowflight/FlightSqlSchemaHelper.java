@@ -17,6 +17,7 @@
 
 package org.apache.doris.arrowflight;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrow.DorisArrowTypeMapping;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
@@ -24,6 +25,7 @@ import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -62,8 +64,8 @@ import java.nio.channels.Channels;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -214,7 +216,7 @@ public class FlightSqlSchemaHelper {
         if (dbSchemaFilterPattern != null) {
             getDbsParams.setPattern(dbSchemaFilterPattern);
         }
-        getDbsParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        getDbsParams.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
         return impl.getDbNames(getDbsParams);
     }
 
@@ -232,7 +234,7 @@ public class FlightSqlSchemaHelper {
         }
         // Flight SQL only consumes names and types, not the potentially expensive table statistics.
         getTablesParams.setRequiredColumns(Set.of("TABLE_NAME", "TABLE_TYPE"));
-        getTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        getTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
         return impl.listTableStatus(getTablesParams);
     }
 
@@ -247,7 +249,7 @@ public class FlightSqlSchemaHelper {
             describeTablesParams.setCatalog(catalogName);
         }
         describeTablesParams.setTablesName(tablesName);
-        describeTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        describeTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
         return impl.describeTables(describeTablesParams);
     }
 
@@ -317,18 +319,28 @@ public class FlightSqlSchemaHelper {
     public void getCatalogs(VectorSchemaRoot vectorSchemaRoot) throws TException {
         VarCharVector catalogNameVector = (VarCharVector) vectorSchemaRoot.getVector("catalog_name");
 
-        Set<String> catalogsSet = new LinkedHashSet<>();
-        catalogsSet.add("internal"); // An ordered Set with "internal" first.
-        for (CatalogIf catalog : Env.getCurrentEnv().getCatalogMgr().listCatalogs()) {
-            catalogsSet.add(catalog.getName());
-        }
+        // Use SHOW CATALOGS visibility with the session's authenticated roles, without initializing catalogs.
+        List<String> catalogs = Env.getCurrentEnv().getCatalogMgr()
+                .listCatalogsWithCheckPriv(UserIdentity.fromThrift(ctx.getCurrentUserIdentityForRpc())).stream()
+                .map(CatalogIf::getName).sorted().collect(Collectors.toList());
 
         int catalogIndex = 0;
-        for (String catalog : catalogsSet) {
+        for (String catalog : catalogs) {
             catalogNameVector.setSafe(catalogIndex, new Text(catalog));
             catalogIndex++;
         }
         vectorSchemaRoot.setRowCount(catalogIndex);
+    }
+
+    private List<Pair<String, String>> getSortedDbs() throws TException {
+        TGetDbsResult result = getDbNames();
+        List<Pair<String, String>> databases = new ArrayList<>(result.getDbsSize());
+        for (int i = 0; i < result.getDbsSize(); i++) {
+            databases.add(Pair.of(result.isSetCatalogs() ? result.getCatalogs().get(i) : "", result.getDbs().get(i)));
+        }
+        // Keep catalog/schema pairs together: the service returns them as parallel lists.
+        databases.sort(Comparator.comparing((Pair<String, String> db) -> db.first).thenComparing(db -> db.second));
+        return databases;
     }
 
     /**
@@ -338,14 +350,13 @@ public class FlightSqlSchemaHelper {
         VarCharVector catalogNameVector = (VarCharVector) vectorSchemaRoot.getVector("catalog_name");
         VarCharVector schemaNameVector = (VarCharVector) vectorSchemaRoot.getVector("db_schema_name");
 
-        TGetDbsResult getDbsResult = getDbNames();
-        for (int dbIndex = 0; dbIndex < getDbsResult.getDbs().size(); dbIndex++) {
-            String dbName = getDbsResult.getDbs().get(dbIndex);
-            String catalogName = getDbsResult.isSetCatalogs() ? getDbsResult.getCatalogs().get(dbIndex) : "";
-            catalogNameVector.setSafe(dbIndex, new Text(catalogName));
-            schemaNameVector.setSafe(dbIndex, new Text(dbName));
+        List<Pair<String, String>> databases = getSortedDbs();
+        for (int dbIndex = 0; dbIndex < databases.size(); dbIndex++) {
+            Pair<String, String> database = databases.get(dbIndex);
+            catalogNameVector.setSafe(dbIndex, new Text(database.first));
+            schemaNameVector.setSafe(dbIndex, new Text(database.second));
         }
-        vectorSchemaRoot.setRowCount(getDbsResult.getDbs().size());
+        vectorSchemaRoot.setRowCount(databases.size());
     }
 
     /**
@@ -370,17 +381,14 @@ public class FlightSqlSchemaHelper {
         VarBinaryVector schemaVector = (VarBinaryVector) vectorSchemaRoot.getVector("table_schema");
 
         int tablesCount = 0;
-        TGetDbsResult getDbsResult = getDbNames();
-        for (int dbIndex = 0; dbIndex < getDbsResult.getDbs().size(); dbIndex++) {
-            String dbName = getDbsResult.getDbs().get(dbIndex);
-            String catalogName = getDbsResult.isSetCatalogs() ? getDbsResult.getCatalogs().get(dbIndex) : "";
-            List<TTableStatus> tables = listTableStatus(dbName, catalogName).getTables();
-            if (tableTypeFilter != null) {
-                // The service's single-type filter only handles VIEW. Match all requested types here
-                // against the authorized results, before collecting their optional schemas.
-                tables = tables.stream().filter(table -> tableTypeFilter.contains(table.getType()))
-                        .collect(Collectors.toList());
-            }
+        for (Pair<String, String> database : getSortedDbs()) {
+            String catalogName = database.first;
+            String dbName = database.second;
+            // Filter authorized tables and order them before collecting their optional schemas.
+            List<TTableStatus> tables = listTableStatus(dbName, catalogName).getTables().stream()
+                    .filter(table -> tableTypeFilter == null || tableTypeFilter.contains(table.getType()))
+                    .sorted(Comparator.comparing(TTableStatus::getName).thenComparing(TTableStatus::getType))
+                    .collect(Collectors.toList());
             if (tables.isEmpty()) {
                 continue;
             }

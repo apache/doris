@@ -68,6 +68,37 @@ public:
     Arena arena;
 };
 
+TEST(VWindowFunnelV2ParameterTest, NegativeWindowWithFalseEvent) {
+    // One false event used to bypass the window check in result calculation.
+    DataTypes types = {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeString>(),
+                       std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>()};
+    auto function = AggregateFunctionSimpleFactory::instance().get(
+            "window_funnel_v2", types, nullptr, false, BeExecVersionManager::get_newest_version());
+    ASSERT_NE(function, nullptr);
+    auto window = ColumnInt64::create();
+    window->insert_value(-1);
+    auto mode = ColumnString::create();
+    mode->insert_data("default", 7);
+    auto timestamp = ColumnDateTimeV2::create();
+    DateV2Value<DateTimeV2ValueType> time;
+    time.unchecked_set_time(2024, 1, 1, 0, 0, 0, 0);
+    timestamp->insert_value(time);
+    auto event = ColumnUInt8::create();
+    event->insert_value(0);
+    const IColumn* columns[] = {window.get(), mode.get(), timestamp.get(), event.get()};
+    std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
+    function->create(memory.get());
+    Arena arena;
+    EXPECT_THROW(function->add(memory.get(), columns, 0, arena), Exception);
+    // A zero window remains valid. The rejected row must not alter the state.
+    window->get_data()[0] = 0;
+    EXPECT_NO_THROW(function->add(memory.get(), columns, 0, arena));
+    auto result = ColumnInt32::create();
+    function->insert_result_into(memory.get(), *result);
+    EXPECT_EQ(result->get_int(0), 0);
+    function->destroy(memory.get());
+}
+
 TEST(VWindowFunnelV2TimeStampNsTest, FactoryCreatesFunction) {
     AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
     DataTypes data_types = {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeString>(),

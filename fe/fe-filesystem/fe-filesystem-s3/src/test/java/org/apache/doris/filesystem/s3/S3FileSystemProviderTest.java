@@ -224,12 +224,12 @@ class S3FileSystemProviderTest {
     }
 
     @Test
-    void sensitivePropertyKeysCoverSecretsButNotAccessKey() {
+    void sensitivePropertyKeysCoverAllCredentials() {
         java.util.Set<String> keys = provider.sensitivePropertyKeys();
 
         Assertions.assertTrue(keys.contains("s3.secret_key"), keys.toString());
         Assertions.assertTrue(keys.contains("s3.session_token"), keys.toString());
-        Assertions.assertFalse(keys.contains("s3.access_key"), keys.toString());
-        Assertions.assertFalse(keys.contains("AWS_ACCESS_KEY"), keys.toString());
+        Assertions.assertTrue(keys.contains("s3.access_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("AWS_ACCESS_KEY"), keys.toString());
     }
 }

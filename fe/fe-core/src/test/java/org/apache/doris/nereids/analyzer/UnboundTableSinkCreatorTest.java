@@ -22,10 +22,14 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -34,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -41,6 +46,7 @@ import org.mockito.Mockito;
 
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -58,6 +64,65 @@ import java.util.Set;
 public class UnboundTableSinkCreatorTest {
 
     private static final List<String> NAME_PARTS = ImmutableList.of("cat", "db", "tbl");
+
+    @Test
+    public void staticPartitionIsRejectedForOlapTables() {
+        for (CatalogIf<?> catalog : ImmutableList.of(Mockito.mock(InternalCatalog.class),
+                Mockito.mock(RemoteDorisExternalCatalog.class))) {
+            withCatalog(catalog, () -> {
+                LogicalOneRowRelation query = new LogicalOneRowRelation(new RelationId(1),
+                        ImmutableList.of(new Alias(Literal.of(1))));
+                Map<String, Expression> staticPartitions = ImmutableMap.of("dt", Literal.of("2026-11-04"));
+                AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                        () -> UnboundTableSinkCreator.createUnboundTableSink(
+                                NAME_PARTS, ImmutableList.of(), ImmutableList.of(), false,
+                                ImmutableList.of(), false, null, DMLCommandType.INSERT, query, staticPartitions));
+                Assertions.assertTrue(exception.getMessage().contains(
+                        "Static partition syntax PARTITION (column=value) is not supported for OLAP tables"));
+                for (boolean overwrite : new boolean[] {false, true}) {
+                    AnalysisException overwriteException = Assertions.assertThrows(AnalysisException.class,
+                            () -> UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
+                                    NAME_PARTS, ImmutableList.of(), ImmutableList.of(), false,
+                                    ImmutableList.of(), false, overwrite, false, null,
+                                    DMLCommandType.INSERT, query, staticPartitions));
+                    Assertions.assertEquals(exception.getMessage(), overwriteException.getMessage());
+                }
+            });
+        }
+    }
+
+    @Test
+    public void staticPartitionIsPreservedForPluginDrivenExternalTables() {
+        withCatalog(Mockito.mock(PluginDrivenExternalCatalog.class), () -> {
+            LogicalOneRowRelation query = new LogicalOneRowRelation(new RelationId(1),
+                    ImmutableList.of(new Alias(Literal.of(1))));
+            Map<String, Expression> staticPartitions = ImmutableMap.of("dt", Literal.of("2026-11-04"));
+            UnboundConnectorTableSink<?> sink = (UnboundConnectorTableSink<?>)
+                    UnboundTableSinkCreator.createUnboundTableSink(
+                            NAME_PARTS, ImmutableList.of(), ImmutableList.of(), false,
+                            ImmutableList.of(), false, null, DMLCommandType.INSERT, query, staticPartitions);
+            Assertions.assertEquals(staticPartitions, sink.getStaticPartitionKeyValues());
+            for (boolean overwrite : new boolean[] {false, true}) {
+                UnboundConnectorTableSink<?> overwriteSink = (UnboundConnectorTableSink<?>)
+                        UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
+                                NAME_PARTS, ImmutableList.of(), ImmutableList.of(), false,
+                                ImmutableList.of(), false, overwrite, false, null,
+                                DMLCommandType.INSERT, query, staticPartitions);
+                Assertions.assertEquals(staticPartitions, overwriteSink.getStaticPartitionKeyValues());
+            }
+        });
+    }
+
+    private void withCatalog(CatalogIf<?> catalog, Runnable action) {
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Mockito.<Object>when(catalogMgr.getCatalog("cat")).thenReturn(catalog);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(env);
+            action.run();
+        }
+    }
 
     @Test
     public void ctasIsRefusedWhenTheConnectorDeclaresNoWritePathAtAll() {

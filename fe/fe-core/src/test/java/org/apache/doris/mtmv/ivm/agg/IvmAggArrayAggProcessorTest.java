@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv.ivm.agg;
 
 import org.apache.doris.mtmv.ivm.IvmException;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -51,7 +52,7 @@ class IvmAggArrayAggProcessorTest extends IvmAggProcessorTestBase {
         IvmAggArrayAggProcessor processor = new IvmAggArrayAggProcessor();
         Assertions.assertTrue(processor.supportsOriginalFunction(new ArrayAgg(value)));
         Assertions.assertEquals(IvmAggFunctionKind.ARRAY_AGG, processor.handledFunctionKind());
-        Assertions.assertTrue(processor.hiddenStateKeys(new ArrayAgg(value)).isEmpty());
+        Assertions.assertTrue(processor.hiddenStateKeys(new ArrayAgg(value), IvmUtil.DEFAULT_MINMAX_TOP_K).isEmpty());
 
         IvmAggTarget target = target(0, IvmAggFunctionKind.ARRAY_AGG, "arr", ArrayType.of(IntegerType.INSTANCE),
                 ImmutableMap.of(), valueArg());

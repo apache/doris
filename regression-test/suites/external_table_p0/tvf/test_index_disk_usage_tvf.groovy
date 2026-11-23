@@ -138,14 +138,12 @@ suite("test_index_disk_usage_tvf", "p0,external") {
     """
 
     // Extracted VARIANT paths keep the parent index id under a path suffix, and their rows still
-    // carry the parent index and column names.
-    sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_enable_doc_mode = false """
+    // carry the parent index and column names. Doc mode is off so that msg is extracted.
     sql "DROP TABLE IF EXISTS index_disk_usage_variant"
     sql """
         CREATE TABLE index_disk_usage_variant (
             k INT NOT NULL,
-            v VARIANT<'msg' : STRING>,
+            v VARIANT<'msg' : STRING, PROPERTIES("variant_enable_doc_mode" = "false")>,
             INDEX idx_v (v) USING INVERTED PROPERTIES("parser" = "english")
         )
         DUPLICATE KEY(k)

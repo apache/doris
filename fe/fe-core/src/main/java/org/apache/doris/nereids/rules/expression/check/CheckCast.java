@@ -366,20 +366,18 @@ public class CheckCast implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesType(Cast.class).thenApply(ctx -> {
-                    Cast cast = ctx.expr;
-                    DataType originalType = cast.child().getDataType();
-                    DataType targetType = cast.getDataType();
-                    if (!check(originalType, targetType, SessionVariable.enableStrictCast())) {
-                        if (requiresExactAggStateMatch(originalType, targetType)) {
-                            throw new AnalysisException(exactAggStateMatchError(originalType, targetType));
-                        }
-                        throw new AnalysisException("cannot cast " + originalType.toSql()
-                                + " to " + targetType.toSql());
-                    }
-                    return cast;
-                }).toRule(ExpressionRuleType.CHECK_CAST)
+                matchesType(Cast.class).then(CheckCast::validate).toRule(ExpressionRuleType.CHECK_CAST)
         );
+    }
+
+    /** Validate a bound cast after expression rewrites. */
+    public static Cast validate(Cast cast) {
+        DataType source = cast.child().getDataType();
+        DataType target = cast.getDataType();
+        if (!check(source, target, SessionVariable.enableStrictCast())) {
+            throw new AnalysisException("cannot cast " + source.toSql() + " to " + target.toSql());
+        }
+        return cast;
     }
 
     public static boolean checkWithLooseAggState(DataType originalType, DataType targetType, boolean isStrictMode) {
@@ -418,8 +416,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         if (looseAggState && originalType instanceof AggStateType && targetType instanceof AggStateType) {
             AggStateType originalAggState = (AggStateType) originalType;
             AggStateType targetAggState = (AggStateType) targetType;
-            if (originalAggState.isLooseTypeCoercionAllowed()
-                    && originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
+            if (originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
                     && originalAggState.getSubTypes().size() == targetAggState.getSubTypes().size()) {
                 return true;
             }
@@ -482,20 +479,6 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         } else {
             return true;
         }
-    }
-
-    /** Whether the source AggState only allows an exact target type. */
-    public static boolean requiresExactAggStateMatch(DataType originalType, DataType targetType) {
-        return originalType instanceof AggStateType
-                && targetType instanceof AggStateType
-                && !((AggStateType) originalType).isLooseTypeCoercionAllowed()
-                && !originalType.equals(targetType);
-    }
-
-    /** Build the analysis error for a non-exact aggregate combine state cast. */
-    public static String exactAggStateMatchError(DataType originalType, DataType targetType) {
-        return "Aggregate combine state requires an exact AggState type match: cannot cast "
-                + originalType.toSql() + " to " + targetType.toSql();
     }
 
     /**

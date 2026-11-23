@@ -382,6 +382,31 @@ public class MTMVPlanUtilTest extends SqlTestBase {
     }
 
     @Test
+    public void testEnsureMTMVQueryUsableRejectsChangedViewEncoding() throws Exception {
+        for (String policy : new String[] {"false", "true"}) {
+            createTables("CREATE TABLE refresh_encoding_" + policy
+                    + "(k INT,v VARIANT<PROPERTIES('variant_enable_nested_group'='false')>) "
+                    + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                    + "PROPERTIES('replication_num'='1','variant_escape_dots_in_keys'='" + policy + "')");
+        }
+        createView("CREATE VIEW refresh_encoding_view AS SELECT k,v FROM refresh_encoding_false");
+        createMvByNereids("CREATE MATERIALIZED VIEW refresh_encoding_mv "
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1') AS SELECT k,v FROM refresh_encoding_view");
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog().getDbOrAnalysisException("test")
+                .getTableOrAnalysisException("refresh_encoding_mv");
+        Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
+                MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE)));
+        executeSql("ALTER VIEW refresh_encoding_view AS SELECT k,v FROM refresh_encoding_true");
+        JobException error = Assertions.assertThrows(JobException.class,
+                () -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
+                        MTMVPlanUtil.createMTMVContext(mtmv,
+                                MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE)));
+        Assertions.assertTrue(error.getMessage().contains(
+                "async MV must use the same value of variant_escape_dots_in_keys"), error.getMessage());
+    }
+
+    @Test
     public void testAnalyzeQueryIvmAnalyzeModeSetsRewriteContext() throws Exception {
         String querySql = "select * from test.T4";
         MTMVPartitionDefinition mtmvPartitionDefinition = new MTMVPartitionDefinition();
@@ -402,8 +427,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
                 distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan,
                 Optional.of(IvmRewriteContext.create("test_mtmv")));
-        Assertions.assertEquals(IvmRewriteContext.Mode.CREATE,
-                statementContext.getIvmRewriteContext().orElseThrow().getMode());
+        Assertions.assertTrue(statementContext.getIvmRewriteContext().orElseThrow().isCreate());
     }
 
     @Test
@@ -500,14 +524,12 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         ConnectContext autoCtx = MTMVPlanUtil.createMTMVContext(autoMtmv,
                 MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE);
         Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(autoMtmv, autoCtx));
-        Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE,
-                autoCtx.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
+        Assertions.assertTrue(autoCtx.getStatementContext().getIvmRewriteContext().orElseThrow().isNormalize());
 
         ConnectContext incrementalCtx = MTMVPlanUtil.createMTMVContext(incrementalMtmv,
                 MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE);
         Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(incrementalMtmv, incrementalCtx));
-        Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE,
-                incrementalCtx.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
+        Assertions.assertTrue(incrementalCtx.getStatementContext().getIvmRewriteContext().orElseThrow().isNormalize());
     }
 
     @Test

@@ -62,20 +62,25 @@ void ThriftRpcHelper::setup(ExecEnv* exec_env) {
 
 template <typename T>
 Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
-                            std::function<void(ClientConnection<T>&)> callback, int timeout_ms) {
-    return rpc<T>([ip, port]() { return make_network_address(ip, port); }, callback, timeout_ms);
+                            std::function<void(ClientConnection<T>&)> callback, int timeout_ms,
+                            ClientCache<T>* client_cache) {
+    return rpc<T>([ip, port]() { return make_network_address(ip, port); }, callback, timeout_ms,
+                  client_cache);
 }
 
 template <typename T>
 Status ThriftRpcHelper::rpc(std::function<TNetworkAddress()> address_provider,
-                            std::function<void(ClientConnection<T>&)> callback, int timeout_ms) {
+                            std::function<void(ClientConnection<T>&)> callback, int timeout_ms,
+                            ClientCache<T>* client_cache) {
     TNetworkAddress address = address_provider();
     if (address.hostname.empty() || address.port == 0) {
         return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>("FE address is not available");
     }
+    // Retries must use the same endpoint policy as the original call, including master changes.
+    auto* cache = client_cache != nullptr ? client_cache : _s_exec_env->get_client_cache<T>();
     Status status;
     DBUG_EXECUTE_IF("thriftRpcHelper.rpc.error", { timeout_ms = 30000; });
-    ClientConnection<T> client(_s_exec_env->get_client_cache<T>(), address, timeout_ms, &status);
+    ClientConnection<T> client(cache, address, timeout_ms, &status);
     if (!status.ok()) {
         LOG(WARNING) << "Connect frontend failed, address=" << address << ", status=" << status;
         return status;
@@ -96,8 +101,7 @@ Status ThriftRpcHelper::rpc(std::function<TNetworkAddress()> address_provider,
             if (retry_address.hostname != address.hostname || retry_address.port != address.port) {
                 LOG(INFO) << "retrying call frontend service with new address=" << retry_address;
                 Status retry_status;
-                ClientConnection<T> retry_client(_s_exec_env->get_client_cache<T>(), retry_address,
-                                                 timeout_ms, &retry_status);
+                ClientConnection<T> retry_client(cache, retry_address, timeout_ms, &retry_status);
                 if (!retry_status.ok()) {
                     LOG(WARNING) << "Connect frontend failed, address=" << retry_address
                                  << ", status=" << retry_status;
@@ -129,18 +133,22 @@ Status ThriftRpcHelper::rpc(std::function<TNetworkAddress()> address_provider,
 
 template Status ThriftRpcHelper::rpc<FrontendServiceClient>(
         const std::string& ip, const int32_t port,
-        std::function<void(ClientConnection<FrontendServiceClient>&)> callback, int timeout_ms);
+        std::function<void(ClientConnection<FrontendServiceClient>&)> callback, int timeout_ms,
+        ClientCache<FrontendServiceClient>* client_cache);
 
 template Status ThriftRpcHelper::rpc<FrontendServiceClient>(
         std::function<TNetworkAddress()> address_provider,
-        std::function<void(ClientConnection<FrontendServiceClient>&)> callback, int timeout_ms);
+        std::function<void(ClientConnection<FrontendServiceClient>&)> callback, int timeout_ms,
+        ClientCache<FrontendServiceClient>* client_cache);
 
 template Status ThriftRpcHelper::rpc<BackendServiceClient>(
         const std::string& ip, const int32_t port,
-        std::function<void(ClientConnection<BackendServiceClient>&)> callback, int timeout_ms);
+        std::function<void(ClientConnection<BackendServiceClient>&)> callback, int timeout_ms,
+        ClientCache<BackendServiceClient>* client_cache);
 
 template Status ThriftRpcHelper::rpc<TPaloBrokerServiceClient>(
         const std::string& ip, const int32_t port,
-        std::function<void(ClientConnection<TPaloBrokerServiceClient>&)> callback, int timeout_ms);
+        std::function<void(ClientConnection<TPaloBrokerServiceClient>&)> callback, int timeout_ms,
+        ClientCache<TPaloBrokerServiceClient>* client_cache);
 
 } // namespace doris

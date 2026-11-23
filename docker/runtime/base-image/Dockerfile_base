@@ -15,35 +15,66 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# how to use Dockerfile_base.
-# this is dockerfile for build doris base image (linux base image:jdk, operator_debug ...)
-# run commad: docker build -t xxx/base:xx -f Dockerfile_base --build-arg TARGETARCH=amd64
+# Build context: docker/runtime/base-image. Only the selected JDK and the
+# rebuilt operator tools enter the runtime stage. Refresh these pins together.
+ARG RUNTIME_DISTRO=ubuntu
+ARG UBUNTU_IMAGE=ubuntu:26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db
+ARG UBI9_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal@sha256:d8162789d7913ef8941481687b92ab4bbec311870948f66cf52b9cc7e0c57c06
+ARG JDK17_IMAGE=eclipse-temurin:17.0.21_9-jdk-resolute@sha256:c19b0e2ecdec69220c6c69e7fc7f4ab5b233ccfcce65f0b87c4411e71ca82fdc
+ARG JDK8_IMAGE=eclipse-temurin:8u512-b09-jdk-resolute@sha256:6f51f7980d00eff8383ae5388c8baace9ef088382d4a198c0afedf0534873729
+ARG JDK17_UBI9_IMAGE=eclipse-temurin:17.0.21_9-jdk-ubi9-minimal@sha256:a39aa77c3e2ca3e5987c87f38c238c8fdf230355c4f558d8002ac9e9e4fd86a7
+ARG JDK8_UBI9_IMAGE=eclipse-temurin:8u512-b09-jdk-ubi9-minimal@sha256:bc58f23dc2e263a001a65129b1c626b09a16d6b49eca5ff18d06289a22cc598b
+ARG GO_IMAGE=golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea
+ARG JAVA_VERSION=17
 
-# we have support buildx for amd64 and arm64 architecture image build.
-# get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
+FROM ${JDK17_IMAGE} AS jdk-ubuntu-17
+FROM ${JDK8_IMAGE} AS jdk-ubuntu-8
+FROM ${JDK17_UBI9_IMAGE} AS jdk-ubi9-17
+FROM ${JDK8_UBI9_IMAGE} AS jdk-ubi9-8
+FROM jdk-${RUNTIME_DISTRO}-${JAVA_VERSION} AS jdk
 
-FROM ubuntu:22.04
-
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS debug-builder
+ARG TARGETOS
 ARG TARGETARCH
+ARG OPERATOR_COMMIT=e519289f863b72ce0dd07d881922091a17a5aa30
+ARG OPERATOR_SHA256=99d28355a9d11a346370c880033ed33938c78cc7f6eb2140be0b7c3752d3190a
+ARG X_NET_VERSION=v0.62.0
+ARG EDWARDS25519_VERSION=v1.1.1
+ENV GOTOOLCHAIN=local
+WORKDIR /src
+RUN curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
+        "https://codeload.github.com/apache/doris-operator/tar.gz/${OPERATOR_COMMIT}" -o /tmp/operator.tar.gz && \
+    echo "${OPERATOR_SHA256}  /tmp/operator.tar.gz" | sha256sum -c - && \
+    tar -xzf /tmp/operator.tar.gz --strip-components=1 && \
+    rm /tmp/operator.tar.gz && \
+    go get "golang.org/x/net@${X_NET_VERSION}" "filippo.io/edwards25519@${EDWARDS25519_VERSION}" && \
+    go mod verify && \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+        go build -trimpath -o /out/doris-debug ./cmd/doris-debug && \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+        go build -trimpath -o /out/dorisctl ./cmd/dorisctl && \
+    go version -m /out/doris-debug /out/dorisctl > /out/debug-tools.buildinfo
 
-RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-clean && \
-    apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    patchelf gdb binutils binutils-common mysql-client iperf3 \
-    curl wget less vim htop iproute2 numactl jq iotop sysstat \
-    tcpdump iputils-ping dnsutils strace lsof blktrace tzdata \
-    bpfcc-tools linux-headers-realtime linux-tools-realtime silversearcher-ag \
-    google-perftools libperl-dev python2-dev \
-    net-tools ca-certificates openssl && apt-get clean && rm -rf /var/lib/apt/lists/* && mkdir -p /usr/lib/jvm/ && \
-    ln -sf /usr/lib/linux-tools/`ls /usr/lib/linux-tools/`/perf /usr/bin/perf &&\
-    ln -s /usr/bin/google-pprof /usr/bin/pprof;
+FROM ${UBUNTU_IMAGE} AS os-ubuntu
+# Bootstrap HTTPS from the pinned JDK image before using APT. The installed
+# ca-certificates package subsequently maintains this bundle.
+COPY --from=jdk /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY install-runtime.sh /tmp/install-runtime.sh
+RUN bash /tmp/install-runtime.sh && rm /tmp/install-runtime.sh
 
-COPY --from=apache/doris:jdk-latest /usr/lib/jvm/jdk-17 /usr/lib/jvm/jdk-17
-COPY --from=apache/doris:jdk-latest /usr/lib/jvm/jdk-8 /usr/lib/jvm/jdk-8
+FROM ${UBI9_IMAGE} AS os-ubi9
+COPY install-runtime-ubi9.sh /tmp/install-runtime-ubi9.sh
+RUN bash /tmp/install-runtime-ubi9.sh && rm /tmp/install-runtime-ubi9.sh
 
-COPY --from=apache/doris:debug-latest /doris-debug /opt/apache-doris/
-COPY --from=apache/doris:debug-latest /dorisctl /opt/apache-doris/
+FROM os-${RUNTIME_DISTRO} AS runtime
+ARG JAVA_VERSION
+ENV JAVA_HOME=/usr/lib/jvm/java
+ENV PATH=${JAVA_HOME}/bin:${PATH}
+
+COPY --from=jdk /opt/java/openjdk /usr/lib/jvm/java
+COPY --from=debug-builder /out/doris-debug /out/dorisctl /opt/apache-doris/
+COPY --from=debug-builder /out/debug-tools.buildinfo /usr/share/doris/
+RUN ln -s java "/usr/lib/jvm/jdk-${JAVA_VERSION}" && \
+    java -version && mysql --version && test -f /usr/share/zoneinfo/UTC
 
 WORKDIR /opt/apache-doris
-
-# The last update at: December 23, 2025.
-# The docker image tag is changed to: base-6.0

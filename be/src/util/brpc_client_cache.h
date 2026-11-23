@@ -35,6 +35,7 @@
 #include <mutex>
 #include <ostream>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -143,6 +144,9 @@ private:
 template <class T>
 class BrpcClientCache {
 public:
+    static constexpr auto default_purpose = std::is_same_v<T, PFunctionService_Stub>
+                                                    ? client::RpcPurpose::EXTERNAL_SERVICE
+                                                    : client::RpcPurpose::INTERNAL_RPC;
     BrpcClientCache(std::string protocol = "baidu_std", std::string connection_type = "",
                     std::string connection_group = "");
     virtual ~BrpcClientCache();
@@ -166,7 +170,12 @@ public:
         return get_client(paddr.hostname(), paddr.port());
     }
 
-    std::shared_ptr<T> get_client(const std::string& host, int port) {
+    std::shared_ptr<T> get_client(const std::string& host, int port,
+                                  client::RpcPurpose purpose = default_purpose) {
+        // A remote Doris BE can share an address with a local endpoint; its plaintext channel
+        // must never satisfy an internal TLS lookup (or vice versa).
+        auto& stub_map =
+                purpose == client::RpcPurpose::EXTERNAL_SERVICE ? _external_stub_map : _stub_map;
         std::string realhost = host;
         auto dns_cache = ExecEnv::GetInstance()->dns_cache();
         if (dns_cache == nullptr) {
@@ -182,7 +191,7 @@ public:
                 // forever, which is the source of the endless
                 // "Fail to wait EPOLLOUT ... Connection timed out" warnings. Drop it here
                 // so the socket is closed along with the last reference to the stub.
-                _stub_map.erase(fmt::format("{}:{}", host, port));
+                stub_map.erase(fmt::format("{}:{}", host, port));
                 return nullptr;
             }
         }
@@ -216,22 +225,22 @@ public:
             }
         };
 
-        if (LIKELY(_stub_map.if_contains(host_port, check_entry))) {
+        if (LIKELY(stub_map.if_contains(host_port, check_entry))) {
             if (stub_ptr != nullptr) {
                 return stub_ptr;
             }
             // IP changed or client unhealthy, need to remove old entry
             if (need_remove) {
-                _stub_map.erase(host_port);
+                stub_map.erase(host_port);
             }
         }
 
         // Create new stub using resolved IP for actual connection
         std::string real_host_port = get_host_port(realhost, port);
-        auto stub = get_new_client_no_cache(real_host_port);
+        auto stub = get_new_client_no_cache(real_host_port, "", "", "", 2000, 10, purpose);
         if (stub != nullptr) {
             StubEntry<T> entry {realhost, stub};
-            _stub_map.try_emplace_l(
+            stub_map.try_emplace_l(
                     host_port, [&stub](const auto& v) { stub = v.second.stub; }, entry);
         }
         return stub;
@@ -254,11 +263,15 @@ public:
                                                const std::string& protocol = "",
                                                const std::string& connection_type = "",
                                                const std::string& connection_group = "",
-                                               int connect_timeout_ms = 2000, int max_retry = 10) {
+                                               int connect_timeout_ms = 2000, int max_retry = 10,
+                                               client::RpcPurpose purpose = default_purpose) {
         brpc::ChannelOptions options;
-        Status status = doris::client::configure_brpc_channel_options(&options);
+        Status status = client::configure_brpc_channel_options(&options, purpose);
         if (!status.ok()) {
-            throw status;
+            // Worker callers handle nullptr, just as for Init() failures; a thrown Status bypasses
+            // that error path. Provider diagnostics may contain identity input, so keep this generic.
+            LOG(WARNING) << "Failed to configure brpc channel transport";
+            return nullptr;
         }
         if (protocol != "") {
             options.protocol = protocol;
@@ -296,29 +309,43 @@ public:
         return std::make_shared<T>(channel.release(), google::protobuf::Service::STUB_OWNS_CHANNEL);
     }
 
-    size_t size() { return _stub_map.size(); }
+    size_t size() { return _stub_map.size() + _external_stub_map.size(); }
 
-    void clear() { _stub_map.clear(); }
+    void clear() {
+        _stub_map.clear();
+        _external_stub_map.clear();
+    }
 
-    size_t erase(const std::string& host_port) { return _stub_map.erase(host_port); }
+    size_t erase(const std::string& host_port) {
+        return _stub_map.erase(host_port) + _external_stub_map.erase(host_port);
+    }
 
-    size_t erase(const std::string& host, int port) {
+    size_t erase(const std::string& host, int port, client::RpcPurpose purpose = default_purpose) {
         std::string host_port = fmt::format("{}:{}", host, port);
-        return erase(host_port);
+        auto& stub_map =
+                purpose == client::RpcPurpose::EXTERNAL_SERVICE ? _external_stub_map : _stub_map;
+        return stub_map.erase(host_port);
     }
 
     size_t erase(const butil::EndPoint& endpoint) {
-        return _stub_map.erase(butil::endpoint2str(endpoint).c_str());
+        return erase(butil::endpoint2str(endpoint).c_str());
     }
 
     bool exist(const std::string& host_port) {
-        return _stub_map.find(host_port) != _stub_map.end();
+        return _stub_map.contains(host_port) || _external_stub_map.contains(host_port);
     }
 
     void get_all(std::vector<std::string>* endpoints) {
-        for (auto it = _stub_map.begin(); it != _stub_map.end(); ++it) {
-            endpoints->emplace_back(it->first.c_str());
-        }
+        // Pool misses can rehash either policy map while administrators list/reset channels.
+        // for_each holds each shard lock; raw iterators do not provide that protection.
+        _stub_map.for_each([&](const auto& entry) { endpoints->emplace_back(entry.first); });
+        // Report an endpoint once even when both policies have a channel. No callback on the
+        // internal map acquires an external-map lock, so this nested lookup cannot invert locks.
+        _external_stub_map.for_each([&](const auto& entry) {
+            if (!_stub_map.contains(entry.first)) {
+                endpoints->emplace_back(entry.first);
+            }
+        });
     }
 
     bool available(std::shared_ptr<T> stub, const butil::EndPoint& endpoint) {
@@ -357,6 +384,7 @@ public:
 
 private:
     StubMap<T> _stub_map;
+    StubMap<T> _external_stub_map;
     const std::string _protocol;
     const std::string _connection_type;
     const std::string _connection_group;

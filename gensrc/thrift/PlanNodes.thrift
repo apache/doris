@@ -132,7 +132,8 @@ enum TFileFormatType {
     FORMAT_TEXT = 17,
     FORMAT_NATIVE = 18,
     FORMAT_LANCE = 19,
-    FORMAT_ES_HTTP = 20
+    FORMAT_ES_HTTP = 20,
+    FORMAT_MONGODB = 21
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -412,6 +413,16 @@ struct TPaimonVectorPayload {
     2: optional binary bytes;
 }
 
+// A managed BLOB column file, aligned with a Parquet anchor by absolute Paimon row id.
+struct TPaimonBlobFileDesc {
+    1: optional string path;
+    2: optional i64 file_size;
+    // This .blob file's own logical row range: [first_row_id, first_row_id + row_count).
+    3: optional i64 first_row_id;
+    4: optional i64 row_count;
+    5: optional i32 field_id;
+}
+
 struct TPaimonFileDesc {
     1: optional string paimon_split
     2: optional string paimon_column_names
@@ -438,10 +449,13 @@ struct TPaimonFileDesc {
     // to materialize the public file-location metadata column. This master-only field is appended after
     // the branch-4.1 fields instead of reusing field 18.
     20: optional string original_file_path;
-    // Reserved for branch-4.1 fields:
-    // 21: optional list<TPaimonBlobFileDesc> blob_files
-    // 22: optional i64 anchor_first_row_id
-    // 23: optional i64 anchor_row_count
+    // Keep BLOB scan metadata aligned with branch-4.1.
+    21: optional list<TPaimonBlobFileDesc> blob_files
+    // Logical row ID of row position 0 in the complete Parquet anchor. Byte splits of
+    // the same anchor share this origin; this is not the first row returned by a split.
+    22: optional i64 anchor_first_row_id
+    // Complete anchor range: [anchor_first_row_id, anchor_first_row_id + anchor_row_count).
+    23: optional i64 anchor_row_count
     // Reserved for the per-split Paimon primary-key vector search payload in #69493.
     24: optional TPaimonVectorPayload vector_payload;
 }
@@ -660,6 +674,95 @@ struct TLanceFileDesc {
     6: optional bool use_scalar_index
 }
 
+// A statement-wide source snapshot. Sessions and cursors remain local to each driver owner.
+struct TMongoSnapshot {
+    // Seconds component of the server-selected BSON Timestamp T, not a BSON Date or a client clock.
+    // Both Timestamp components are unsigned 32-bit values carried in i64 to preserve their full range.
+    1: optional i64 timestamp_seconds
+    // Ordering counter within the same second; this is not a fractional-second duration.
+    2: optional i64 timestamp_increment
+    // "replica_set" or "mongos", qualified independently of the collection's object kind.
+    3: optional string source_kind
+    // Replica-set settings.replicaSetId or sharded-cluster config.version.clusterId, as 24-digit hex.
+    // Identifies the source deployment; the namespace UUID is carried separately in TMongoScanDesc.
+    4: optional string source_id
+    // replSetGetConfig.config.version, not hello.topologyVersion or an election term.
+    // Zero for mongos, whose shared clusterId allows scans through different routers.
+    5: optional i64 topology_version
+    // hello.maxWireVersion: 21 for MongoDB 7.0, 25 for 8.0. BE rechecks this qualification pin.
+    6: optional i32 max_wire_version
+    // Public listCollections.options as canonical Extended JSON, preserving BSON value types.
+    // BE compares the definition before reading and at EOF. Without a public time-series UUID,
+    // this cannot detect drop/recreate with identical options; concurrent drop/rename is excluded.
+    // Absent for ordinary collections. Does not contain credentials.
+    7: optional string timeseries_options_json
+}
+
+// Stable single-cursor read contract. Driver objects and active sessions remain local to FE/BE.
+// The reader validates the required version-1 fields before opening the logical namespace.
+struct TMongoScanDesc {
+    // Descriptor layout understood by the native reader; currently 1.
+    1: optional i32 version
+    // Doris catalog identity used to isolate authenticated BE client pools.
+    2: optional i64 catalog_id
+    // Fingerprint of pinned connection/authentication settings; pool reuse requires a matching value.
+    3: optional string configuration_version
+    // Remote MongoDB database name, preserving the source spelling.
+    4: optional string database
+    // Public logical collection/view/time-series name; never an internal system.buckets namespace.
+    5: optional string collection
+    // Source object kind: "collection", "view", or "timeseries".
+    6: optional string object_kind
+    // Available source collection UUID as lowercase hex. Empty means metadata did not provide one;
+    // a nonempty value must match before BE scans, preventing reads after DROP/CREATE name reuse.
+    7: optional string collection_uuid
+    // Fingerprint of the statement-pinned schema/source definition, also carried by column handles.
+    8: optional string schema_version
+    // Versioned JSON containing owned field names, exact path segments, BSON tags/subtypes and
+    // child bindings. BE uses it for decoding; it does not sample or infer a schema from rows.
+    9: optional string bindings_json
+    // MongoDB connection URI (including optional TLS/SRV/compression settings). May contain secrets;
+    // keep it out of EXPLAIN, profiles, and error messages.
+    10: optional string uri
+    // Optional separate authentication user; empty uses URI credentials or unauthenticated access.
+    11: optional string username
+    // Secret for the separate username, carried only in the typed scan RPC descriptor.
+    12: optional string password
+    // Authentication database for separate credentials, normally "admin"; not the data database.
+    13: optional string auth_database
+    // Data-read routing: primary, primaryPreferred, secondary, secondaryPreferred, or nearest.
+    // URI tag sets and max staleness remain in uri and are preserved by the native driver.
+    // Metadata/UUID checks use primary independently of this data-read preference.
+    14: optional string read_preference
+    // Data-read concern: local, majority, available, or snapshot. Snapshot requires the shared pin below.
+    15: optional string read_concern
+    // Replace top-level conversion mismatches with SQL NULL after rollback. Transport, cancellation,
+    // allocation and document-limit errors still fail the scan.
+    16: optional bool type_mismatch_as_null
+    // Positive document count requested per find/getMore driver batch (1..65536), from the session.
+    // Doris output blocks also obey a separate row/byte budget in MongoFileReader.
+    17: optional i32 batch_size
+    // Native scan lifetime in milliseconds, derived from session query_timeout; bounds pool waits
+    // and driver operations and is also checked before/after advancing the cursor.
+    // Snapshot planning subtracts elapsed FE snapshot-selection/planning time before publishing it.
+    18: optional i64 timeout_ms
+    // Connection establishment timeout in milliseconds; bounded by timeout_ms when creating a pool.
+    19: optional i32 connect_timeout_ms
+    // Server-selection timeout in milliseconds; bounded by timeout_ms when creating a pool.
+    20: optional i32 server_selection_timeout_ms
+    // Socket I/O timeout in milliseconds; the leased client is bounded by the remaining scan time.
+    21: optional i32 socket_timeout_ms
+    // Maximum simultaneously leased clients in this BE-local pool, keyed by catalog/configuration and
+    // connection policy. This is not a query-wide or source-wide scanner-concurrency budget.
+    22: optional i32 pool_max_clients
+    // Typed BSON candidate filter; the Doris residual is retained. Absent means scan all documents.
+    23: optional binary filter_bson
+    // BSON inclusion projection of complete source roots. Absent means return the complete document.
+    24: optional binary projection_bson
+    // Present exactly for read_concern=snapshot; every participating scan uses the same timestamp.
+    25: optional TMongoSnapshot snapshot
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -694,6 +797,7 @@ struct TTableFormatFileDesc {
     // straight to the Java scanner, so a typed struct would only add a transcription step (see
     // es_params, jdbc_params).
     15: optional map<string, string> fluss_params
+    16: optional TMongoScanDesc mongodb_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -875,6 +979,8 @@ struct TFileRangeDesc {
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
     16: optional bool file_cache_admission;
+    // Target size for coalescing physical children; absent/nonpositive does not disable refinement.
+    17: optional i64 target_split_size;
 }
 
 struct TSplitSource {

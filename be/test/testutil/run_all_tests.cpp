@@ -22,6 +22,7 @@
 #include "common/logging.h"
 #include "common/phdr_cache.h"
 #include "common/status.h"
+#include "cpp/aws_sdk.h"
 #include "format/orc/orc_memory_pool.h"
 #include "gtest/gtest.h"
 #include "runtime/exec_env.h"
@@ -41,6 +42,11 @@
 #include "util/disk_info.h"
 #include "util/mem_info.h"
 #include "util/threadpool.h"
+#include "util/timezone_utils.h"
+
+#ifdef USE_AZURE
+#include "cpp/obj-storage/client/azure_obj_storage_client.h"
+#endif
 
 int main(int argc, char** argv) {
     SCOPED_INIT_THREAD_CONTEXT();
@@ -86,12 +92,18 @@ int main(int argc, char** argv) {
     }
 
     doris::init_glog("be-test");
+    doris::ensure_aws_sdk_initialized(doris::config::aws_log_level);
+#ifdef USE_AZURE
+    doris::initialize_azure_sdk(doris::config::azure_log_level);
+#endif
     ::testing::InitGoogleTest(&argc, argv);
 
     doris::CpuInfo::init();
     doris::DiskInfo::init();
     doris::MemInfo::init();
     doris::BackendOptions::init();
+    doris::TimezoneUtils::load_timezones_to_cache();
+    doris::ExecEnv::GetInstance()->init_fluss_union_tail_cache();
 
     auto service = std::make_unique<doris::HttpService>(doris::ExecEnv::GetInstance(), 0, 1);
     auto status = service->start();
@@ -111,6 +123,7 @@ int main(int argc, char** argv) {
     updatePHDRCache();
     try {
         int res = RUN_ALL_TESTS();
+        doris::ExecEnv::GetInstance()->destroy_fluss_union_tail_cache();
         doris::ExecEnv::GetInstance()->set_non_block_close_thread_pool(nullptr);
         return res;
     } catch (doris::Exception& e) {

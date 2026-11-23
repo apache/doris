@@ -764,6 +764,11 @@ public final class JdbcQueryBuilder {
     private static final Set<String> UNARY_OPERATORS = Collections.singleton("~");
 
     private String functionCallToSql(ConnectorFunctionCall func, Map<String, String> colMapping) {
+        // A UDF runs only in Doris: the remote database has no such function, or one of the same name that
+        // computes something else. This also keeps a pre-rendered fragment that calls one local.
+        if (!func.isBuiltin()) {
+            return null;
+        }
         String funcName = func.getFunctionName();
 
         // 0. Handle arithmetic operators rendered as infix: (arg1 + arg2)
@@ -836,6 +841,10 @@ public final class JdbcQueryBuilder {
             return "NULL";
         }
         Object val = lit.getValue();
+        if (val instanceof List) {
+            // An ARRAY literal has no spelling the remote dialects share, and its elements' text is not SQL.
+            return null;
+        }
         if ("UUID".equalsIgnoreCase(lit.getType().getTypeName())
                 && (dbType == JdbcDbType.TRINO || dbType == JdbcDbType.PRESTO)) {
             // These engines do not implicitly coerce VARCHAR literals when comparing UUID columns.

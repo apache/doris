@@ -439,20 +439,10 @@ public class InsertIntoTableCommand extends Command
             // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
             // so executeSingleInsert publishes the coordinator at its common execution boundary.
             insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
-            if (needsExternalDmlAuditBarrier(insertExecutor)) {
-                // The resolved executor is the invariant that distinguishes an external write;
-                // logical sink roots are rewritten and are not a stable audit classification.
-                stmtExecutor.setExternalDmlAuditCoordinator(insertExecutor.getCoordinator());
-            }
             return insertExecutor;
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
         throw new AnalysisException("Insert plan failed. Could not get target table lock.");
-    }
-
-    static boolean needsExternalDmlAuditBarrier(AbstractInsertExecutor insertExecutor) {
-        return insertExecutor instanceof BaseExternalTableInsertExecutor
-                || insertExecutor instanceof RemoteOlapInsertExecutor;
     }
 
     /**
@@ -791,6 +781,7 @@ public class InsertIntoTableCommand extends Command
             // they are not -- no row and no offset was written, which is what it needs before treating a
             // cancellation or a later failure here as too late to take back.
             // See InsertCommandContext#setCommitted.
+            insertExecutor.onSkipExecution();
             return;
         }
         if (insertExecutorListener != null) {

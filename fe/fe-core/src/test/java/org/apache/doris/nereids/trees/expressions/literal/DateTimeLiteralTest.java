@@ -33,6 +33,7 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
@@ -536,6 +537,31 @@ class DateTimeLiteralTest {
         DateTimeLiteral parsed = DateTimeLiteral.parseDateTimeLiteral(
                 "1970-01-01 00:00:00.9999999995", true).get();
         Assertions.assertEquals("1970-01-01 00:00:01.000000", parsed.getStringValue());
+    }
+
+    @Test
+    void testNamedZoneGapAndRounding() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("+00:00");
+        context.setThreadLocalInfo();
+        try {
+            String input = "2024-03-10 02:30:00.123456 America/New_York";
+            Assertions.assertEquals("2024-03-10 07:30:00.123456",
+                    new DateTimeV2Literal(input).getStringValue());
+            Assertions.assertEquals("2024-03-10 07:30:00.123456",
+                    DateTimeLiteral.parseDateTimeLiteral(input, true).get().getStringValue());
+            Assertions.assertEquals("2024-03-10 07:30:00",
+                    new DateTimeLiteral(input).getStringValue());
+            // Round before zone lookup. A carry to 03:00 leaves the gap.
+            Assertions.assertEquals("2024-03-10 07:00:00.000000",
+                    DateTimeLiteral.parseDateTimeLiteral(
+                            "2024-03-10 02:59:59.9999996 America/New_York", true).get().getStringValue());
+            Assertions.assertEquals("2024-03-10 07:59:59",
+                    new DateTimeV2Literal(DateTimeV2Type.of(0),
+                            "2024-03-10 02:59:59.4999996 America/New_York").getStringValue());
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test

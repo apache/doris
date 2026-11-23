@@ -18,6 +18,9 @@
 package org.apache.doris.common;
 
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.tls.PrivateRpcTls;
+import org.apache.doris.tls.TlsThriftSocket;
+import org.apache.doris.tls.server.TlsProtocolSet.Protocol;
 
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
@@ -26,8 +29,33 @@ import org.apache.thrift.transport.layered.TFramedTransport;
 public class OssThriftClientTransportProvider implements ThriftClientTransportProvider {
     @Override
     public TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean nonBlocking) throws Exception {
-        return nonBlocking
-                ? new TFramedTransport(new TSocket(address.hostname, address.port, timeoutMs))
+        TSocket socket = PrivateRpcTls.enabled(Protocol.THRIFT)
+                ? new TlsThriftSocket(address.hostname, address.port, timeoutMs)
                 : new TSocket(address.hostname, address.port, timeoutMs);
+        return nonBlocking ? new TFramedTransport(socket) : socket;
+    }
+
+    @Override
+    public TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean nonBlocking, RpcPurpose purpose)
+            throws Exception {
+        // A legacy custom provider may subclass OSS and override the original method. Preserve that
+        // dispatch instead of silently replacing its transport policy through the new overload.
+        if (purpose != RpcPurpose.EXTERNAL_SERVICE || getClass() != OssThriftClientTransportProvider.class) {
+            return createTransport(address, timeoutMs, nonBlocking);
+        }
+        TSocket socket = new TSocket(address.hostname, address.port, timeoutMs);
+        return nonBlocking ? new TFramedTransport(socket) : socket;
+    }
+
+    @Override
+    public TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean nonBlocking,
+            RpcPurpose purpose, String peerHost) throws Exception {
+        // Preserve legacy custom provider dispatch and the external endpoint's transport policy.
+        if (getClass() != OssThriftClientTransportProvider.class || purpose == RpcPurpose.EXTERNAL_SERVICE
+                || !PrivateRpcTls.enabled(Protocol.THRIFT)) {
+            return createTransport(address, timeoutMs, nonBlocking, purpose);
+        }
+        TSocket socket = new TlsThriftSocket(address.hostname, address.port, timeoutMs, peerHost);
+        return nonBlocking ? new TFramedTransport(socket) : socket;
     }
 }

@@ -235,7 +235,10 @@ public:
             }
         }
         for (const auto& update : stream_update.partition_updates()) {
-            if (!write_next_offset(identity, update, offset_gc)) {
+            auto previous = stream_offsets.find(update.partition_id());
+            if (!write_next_offset(identity, update,
+                                   previous == stream_offsets.end() ? nullptr : &previous->second,
+                                   offset_gc)) {
                 return false;
             }
         }
@@ -315,12 +318,26 @@ private:
 
     bool write_next_offset(const TableStreamIdentityPB& identity,
                            const TableStreamPartitionUpdatePB& update,
+                           const TableStreamOffsetPB* previous,
                            TableStreamPartitionSetPB* offset_gc) {
         TableStreamOffsetPB next_offset;
         next_offset.set_partition_id(update.partition_id());
         next_offset.set_state(TableStreamOffsetStatePB::TABLE_STREAM_OFFSET_CONSUMED);
         next_offset.set_offset_tso(update.next_offset_tso());
         next_offset.set_last_consumption_time_ms(consumption_time_ms_);
+        if (previous != nullptr && previous->state() == TABLE_STREAM_OFFSET_CONSUMED &&
+            previous->offset_tso() == update.next_offset_tso()) {
+            // Reports arriving later cannot establish a new baseline for an unchanged offset.
+            next_offset.set_base_row_count(
+                    previous->has_base_row_count() ? previous->base_row_count() : -1);
+            next_offset.set_changelog_row_count(
+                    previous->has_changelog_row_count() ? previous->changelog_row_count() : -1);
+        } else {
+            next_offset.set_base_row_count(update.has_base_row_count() ? update.base_row_count()
+                                                                       : -1);
+            next_offset.set_changelog_row_count(
+                    update.has_changelog_row_count() ? update.changelog_row_count() : -1);
+        }
         std::string value;
         if (!next_offset.SerializeToString(&value)) {
             code_ = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -450,8 +467,8 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "cannot find instance_id with cloud_unique_id="
-           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id) << " label=" << label;
+        ss << "cannot find instance_id from cloud_unique_id"
+           << " label=" << label;
         msg = ss.str();
         return;
     }
@@ -725,8 +742,8 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "cannot find instance_id with cloud_unique_id="
-           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id) << " txn_id=" << txn_id;
+        ss << "cannot find instance_id from cloud_unique_id"
+           << " txn_id=" << txn_id;
         msg = ss.str();
         return;
     }
@@ -1026,7 +1043,7 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(get_rl_task_commit_attach)
@@ -1042,7 +1059,7 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
     if (!request->has_db_id() || !request->has_job_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty db_id or job_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
 
@@ -1094,7 +1111,7 @@ void MetaServiceImpl::get_streaming_task_commit_attach(
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(get_streaming_task_commit_attach)
@@ -1110,7 +1127,7 @@ void MetaServiceImpl::get_streaming_task_commit_attach(
     if (!request->has_db_id() || !request->has_job_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty db_id or job_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
 
@@ -1150,7 +1167,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(reset_rl_progress)
@@ -1166,7 +1183,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
     if (!request->has_db_id() || !request->has_job_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty db_id or job_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
 
@@ -1251,7 +1268,7 @@ void MetaServiceImpl::reset_streaming_job_offset(::google::protobuf::RpcControll
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(reset_streaming_job_offset)
@@ -1267,7 +1284,7 @@ void MetaServiceImpl::reset_streaming_job_offset(::google::protobuf::RpcControll
     if (!request->has_db_id() || !request->has_job_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty db_id or job_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
 
@@ -1356,7 +1373,7 @@ void MetaServiceImpl::delete_streaming_job(::google::protobuf::RpcController* co
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(delete_streaming_job)
@@ -1372,7 +1389,7 @@ void MetaServiceImpl::delete_streaming_job(::google::protobuf::RpcController* co
     if (!request->has_db_id() || !request->has_job_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "missing db_id or job_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     int64_t db_id = request->db_id();
@@ -3798,7 +3815,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id << " txn_id=" << txn_id;
+        LOG(INFO) << msg << " txn_id=" << txn_id;
         return;
     }
     RPC_RATE_LIMIT(commit_txn)
@@ -4114,9 +4131,8 @@ void MetaServiceImpl::abort_txn(::google::protobuf::RpcController* controller,
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "cannot find instance_id with cloud_unique_id="
-           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id) << " label=" << label
-           << " txn_id=" << txn_id;
+        ss << "cannot find instance_id from cloud_unique_id"
+           << " label=" << label << " txn_id=" << txn_id;
         msg = ss.str();
         return;
     }
@@ -4161,9 +4177,7 @@ void MetaServiceImpl::get_txn(::google::protobuf::RpcController* controller,
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "cannot find instance_id with cloud_unique_id="
-           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
-        msg = ss.str();
+        msg = "cannot find instance_id from cloud_unique_id";
         return;
     }
 
@@ -4280,7 +4294,7 @@ void MetaServiceImpl::get_current_max_txn_id(::google::protobuf::RpcController* 
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(get_current_max_txn_id)
@@ -4326,7 +4340,7 @@ void MetaServiceImpl::create_meta_sync_point(::google::protobuf::RpcController* 
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(create_meta_sync_point)
@@ -4407,9 +4421,7 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "cannot find instance_id with cloud_unique_id="
-           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
-        msg = ss.str();
+        msg = "cannot find instance_id from cloud_unique_id";
         return;
     }
 
@@ -4608,9 +4620,7 @@ void MetaServiceImpl::abort_sub_txn(::google::protobuf::RpcController* controlle
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "cannot find instance_id with cloud_unique_id="
-           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
-        msg = ss.str();
+        msg = "cannot find instance_id from cloud_unique_id";
         return;
     }
 
@@ -4711,9 +4721,7 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "cannot find instance_id with cloud_unique_id="
-           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
-        msg = ss.str();
+        msg = "cannot find instance_id from cloud_unique_id";
         return;
     }
     RPC_RATE_LIMIT(abort_txn_with_coordinator);
@@ -4826,9 +4834,7 @@ void MetaServiceImpl::get_prepare_txn_by_coordinator(
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "cannot find instance_id with cloud_unique_id="
-           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
-        msg = ss.str();
+        msg = "cannot find instance_id from cloud_unique_id";
         return;
     }
     RPC_RATE_LIMIT(get_prepare_txn_by_coordinator);
@@ -5040,9 +5046,7 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "cannot find instance_id with cloud_unique_id="
-           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
-        msg = ss.str();
+        msg = "cannot find instance_id from cloud_unique_id";
         return;
     }
     RPC_RATE_LIMIT(check_txn_conflict)
@@ -5349,9 +5353,7 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "cannot find instance_id with cloud_unique_id="
-           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
-        msg = ss.str();
+        msg = "cannot find instance_id from cloud_unique_id";
         LOG(WARNING) << msg;
         return;
     }
@@ -5452,9 +5454,7 @@ void MetaServiceImpl::get_txn_id(::google::protobuf::RpcController* controller,
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        ss << "cannot find instance_id with cloud_unique_id="
-           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
-        msg = ss.str();
+        msg = "cannot find instance_id from cloud_unique_id";
         LOG(WARNING) << msg;
         return;
     }

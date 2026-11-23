@@ -74,6 +74,15 @@ regexTarget = "line"
 paths = ['''^tools/release-tools/release\.env$''']
 regexes = ['''SIGNING_KEY="[A-F0-9]{40}"''']
 
+[[rules.allowlists]]
+description = "Ignore two synthetic Hadoop property-name literals in catalog masking tests"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''^fe/fe-core/src/test/java/org/apache/doris/common/util/DatasourcePropertyMaskingTest\.java$''']
+# Generic detection reads adjacent property names in Java lists as key/value pairs.
+# Keep both path and exact-name constraints so other values in this test remain scanned.
+regexes = ['''^fs\.s3a\.bucket\.fixture\.(encryption\.key|bucket\.secret\.key)$''']
+
 [[rules]]
 id = "jwt"
 
