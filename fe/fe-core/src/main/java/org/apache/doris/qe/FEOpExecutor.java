@@ -61,6 +61,21 @@ public class FEOpExecutor {
     private static final Logger LOG = LogManager.getLogger(FEOpExecutor.class);
 
     protected static final float RPC_TIMEOUT_COEFFICIENT = 1.2f;
+    private static final long MASTER_CHANGE_POLL_MS = 200;
+    // A master change leaves this FE not ready for well under a second. A longer not-ready state has another
+    // cause, such as replay lagging behind, and holding every forward for the whole window would only delay
+    // its error.
+    private static final long NOT_READY_HOLD_MS = 5000;
+
+    // A forwarded request that failed before it was sent.
+    static class NotSentException extends Exception {
+        private final boolean notReady;
+
+        NotSentException(Exception cause, boolean notReady) {
+            super(cause.getMessage(), cause);
+            this.notReady = notReady;
+        }
+    }
 
     protected final OriginStatement originStmt;
     protected final ConnectContext ctx;
@@ -68,7 +83,10 @@ public class FEOpExecutor {
     // A cancel RPC replaces result with a response that has no query participants. Keep the
     // statement's dispatched BEs until audit has consumed them.
     private volatile Set<Long> auditStatisticsBackendIds = Collections.emptySet();
-    protected TNetworkAddress feAddr;
+    // Read by a cancel from another thread while the forwarding thread follows the master.
+    protected volatile TNetworkAddress feAddr;
+    // Set by cancel(): a held statement is then not sent again.
+    private volatile boolean cancelled = false;
 
     // the total time of thrift connectTime, readTime and writeTime
     protected int thriftTimeoutMs;
@@ -103,6 +121,7 @@ public class FEOpExecutor {
     }
 
     public void cancel() throws Exception {
+        cancelled = true;
         TUniqueId queryId = ctx.queryId();
         if (queryId == null) {
             return;
@@ -118,7 +137,7 @@ public class FEOpExecutor {
         // just make the protocol happy
         request.setSql("");
         rememberAuditStatisticsBackendIds();
-        result = forward(request);
+        result = forward(request, false);
     }
 
     private void rememberAuditStatisticsBackendIds() {
@@ -129,14 +148,82 @@ public class FEOpExecutor {
 
     // Send request to specific fe
     protected TMasterOpResult forward(TMasterOpRequest params) throws Exception {
-        ctx.getEnv().checkReadyOrThrow();
+        return forward(params, followsMaster());
+    }
+
+    // With holdDuringMasterChange, a request that never reached a master that accepted it is held and sent again
+    // while the master changes: this FE is not ready, the master cannot be reached, or the departing master
+    // refused it. Anything that may have run on a master is not resent here, nor is a cancelled statement.
+    private TMasterOpResult forward(TMasterOpRequest params, boolean holdDuringMasterChange) throws Exception {
+        long deadlineMs = System.currentTimeMillis() + Config.master_change_wait_timeout_second * 1000L;
+        // When this FE turned not ready, counted from the first of a run of not-ready attempts.
+        long notReadySinceMs = -1;
+        while (true) {
+            try {
+                TMasterOpResult result = forwardOnce(params);
+                if (!ShutdownGate.isRefusedForward(result)) {
+                    return result;
+                }
+                // The refusing FE exits within seconds, so no pooled connection to it is of use any more.
+                ClientPool.frontendPool.clearPool(feAddr);
+                notReadySinceMs = -1;
+                if (!holdDuringMasterChange || !waitForMasterChange(deadlineMs)) {
+                    return result;
+                }
+            } catch (NotSentException e) {
+                long holdUntilMs = deadlineMs;
+                if (e.notReady) {
+                    if (notReadySinceMs < 0) {
+                        notReadySinceMs = System.currentTimeMillis();
+                    }
+                    holdUntilMs = Config.ignore_meta_check ? 0
+                            : Math.min(deadlineMs, notReadySinceMs + NOT_READY_HOLD_MS);
+                } else {
+                    notReadySinceMs = -1;
+                }
+                if (!holdDuringMasterChange || !waitForMasterChange(holdUntilMs)) {
+                    throw e.getCause() instanceof Exception ? (Exception) e.getCause() : e;
+                }
+            }
+        }
+    }
+
+    private boolean waitForMasterChange(long deadlineMs) throws InterruptedException {
+        if (isCancelled() || System.currentTimeMillis() >= deadlineMs) {
+            return false;
+        }
+        Thread.sleep(MASTER_CHANGE_POLL_MS);
+        refreshTarget();
+        // A cancel during the sleep found nothing to cancel on any master, so the statement must not be sent.
+        return !isCancelled();
+    }
+
+    private boolean isCancelled() {
+        return cancelled || ctx.isKilled();
+    }
+
+    // Whether this executor forwards to whichever FE is master, rather than to one fixed FE.
+    protected boolean followsMaster() {
+        return false;
+    }
+
+    // Points the request at the current master; only called when followsMaster().
+    protected void refreshTarget() {
+    }
+
+    protected TMasterOpResult forwardOnce(TMasterOpRequest params) throws Exception {
+        try {
+            ctx.getEnv().checkReadyOrThrow();
+        } catch (Exception e) {
+            throw new NotSentException(e, true);
+        }
 
         FrontendService.Client client;
         try {
             client = ClientPool.frontendPool.borrowObject(feAddr, thriftTimeoutMs);
         } catch (Exception e) {
             // may throw NullPointerException. add err msg
-            throw new Exception("Failed to get master client.", e);
+            throw new NotSentException(new Exception("Failed to get master client.", e), false);
         }
         final StringBuilder forwardMsg = new StringBuilder("forward to master FE " + feAddr.toString());
         if (!params.isSyncJournalOnly()) {

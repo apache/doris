@@ -135,6 +135,7 @@ import org.apache.doris.qe.MysqlConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ShutdownGate;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.qe.VariableMgr;
@@ -1206,6 +1207,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (shortcut != null) {
             return shortcut;
         }
+        if (!ShutdownGate.enterForward()) {
+            // This master is handing its mastership over: the forwarding FE holds the statement and sends it
+            // again to the new master.
+            return ShutdownGate.refusedForwardResult();
+        }
+        try {
+            return forwardStatement(params, requester);
+        } finally {
+            ShutdownGate.exitForward();
+        }
+    }
+
+    private TMasterOpResult forwardStatement(TMasterOpRequest params, Frontend requester) throws TException {
         logForwardRequest(params);
         ConnectContext context = createForwardContext(params, requester);
         // createForwardContext() always builds a MySQL proxy context: the master replays the

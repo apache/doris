@@ -42,10 +42,12 @@ import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeService;
+import org.apache.doris.qe.ShutdownGate;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.tls.server.FeServerStarterFactory;
 import org.apache.doris.tls.server.ServerStarter;
 import org.apache.doris.tls.server.TlsProtocolSet;
@@ -74,8 +76,10 @@ import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
-import java.util.List;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -100,6 +104,8 @@ public class DorisFE {
 
     // set to true when all servers are ready.
     private static final AtomicBoolean serverReady = new AtomicBoolean(false);
+    private static final long DRAIN_TIMEOUT_MS = 300 * 1000L;
+    private static final long DRAIN_POLL_MS = 100;
 
     // HTTP server instance, used for graceful shutdown
     private static HttpServer httpServer;
@@ -186,23 +192,60 @@ public class DorisFE {
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 LOG.info("Received shutdown signal, starting graceful shutdown...");
                 serverReady.set(false);
-                gracefulShutdown();
-
-                if (qeService != null) {
-                    qeService.stop();
+                // The load balancer stops sending new connections. Existing ones keep working while the queries
+                // running now finish, so their clients see no error.
+                long drainStartMs = System.currentTimeMillis();
+                gracefulShutdown(runningQueryIds(), DRAIN_TIMEOUT_MS);
+                Set<String> transferTargets = Collections.emptySet();
+                try {
+                    transferTargets = Env.getCurrentEnv().chooseReadyMasterTransferTargets();
+                } catch (Throwable t) {
+                    LOG.warn("choose followers to transfer mastership to failed", t);
                 }
+                ShutdownGate.begin(!transferTargets.isEmpty());
+                // Statements that started during the drain, and those forwarded here, finish next. Before a handover
+                // the wait stays well within the time the other FEs hold forwarded statements; without one, they
+                // get the rest of the drain timeout.
+                long finalWaitMs = transferTargets.isEmpty()
+                        ? Math.max(0, DRAIN_TIMEOUT_MS - (System.currentTimeMillis() - drainStartMs))
+                        : ShutdownGate.finalWaitMs(Config.master_change_wait_timeout_second);
+                gracefulShutdown(null, finalWaitMs);
 
-                if (thriftServerStarter != null) {
+                boolean masterTransferred = false;
+                try {
+                    masterTransferred = Env.getCurrentEnv().transferMasterOnShutdown(transferTargets);
+                } catch (Throwable t) {
+                    LOG.warn("transfer mastership before shutdown failed", t);
+                }
+                if (masterTransferred) {
+                    // The other FEs learn the new master from the journal within about a second. Until then they
+                    // keep forwarding here and get a fast error, instead of timing out on an address that is gone.
                     try {
-                        thriftServerStarter.stop();
-                    } catch (Exception e) {
-                        LOG.warn("stop FE thrift starter failed", e);
+                        Thread.sleep(Math.max(0, Config.master_transfer_on_shutdown_settle_ms));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
                     }
                 }
+                // After the handover this FE still runs the master daemons on a catalog that no longer follows
+                // the journal. Exit now instead of waiting for the servers to stop: their in-flight requests
+                // cannot complete here, and the clients retry on the new master.
+                if (!masterTransferred) {
+                    if (qeService != null) {
+                        qeService.stop();
+                    }
 
-                // Shutdown HTTP server after main process graceful shutdown is complete
-                if (httpServer != null) {
-                    httpServer.shutdown();
+                    if (thriftServerStarter != null) {
+                        try {
+                            thriftServerStarter.stop();
+                        } catch (Exception e) {
+                            LOG.warn("stop FE thrift starter failed", e);
+                        }
+                    }
+
+                    // Shutdown HTTP server after main process graceful shutdown is complete
+                    if (httpServer != null) {
+                        httpServer.shutdown();
+                    }
                 }
 
                 LogManager.shutdown();
@@ -740,15 +783,36 @@ public class DorisFE {
         return serverReady.get();
     }
 
-    private static void gracefulShutdown() {
-        // wait for all queries to finish
+    private static Set<TUniqueId> runningQueryIds() {
+        Set<TUniqueId> ids = new HashSet<>();
+        for (Coordinator coordinator : QeProcessorImpl.INSTANCE.getAllCoordinators()) {
+            ids.add(coordinator.getQueryId());
+        }
+        return ids;
+    }
+
+    // Waits for the given queries, or for every query and forwarded statement when queryIds is null.
+    private static void gracefulShutdown(Set<TUniqueId> queryIds, long timeoutMs) {
         try {
-            long now = System.currentTimeMillis();
-            List<Coordinator> allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
-            while (!allCoordinators.isEmpty() && System.currentTimeMillis() - now < 300 * 1000L) {
-                Thread.sleep(1000);
-                allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
-                LOG.info("waiting {} queries to finish before shutdown", allCoordinators.size());
+            long start = System.currentTimeMillis();
+            long lastLogMs = 0;
+            while (System.currentTimeMillis() - start < timeoutMs) {
+                int running = 0;
+                for (Coordinator coordinator : QeProcessorImpl.INSTANCE.getAllCoordinators()) {
+                    if (queryIds == null || queryIds.contains(coordinator.getQueryId())) {
+                        running++;
+                    }
+                }
+                int forwards = queryIds == null ? ShutdownGate.inFlightForwards() : 0;
+                if (running == 0 && forwards == 0) {
+                    break;
+                }
+                if (System.currentTimeMillis() - lastLogMs >= 1000) {
+                    lastLogMs = System.currentTimeMillis();
+                    LOG.info("waiting {} queries and {} forwarded statements to finish before shutdown", running,
+                            forwards);
+                }
+                Thread.sleep(DRAIN_POLL_MS);
             }
         } catch (Throwable t) {
             LOG.error("", t);

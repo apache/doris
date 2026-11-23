@@ -139,7 +139,15 @@ public class BDBJournalCursor implements JournalCursor {
                 } else if (tryTimes < maxTryTime) {
                     tryTimes++;
                     LOG.warn("fail to get journal {}, will try again. status: {}", currentKey, operationStatus);
-                    Thread.sleep(3000);
+                    // A journal id the old master assigned but never committed is missing for good. When this FE
+                    // becomes master it replays the journal itself, so the replayer stops waiting for it.
+                    for (int waitedMs = 0; waitedMs < 3000; waitedMs += 100) {
+                        if (Env.getCurrentEnv().isStoppingReplayer()) {
+                            throw new Exception("stop waiting for journal " + currentKey
+                                    + ", the replayer is stopping");
+                        }
+                        Thread.sleep(100);
+                    }
                 } else if (operationStatus == OperationStatus.NOTFOUND) {
                     // In the case:
                     // On non-master FE, the replayer will first get the max journal id,

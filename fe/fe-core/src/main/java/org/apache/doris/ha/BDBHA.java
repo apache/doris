@@ -19,6 +19,7 @@ package org.apache.doris.ha;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.journal.bdbje.BDBEnvironment;
+import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.Lists;
 import com.sleepycat.bind.tuple.TupleBinding;
@@ -38,10 +39,14 @@ import org.apache.logging.log4j.Logger;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
 
 public class BDBHA implements HAProtocol {
     private static final Logger LOG = LogManager.getLogger(BDBHA.class);
@@ -148,6 +153,48 @@ public class BDBHA implements HAProtocol {
             return Lists.newArrayList();
         }
         return ret;
+    }
+
+    /**
+     * Hands mastership to the first of {@code replicas} that catches up with this master within the timeout,
+     * and returns its node name. New writes on this master block until the transfer finishes.
+     */
+    public String transferMaster(Set<String> replicas, int timeoutSecond) {
+        ReplicatedEnvironment replicatedEnvironment = environment.getReplicatedEnvironment();
+        if (replicatedEnvironment == null) {
+            throw new IllegalStateException("replicated environment is not open");
+        }
+        return replicatedEnvironment.transferMaster(replicas, timeoutSecond, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Returns the node names of the alive followers other than {@code selfNodeName}: the nodes a master can
+     * hand its mastership to.
+     */
+    public static Set<String> chooseMasterTransferTargets(Collection<Frontend> frontends, String selfNodeName) {
+        Set<String> targets = new TreeSet<>();
+        for (Frontend fe : frontends) {
+            if (fe.getRole() == FrontendNodeType.FOLLOWER && fe.isAlive()
+                    && !fe.getNodeName().equals(selfNodeName)) {
+                targets.add(fe.getNodeName());
+            }
+        }
+        return targets;
+    }
+
+    /**
+     * Returns the followers ready to take mastership over: those that answered a heartbeat just now, given as
+     * node name to replayed journal id, and whose replayed journal id is within maxJournalLag of masterJournalId.
+     */
+    public static Set<String> chooseReadyTransferTargets(Map<String, Long> replayedJournalIds, long masterJournalId,
+            long maxJournalLag) {
+        Set<String> targets = new TreeSet<>();
+        for (Map.Entry<String, Long> entry : replayedJournalIds.entrySet()) {
+            if (masterJournalId - entry.getValue() <= maxJournalLag) {
+                targets.add(entry.getKey());
+            }
+        }
+        return targets;
     }
 
     @Override

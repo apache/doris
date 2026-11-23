@@ -261,6 +261,7 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ShutdownGate;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
@@ -285,7 +286,9 @@ import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.statistics.repository.StatisticsCleaner;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
+import org.apache.doris.system.FrontendHbResponse;
 import org.apache.doris.system.HeartbeatMgr;
+import org.apache.doris.system.HeartbeatResponse;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
@@ -356,6 +359,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
@@ -450,6 +454,12 @@ public class Env {
     private AtomicBoolean canRead = new AtomicBoolean(false);
     private String toMasterProgress = "";
     private BlockingQueue<FrontendNodeType> typeTransferQueue;
+    // Set when a graceful shutdown hands mastership over. The process exits right after, so the state listener
+    // must not call System.exit on the demotion: it would block forever behind the running shutdown hook.
+    private volatile boolean masterTransferOnShutdown = false;
+    private static final long MASTER_TRANSFER_PROBE_TIMEOUT_MS = 2000;
+    // Set while this FE stops its replayer to become master: the replayer stops waiting for missing journals.
+    private volatile boolean stoppingReplayer = false;
 
     // node name is used for bdbje NodeName.
     protected String nodeName;
@@ -1742,6 +1752,7 @@ public class Env {
         try {
             // stop replayer
             if (replayer != null) {
+                stoppingReplayer = true;
                 replayer.exit();
                 try {
                     replayer.join();
@@ -1749,6 +1760,7 @@ public class Env {
                     LOG.warn("got exception when stopping the replayer thread", e);
                 }
                 replayer = null;
+                stoppingReplayer = false;
             }
 
             // set this after replay thread stopped. to avoid replay thread modify them.
@@ -3281,6 +3293,90 @@ public class Env {
         replayer.setMetaContext(metaContext);
     }
 
+    /**
+     * Hands mastership to an alive follower when this master shuts down gracefully, so the followers do not wait
+     * for the BDBJE heartbeat to time out before they elect a new master. Returns whether mastership moved; the
+     * caller must then exit without serving further requests. On any failure this FE stays master.
+     */
+    public boolean transferMasterOnShutdown(Set<String> targets) {
+        if (targets.isEmpty() || !isMaster() || !(haProtocol instanceof BDBHA)) {
+            return false;
+        }
+        int timeoutSecond = ShutdownGate.transferTimeoutSecond(Config.master_transfer_on_shutdown_timeout_second,
+                Config.master_change_wait_timeout_second);
+        masterTransferOnShutdown = true;
+        long startMs = System.currentTimeMillis();
+        LOG.info("transfer mastership to one of {} before shutdown, timeout {} s", targets, timeoutSecond);
+        try {
+            String newMaster = ((BDBHA) haProtocol).transferMaster(targets, timeoutSecond);
+            LOG.info("transferred mastership to {} before shutdown in {} ms", newMaster,
+                    System.currentTimeMillis() - startMs);
+            return true;
+        } catch (Throwable t) {
+            LOG.warn("failed to transfer mastership to one of {} in {} ms, shut down as master", targets,
+                    System.currentTimeMillis() - startMs, t);
+            return false;
+        }
+    }
+
+    /**
+     * The followers this master can hand its mastership to on shutdown: alive followers that answer a heartbeat
+     * now and have replayed the journal to within master_transfer_on_shutdown_max_journal_lag of this master.
+     * A frozen or lagging follower is left out, so the handover never waits on it. Empty when this FE does not
+     * hand over.
+     */
+    public Set<String> chooseReadyMasterTransferTargets() {
+        if (!Config.enable_master_transfer_on_shutdown || !isMaster() || !(haProtocol instanceof BDBHA)) {
+            return Collections.emptySet();
+        }
+        Set<String> candidates = BDBHA.chooseMasterTransferTargets(getFrontends(FrontendNodeType.FOLLOWER),
+                nodeName);
+        Map<String, CompletableFuture<HeartbeatResponse>> probes = new HashMap<>();
+        for (String name : candidates) {
+            Frontend fe = getFeByName(name);
+            if (fe != null) {
+                HeartbeatMgr.FrontendHeartbeatHandler handler =
+                        new HeartbeatMgr.FrontendHeartbeatHandler(fe, getClusterId(), getToken());
+                // One daemon thread per probe: a frozen follower's probe must not delay the others, and the
+                // process exits without waiting for it.
+                CompletableFuture<HeartbeatResponse> probe = new CompletableFuture<>();
+                Thread thread = new Thread(() -> {
+                    try {
+                        probe.complete(handler.call());
+                    } catch (Throwable t) {
+                        probe.completeExceptionally(t);
+                    }
+                }, "master-transfer-probe-" + name);
+                thread.setDaemon(true);
+                thread.start();
+                probes.put(name, probe);
+            }
+        }
+        long deadlineMs = System.currentTimeMillis() + MASTER_TRANSFER_PROBE_TIMEOUT_MS;
+        Map<String, Long> replayedJournalIds = new HashMap<>();
+        for (Map.Entry<String, CompletableFuture<HeartbeatResponse>> probe : probes.entrySet()) {
+            try {
+                HeartbeatResponse response = probe.getValue().get(
+                        Math.max(1, deadlineMs - System.currentTimeMillis()), TimeUnit.MILLISECONDS);
+                if (response.getStatus() == HeartbeatResponse.HbStatus.OK) {
+                    replayedJournalIds.put(probe.getKey(), ((FrontendHbResponse) response).getReplayedJournalId());
+                }
+            } catch (Exception e) {
+                LOG.info("follower {} does not answer a heartbeat, leave it out of the handover", probe.getKey());
+            }
+        }
+        long journalId = getMaxJournalId();
+        Set<String> targets = BDBHA.chooseReadyTransferTargets(replayedJournalIds, journalId,
+                Config.master_transfer_on_shutdown_max_journal_lag);
+        LOG.info("ready followers to transfer mastership to: {}, candidates {}, replayed journal ids {}, ours {}",
+                targets, candidates, replayedJournalIds, journalId);
+        return targets;
+    }
+
+    public boolean isStoppingReplayer() {
+        return stoppingReplayer;
+    }
+
     public void notifyNewFETypeTransfer(FrontendNodeType newType) {
         try {
             String msg = "notify new FE type transfer: " + newType;
@@ -3389,6 +3485,12 @@ public class Env {
                             break;
                         }
                         case MASTER: {
+                            if (masterTransferOnShutdown) {
+                                // The shutdown hook handed mastership over and exits the process itself.
+                                LOG.info("transfer FE type from MASTER to {} during graceful shutdown,"
+                                        + " wait for the shutdown to finish", newType);
+                                continue;
+                            }
                             // exit if master changed to any other type
                             String msg = "transfer FE type from MASTER to " + newType.name() + ". exit";
                             LOG.error(msg);

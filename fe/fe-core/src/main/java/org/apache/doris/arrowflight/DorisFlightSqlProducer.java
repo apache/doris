@@ -36,6 +36,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.ShutdownGate;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -387,10 +388,18 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         return CallStatus.INTERNAL.withDescription(message).withCause(cause).toRuntimeException();
     }
 
+    // New statements are refused while this FE shuts down; results of statements that already ran still stream.
+    private static void rejectNewStatementIfShuttingDown() {
+        if (ShutdownGate.rejectsNewStatements()) {
+            throw CallStatus.UNAVAILABLE.withDescription(ShutdownGate.REJECT_MESSAGE).toRuntimeException();
+        }
+    }
+
     @Override
     public FlightInfo getFlightInfoStatement(final CommandStatementQuery request, final CallContext context,
             final FlightDescriptor descriptor) {
         try {
+            rejectNewStatementIfShuttingDown();
             ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
             return FlightProtocolAdapter.of(connectContext).callCommand(connectContext,
                     () -> executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(),
@@ -412,6 +421,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoPreparedStatement(final CommandPreparedStatementQuery command,
             final CallContext context, final FlightDescriptor descriptor) {
+        rejectNewStatementIfShuttingDown();
         String preparedStatementId = preparedStatementId(context, command.getPreparedStatementHandle());
         ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
         return FlightProtocolAdapter.of(connectContext).callCommand(connectContext,
@@ -590,6 +600,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         // it will ignore and execute without a prepared statement.) see: https://github.com/apache/arrow/issues/38786
         executorService.submit(() -> {
             try {
+                rejectNewStatementIfShuttingDown();
                 ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
                 FlightProtocolAdapter.of(connectContext).runCommand(connectContext, () -> createPreparedStatement(
                         request, context.peerIdentity(), connectContext, listener));
