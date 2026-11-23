@@ -73,9 +73,9 @@ static Status run_array_shuffle(const std::vector<TestArray>& arrays, bool const
     block.insert({array_ptr, array_type, "array"});
     DataTypes arg_types = {array_type};
     ColumnNumbers arguments = {0};
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols = {nullptr};
+    std::vector<std::shared_ptr<ConstantExprResult>> constant_cols = {nullptr};
     if (const_array) {
-        constant_cols[0] = std::make_shared<ColumnPtrWrapper>(array_ptr);
+        constant_cols[0] = std::make_shared<ConstantExprResult>(array_ptr);
     }
     if (!seeds.empty()) {
         MutableColumnPtr seed_column = seed_type->create_column();
@@ -86,7 +86,7 @@ static Status run_array_shuffle(const std::vector<TestArray>& arrays, bool const
         constant_cols.push_back(nullptr);
         if (seeds.size() == 1) {
             seed_ptr = ColumnConst::create(seed_ptr, row_size);
-            constant_cols[1] = std::make_shared<ColumnPtrWrapper>(seed_ptr);
+            constant_cols[1] = std::make_shared<ConstantExprResult>(seed_ptr);
         } else {
             EXPECT_EQ(seeds.size(), row_size);
         }
