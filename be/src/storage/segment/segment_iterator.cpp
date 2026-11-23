@@ -909,6 +909,10 @@ static bool can_consume_candidate_rows(const VExprContextSPtr& expr_ctx) {
         DORIS_CHECK(virtual_expr != nullptr);
         effective_root = virtual_expr.get();
     }
+    // A filtering SEARCH starts from the candidate rows at its root.
+    if (!root->is_virtual_slot_ref() && root->node_type() == TExprNodeType::SEARCH_EXPR) {
+        return true;
+    }
     if (effective_root->node_type() != TExprNodeType::MATCH_PRED) {
         return false;
     }
@@ -1505,7 +1509,10 @@ Status SegmentIterator::_apply_index_expr() {
     // a compound predicate or a SEARCH, which combines its own leaf bitmaps the
     // same way, are therefore evaluated without the candidate; the top-level
     // single-predicate consumption stays exact within the candidate.
-    auto evaluate_with_candidate_policy = [&](const VExprContextSPtr& expr_ctx) {
+    // A filtering conjunct that is a SEARCH by itself still gets the candidate, at its root
+    // only: SEARCH answers two-valued, and the conjunct reads its result only within the
+    // candidate.
+    auto evaluate_with_candidate_policy = [&](const VExprContextSPtr& expr_ctx, bool filters) {
         // Earlier expression conjuncts may have crossed the engage threshold.
         // Refresh for both subsequent conjuncts and virtual-column projections.
         _refresh_candidate_pushdown();
@@ -1522,12 +1529,20 @@ Status SegmentIterator::_apply_index_expr() {
                               _index_query_context->candidate_rows != nullptr &&
                               combines_index_results(*effective_root);
         const roaring::Roaring* saved = suppress ? _index_query_context->candidate_rows : nullptr;
+        const bool search_root = suppress && filters && !root->is_virtual_slot_ref() &&
+                                 root->node_type() == TExprNodeType::SEARCH_EXPR;
         if (suppress) {
             _index_query_context->candidate_rows = nullptr;
+        }
+        if (search_root) {
+            _index_query_context->search_root_candidates = saved;
         }
         Status st = expr_ctx->evaluate_inverted_index(num_rows());
         if (suppress) {
             _index_query_context->candidate_rows = saved;
+        }
+        if (search_root) {
+            _index_query_context->search_root_candidates = nullptr;
         }
         return st;
     };
@@ -1555,7 +1570,7 @@ Status SegmentIterator::_apply_index_expr() {
         // answer approximately then knows its work will be used. The virtual column loop
         // further down consumes none, and deliberately names none.
         expr_ctx->set_approx_index_result_consumer(expr_ctx->root().get());
-        if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
+        if (Status st = evaluate_with_candidate_policy(expr_ctx, /*filters=*/true); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
             } else {
@@ -1605,7 +1620,7 @@ Status SegmentIterator::_apply_index_expr() {
             if (expr_ctx->get_index_context() == nullptr) {
                 continue;
             }
-            if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
+            if (Status st = evaluate_with_candidate_policy(expr_ctx, /*filters=*/false); !st.ok()) {
                 if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                     continue;
                 } else {

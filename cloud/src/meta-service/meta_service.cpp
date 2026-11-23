@@ -115,9 +115,7 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
         // check it split by ':' c
         auto [valid, id] = ResourceManager::get_instance_id_by_cloud_unique_id(cloud_unique_id);
         if (!valid) {
-            LOG(WARNING) << "use degraded format cloud_unique_id, but cloud_unique_id not degrade "
-                            "format, cloud_unique_id="
-                         << cloud_unique_id;
+            LOG(WARNING) << "cannot resolve instance_id: invalid degraded cloud_unique_id format";
             return "";
         }
 
@@ -128,14 +126,35 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
             if (code == TxnErrorCode::TXN_KEY_NOT_FOUND) {
                 LOG(WARNING)
                         << "use degraded format cloud_unique_id, but instance is not registered, "
-                           "cloud_unique_id="
-                        << cloud_unique_id;
+                           "instance_id="
+                        << id;
+                return "";
+            }
+            if (code != TxnErrorCode::TXN_OK) {
+                // Reject rather than accept a cloud_unique_id whose node membership is unchecked.
+                LOG(WARNING) << "use degraded format cloud_unique_id, but failed to get instance, "
+                                "instance_id="
+                             << id << " err=" << msg;
                 return "";
             }
             if (instance.has_status() && instance.status() == InstanceInfoPB::DELETED) {
                 msg = "instance status has been set delete, plz check it, recycle_state=" +
                       InstanceRecycleState_Name(instance.recycle_state());
-                LOG(WARNING) << msg << ", cloud_unique_id=" << cloud_unique_id;
+                LOG(WARNING) << msg << ", instance_id=" << id;
+                return "";
+            }
+            // Anyone knowing the instance_id can build a degraded format cloud_unique_id, so it
+            // is only trusted when it is a registered node of that instance.
+            bool registered = false;
+            for (const auto& cluster : instance.clusters()) {
+                for (const auto& node : cluster.nodes()) {
+                    registered |= node.cloud_unique_id() == cloud_unique_id;
+                }
+            }
+            if (!registered) {
+                LOG(WARNING) << "use degraded format cloud_unique_id, but node is not registered, "
+                                "instance_id="
+                             << id;
                 return "";
             }
         }
@@ -144,8 +163,7 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
 
     for (auto& node : nodes) {
         if (!instance_id.empty() && instance_id != node.instance_id) {
-            LOG(WARNING) << "cloud_unique_id is one-to-many instance_id, "
-                         << " cloud_unique_id=" << cloud_unique_id
+            LOG(WARNING) << "cloud_unique_id is one-to-many instance_id,"
                          << " current_instance_id=" << instance_id
                          << " later_instance_id=" << node.instance_id;
         }
@@ -159,10 +177,12 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
         }
 
         if (id != node.instance_id || id != instance_id) {
-            LOG(WARNING) << "in cache, node=" << node.node_info.DebugString()
-                         << ", cloud_unique_id=" << cloud_unique_id
-                         << " current_instance_id=" << instance_id
-                         << ", later_instance_id=" << node.instance_id;
+            LOG(WARNING)
+                    << "cached node instance_id does not match the ID encoded in cloud_unique_id"
+                    << ", cached_instance_id=" << node.instance_id << ", encoded_instance_id=" << id
+                    << ", node_ip=" << node.node_info.ip()
+                    << ", node_host=" << node.node_info.host()
+                    << ", heartbeat_port=" << node.node_info.heartbeat_port();
             continue;
         }
     }
@@ -212,6 +232,31 @@ bool MetaServiceProxy::check_strict_instance_auth(const ::google::protobuf::Mess
     }
     status->set_code(MetaServiceCode::INVALID_ARGUMENT);
     status->set_msg("cloud_unique_id is required with instance_id");
+    LOG(WARNING) << status->msg() << ", request=" << descriptor->name()
+                 << " instance_id=" << instance_id;
+    return false;
+}
+
+bool MetaServiceProxy::check_request_instance_id(const ::google::protobuf::Message& req,
+                                                 MetaServiceResponseStatus* status) {
+    const auto* descriptor = req.GetDescriptor();
+    const auto* reflection = req.GetReflection();
+    // call_impl only checks requests with an instance_id field.
+    const auto* instance_id_field = descriptor->FindFieldByName("instance_id");
+    CHECK(instance_id_field != nullptr) << descriptor->name();
+    std::string instance_id = reflection->GetString(req, instance_id_field);
+    const auto* cloud_unique_id_field = descriptor->FindFieldByName("cloud_unique_id");
+    std::string cloud_unique_id = cloud_unique_id_field == nullptr
+                                          ? ""
+                                          : reflection->GetString(req, cloud_unique_id_field);
+    // Nothing to cross check without both fields. Requests naming an instance by instance_id only
+    // are still accepted for compatibility, e.g. FE alter_cluster and create_instance.
+    if (instance_id.empty() || cloud_unique_id.empty() ||
+        get_instance_id(resource_mgr(), cloud_unique_id) == instance_id) {
+        return true;
+    }
+    status->set_code(MetaServiceCode::INVALID_ARGUMENT);
+    status->set_msg("instance_id does not belong to cloud_unique_id");
     LOG(WARNING) << status->msg() << ", request=" << descriptor->name()
                  << " instance_id=" << instance_id;
     return false;
@@ -313,7 +358,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(get_version)
@@ -475,7 +520,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
 
@@ -1040,7 +1085,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
 
@@ -1224,7 +1269,7 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(WARNING) << msg;
         return;
     }
     RPC_RATE_LIMIT(update_tablet)
@@ -1420,7 +1465,7 @@ void MetaServiceImpl::get_tablet(::google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(get_tablet)
@@ -1615,7 +1660,7 @@ void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* con
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
 
@@ -1791,7 +1836,7 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
 
@@ -2305,7 +2350,7 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
 
@@ -2587,7 +2632,7 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     doris::RowsetMetaCloudPB rowset_meta(request->rowset_meta());
@@ -2780,7 +2825,7 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     doris::RowsetMetaCloudPB rowset_meta(request->rowset_meta());
@@ -3019,7 +3064,7 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     doris::RowsetMetaCloudPB rowset_meta(request->rowset_meta());
@@ -3302,7 +3347,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(get_rowset)
@@ -3546,7 +3591,7 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(get_tablet_stats)
@@ -4483,7 +4528,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(WARNING) << msg;
         return;
     }
     bool without_lock = request->has_without_lock() ? request->without_lock() : false;
@@ -4752,7 +4797,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(WARNING) << msg;
         return;
     }
     RPC_RATE_LIMIT(get_delete_bitmap)
@@ -6136,7 +6181,7 @@ void MetaServiceImpl::remove_delete_bitmap(google::protobuf::RpcController* cont
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(WARNING) << msg;
         return;
     }
     RPC_RATE_LIMIT(remove_delete_bitmap)
@@ -6187,9 +6232,8 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(
         // get instance_id by cloud_unique_id
         cloned_instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
         if (cloned_instance_id.empty()) {
-            std::string msg =
-                    fmt::format("cannot find instance_id with cloud_unique_id={}", cloud_unique_id);
-            return {MetaServiceCode::INVALID_ARGUMENT, std::move(msg)};
+            return {MetaServiceCode::INVALID_ARGUMENT,
+                    "cannot find instance_id from cloud_unique_id"};
         }
     }
 
@@ -6352,7 +6396,7 @@ void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* control
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(WARNING) << msg;
         return;
     }
 
@@ -6424,7 +6468,7 @@ void MetaServiceImpl::update_packed_file_info(::google::protobuf::RpcController*
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        LOG(INFO) << msg;
         return;
     }
 

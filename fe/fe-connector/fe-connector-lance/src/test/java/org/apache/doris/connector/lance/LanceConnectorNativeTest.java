@@ -218,14 +218,14 @@ class LanceConnectorNativeTest {
                     regressionMetadata.getTableHandle(statement, "default", "all_types").get(),
                     regressionMetadata.beginQuerySnapshot(statement,
                             regressionMetadata.getTableHandle(statement, "default", "all_types").get()).get());
-            Assertions.assertNull(regression.getScanPlanProvider().getScanNodeProperties(statement, allTypes,
+            Assertions.assertNull(regression.getScanPlanProvider().getScanNodePropertiesResult(statement, allTypes,
                     Collections.singletonList(new NamedColumnHandle("row_id")), Optional.empty())
-                    .get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
+                    .getProperties().get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
             for (String column : Arrays.asList("null_col", "duration_ns_col", "json_col", "bfloat16_vector_col")) {
                 Assertions.assertEquals("Additional Lance types", regression.getScanPlanProvider()
-                        .getScanNodeProperties(statement, allTypes,
+                        .getScanNodePropertiesResult(statement, allTypes,
                                 Collections.singletonList(new NamedColumnHandle(column)), Optional.empty())
-                        .get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS), column);
+                        .getProperties().get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS), column);
             }
         } finally {
             regression.close();

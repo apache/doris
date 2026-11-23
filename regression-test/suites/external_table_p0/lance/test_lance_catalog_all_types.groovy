@@ -194,16 +194,4 @@ suite("test_lance_catalog_all_types", "p0,external") {
         exception "Lance S3 AssumeRole access is not supported yet"
     }
 
-    // REST catalogs are not served yet: CREATE says so instead of building a catalog nothing can read.
-    sql """DROP CATALOG IF EXISTS `test_lance_rest_not_supported`"""
-    test {
-        sql """
-            CREATE CATALOG `test_lance_rest_not_supported` PROPERTIES (
-                "type" = "lance",
-                "lance.catalog.type" = "rest",
-                "lance.rest.uri" = "http://${externalEnvIp}:19102"
-            )
-        """
-        exception "Lance rest catalogs are not supported yet"
-    }
 }

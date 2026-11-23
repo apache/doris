@@ -17,15 +17,21 @@
 
 # Build context: docker/runtime/base-image. Only the selected JDK and the
 # rebuilt operator tools enter the runtime stage. Refresh these pins together.
-ARG UBUNTU_IMAGE=ubuntu:22.04@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde
-ARG JDK17_IMAGE=eclipse-temurin:17.0.21_9-jdk-jammy@sha256:76751c16a2a07ec0960e659a2603491f8c79d95592173f6c0df8bf8ebab257cc
-ARG JDK8_IMAGE=eclipse-temurin:8u512-b09-jdk-jammy@sha256:dfbb2839b4aa0f356ed4dc1025b2612ac0518de9c74fb6c32cf929856d8f5325
+ARG RUNTIME_DISTRO=ubuntu
+ARG UBUNTU_IMAGE=ubuntu:26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db
+ARG UBI9_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal@sha256:d8162789d7913ef8941481687b92ab4bbec311870948f66cf52b9cc7e0c57c06
+ARG JDK17_IMAGE=eclipse-temurin:17.0.21_9-jdk-resolute@sha256:c19b0e2ecdec69220c6c69e7fc7f4ab5b233ccfcce65f0b87c4411e71ca82fdc
+ARG JDK8_IMAGE=eclipse-temurin:8u512-b09-jdk-resolute@sha256:6f51f7980d00eff8383ae5388c8baace9ef088382d4a198c0afedf0534873729
+ARG JDK17_UBI9_IMAGE=eclipse-temurin:17.0.21_9-jdk-ubi9-minimal@sha256:a39aa77c3e2ca3e5987c87f38c238c8fdf230355c4f558d8002ac9e9e4fd86a7
+ARG JDK8_UBI9_IMAGE=eclipse-temurin:8u512-b09-jdk-ubi9-minimal@sha256:bc58f23dc2e263a001a65129b1c626b09a16d6b49eca5ff18d06289a22cc598b
 ARG GO_IMAGE=golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea
 ARG JAVA_VERSION=17
 
-FROM ${JDK17_IMAGE} AS jdk-17
-FROM ${JDK8_IMAGE} AS jdk-8
-FROM jdk-${JAVA_VERSION} AS jdk
+FROM ${JDK17_IMAGE} AS jdk-ubuntu-17
+FROM ${JDK8_IMAGE} AS jdk-ubuntu-8
+FROM ${JDK17_UBI9_IMAGE} AS jdk-ubi9-17
+FROM ${JDK8_UBI9_IMAGE} AS jdk-ubi9-8
+FROM jdk-${RUNTIME_DISTRO}-${JAVA_VERSION} AS jdk
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS debug-builder
 ARG TARGETOS
@@ -49,21 +55,26 @@ RUN curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
         go build -trimpath -o /out/dorisctl ./cmd/dorisctl && \
     go version -m /out/doris-debug /out/dorisctl > /out/debug-tools.buildinfo
 
-FROM ${UBUNTU_IMAGE} AS runtime
-ARG JAVA_VERSION
-ENV JAVA_HOME=/usr/lib/jvm/java
-ENV PATH=${JAVA_HOME}/bin:${PATH}
-
+FROM ${UBUNTU_IMAGE} AS os-ubuntu
 # Bootstrap HTTPS from the pinned JDK image before using APT. The installed
 # ca-certificates package subsequently maintains this bundle.
 COPY --from=jdk /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY install-runtime.sh /tmp/install-runtime.sh
 RUN bash /tmp/install-runtime.sh && rm /tmp/install-runtime.sh
 
+FROM ${UBI9_IMAGE} AS os-ubi9
+COPY install-runtime-ubi9.sh /tmp/install-runtime-ubi9.sh
+RUN bash /tmp/install-runtime-ubi9.sh && rm /tmp/install-runtime-ubi9.sh
+
+FROM os-${RUNTIME_DISTRO} AS runtime
+ARG JAVA_VERSION
+ENV JAVA_HOME=/usr/lib/jvm/java
+ENV PATH=${JAVA_HOME}/bin:${PATH}
+
 COPY --from=jdk /opt/java/openjdk /usr/lib/jvm/java
 COPY --from=debug-builder /out/doris-debug /out/dorisctl /opt/apache-doris/
 COPY --from=debug-builder /out/debug-tools.buildinfo /usr/share/doris/
 RUN ln -s java "/usr/lib/jvm/jdk-${JAVA_VERSION}" && \
-    java -version && mysql --version
+    java -version && mysql --version && test -f /usr/share/zoneinfo/UTC
 
 WORKDIR /opt/apache-doris

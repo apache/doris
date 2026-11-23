@@ -27,13 +27,24 @@
 
 #include "absl/strings/substitute.h"
 #include "util/client_connection_provider.h"
+#include "util/private_rpc_tls.h"
 
 namespace doris {
 
 ThriftClientImpl::ThriftClientImpl(const std::string& ipaddress, int port)
+        : ThriftClientImpl(ipaddress, port, true) {}
+
+ThriftClientImpl::ThriftClientImpl(const std::string& ipaddress, int port, bool internal_rpc)
         : _ipaddress(ipaddress),
           _port(port),
-          _socket(doris::client::create_thrift_client_socket(ipaddress, port)) {}
+          _socket(client::create_thrift_client_socket(
+                  ipaddress, port,
+                  internal_rpc ? client::RpcPurpose::INTERNAL_RPC
+                               : client::RpcPurpose::EXTERNAL_SERVICE)) {}
+
+void ThriftClientImpl::set_peer_hostname(const std::string& hostname) {
+    rpc_tls::set_peer_hostname(_socket.get(), hostname);
+}
 
 Status ThriftClientImpl::open() {
     if (!_socket) {

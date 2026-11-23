@@ -213,15 +213,18 @@ private:
         }
         size_t index = 0;
         if (is_int_or_bool(index_type->get_primitive_type())) {
-            int64_t offset = index_column->get_int(0);
-            size_t limit = struct_type.get_elements().size() + 1;
-            if (offset < 1 || offset >= static_cast<int64_t>(limit)) {
+            // get_int() returns 64 bits. It would turn a LARGEINT such as 2^64 + 1 into 1.
+            const Int128 offset = index_type->get_primitive_type() == TYPE_LARGEINT
+                                          ? (*index_column)[0].get<TYPE_LARGEINT>()
+                                          : static_cast<Int128>(index_column->get_int(0));
+            const auto limit = static_cast<Int128>(struct_type.get_elements().size());
+            if (offset < 1 || offset > limit) {
                 return Status::RuntimeError(
                         "Index out of bound for function {}: index {} should base from 1 and less "
                         "than {}.",
-                        get_name(), offset, limit);
+                        get_name(), offset, limit + 1);
             }
-            index = offset - 1; // the index starts from 1
+            index = static_cast<size_t>(offset - 1);
         } else if (is_string_type(index_type->get_primitive_type())) {
             std::string field_name = index_column->get_data_at(0).to_string();
             std::optional<size_t> pos = struct_type.try_get_position_by_name(field_name);

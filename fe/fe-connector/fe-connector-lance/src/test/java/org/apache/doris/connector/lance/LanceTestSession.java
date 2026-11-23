@@ -29,6 +29,7 @@ import java.util.function.Supplier;
 final class LanceTestSession implements ConnectorSession {
     private final String timeZone;
     private final Map<String, Object> memo = new HashMap<>();
+    private final Map<String, String> sessionProperties = new HashMap<>();
     private int loads;
 
     LanceTestSession() {
@@ -42,6 +43,11 @@ final class LanceTestSession implements ConnectorSession {
     /** How many times the statement scope ran a loader, which is how many metadata reads were made. */
     int loads() {
         return loads;
+    }
+
+    /** Sets a session variable as the engine hands visible ones to connectors. */
+    void setSessionProperty(String name, String value) {
+        sessionProperties.put(name, value);
     }
 
     /** Puts a value where a loader would have, as if this statement had already read it. */
@@ -99,6 +105,11 @@ final class LanceTestSession implements ConnectorSession {
     @Override
     public <T> T getProperty(String name, Class<T> type) {
         return null;
+    }
+
+    @Override
+    public Map<String, String> getSessionProperties() {
+        return Collections.unmodifiableMap(sessionProperties);
     }
 
     @Override

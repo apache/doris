@@ -702,6 +702,26 @@ Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state,
                 _shared_state->hash_table_variant_vector[p._use_shared_hash_table ? _task_idx : 0]);
     }
 
+    if (data_types.size() == 1 && is_string_type(data_types[0]->get_primitive_type())) {
+        const size_t max_length = with_join_string_column(*raw_ptrs[0], [](const auto& column) {
+            return packed_string_join::max_build_key_length(
+                    column.get_chars().data(), column.get_offsets().data() - 1, column.size());
+        });
+        if (max_length != 0) {
+            for (auto& variant_ptr : variant_ptrs) {
+                auto& variant = variant_ptr->method_variant;
+                if (max_length <= sizeof(UInt32)) {
+                    variant.emplace<PackedStringJoinContext<UInt32>>(max_length);
+                } else if (max_length <= sizeof(UInt64)) {
+                    variant.emplace<PackedStringJoinContext<UInt64>>(max_length);
+                } else {
+                    variant.emplace<PackedStringJoinContext<UInt128>>(max_length);
+                }
+            }
+            return Status::OK();
+        }
+    }
+
     for (auto& variant_ptr : variant_ptrs) {
         RETURN_IF_ERROR(init_hash_method<JoinDataVariants>(variant_ptr.get(), data_types, true));
     }

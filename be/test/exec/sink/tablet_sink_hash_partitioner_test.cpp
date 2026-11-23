@@ -20,11 +20,14 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Partitions_types.h>
 #include <gen_cpp/Status_types.h>
 #include <gtest/gtest.h>
+#include <thrift/transport/TServerSocket.h>
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -48,12 +51,18 @@
 #include "exprs/vexpr.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "storage/tablet_info.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
+#include "util/client_cache.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
+#include "util/dns_cache.h"
 #include "util/hash_util.hpp"
+#include "util/thrift_rpc_helper.h"
+#include "util/thrift_server.h"
 
 namespace doris {
 
@@ -160,6 +169,133 @@ TExprNode _make_uuid_literal(const std::string& value) {
     node.type.__set_is_nullable(false);
     node.__set_is_nullable(false);
     return node;
+}
+
+TEST(TabletSinkHashPartitionerTest, PartitionCallbackPolicySurvivesClone) {
+    for (bool remote : {false, true}) {
+        OperatorContext ctx;
+        TOlapTableSchemaParam schema;
+        TTupleId tuple_id = 0;
+        int64_t index_id = 0;
+        sink_test_utils::build_desc_tbl_and_schema(ctx, schema, tuple_id, index_id, false);
+        auto row_desc = std::make_shared<MockRowDescriptor>(
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>()}, &ctx.pool);
+        auto parent = _create_parent_operator(ctx, row_desc);
+        ExchangeSinkLocalState local_state(parent.get(), &ctx.state);
+        auto partition = sink_test_utils::build_partition_param(index_id);
+        if (remote) {
+            // An explicit master marks a remote target even when its address is also local.
+            TNetworkAddress master;
+            master.__set_hostname("127.0.0.1");
+            master.__set_port(9020);
+            partition.__set_master_address(master);
+        }
+        auto partitioner = _create_partitioner(ctx, &local_state, 2, 1, schema, partition,
+                                               sink_test_utils::build_location_param(), tuple_id);
+        EXPECT_EQ(partitioner->_row_distribution._remote_endpoint, remote);
+
+        std::unique_ptr<PartitionerBase> cloned;
+        ASSERT_TRUE(partitioner->clone(&ctx.state, cloned).ok());
+        ASSERT_TRUE(cloned->open(&ctx.state).ok());
+        auto* tablet_partitioner = assert_cast<TabletSinkHashPartitioner*>(cloned.get());
+        EXPECT_EQ(tablet_partitioner->_row_distribution._remote_endpoint, remote);
+    }
+}
+
+class RemotePartitionFrontend final : public FrontendServiceNull {
+public:
+    explicit RemotePartitionFrontend(int64_t index_id) : _index_id(index_id) {}
+
+    void createPartition(TCreatePartitionResult& result,
+                         const TCreatePartitionRequest& request) override {
+        ++calls;
+        EXPECT_EQ(request.partitionValues.size(), 1);
+        TStatus status;
+        status.__set_status_code(TStatusCode::OK);
+        result.__set_status(status);
+        TOlapTablePartition partition;
+        partition.id = 3;
+        partition.num_buckets = 1;
+        partition.__set_is_mutable(true);
+        TOlapTableIndexTablets index;
+        index.index_id = _index_id;
+        index.tablets = {300};
+        partition.indexes = {index};
+        partition.__set_start_keys({sink_test_utils::make_int_literal(10)});
+        partition.__set_end_keys({sink_test_utils::make_int_literal(20)});
+        result.__set_partitions({partition});
+        TTabletLocation location;
+        location.__set_tablet_id(300);
+        location.__set_node_ids({1});
+        result.__set_tablets({location});
+    }
+
+    std::atomic<int> calls {0};
+
+private:
+    int64_t _index_id;
+};
+
+TEST(TabletSinkHashPartitionerTest, ExchangeCreatesRemotePartitionWithoutLocalTlsCredentials) {
+    auto old_tls = std::exchange(config::enable_tls, false);
+    auto old_certificate = std::exchange(config::tls_certificate_path, "");
+    auto old_excluded = std::exchange(config::tls_excluded_protocols, "");
+    Defer restore_config {[&] {
+        config::enable_tls = old_tls;
+        config::tls_certificate_path = old_certificate;
+        config::tls_excluded_protocols = old_excluded;
+    }};
+    DNSCache dns;
+    auto* env = ExecEnv::GetInstance();
+    auto* old_rpc_env = ThriftRpcHelper::get_exec_env();
+    ThriftRpcHelper::setup(env);
+    Defer restore_rpc_env {[&] { ThriftRpcHelper::setup(old_rpc_env); }};
+    auto* old_dns = std::exchange(env->_dns_cache, &dns);
+    Defer restore_dns {[&] { env->_dns_cache = old_dns; }};
+
+    OperatorContext ctx;
+    TOlapTableSchemaParam schema;
+    TTupleId tuple_id = 0;
+    int64_t index_id = 0;
+    sink_test_utils::build_desc_tbl_and_schema(ctx, schema, tuple_id, index_id, false);
+    auto service = std::make_shared<RemotePartitionFrontend>(index_id);
+    ThriftServer server("remote-partition", std::make_shared<FrontendServiceProcessor>(service), 0);
+    server.set_server_socket(
+            std::make_shared<apache::thrift::transport::TServerSocket>("127.0.0.1", 0));
+    ASSERT_TRUE(server.start().ok());
+    Defer stop_server {[&] { server.stop_for_testing(); }};
+
+    // External callbacks must not load the local cluster's private TLS identity.
+    config::enable_tls = true;
+    ClientCache<FrontendServiceClient> internal_cache(2, true);
+    ClientCache<FrontendServiceClient> remote_cache(2, false);
+    auto* old_internal = std::exchange(env->_frontend_client_cache, &internal_cache);
+    auto* old_remote = std::exchange(env->_remote_frontend_client_cache, &remote_cache);
+    Defer restore_caches {[&] {
+        env->_frontend_client_cache = old_internal;
+        env->_remote_frontend_client_cache = old_remote;
+    }};
+
+    auto row_desc = std::make_shared<MockRowDescriptor>(
+            std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>()}, &ctx.pool);
+    auto parent = _create_parent_operator(ctx, row_desc);
+    ExchangeSinkLocalState local_state(parent.get(), &ctx.state);
+    auto partition = sink_test_utils::build_auto_partition_param(index_id, tuple_id,
+                                                                 schema.slot_descs[0].id);
+    TNetworkAddress address;
+    address.__set_hostname("127.0.0.1");
+    address.__set_port(server._server_socket->getPort());
+    partition.__set_master_address(address);
+    auto partitioner = _create_partitioner(ctx, &local_state, 2, 1, schema, partition,
+                                           sink_test_utils::build_location_param(), tuple_id);
+    auto input = ColumnHelper::create_block<DataTypeInt32>({15, 15});
+    ASSERT_TRUE(partitioner->do_partitioning(&ctx.state, &input).ok());
+    partitioner->mark_last_block();
+    Block batched;
+    auto status = partitioner->try_cut_in_line(batched);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(service->calls.load(), 1);
+    EXPECT_EQ(batched.rows(), 2);
 }
 
 TEST(TabletSinkHashPartitionerTest, DoPartitioningSkipsImmutablePartitionAndHashesOthers) {

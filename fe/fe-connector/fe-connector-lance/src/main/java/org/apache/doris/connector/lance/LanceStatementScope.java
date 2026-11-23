@@ -34,6 +34,8 @@ final class LanceStatementScope {
      * {@code LanceStatementScopeTest}.
      */
     static final String TABLE_METADATA_NAMESPACE = "lance.table_metadata";
+    /** Namespace for the per-statement memo of index metadata, read only for scans that can use an index. */
+    static final String INDEX_METADATA_NAMESPACE = "lance.index_metadata";
 
     private LanceStatementScope() {
     }
@@ -54,5 +56,15 @@ final class LanceStatementScope {
                     handle.getTableName() + "@" + metadata.getVersion(), () -> metadata);
         }
         return metadata;
+    }
+
+    /**
+     * The index metadata of {@code metadata}'s table version. The scan properties and the range list of one
+     * statement both plan index segments, and they share one read.
+     */
+    static LanceIndexMetadata sharedIndexMetadata(ConnectorSession session, LanceTableHandle handle,
+            LanceTableMetadata metadata, Supplier<LanceIndexMetadata> loader) {
+        return ConnectorStatementScopes.resolveInStatement(session, INDEX_METADATA_NAMESPACE, handle.getDbName(),
+                handle.getTableName() + "@" + metadata.getVersion(), loader);
     }
 }

@@ -43,7 +43,7 @@ ARG ARTIFACT_SOURCE=image
 ARG FE_IMAGE=apache/doris:fe-${DORIS_VERSION}
 ARG BE_IMAGE=apache/doris:be-${DORIS_VERSION}
 ARG MS_IMAGE=apache/doris:ms-${DORIS_VERSION}
-ARG BASE_IMAGE=eclipse-temurin:17.0.21_9-jre-jammy@sha256:aa6381384f8db99762fa7d0d3c2b5de58874e5f12c96df4c13a1455376ae0ed1
+ARG BASE_IMAGE=eclipse-temurin:17.0.21_9-jre-resolute@sha256:2e6cde8b9d2138aa6393216ca79567095d0a63b1907f898a04cb4c2ddfb60e11
 
 # ============================ artifact sources ==============================
 # Two interchangeable ways to get fe/, be/ and ms/ into /artifacts. Everything
@@ -118,7 +118,7 @@ ENV DORIS_HOME=/opt/apache-doris \
 
 COPY docker/runtime/base-image/install-runtime.sh /tmp/install-runtime.sh
 RUN set -eux; \
-    bash /tmp/install-runtime.sh mysql-client-core-8.0 curl tini procps tzdata; \
+    bash /tmp/install-runtime.sh mysql-client-core curl tini procps tzdata; \
     rm /tmp/install-runtime.sh; \
     mkdir -p /usr/lib/jvm; \
     ln -sfn "${JAVA_HOME}" /usr/lib/jvm/java; \

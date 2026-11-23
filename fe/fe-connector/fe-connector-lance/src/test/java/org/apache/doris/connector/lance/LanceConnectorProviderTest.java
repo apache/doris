@@ -17,12 +17,15 @@
 
 package org.apache.doris.connector.lance;
 
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 
 class LanceConnectorProviderTest {
@@ -37,18 +40,36 @@ class LanceConnectorProviderTest {
         Assertions.assertEquals("lance", new LanceConnectorProvider().name());
     }
 
-    /** SHOW CREATE CATALOG masks the REST credentials, including on a REST catalog this build cannot read. */
+    /**
+     * The engine's SSRF gate probes the REST server at CREATE / ALTER CATALOG, and SHOW CREATE CATALOG masks the
+     * REST credentials and every extra header that carries one.
+     */
     @Test
-    void theRestCredentialsAreDeclaredSecrets() {
-        Assertions.assertEquals(Arrays.asList("lance.rest.bearer-token", "lance.rest.api-key"),
-                new LanceConnectorProvider().securitySurface().sensitiveKeys());
+    void securitySurfaceDeclaresTheRestServerAndTheSecrets() {
+        ConnectorSecuritySurface surface = new LanceConnectorProvider().securitySurface();
+        Assertions.assertTrue(surface.ssrfEndpointKeys().contains("lance.rest.uri"));
+        Assertions.assertEquals(new HashSet<>(Arrays.asList("lance.rest.bearer-token", "lance.rest.api-key")),
+                new HashSet<>(surface.sensitiveKeys()));
+        Assertions.assertTrue(surface.jdbcDriverUrlKeys().isEmpty());
+        Assertions.assertTrue(masked(surface, "lance.rest.header.X-Auth-Token"));
+        Assertions.assertTrue(masked(surface, "lance.rest.header.Proxy-Authorization"));
+        Assertions.assertTrue(masked(surface, "lance.rest.header.x-goog-api-key"));
+        Assertions.assertTrue(masked(surface, "lance.rest.header.Cookie"));
+        Assertions.assertFalse(masked(surface, "lance.rest.header.x-tenant"));
+        Assertions.assertFalse(masked(surface, "lance.rest.uri"));
+        Assertions.assertFalse(masked(surface, "lance.rest.security.type"));
+    }
+
+    private static boolean masked(ConnectorSecuritySurface surface, String key) {
+        return surface.sensitiveKeys().contains(key)
+                || surface.sensitiveKeyPrefixes().stream().anyMatch(prefix -> prefix.covers(key));
     }
 
     /** Every endpoint spelling the filesystem binding can select must reach the CREATE / ALTER gate. */
     @Test
     void s3CompatibleEndpointsAreDeclared() {
         Assertions.assertEquals(Arrays.asList(
-                "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint",
+                "lance.rest.uri", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint",
                 "glue.endpoint", "aws.glue.endpoint", "oss.endpoint", "OSS_ENDPOINT",
                 "dlf.endpoint", "dlf.catalog.endpoint", "fs.oss.endpoint", "cos.endpoint",
                 "COS_ENDPOINT", "obs.endpoint", "OBS_ENDPOINT", "uri"),

@@ -24,17 +24,21 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.util.concurrent.FutureCallback;
 import com.google.protobuf.ByteString;
 import org.apache.thrift.TSerializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.nio.ByteBuffer;
 import java.util.Collections;
@@ -66,6 +70,53 @@ public class ResultReceiverDebugPointTest {
         DebugPointUtil.clearDebugPoints();
         Config.enable_debug_points = debugPointsEnabled;
         ConnectContext.remove();
+    }
+
+    @Test
+    void repeatedFetchesKeepTheSameProxyBinding() throws Exception {
+        BackendServiceProxy first = Mockito.mock(BackendServiceProxy.class);
+        BackendServiceProxy other = Mockito.mock(BackendServiceProxy.class);
+        TNetworkAddress address = new TNetworkAddress("127.0.0.1", 8060);
+        try (MockedStatic<BackendServiceProxy> factory = Mockito.mockStatic(BackendServiceProxy.class)) {
+            factory.when(BackendServiceProxy::getInstance).thenReturn(first, other);
+            factory.when(() -> BackendServiceProxy.getInstance(true)).thenReturn(first, other);
+            ResultReceiver receiver = new ResultReceiver(new TUniqueId(1, 2), new TUniqueId(3, 4),
+                    1L, address, Long.MAX_VALUE, 1 << 20, false);
+            receiver.createFuture(null);
+            receiver.createFuture(null);
+            Mockito.verify(first, Mockito.times(2)).fetchDataAsyncWithCallback(
+                    Mockito.eq(address), Mockito.any(), Mockito.isNull());
+            Mockito.verifyNoInteractions(other);
+        }
+    }
+
+    @Test
+    void resultFetchUsesTheWorkerEndpointPolicyAndPreservesTheLegacyDefault() throws Exception {
+        BackendServiceProxy internal = Mockito.mock(BackendServiceProxy.class);
+        BackendServiceProxy remote = Mockito.mock(BackendServiceProxy.class);
+        FutureCallback<InternalService.PFetchDataResult> callback = new FutureCallback<>() {
+            @Override
+            public void onSuccess(InternalService.PFetchDataResult result) {
+            }
+
+            @Override
+            public void onFailure(Throwable failure) {
+            }
+        };
+        TNetworkAddress address = new TNetworkAddress("127.0.0.1", 8060);
+        try (MockedStatic<BackendServiceProxy> factory = Mockito.mockStatic(BackendServiceProxy.class)) {
+            factory.when(BackendServiceProxy::getInstance).thenReturn(internal);
+            factory.when(() -> BackendServiceProxy.getInstance(true)).thenReturn(internal);
+            factory.when(() -> BackendServiceProxy.getInstance(false)).thenReturn(remote);
+            new ResultReceiver(new TUniqueId(1, 2), new TUniqueId(3, 4), 1L, address,
+                    Long.MAX_VALUE, 1 << 20, false, false).createFuture(callback);
+            new ResultReceiver(new TUniqueId(1, 2), new TUniqueId(3, 4), 1L, address,
+                    Long.MAX_VALUE, 1 << 20, false).createFuture(callback);
+            Mockito.verify(remote).fetchDataAsyncWithCallback(
+                    Mockito.eq(address), Mockito.any(), Mockito.eq(callback));
+            Mockito.verify(internal).fetchDataAsyncWithCallback(
+                    Mockito.eq(address), Mockito.any(), Mockito.eq(callback));
+        }
     }
 
     @Test

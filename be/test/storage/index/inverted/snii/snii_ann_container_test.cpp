@@ -17,7 +17,6 @@
 
 // Checks ANN staging, sealing, and reads through the SNII container. Validates file extents against known bytes and Faiss deserialization.
 
-#include <CLucene.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 #ifdef ADDRESS_SANITIZER
@@ -38,20 +37,21 @@
 #include "common/status.h"
 #include "exec/scan/vector_search_user_params.h"
 #include "io/fs/local_file_system.h"
+#include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/index/ann/ann_index_files.h"
 #include "storage/index/ann/ann_index_reader.h"
+#include "storage/index/ann/ann_index_storage.h"
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/ann/ann_search_params.h"
-#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/snii/format/metadata_directory.h"
 #include "storage/index/inverted/snii/io/local_file.h"
 #include "storage/index/inverted/snii/reader/snii_segment_reader.h"
-#include "storage/index/inverted/snii/snii_blob_staging_directory.h"
+#include "storage/index/inverted/snii/snii_ann_store.h"
 #include "storage/index/inverted/snii/staged_file_probe.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
@@ -139,7 +139,7 @@ TabletIndex make_ivf_on_disk_index_meta() {
 
 // Faiss opens its sub-files as ann.faiss / ann.ivfdata, so this tag selects
 // exactly the ANN staging and leaves the native BKD staging of other suites
-// alone. Observed on the filesystem rather than through the directory's own
+// alone. Observed on the filesystem rather than through the staging's own
 // bookkeeping: the bookkeeping is what the retention below disagrees with.
 constexpr const char* kAnnStageTag = "ann.";
 
@@ -176,8 +176,8 @@ protected:
         _meta = make_ann_index_meta();
         _fake_bkd_meta = make_fake_bkd_index_meta();
         _ivf_on_disk_meta = make_ivf_on_disk_index_meta();
-        // Two sub-files of different lengths: a directory that bound a name to
-        // the wrong entry would then also disagree on fileLength.
+        // Two sub-files of different lengths: a reader that bound a name to the
+        // wrong entry would then also disagree on the length.
         _synthetic["fake_bkd_data"] = synthetic_bytes(0x11, 4096 + 17);
         _synthetic["fake_bkd_index"] = synthetic_bytes(0x77, 1024 + 3);
         // IVF-on-disk reads its lists through AnnIndexIVFListCache, which
@@ -312,7 +312,7 @@ TEST_F(SniiAnnContainerTest, AnnIndexIsSealedAsAnAnnBlob) {
 }
 
 // The independent oracle for the offset bookkeeping: bytes this test chose
-// BEFORE sealing must come back through the directory unchanged. A seal that
+// BEFORE sealing must come back through the container unchanged. A seal that
 // recorded the wrong offsets returns different bytes -- unlike a comparison
 // against the container read at those same offsets, which cannot fail.
 TEST_F(SniiAnnContainerTest, ABlobServesExactlyTheBytesItWasGiven) {
@@ -322,8 +322,7 @@ TEST_F(SniiAnnContainerTest, ABlobServesExactlyTheBytesItWasGiven) {
                                                     InvertedIndexStorageFormatPB::SNII);
     assert_ok(reader->init());
 
-    // Read the non-ANN blob through the same machinery the ANN path uses. The
-    // directory path refuses a non-ANN blob by design, so go through the
+    // The ANN source refuses a non-ANN blob by design, so read it through the
     // container reader directly and check the extents it recorded.
     doris::snii::io::LocalFileReader file;
     assert_ok(file.open(InvertedIndexDescriptor::get_index_file_path_v2(prefix)));
@@ -350,6 +349,11 @@ TEST_F(SniiAnnContainerTest, ABlobServesExactlyTheBytesItWasGiven) {
 // cannot do that from the wrong extents. This is also the feature's actual
 // purpose -- byte identity at self-reported offsets would still leave the index
 // unloadable.
+//
+// The load's reads are charged to its context, the time they took included:
+// init() has already read the container's directory, so every read counted here
+// is an ANN read, and InvertedIndexIOTimer must cover them as it did when they
+// went through FSIndexInput.
 TEST_F(SniiAnnContainerTest, FaissLoadsTheIndexBackOutOfTheContainer) {
     const std::string prefix = write_container();
 
@@ -358,14 +362,19 @@ TEST_F(SniiAnnContainerTest, FaissLoadsTheIndexBackOutOfTheContainer) {
     assert_ok(reader->init());
 
     auto ann_reader = std::make_shared<AnnIndexReader>(&_meta, reader);
+    io::FileCacheStatistics stats;
     io::IOContext io_ctx;
+    io_ctx.file_cache_stats = &stats;
     assert_ok(ann_reader->load_index(&io_ctx));
+    EXPECT_GT(stats.inverted_index_range_read_count, 0);
+    EXPECT_GT(stats.inverted_index_read_bytes, 0);
+    EXPECT_GT(stats.inverted_index_io_timer, 0);
 }
 
 // IVF-on-disk is the only ANN shape that emits two sub-files, and ann.ivfdata --
 // the bulk of the index -- is the one whose bytes reach faiss through
-// StagedBlobFile::read_at and DorisCompoundReader rather than through faiss's own
-// file handling. Nothing else exercises that: the load test above uses _meta (a
+// StagedBlobFile::read_at and SniiAnnInput rather than through faiss's own file
+// handling. Nothing else exercises that: the load test above uses _meta (a
 // single ann.faiss), IvfOnDiskSubFilesAreSealedInAscendingNameOrder checks only
 // the two names and their order, and the standalone IVF save/load test runs on a
 // RAMDirectory. A wrong length or a wrong absolute extent on ann.ivfdata would
@@ -420,10 +429,9 @@ TEST_F(SniiAnnContainerTest, IvfOnDiskAnswersAQueryThroughTheProductionReader) {
     EXPECT_NEAR(param.distance[0], 0.0F, 1e-4F);
 }
 
-// A BKD blob has its own reader and no CLucene representation at all. Serving a
-// directory over it would hand a caller bytes no CLucene code can parse, so the
-// read adapter refuses by KIND. Probing an ABSENT id cannot test this: the
-// lookup fails first and the kind branch is never reached.
+// A BKD blob has its own reader. Serving ANN files over it would hand faiss
+// bytes it cannot parse, so the ANN source refuses by KIND. Probing an ABSENT id
+// cannot test this: the lookup fails first and the kind branch is never reached.
 TEST_F(SniiAnnContainerTest, ANonAnnBlobIsRefusedByTheDirectoryPath) {
     const std::string prefix = write_container();
 
@@ -431,12 +439,34 @@ TEST_F(SniiAnnContainerTest, ANonAnnBlobIsRefusedByTheDirectoryPath) {
                                                     InvertedIndexStorageFormatPB::SNII);
     assert_ok(reader->init());
 
-    auto opened = reader->open(&_fake_bkd_meta, nullptr);
+    auto opened = reader->open_ann_source(&_fake_bkd_meta, nullptr);
     ASSERT_FALSE(opened.has_value());
     EXPECT_TRUE(opened.error().is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>())
             << opened.error().to_string();
     EXPECT_NE(opened.error().to_string().find("is not an ANN blob"), std::string::npos)
             << opened.error().to_string();
+}
+
+// No SNII index is a CLucene directory, an ANN index included: open() refuses
+// the format whatever the index, and the ANN reader goes through
+// open_ann_source().
+TEST_F(SniiAnnContainerTest, OpenRefusesEverySniiIndex) {
+    const std::string prefix = write_container();
+
+    auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix,
+                                                    InvertedIndexStorageFormatPB::SNII);
+    assert_ok(reader->init());
+
+    for (const TabletIndex* meta : {&_meta, &_fake_bkd_meta}) {
+        SCOPED_TRACE(meta->index_name());
+        auto opened = reader->open(meta, nullptr);
+        ASSERT_FALSE(opened.has_value());
+        EXPECT_TRUE(opened.error().is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>())
+                << opened.error().to_string();
+    }
+    auto source = reader->open_ann_source(&_meta, nullptr);
+    ASSERT_TRUE(source.has_value()) << source.error().to_string();
+    EXPECT_NE(dynamic_cast<snii_doris::SniiAnnSource*>(source.value().get()), nullptr);
 }
 
 // The ANN staging area under SNII must not be a filesystem directory.
@@ -475,9 +505,101 @@ TEST_F(SniiAnnContainerTest, AnnStagingUnderSniiCreatesNoFilesystemDirectory) {
     }
     EXPECT_EQ(marker, std::string::npos)
             << "SNII staged the ANN index in a filesystem directory: " << described;
+    // The staging is described from its own map: the CLucene directories of
+    // V1/V2 hold no SNII entry.
+    EXPECT_NE(described.find("index staging is: SniiAnnStaging(files=1"), std::string::npos)
+            << described;
+    EXPECT_TRUE(writer._indices_dirs.empty());
+    EXPECT_EQ(writer._snii_ann_staging.size(), 1U);
 
     assert_ok(writer.begin_close());
     assert_ok(writer.finish_close());
+}
+
+// open_ann_sink() under SNII registers the staging in its own map, keyed like a
+// directory and holding a copy of the index's metadata, and hands the producer
+// that same staging. A second registration of the key is refused as a second
+// directory is: two producers of one index would stage the same files.
+TEST_F(SniiAnnContainerTest, AnnStagingIsKeptApartFromTheCluceneDirectories) {
+    const std::string prefix = std::string(kTestDir) + "/staging_map_seg";
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_ann_staging_map_rowset",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                           /*can_use_ram_dir=*/false,
+                           /*tablet_id=*/9914);
+    AnnIndexColumnWriter ann(&writer, &_meta);
+    assert_ok(ann.init());
+
+    EXPECT_TRUE(writer._indices_dirs.empty());
+    ASSERT_EQ(writer._snii_ann_staging.size(), 1U);
+    const auto& [key, entry] = *writer._snii_ann_staging.begin();
+    EXPECT_EQ(key, std::make_pair(kAnnIndexId, std::string()));
+    ASSERT_NE(entry.meta, nullptr);
+    EXPECT_NE(entry.meta.get(), &_meta) << "the metadata must be a copy";
+    EXPECT_EQ(entry.meta->index_id(), kAnnIndexId);
+    EXPECT_EQ(entry.staging.get(), ann._sink.get());
+
+    auto again = writer.open_ann_sink(&_meta);
+    ASSERT_FALSE(again.has_value());
+    EXPECT_TRUE(again.error().is<ErrorCode::INTERNAL_ERROR>()) << again.error().to_string();
+    EXPECT_NE(again.error().to_string().find("attempted to insert a duplicate dir"),
+              std::string::npos)
+            << again.error().to_string();
+    EXPECT_EQ(writer._snii_ann_staging.size(), 1U);
+    EXPECT_EQ(writer._snii_ann_staging.begin()->second.staging.get(), ann._sink.get())
+            << "a refused registration must leave the first one in place";
+}
+
+// An ANN index with no rows deletes the staging it opened. Left registered, it
+// would reach begin_close() empty, and the container refuses a blob without
+// files, which would fail the whole segment.
+TEST_F(SniiAnnContainerTest, AnAnnIndexWithNoRowsLeavesNoStaging) {
+    const std::string prefix = std::string(kTestDir) + "/no_rows_seg";
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_ann_no_rows_rowset",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                           /*can_use_ram_dir=*/false,
+                           /*tablet_id=*/9915);
+    AnnIndexColumnWriter ann(&writer, &_meta);
+    assert_ok(ann.init());
+    ASSERT_EQ(writer._snii_ann_staging.size(), 1U);
+
+    assert_ok(ann.finish());
+    EXPECT_TRUE(writer._snii_ann_staging.empty());
+    EXPECT_TRUE(writer._indices_dirs.empty());
+
+    assert_ok(writer.begin_close());
+    assert_ok(writer.finish_close());
+    auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix,
+                                                    InvertedIndexStorageFormatPB::SNII);
+    assert_ok(reader->init());
+    bool exists = true;
+    assert_ok(reader->index_file_exist(&_meta, &exists));
+    EXPECT_FALSE(exists) << "the container holds an ANN entry for an index that had no rows";
+}
+
+// Under V1/V2 the ANN files ARE the index output, kept in _indices_dirs until
+// begin_close() writes them: neither the abandon nor the discard of SNII
+// staging may touch them.
+TEST_F(SniiAnnContainerTest, SniiStagingCallsLeaveV2DirectoriesAlone) {
+    const std::string prefix = std::string(kTestDir) + "/v2_seg";
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "v2_ann_rowset",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::V2, /*file_writer=*/nullptr,
+                           /*can_use_ram_dir=*/true,
+                           /*tablet_id=*/9916);
+    auto sink = writer.open_ann_sink(&_meta);
+    ASSERT_TRUE(sink.has_value()) << sink.error().to_string();
+    ASSERT_EQ(writer._indices_dirs.size(), 1U);
+    EXPECT_TRUE(writer._snii_ann_staging.empty());
+
+    writer.discard_ann_staging(&_meta);
+    writer.abandon_snii_staging();
+    EXPECT_EQ(writer._indices_dirs.size(), 1U);
+    EXPECT_EQ(writer._indices_dirs.count(std::make_pair(kAnnIndexId, std::string())), 1U);
 }
 
 // ANN serialization can be much larger than the final rowset writer's other
@@ -494,17 +616,18 @@ TEST_F(SniiAnnContainerTest, LargeAnnOutputUsesBoundedHeapForStaging) {
     // 64 MiB payload and therefore still exceeds this limit by a wide margin.
     constexpr size_t kMaximumHeapGrowth = kStagedBytes / 2;
 
-    snii_doris::SniiBlobStagingDirectory staging;
-    std::unique_ptr<lucene::store::IndexOutput> output(staging.createOutput("ann.faiss"));
+    snii_doris::SniiAnnStaging staging;
+    auto output = staging.create_output("ann.faiss");
+    ASSERT_TRUE(output.has_value()) << output.error().to_string();
     std::array<uint8_t, kChunkBytes> chunk {};
 
     const size_t baseline = __sanitizer_get_current_allocated_bytes();
     size_t peak = baseline;
     for (size_t written = 0; written < kStagedBytes; written += chunk.size()) {
-        output->writeBytes(chunk.data(), static_cast<int32_t>(chunk.size()));
+        assert_ok(output.value()->append(chunk.data(), chunk.size()));
         peak = std::max(peak, __sanitizer_get_current_allocated_bytes());
     }
-    output->close();
+    assert_ok(output.value()->close());
     peak = std::max(peak, __sanitizer_get_current_allocated_bytes());
 
     EXPECT_EQ(staging.staged_bytes(), kStagedBytes);
@@ -614,8 +737,8 @@ TEST_F(SniiAnnContainerTest, IvfDataWriteFailuresAreReturnedFromFinish) {
 
 // A failed faiss serialization must unlink its staging file THERE, not whenever
 // the writers happen to be destroyed. Both owners are still alive at that point
-// -- the ANN writer through _dir, the IndexFileWriter through _indices_dirs --
-// and neither caller unwinds them: VerticalSegmentWriter::finalize_columns()
+// -- the ANN writer through _sink, the IndexFileWriter through _snii_ann_staging
+// -- and neither caller unwinds them: VerticalSegmentWriter::finalize_columns()
 // returns before clear() and close_inverted_index(), and IndexBuilder's SNII ADD
 // INDEX path keeps every producer alive until the whole rowset has been closed.
 // So both writers are held here on purpose; the failure tests above scope their
@@ -750,11 +873,14 @@ TEST_F(SniiAnnContainerTest, AbandoningASegmentDropsEveryStagedAnnFile) {
     // finalize failed before clear().
     EXPECT_EQ(staged_ann_files(), before)
             << "abandoning the segment left its staged ANN files on the temp filesystem";
+    EXPECT_TRUE(writer._snii_ann_staging.empty());
+    EXPECT_EQ(writer.debug_string().find("index id is: "), std::string::npos)
+            << writer.debug_string();
 }
 
-// The same handover inside ONE container: _indices_dirs holds every staging
-// directory for the whole of finish(), so the per-blob release in
-// SniiCompoundWriter::finish() can only free a sub-file that the directory has
+// The same handover inside ONE container: _snii_ann_staging holds every staging
+// for the whole of finish(), so the per-blob release in
+// SniiCompoundWriter::finish() can only free a sub-file that the staging has
 // already given up. Two ANN indexes, three sub-files (hnsw writes ann.faiss,
 // ivf_on_disk writes ann.faiss and ann.ivfdata).
 TEST_F(SniiAnnContainerTest, EveryAnnIndexInOneContainerIsDrainedBySealing) {
@@ -823,7 +949,7 @@ TEST_F(SniiAnnContainerTest, ADirectoryDeleteFailureCannotThrowOutOfBeginClose) 
 // The staged bytes must survive the trip through the container unchanged, and
 // the extents must be the ones the reader is later pointed at.
 //
-// ORACLE. Comparing the directory against the container at the directory's own
+// ORACLE. Comparing the ANN source against the container at the source's own
 // offsets proves nothing (see the header note). Two independent checks instead:
 // the sub-file must start with the fourcc faiss stamps on every serialized
 // index -- four printable ASCII bytes that container padding, a zeroed extent,
@@ -835,13 +961,9 @@ TEST_F(SniiAnnContainerTest, AnnBlobBytesRoundTripThroughTheProductionReader) {
     auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix,
                                                     InvertedIndexStorageFormatPB::SNII);
     assert_ok(reader->init());
-    auto opened = reader->open(&_meta, nullptr);
+    auto opened = reader->open_ann_source(&_meta, nullptr);
     ASSERT_TRUE(opened.has_value()) << opened.error().to_string();
-    auto& dir = opened.value();
-
-    std::vector<std::string> names;
-    ASSERT_TRUE(dir->list(&names));
-    ASSERT_FALSE(names.empty());
+    AnnIndexSource* source = opened.value().get();
 
     doris::snii::io::LocalFileReader file;
     assert_ok(file.open(InvertedIndexDescriptor::get_index_file_path_v2(prefix)));
@@ -850,7 +972,7 @@ TEST_F(SniiAnnContainerTest, AnnBlobBytesRoundTripThroughTheProductionReader) {
     const doris::snii::format::LogicalIndexMetadataRef* entry = nullptr;
     assert_ok(segment.blob_entry(static_cast<uint64_t>(kAnnIndexId), "", &entry));
     ASSERT_NE(entry, nullptr);
-    ASSERT_EQ(entry->files.size(), names.size());
+    ASSERT_FALSE(entry->files.empty());
 
     for (const auto& blob : entry->files) {
         SCOPED_TRACE(blob.name);
@@ -871,13 +993,11 @@ TEST_F(SniiAnnContainerTest, AnnBlobBytesRoundTripThroughTheProductionReader) {
         }
 
         // The production read path must serve exactly those bytes.
-        lucene::store::IndexInput* raw = nullptr;
-        CLuceneError err;
-        ASSERT_TRUE(dir->openInput(blob.name.c_str(), raw, err)) << err.what();
-        std::unique_ptr<lucene::store::IndexInput> input(raw);
-        ASSERT_EQ(static_cast<uint64_t>(input->length()), blob.length);
+        auto input = source->open_input(blob.name);
+        ASSERT_TRUE(input.has_value()) << input.error().to_string();
+        ASSERT_EQ(input.value()->length(), blob.length);
         std::vector<uint8_t> from_reader(blob.length);
-        input->readBytes(from_reader.data(), static_cast<int32_t>(blob.length));
+        assert_ok(input.value()->read_at(0, from_reader.data(), from_reader.size(), nullptr));
         EXPECT_EQ(from_reader, from_container);
     }
 }
@@ -926,12 +1046,12 @@ TEST_F(SniiAnnContainerTest, IvfOnDiskSubFilesAreSealedInAscendingNameOrder) {
     ASSERT_LT(std::string(faiss_index_fila_name), std::string(faiss_ivfdata_file_name));
 }
 
-// The Defer on begin_close()'s SNII path must release the staging directories on
-// the FAILURE path too, not only after a successful finish().
+// The Defer on begin_close()'s SNII path must release the ANN staging on the
+// FAILURE path too, not only after a successful finish().
 //
 // The failure is forced by registering a blob under the ANN index's own key
 // before closing: the compound writer rejects a duplicate key, so the seal fails
-// while the staged buffers are still held.
+// while the staged files are still held.
 TEST_F(SniiAnnContainerTest, AFailedSealStillReleasesTheStagingDirectories) {
     const std::string prefix = std::string(kTestDir) + "/failed_seal_seg";
     io::FileWriterPtr file_writer;
@@ -956,16 +1076,18 @@ TEST_F(SniiAnnContainerTest, AFailedSealStillReleasesTheStagingDirectories) {
     assert_ok(writer.add_snii_blob_index(&_meta, doris::snii::format::LogicalIndexKind::kBkd,
                                          std::move(collide), {}));
 
-    // Sanity: the staging directory is registered right now, so its absence
-    // afterwards means the release ran and not that it was never there.
+    // Sanity: the staging is registered right now, so its absence afterwards
+    // means the release ran and not that it was never there.
     ASSERT_NE(writer.debug_string().find("index id is: "), std::string::npos);
+    ASSERT_EQ(writer._snii_ann_staging.size(), 1U);
 
     Status begin_status = Status::OK();
     ASSERT_NO_THROW({ begin_status = writer.begin_close(); });
     ASSERT_FALSE(begin_status.ok()) << "the duplicate blob key should have failed the seal";
 
     EXPECT_EQ(writer.debug_string().find("index id is: "), std::string::npos)
-            << "a failed seal left the staging directories registered: " << writer.debug_string();
+            << "a failed seal left the staging registered: " << writer.debug_string();
+    EXPECT_TRUE(writer._snii_ann_staging.empty());
 }
 
 // Determinism: two builds of the same input in the same process must produce the
@@ -1022,8 +1144,10 @@ TEST_F(SniiAnnContainerTest, AnAbsentIndexIdIsRefused) {
     TabletIndex absent;
     absent.init_from_pb(pb);
 
-    auto opened = reader->open(&absent, nullptr);
-    EXPECT_FALSE(opened.has_value());
+    auto opened = reader->open_ann_source(&absent, nullptr);
+    ASSERT_FALSE(opened.has_value());
+    EXPECT_TRUE(opened.error().is<ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND>())
+            << opened.error().to_string();
 }
 
 } // namespace

@@ -22,19 +22,26 @@ import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -63,7 +70,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 select t1.k1 from bigtable t1 where t1.k1 in (select bitmap_union(k2) from bitmap_table t2);
                 =>
                 select t1.k1 from bigtable t1 left semi join (select bitmap_union(k2) x from bitmap_table ) t2
-                on bitmap_contains(x, t1.k1);
+                on t1.k1 >= 0 and bitmap_contains(x, if(t1.k1 < 0, 0, t1.k1));
 
                 case 2: not in
                 select t1.k1 from bigtable t1 where t1.k1 not in (select t2.k2 from bitmap_table t2);
@@ -71,7 +78,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 select t1.k1 from bigtable t1 where t1.k1 not in (select bitmap_union(k2) from bitmap_table t2);
                 =>
                 select t1.k1 from bigtable t1 left semi join (select bitmap_union(k2) x from bitmap_table ) t2
-                on not bitmap_contains(x, t1.k1);
+                on not (t1.k1 >= 0 and bitmap_contains(x, if(t1.k1 < 0, 0, t1.k1)));
                  */
                 List<Expression> groupExpressions = ImmutableList.of();
                 Expression bitmapCol = apply.right().getOutput().get(0);
@@ -81,15 +88,32 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
 
                 LogicalAggregate agg = new LogicalAggregate(groupExpressions, outputExpressions, apply.right());
                 Expression compareExpr = apply.getCompareExpr().get();
-                Expression expr = new BitmapContains(agg.getOutput().get(0), compareExpr);
+                Plan left = apply.left();
+                // The guard and the lookup share one probe value. Materialize expressions such as
+                // cast(rand() * 2 as bigint) - 1 once, so the two checks cannot see different values.
+                if (!(compareExpr instanceof Slot)) {
+                    Alias probe = new Alias(compareExpr);
+                    left = new LogicalProject<>(ImmutableList.<NamedExpression>builder()
+                            .addAll(left.getOutput()).add(probe).build(), left);
+                    compareExpr = probe.toSlot();
+                }
+                BigIntLiteral zero = new BigIntLiteral(0);
+                // IN accepts signed probes, but direct bitmap_contains rejects negative elements.
+                // Clamp before the call: AND does not guarantee short-circuit evaluation. The guard
+                // prevents -1 from matching bitmap element 0. Keep NULL in the IF's else branch.
+                Expression safeProbe = new If(new LessThan(compareExpr, zero), zero, compareExpr);
+                Expression expr = new And(new GreaterThanEqual(compareExpr, zero),
+                        new BitmapContains(agg.getOutput().get(0), safeProbe));
                 if (apply.isNot()) {
                     expr = new Not(expr);
                 }
-                return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
+                LogicalJoin<Plan, Plan> join = new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         Lists.newArrayList(expr),
                         new DistributeHint(DistributeType.NONE),
                         apply.getMarkJoinSlotReference(),
-                        apply.left(), agg, null);
+                        left, agg, null);
+                // Remove the temporary probe slot while preserving the mark slot, when present.
+                return new LogicalProject<>(ImmutableList.copyOf(apply.getOutput()), join);
             }
 
             //in-predicate to equal

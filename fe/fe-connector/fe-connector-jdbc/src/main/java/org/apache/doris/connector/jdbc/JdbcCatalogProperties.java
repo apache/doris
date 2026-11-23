@@ -123,7 +123,8 @@ public final class JdbcCatalogProperties {
     private static final int MAX_POOL_WAIT_TIME = 30000;
     private static final int MIN_POOL_LIFE_TIME = 150000;
 
-    @ConnectorProperty(names = {JDBC_URL}, description = "the JDBC connection URL")
+    // Driver-specific URL syntax can embed credentials even when the separate password is empty.
+    @ConnectorProperty(names = {JDBC_URL}, sensitive = true, description = "the JDBC connection URL")
     private String jdbcUrl;
 
     @ConnectorProperty(names = {USER}, required = false, description = "remote user name")

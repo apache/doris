@@ -154,7 +154,10 @@ final class LanceConnectorMetadata implements ConnectorMetadata {
 
     // ========= ConnectorPushdownOps =========
 
-    /** Nothing is pushed down to Lance yet, so no conjunct is ever translated, with a CAST or without. */
+    /**
+     * A conjunct holding a CAST stays in Doris. The engine would strip the CAST and hand over the bare column
+     * comparison, which Lance would then evaluate in the column's own type, not the one Doris compares in.
+     */
     @Override
     public boolean supportsCastPredicatePushdown(ConnectorSession session) {
         return false;

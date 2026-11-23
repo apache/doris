@@ -281,7 +281,8 @@ public final class LineageUtils {
             if (catalog instanceof ExternalCatalog && ExternalCatalog.HIDDEN_PROPERTIES.contains(key)) {
                 continue;
             }
-            sanitized.put(key, entry.getValue());
+            // Non-secret property names can still carry JDBC strings or URL credentials.
+            sanitized.put(key, DatasourcePrintableMap.redactProperty(key, entry.getValue()));
         }
         return sanitized;
     }

@@ -37,16 +37,20 @@ BrpcClientCache<PBackendService_Stub>::BrpcClientCache(std::string protocol,
           _connection_type(connection_type),
           _connection_group(connection_group) {
     if (connection_group == "streaming") {
-        REGISTER_HOOK_METRIC(brpc_stream_endpoint_stub_count,
-                             [this]() { return _stub_map.size(); });
+        REGISTER_HOOK_METRIC(brpc_stream_endpoint_stub_count, [this]() { return size(); });
     } else {
-        REGISTER_HOOK_METRIC(brpc_endpoint_stub_count, [this]() { return _stub_map.size(); });
+        REGISTER_HOOK_METRIC(brpc_endpoint_stub_count, [this]() { return size(); });
     }
 }
 
 template <>
 BrpcClientCache<PBackendService_Stub>::~BrpcClientCache() {
-    DEREGISTER_HOOK_METRIC(brpc_endpoint_stub_count);
+    // Hooks capture this cache; a streaming hook must not outlive its connection group.
+    if (_connection_group == "streaming") {
+        DEREGISTER_HOOK_METRIC(brpc_stream_endpoint_stub_count);
+    } else {
+        DEREGISTER_HOOK_METRIC(brpc_endpoint_stub_count);
+    }
 }
 
 template <>
@@ -56,7 +60,7 @@ BrpcClientCache<PFunctionService_Stub>::BrpcClientCache(std::string protocol,
         : _protocol(protocol),
           _connection_type(connection_type),
           _connection_group(connection_group) {
-    REGISTER_HOOK_METRIC(brpc_function_endpoint_stub_count, [this]() { return _stub_map.size(); });
+    REGISTER_HOOK_METRIC(brpc_function_endpoint_stub_count, [this]() { return size(); });
 }
 
 template <>
