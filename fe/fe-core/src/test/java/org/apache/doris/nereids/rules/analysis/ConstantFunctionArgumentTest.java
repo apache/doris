@@ -90,7 +90,7 @@ public class ConstantFunctionArgumentTest {
         }
         // A false event does not make a negative window valid. No input table is needed.
         assertAnalysisError("select window_funnel_v2(-1, 'default',"
-                + " cast('2024-01-01' as datetime), false)", "window must be a nonnegative BIGINT");
+                + " cast('2024-01-01' as datetime), false)", "window must be a positive integer");
         // WINDOW_FUNNEL_V2 rejects LARGEINT at its type check, before the value check.
         assertAnalysisError("select window_funnel_v2(9223372036854775808, 'default',"
                 + " cast('2024-01-01' as datetime), false)", "must be integer");
