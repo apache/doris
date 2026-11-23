@@ -35,6 +35,8 @@ TEST(MockLiteralTest, test) {
             EXPECT_TRUE(ctx->execute(&block, &result_column_id));
         }
 
+        materialize_block_inplace(block);
+
         std::cout << block.dump_data() << std::endl;
 
         EXPECT_TRUE(ColumnHelper::block_equal(
