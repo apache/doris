@@ -78,7 +78,7 @@ void NormsPodWriter::finish(std::span<const uint8_t> norms, ByteSink* sink) {
     payload.put_varint64(norms.size());
     payload.put_bytes(Slice(norms.data(), norms.size()));
     // Delegate outer framing to SectionFramer to append type+len+crc32c, avoiding manual checksum assembly.
-    sink->reserve(1 + varint_len(payload_size) + payload_size + sizeof(uint32_t));
+    sink->reserve(dense_section_size(norms.size()));
     SectionFramer::write(*sink, static_cast<uint8_t>(SectionType::kNormsPod), payload.view());
 }
 
@@ -119,6 +119,11 @@ Status NormsPodReader::open(Slice framed, NormsPodReader* out) {
     out->doc_count_ = static_cast<uint32_t>(doc_count);
     out->norms_ = bytes.data();
     return Status::OK();
+}
+
+size_t NormsPodWriter::dense_section_size(uint64_t doc_count) {
+    const size_t payload_size = varint_len(doc_count) + static_cast<size_t>(doc_count);
+    return 1 + varint_len(payload_size) + payload_size + sizeof(uint32_t);
 }
 
 bool NormsPodWriter::sparse_values_constant(std::span<const uint8_t> norms,

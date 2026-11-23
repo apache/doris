@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
 #include <numeric>
 #include <span>
@@ -411,8 +412,8 @@ TEST_F(SniiScoredSourceTest, EncodedNormsAreReadOnceAndOnlyWhenAsked) {
     EXPECT_EQ(rounds(), read);
 }
 
-// The same corpus written with dense norms and with sparse norms. Rows 3 to 5 and every row from
-// 20 on are NULL; every other row holds "alpha" twice and, when even, "beta" once.
+// The same corpus written with dense norms and through the writer path that may choose sparse
+// norms. Every non-NULL row holds "alpha" twice and, when even, "beta" once.
 class SniiSparseNormsTest : public ::testing::Test {
 protected:
     static constexpr uint32_t kDocCount = 40;
@@ -426,9 +427,23 @@ protected:
         std::unique_ptr<SniiIndexSource> source;
     };
 
+    // Rows 3 to 5 and every row from 20 on: enough NULL rows for the sparse form to win.
     static bool is_null(uint32_t doc) { return (doc >= 3 && doc <= 5) || doc >= 20; }
 
-    static writer::SniiIndexInput corpus(bool with_nulls) {
+    static std::vector<uint32_t> mostly_null_rows() {
+        std::vector<uint32_t> nulls;
+        for (uint32_t doc = 0; doc < kDocCount; ++doc) {
+            if (is_null(doc)) {
+                nulls.push_back(doc);
+            }
+        }
+        return nulls;
+    }
+
+    // `nulls` are the NULL rows, ascending. The norms of the other rows differ unless
+    // `shared_norm`, which gives them all the norm 2.
+    static writer::SniiIndexInput corpus(const std::vector<uint32_t>& nulls,
+                                         bool shared_norm = false) {
         std::vector<snii_test::PostingDoc> alpha;
         std::vector<snii_test::PostingDoc> beta;
         writer::SniiIndexInput input;
@@ -438,7 +453,7 @@ protected:
         input.doc_count = kDocCount;
         input.encoded_norms.resize(kDocCount);
         for (uint32_t doc = 0; doc < kDocCount; ++doc) {
-            if (with_nulls && is_null(doc)) {
+            if (std::ranges::binary_search(nulls, doc)) {
                 input.null_docids.push_back(doc);
                 input.encoded_norms[doc] = format::kNullRowNorm;
                 continue;
@@ -447,13 +462,14 @@ protected:
             if (doc % 2 == 0) {
                 beta.push_back({.docid = doc, .positions = {1}});
             }
-            input.encoded_norms[doc] = static_cast<uint8_t>(doc % 7 + 2);
+            input.encoded_norms[doc] = shared_norm ? 2 : static_cast<uint8_t>(doc % 7 + 2);
         }
         input.terms = {make_term("alpha", std::move(alpha)), make_term("beta", std::move(beta))};
         return input;
     }
 
-    // Writes `input`, through the sparse writer path when `sparse`, and opens it for reading.
+    // Writes `input`, through the writer path that may choose sparse norms when `sparse`, and
+    // opens it for reading.
     static std::unique_ptr<Written> write(const writer::SniiIndexInput& input, bool sparse) {
         auto written = std::make_unique<Written>();
         const bool debug_points_were_enabled = config::enable_debug_points;
@@ -504,7 +520,7 @@ protected:
 
 // Sparse norms drop the bytes of the NULL rows into a smaller section of their own.
 TEST_F(SniiSparseNormsTest, SparseNormsLiveInTheirOwnSmallerSection) {
-    const auto input = corpus(/*with_nulls=*/true);
+    const auto input = corpus(mostly_null_rows());
     const auto dense = write(input, /*sparse=*/false);
     const auto sparse = write(input, /*sparse=*/true);
 
@@ -522,7 +538,7 @@ TEST_F(SniiSparseNormsTest, SparseNormsLiveInTheirOwnSmallerSection) {
 // Every reader path sees the bytes a dense section holds: the norms of the scored postings, the
 // norm of every row, and the stats.
 TEST_F(SniiSparseNormsTest, SparseNormsReadLikeDenseNorms) {
-    const auto input = corpus(/*with_nulls=*/true);
+    const auto input = corpus(mostly_null_rows());
     const auto dense = write(input, /*sparse=*/false);
     const auto sparse = write(input, /*sparse=*/true);
     ASSERT_NE(sparse->index.section_refs().sparse_norms.length, 0U);
@@ -553,7 +569,7 @@ TEST_F(SniiSparseNormsTest, SparseNormsReadLikeDenseNorms) {
 // row, not the smaller section on disk. Dense norms stay in memory as the section read, framing
 // included, so the two charges differ by the framing of the dense section.
 TEST_F(SniiSparseNormsTest, CacheChargeCoversTheExpandedNorms) {
-    const auto input = corpus(/*with_nulls=*/true);
+    const auto input = corpus(mostly_null_rows());
     const auto dense = write(input, /*sparse=*/false);
     const auto sparse = write(input, /*sparse=*/true);
     const uint64_t dense_length = dense->index.section_refs().norms.length;
@@ -564,11 +580,38 @@ TEST_F(SniiSparseNormsTest, CacheChargeCoversTheExpandedNorms) {
               dense_length - kDocCount);
 }
 
-// An index without NULL rows has nothing to drop, so it keeps the dense section.
+// Without NULL rows and with norms that differ, the sparse form only adds its header, so the
+// index keeps the dense section.
 TEST_F(SniiSparseNormsTest, IndexWithoutNullRowsStaysDense) {
-    const auto written = write(corpus(/*with_nulls=*/false), /*sparse=*/true);
+    const auto written = write(corpus({}), /*sparse=*/true);
     EXPECT_NE(written->index.section_refs().norms.length, 0U);
     EXPECT_EQ(written->index.section_refs().sparse_norms.length, 0U);
+}
+
+// The writer keeps the smaller form, and a tie keeps the dense one, which every reader of norms
+// knows. Both forms frame their payload alike, so the payloads decide: for 40 rows whose norms
+// differ, dense is 1 + 40 bytes and sparse is 3 + (40 - NULL rows) bytes. Two NULL rows tie,
+// three make the sparse form smaller.
+TEST_F(SniiSparseNormsTest, WriterKeepsTheSmallerForm) {
+    const auto tie = write(corpus({0, 1}), /*sparse=*/true);
+    EXPECT_NE(tie->index.section_refs().norms.length, 0U);
+    EXPECT_EQ(tie->index.section_refs().sparse_norms.length, 0U);
+
+    const auto smaller = write(corpus({0, 1, 2}), /*sparse=*/true);
+    EXPECT_EQ(smaller->index.section_refs().norms.length, 0U);
+    EXPECT_NE(smaller->index.section_refs().sparse_norms.length, 0U);
+}
+
+// Rows that all share one norm store it once, with or without NULL rows: 40 rows of one-token
+// values keep a sparse section of a few bytes instead of one byte per row.
+TEST_F(SniiSparseNormsTest, SharedNormIsStoredOnceWithoutNullRows) {
+    const auto input = corpus({}, /*shared_norm=*/true);
+    const auto dense = write(input, /*sparse=*/false);
+    const auto sparse = write(input, /*sparse=*/true);
+    EXPECT_EQ(sparse->index.section_refs().norms.length, 0U);
+    EXPECT_EQ(sparse->index.section_refs().sparse_norms.length,
+              format::NormsPodWriter::sparse_section_size(kDocCount, kDocCount, true));
+    EXPECT_EQ(all_norms(*sparse->source), all_norms(*dense->source));
 }
 
 // The corpus read through a metered reader, so the rounds of every open count.

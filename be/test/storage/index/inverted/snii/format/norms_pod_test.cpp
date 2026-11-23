@@ -278,6 +278,15 @@ std::vector<uint8_t> FrameSparse(uint8_t mode, uint64_t doc_count, uint64_t valu
 
 } // namespace
 
+// The writer compares this size with the sparse one, so it must be the size finish() writes.
+TEST(SniiNormsPod, DenseSectionSizeIsTheWrittenSize) {
+    for (const size_t doc_count : {0, 7, 127, 128, 5000}) {
+        EXPECT_EQ(NormsPodWriter::dense_section_size(doc_count),
+                  BuildPod(std::vector<uint8_t>(doc_count, 3)).size())
+                << "doc_count=" << doc_count;
+    }
+}
+
 // The writer and the reader must agree on the norm of a NULL row, which the reader restores
 // without storing it: the writer encodes a NULL row as a document of zero tokens.
 TEST(SniiNormsPod, NullRowNormIsTheNormOfAnEmptyDocument) {

@@ -150,10 +150,7 @@ Status validate_norms_region(io::FileReader* reader, const RegionRef& norms, uin
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "logical_index: norms doc count exceeds uint32");
     }
-    const uint64_t payload_length = varint_len(doc_count) + doc_count;
-    const uint64_t expected_length =
-            1 + varint_len(payload_length) + payload_length + sizeof(uint32_t);
-    if (norms.length != expected_length) {
+    if (norms.length != format::NormsPodWriter::dense_section_size(doc_count)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "logical_index: norms region length mismatch");
     }

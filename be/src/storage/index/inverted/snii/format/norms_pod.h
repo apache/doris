@@ -55,6 +55,8 @@ public:
     void finish(ByteSink* sink) const;
     // Zero-copy source overload used by streamed compaction.
     static void finish(std::span<const uint8_t> norms, ByteSink* sink);
+    // The framed size finish() writes for `doc_count` rows.
+    static size_t dense_section_size(uint64_t doc_count);
 
     // Sparse norms keep only the rows a query can score. A NULL row has no tokens, so no posting
     // reaches it; the null bitmap of the same index tells the reader which rows those are.

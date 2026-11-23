@@ -935,27 +935,33 @@ Status LogicalIndexWriter::prepare_build(io::FileWriter* posting_out) {
 }
 
 Status LogicalIndexWriter::build_norms_section() {
-    // Sparse norms drop the bytes of the NULL rows. Writers keep dense norms; this debug point
-    // lets tests write sparse ones.
-    DBUG_EXECUTE_IF("LogicalIndexWriter::finalize_build.sparse_norms",
-                    { sparse_norms_ = !null_docids_.empty(); });
+    // Sparse norms drop the bytes of the NULL rows, and store a norm that every row shares once.
+    // Writers keep dense norms; this debug point lets tests choose between the two forms.
+    bool consider_sparse = false;
+    DBUG_EXECUTE_IF("LogicalIndexWriter::finalize_build.sparse_norms", { consider_sparse = true; });
     const std::span<const uint32_t> null_docids(null_docids_.data(), null_docids_.size());
+    size_t section_size = format::NormsPodWriter::dense_section_size(doc_count_);
+    bool constant = false;
+    if (consider_sparse) {
+        constant = format::NormsPodWriter::sparse_values_constant(encoded_norms_, null_docids);
+        const size_t sparse_size = format::NormsPodWriter::sparse_section_size(
+                doc_count_, doc_count_ - null_docids.size(), constant);
+        // The smaller form wins; a tie keeps the dense form, which every reader of norms knows.
+        if (sparse_size < section_size) {
+            sparse_norms_ = true;
+            section_size = sparse_size;
+        }
+    }
     if (sparse_norms_) {
         // The reader restores a NULL row as an empty document, so only that norm is dropped.
         for (const uint32_t null_docid : null_docids) {
             DCHECK_EQ(encoded_norms_[null_docid], format::kNullRowNorm);
         }
     }
-    const bool constant = sparse_norms_ && format::NormsPodWriter::sparse_values_constant(
-                                                   encoded_norms_, null_docids);
-    const size_t dense_payload_size = varint_len(encoded_norms_.size()) + encoded_norms_.size();
-    const size_t section_size =
-            sparse_norms_
-                    ? format::NormsPodWriter::sparse_section_size(
-                              doc_count_, doc_count_ - null_docids.size(), constant)
-                    : 1 + varint_len(dense_payload_size) + dense_payload_size + sizeof(uint32_t);
     // The sparse payload buffer is reserved at the section size, which bounds it.
-    const size_t payload_size = sparse_norms_ ? section_size : dense_payload_size;
+    const size_t payload_size = sparse_norms_
+                                        ? section_size
+                                        : varint_len(encoded_norms_.size()) + encoded_norms_.size();
     MemoryReporter::Reservation build_reservation = memory_reporter_ == nullptr
                                                             ? MemoryReporter::Reservation()
                                                             : memory_reporter_->make_reservation();
