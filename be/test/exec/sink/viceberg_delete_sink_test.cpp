@@ -41,6 +41,7 @@
 #include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/defer_op.h"
 #include "util/uid_util.h"
 
@@ -577,8 +578,9 @@ TEST_F(VIcebergDeleteSinkTest, TestWritePositionDeletesCommitsTableLocation) {
     env->_arrow_memory_pool = arrow::default_memory_pool();
     Defer restore_pool([&] { env->_arrow_memory_pool = previous_pool; });
 
-    std::filesystem::path temp_dir = std::filesystem::temp_directory_path() /
-                                     ("iceberg_delete_sink_test_" + generate_uuid_string());
+    const doris::test::ScopedTempDirectory scoped_temp_dir("viceberg_delete_sink_test");
+    std::filesystem::path temp_dir =
+            scoped_temp_dir.path() / ("iceberg_delete_sink_test_" + generate_uuid_string());
     ASSERT_TRUE(std::filesystem::create_directories(temp_dir));
 
     // Write locally, but record the table's original URI in the commit metadata.
@@ -641,8 +643,9 @@ TEST_F(VIcebergDeleteSinkTest, TestWritePositionDeletesCommitsTableLocation) {
 }
 
 TEST_F(VIcebergDeleteSinkTest, TestWriteDeletionVectorsToSingleSharedPuffin) {
-    std::filesystem::path temp_dir = std::filesystem::temp_directory_path() /
-                                     ("iceberg_delete_sink_test_" + generate_uuid_string());
+    const doris::test::ScopedTempDirectory scoped_temp_dir("viceberg_delete_sink_test");
+    std::filesystem::path temp_dir =
+            scoped_temp_dir.path() / ("iceberg_delete_sink_test_" + generate_uuid_string());
     ASSERT_TRUE(std::filesystem::create_directories(temp_dir));
 
     const std::string table_location =

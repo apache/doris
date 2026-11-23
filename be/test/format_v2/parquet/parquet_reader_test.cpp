@@ -89,6 +89,7 @@
 #include "storage/index/zone_map/zonemap_filter_result.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/coding.h"
 #include "util/defer_op.h"
 #include "util/thrift_util.h"
@@ -1977,8 +1978,10 @@ TEST(FileReaderTest, CloseReleasesSharedIOContext) {
 
 class NewParquetReaderTest : public testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"parquet_reader_test"};
+
     void SetUp() override {
-        _test_dir = std::filesystem::temp_directory_path() / "doris_format_v2_parquet_reader_test";
+        _test_dir = scoped_temp_dir_.path() / "doris_format_v2_parquet_reader_test";
         std::filesystem::remove_all(_test_dir);
         std::filesystem::create_directories(_test_dir);
         _file_path = (_test_dir / "reader.parquet").string();

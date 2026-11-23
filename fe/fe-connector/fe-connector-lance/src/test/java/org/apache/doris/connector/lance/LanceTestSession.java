@@ -25,19 +25,29 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Supplier;
 
-/** A statement's session: a fixed time zone and a real statement scope that records its loads. */
+/**
+ * A statement's session: a fixed time zone and a real statement scope that records its loads, or, made by
+ * {@link #withoutStatement()}, a session with no live statement, whose scope memoizes nothing.
+ */
 final class LanceTestSession implements ConnectorSession {
     private final String timeZone;
+    private final boolean liveStatement;
     private final Map<String, Object> memo = new HashMap<>();
     private final Map<String, String> sessionProperties = new HashMap<>();
     private int loads;
+    private boolean loading;
 
     LanceTestSession() {
         this("UTC");
     }
 
     LanceTestSession(String timeZone) {
+        this(timeZone, true);
+    }
+
+    private LanceTestSession(String timeZone, boolean liveStatement) {
         this.timeZone = timeZone;
+        this.liveStatement = liveStatement;
     }
 
     /** How many times the statement scope ran a loader, which is how many metadata reads were made. */
@@ -55,16 +65,38 @@ final class LanceTestSession implements ConnectorSession {
         memo.put(key, value);
     }
 
+    /** A session outside any statement, as the engine's offline and background calls run. */
+    static LanceTestSession withoutStatement() {
+        return new LanceTestSession("UTC", false);
+    }
+
     @Override
     public ConnectorStatementScope getStatementScope() {
+        if (!liveStatement) {
+            return ConnectorStatementScope.NONE;
+        }
         return new ConnectorStatementScope() {
+            /**
+             * As the engine's scope requires, a loader may not use the scope: its ConcurrentHashMap throws
+             * "Recursive update" when the inner key falls in the outer key's bin, so a re-entry fails here every
+             * time rather than now and then.
+             */
             @Override
             @SuppressWarnings("unchecked")
             public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+                if (loading) {
+                    throw new IllegalStateException("Recursive update: a statement-scope loader used the scope for "
+                            + key);
+                }
                 Object value = memo.get(key);
                 if (value == null) {
                     loads++;
-                    value = loader.get();
+                    loading = true;
+                    try {
+                        value = loader.get();
+                    } finally {
+                        loading = false;
+                    }
                     memo.put(key, value);
                 }
                 return (T) value;

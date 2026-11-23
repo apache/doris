@@ -35,6 +35,7 @@
 #include "storage/index/inverted/snii/format/format_constants.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
 #include "storage/index/inverted/snii/writer/term_posting_test_utils.h"
+#include "testutil/scoped_temp_dir.h"
 
 // doris::snii::Status was deleted in the Doris integration (R01); the codec now returns
 // doris::Status. Corruption is surfaced via the INVERTED_INDEX_FILE_CORRUPTED
@@ -51,9 +52,10 @@ using doris::snii::writer::TermPostings;
 namespace {
 
 std::string RunPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("spill_run_codec_test");
     static int counter = 0;
-    return "/tmp/snii_runcodec_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
-           ".run";
+    return (temp_dir.path() / "snii_runcodec_").string() + std::to_string(getpid()) + "_" +
+           std::to_string(counter++) + ".run";
 }
 
 // RAII temp file: removed on scope exit so the suite leaves no debris.

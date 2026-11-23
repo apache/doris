@@ -251,6 +251,8 @@ public class IcebergConnector implements Connector {
     private volatile boolean pluginAuthComputed;
 
     public IcebergConnector(Map<String, String> properties, ConnectorContext context) {
+        // Configure the SDK before any catalog/scan/commit can initialize its static worker pool.
+        IcebergWorkerPool.initialize(context);
         this.properties = Collections.unmodifiableMap(properties);
         // Both before isUserSessionEnabled(), which the cache fields below gate on.
         this.catalogProps = IcebergCatalogProperties.of(this.properties);

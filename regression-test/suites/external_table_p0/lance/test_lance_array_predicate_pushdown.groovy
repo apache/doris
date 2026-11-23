@@ -106,6 +106,15 @@ suite("test_lance_array_predicate_pushdown", "p0,external") {
                         assertEquals(expectedCandidates, counter("LanceScalarIndexCandidateRows"))
                     }
                     assertEquals(0L, counter("LanceScalarIndexSegmentFallbacks"))
+                    if (caseId == 0) {
+                        // The FE side of the same scan: the statement's metadata reads of the table,
+                        // the index metadata an indexed predicate needs included, and the split planning.
+                        for (String line : ["Lance Metadata Metrics", "Table Scan (default.${table})",
+                                "MetadataReadFailures: 0", "IndexMetadataReadCalls: 1",
+                                "SplitPlanningCalls: 1", "SplitPlanningFailures: 0"]) {
+                            assertTrue(profile.contains(line), "Missing '${line}': ${profile}")
+                        }
+                    }
                 }
             }
             // NULL needle matching and ordered subsequence matching have Doris-specific semantics.
