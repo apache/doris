@@ -727,6 +727,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
+    public static final String STATISTICS_MINMAX_BATCH_COLUMNS = "statistics_minmax_batch_columns";
+
     public static final String STATS_INSERT_MERGE_ITEM_COUNT = "stats_insert_merge_item_count";
 
     public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
@@ -2993,6 +2995,11 @@ public class SessionVariable implements Serializable, Writable {
             description = "the runtime filter id in IGNORE_RUNTIME_FILTER_IDS list will not be generated")
 
     public String ignoreRuntimeFilterIds = "";
+
+    @VarAttrDef.VarAttr(name = STATISTICS_MINMAX_BATCH_COLUMNS, flag = VarAttrDef.GLOBAL,
+            description = "Maximum columns per min/max query for sampled OLAP statistics. "
+                    + "Values at or below one use individual column queries.")
+    public volatile int statisticsMinMaxBatchColumns = 64;
 
     @VarAttrDef.VarAttr(name = STATS_INSERT_MERGE_ITEM_COUNT, flag = VarAttrDef.GLOBAL, description = "Controls the "
             + "batch size for stats INSERT merging."

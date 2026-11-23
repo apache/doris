@@ -32,6 +32,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
@@ -60,6 +61,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.stream.Collectors;
 
 /**
@@ -67,10 +69,8 @@ import java.util.stream.Collectors;
  */
 public class OlapAnalysisTask extends BaseAnalysisTask {
 
-    private static final String BASIC_STATS_TEMPLATE = "SELECT "
-            + "SUBSTRING(CAST(MIN(${colName}) AS STRING), 1, 1024) as min, "
-            + "SUBSTRING(CAST(MAX(${colName}) AS STRING), 1, 1024) as max "
-            + "FROM ${dbName}.${tblName} ${index}";
+    // Assigned only to table-sample tasks when the job is constructed.
+    ColumnMinMaxBatchCollector.Batch minMaxBatch;
 
     private boolean keyColumnSampleTooManyRows = false;
     private boolean partitionColumnSampleTooManyRows = false;
@@ -115,7 +115,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             LOG.debug("Will do sample collection for column {}", col.getName());
         }
         // Get basic stats, including min and max.
-        ResultRow minMax = collectMinMax();
+        ResultRow minMax = getSampleMinMax();
         String min = StatisticsUtil.escapeSQL(minMax != null && minMax.getValues().size() > 0
                 ? minMax.get(0) : null);
         String max = StatisticsUtil.escapeSQL(minMax != null && minMax.getValues().size() > 1
@@ -144,26 +144,92 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         runQuery(sql);
     }
 
+    ResultRow getSampleMinMax() {
+        checkMinMaxCancelled();
+        if (minMaxBatch != null) {
+            try {
+                ResultRow bounds = minMaxBatch.get(this);
+                if (bounds != null) {
+                    return bounds;
+                }
+            } catch (InterruptedException e) {
+                // Mark just this task cancelled before the async wrapper observes the interruption.
+                // Restore the interrupt after updating task metadata.
+                Thread.interrupted();
+                try {
+                    checkMinMaxCancelled();
+                    cancel();
+                } finally {
+                    Thread.currentThread().interrupt();
+                }
+                throw new CancellationException("Interrupted collecting analysis bounds");
+            }
+        }
+        return collectMinMax();
+    }
+
+    void checkMinMaxCancelled() {
+        if (killed || (job != null && job.isKilled())) {
+            throw new CancellationException("Analysis task cancelled");
+        }
+    }
+
+    String qualifiedTableName() {
+        return SqlUtils.getIdentSql(catalog.getName()) + "." + SqlUtils.getIdentSql(db.getFullName())
+                + "." + SqlUtils.getIdentSql(tbl.getName());
+    }
+
+    static String buildMinMaxSql(String qualifiedTable, String indexSql, List<String> columns) {
+        String projection = columns.stream().map(SqlUtils::getIdentSql).map(name ->
+                "SUBSTRING(CAST(MIN(" + name + ") AS STRING), 1, 1024), "
+                        + "SUBSTRING(CAST(MAX(" + name + ") AS STRING), 1, 1024)").collect(Collectors.joining(", "));
+        return "SELECT " + projection + " FROM " + qualifiedTable + " " + indexSql;
+    }
+
+    static ResultRow boundsRow(List<ResultRow> rows, int columns) {
+        Preconditions.checkState(rows.size() == 1 && rows.get(0).getValues().size() == 2 * columns,
+                "Expected one bounds row with %s values", 2 * columns);
+        return rows.get(0);
+    }
+
+    @Override
+    protected void cancelQueries() {
+        if (minMaxBatch != null) {
+            minMaxBatch.onTaskCancelled();
+        }
+        super.cancelQueries();
+    }
+
     protected ResultRow collectMinMax() {
+        checkMinMaxCancelled();
         long startTime = System.currentTimeMillis();
-        Map<String, String> params = buildSqlParams();
-        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        String sql = stringSubstitutor.replace(BASIC_STATS_TEMPLATE);
-        ResultRow resultRow;
+        String sql = buildMinMaxSql(qualifiedTableName(), getIndex(), Collections.singletonList(info.colName));
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            resultRow = stmtExecutor.executeInternalQuery().get(0);
+            checkMinMaxCancelled();
+            List<ResultRow> rows = stmtExecutor.executeInternalQuery();
+            checkIndividualQueryCancelled();
+            ResultRow row = boundsRow(rows, 1);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Cost time in millisec: " + (System.currentTimeMillis() - startTime) + " Min max SQL: "
                         + sql + " QueryId: " + DebugUtil.printId(stmtExecutor.getContext().queryId()));
             }
-            // Release the reference to stmtExecutor, reduce memory usage.
-            stmtExecutor = null;
-        } catch (Exception e) {
+            return row;
+        } catch (RuntimeException e) {
+            checkIndividualQueryCancelled();
             LOG.info("Failed to collect basic stat {}. Reason {}", sql, e.getMessage());
             throw e;
+        } finally {
+            stmtExecutor = null;
         }
-        return resultRow;
+    }
+
+    private void checkIndividualQueryCancelled() {
+        Status reason = stmtExecutor == null ? null : stmtExecutor.getPendingCancelReason();
+        if (reason != null) {
+            throw new CancellationException(reason.getErrorMsg());
+        }
+        checkMinMaxCancelled();
     }
 
     /**

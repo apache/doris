@@ -39,10 +39,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AnalysisJob {
 
     public static final Logger LOG = LogManager.getLogger(AnalysisJob.class);
+
+    private final ColumnMinMaxBatchCollector minMaxCollector;
 
     protected Set<BaseAnalysisTask> queryingTask;
 
@@ -52,7 +55,7 @@ public class AnalysisJob {
 
     protected StmtExecutor stmtExecutor;
 
-    protected boolean killed;
+    private final AtomicBoolean killed = new AtomicBoolean();
 
     protected long start;
 
@@ -61,6 +64,7 @@ public class AnalysisJob {
     protected AnalysisManager analysisManager;
 
     public AnalysisJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> queryingTask) {
+        minMaxCollector = new ColumnMinMaxBatchCollector(queryingTask, StatisticsUtil.getMinMaxBatchColumns());
         for (BaseAnalysisTask task : queryingTask) {
             task.job = this;
         }
@@ -103,13 +107,13 @@ public class AnalysisJob {
         long time = System.currentTimeMillis();
         switch (state) {
             case FAILED:
-                for (BaseAnalysisTask task : queryingTask) {
+                markKilled();
+                for (BaseAnalysisTask task : new ArrayList<>(queryingTask)) {
                     analysisManager.updateTaskStatus(task.info, state, msg, time);
                     task.cancel();
                 }
-                killed = true;
             case FINISHED:
-                for (BaseAnalysisTask task : queryFinished) {
+                for (BaseAnalysisTask task : new ArrayList<>(queryFinished)) {
                     // When flushBuffer passes an empty msg, fall back to the
                     // task's own info.message. This propagates a skip reason
                     // previously stashed by BaseAnalysisTask.handleSkip into
@@ -131,7 +135,7 @@ public class AnalysisJob {
     }
 
     protected void flushBuffer() {
-        if (killed) {
+        if (isKilled()) {
             return;
         }
         // buf could be empty when nothing need to do,r for example user submit an analysis task for table with no data
@@ -158,7 +162,7 @@ public class AnalysisJob {
     }
 
     protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
-        if (killed) {
+        if (isKilled()) {
             return;
         }
         if (LOG.isDebugEnabled()) {
@@ -180,6 +184,10 @@ public class AnalysisJob {
     }
 
     public void taskFailed(BaseAnalysisTask task, String reason) {
+        // A cancelled shared query can fail several wrappers at once. Only one reports the job failure.
+        if (!killed.compareAndSet(false, true)) {
+            return;
+        }
         try {
             updateTaskState(AnalysisState.FAILED, reason);
             cancel();
@@ -196,21 +204,31 @@ public class AnalysisJob {
         }
     }
 
+    void markKilled() {
+        killed.set(true);
+        minMaxCollector.cancelAll();
+    }
+
+    public boolean isKilled() {
+        return killed.get();
+    }
+
     public void cancel() {
-        for (BaseAnalysisTask task : queryingTask) {
+        markKilled();
+        for (BaseAnalysisTask task : new ArrayList<>(queryingTask)) {
             task.cancel();
         }
     }
 
     public void deregisterJob() {
         analysisManager.removeJob(jobInfo.jobId);
-        for (BaseAnalysisTask task : queryingTask) {
+        for (BaseAnalysisTask task : new ArrayList<>(queryingTask)) {
             task.info.jobColumns.clear();
             if (task.info.partitionNames != null) {
                 task.info.partitionNames.clear();
             }
         }
-        for (BaseAnalysisTask task : queryFinished) {
+        for (BaseAnalysisTask task : new ArrayList<>(queryFinished)) {
             task.info.jobColumns.clear();
             if (task.info.partitionNames != null) {
                 task.info.partitionNames.clear();

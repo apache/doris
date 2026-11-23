@@ -282,7 +282,7 @@ public abstract class BaseAnalysisTask {
 
     protected Column col;
 
-    protected StmtExecutor stmtExecutor;
+    protected volatile StmtExecutor stmtExecutor;
 
     protected volatile boolean killed;
 
@@ -397,12 +397,17 @@ public abstract class BaseAnalysisTask {
 
     public void cancel() {
         killed = true;
-        if (stmtExecutor != null) {
-            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "analysis task cancelled"));
-        }
+        cancelQueries();
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTaskStatus(info, AnalysisState.FAILED,
                         String.format("Job has been cancelled: %s", info.message), System.currentTimeMillis());
+    }
+
+    protected void cancelQueries() {
+        StmtExecutor executor = stmtExecutor;
+        if (executor != null) {
+            executor.cancel(new Status(TStatusCode.CANCELLED, "analysis task cancelled"));
+        }
     }
 
     public long getJobId() {

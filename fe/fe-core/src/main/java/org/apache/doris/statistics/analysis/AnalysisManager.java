@@ -62,6 +62,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
@@ -114,12 +115,14 @@ import java.util.Set;
 import java.util.StringJoiner;
 import java.util.TreeMap;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 public class AnalysisManager implements Writable {
@@ -240,7 +243,12 @@ public class AnalysisManager implements Writable {
         createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
         constructJob(jobInfo, analysisTaskInfos.values());
         if (isSync) {
-            syncExecute(analysisTaskInfos.values());
+            try {
+                syncExecute(analysisTaskInfos.values());
+            } finally {
+                // A failed or cancelled sync task never reaches the final flush that removes the job.
+                removeJob(jobInfo.jobId);
+            }
             jobInfo.state = AnalysisState.FINISHED;
             updateTableStats(jobInfo);
             // Sync analyze never populates analysisJobIdToTaskMap, so updateTaskStatus
@@ -727,10 +735,21 @@ public class AnalysisManager implements Writable {
         SyncTaskCollection syncTaskCollection = new SyncTaskCollection(tasks);
         ConnectContext ctx = ConnectContext.get();
         ThreadPoolExecutor syncExecPool = createThreadPoolForSyncAnalyze();
+        StmtExecutor statement = ctx.getExecutor();
         try {
             ctxToSyncTask.put(ctx, syncTaskCollection);
+            if (statement != null) {
+                statement.setCancelDelegate(reason -> syncTaskCollection.cancel());
+            }
+            // The connection or statement may already have been cancelled before registration.
+            if (ctx.isKilled() || (statement != null && statement.getPendingCancelReason() != null)) {
+                syncTaskCollection.cancel();
+            }
             syncTaskCollection.execute(syncExecPool);
         } finally {
+            if (statement != null) {
+                statement.clearCancelDelegate();
+            }
             syncExecPool.shutdown();
             ctxToSyncTask.remove(ctx);
         }
@@ -1020,6 +1039,10 @@ public class AnalysisManager implements Writable {
         if (job != null) {
             logKilled(job);
         }
+        AnalysisJob runningJob = idToAnalysisJob.remove(anyTask.getJobId());
+        if (runningJob != null) {
+            runningJob.markKilled();
+        }
         for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
             taskInfo.cancel();
             logKilled(taskInfo.info);
@@ -1109,7 +1132,7 @@ public class AnalysisManager implements Writable {
     }
 
     private static class SyncTaskCollection {
-        public volatile boolean cancelled;
+        private final AtomicBoolean cancelled = new AtomicBoolean();
 
         public final Collection<BaseAnalysisTask> tasks;
 
@@ -1118,8 +1141,16 @@ public class AnalysisManager implements Writable {
         }
 
         public void cancel() {
-            cancelled = true;
-            tasks.forEach(BaseAnalysisTask::cancel);
+            if (cancelled.compareAndSet(false, true)) {
+                tasks.stream().findFirst().map(task -> task.job).ifPresent(AnalysisJob::markKilled);
+                for (BaseAnalysisTask task : tasks) {
+                    try {
+                        task.cancel();
+                    } catch (RuntimeException e) {
+                        LOG.warn("Failed to cancel sync analysis task {}", task.info.taskId, e);
+                    }
+                }
+            }
         }
 
         public void execute(ThreadPoolExecutor executor) {
@@ -1129,9 +1160,7 @@ public class AnalysisManager implements Writable {
             for (BaseAnalysisTask task : tasks) {
                 executor.submit(() -> {
                     try {
-                        if (cancelled) {
-                            errorMessages.add("Query Timeout or user Cancelled."
-                                    + "Could set analyze_timeout to a bigger value.");
+                        if (cancelled.get()) {
                             return;
                         }
                         try {
@@ -1149,12 +1178,13 @@ public class AnalysisManager implements Writable {
             try {
                 countDownLatch.await();
             } catch (InterruptedException t) {
-                LOG.warn("Thread got interrupted when waiting sync analyze task execution finished", t);
+                cancel();
+                Thread.currentThread().interrupt();
+            }
+            if (cancelled.get()) {
+                throw new CancellationException("User Cancelled or Timeout.");
             }
             if (!colNames.isEmpty()) {
-                if (cancelled) {
-                    throw new RuntimeException("User Cancelled or Timeout.");
-                }
                 throw new RuntimeException("Failed to analyze following columns:[" + String.join(",", colNames)
                         + "] Reasons: " + String.join(",", errorMessages));
             }
