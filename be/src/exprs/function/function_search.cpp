@@ -760,6 +760,10 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
         param.query_type = direct_query_type;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
+        // SEARCH has no row-by-row fallback, so a BKD leaf must not take the
+        // inverted_index_skip_threshold bypass: a bypassed leaf would be evaluated without
+        // the index and fail.
+        param.skip_try = true;
         RETURN_IF_ERROR(iterator->read_from_index(segment_v2::IndexParam {&param}));
 
         return finish_leaf_query(std::make_shared<query_v2::BitSetQuery>(std::move(param.roaring)));
