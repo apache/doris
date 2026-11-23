@@ -105,7 +105,8 @@ class BackendHeartbeatHandlerTest {
         mockedFrontendOptions.when(FrontendOptions::getLocalHostAddress).thenReturn(OLD_IP);
 
         Mockito.when(dnsCache.get(HOST)).thenReturn(OLD_IP);
-        Mockito.when(pool.borrowObject(Mockito.any(TNetworkAddress.class))).thenReturn(client);
+        // DNS changes the socket address, but the pool must retain the logical peer identity.
+        Mockito.when(pool.borrowObject(Mockito.any(TNetworkAddress.class), Mockito.anyString())).thenReturn(client);
         Mockito.when(client.heartbeat(Mockito.any(TMasterInfo.class))).thenReturn(success(123L));
         backend = new Backend(1L, HOST, 9050);
         Mockito.when(nodeMgr.getBackend(backend.getId())).thenReturn(backend);
@@ -140,9 +141,9 @@ class BackendHeartbeatHandlerTest {
         Assertions.assertEquals(HbStatus.OK, heartbeat().getStatus());
         Assertions.assertEquals(HbStatus.OK, heartbeat().getStatus());
         TNetworkAddress address = new TNetworkAddress(OLD_IP, 9050);
-        Mockito.verify(pool, Mockito.times(2)).borrowObject(address);
-        Mockito.verify(pool, Mockito.times(2)).returnObject(address, client);
-        Mockito.verify(pool, Mockito.never()).clearPool(Mockito.any());
+        Mockito.verify(pool, Mockito.times(2)).borrowObject(address, HOST);
+        Mockito.verify(pool, Mockito.times(2)).returnObject(address, client, HOST);
+        Mockito.verify(pool, Mockito.never()).clearPool(Mockito.any(), Mockito.anyString());
         ArgumentCaptor<TMasterInfo> requests = ArgumentCaptor.forClass(TMasterInfo.class);
         Mockito.verify(client, Mockito.times(2)).heartbeat(requests.capture());
         for (TMasterInfo request : requests.getAllValues()) {
@@ -157,8 +158,8 @@ class BackendHeartbeatHandlerTest {
         status.addToErrorMsgs("the host recorded in master does not map to this BE");
         Mockito.when(client.heartbeat(Mockito.any())).thenReturn(new THeartbeatResult(status, new TBackendInfo()));
         Assertions.assertEquals(HbStatus.BAD, heartbeat().getStatus());
-        Mockito.verify(pool, Mockito.times(2)).invalidateObject(new TNetworkAddress(OLD_IP, 9050), client);
-        Mockito.verify(pool, Mockito.never()).returnObject(Mockito.any(), Mockito.any());
+        Mockito.verify(pool, Mockito.times(2)).invalidateObject(new TNetworkAddress(OLD_IP, 9050), client, HOST);
+        Mockito.verify(pool, Mockito.never()).returnObject(Mockito.any(), Mockito.any(), Mockito.anyString());
     }
 
     @Test
@@ -167,8 +168,8 @@ class BackendHeartbeatHandlerTest {
                 .thenReturn(success(123L));
         Assertions.assertEquals(HbStatus.OK, heartbeat().getStatus());
         TNetworkAddress address = new TNetworkAddress(OLD_IP, 9050);
-        Mockito.verify(pool).invalidateObject(address, client);
-        Mockito.verify(pool).returnObject(address, client);
+        Mockito.verify(pool).invalidateObject(address, client, HOST);
+        Mockito.verify(pool).returnObject(address, client, HOST);
     }
 
     @Test
@@ -185,7 +186,7 @@ class BackendHeartbeatHandlerTest {
         Config.enable_fqdn_mode = false;
         backend = new Backend(1L, OLD_IP, 9050);
         Assertions.assertEquals(HbStatus.OK, heartbeat().getStatus());
-        Mockito.verify(pool).borrowObject(new TNetworkAddress(OLD_IP, 9050));
+        Mockito.verify(pool).borrowObject(new TNetworkAddress(OLD_IP, 9050), OLD_IP);
         Mockito.verifyNoInteractions(dnsCache);
     }
 
@@ -195,7 +196,7 @@ class BackendHeartbeatHandlerTest {
         Mockito.when(nodeMgr.getBackend(backend.getId())).thenReturn(null);
         mgr.clearRemovedBackendHeartbeatPools();
         mgr.clearRemovedBackendHeartbeatPools();
-        Mockito.verify(pool).clearPool(new TNetworkAddress(OLD_IP, 9050));
+        Mockito.verify(pool).clearPool(new TNetworkAddress(OLD_IP, 9050), HOST);
     }
 
     @Test
@@ -254,8 +255,9 @@ class BackendHeartbeatHandlerTest {
     }
 
     private void clearRealPool(int port) {
-        ClientPool.backendHeartbeatPool.clearPool(new TNetworkAddress(OLD_IP, port));
-        ClientPool.backendHeartbeatPool.clearPool(new TNetworkAddress(NEW_IP, port));
+        // Clearing only the IP misses the peer-specific key and leaves its idle socket open.
+        ClientPool.backendHeartbeatPool.clearPool(new TNetworkAddress(OLD_IP, port), HOST);
+        ClientPool.backendHeartbeatPool.clearPool(new TNetworkAddress(NEW_IP, port), HOST);
     }
 
     private static class HeartbeatEndpoint implements AutoCloseable {
