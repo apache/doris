@@ -916,9 +916,10 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         int size_based_scanners_per_tablet = 1;
 
         if (config::doris_scan_range_max_mb > 0) {
-            size_based_scanners_per_tablet =
-                    std::max(1, (int)(_tablets[scan_range_idx].tablet->tablet_footprint() /
-                                      (config::doris_scan_range_max_mb << 20)));
+            // Widen before the shift. A 4096 MiB limit must not become a zero divisor.
+            size_based_scanners_per_tablet = std::max(
+                    1, (int)(_tablets[scan_range_idx].tablet->tablet_footprint() /
+                             (static_cast<int64_t>(config::doris_scan_range_max_mb) << 20)));
         }
         int ranges_per_scanner =
                 std::max(1, (int)ranges->size() /

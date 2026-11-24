@@ -295,10 +295,12 @@ Status PartitionSortSinkLocalState::_init_hash_method() {
 // partition_topn_max_partitions     default is : 1024
 // partition_topn_per_partition_rows default is : 1000
 bool PartitionSortSinkLocalState::check_whether_need_passthrough() {
+    // Two partitions with a threshold of 2^30 rows need a 64-bit product.
     if (_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL &&
         _num_partition > _state->partition_topn_max_partitions() &&
         _sorted_partition_input_rows <
-                _state->partition_topn_per_partition_rows() * _num_partition) {
+                static_cast<int64_t>(_state->partition_topn_per_partition_rows()) *
+                        _num_partition) {
         return true;
     }
     return false;
