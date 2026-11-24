@@ -31,10 +31,15 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -42,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.analysis.AnalysisManager;
@@ -444,6 +450,25 @@ class StreamColumnStatisticsTest {
             Statistics filtered = new StatsCalculator((CascadesContext) null).computeFilter(filter, scanStats);
             Assertions.assertEquals(10, filtered.getRowCount(), 1e-9);
         }
+    }
+
+    @Test
+    void testArithmeticInPredicateWithUnknownStreamBoundsUsesNdv() {
+        ColumnStatistic source = new ColumnStatisticBuilder(statistic(1000, 10, 0))
+                .setMinValue(1).setMaxValue(10).build();
+        ColumnStatistic column = StatsCalculator.estimateStreamColumnStatistics(source, 100, DoubleType.INSTANCE);
+        SlotReference left = new SlotReference("a", DoubleType.INSTANCE, true);
+        SlotReference right = new SlotReference("b", DoubleType.INSTANCE, true);
+        Statistics scanStats = new Statistics(100, ImmutableMap.of(left, column, right, column));
+        ImmutableList<Expression> options = ImmutableList.of(new DoubleLiteral(1), new DoubleLiteral(2));
+        InPredicate divideColumns = new InPredicate(new Divide(left, right), options);
+        InPredicate divideConstant = new InPredicate(new Divide(new DoubleLiteral(10), right), options);
+        InPredicate multiplyByZero = new InPredicate(new Multiply(left, new DoubleLiteral(0)),
+                ImmutableList.of(new DoubleLiteral(0), new DoubleLiteral(1)));
+        FilterEstimation filter = new FilterEstimation();
+        Assertions.assertEquals(20, filter.estimate(divideColumns, scanStats).getRowCount(), 1e-9);
+        Assertions.assertEquals(20, filter.estimate(divideConstant, scanStats).getRowCount(), 1e-9);
+        Assertions.assertEquals(20, filter.estimate(multiplyByZero, scanStats).getRowCount(), 1e-9);
     }
 
     @Test
