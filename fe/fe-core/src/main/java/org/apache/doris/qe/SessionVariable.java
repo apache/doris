@@ -4481,11 +4481,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public void checkMaxScannersConcurrency(String value) throws Exception {
         // Non-positive scanner concurrency values select the BE defaults.
-        checkFieldValue(MAX_SCANNERS_CONCURRENCY, Integer.MIN_VALUE, 256, value);
+        checkFieldValue(MAX_SCANNERS_CONCURRENCY, Integer.MIN_VALUE, Config.MAX_SQL_SCANNER_CONCURRENCY, value);
     }
 
     public void checkMaxFileScannersConcurrency(String value) throws Exception {
-        checkFieldValue(MAX_FILE_SCANNERS_CONCURRENCY, Integer.MIN_VALUE, 256, value);
+        checkFieldValue(MAX_FILE_SCANNERS_CONCURRENCY, Integer.MIN_VALUE, Config.MAX_SQL_SCANNER_CONCURRENCY, value);
     }
 
     public void checkMinScannersConcurrency(String value) throws Exception {
