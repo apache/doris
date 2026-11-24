@@ -87,6 +87,40 @@ protected:
     }
 };
 
+TEST_F(KeyProbeTest, SequenceConflictUsesVisibleRowset) {
+    auto schema = create_mow_schema(/*has_seq=*/true);
+    TabletSharedPtr tablet;
+    auto visible = write_rowset(schema, 4101, 2, {{1, 11, 20}}, &tablet);
+    auto hidden = write_rowset(schema, 4102, 3, {{1, 22, 10}}, &tablet);
+    tablet->tablet_meta()->delete_bitmap().add({hidden->rowset_id(), 0, 3}, 0);
+
+    std::vector<RowsetSharedPtr> rowsets {hidden, visible};
+    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+    RowKeyEncoder encoder {*schema, /*mow=*/true};
+    auto key = encode_key_with_seq(schema, encoder, 1, 0);
+    RowLocation loc;
+    auto status = tablet->lookup_row_key(key, schema.get(), true, rowsets, &loc, 3, caches);
+    ASSERT_TRUE(status.is<ErrorCode::KEY_ALREADY_EXISTS>()) << status;
+    EXPECT_EQ(loc.rowset_id, visible->rowset_id());
+}
+
+TEST_F(KeyProbeTest, SequenceConflictReturnsPhysicalClusterKeyRowId) {
+    auto schema = create_mow_schema(/*has_seq=*/true);
+    schema->_cluster_key_uids.push_back(schema->column(1).unique_id());
+    TabletSharedPtr tablet;
+    // Cluster-key order puts k=1 second on disk, while it is first in the primary key index.
+    auto rowset = write_rowset(schema, 4103, 2, {{2, 11, 20}, {1, 22, 20}}, &tablet);
+    std::vector<RowsetSharedPtr> rowsets {rowset};
+    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+    RowKeyEncoder encoder {*schema, /*mow=*/true};
+    auto key = encode_key_with_seq(schema, encoder, 1, 10);
+    RowLocation loc;
+    auto status = tablet->lookup_row_key(key, schema.get(), true, rowsets, &loc, 2, caches, nullptr,
+                                         /*with_rowid=*/false);
+    ASSERT_TRUE(status.is<ErrorCode::KEY_ALREADY_EXISTS>()) << status;
+    EXPECT_EQ(loc.row_id, 1U);
+}
+
 // A key that no rowset holds: brand-new row, nothing marked, and the caller is told to fill
 // defaults.
 TEST_F(KeyProbeTest, NotFoundReportsNewRow) {
