@@ -57,10 +57,16 @@ public class FileTypeDdlTest extends TestWithFeService {
         connectContext.setDatabase("file_agg_state_ddl");
         createTable("CREATE TABLE ddl_base (id INT) DUPLICATE KEY(id) "
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
-        executeSql("CREATE RESOURCE 'file_ddl' PROPERTIES("
-                + "'type'='s3', 's3.endpoint'='http://127.0.0.1:1', 's3.region'='us-east-1', "
-                + "'s3.bucket'='file-test', 's3.access_key'='fake', 's3.secret_key'='fake', "
-                + "'s3_validity_check'='false')");
+        createTable("CREATE TABLE ddl_file_source (id INT, f STRING, files STRING, holder STRING, lookup STRING) "
+                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        OlapTable source = (OlapTable) Env.getCurrentInternalCatalog().getDbOrAnalysisException("file_agg_state_ddl")
+                .getTableOrAnalysisException("ddl_file_source");
+        // Install FILE types in the test catalog because CREATE TABLE rejects them.
+        source.getColumn("f").setType(Type.FILE);
+        source.getColumn("files").setType(new org.apache.doris.catalog.ArrayType(Type.FILE));
+        source.getColumn("holder").setType(new org.apache.doris.catalog.StructType(
+                new org.apache.doris.catalog.StructField("f", Type.FILE)));
+        source.getColumn("lookup").setType(new org.apache.doris.catalog.MapType(Type.STRING, Type.FILE));
     }
 
     private ColumnDefinition column(String sql, boolean key, AggregateType agg, Optional<DefaultValue> value) {
@@ -91,11 +97,9 @@ public class FileTypeDdlTest extends TestWithFeService {
 
     @Test
     public void testCreateTableAndCtasRejectFileColumns() {
-        String file = "to_file('file_ddl', null)";
         for (Map.Entry<String, String> value : Map.of(
-                "FILE", file, "ARRAY<FILE>", "array(" + file + ")",
-                "STRUCT<f:FILE>", "named_struct('f', " + file + ")",
-                "MAP<STRING,FILE>", "map('f', " + file + ")").entrySet()) {
+                "FILE", "f", "ARRAY<FILE>", "files",
+                "STRUCT<f:FILE>", "holder", "MAP<STRING,FILE>", "lookup").entrySet()) {
             String sqlType = value.getKey();
             for (String ddl : Arrays.asList(
                     "CREATE TABLE ddl_file (id INT, f " + sqlType + ") DUPLICATE KEY(id) "
@@ -103,7 +107,8 @@ public class FileTypeDdlTest extends TestWithFeService {
                     "CREATE TABLE ddl_file_hash (id INT, f " + sqlType + ") DUPLICATE KEY(id) "
                             + "DISTRIBUTED BY HASH(f) BUCKETS 1 PROPERTIES('replication_num'='1')",
                     "CREATE TABLE ddl_ctas DISTRIBUTED BY HASH(id) BUCKETS 1 "
-                            + "PROPERTIES('replication_num'='1') AS SELECT 1 AS id, " + value.getValue() + " AS f")) {
+                            + "PROPERTIES('replication_num'='1') AS SELECT id, " + value.getValue()
+                            + " AS f FROM ddl_file_source")) {
                 Exception error = Assertions.assertThrows(Exception.class, () -> createTable(ddl));
                 Assertions.assertTrue(error.getMessage().contains(
                         "FILE and types containing FILE cannot be used as table columns"), error.getMessage());
@@ -129,14 +134,12 @@ public class FileTypeDdlTest extends TestWithFeService {
 
     @Test
     public void testAsyncMaterializedViewUsesTableColumnValidation() {
-        String file = "to_file('file_ddl', null)";
-        for (String value : Arrays.asList(file, "array(" + file + ")", "named_struct('f', " + file + ")",
-                "map('f', " + file + ")")) {
+        for (String value : Arrays.asList("f", "files", "holder", "lookup")) {
             for (String distributionColumn : Arrays.asList("id", "f")) {
                 String sql = "CREATE MATERIALIZED VIEW ddl_async_file BUILD DEFERRED REFRESH COMPLETE ON MANUAL "
                         + "DISTRIBUTED BY HASH(" + distributionColumn + ") BUCKETS 1 "
-                        + "PROPERTIES('replication_num'='1', 'enable_nondeterministic_function'='true') "
-                        + "AS SELECT id, " + value + " AS f FROM ddl_base";
+                        + "PROPERTIES('replication_num'='1') "
+                        + "AS SELECT id, " + value + " AS f FROM ddl_file_source";
                 createStatementCtx(sql);
                 CreateMTMVCommand command = (CreateMTMVCommand) new NereidsParser().parseSingle(sql);
                 Exception error = Assertions.assertThrows(Exception.class,

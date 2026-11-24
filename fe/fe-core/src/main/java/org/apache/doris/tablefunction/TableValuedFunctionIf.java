@@ -20,7 +20,6 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionGenTable;
-import org.apache.doris.catalog.QueryResourceResolver;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.PlanNodeId;
@@ -48,8 +47,6 @@ public abstract class TableValuedFunctionIf {
     public static TableValuedFunctionIf getTableFunction(String funcName, Map<String, String> params)
             throws AnalysisException {
         switch (funcName.toLowerCase()) {
-            case ListFilesTableValuedFunction.NAME:
-                return new ListFilesTableValuedFunction(params);
             case NumbersTableValuedFunction.NAME:
                 return new NumbersTableValuedFunction(params);
             case S3TableValuedFunction.NAME:
@@ -117,12 +114,6 @@ public abstract class TableValuedFunctionIf {
     public abstract List<Column> getTableColumns() throws AnalysisException;
 
     public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv);
-
-    /** Build a scan node using {@code resourceResolver} to resolve query-level resources when needed. */
-    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv,
-            QueryResourceResolver resourceResolver) {
-        return getScanNode(id, desc, sv);
-    }
 
     public String getHiveParquetTimeZone() {
         return "";

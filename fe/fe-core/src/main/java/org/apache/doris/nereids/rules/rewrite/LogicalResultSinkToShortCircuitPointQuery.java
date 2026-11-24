@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.RequiresQueryResources;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -105,12 +104,6 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
     // set short circuit flag and return the original plan
     private Plan shortCircuit(Plan root, OlapTable olapTable,
                 Set<Expression> conjuncts, StatementContext statementContext) {
-        // Functions needing query-level resources cannot run in the point-query executor without QueryContext.
-        // Decide before point-query-specific pruning and translation.
-        if (root.anyMatch(plan -> ((Plan) plan).getExpressions().stream()
-                .anyMatch(expression -> expression.anyMatch(RequiresQueryResources.class::isInstance)))) {
-            return root;
-        }
         // All key columns in conjuncts
         Set<String> colNames = Sets.newHashSet();
         for (Expression expr : conjuncts) {

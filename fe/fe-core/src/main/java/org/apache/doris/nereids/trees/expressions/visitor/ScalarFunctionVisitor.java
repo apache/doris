@@ -568,7 +568,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithC
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ToFile;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4OrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4OrNull;
@@ -2688,10 +2687,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitToDays(ToDays toDays, C context) {
         return visitScalarFunction(toDays, context);
-    }
-
-    default R visitToFile(ToFile toFile, C context) {
-        return visitScalarFunction(toFile, context);
     }
 
     default R visitToIpv4(ToIpv4 toIpv4, C context) {

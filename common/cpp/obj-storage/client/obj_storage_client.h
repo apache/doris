@@ -54,9 +54,6 @@ struct ObjStoragePath {
     std::string key {};    // blob name in azure
     std::string prefix {}; // for list and recursive delete
     bool sse_enabled = false;
-
-    // Empty means recursive listing; "/" lists direct children.
-    std::string delimiter {}; // NOLINT(readability-redundant-member-init)
 };
 
 struct ObjStorageEndpointInfo {
@@ -68,7 +65,6 @@ struct ObjectMeta {
     std::string key {};
     int64_t size {0};
     int64_t mtime_s {0};
-    std::optional<std::string> etag {};
 };
 
 struct ObjStorageCompletedPart {
@@ -134,8 +130,6 @@ struct ObjStorageUploadResult {
 struct ObjStorageHeadResult {
     ObjStorageResponse resp = ObjStorageResponse::OK();
     long long file_size {0};
-    std::optional<std::string> content_type {};
-    std::optional<std::string> etag {};
 };
 
 struct ObjStorageListResult {
@@ -146,7 +140,6 @@ struct ObjStorageListResult {
 struct ObjStorageListPageResult {
     ObjStorageResponse resp = ObjStorageResponse::OK();
     std::vector<ObjectMeta> objects {};
-    std::vector<std::string> common_prefixes {};
     std::string continuation_token {};
     bool has_more = false;
 };
@@ -250,6 +243,7 @@ public:
     virtual ObjStorageResponse abort_multipart_upload(const ObjStoragePath& path,
                                                       const std::string& upload_id) = 0;
 
+protected:
     // Fetch at most one page. One call corresponds to exactly one provider request.
     virtual ObjStorageListPageResult list_objects_page(const ObjStoragePath& opts,
                                                        std::string_view continuation_token) = 0;

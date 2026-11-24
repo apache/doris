@@ -383,11 +383,6 @@ struct TDictFunction {
   2: optional i64 version_id
 }
 
-// S3-compatible configuration for query execution. Credentials are not part of a FILE value.
-struct TS3Resource {
-  1: optional map<string, string> properties
-}
-
 // Represents a function in the Catalog.
 struct TFunction {
   // Fully qualified function name.

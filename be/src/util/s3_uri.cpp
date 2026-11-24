@@ -37,16 +37,11 @@ const std::string S3URI::_FRAGMENT_DELIM = "#";
 /// _schema: s3
 /// _bucket: bucket1
 /// _key:    path/to/file.txt
-Status S3URI::parse(bool preserve_key) {
+Status S3URI::parse() {
     if (_location.empty()) {
         return Status::InvalidArgument("location is empty");
     }
-    std::vector<std::string> scheme_split;
-    if (preserve_key) {
-        scheme_split = absl::StrSplit(_location, absl::MaxSplits(_SCHEME_DELIM, 1));
-    } else {
-        scheme_split = absl::StrSplit(_location, _SCHEME_DELIM);
-    }
+    std::vector<std::string> scheme_split = absl::StrSplit(_location, _SCHEME_DELIM);
     std::string rest;
     if (scheme_split.size() == 2) {
         if (scheme_split[0] == _SCHEME_S3) {
@@ -54,28 +49,23 @@ Status S3URI::parse(bool preserve_key) {
             rest = scheme_split[1];
             std::vector<std::string> authority_split =
                     absl::StrSplit(rest, absl::MaxSplits(_PATH_DELIM, 1));
-            if (authority_split.empty()) {
+            if (authority_split.size() < 1) {
                 return Status::InvalidArgument("Invalid S3 URI: {}", _location);
             }
             _bucket = authority_split[0];
             // support s3://bucket1
-            if (authority_split.size() == 1) {
-                _key = preserve_key ? "" : "/";
-            } else {
-                _key = authority_split[1];
-            }
+            _key = authority_split.size() == 1 ? "/" : authority_split[1];
         } else if (scheme_split[0] == _SCHEME_HTTP || scheme_split[0] == _SCHEME_HTTPS) {
             // has scheme, eg: http(s)://host/bucket1/path/to/file.txt
             rest = scheme_split[1];
             std::vector<std::string> authority_split =
                     absl::StrSplit(rest, absl::MaxSplits(_PATH_DELIM, 2));
-            if (authority_split.size() != 3 &&
-                !(preserve_key && authority_split.size() == 2 && !authority_split[1].empty())) {
+            if (authority_split.size() != 3) {
                 return Status::InvalidArgument("Invalid S3 HTTP URI: {}", _location);
             }
-            // authority_split[0] is host
+            // authority_split[1] is host
             _bucket = authority_split[1];
-            _key = authority_split.size() == 3 ? authority_split[2] : "";
+            _key = authority_split[2];
         } else {
             return Status::InvalidArgument("Invalid S3 URI: {}", _location);
         }
@@ -86,14 +76,9 @@ Status S3URI::parse(bool preserve_key) {
     } else {
         return Status::InvalidArgument("Invalid S3 URI: {}", _location);
     }
-    if (!preserve_key) {
-        absl::StripAsciiWhitespace(&_key);
-    }
-    if (_key.empty() && !(preserve_key && !_bucket.empty())) {
+    absl::StripAsciiWhitespace(&_key);
+    if (_key.empty()) {
         return Status::InvalidArgument("Invalid S3 key: {}", _location);
-    }
-    if (preserve_key) {
-        return Status::OK();
     }
     // Strip query and fragment if they exist
     std::vector<std::string> _query_split = absl::StrSplit(_key, _QUERY_DELIM);

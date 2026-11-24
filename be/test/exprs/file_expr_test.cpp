@@ -30,7 +30,6 @@
 #include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/data_type_variant_v2.h"
-#include "core/value/file_value.h"
 #include "core/value/jsonb_value.h"
 #include "exprs/function/array/function_array_element.h"
 #include "exprs/function/cast/cast_base.h"
