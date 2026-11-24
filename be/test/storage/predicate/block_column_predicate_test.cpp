@@ -327,23 +327,23 @@ TEST_F(BlockColumnPredicateTest, EqAlwaysTrueDeleteSign) {
     ComparisonPredicateBase<TYPE_TINYINT, PredicateType::EQ> predicate(0, "delete_sign", zero);
     segment_v2::ZoneMap zone_map {
             .min_value = zero, .max_value = zero, .has_null = false, .has_not_null = true};
-    EXPECT_TRUE(predicate.is_always_true(zone_map));
+    EXPECT_EQ(ZoneMapFilterResult::kAllMatch, predicate.evaluate_zonemap_filter(zone_map));
 
     // A segment containing a tombstone must retain the delete-sign filter.
     zone_map.max_value = one;
-    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    EXPECT_NE(ZoneMapFilterResult::kAllMatch, predicate.evaluate_zonemap_filter(zone_map));
     zone_map.min_value = one;
-    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    EXPECT_NE(ZoneMapFilterResult::kAllMatch, predicate.evaluate_zonemap_filter(zone_map));
     zone_map.min_value = Field::create_field<TYPE_TINYINT>(-1);
     zone_map.max_value = zero;
-    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    EXPECT_NE(ZoneMapFilterResult::kAllMatch, predicate.evaluate_zonemap_filter(zone_map));
 
     zone_map.min_value = zero;
     zone_map.max_value = zero;
     zone_map.has_null = true;
-    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    EXPECT_NE(ZoneMapFilterResult::kAllMatch, predicate.evaluate_zonemap_filter(zone_map));
     zone_map.has_not_null = false;
-    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    EXPECT_NE(ZoneMapFilterResult::kAllMatch, predicate.evaluate_zonemap_filter(zone_map));
 }
 
 TEST_F(BlockColumnPredicateTest, EqAlwaysTrueOpposite) {
@@ -353,12 +353,12 @@ TEST_F(BlockColumnPredicateTest, EqAlwaysTrueOpposite) {
                                                                        true);
     segment_v2::ZoneMap zone_map {
             .min_value = zero, .max_value = zero, .has_null = false, .has_not_null = true};
-    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch, predicate.evaluate_zonemap_filter(zone_map));
 
-    // Keep negated predicates conservative even when the non-negated equality cannot match.
+    // Negated equality flips kNoMatch to kAllMatch when the zone cannot match zero.
     zone_map.min_value = one;
     zone_map.max_value = one;
-    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    EXPECT_EQ(ZoneMapFilterResult::kAllMatch, predicate.evaluate_zonemap_filter(zone_map));
 }
 
 TEST_F(BlockColumnPredicateTest, EqAlwaysTrueString) {
@@ -366,9 +366,9 @@ TEST_F(BlockColumnPredicateTest, EqAlwaysTrueString) {
     ComparisonPredicateBase<TYPE_STRING, PredicateType::EQ> predicate(0, "value", value);
     segment_v2::ZoneMap zone_map {
             .min_value = value, .max_value = value, .has_null = false, .has_not_null = true};
-    EXPECT_TRUE(predicate.is_always_true(zone_map));
+    EXPECT_EQ(ZoneMapFilterResult::kAllMatch, predicate.evaluate_zonemap_filter(zone_map));
     zone_map.max_value = Field::create_field<TYPE_STRING>("other");
-    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    EXPECT_NE(ZoneMapFilterResult::kAllMatch, predicate.evaluate_zonemap_filter(zone_map));
 }
 
 TEST_F(BlockColumnPredicateTest, EqAlwaysTrueDouble) {
@@ -376,15 +376,15 @@ TEST_F(BlockColumnPredicateTest, EqAlwaysTrueDouble) {
     ComparisonPredicateBase<TYPE_DOUBLE, PredicateType::EQ> predicate(0, "value", value);
     segment_v2::ZoneMap zone_map {
             .min_value = value, .max_value = value, .has_null = false, .has_not_null = true};
-    EXPECT_TRUE(predicate.is_always_true(zone_map));
+    EXPECT_EQ(ZoneMapFilterResult::kAllMatch, predicate.evaluate_zonemap_filter(zone_map));
 
     zone_map.max_value = Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN());
-    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    EXPECT_NE(ZoneMapFilterResult::kAllMatch, predicate.evaluate_zonemap_filter(zone_map));
     ComparisonPredicateBase<TYPE_DOUBLE, PredicateType::EQ> nan_predicate(0, "value",
                                                                           zone_map.max_value);
     zone_map.min_value = zone_map.max_value;
     // Doris treats NaN as equal to NaN, including during row evaluation.
-    EXPECT_TRUE(nan_predicate.is_always_true(zone_map));
+    EXPECT_EQ(ZoneMapFilterResult::kAllMatch, nan_predicate.evaluate_zonemap_filter(zone_map));
 }
 
 // test zonemap index

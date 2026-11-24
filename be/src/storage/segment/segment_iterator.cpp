@@ -1328,13 +1328,13 @@ Status SegmentIterator::_update_topn_runtime_filter_ranges() {
         }
         const auto snapshot = filter.predicate->snapshot();
         DCHECK(snapshot.predicate != nullptr);
-        AndBlockColumnPredicate predicate;
-        predicate.add_column_predicate(
-                SingleColumnBlockPredicate::create_unique(snapshot.predicate));
         RowRanges ranges = RowRanges::create_single(num_rows());
-        RETURN_IF_ERROR(
-                _column_iterators[filter.predicate->column_id()]->get_row_ranges_by_zone_map(
-                        &predicate, nullptr, &ranges));
+        RETURN_IF_ERROR(prune_pages_by_zone_map(
+                _column_iterators[filter.predicate->column_id()].get(), 0,
+                [&](const ZoneMap& zone_map) {
+                    return snapshot.predicate->evaluate_zonemap_filter(zone_map);
+                },
+                &ranges));
         remaining &= RowRanges::ranges_to_roaring(ranges);
         filter.applied_version = snapshot.version;
         filter.last_update_rows = _topn_rows_read;
