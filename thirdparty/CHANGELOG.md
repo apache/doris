@@ -2,21 +2,22 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20261124
+
+- Install pinned x86_64/aarch64 Flight SQL ADBC test drivers built from patched
+  ADBC 24 with a glibc 2.17 target. Ordinary Doris builds do not require Go.
+  Verify SHA-256 for both the binary archive and the extracted library, including
+  reused caches. The versioned release contains the standalone producer recipe,
+  patch, build provenance and dependency licenses. Connection-owned information maps
+  prevent native concurrent-map crashes and vendor leakage between servers. FE checks
+  the driver's connection-info isolation capability before vendor discovery;
+  operator-supplied Flight drivers need the same patch. Deploy the rebuilt library
+  to FE and BE hosts and restart processes that loaded the old library.
+
 ## 20261110
 
 - Added Alibaba Cloud OSS C++ SDK V2 0.2.0 for BE and Recycler. To update an existing
   third-party installation, run `thirdparty/build-thirdparty.sh oss_sdk`.
-
-## 20261106
-
-- Build the Flight SQL ADBC test driver from patched ADBC 24 source instead of the
-  release wheel. Each connection owns its remote information map, preventing
-  native concurrent-map crashes and vendor leakage between servers. FE checks
-  the driver's connection-info isolation capability before vendor discovery;
-  operator-supplied Flight drivers need the same patch. Deploy the rebuilt library
-  to FE and BE hosts and restart processes that loaded the old library.
-  Building `arrow_adbc` on Linux now requires Go 1.25 or newer
-  (the upstream module prefers Go 1.26.5). No Go runtime is required to load it.
 
 ## 20260921
 

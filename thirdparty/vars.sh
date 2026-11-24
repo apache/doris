@@ -284,8 +284,26 @@ ARROW_ADBC_NAME="apache-arrow-adbc-24.tar.gz"
 ARROW_ADBC_SOURCE="arrow-adbc-apache-arrow-adbc-24"
 ARROW_ADBC_MD5SUM="3d6aaf071d384fe8d3c12a9b5f62aa4e"
 
-# Flight SQL is built from the patched ADBC source. The release wheel shares mutable
-# vendor information across connections and must not be installed as the test driver.
+# The test driver includes the connection-info isolation patch and its local capability.
+# Keep normal Doris builds Go-free; the release asset includes the standalone build recipe.
+ARROW_ADBC_FLIGHTSQL_SOURCE=""
+if [[ "$(uname -s)" == 'Linux' ]]; then
+    if [[ "${MACHINE_TYPE}" == 'x86_64' ]]; then
+        ARROW_ADBC_FLIGHTSQL_SOURCE="adbc-flightsql-1.12.0-doris-info-v1-linux-x86_64-glibc2.17"
+        ARROW_ADBC_FLIGHTSQL_MD5SUM="b7a5907dcfb1651fdadbec2a24754217"
+        ARROW_ADBC_FLIGHTSQL_SHA256="d8fce8236ab0888467e779a15c4034788d94fcb4d2ccffbe0ac440e659f43e1c"
+        ARROW_ADBC_FLIGHTSQL_LIBRARY_SHA256="e5bb1894b18b4dc9acfbfe0ae406aafc07cf29b9fc35cbe233b6be790f825805"
+    elif [[ "${MACHINE_TYPE}" == 'aarch64' || "${MACHINE_TYPE}" == 'arm64' ]]; then
+        ARROW_ADBC_FLIGHTSQL_SOURCE="adbc-flightsql-1.12.0-doris-info-v1-linux-aarch64-glibc2.17"
+        ARROW_ADBC_FLIGHTSQL_MD5SUM="87e156c668c078753a923aeb7ef016e1"
+        ARROW_ADBC_FLIGHTSQL_SHA256="8051812339dfaf78733d453eb7c7b2ad18cfcc19c5582082abf0dccae9868439"
+        ARROW_ADBC_FLIGHTSQL_LIBRARY_SHA256="674311b8f64d58e5a77ebbdca251352455fdb7f2be80e0482211401c93bfdcb5"
+    fi
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+        ARROW_ADBC_FLIGHTSQL_NAME="${ARROW_ADBC_FLIGHTSQL_SOURCE}.tar.gz"
+        ARROW_ADBC_FLIGHTSQL_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/adbc-flightsql-1.12.0-doris-info-v1/${ARROW_ADBC_FLIGHTSQL_NAME}"
+    fi
+fi
 
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/releases/download/20250512.1/abseil-cpp-20250512.1.tar.gz"
@@ -716,6 +734,10 @@ export TP_ARCHIVES=(
     'LANCE_C'
     'PAIMON_RUST'
 )
+
+if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+    TP_ARCHIVES+=('ARROW_ADBC_FLIGHTSQL')
+fi
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     #binutils

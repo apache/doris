@@ -1309,11 +1309,11 @@ build_arrow() {
 }
 
 # arrow-adbc
-# Produces four artifacts from one source tree:
+# Produces three artifacts from one source tree and installs a binary companion:
 #   libadbc_driver_manager.a  -- statically linked into doris_be
 #   libadbc_driver_jni.so     -- loaded by the FE adbc connector
 #   libadbc_driver_sqlite.so  -- BE unit tests only, not shipped
-#   libadbc_driver_flightsql.so -- patched Go driver, adbc tests only, not shipped
+#   libadbc_driver_flightsql.so -- patched prebuilt driver, adbc tests only, not shipped
 build_arrow_adbc() {
     check_if_source_exist "${ARROW_ADBC_SOURCE}"
 
@@ -1379,28 +1379,22 @@ build_arrow_adbc() {
         -o "${TP_INSTALL_DIR}/lib64/libadbc_driver_jni.so" \
         "${TP_INSTALL_DIR}/lib64/libadbc_driver_manager.a"
 
-    # (3) Build the patched Flight driver: the release wheel shares server identity across
-    # connections and permits concurrent map readers/writers. FE checks the local isolation
-    # capability before probing a vendor, so an old wheel must never replace this artifact.
-    if [[ "${KERNEL}" == 'Linux' ]] &&
-        [[ "${MACHINE_TYPE}" == 'x86_64' || "${MACHINE_TYPE}" == 'aarch64' || "${MACHINE_TYPE}" == 'arm64' ]]; then
-        local go_cmd="${GO_CMD:-go}"
-        if ! command -v "${go_cmd}" >/dev/null 2>&1; then
-            echo "arrow-adbc: Go 1.25 or newer is required to build the isolated Flight SQL driver"
+    # (3) Installing the patched binary must not require a Go toolchain. Check the extracted
+    # library as well as its archive: a cached source directory may still hold an old release wheel.
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]]; then
+        check_if_source_exist "${ARROW_ADBC_FLIGHTSQL_SOURCE}"
+        local flight_src="${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}"
+        if ! printf '%s  %s\n' "${ARROW_ADBC_FLIGHTSQL_SHA256}" \
+            "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_NAME}" | sha256sum -c -; then
+            echo "arrow-adbc: prebuilt Flight SQL archive checksum failed" >&2
             exit 1
         fi
-        local go_arch='amd64'
-        if [[ "${MACHINE_TYPE}" != 'x86_64' ]]; then
-            go_arch='arm64'
+        if ! printf '%s  %s\n' "${ARROW_ADBC_FLIGHTSQL_LIBRARY_SHA256}" \
+            "${flight_src}/libadbc_driver_flightsql.so" | sha256sum -c -; then
+            echo "arrow-adbc: prebuilt Flight SQL library checksum failed" >&2
+            exit 1
         fi
-        cd "${adbc_src}/go/adbc"
-        # Let Go validate the module's minimum version and select its pinned toolchain before compiling.
-        GOWORK=off "${go_cmd}" list -mod=readonly -m
-        GOWORK=off "${go_cmd}" version
-        CGO_ENABLED=1 GOOS=linux GOARCH="${go_arch}" GOWORK=off "${go_cmd}" build -mod=readonly -trimpath -buildvcs=false \
-            -tags driverlib -buildmode=c-shared \
-            -o "${TP_INSTALL_DIR}/lib64/libadbc_driver_flightsql.so" ./pkg/flightsql
-        rm -f "${TP_INSTALL_DIR}/lib64/libadbc_driver_flightsql.h"
+        cp -f "${flight_src}/libadbc_driver_flightsql.so" "${TP_INSTALL_DIR}/lib64/libadbc_driver_flightsql.so"
     fi
 
     rm -rf "${sqlite_host}"
@@ -2863,7 +2857,12 @@ cleanup_package_source() {
         librdkafka)      src_var="LIBRDKAFKA_SOURCE" ;;
         flatbuffers)     src_var="FLATBUFFERS_SOURCE" ;;
         arrow)           src_var="ARROW_SOURCE" ;;
-        arrow_adbc)      src_var="ARROW_ADBC_SOURCE" ;;
+        arrow_adbc)
+            if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]]; then
+                rm -rf "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}"
+            fi
+            src_var="ARROW_ADBC_SOURCE"
+            ;;
         brotli)          src_var="BROTLI_SOURCE" ;;
         cares)           src_var="CARES_SOURCE" ;;
         grpc)            src_var="GRPC_SOURCE" ;;

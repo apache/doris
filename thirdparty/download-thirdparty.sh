@@ -94,6 +94,12 @@ if [[ "${SPEC_LIB}" != "" ]]; then
         done
     fi
 
+    # arrow_adbc installs the patched test driver from a companion binary archive.
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " == *' ARROW_ADBC '* ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " != *' ARROW_ADBC_FLIGHTSQL '* ]]; then
+        SPEC_ARCHIVES+=('ARROW_ADBC_FLIGHTSQL')
+    fi
     TP_ARCHIVES=("${SPEC_ARCHIVES[@]}")
     echo "Download and build specified libs only: ${TP_ARCHIVES[*]}"
 fi
@@ -252,6 +258,11 @@ for TP_ARCH in "${TP_ARCHIVES[@]}"; do
     if [[ ! -r "${TP_SOURCE_DIR}/${!NAME}" ]]; then
         echo "Failed to fetch ${!NAME}"
         exit 1
+    fi
+    # Binary companions need the pinned SHA-256 even when an archive was reused from a mirror/cache.
+    SHA256SUM="${TP_ARCH}_SHA256"
+    if [[ -n "${!SHA256SUM:-}" ]]; then
+        printf '%s  %s\n' "${!SHA256SUM}" "${TP_SOURCE_DIR}/${!NAME}" | sha256sum -c -
     fi
 done
 echo "===== Checking all thirdpart archives...done"

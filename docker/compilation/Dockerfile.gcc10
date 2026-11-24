@@ -81,16 +81,6 @@ ENV REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
 ENV DEFAULT_DIR=/var/local
 ENV JAVA_HOME="/usr/lib/jvm/java-11"
 
-# The patched ADBC Flight SQL driver is built from Go source.
-ARG GO_VERSION=1.26.5
-ARG GO_SHA256=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
-RUN wget -q https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -O /tmp/go.tar.gz \
-    && echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum -c - \
-    && tar -xzf /tmp/go.tar.gz -C /usr/local \
-    && rm -f /tmp/go.tar.gz \
-    && /usr/local/go/bin/go version
-ENV PATH="/usr/local/go/bin:${PATH}"
-
 # clone lastest source code, download and build third party
 COPY doris ${DEFAULT_DIR}/doris
 RUN cd ${DEFAULT_DIR}/doris && /bin/bash thirdparty/build-thirdparty.sh \
@@ -127,7 +117,7 @@ ENV JAVA_HOME="/usr/lib/jvm/java-11" \
     PROMPT_COMMAND=". /opt/rh/devtoolset-10/enable" \
     REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty" \
     DEFAULT_DIR="/var/local" \
-    PATH="/usr/local/go/bin:/var/local/thirdparty/installed/bin:$PATH" \
+    PATH="/var/local/thirdparty/installed/bin:$PATH" \
     DORIS_THIRDPARTY="/var/local/thirdparty"
 WORKDIR /root
 
