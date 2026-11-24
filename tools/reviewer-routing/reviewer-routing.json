@@ -488,13 +488,21 @@
       "reviewers": ["gavinchou", "morningman", "924060929", "morrySnow", "liaoxin01", "CalvinKirs", "yiguolei", "starocean999", "Gabriel39", "HappenLee", "dataroaring", "hubgeter", "airborne12", "Mryange", "suxiaogang223", "luwei16", "deardeng", "yujun777", "zclllyybb", "zhangstar333"]
     },
     "ci": {
-      "label": "CI, GitHub workflows and automation",
+      "label": "Repository configuration and general CI infrastructure",
       "priority": 250,
       "patterns": [
         "^\\.github/",
         "^regression-test/pipeline/compile/"
       ],
       "reviewers": ["morningman", "yiguolei", "shuke987", "Gabriel39", "zclllyybb", "CalvinKirs", "924060929", "zhangstar333", "BiteTheDDDDt", "Mryange", "gavinchou", "suxiaogang223", "liaoxin01", "morrySnow", "mrhhsg", "zgxme", "HappenLee", "eldenmoon"]
+    },
+    "ci.github-actions": {
+      "label": "GitHub Actions workflows, reusable actions and workflow scripts",
+      "priority": 252,
+      "patterns": [
+        "^\\.github/(?:workflows|actions|scripts)/"
+      ],
+      "reviewers": ["hello-stephen", "morningman", "yiguolei", "shuke987", "Gabriel39", "zclllyybb", "CalvinKirs", "924060929", "zhangstar333", "BiteTheDDDDt", "Mryange", "gavinchou", "suxiaogang223", "liaoxin01", "morrySnow", "mrhhsg", "zgxme", "HappenLee", "eldenmoon"]
     },
     "test.ci": {
       "label": "Test CI pipelines and integration test services",
