@@ -42,13 +42,13 @@ TEST(BitmapValueConcurrencyTest, ConcurrentCopySizeAndSerialization) {
         source.add((uint64_t {1} << 40) + i);
     }
     ASSERT_EQ(source.cardinality(), 8192);
-    ASSERT_TRUE(source.needs_optimization());
     std::string expected(source.getSizeInBytes(), '\0');
     ASSERT_EQ(source.write_to(expected.data()), expected.size());
     BitmapValue optimized(source);
     optimized.optimize();
     std::string expected_compact;
     optimized.serialize_optimized(expected_compact);
+    ASSERT_GT(source.getSizeInBytes(), expected_compact.size());
     std::barrier start(4);
     std::vector<std::jthread> threads;
     for (int thread = 0; thread < 4; ++thread) {
@@ -67,7 +67,7 @@ TEST(BitmapValueConcurrencyTest, ConcurrentCopySizeAndSerialization) {
     }
     threads.clear();
     EXPECT_EQ(source.cardinality(), 8192);
-    EXPECT_TRUE(source.needs_optimization());
+    EXPECT_EQ(source.getSizeInBytes(), expected.size());
 }
 
 } // namespace doris

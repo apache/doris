@@ -391,7 +391,9 @@ TEST(SingleValueDataColumnTest, AnyValueSerializeUnoptimizedBitmap) {
     for (uint64_t i = 0; i < 1024; ++i) {
         bitmap.add(i);
     }
-    ASSERT_TRUE(bitmap.needs_optimization());
+    BitmapValue compact(bitmap);
+    compact.optimize();
+    ASSERT_GT(bitmap.getSizeInBytes(), compact.getSizeInBytes());
 
     auto bitmap_type = std::make_shared<DataTypeBitMap>();
     auto input = ColumnBitmap::create();

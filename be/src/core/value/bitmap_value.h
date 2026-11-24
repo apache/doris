@@ -1327,7 +1327,6 @@ public:
 
     BitmapValue(const BitmapValue& other) {
         _type = other._type;
-        _is_optimized = other._is_optimized;
         switch (other._type) {
         case EMPTY:
             break;
@@ -1345,7 +1344,6 @@ public:
 
     BitmapValue(BitmapValue&& other) noexcept {
         _type = other._type;
-        _is_optimized = other._is_optimized;
         switch (other._type) {
         case EMPTY:
             break;
@@ -1361,7 +1359,6 @@ public:
             break;
         }
         other._type = EMPTY;
-        other._is_optimized = false;
     }
 
     BitmapValue& operator=(const BitmapValue& other) {
@@ -1370,7 +1367,6 @@ public:
         }
         reset();
         _type = other._type;
-        _is_optimized = other._is_optimized;
         switch (other._type) {
         case EMPTY:
             break;
@@ -1396,7 +1392,6 @@ public:
         reset();
 
         _type = other._type;
-        _is_optimized = other._is_optimized;
         switch (other._type) {
         case EMPTY:
             break;
@@ -1412,7 +1407,6 @@ public:
             break;
         }
         other._type = EMPTY;
-        other._is_optimized = false;
         return *this;
     }
 
@@ -1664,7 +1658,6 @@ public:
             switch (_type) {
             case EMPTY:
                 _bitmap = rhs._bitmap;
-                _is_optimized = rhs._is_optimized;
                 _type = BITMAP;
                 break;
             case SINGLE:
@@ -1914,7 +1907,6 @@ public:
             switch (_type) {
             case EMPTY:
                 _bitmap = rhs._bitmap;
-                _is_optimized = rhs._is_optimized;
                 _type = BITMAP;
                 break;
             case SINGLE:
@@ -2382,21 +2374,18 @@ public:
         return 0;
     }
 
-    bool needs_optimization() const { return _type == BITMAP && !_is_optimized; }
-
     void optimize() {
-        if (needs_optimization()) {
+        if (_type == BITMAP) {
             _prepare_bitmap_for_write();
             _bitmap->runOptimize();
             _bitmap->shrinkToFit();
-            _is_optimized = true;
         }
     }
 
     // Request exactly enough destination space for the representation that will be written.
     template <typename Allocate>
     size_t write_optimized(Allocate&& allocate) const {
-        if (needs_optimization()) {
+        if (_type == BITMAP) {
             auto optimized = _make_optimized_roaring();
             const auto version = config::bitmap_serialize_version;
             return optimized.write(allocate(optimized.getSizeInBytes(version)), version);
@@ -2407,7 +2396,7 @@ public:
     // Write the compact representation into a caller-sized buffer (at least getSizeInBytes() bytes)
     // and return the number of bytes written.
     size_t write_optimized_to(char* dst) const {
-        if (needs_optimization()) {
+        if (_type == BITMAP) {
             return _make_optimized_roaring().write(dst, config::bitmap_serialize_version);
         }
         return write_to(dst);
@@ -2488,18 +2477,15 @@ public:
 
     // Deserialize a bitmap value from `src`.
     // Return false if `src` begins with unknown type code, true otherwise.
-    bool deserialize(const char* src) { return _deserialize<false>(src); }
-
-    bool deserialize_optimized(const char* src) { return _deserialize<true>(src); }
+    bool deserialize(const char* src) { return _deserialize(src); }
 
     // Return the number of bytes consumed from src, or zero on decode failure.
     size_t deserialize_with_size(const char* src) {
         size_t consumed = 0;
-        return _deserialize<false>(src, &consumed) ? consumed : 0;
+        return _deserialize(src, &consumed) ? consumed : 0;
     }
 
 private:
-    template <bool AssumeOptimized = false>
     bool _deserialize(const char* src, size_t* bytes_read = nullptr) {
         reset();
         switch (*src) {
@@ -2532,7 +2518,6 @@ private:
             try {
                 _bitmap = std::make_shared<detail::Roaring64Map>(
                         detail::Roaring64Map::read(src, bytes_read));
-                _is_optimized = AssumeOptimized;
                 return true;
             } catch (const std::runtime_error& e) {
                 LOG(ERROR) << "Decode roaring bitmap failed, " << e.what();
@@ -2910,7 +2895,6 @@ public:
 
     void reset() {
         _type = EMPTY;
-        _is_optimized = false;
         _sv = 0;
         _set.clear();
         _bitmap = nullptr;
@@ -2983,7 +2967,6 @@ private:
     }
 
     void _prepare_bitmap_for_write() {
-        _is_optimized = false;
         if (!_bitmap) {
             _bitmap = std::make_shared<detail::Roaring64Map>();
         } else if (_bitmap.use_count() > 1) {
@@ -3011,7 +2994,6 @@ private:
     std::shared_ptr<detail::Roaring64Map> _bitmap; // used when _type == BITMAP
     BitmapSmallSet _set;
     BitmapDataType _type {EMPTY};
-    bool _is_optimized = false;
     static constexpr uint64_t SET_TYPE_THRESHOLD = 32;
 };
 

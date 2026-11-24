@@ -83,7 +83,7 @@ TEST(AggBitmapTest, bitmap_union_test) {
     agg_function->add(place, column, agg_test_batch_size, arena);
     agg_function->insert_result_into_range(place, ans, 0, 3);
     EXPECT_EQ(ans.size(), 4);
-    EXPECT_FALSE(ans.get_element(1).needs_optimization());
+    EXPECT_LT(ans.get_element(1).getSizeInBytes(), dense.getSizeInBytes());
     EXPECT_EQ(ans.get_element(1)._bitmap, ans.get_element(3)._bitmap);
     agg_function->insert_result_into_vec({place}, 0, ans, 1);
     EXPECT_EQ(ans.size(), 5);

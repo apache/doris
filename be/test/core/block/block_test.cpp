@@ -744,7 +744,6 @@ TEST(BlockTest, SerializeCompactBitmapBatch) {
                         .ok());
     EXPECT_GE(allocated, encoded.uncompressed_size());
     EXPECT_LT(encoded.uncompressed_size(), source.getSizeInBytes());
-    EXPECT_TRUE(bitmaps->get_element(0).needs_optimization());
     EXPECT_EQ(bitmaps->get_element(0).getSizeInBytes(), source.getSizeInBytes());
 
     Block decoded;
@@ -754,14 +753,12 @@ TEST(BlockTest, SerializeCompactBitmapBatch) {
     const auto& result = assert_cast<const ColumnBitmap&>(*decoded.get_by_position(0).column);
     EXPECT_EQ(result.get_element(rows - 1).cardinality(), source.cardinality());
     EXPECT_EQ(result.get_element(rows - 1).getSizeInBytes(), compact.getSizeInBytes());
-    EXPECT_FALSE(result.get_element(rows - 1).needs_optimization());
     const auto& constant = assert_cast<const ColumnConst&>(*decoded.get_by_position(1).column);
     const auto& values = assert_cast<const ColumnArray&>(constant.get_data_column());
     const auto& nested = assert_cast<const ColumnNullable&>(values.get_data());
     const auto& elements = assert_cast<const ColumnBitmap&>(nested.get_nested_column());
     EXPECT_EQ(elements.size(), rows);
     EXPECT_EQ(elements.get_element(0).getSizeInBytes(), compact.getSizeInBytes());
-    EXPECT_FALSE(elements.get_element(0).needs_optimization());
 }
 
 void serialize_and_deserialize_test_bitmap() {

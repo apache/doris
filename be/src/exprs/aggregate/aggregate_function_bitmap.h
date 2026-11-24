@@ -332,14 +332,9 @@ public:
     void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to, size_t start,
                                   size_t end) const override {
         auto& results = assert_cast<ColVecResult&, TypeCheckOnRelease::DISABLE>(to).get_data();
-        const auto& src = this->data(place).value;
-        if (src.needs_optimization()) {
-            BitmapValue optimized(src);
-            optimized.optimize();
-            results.insert(results.end(), end - start, optimized);
-        } else {
-            results.insert(results.end(), end - start, src);
-        }
+        BitmapValue value = this->data(place).value;
+        value.optimize();
+        results.insert(results.end(), end - start, value);
     }
 
     void insert_result_into_vec(const std::vector<AggregateDataPtr>& places, size_t offset,

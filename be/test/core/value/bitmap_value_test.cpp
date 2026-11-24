@@ -786,7 +786,8 @@ TEST(BitmapValueTest, serialize_current_representation_and_optimize_on_demand) {
         EXPECT_EQ(bytes, raw);
         bitmap.serialize_optimized(bytes);
         EXPECT_EQ(bytes, expected);
-        EXPECT_TRUE(bitmap.needs_optimization());
+        EXPECT_EQ(bitmap.getSizeInBytes(), source_size);
+        EXPECT_EQ(bitmap._bitmap.get(), backing);
         std::string buffer(bitmap.getSizeInBytes(), '\0');
         EXPECT_EQ(bitmap.write_to(buffer.data()), buffer.size());
         EXPECT_EQ(buffer, raw);
@@ -799,25 +800,31 @@ TEST(BitmapValueTest, serialize_current_representation_and_optimize_on_demand) {
         EXPECT_EQ(bytes, expected);
         EXPECT_EQ(alias.getSizeInBytes(), expected.size());
         BitmapValue shared(alias);
-        shared.optimize();
         EXPECT_EQ(shared._bitmap.get(), alias._bitmap.get());
 
         shared.add(2048);
-        EXPECT_TRUE(shared.needs_optimization());
+        EXPECT_NE(shared._bitmap.get(), alias._bitmap.get());
         EXPECT_FALSE(alias.contains(2048));
         shared.optimize();
-        EXPECT_FALSE(shared.needs_optimization());
 
         EXPECT_EQ(shared.deserialize_with_size(raw.data()), source_size);
-        EXPECT_TRUE(shared.needs_optimization());
+        EXPECT_EQ(shared.getSizeInBytes(), source_size);
         shared.optimize();
         serialize_raw(shared, bytes);
         EXPECT_EQ(bytes, expected);
-        ASSERT_TRUE(shared.deserialize_optimized(expected.data()));
-        EXPECT_FALSE(shared.needs_optimization());
+        ASSERT_TRUE(shared.deserialize(expected.data()));
         EXPECT_EQ(shared.getSizeInBytes(), expected.size());
         serialize_raw(bitmap, bytes);
         EXPECT_EQ(bytes, raw);
+
+        BitmapValue solo;
+        ASSERT_TRUE(solo.deserialize(raw.data()));
+        const auto* solo_backing = solo._bitmap.get();
+        ASSERT_EQ(solo._bitmap.use_count(), 1);
+        solo.optimize();
+        EXPECT_EQ(solo._bitmap.get(), solo_backing);
+        EXPECT_LT(solo.getSizeInBytes(), source_size);
+        EXPECT_EQ(solo.getSizeInBytes(), expected.size());
     }
     config::bitmap_serialize_version = old_version;
 }
@@ -828,6 +835,7 @@ TEST(BitmapValueTest, copy_and_mutate_optimized_bitmap) {
         source.add(i);
     }
     source.optimize();
+    const auto* backing = source._bitmap.get();
     BitmapValue copied(source), assigned, unioned, xored;
     assigned = source;
     unioned |= source;
@@ -836,16 +844,16 @@ TEST(BitmapValueTest, copy_and_mutate_optimized_bitmap) {
     copied = std::move(assigned);
     for (auto* value : {&moved, &copied, &unioned, &xored}) {
         value->optimize();
-        EXPECT_EQ(value->_bitmap.get(), source._bitmap.get());
+        EXPECT_NE(value->_bitmap.get(), backing);
     }
     moved.remove(0);
     copied |= source;
     unioned &= source;
     xored ^= BitmapValue(uint64_t {0});
     for (const auto* value : {&moved, &copied, &unioned, &xored}) {
-        EXPECT_TRUE(value->needs_optimization());
+        EXPECT_NE(value->_bitmap.get(), backing);
     }
-    EXPECT_FALSE(source.needs_optimization());
+    EXPECT_EQ(source._bitmap.get(), backing);
     EXPECT_EQ(source.cardinality(), 1024);
 }
 
