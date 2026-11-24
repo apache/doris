@@ -49,11 +49,11 @@ public:
     ~VInPredicate() override = default;
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override;
-    size_t estimate_memory(const size_t rows) override;
+    size_t estimate_memory(const size_t rows) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override;
-    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+                FunctionContext::FunctionStateScope scope) const override;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) const override;
     const std::string& expr_name() const override;
 
     std::string debug_string() const override;
@@ -61,7 +61,7 @@ public:
     FunctionBasePtr function() const { return _function; }
 
     bool is_not_in() const { return _is_not_in; };
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) const override;
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override;
     bool can_evaluate_zonemap_filter() const override;
     ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const override;

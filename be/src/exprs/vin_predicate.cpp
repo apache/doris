@@ -123,6 +123,8 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
 
     VExpr::register_function_context(state, context);
+    _is_args_all_constant = std::all_of(_children.begin() + 1, _children.end(),
+                                        [](const VExprSPtr& expr) { return expr->is_constant(); });
     _prepare_finished = true;
 
     if (state->query_options().__isset.in_list_value_count_threshold) {
@@ -132,32 +134,32 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 }
 
 Status VInPredicate::open(RuntimeState* state, VExprContext* context,
-                          FunctionContext::FunctionStateScope scope) {
+                          FunctionContext::FunctionStateScope scope) const {
     DCHECK(_prepare_finished);
     for (auto& child : _children) {
         RETURN_IF_ERROR(child->open(state, context, scope));
     }
     RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
-        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
+        // TODO: Move this initialization to a dedicated non-const fragment open.
+        // This cast is temporary. The original context initializes the mutable tree
+        // before sharing it with clones.
+        auto* self = const_cast<VInPredicate*>(this);
+        RETURN_IF_ERROR(self->VExpr::get_const_col(context, nullptr));
+        if (_is_args_all_constant && _zonemap_min_max == nullptr) {
+            self->_prepare_zonemap_min_max(context);
+        }
     }
-
-    _is_args_all_constant = std::all_of(_children.begin() + 1, _children.end(),
-                                        [](const VExprSPtr& expr) { return expr->is_constant(); });
-    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL && _is_args_all_constant &&
-        _zonemap_min_max == nullptr) {
-        _prepare_zonemap_min_max(context);
-    }
-    _open_finished = true;
     return Status::OK();
 }
 
-void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
+void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateScope scope) const {
     VExpr::close_function_context(context, scope, _function);
     VExpr::close(context, scope);
 }
 
-Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+Status VInPredicate::evaluate_inverted_index(VExprContext* context,
+                                             uint32_t segment_num_rows) const {
     DCHECK_GE(get_num_children(), 2);
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
@@ -315,7 +317,6 @@ Status VInPredicate::execute_column_impl(VExprContext* context, const Block* blo
     if (fast_execute(context, selector, count, result_column)) {
         return Status::OK();
     }
-    DCHECK(_open_finished || block == nullptr);
 
     // This is an optimization. For expressions like colA IN (1, 2, 3, 4),
     // where all values inside the IN clause are constants,
@@ -343,7 +344,7 @@ Status VInPredicate::execute_column_impl(VExprContext* context, const Block* blo
     return Status::OK();
 }
 
-size_t VInPredicate::estimate_memory(const size_t rows) {
+size_t VInPredicate::estimate_memory(const size_t rows) const {
     if (is_const_and_have_executed()) {
         return 0;
     }

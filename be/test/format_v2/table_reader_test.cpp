@@ -2745,13 +2745,13 @@ TEST(TableReaderTest, RefreshKeepsActiveMappingProjectionSnapshot) {
 
     const auto active_projection = reader.TEST_mapping_projection(0);
     ASSERT_NE(active_projection, nullptr);
-    ASSERT_TRUE(active_projection->root()->ready_status().ok());
+    ASSERT_TRUE(active_projection->_opened);
     VExprContextSPtrs refreshed {VExprContext::create_shared(
             runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 1)))};
     ASSERT_TRUE(reader.refresh_conjuncts(std::move(refreshed)).ok());
 
     EXPECT_EQ(reader.TEST_mapping_projection(0), active_projection);
-    EXPECT_TRUE(reader.TEST_mapping_projection(0)->root()->ready_status().ok());
+    EXPECT_TRUE(active_projection->_opened);
     ASSERT_TRUE(reader.close().ok());
 }
 

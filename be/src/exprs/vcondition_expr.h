@@ -46,8 +46,8 @@ public:
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) final;
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) final;
-    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) final;
+                FunctionContext::FunctionStateScope scope) const final;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) const final;
 
     std::string debug_string() const override;
 

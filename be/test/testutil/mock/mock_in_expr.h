@@ -37,7 +37,7 @@ public:
     }
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override;
+                FunctionContext::FunctionStateScope scope) const override;
 
     static std::shared_ptr<MockInExpr> create() { return std::make_shared<MockInExpr>(); }
 

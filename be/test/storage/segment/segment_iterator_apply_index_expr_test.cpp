@@ -72,7 +72,8 @@ public:
         return Status::OK();
     }
 
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
+    Status evaluate_inverted_index(VExprContext* context,
+                                   uint32_t segment_num_rows) const override {
         ++_evaluate_count;
         if (_on_evaluate) {
             _on_evaluate();
@@ -83,7 +84,7 @@ public:
 private:
     Status _eval_status = Status::OK();
     std::function<void()> _on_evaluate;
-    int _evaluate_count = 0;
+    mutable int _evaluate_count = 0;
 };
 
 TabletSchemaSPtr make_tablet_schema() {

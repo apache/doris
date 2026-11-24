@@ -101,15 +101,15 @@ Status RuntimeFilterExpr::prepare(RuntimeState* state, const RowDescriptor& desc
 }
 
 Status RuntimeFilterExpr::open(RuntimeState* state, VExprContext* context,
-                               FunctionContext::FunctionStateScope scope) {
+                               FunctionContext::FunctionStateScope scope) const {
     DCHECK(_prepare_finished);
     RETURN_IF_ERROR(_impl->open(state, context, scope));
     context->get_runtime_filter_selectivity().set_sampling_frequency(_sampling_frequency);
-    _open_finished = true;
     return Status::OK();
 }
 
-void RuntimeFilterExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
+void RuntimeFilterExpr::close(VExprContext* context,
+                              FunctionContext::FunctionStateScope scope) const {
     _impl->close(context, scope);
 }
 
@@ -126,7 +126,6 @@ const std::string& RuntimeFilterExpr::expr_name() const {
 Status RuntimeFilterExpr::execute_filter(VExprContext* context, const Block* block,
                                          uint8_t* __restrict result_filter_data, size_t rows,
                                          bool accept_null, bool* can_filter_all) const {
-    DCHECK(_open_finished);
     if (accept_null) {
         return Status::InternalError(
                 "Runtime filter does not support accept_null in execute_filter");

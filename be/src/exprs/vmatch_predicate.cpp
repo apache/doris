@@ -148,7 +148,7 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 }
 
 Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
-                             FunctionContext::FunctionStateScope scope) {
+                             FunctionContext::FunctionStateScope scope) const {
     DCHECK(_prepare_finished);
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
@@ -159,18 +159,23 @@ Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
         context->fn_context(_fn_context_index)->set_function_state(scope, _analyzer_ctx);
     }
     if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
-        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
+        // TODO: Move this initialization to a dedicated non-const fragment open.
+        // This cast is temporary. The original context initializes the mutable tree
+        // before sharing it with clones.
+        auto* self = const_cast<VMatchPredicate*>(this);
+        RETURN_IF_ERROR(self->VExpr::get_const_col(context, nullptr));
     }
-    _open_finished = true;
     return Status::OK();
 }
 
-void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
+void VMatchPredicate::close(VExprContext* context,
+                            FunctionContext::FunctionStateScope scope) const {
     VExpr::close_function_context(context, scope, _function);
     VExpr::close(context, scope);
 }
 
-Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+Status VMatchPredicate::evaluate_inverted_index(VExprContext* context,
+                                                uint32_t segment_num_rows) const {
     DCHECK_EQ(get_num_children(), 2);
     if (context != nullptr && context->get_index_context() != nullptr && _analyzer_ctx != nullptr) {
         context->get_index_context()->set_analyzer_ctx_for_expr(this, _analyzer_ctx);
@@ -185,7 +190,6 @@ const std::string& VMatchPredicate::get_analyzer_key() const {
 Status VMatchPredicate::execute_column_impl(VExprContext* context, const Block* block,
                                             const Selector* selector, size_t count,
                                             ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr);
     if (fast_execute(context, selector, count, result_column)) {
         return Status::OK();
     }

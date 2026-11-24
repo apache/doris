@@ -872,14 +872,13 @@ public:
     }
 
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override {
+                FunctionContext::FunctionStateScope scope) const override {
         DCHECK(_prepare_finished);
         RETURN_IF_ERROR(VExpr::open(state, context, scope));
-        _open_finished = true;
         return Status::OK();
     }
 
-    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override {
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) const override {
         VExpr::close(context, scope);
     }
 
@@ -969,18 +968,16 @@ public:
     }
 
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override {
+                FunctionContext::FunctionStateScope scope) const override {
         DCHECK(_prepare_finished);
         // Opens the children, as EqualityDeletePredicate does. RETURN_IF_ERROR_OR_PREPARED would
         // return at once, since prepare() has set `_prepared`, leaving a default cast to the
-        // comparison type, e.g. the TIME text `00:00` parsed as TIMEV2, unopened, so executing it
-        // fails "Check failed: _open_finished" in Cast.
+        // comparison type, e.g. the TIME text `00:00` parsed as TIMEV2, unopened.
         RETURN_IF_ERROR(VExpr::open(state, context, scope));
-        _open_finished = true;
         return Status::OK();
     }
 
-    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override {
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) const override {
         VExpr::close(context, scope);
     }
 
@@ -1065,16 +1062,15 @@ public:
     }
 
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override {
+                FunctionContext::FunctionStateScope scope) const override {
         DCHECK(_prepare_finished);
         // As in AncestorNullDefaultExpr: the child, e.g. a nested key's NestedStructFieldExpr,
         // must be opened, which RETURN_IF_ERROR_OR_PREPARED would skip after prepare().
         RETURN_IF_ERROR(VExpr::open(state, context, scope));
-        _open_finished = true;
         return Status::OK();
     }
 
-    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override {
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) const override {
         VExpr::close(context, scope);
     }
 

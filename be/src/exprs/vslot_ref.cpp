@@ -87,10 +87,9 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
 }
 
 Status VSlotRef::open(RuntimeState* state, VExprContext* context,
-                      FunctionContext::FunctionStateScope scope) {
+                      FunctionContext::FunctionStateScope scope) const {
     DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
-    _open_finished = true;
     return Status::OK();
 }
 

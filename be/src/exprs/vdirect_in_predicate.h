@@ -67,10 +67,9 @@ public:
     }
 
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override {
+                FunctionContext::FunctionStateScope scope) const override {
         DCHECK(_prepare_finished);
         RETURN_IF_ERROR(VExpr::open(state, context, scope));
-        _open_finished = true;
         return Status::OK();
     }
 
@@ -279,7 +278,6 @@ private:
     Status _do_execute(VExprContext* context, const Block* block, const uint8_t* __restrict filter,
                        const Selector* selector, size_t count, ColumnPtr& result_column,
                        ColumnPtr* arg_column) const { // NOLINT(readability-non-const-parameter)
-        DCHECK(_open_finished || block == nullptr);
         DCHECK(!(filter != nullptr && selector != nullptr))
                 << "filter and selector can not be both set";
         ColumnPtr argument_column;

@@ -72,7 +72,7 @@ public:
     }
 
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override {
+                FunctionContext::FunctionStateScope scope) const override {
         return Status::OK();
     }
 };

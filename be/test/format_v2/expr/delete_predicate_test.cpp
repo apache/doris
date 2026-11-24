@@ -55,7 +55,6 @@ protected:
     static Status execute_delete_predicate(const std::vector<int64_t>& deleted_rows, Block* block,
                                            int* result_column_id) {
         auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
-        delete_predicate->_open_finished = true;
         delete_predicate->add_child(
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>()));
 
@@ -66,7 +65,6 @@ protected:
     static Status execute_delete_predicate(const roaring::Roaring64Map& deletion_vector,
                                            Block* block, int* result_column_id) {
         auto delete_predicate = std::make_shared<DeletePredicate>(deletion_vector);
-        delete_predicate->_open_finished = true;
         delete_predicate->add_child(
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>()));
 
@@ -152,7 +150,6 @@ TEST_F(DeletePredicateTest, MissingRowIdChildReturnsError) {
     const std::vector<int64_t> deleted_rows {1};
     auto block = make_block({1});
     auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
-    delete_predicate->_open_finished = true;
     VExprContext context(delete_predicate);
 
     int result_column_id = -1;

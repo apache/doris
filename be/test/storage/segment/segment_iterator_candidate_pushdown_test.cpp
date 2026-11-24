@@ -90,7 +90,8 @@ public:
         return Status::OK();
     }
 
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
+    Status evaluate_inverted_index(VExprContext* context,
+                                   uint32_t segment_num_rows) const override {
         _captured = true;
         _captured_candidate = _iter->_index_query_context != nullptr
                                       ? _iter->_index_query_context->candidate_rows
@@ -109,9 +110,9 @@ public:
 
 private:
     SegmentIterator* _iter;
-    bool _captured = false;
-    const roaring::Roaring* _captured_candidate = nullptr;
-    std::optional<roaring::Roaring> _captured_candidate_copy;
+    mutable bool _captured = false;
+    mutable const roaring::Roaring* _captured_candidate = nullptr;
+    mutable std::optional<roaring::Roaring> _captured_candidate_copy;
 };
 
 // Produces a deterministic inverted-index result while modeling the contract
@@ -143,7 +144,7 @@ public:
         return Status::NotSupported("bitmap-only test expression");
     }
 
-    Status evaluate_inverted_index(VExprContext* context, uint32_t) override {
+    Status evaluate_inverted_index(VExprContext* context, uint32_t) const override {
         _evaluated = true;
         auto data = std::make_shared<roaring::Roaring>(_true_rows);
         if (_iter->_index_query_context->candidate_rows != nullptr) {
@@ -161,7 +162,7 @@ private:
     SegmentIterator* _iter;
     roaring::Roaring _true_rows;
     roaring::Roaring _null_rows;
-    bool _evaluated = false;
+    mutable bool _evaluated = false;
 };
 
 // An indexed predicate stub that shrinks the row bitmap to a fixed set,

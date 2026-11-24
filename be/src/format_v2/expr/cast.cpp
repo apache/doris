@@ -56,19 +56,22 @@ Status Cast::prepare(RuntimeState* state, const RowDescriptor& desc, VExprContex
 }
 
 Status Cast::open(RuntimeState* state, VExprContext* context,
-                  FunctionContext::FunctionStateScope scope) {
+                  FunctionContext::FunctionStateScope scope) const {
     DCHECK(_prepare_finished);
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
     if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
-        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
+        // TODO: Move this initialization to a dedicated non-const fragment open.
+        // This cast is temporary. The original context initializes the mutable tree
+        // before sharing it with clones.
+        auto* self = const_cast<Cast*>(this);
+        RETURN_IF_ERROR(self->VExpr::get_const_col(context, nullptr));
     }
-    _open_finished = true;
     return Status::OK();
 }
 
-void Cast::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
+void Cast::close(VExprContext* context, FunctionContext::FunctionStateScope scope) const {
     VExpr::close(context, scope);
 }
 
@@ -84,7 +87,6 @@ std::string Cast::debug_string() const {
 
 Status Cast::_do_execute(VExprContext* context, const Block* block, const Selector* selector,
                          size_t count, ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr) << debug_string();
     if (_children.size() != 1) {
         return Status::InternalError(
                 fmt::format("Cast should have exactly 1 child expr, but got {}", _children.size()));

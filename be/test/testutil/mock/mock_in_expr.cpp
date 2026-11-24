@@ -97,8 +97,7 @@ Status MockInExpr::prepare(RuntimeState* state, const RowDescriptor& desc, VExpr
 }
 
 Status MockInExpr::open(RuntimeState* state, VExprContext* context,
-                        FunctionContext::FunctionStateScope scope) {
-    _open_finished = true;
+                        FunctionContext::FunctionStateScope scope) const {
     return Status::OK();
 }
 

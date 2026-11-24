@@ -62,9 +62,9 @@ public:
                                size_t count, ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override;
+                FunctionContext::FunctionStateScope scope) const override;
     std::string debug_string() const override { return _impl->debug_string(); }
-    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) const override;
     const std::string& expr_name() const override;
     const VExprSPtrs& children() const override { return _impl->children(); }
     TExprNodeType::type node_type() const override { return _impl->node_type(); }

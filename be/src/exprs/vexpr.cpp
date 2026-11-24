@@ -465,12 +465,16 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
 }
 
 Status VExpr::open(RuntimeState* state, VExprContext* context,
-                   FunctionContext::FunctionStateScope scope) {
+                   FunctionContext::FunctionStateScope scope) const {
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
     if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
-        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
+        // TODO: Move this initialization to a dedicated non-const fragment open.
+        // This cast is temporary. The original context initializes the mutable tree
+        // before sharing it with clones.
+        auto* self = const_cast<VExpr*>(this);
+        RETURN_IF_ERROR(self->VExpr::get_const_col(context, nullptr));
     }
     return Status::OK();
 }
@@ -478,13 +482,12 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
 void VExpr::reset_prepare_state() {
     _prepared = false;
     _prepare_finished = false;
-    _open_finished = false;
     for (auto& child : _children) {
         child->reset_prepare_state();
     }
 }
 
-void VExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
+void VExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) const {
     for (auto& i : _children) {
         i->close(context, scope);
     }
@@ -928,7 +931,7 @@ ColumnPtr VExpr::get_result_from_const(size_t count) const {
 }
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
-                                       uint32_t segment_num_rows) {
+                                       uint32_t segment_num_rows) const {
     if (function->index_result_is_approximate()) {
         if (context->approx_index_result_consumer() != this || get_num_children() != 2) {
             return Status::OK();
@@ -1079,7 +1082,7 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
     return Status::OK();
 }
 
-size_t VExpr::estimate_memory(const size_t rows) {
+size_t VExpr::estimate_memory(const size_t rows) const {
     if (is_const_and_have_executed()) {
         return 0;
     }
@@ -1147,14 +1150,14 @@ Status VExpr::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         size_t rows_of_segment, roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats,
-        bool enable_result_cache, AnnRangeSearchEvaluationResult& result) {
+        bool enable_result_cache, AnnRangeSearchEvaluationResult& result) const {
     result = {};
     return Status::OK();
 }
 
 void VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params,
                                      segment_v2::AnnRangeSearchRuntime& range_search_runtime,
-                                     bool& suitable_for_ann_index) {
+                                     bool& suitable_for_ann_index) const {
     if (!suitable_for_ann_index) {
         return;
     }
