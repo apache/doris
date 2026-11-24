@@ -75,9 +75,8 @@ Status AnnIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
 }
 
 Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
-    Status load_status;
-    RETURN_IF_ERROR(_load_with_health_check([&]() {
-        load_status = _load_index_once.call([&]() {
+    return _load_with_health_check([&]() {
+        return _load_index_once.call([&]() {
             DorisMetrics::instance()->ann_index_load_cnt->increment(1);
 
             RETURN_IF_ERROR(
@@ -110,14 +109,17 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
             _source = std::move(*source);
             return Status::OK();
         });
-        // Small segments can legitimately have no ANN data. Keep their cached reader
-        // healthy so every query can fall back without rebuilding the ColumnReader.
-        if (load_status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
-            return Status::OK();
-        }
-        return load_status;
-    }));
-    return load_status;
+    });
+}
+
+Status AnnIndexReader::healthy_status() const {
+    auto status = IndexReader::healthy_status();
+    // Small segments can legitimately have no ANN data. Keep their cached reader
+    // healthy so every query can fall back without rebuilding the ColumnReader.
+    if (status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+        return Status::OK();
+    }
+    return status;
 }
 
 Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnIndexStats* stats) {
