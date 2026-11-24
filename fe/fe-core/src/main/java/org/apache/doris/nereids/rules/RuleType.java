@@ -365,6 +365,7 @@ public enum RuleType {
     INNER_TO_CROSS_JOIN(RuleTypeClass.REWRITE),
     CROSS_TO_INNER_JOIN(RuleTypeClass.REWRITE),
     PRUNE_EMPTY_PARTITION(RuleTypeClass.REWRITE),
+    PREFER_IVM_DELTA_BUILD_SIDE(RuleTypeClass.REWRITE),
     PROJECT_OTHER_JOIN_CONDITION(RuleTypeClass.REWRITE),
 
     // stats deriver

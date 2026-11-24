@@ -17,11 +17,9 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.qe.ConnectContext;
 
 /**
@@ -37,16 +35,7 @@ public class SemiJoinCommute extends OneRewriteRuleFactory {
                 .whenNot(join -> ConnectContext.get().getSessionVariable().isDisableJoinReorder())
                 .whenNot(join -> join.isLeadingJoin())
                 .whenNot(LogicalJoin::hasDistributeHint)
-                .thenApply(ctx -> {
-                    LogicalJoin<?, ?> join = ctx.root;
-                    // IVM puts the delta on the build side before the optimizer checks statistics.
-                    if (ctx.statementContext.getIvmRewriteContext().filter(IvmRewriteContext::isIncrementalRefresh)
-                            .isPresent() && join.right().anyMatch(plan -> plan instanceof LogicalOlapTableStreamScan
-                                    && ((LogicalOlapTableStreamScan) plan).isIncremental())) {
-                        return null;
-                    }
-                    return join.withTypeChildren(join.getJoinType().swap(), join.right(), join.left(), null);
-                })
+                .then(join -> join.withTypeChildren(join.getJoinType().swap(), join.right(), join.left(), null))
                 .toRule(RuleType.LOGICAL_SEMI_JOIN_COMMUTE);
     }
 }

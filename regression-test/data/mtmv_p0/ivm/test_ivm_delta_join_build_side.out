@@ -8,6 +8,12 @@ INNER_JOIN\nPhysicalOlapScan[ivm_build_snapshot]\nPhysicalOlapScan[ivm_build_del
 -- !mow_outer --
 RIGHT_OUTER_JOIN\nPhysicalOlapScan[ivm_build_snapshot]\nPhysicalOlapScan[ivm_build_delta]
 
+-- !mow_outer_folded --
+NestedLoopJoin[LEFT_OUTER_JOIN]\nPhysicalOlapScan[ivm_build_delta]\nPhysicalOlapScan[ivm_build_snapshot]
+
+-- !mow_outer_hinted --
+LEFT_OUTER_JOIN\nPhysicalOlapScan[ivm_build_delta]\nPhysicalOlapScan[ivm_build_snapshot]
+
 -- !mow_repair --
 INNER_JOIN\nPhysicalOlapScan[ivm_build_delta]\nPhysicalOlapScan[ivm_build_snapshot]\nRIGHT_ANTI_JOIN\nPhysicalOlapScan[ivm_build_snapshot]\nhashAgg\nPhysicalOlapScan[ivm_build_snapshot]
 

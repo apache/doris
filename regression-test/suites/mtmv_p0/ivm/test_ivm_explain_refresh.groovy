@@ -177,7 +177,7 @@ suite("test_ivm_explain_refresh") {
     explain {
         sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL WITH ALL STREAMS"
         contains "LogicalJoin"
-        contains "RIGHT_OUTER_JOIN"
+        contains "LEFT_OUTER_JOIN"
         contains "test_ivm_explain_refresh_t1"
         // t2 is read through its incremental/snapshot stream scans. Unique-key repair
         // no longer adds the ordinary t2 post-snapshot scan that exposed its base name.
@@ -185,7 +185,7 @@ suite("test_ivm_explain_refresh") {
         contains "readMode=SNAPSHOT"
         contains "LogicalAggregate"
         contains "__DORIS_IVM_NULL_SIDE_NET_COUNT__"
-        notContains "ANTI_JOIN"
+        notContains "LEFT_ANTI_JOIN"
     }
 
     explain {
