@@ -18,7 +18,7 @@
 # under the License.
 #
 # Self-test for the check-header-deps.py gate families: layering rules,
-# third-party bans, forward/reverse budgets, pch whitelist.
+# third-party bans, forward/reverse budgets, pch whitelist, CLucene-free roots.
 #
 # The gate runs against the real tree (its rule and budget tables name real
 # headers), so RED cases are proven by injecting one violation per family into
@@ -47,7 +47,6 @@ TARGETS=(
     "be/src/storage/index/inverted/query/spi/index_source.h"
     "be/src/storage/index/inverted/query/engine/intersection.cpp"
     "be/src/storage/index/inverted/common/query_info.h"
-    "build-support/check-header-deps.py"
     "be/src/storage/index/ann/ann_index_writer.h"
     "be/src/storage/index/ann/ann_index_storage.h"
 )
@@ -97,18 +96,31 @@ echo "${OUT}" | grep -q "fix:" || fail "query-format rule lacks a fix path"
 cp "${BACKUP}/be/src/storage/index/inverted/query/spi/index_source.h" \
     "${ROOT}/be/src/storage/index/inverted/query/spi/index_source.h"
 
-# ---- RED: a directory's third-party ban (query headers must not include CLucene) ----
+# ---- RED: CLucene-free roots ----
+# A root header including CLucene itself (query headers must not include CLucene), in both
+# spellings: angle, and quoted, which the closure rule reads as well.
 printf '#include <CLucene.h>\n' \
     >> "${ROOT}/be/src/storage/index/inverted/query/spi/index_source.h"
 OUT="$(run_gate)"; EC=$?
-[ "${EC}" -eq 1 ] || fail "directory angle-ban injection expected exit 1, got ${EC}"
-echo "${OUT}" | grep -q "query/spi/index_source.h must not include <CLucene.h>" \
-    || fail "directory angle-ban violation not reported"
+[ "${EC}" -eq 1 ] || fail "CLucene include in a root header expected exit 1, got ${EC}"
+echo "${OUT}" | grep -q "query/spi/index_source.h includes <CLucene.h>" \
+    || fail "CLucene include in a root header not reported"
+echo "${OUT}" | grep -q "reason:" || fail "CLucene closure failure lacks the reason"
+echo "${OUT}" | grep -q "chain:" || fail "CLucene closure failure lacks the include chain"
+echo "${OUT}" | grep -q "fix:" || fail "CLucene closure failure lacks a fix path"
+cp "${BACKUP}/be/src/storage/index/inverted/query/spi/index_source.h" \
+    "${ROOT}/be/src/storage/index/inverted/query/spi/index_source.h"
+printf '#include "CLucene/analysis/AnalysisHeader.h"\n' \
+    >> "${ROOT}/be/src/storage/index/inverted/query/spi/index_source.h"
+OUT="$(run_gate)"; EC=$?
+[ "${EC}" -eq 1 ] || fail "quoted CLucene include in a root header expected exit 1, got ${EC}"
+echo "${OUT}" | grep -q \
+    "query/spi/index_source.h includes <CLucene/analysis/AnalysisHeader.h>" \
+    || fail "quoted CLucene include in a root header not reported"
 cp "${BACKUP}/be/src/storage/index/inverted/query/spi/index_source.h" \
     "${ROOT}/be/src/storage/index/inverted/query/spi/index_source.h"
 
-# ---- RED: third-party ban (uint24.h must not include fmt) ----
-# CLucene-free roots: an angle include two hops away from a root.
+# An angle include two hops away from a root.
 printf '#pragma once\n#include <CLucene/util/Misc.h>\n' > "${ROOT}/${PROBE_INNER}"
 printf '#pragma once\n#include "util/zz_clucene_probe_inner.h"\n' > "${ROOT}/${PROBE_OUTER}"
 printf '#include "util/zz_clucene_probe_outer.h"\n' \
@@ -135,22 +147,7 @@ echo "${OUT}" | grep -q "query/engine/intersection.cpp includes <CLucene.h>" \
 cp "${BACKUP}/be/src/storage/index/inverted/query/engine/intersection.cpp" \
     "${ROOT}/be/src/storage/index/inverted/query/engine/intersection.cpp"
 
-# An exception that no longer breaks the rule fails the gate. The tables are empty, so the probe
-# lists a clean file under a root, query_info.h. Written into the existing file, which keeps its
-# mode: e.g. "CLUCENE_INCLUDING_FILES = set()" becomes a set holding that one entry.
-add_clucene_exception() {
-    awk -v table="$1 = set()" -v entry="$1 = {\"$2\"}" '{ print ($0 == table ? entry : $0) }' \
-        "${BACKUP}/build-support/check-header-deps.py" > "${GATE}"
-}
-add_clucene_exception CLUCENE_INCLUDING_FILES "storage/index/inverted/common/query_info.h"
-OUT="$(run_gate)"; EC=$?
-[ "${EC}" -eq 1 ] || fail "stale CLucene include exception expected exit 1, got ${EC}"
-echo "${OUT}" | grep -q \
-    "CLUCENE_INCLUDING_FILES lists storage/index/inverted/common/query_info.h" \
-    || fail "stale CLucene include exception not reported"
-cat "${BACKUP}/build-support/check-header-deps.py" > "${GATE}"
-
-# The ANN index is CLucene-free and has no exception: a CLucene include in one of its headers fails.
+# The ANN index is a CLucene-free root too: a CLucene include in one of its headers fails.
 printf '\n#include <CLucene.h>\n' >> "${ROOT}/be/src/storage/index/ann/ann_index_writer.h"
 OUT="$(run_gate)"; EC=$?
 [ "${EC}" -eq 1 ] || fail "CLucene include in an ANN header expected exit 1, got ${EC}"
@@ -170,17 +167,9 @@ OUT="$(run_gate)"; EC=$?
 [ "${EC}" -eq 1 ] || fail "CLucene symbol in a root expected exit 1, got ${EC}"
 echo "${OUT}" | grep -q "common/query_info.h:[0-9]* names the CLucene symbol lucene::" \
     || fail "CLucene symbol in a root not reported"
+echo "${OUT}" | grep -q "fix:" || fail "CLucene symbol failure lacks a fix path"
 cp "${BACKUP}/be/src/storage/index/inverted/common/query_info.h" \
     "${ROOT}/be/src/storage/index/inverted/common/query_info.h"
-
-# A symbol exception that no longer breaks the rule fails the gate; the same made-up entry.
-add_clucene_exception CLUCENE_SYMBOL_FILES "storage/index/inverted/common/query_info.h"
-OUT="$(run_gate)"; EC=$?
-[ "${EC}" -eq 1 ] || fail "stale CLucene symbol exception expected exit 1, got ${EC}"
-echo "${OUT}" | grep -q \
-    "CLUCENE_SYMBOL_FILES lists storage/index/inverted/common/query_info.h" \
-    || fail "stale CLucene symbol exception not reported"
-cat "${BACKUP}/build-support/check-header-deps.py" > "${GATE}"
 
 # A CLucene symbol in ANN code fails the gate as well.
 printf '\ninline lucene::store::Directory* clucene_gate_ann_symbol = nullptr;\n' \
@@ -192,6 +181,7 @@ echo "${OUT}" | grep -q "storage/index/ann/ann_index_storage.h:[0-9]* names the 
 cp "${BACKUP}/be/src/storage/index/ann/ann_index_storage.h" \
     "${ROOT}/be/src/storage/index/ann/ann_index_storage.h"
 
+# ---- RED: third-party ban (uint24.h must not include fmt) ----
 printf '#include <fmt/format.h>\n' >> "${ROOT}/be/src/core/uint24.h"
 OUT="$(run_gate)"; EC=$?
 [ "${EC}" -eq 1 ] || fail "angle-ban injection expected exit 1, got ${EC}"
