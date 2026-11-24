@@ -17,11 +17,13 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -34,6 +36,16 @@ import java.util.List;
 import java.util.Set;
 
 public class TransactionUtil {
+
+    public static void checkTransactionUser(UserIdentity currentUser, TransactionState transactionState)
+            throws AuthenticationException {
+        // Transactions without a txnUser retain their previous authorization during rolling upgrades.
+        if (transactionState.getTxnUser() != null && !transactionState.getTxnUser().equals(currentUser)
+                && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, PrivPredicate.ADMIN)) {
+            throw new AuthenticationException("Access denied: user " + currentUser
+                    + " is not the owner of transaction [" + transactionState.getTransactionId() + "]");
+        }
+    }
 
     public static List<String> getTxnStateInfo(TransactionState txnState, List<String> info) {
         info.add(String.valueOf(txnState.getTransactionId()));
