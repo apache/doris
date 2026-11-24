@@ -42,7 +42,8 @@ class MemoryTrackedPageBase : public LRUCacheValueBase {
 public:
     MemoryTrackedPageBase() = default;
     MemoryTrackedPageBase(size_t b, bool use_cache, segment_v2::PageTypePB page_type);
-    // Construct with an explicit mem-tracker.
+    // Construct with an explicit mem-tracker (for caches outside StoragePageCache,
+    // e.g. AnnIndexIVFListCache).
     MemoryTrackedPageBase(size_t b, std::shared_ptr<MemTrackerLimiter> mem_tracker);
 
     MemoryTrackedPageBase(const MemoryTrackedPageBase&) = delete;

@@ -107,6 +107,7 @@
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
 #include "storage/adaptive_thread_pool_controller.h"
+#include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/cache/page_cache.h"
 #include "storage/id_manager.h"
 #include "storage/index/ann/ann_index_result_cache/ann_index_result_cache.h"
@@ -647,6 +648,8 @@ Status ExecEnv::init_mem_env() {
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
 
+    // Keep the legacy cache implementation available, but do not instantiate it:
+    // both disk-IVF index objects and list pages use the global DATA_PAGE pool.
     LOG(INFO) << "IVF_ON_DISK lists and loaded indexes now share the DATA_PAGE cache. "
                  "ann_index_ivf_list_cache_limit and "
                  "ann_index_ivf_list_cache_stale_sweep_time_sec are deprecated and ignored. "
@@ -993,6 +996,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_tablet_column_object_pool);
 
     // _storage_page_cache must be destoried before _cache_manager
+    SAFE_DELETE(_ann_index_ivf_list_cache);
     SAFE_DELETE(_storage_page_cache);
 
     SAFE_DELETE(_small_file_mgr);
