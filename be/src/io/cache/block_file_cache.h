@@ -82,16 +82,12 @@ public:
     static DeferredStorageRemoveScope* current();
 
     bool owned_by(const BlockFileCache* cache) const { return _cache == cache; }
-    // `latency_us` is the recorder the removal would have used inline, so moving it after the
-    // lock does not move its latency to another metric.
-    void add(const FileCacheKey& key, bvar::LatencyRecorder* latency_us) {
-        _removals.push_back({key, latency_us});
-    }
+    void add(const FileCacheKey& key) { _removals.push_back(key); }
 
 private:
     const BlockFileCache* _cache;
     DeferredStorageRemoveScope* _prev;
-    std::vector<std::pair<FileCacheKey, bvar::LatencyRecorder*>> _removals;
+    std::vector<FileCacheKey> _removals;
 };
 
 // Note: the cache_lock is scoped, so do not add do...while(0) here.
@@ -179,16 +175,24 @@ private:
 // delete the block that replaced it.
 class PendingStorageRemoves {
 public:
-    // Records that the stored block at (key.hash, key.offset) must be removed.
-    void mark(const FileCacheKey& key);
+    struct Removal {
+        FileCacheKey key;
+        // The recorder of the removal path that marked the position (sync, retry or async). The
+        // thread that runs the removal records its latency here, whichever thread that is.
+        bvar::LatencyRecorder* latency_us {nullptr};
+    };
+
+    // Records that the stored block at (key.hash, key.offset) must be removed, and the recorder
+    // its removal latency goes to. Marking a pending, not running position again replaces both.
+    void mark(const FileCacheKey& key, bvar::LatencyRecorder* latency_us);
 
     // Claims the pending removal at (hash, offset). Returns false when nothing is pending or the
-    // removal is already running. On success *key is the key to remove and the caller must call
+    // removal is already running. On success *removal is what to remove and the caller must call
     // finish() after the storage removal returns.
-    bool claim(const UInt128Wrapper& hash, size_t offset, FileCacheKey* key);
+    bool claim(const UInt128Wrapper& hash, size_t offset, Removal* removal);
 
     // Like claim(), but first waits for a running removal at (hash, offset) to finish.
-    bool wait_and_claim(const UInt128Wrapper& hash, size_t offset, FileCacheKey* key);
+    bool wait_and_claim(const UInt128Wrapper& hash, size_t offset, Removal* removal);
 
     // Ends a claimed removal. Returns true when the position was marked again while the removal
     // ran; the entry is then pending again and the caller must claim and run it once more.
@@ -199,7 +203,7 @@ public:
 
 private:
     struct Entry {
-        FileCacheKey key;
+        Removal removal;
         bool running {false};
         bool marked_while_running {false};
     };
@@ -517,12 +521,14 @@ private:
     // the file is gone when it returns even if another thread (a replacement block's downloader, or
     // GC) claimed the removal first: it waits for that owner instead of returning while the unlink
     // is still pending. GC passes false and skips a removal someone else is already running.
-    void run_storage_remove(const UInt128Wrapper& hash, size_t offset,
-                            bvar::LatencyRecorder* latency_us, bool wait_for_owner) const;
+    void run_storage_remove(const UInt128Wrapper& hash, size_t offset, bool wait_for_owner) const;
 
     // Called by the downloader of a new block before it writes: runs or waits out any pending
     // removal of an evicted block stored at the same position.
     void drain_pending_storage_remove(const UInt128Wrapper& hash, size_t offset) const;
+
+    // Removes the claimed block file and records the latency into the removal's recorder.
+    void remove_claimed_storage(const PendingStorageRemoves::Removal& removal) const;
 
     FileBlocks get_impl(const UInt128Wrapper& hash, const CacheContext& context,
                         const FileBlock::Range& range, std::lock_guard<std::mutex>& cache_lock);

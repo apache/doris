@@ -272,7 +272,7 @@ TEST_F(BlockFileCacheTest, evict_io_load_skips_block_pending_removal) {
     FileCacheKey pending;
     pending.hash = key;
     pending.offset = 0;
-    cache._pending_storage_removes.mark(pending);
+    cache._pending_storage_removes.mark(pending, cache._storage_sync_remove_latency_us.get());
 
     CacheContext context;
     context.cache_type = FileCacheType::NORMAL;
@@ -310,15 +310,29 @@ TEST_F(BlockFileCacheTest, evict_io_sync_remove_waits_for_competing_owner) {
     FileCacheKey other;
     other.hash = key;
     other.offset = 0;
-    cache._pending_storage_removes.mark(other);
-    FileCacheKey claimed;
+    cache._pending_storage_removes.mark(other, cache._storage_async_remove_latency_us.get());
+    PendingStorageRemoves::Removal claimed;
     ASSERT_TRUE(cache._pending_storage_removes.claim(key, 0, &claimed));
 
     auto sync_remove = std::async(std::launch::async, [&] { cache.remove_if_cached(key); });
-    EXPECT_EQ(sync_remove.wait_for(std::chrono::milliseconds(200)), std::future_status::timeout);
+    // remove_if_cached marks the position again and erases the cell in one cache lock hold, and
+    // only then waits for the owner. Wait for the cell to go rather than for a fixed time, so a
+    // slow thread start cannot reach finish() below before the position was marked again.
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (true) {
+        {
+            std::lock_guard lock(cache._mutex);
+            if (!cache._files.contains(key)) {
+                break;
+            }
+        }
+        ASSERT_LT(std::chrono::steady_clock::now(), deadline);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_EQ(sync_remove.wait_for(std::chrono::milliseconds(0)), std::future_status::timeout);
     EXPECT_TRUE(fs::exists(path));
     // GC does not wait: it leaves a removal someone else is running.
-    cache.run_storage_remove(key, 0, nullptr, /*wait_for_owner=*/false);
+    cache.run_storage_remove(key, 0, /*wait_for_owner=*/false);
 
     // The other owner finishes without deleting. remove_if_cached marked the position again while
     // it ran, so the waiting caller claims it and deletes the file itself before returning.
@@ -425,12 +439,51 @@ TEST_F(BlockFileCacheTest, evict_io_queued_remove_drained_by_new_download) {
     // The queued item no longer owns the position.
     FileCacheKey queued;
     ASSERT_TRUE(cache._recycle_keys.try_dequeue(queued));
-    cache.run_storage_remove(queued.hash, queued.offset, nullptr, /*wait_for_owner=*/false);
+    cache.run_storage_remove(queued.hash, queued.offset, /*wait_for_owner=*/false);
     auto path = block_path(base, key, 0);
     ASSERT_TRUE(fs::exists(path));
     std::ifstream in(path);
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     EXPECT_EQ(content, std::string(kBlockSize, 'b'));
+}
+
+// A pending removal run by a replacement block's downloader still records its latency, into the
+// recorder of the path that marked it: an async removal drained before GC reaches it is sampled
+// by the async recorder exactly once, and GC later skips the key without a second sample.
+TEST_F(BlockFileCacheTest, evict_io_drained_remove_records_latency) {
+    auto base = evict_io_cache_path("drain_latency");
+    fs::remove_all(base);
+    fs::create_directories(base);
+    Defer cleanup {[&] { fs::remove_all(base); }};
+
+    auto old_interval = config::file_cache_background_gc_interval_ms;
+    // Keep the background GC thread from draining the queue during the test.
+    config::file_cache_background_gc_interval_ms = 3600 * 1000;
+    Defer restore {[&] { config::file_cache_background_gc_interval_ms = old_interval; }};
+
+    BlockFileCache cache(base, normal_only_settings(10 * kBlockSize, kBlockSize));
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+    auto key = BlockFileCache::hash("evict_io_drain_latency");
+    insert_block(cache, key, 0, kBlockSize);
+    auto path = block_path(base, key, 0);
+    ASSERT_TRUE(fs::exists(path));
+
+    const int64_t async_before = cache._storage_async_remove_latency_us->count();
+    const int64_t sync_before = cache._storage_sync_remove_latency_us->count();
+    cache.remove_if_cached_async(key);
+    ASSERT_TRUE(cache._pending_storage_removes.contains(key, 0));
+
+    cache.drain_pending_storage_remove(key, 0);
+    EXPECT_FALSE(cache._pending_storage_removes.contains(key, 0));
+    EXPECT_FALSE(fs::exists(path));
+    EXPECT_EQ(cache._storage_async_remove_latency_us->count(), async_before + 1);
+
+    FileCacheKey queued;
+    ASSERT_TRUE(cache._recycle_keys.try_dequeue(queued));
+    cache.run_storage_remove(queued.hash, queued.offset, /*wait_for_owner=*/false);
+    EXPECT_EQ(cache._storage_async_remove_latency_us->count(), async_before + 1);
+    EXPECT_EQ(cache._storage_sync_remove_latency_us->count(), sync_before);
 }
 
 // Many threads reserve, evict and re-insert a small set of hot positions. Every block the cache
@@ -503,7 +556,7 @@ TEST_F(BlockFileCacheTest, evict_io_concurrent_reserve_evict_reinsert) {
     // Drain whatever the background GC has not reached yet.
     FileCacheKey queued;
     while (cache._recycle_keys.try_dequeue(queued)) {
-        cache.run_storage_remove(queued.hash, queued.offset, nullptr, /*wait_for_owner=*/false);
+        cache.run_storage_remove(queued.hash, queued.offset, /*wait_for_owner=*/false);
     }
     EXPECT_EQ(cache._pending_storage_removes.size(), 0U);
 
@@ -560,22 +613,24 @@ TEST(PendingStorageRemovesTest, mark_claim_finish) {
     FileCacheKey key;
     key.hash = BlockFileCache::hash("pending");
     key.offset = 42;
-    FileCacheKey claimed;
+    bvar::LatencyRecorder recorder;
+    PendingStorageRemoves::Removal claimed;
 
     EXPECT_FALSE(pending.claim(key.hash, key.offset, &claimed));
-    pending.mark(key);
+    pending.mark(key, &recorder);
     EXPECT_TRUE(pending.contains(key.hash, key.offset));
     ASSERT_TRUE(pending.claim(key.hash, key.offset, &claimed));
-    EXPECT_EQ(claimed.offset, 42U);
+    EXPECT_EQ(claimed.key.offset, 42U);
+    EXPECT_EQ(claimed.latency_us, &recorder);
     // A running removal cannot be claimed twice.
     EXPECT_FALSE(pending.claim(key.hash, key.offset, &claimed));
     EXPECT_FALSE(pending.finish(key.hash, key.offset));
     EXPECT_EQ(pending.size(), 0U);
 
     // Marked again while running: finish hands the removal back to the caller.
-    pending.mark(key);
+    pending.mark(key, &recorder);
     ASSERT_TRUE(pending.claim(key.hash, key.offset, &claimed));
-    pending.mark(key);
+    pending.mark(key, &recorder);
     EXPECT_TRUE(pending.finish(key.hash, key.offset));
     ASSERT_TRUE(pending.claim(key.hash, key.offset, &claimed));
     EXPECT_FALSE(pending.finish(key.hash, key.offset));
@@ -587,14 +642,15 @@ TEST(PendingStorageRemovesTest, wait_and_claim_waits_for_running_remove) {
     FileCacheKey key;
     key.hash = BlockFileCache::hash("pending_wait");
     key.offset = 0;
-    FileCacheKey claimed;
-    pending.mark(key);
+    bvar::LatencyRecorder recorder;
+    PendingStorageRemoves::Removal claimed;
+    pending.mark(key, &recorder);
     ASSERT_TRUE(pending.claim(key.hash, key.offset, &claimed));
 
     std::atomic<bool> returned {false};
     bool waiter_claimed = true;
     std::thread waiter([&] {
-        FileCacheKey k;
+        PendingStorageRemoves::Removal k;
         waiter_claimed = pending.wait_and_claim(key.hash, key.offset, &k);
         returned = true;
     });
