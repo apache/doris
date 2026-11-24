@@ -334,8 +334,13 @@ register during initialization; a large join input therefore cannot consume the 
 slot required by another input. Unused quantile slots are refunded. Conservative
 serialized descriptor budgets are 8 MiB per plan, 32 MiB per pinned source and 64 MiB
 per statement, including repeated schema/connection/filter payloads. Wide metadata
-therefore reduces admitted counts instead of multiplying into an oversized split RPC. These are planning
-limits for the opted-in range path, not a new cross-statement/cross-BE source service.
+therefore reduces admitted counts instead of multiplying into an oversized split RPC.
+Until each scan's final predicates and projection are known, optional ranges leave
+8 MiB for each pending scan's mandatory descriptor under both shared byte caps.
+Mandatory cursors use their actual size, so many small scans need not fit all of those
+worst-case reservations. This can reduce early scans' parallelism in a large join.
+These are planning limits for the opted-in range path, not a new
+cross-statement/cross-BE source service.
 The BE client-pool bound controls leases within each query/fragment/scan instance;
 unequal remaining split deadlines do not create extra pools within that instance.
 Only admitted scanners lease clients; planning extra partitions does not open them. General D06 resource-policy and

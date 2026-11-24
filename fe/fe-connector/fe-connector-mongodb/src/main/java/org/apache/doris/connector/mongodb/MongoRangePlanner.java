@@ -48,6 +48,8 @@ final class MongoRangePlanner {
     static final int SAMPLE_ROWS = 4096;
     static final int PROBE_TIMEOUT_MS = 2000;
     private static final long MAX_PLAN_DESCRIPTOR_BYTES = 8L * 1024 * 1024;
+    private static final long MAX_SOURCE_DESCRIPTOR_BYTES = 32L * 1024 * 1024;
+    private static final long MAX_STATEMENT_DESCRIPTOR_BYTES = 64L * 1024 * 1024;
     private final String memoKey = "mongodb.split.plan:" + UUID.randomUUID();
     private final Supplier<MongoCatalogClient> client;
     private final long probeTimeoutMs;
@@ -335,7 +337,15 @@ final class MongoRangePlanner {
             if (available < 1) {
                 throw new DorisConnectorException("MongoDB statement/source split budget exhausted");
             }
-            int count = admit(source, Math.min(requested, available), perRangeBytes);
+            // Final filters/projections are unknown at registration. Optional ranges must leave
+            // one maximum-sized descriptor per pending scan. Admit the current mandatory cursor
+            // using actual bytes even when these conservative reservations cannot all fit.
+            long optionalBytes = Math.min(MAX_STATEMENT_DESCRIPTOR_BYTES - descriptorBytes
+                            - (pendingScans - 1L) * MAX_PLAN_DESCRIPTOR_BYTES,
+                    MAX_SOURCE_DESCRIPTOR_BYTES - sourceDescriptorBytes.getOrDefault(source, 0L)
+                            - (pendingByGroup.get(group) - 1L) * MAX_PLAN_DESCRIPTOR_BYTES);
+            int byteLimit = (int) Math.max(1, optionalBytes / perRangeBytes);
+            int count = admit(source, Math.min(requested, Math.min(available, byteLimit)), perRangeBytes);
             pendingScans--;
             pendingByGroup.merge(group, -1, Integer::sum);
             admittedScans.add(owner);
@@ -350,8 +360,8 @@ final class MongoRangePlanner {
         }
 
         synchronized int admit(String source, int requested, long perRangeBytes) {
-            long remainingBytes = Math.min(64L * 1024 * 1024 - descriptorBytes,
-                    32L * 1024 * 1024 - sourceDescriptorBytes.getOrDefault(source, 0L));
+            long remainingBytes = Math.min(MAX_STATEMENT_DESCRIPTOR_BYTES - descriptorBytes,
+                    MAX_SOURCE_DESCRIPTOR_BYTES - sourceDescriptorBytes.getOrDefault(source, 0L));
             int remaining = (int) Math.min(Math.min(4096 - splits, 256 - sourceSplits.getOrDefault(source, 0)),
                     remainingBytes / perRangeBytes);
             if (remaining < 1) {

@@ -144,6 +144,135 @@ class MongoRangePlannerTest {
     }
 
     @Test
+    void wideFinalDescriptorsKeepTheirMinimumInEitherPlanningOrder() throws Exception {
+        for (boolean wideFirst : List.of(false, true)) {
+            var session = session(new MongoSnapshotPlanTest.Scope(), Map.of("mongodb_read_concern", "snapshot",
+                    "mongodb_split_strategy", "range", "file_split_size", "1", "max_file_split_num", "256"));
+            var providers = new ArrayList<MongoScanPlanProvider>();
+            var tables = new ArrayList<MongoTableHandle>();
+            for (int i = 0; i < 5; i++) {
+                var properties = MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017",
+                        "mongodb.username", "fixture_reader", "mongodb.password",
+                        "v".repeat((i == 4 ? 5 : 1) * 1024 * 1024)));
+                var table = table(properties, "collection");
+                var provider = new MongoScanPlanProvider(properties, Client::new);
+                provider.getScanNodeProperties(session, table, List.of(), Optional.empty());
+                providers.add(provider);
+                tables.add(table);
+            }
+            var serializer = new org.apache.thrift.TSerializer(new org.apache.thrift.protocol.TBinaryProtocol.Factory());
+            long wireBytes = 0;
+            TMongoSnapshot snapshot = null;
+            boolean parallel = false;
+            for (int index : wideFirst ? List.of(4, 0, 1, 2, 3) : List.of(0, 1, 2, 3, 4)) {
+                var ranges = providers.get(index).planScan(session,
+                        ConnectorScanRequest.builder(tables.get(index), List.of()).build());
+                Assertions.assertFalse(ranges.isEmpty());
+                parallel |= ranges.size() > 1;
+                long planBytes = 0;
+                for (var range : ranges) {
+                    var d = descriptor(range);
+                    Assertions.assertEquals((index == 4 ? 5 : 1) * 1024 * 1024, d.getPassword().length());
+                    if (snapshot == null) {
+                        snapshot = d.getSnapshot();
+                    }
+                    Assertions.assertEquals(snapshot, d.getSnapshot());
+                    planBytes += serializer.serialize(d).length;
+                }
+                Assertions.assertTrue(planBytes <= 8L * 1024 * 1024);
+                wireBytes += planBytes;
+            }
+            Assertions.assertTrue(wireBytes <= 32L * 1024 * 1024);
+            Assertions.assertTrue(parallel);
+        }
+    }
+
+    @Test
+    void optionalRangesLeaveStatementBytesForLaterWideScans() {
+        for (boolean wideFirst : List.of(false, true)) {
+            var budget = new MongoRangePlanner.Budget();
+            for (int i = 0; i < 9; i++) {
+                budget.register("scan-" + i, "catalog:" + i);
+            }
+            long megabyte = 1024 * 1024;
+            long admittedBytes = 0;
+            if (wideFirst) {
+                Assertions.assertEquals(1, budget.admit("scan-8", "source-8", 1, 5 * megabyte));
+                admittedBytes += 5 * megabyte;
+            }
+            for (int i = 0; i < 8; i++) {
+                int count = budget.admit("scan-" + i, "source-" + i, 8, megabyte);
+                Assertions.assertTrue(count >= 1);
+                admittedBytes += count * megabyte;
+            }
+            if (!wideFirst) {
+                Assertions.assertEquals(1, budget.admit("scan-8", "source-8", 1, 5 * megabyte));
+                admittedBytes += 5 * megabyte;
+            }
+            Assertions.assertTrue(admittedBytes <= 64 * megabyte);
+        }
+    }
+
+    @Test
+    void manyMandatoryDescriptorsDoNotNeedWorstCaseReservationsToFit() {
+        var budget = new MongoRangePlanner.Budget();
+        for (int i = 0; i < 256; i++) {
+            budget.register("scan-" + i, "snapshot");
+        }
+        for (int i = 0; i < 256; i++) {
+            Assertions.assertEquals(1, budget.admit("scan-" + i, "source", 1, 1024));
+        }
+    }
+
+    @Test
+    void mandatoryDescriptorsStillRespectSourceByteLimit() {
+        var budget = new MongoRangePlanner.Budget();
+        for (int i = 0; i < 5; i++) {
+            budget.register("scan-" + i, "snapshot");
+        }
+        for (int i = 0; i < 4; i++) {
+            Assertions.assertEquals(1, budget.admit("scan-" + i, "source", 1, 8L * 1024 * 1024));
+        }
+        Assertions.assertThrows(org.apache.doris.connector.spi.DorisConnectorException.class,
+                () -> budget.admit("scan-4", "source", 1, 8L * 1024 * 1024));
+    }
+
+    @Test
+    void concurrentOptionalRangesCannotSpendLaterWideScansBytes() throws Exception {
+        var executor = Executors.newFixedThreadPool(4);
+        try {
+            var budget = new MongoRangePlanner.Budget();
+            for (int i = 0; i < 5; i++) {
+                budget.register("scan-" + i, "snapshot");
+            }
+            var ready = new CountDownLatch(4);
+            var start = new CountDownLatch(1);
+            var tasks = new ArrayList<java.util.concurrent.Future<Integer>>();
+            for (int i = 0; i < 4; i++) {
+                String owner = "scan-" + i;
+                tasks.add(executor.submit(() -> {
+                    ready.countDown();
+                    Assertions.assertTrue(start.await(10, TimeUnit.SECONDS));
+                    return budget.admit(owner, "source", 8, 1024 * 1024);
+                }));
+            }
+            Assertions.assertTrue(ready.await(10, TimeUnit.SECONDS));
+            start.countDown();
+            long megabytes = 5;
+            for (var task : tasks) {
+                int count = task.get(10, TimeUnit.SECONDS);
+                Assertions.assertTrue(count >= 1);
+                megabytes += count;
+            }
+            Assertions.assertEquals(1, budget.admit("scan-4", "source", 1, 5L * 1024 * 1024));
+            Assertions.assertTrue(megabytes <= 32);
+        } finally {
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     void concurrentAdmissionsCannotSpendAnotherScansMinimum() throws Exception {
         var executor = Executors.newFixedThreadPool(2);
         try {
