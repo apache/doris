@@ -67,7 +67,19 @@ public final class NativeFileEncryptionSupport {
 
     public static void require(long backendId, TNetworkAddress address) {
         // A captured Backend can outlive its registration or move ports after the RPC target was bound.
-        Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+        requireRegistered(Env.getCurrentSystemInfo().getBackend(backendId), address);
+    }
+
+    public static void require(Backend expected, TNetworkAddress address) {
+        Backend backend = Env.getCurrentSystemInfo().getBackend(expected.getId());
+        // A lazy source belongs to one registration; a same-ID replacement cannot inherit its lease.
+        if (backend != expected) {
+            throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
+        }
+        requireRegistered(backend, address);
+    }
+
+    private static void requireRegistered(Backend backend, TNetworkAddress address) {
         if (backend == null || !backend.getBrpcAddress().equals(address) || !supported(backend)) {
             throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
         }

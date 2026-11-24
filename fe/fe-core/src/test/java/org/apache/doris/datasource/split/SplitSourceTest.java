@@ -26,6 +26,7 @@ import org.apache.doris.rpc.NativeFileEncryptionSupport;
 import org.apache.doris.service.FrontendServiceImpl;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFetchSplitBatchRequest;
 import org.apache.doris.thrift.TFetchSplitBatchResult;
@@ -35,6 +36,7 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TIcebergFileDesc;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TStatusCode;
@@ -475,6 +477,48 @@ public class SplitSourceTest {
                     .setSplitSourceId(source.getUniqueId()).setMaxNumSplits(10));
             Assertions.assertEquals(TStatusCode.OK, response.getStatus().getStatusCode());
             Assertions.assertEquals(ranges.subList(0, 1), response.getSplits());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"dropped", "replaced", "moved"})
+    void encryptedLazySplitsStopWhenBackendRegistrationChanges(String change) throws Exception {
+        for (TScanRangeLocations range : ranges.subList(0, 2)) {
+            TFileRangeDesc file = range.getScanRange().getExtScanRange().getFileScanRange().getRanges().get(0);
+            file.setFormatType(TFileFormatType.FORMAT_PARQUET_PME);
+            file.setTableFormatParams(new TTableFormatFileDesc().setIcebergParams(new TIcebergFileDesc()
+                    .setEncryptionInfo(new TFileEncryptionInfo().setVersion(1)
+                            .setKey(new byte[16]).setAadPrefix(new byte[0]))));
+        }
+        Mockito.when(backend.getId()).thenReturn(42L);
+        TNetworkAddress bound = new TNetworkAddress("192.0.2.1", 8060);
+        Mockito.when(backend.getBrpcAddress()).thenReturn(bound);
+        SystemInfoService service = Mockito.mock(SystemInfoService.class);
+        Mockito.when(service.getBackend(42L)).thenReturn(backend);
+        assignment.addToQueue(splits.subList(0, 2));
+        assignment.finishSchedule();
+        SplitSource source = new SplitSource(backend, assignment, 1000);
+        try (MockedStatic<Env> current = Mockito.mockStatic(Env.class);
+                MockedStatic<NativeFileEncryptionSupport> proof = Mockito.mockStatic(
+                        NativeFileEncryptionSupport.class, Mockito.CALLS_REAL_METHODS)) {
+            current.when(Env::getCurrentSystemInfo).thenReturn(service);
+            proof.when(() -> NativeFileEncryptionSupport.supported(backend)).thenReturn(true);
+            Assertions.assertEquals(ranges.subList(0, 1), source.getNextBatch(1));
+            if (change.equals("dropped")) {
+                Mockito.when(service.getBackend(42L)).thenReturn(null);
+            } else if (change.equals("replaced")) {
+                Backend replacement = Mockito.mock(Backend.class);
+                Mockito.when(replacement.getId()).thenReturn(42L);
+                Mockito.when(replacement.getBrpcAddress()).thenReturn(bound);
+                proof.when(() -> NativeFileEncryptionSupport.supported(replacement)).thenReturn(true);
+                Mockito.when(service.getBackend(42L)).thenReturn(replacement);
+            } else {
+                Mockito.when(backend.getBrpcAddress()).thenReturn(new TNetworkAddress("192.0.2.1", 8061));
+            }
+            UserException error = Assertions.assertThrows(UserException.class, () -> source.getNextBatch(1));
+            Assertions.assertTrue(error.getMessage().contains("READ_UNAVAILABLE"));
+            Assertions.assertSame(error, Assertions.assertThrows(UserException.class, () -> source.getNextBatch(1)));
+            Assertions.assertTrue(assignment.isStop());
         }
     }
 

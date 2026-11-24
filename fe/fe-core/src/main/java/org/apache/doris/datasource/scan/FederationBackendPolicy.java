@@ -31,6 +31,7 @@ import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.datasource.split.SplitWeight;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.computegroup.AllBackendComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -193,7 +194,10 @@ public class FederationBackendPolicy {
         StatementContext statement = context == null ? null : context.getStatementContext();
         ConnectorStatementScope scope = statement == null ? ConnectorStatementScope.NONE
                 : statement.getOrCreateConnectorStatementScope();
-        String key = "engine:external-scan-backends:" + computeGroup.getClass().getName() + ":" + computeGroup.getId();
+        // The untagged root/admin group has no addressable ID, but is one stable selection domain.
+        String groupId = computeGroup instanceof AllBackendComputeGroup
+                ? AllBackendComputeGroup.class.getSimpleName() : computeGroup.getId();
+        String key = "engine:external-scan-backends:" + computeGroup.getClass().getName() + ":" + groupId;
         // Selection can randomly fill a compute-node deficit with mixed nodes. Admission and every default
         // scan must reuse that result within the statement, while capability checks continue to read live state.
         return scope.computeIfAbsentForPlanning(key, () -> List.copyOf(queryBackendPolicy(Collections.emptyList())

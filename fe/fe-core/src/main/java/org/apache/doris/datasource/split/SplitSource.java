@@ -21,6 +21,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.scan.FileScanEncryptionGuard;
 import org.apache.doris.rpc.NativeFileEncryptionSupport;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
@@ -55,6 +56,7 @@ public class SplitSource {
 
     private final long uniqueId;
     private final Backend backend;
+    private final TNetworkAddress backendAddress;
     private final SplitAssignment splitAssignment;
     private final AtomicBoolean isLastBatch;
     private final AtomicBoolean firstBatchRequested = new AtomicBoolean();
@@ -71,6 +73,7 @@ public class SplitSource {
         Preconditions.checkArgument(maxWaitTime > 0, "Split fetch wait time must be positive");
         Preconditions.checkArgument(initialBatchSize > 0, "Initial split batch size must be positive");
         this.initialBatchSize = initialBatchSize;
+        this.backendAddress = backend.getBrpcAddress();
         this.uniqueId = UNIQUE_ID_GENERATOR.getAndIncrement();
         this.backend = backend;
         this.splitAssignment = splitAssignment;
@@ -168,7 +171,13 @@ public class SplitSource {
         // Lazy splits leave FE after initial dispatch; apply the same checks before each RPC response.
         try {
             // Keys leave FE only while the target reader and both private transports remain available.
-            FileScanEncryptionGuard.checkBatch(scanRanges, () -> NativeFileEncryptionSupport.supported(backend));
+            FileScanEncryptionGuard.checkBatch(scanRanges, () -> {
+                if (!NativeFileEncryptionSupport.supported(backend)) {
+                    return false;
+                }
+                NativeFileEncryptionSupport.require(backend, backendAddress);
+                return true;
+            });
         } catch (IllegalArgumentException | IllegalStateException e) {
             // The rejected ranges were already drained. Stop every producer and preserve the error,
             // including when this source had marked its last batch before checking the descriptors.
