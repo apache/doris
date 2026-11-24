@@ -1272,9 +1272,10 @@ Status collect_remote_variant_schemas(const PFetchRemoteSchemaRequest& request,
         }
         auto& rpc = rpcs[i];
         rpc.controller.set_timeout_ms(config::fetch_remote_schema_rpc_timeout_ms);
-        rpc.call_id = rpc.controller.call_id();
         stub->fetch_remote_tablet_schema(&rpc.controller, &worker_request, &rpc.response,
                                          brpc::DoNothing());
+        // Preparing the callback can throw before BRPC takes ownership of the call.
+        rpc.call_id = rpc.controller.call_id();
     }
     join_rpcs();
     for (const auto& rpc : rpcs) {
