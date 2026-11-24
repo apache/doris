@@ -1769,6 +1769,10 @@ public:
                     std::shared_ptr<FakeFileReaderState> state)
             : _file_schema(std::move(file_schema)), _state(std::move(state)) {}
 
+    const segment_v2::ConditionCache::ExternalCacheKey& TEST_condition_cache_key() const {
+        return _condition_cache_key;
+    }
+
     VExprContextSPtr TEST_mapping_projection(size_t index) const {
         DORIS_CHECK(_data_reader.column_mapper != nullptr);
         DORIS_CHECK_LT(index, _data_reader.column_mapper->mappings().size());
@@ -4448,6 +4452,94 @@ TEST(TableReaderTest, ConditionCacheSkipsRequestWithoutFileLocalConjuncts) {
     ASSERT_TRUE(reader.close().ok());
 }
 
+// A scanner predicate can localize to P AND Q in one schema and only Q after evolution.
+// Both the localized subset and the scanner/session/RF seed must distinguish cached bitmaps.
+TEST(TableReaderTest, ConditionCacheSeparatesLocalizedPredicatesAndScannerSeeds) {
+    ScopedConditionCacheForTest cache;
+    std::vector<ColumnDefinition> schema {
+            make_file_column(0, "id", std::make_shared<DataTypeInt32>())};
+    std::vector<ColumnDefinition> columns {
+            make_table_column(0, "id", std::make_shared<DataTypeInt32>())};
+    set_name_identifiers(&columns);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan = [&](bool include_p, uint64_t seed, bool expect_hit) {
+        auto fake = std::make_shared<FakeFileReaderState>();
+        fake->total_rows = ConditionCacheContext::GRANULE_SIZE;
+        FakeTableReader reader(schema, fake);
+        VExprContextSPtrs conjuncts;
+        if (include_p) {
+            conjuncts.push_back(prepared_conjunct(&state, table_int32_greater_than_expr(0, 0, 9)));
+        }
+        conjuncts.push_back(prepared_conjunct(&state, table_int32_greater_than_expr(0, 0, 0)));
+        ASSERT_TRUE(reader.init({.projected_columns = columns,
+                                 .conjuncts = std::move(conjuncts),
+                                 .format = FileFormat::PARQUET,
+                                 .scan_params = nullptr,
+                                 .io_ctx = nullptr,
+                                 .runtime_state = &state,
+                                 .scanner_profile = nullptr,
+                                 .condition_cache_digest = 7})
+                            .ok());
+        SplitReadOptions split;
+        split.current_range.__set_path("localized-subset-input");
+        split.condition_cache_digest = seed;
+        ASSERT_TRUE(reader.prepare_split(split).ok());
+        Block block = build_table_block(columns);
+        bool eos = false;
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        ASSERT_NE(fake->last_request, nullptr);
+        EXPECT_EQ(fake->last_request->conjuncts.size(), include_p ? 2 : 1);
+        ASSERT_NE(fake->condition_cache_ctx, nullptr);
+        EXPECT_EQ(fake->condition_cache_ctx->is_hit, expect_hit);
+        EXPECT_EQ(reader.condition_cache_hit_count(), expect_hit ? 1 : 0);
+        ASSERT_TRUE(reader.close().ok());
+    };
+    scan(true, 11, false);
+    scan(true, 11, true);
+    scan(false, 11, false);
+    scan(false, 11, true);
+    scan(false, 19, false);
+    scan(false, 19, true);
+}
+
+TEST(TableReaderTest, ConditionCacheHashesLocalPredicatesOnceAndRejectsZeroDigest) {
+    ScopedConditionCacheForTest cache;
+    std::vector<ColumnDefinition> schema {
+            make_file_column(0, "id", std::make_shared<DataTypeInt32>())};
+    std::vector<ColumnDefinition> columns {
+            make_table_column(0, "id", std::make_shared<DataTypeInt32>())};
+    set_name_identifiers(&columns);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    for (uint64_t digest : {17, 0}) {
+        size_t calls = 0;
+        auto predicate = std::make_shared<RecordingDigestPredicate>(&calls, digest);
+        predicate->add_child(table_int32_greater_than_expr(0, 0, 0));
+        auto fake = std::make_shared<FakeFileReaderState>();
+        fake->total_rows = ConditionCacheContext::GRANULE_SIZE;
+        FakeTableReader reader(schema, fake);
+        ASSERT_TRUE(reader.init({.projected_columns = columns,
+                                 .conjuncts = {prepared_conjunct(&state, predicate)},
+                                 .format = FileFormat::PARQUET,
+                                 .scan_params = nullptr,
+                                 .io_ctx = nullptr,
+                                 .runtime_state = &state,
+                                 .scanner_profile = nullptr,
+                                 .condition_cache_digest = 7})
+                            .ok());
+        SplitReadOptions split;
+        split.current_range.__set_path("localized-digest-input");
+        split.condition_cache_digest = 11;
+        ASSERT_TRUE(reader.prepare_split(split).ok());
+        Block block = build_table_block(columns);
+        bool eos = false;
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        // Reuse the admission digest instead of hashing a potentially large RF payload twice.
+        EXPECT_EQ(calls, 1);
+        EXPECT_EQ(fake->condition_cache_ctx != nullptr, digest != 0);
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
 TEST(TableReaderTest, ConditionCacheSeparatesInt96TimezoneContracts) {
     ScopedConditionCacheForTest cache;
     std::vector<ColumnDefinition> file_schema {
@@ -4690,12 +4782,8 @@ TEST(TableReaderTest, ConditionCacheAllowsRuntimeFilterCoveredBySplitDigest) {
     EXPECT_FALSE(fake_state->condition_cache_ctx->is_hit);
 
     segment_v2::ConditionCacheHandle handle;
-    segment_v2::ConditionCache::ExternalCacheKey initial_digest_key(
-            "fake-table-reader-input", 0, -1, 7, 0, -1,
-            segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
-    EXPECT_FALSE(cache.get()->lookup(initial_digest_key, &handle));
     segment_v2::ConditionCache::ExternalCacheKey split_digest_key(
-            "fake-table-reader-input", 0, -1, 11, 0, -1,
+            "fake-table-reader-input", 0, -1, reader.TEST_condition_cache_key().digest, 0, -1,
             segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
     EXPECT_TRUE(cache.get()->lookup(split_digest_key, &handle));
     ASSERT_TRUE(reader.close().ok());
@@ -4750,6 +4838,10 @@ TEST(TableReaderTest, ConditionCacheRefinedChildrenPublishOneSourceRangeEntry) {
         Block block = build_table_block(projected_columns);
         bool eos = false;
         ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (child == 0) {
+            source_key.digest = reader.TEST_condition_cache_key().digest;
+        }
+        EXPECT_EQ(reader.TEST_condition_cache_key().encode(), source_key.encode());
         segment_v2::ConditionCacheHandle handle;
         EXPECT_EQ(cache.get()->lookup(source_key, &handle), child == 1);
         ASSERT_TRUE(reader.close().ok());
@@ -4817,6 +4909,10 @@ TEST(TableReaderTest, ConditionCacheRefinedChildrenAssembleFragmentsOnceInAnyOrd
             bool eos = false;
             ASSERT_TRUE(reader.get_block(&block, &eos).ok());
             buffers.push_back(fake->condition_cache_ctx->filter_result.get());
+            if (completed == 0) {
+                key.digest = reader.TEST_condition_cache_key().digest;
+            }
+            EXPECT_EQ(reader.TEST_condition_cache_key().encode(), key.encode());
             segment_v2::ConditionCacheHandle handle;
             EXPECT_EQ(cache.get()->lookup(key, &handle), completed == CHILDREN - 1);
             if (completed != CHILDREN - 1) {
@@ -4852,6 +4948,7 @@ TEST(TableReaderTest, ConditionCacheRefinedChildrenRejectMismatchedOrIncompleteF
                 make_table_column(0, "id", std::make_shared<DataTypeInt32>())};
         set_name_identifiers(&columns);
         auto context = std::make_shared<ConditionCacheSplitContext>(2);
+        std::vector<segment_v2::ConditionCache::ExternalCacheKey> keys;
         for (int child = 0; child < 2; ++child) {
             auto fake = std::make_shared<FakeFileReaderState>();
             fake->total_rows = ConditionCacheContext::GRANULE_SIZE;
@@ -4883,14 +4980,12 @@ TEST(TableReaderTest, ConditionCacheRefinedChildrenRejectMismatchedOrIncompleteF
             Block block = build_table_block(columns);
             bool eos = false;
             ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+            keys.push_back(reader.TEST_condition_cache_key());
             ASSERT_TRUE(reader.close().ok());
         }
         EXPECT_EQ(context->remaining_children, 0);
         EXPECT_FALSE(context->valid);
-        for (uint64_t digest : {23, 29}) {
-            segment_v2::ConditionCache::ExternalCacheKey key(
-                    "incomplete-fragment-input", 0, -1, digest, 0, 200,
-                    segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
+        for (const auto& key : keys) {
             segment_v2::ConditionCacheHandle handle;
             EXPECT_FALSE(cache.get()->lookup(key, &handle));
         }
@@ -5006,12 +5101,8 @@ TEST(TableReaderTest, ConditionCacheLateRefreshBeforeOpenUsesRefreshedDigest) {
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     segment_v2::ConditionCacheHandle handle;
-    segment_v2::ConditionCache::ExternalCacheKey stale_key(
-            "late-runtime-filter-input", 0, -1, 11, 0, -1,
-            segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
-    EXPECT_FALSE(cache.get()->lookup(stale_key, &handle));
     segment_v2::ConditionCache::ExternalCacheKey refreshed_key(
-            "late-runtime-filter-input", 0, -1, 19, 0, -1,
+            "late-runtime-filter-input", 0, -1, reader.TEST_condition_cache_key().digest, 0, -1,
             segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
     EXPECT_TRUE(cache.get()->lookup(refreshed_key, &handle));
     ASSERT_TRUE(reader.close().ok());
@@ -5132,12 +5223,13 @@ TEST(TableReaderTest, ConditionCacheMissPublishesBitmapAfterReaderEof) {
     ASSERT_NE(fake_state->condition_cache_ctx, nullptr);
     EXPECT_FALSE(fake_state->condition_cache_ctx->is_hit);
 
-    segment_v2::ConditionCache::ExternalCacheKey legacy_key("fake-table-reader-input", 0, -1, 7, 0,
-                                                            -1);
+    const auto consumed_key = reader.TEST_condition_cache_key();
+    segment_v2::ConditionCache::ExternalCacheKey legacy_key("fake-table-reader-input", 0, -1,
+                                                            consumed_key.digest, 0, -1);
     segment_v2::ConditionCacheHandle handle;
     EXPECT_FALSE(cache.get()->lookup(legacy_key, &handle));
     segment_v2::ConditionCache::ExternalCacheKey key(
-            "fake-table-reader-input", 0, -1, 7, 0, -1,
+            "fake-table-reader-input", 0, -1, consumed_key.digest, 0, -1,
             segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
     ASSERT_TRUE(cache.get()->lookup(key, &handle));
     const auto cached_bitmap = handle.get_filter_result();
@@ -5190,9 +5282,10 @@ TEST(TableReaderTest, ConditionCacheMissIsDroppedWhenReaderClosesBeforeEof) {
     ASSERT_NE(fake_state->condition_cache_ctx, nullptr);
     EXPECT_FALSE(fake_state->condition_cache_ctx->is_hit);
 
+    const auto consumed_key = reader.TEST_condition_cache_key();
     ASSERT_TRUE(reader.close().ok());
     segment_v2::ConditionCache::ExternalCacheKey key(
-            "fake-table-reader-input", 0, -1, 7, 0, -1,
+            "fake-table-reader-input", 0, -1, consumed_key.digest, 0, -1,
             segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
     segment_v2::ConditionCacheHandle handle;
     EXPECT_FALSE(cache.get()->lookup(key, &handle));
@@ -5244,7 +5337,7 @@ TEST(TableReaderTest, ConditionCacheMissIsDroppedWhenStopTurnsReadIntoEof) {
     EXPECT_FALSE(fake_state->condition_cache_ctx->is_hit);
 
     segment_v2::ConditionCache::ExternalCacheKey key(
-            "fake-table-reader-input", 0, -1, 7, 0, -1,
+            "fake-table-reader-input", 0, -1, reader.TEST_condition_cache_key().digest, 0, -1,
             segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
     segment_v2::ConditionCacheHandle handle;
     EXPECT_FALSE(cache.get()->lookup(key, &handle));
