@@ -63,7 +63,7 @@ import java.util.Objects;
  * primitives above. Kept a plain {@link FileIO} deliberately to avoid coupling to that optional surface; the
  * procedure path, which does need prefix listing, uses {@link #withPrefixOperations}.
  */
-class IcebergAuthenticatedFileIO implements FileIO {
+class IcebergAuthenticatedFileIO implements IcebergV4FileIO.Delegating {
 
     private final FileIO delegate;
     private final HadoopAuthenticator authenticator;
@@ -137,7 +137,8 @@ class IcebergAuthenticatedFileIO implements FileIO {
     }
 
     /** Exposes optional credential metadata; file operations must continue through this decorator. */
-    FileIO delegate() {
+    @Override
+    public FileIO delegate() {
         return delegate;
     }
 

@@ -3502,6 +3502,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 }
             }
             DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
+                    .resolveFilePaths(table.io())
                     .schemasById(table.schemas())
                     .specsById(specsById)
                     .caseSensitive(caseSensitive)

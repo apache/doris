@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
@@ -53,13 +54,17 @@ import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.hadoop.HadoopFileIO;
+import org.apache.iceberg.hadoop.HadoopInputFile;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.NativeGcsResolvingFileIO;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.JsonUtil;
@@ -73,6 +78,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.PrivilegedExceptionAction;
@@ -89,7 +95,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 class IcebergFormatV4ReadTest {
@@ -143,6 +151,271 @@ class IcebergFormatV4ReadTest {
             }
             assertVectorRanges(streamed, table.location());
         }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"2,false,false,false", "2,true,false,false", "3,false,false,false", "3,true,false,false",
+            "2,false,true,false", "2,true,true,false", "3,false,true,false", "3,true,true,false",
+            "2,false,false,true", "2,true,false,true", "3,false,false,true", "3,true,false,true",
+            "2,false,true,true", "2,true,true,true", "3,false,true,true", "3,true,true,true"})
+    void deletionVectorsUseTheProducingManifestIdentity(int originalVersion, boolean cached, boolean legacyTarget,
+            boolean resolving) throws Exception {
+        Table table = createTable(originalVersion);
+        String path = "/data/identity.parquet";
+        table.newFastAppend().appendFile(data(table, path)).commit();
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "4").commit();
+        table.newFastAppend().appendFile(data(table, path)).commit();
+        table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(table.spec()).ofPositionDeletes()
+                .withPath("data/vector.puffin").withFormat(FileFormat.PUFFIN)
+                .withReferencedDataFile(legacyTarget ? "file:/data/identity.parquet" : path)
+                .withContentOffset(16).withContentSizeInBytes(64).withFileSizeInBytes(128)
+                .withRecordCount(2).build()).commit();
+        FileIO delegate = table.io();
+        Configuration filesystem = new Configuration(false);
+        filesystem.set("fs.defaultFS", "file:///");
+        filesystem.set("fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem");
+        RecordingAuthenticator auth = new RecordingAuthenticator();
+        FileIO filesystemIdentity = new HadoopFileIO(filesystem) {
+            @Override
+            public InputFile newInputFile(String location) {
+                // Metadata remains in memory; Hadoop supplies the filesystem identity of rooted data paths.
+                Assertions.assertTrue(auth.active.get(), "Identity qualification must preserve doAs");
+                return location.endsWith(path) ? HadoopInputFile.fromLocation(location, filesystem)
+                        : delegate.newInputFile(location);
+            }
+
+            @Override
+            public InputFile newInputFile(String location, long length) {
+                return newInputFile(location);
+            }
+
+            @Override
+            public OutputFile newOutputFile(String location) {
+                return delegate.newOutputFile(location);
+            }
+
+            @Override
+            public void deleteFile(String location) {
+                delegate.deleteFile(location);
+            }
+        };
+        FileIO storage = resolving ? new NativeGcsResolvingFileIO() {
+            @Override
+            public Map<String, String> properties() {
+                return delegate.properties();
+            }
+
+            @Override
+            public InputFile newInputFile(String location) {
+                return filesystemIdentity.newInputFile(location);
+            }
+
+            @Override
+            public InputFile newInputFile(String location, long length) {
+                return newInputFile(location);
+            }
+        } : filesystemIdentity;
+        if (resolving) {
+            storage = new IcebergRestEncryptionFileIO(storage,
+                    new AtomicReference<>(((BaseTable) table).operations().current()), false);
+        }
+        FileIO authenticated = new IcebergAuthenticatedFileIO(storage, auth);
+        Table view = new BaseTable(new StaticTableOperations(((BaseTable) table).operations().current(),
+                authenticated), table.name());
+        IcebergScanPlanProvider scans = provider(view, cached);
+        List<List<ConnectorScanRange>> plans = new ArrayList<>();
+        plans.add(scans.planScan(null, request()));
+        List<ConnectorScanRange> streamed = new ArrayList<>();
+        try (ConnectorSplitSource source = scans.streamSplits(null, request())) {
+            while (source.hasNext()) {
+                streamed.add(source.next());
+            }
+        }
+        plans.add(streamed);
+        for (List<ConnectorScanRange> ranges : plans) {
+            Assertions.assertEquals(2, ranges.size());
+            for (ConnectorScanRange range : ranges) {
+                boolean legacy = range.getPath().orElseThrow().equals(path);
+                Assertions.assertEquals(path, descriptor(range).getOriginalFilePath());
+                Assertions.assertEquals(legacy == legacyTarget ? 1 : 0,
+                        descriptor(range).getDeleteFilesSize(), range.getPath().orElseThrow());
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void expiredLegacyManifestRejectsWrongRelativeCandidate(boolean ambiguous) throws Exception {
+        Table table = createTable(2);
+        table.updateProperties().set(TableProperties.WRITE_METADATA_LOCATION,
+                "/metadata/" + tempDir.getFileName()).commit();
+        table.newFastAppend().appendFile(data(table, "/data/correct.parquet")).commit();
+        ManifestFile retained = table.currentSnapshot().dataManifests(table.io()).get(0);
+        long producer = table.currentSnapshot().snapshotId();
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "4").commit();
+        table.newFastAppend().appendFile(data(table, "data/current.parquet")).commit();
+        String substitute = table.location() + "/" + retained.path();
+        if (ambiguous) {
+            try (org.apache.iceberg.io.SeekableInputStream input = table.io().newInputFile(retained.path()).newStream();
+                    OutputStream output = table.io().newOutputFile(substitute).create()) {
+                input.transferTo(output);
+            }
+        } else {
+            try (ManifestWriter<DataFile> writer = ManifestFiles.write(2, table.spec(),
+                    table.io().newOutputFile(substitute), null)) {
+                writer.add(DataFiles.builder(table.spec()).withPath("/data/unrelated-long-name.parquet")
+                        .withFileSizeInBytes(100).withRecordCount(77).build());
+            }
+            Assertions.assertNotEquals(retained.length(), table.io().newInputFile(substitute).getLength());
+        }
+        table.expireSnapshots().expireSnapshotId(producer).cleanExpiredFiles(false).commit();
+        for (boolean cached : new boolean[] {false, true}) {
+            IcebergScanPlanProvider scans = provider(coldMetadata(table), cached);
+            ConnectorSession session = new IcebergStatementScopeTest.ScopeSession(1, "manifest-identity",
+                    org.apache.doris.connector.spi.ConnectorStatementScope.NONE);
+            if (ambiguous) {
+                RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                        () -> scans.planScan(session, request()));
+                Throwable cause = failure;
+                while (cause.getCause() != null) {
+                    cause = cause.getCause();
+                }
+                Assertions.assertTrue(cause.getMessage().contains("Ambiguous"), cause.toString());
+            } else {
+                List<ConnectorScanRange> ranges = scans.planScan(session, request());
+                Assertions.assertEquals(2, ranges.size());
+                Assertions.assertEquals(Set.of("/data/correct.parquet", table.location() + "/data/current.parquet"),
+                        ranges.stream().map(range -> range.getPath().orElseThrow()).collect(Collectors.toSet()));
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void relativeManifestDoesNotHideStorageFailures(boolean permissionFailure) throws Exception {
+        Table table = createTable(4);
+        String path = "/metadata/candidate.avro";
+        ManifestWriter<DataFile> writer = ManifestFiles.write(4, table.spec(),
+                table.io().newOutputFile(table.location() + "/" + path), 1L);
+        try (ManifestWriter<DataFile> closeable = writer) {
+            closeable.add(data(table, "data/correct.parquet"));
+        }
+        GenericManifestFile descriptor = (GenericManifestFile) writer.toManifestFile().copy();
+        descriptor.put(0, path);
+        FileIO storage = new FileIO() {
+            @Override
+            public InputFile newInputFile(String location) {
+                if (location.startsWith("/")) {
+                    if (permissionFailure) {
+                        throw new UncheckedIOException(new IOException("Permission denied"));
+                    }
+                    throw new IllegalArgumentException("A URI scheme is required");
+                }
+                return table.io().newInputFile(location);
+            }
+
+            @Override
+            public OutputFile newOutputFile(String location) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public void deleteFile(String location) {
+                throw new UnsupportedOperationException();
+            }
+        };
+        IcebergV4FileIO io = new IcebergV4FileIO(storage, table.location());
+        if (permissionFailure) {
+            Assertions.assertThrows(UncheckedIOException.class, () -> io.newInputFile(descriptor));
+        } else {
+            try (ManifestReader<DataFile> reader = ManifestFiles.read(descriptor, io, table.specs())) {
+                Assertions.assertEquals("data/correct.parquet", reader.iterator().next().location());
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"refresh,false,4", "refresh,true,4", "commit,false,4", "commit,true,4",
+            "commit,false,3", "commit,true,3"})
+    void procedureRejectsConcurrentFormatUpgrade(String phase, boolean authenticated, int targetVersion) throws Exception {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("race", Map.of(CatalogProperties.WAREHOUSE_LOCATION, tempDir.toUri().toString()));
+        catalog.createNamespace(Namespace.of("db"));
+        TableIdentifier identifier = TableIdentifier.of("db", "race");
+        Table table = catalog.createTable(identifier,
+                new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get())),
+                PartitionSpec.unpartitioned(), null, Map.of(TableProperties.FORMAT_VERSION, "3"));
+        table.newFastAppend().appendFile(data(table, "/data/first.parquet")).commit();
+        table.newFastAppend().appendFile(data(table, "/data/second.parquet")).commit();
+        long snapshot = table.currentSnapshot().snapshotId();
+        Table concurrent = catalog.loadTable(identifier);
+        TableOperations delegate = ((BaseTable) table).operations();
+        AtomicBoolean upgraded = new AtomicBoolean();
+        TableOperations racing = new TableOperations() {
+            private void upgrade(String at) {
+                if (phase.equals(at) && upgraded.compareAndSet(false, true)) {
+                    concurrent.updateProperties().set(TableProperties.FORMAT_VERSION, Integer.toString(targetVersion))
+                            .set("test.concurrent-commit", "true").commit();
+                }
+            }
+
+            @Override
+            public TableMetadata current() {
+                return delegate.current();
+            }
+
+            @Override
+            public TableMetadata refresh() {
+                upgrade("refresh");
+                return delegate.refresh();
+            }
+
+            @Override
+            public void commit(TableMetadata base, TableMetadata metadata) {
+                upgrade("commit");
+                delegate.commit(base, metadata);
+            }
+
+            @Override
+            public FileIO io() {
+                return delegate.io();
+            }
+
+            @Override
+            public String metadataFileLocation(String name) {
+                return delegate.metadataFileLocation(name);
+            }
+
+            @Override
+            public org.apache.iceberg.io.LocationProvider locationProvider() {
+                return delegate.locationProvider();
+            }
+        };
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = new BaseTable(racing, table.name());
+        IcebergProcedureOps procedures = new IcebergProcedureOps(Map.of(), ops,
+                authenticated ? new RecordingConnectorContext() : null);
+        if (targetVersion == 3) {
+            procedures.execute(null, new IcebergTableHandle("db", "race"), "rewrite_manifests",
+                    Map.of(), null, List.of());
+            Table committed = catalog.loadTable(identifier);
+            Assertions.assertTrue(upgraded.get());
+            Assertions.assertNotEquals(snapshot, committed.currentSnapshot().snapshotId());
+            Assertions.assertEquals("true", committed.properties().get("test.concurrent-commit"));
+            Assertions.assertEquals(1, committed.currentSnapshot().dataManifests(committed.io()).size());
+            return;
+        }
+        RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                () -> procedures.execute(null, new IcebergTableHandle("db", "race"), "rewrite_manifests",
+                        Map.of(), null, List.of()));
+        Assertions.assertTrue(failure.getMessage().contains("format"));
+        Assertions.assertTrue(upgraded.get());
+        table.refresh();
+        Assertions.assertEquals(4, ((BaseTable) table).operations().current().formatVersion());
+        Assertions.assertEquals(snapshot, table.currentSnapshot().snapshotId());
+        Assertions.assertEquals(Set.of("/data/first.parquet", "/data/second.parquet"),
+                provider(coldMetadata(table), false).planScan(null, request()).stream()
+                        .map(range -> range.getPath().orElseThrow()).collect(Collectors.toSet()));
     }
 
     @ParameterizedTest

@@ -38,7 +38,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Read-only REST file adapter; its KMS client has the same lifetime as the loaded table's FileIO. */
-public final class IcebergRestEncryptionFileIO implements FileIO {
+public final class IcebergRestEncryptionFileIO implements IcebergV4FileIO.Delegating {
     private final FileIO delegate;
     private final AtomicReference<TableMetadata> metadata;
     private final boolean ownsDelegate;
@@ -133,7 +133,8 @@ public final class IcebergRestEncryptionFileIO implements FileIO {
         return delegate.properties();
     }
 
-    FileIO delegate() {
+    @Override
+    public FileIO delegate() {
         return delegate;
     }
 

@@ -33,10 +33,13 @@ import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.avro.AvroIterable;
 import org.apache.iceberg.exceptions.NotFoundException;
+import org.apache.iceberg.hadoop.HadoopFileIO;
+import org.apache.iceberg.hadoop.HadoopInputFile;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.ResolvingFileIO;
 import org.apache.iceberg.util.JsonUtil;
 
 import java.io.IOException;
@@ -80,6 +83,18 @@ public final class IcebergV4FileIO implements FileIO {
         this.tableLocation = tableLocation;
         this.metadata = metadata;
         this.taskLocations = Map.copyOf(taskLocations);
+    }
+
+    /** Exposes borrowed decorators without moving file operations outside their authentication scope. */
+    public interface Delegating extends FileIO {
+        FileIO delegate();
+    }
+
+    public static IcebergV4FileIO find(FileIO io) {
+        while (io instanceof Delegating) {
+            io = ((Delegating) io).delegate();
+        }
+        return io instanceof IcebergV4FileIO ? (IcebergV4FileIO) io : null;
     }
 
     public FileIO delegate() {
@@ -133,6 +148,27 @@ public final class IcebergV4FileIO implements FileIO {
     public String resolveContentFile(ContentFile<?> file) {
         return isAbsolute(file.location()) || isLegacyEntry(file)
                 ? file.location() : resolve(tableLocation, file.location());
+    }
+
+    /** Resolve index keys only; position-delete payloads still compare the original stored file spelling. */
+    public String contentFileIdentity(ContentFile<?> owner, String path) {
+        String resolved = isAbsolute(path) || isLegacyEntry(owner) ? path : resolve(tableLocation, path);
+        FileIO storage = delegate;
+        while (storage instanceof Delegating) {
+            storage = ((Delegating) storage).delegate();
+        }
+        if (storage instanceof HadoopFileIO || (storage instanceof ResolvingFileIO
+                && HadoopFileIO.class.isAssignableFrom(((ResolvingFileIO) storage).ioClass(resolved)))) {
+            org.apache.hadoop.fs.Path hadoopPath = new org.apache.hadoop.fs.Path(resolved);
+            java.net.URI uri = hadoopPath.toUri();
+            if (uri.getScheme() != null && (uri.getAuthority() != null || "file".equals(uri.getScheme()))) {
+                return hadoopPath.toString();
+            }
+            // Resolve legacy roots in their actual default filesystem, through the authenticated factory.
+            HadoopInputFile input = (HadoopInputFile) delegate.newInputFile(resolved);
+            return input.getFileSystem().makeQualified(input.getPath()).toString();
+        }
+        return resolved;
     }
 
     private boolean isLegacyEntry(ContentFile<?> file) {
@@ -228,31 +264,52 @@ public final class IcebergV4FileIO implements FileIO {
             return bound.location;
         }
         MetadataHeader source = file.snapshotId() == null ? null : snapshots().get(file.snapshotId());
-        // Only a pre-V4 producer proves that a slash-leading reference is filesystem-rooted.
-        // New V4 references remain relative, including when an unrelated root path also exists.
-        if (source != null && source.version < 4) {
-            return remember(path, path, file.snapshotId());
-        }
         String relative = hasBase() ? resolve(tableLocation, path) : null;
-        if (relative != null && existingInput(relative) != null) {
-            return remember(path, relative, file.snapshotId());
+        // A retained producer proves the namespace. Existence alone never identifies a manifest.
+        if (source != null && source.version < 4) {
+            return remember(path, matchingManifest(path, file), file.snapshotId());
         }
-        if (source != null && source.version >= 4 && !source.location.startsWith("/")) {
-            throw new NotFoundException("Cannot find relative V4 manifest: %s", relative);
+        if (source != null && !source.location.startsWith("/")) {
+            return remember(path, matchingManifest(relative, file), file.snapshotId());
         }
-        // A retained manifest keeps its immutable descriptor even after its creator expires or metadata moves.
-        // Validate the concrete rooted file, rather than guessing its identity from today's directory or ADDED rows.
-        InputFile rooted = existingInput(path);
-        if (rooted != null) {
-            if (rooted.getLength() != file.length()) {
-                throw new IllegalArgumentException("Rooted manifest length does not match its descriptor: " + path);
-            }
-            return remember(path, path, file.snapshotId());
+        InputFile relativeInput = relative == null ? null : existingInput(relative);
+        InputFile rootedInput;
+        try {
+            // Object-store FileIOs may reject a filesystem-root spelling at the factory boundary.
+            rootedInput = delegate.newInputFile(path);
+        } catch (IllegalArgumentException | NotFoundException unsupportedRoot) {
+            rootedInput = null;
+        }
+        if (rootedInput != null && !rootedInput.exists()) {
+            rootedInput = null;
+        }
+        boolean relativeMatches = relativeInput != null && relativeInput.getLength() == file.length();
+        boolean rootedMatches = rootedInput != null && rootedInput.getLength() == file.length();
+        // After expiry, the immutable descriptor is the remaining evidence; never guess between two matches.
+        if (relativeMatches && rootedMatches) {
+            throw new IllegalArgumentException("Ambiguous legacy and V4 manifest reference: " + path);
+        }
+        if (relativeMatches || rootedMatches) {
+            return remember(path, relativeMatches ? relative : path, file.snapshotId());
+        }
+        if (relativeInput != null || rootedInput != null) {
+            throw new IllegalArgumentException("Manifest length does not match its descriptor: " + path);
         }
         if (relative == null) {
             resolve(tableLocation, path);
         }
         throw new NotFoundException("Cannot find manifest at %s or retained rooted location %s", relative, path);
+    }
+
+    private String matchingManifest(String location, ManifestFile file) {
+        InputFile input = existingInput(location);
+        if (input == null) {
+            throw new NotFoundException("Cannot find manifest: %s", location);
+        }
+        if (input.getLength() != file.length()) {
+            throw new IllegalArgumentException("Manifest length does not match its descriptor: " + location);
+        }
+        return location;
     }
 
     private boolean hasBase() {
