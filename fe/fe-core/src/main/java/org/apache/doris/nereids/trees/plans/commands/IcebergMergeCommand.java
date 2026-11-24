@@ -569,6 +569,7 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
             String label = String.format("iceberg_merge_into_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
 
             IcebergInsertCommandContext icebergInsertContext = new IcebergInsertCommandContext();
+            icebergInsertContext.setMergeInto(true);
             icebergInsertContext.setWriteSchemaContext(Optional.of(writeSchemaContext));
             Optional<InsertCommandContext> insertContext = Optional.of(icebergInsertContext);
             IcebergMergeExecutor insertExecutor = new IcebergMergeExecutor(

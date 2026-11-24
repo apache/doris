@@ -29,6 +29,7 @@ import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.ExpireSnapshots;
@@ -46,9 +47,11 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
@@ -273,8 +276,11 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
         }
     }
 
-    private Map<String, FileContent> buildDeleteFileContentMap(Table icebergTable) throws UserException {
+    @VisibleForTesting
+    Map<String, FileContent> buildDeleteFileContentMap(Table icebergTable) throws UserException {
         Map<String, FileContent> deleteFileContentByPath = new HashMap<>();
+        // Snapshots share immutable delete manifests; read each path once within this call.
+        Set<String> visitedDeleteManifests = new HashSet<>();
         try {
             for (org.apache.iceberg.Snapshot snapshot : icebergTable.snapshots()) {
                 List<ManifestFile> deleteManifests = snapshot.deleteManifests(icebergTable.io());
@@ -282,6 +288,9 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
                     continue;
                 }
                 for (ManifestFile manifest : deleteManifests) {
+                    if (!visitedDeleteManifests.add(manifest.path())) {
+                        continue;
+                    }
                     try (CloseableIterable<DeleteFile> deleteFiles = ManifestFiles.readDeleteManifest(
                             manifest, icebergTable.io(), icebergTable.specs())) {
                         for (DeleteFile deleteFile : deleteFiles) {
