@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.cache.ConnectorTableKey;
+import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
@@ -1079,7 +1080,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     /**
      * Drops an iceberg namespace, mirroring legacy {@code IcebergMetadataOps.performDropDb}. With
-     * {@code force} the contained tables are dropped (purged) first so a non-empty namespace can be removed;
+     * {@code force} the contained tables are dropped first, respecting the REST catalog's purge option;
      * the namespace location is captured BEFORE the drop and its empty directory shell pruned afterwards
      * (HMS only). Existence / IF EXISTS is resolved upstream by {@code PluginDrivenExternalCatalog.dropDb}, so
      * {@code ifExists} is accepted for SPI parity but not re-checked here.
@@ -1097,8 +1098,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     location = isHmsCatalog()
                             ? catalogOps.loadNamespaceLocation(dbName) : Optional.empty();
                     if (force) {
+                        boolean purge = shouldPurgeOnDrop();
                         for (String table : catalogOps.listTableNames(dbName)) {
-                            catalogOps.dropTable(dbName, table, true);
+                            catalogOps.dropTable(dbName, table, purge);
                         }
                         // Cascade the views too, mirroring legacy IcebergMetadataOps.performDropDb: iceberg
                         // VIEWS live in their own namespace (listTableNames subtracts them), so without this the
@@ -1311,8 +1313,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     /**
      * Drops an iceberg table, mirroring legacy {@code IcebergMetadataOps.performDropTable}: the table location
-     * is captured BEFORE the drop (HMS only), the table is dropped with {@code purge=true} (iceberg deletes the
-     * data + metadata files), then the empty directory shell is pruned. {@code PluginDrivenExternalCatalog}
+     * is captured BEFORE the drop (HMS only), then the table is dropped and the empty directory shell pruned.
+     * REST catalogs can opt out of purging the data and metadata files. {@code PluginDrivenExternalCatalog}
      * has already resolved the handle / IF EXISTS upstream.
      *
      * <p>This handles TABLES only: a DROP on an iceberg view is routed to {@link #dropView} by
@@ -1328,7 +1330,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 Optional<String> location = isHmsCatalog()
                         ? catalogOps.loadTableLocation(iceHandle.getDbName(), iceHandle.getTableName())
                         : Optional.empty();
-                catalogOps.dropTable(iceHandle.getDbName(), iceHandle.getTableName(), true);
+                catalogOps.dropTable(iceHandle.getDbName(), iceHandle.getTableName(), shouldPurgeOnDrop());
                 return location;
             });
         } catch (Exception e) {
@@ -1337,6 +1339,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         tableLocation.ifPresent(location ->
                 storage().cleanupEmptyManagedLocation(location, IcebergSchemaBuilder.tableLocationChildDirs()));
+    }
+
+    private boolean shouldPurgeOnDrop() {
+        // REST can unregister without deleting files; HadoopCatalog may delete its directory even with purge=false.
+        return !IcebergCatalogProperties.TYPE_REST.equals(catalogType())
+                || IcebergRestMetaStoreProperties.of(properties).isDropWithPurgeEnabled();
     }
 
     /**

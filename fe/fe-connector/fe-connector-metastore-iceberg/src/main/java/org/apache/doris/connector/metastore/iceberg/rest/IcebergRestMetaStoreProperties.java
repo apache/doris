@@ -50,6 +50,8 @@ import java.util.Map;
  */
 public final class IcebergRestMetaStoreProperties extends AbstractMetaStoreProperties {
 
+    public static final String DROP_WITH_PURGE_ENABLED = "iceberg.rest.drop-with-purge-enabled";
+
     private static final String ICEBERG_REST_ROLE_ARN = "iceberg.rest.role_arn";
     private static final String ICEBERG_REST_EXTERNAL_ID = "iceberg.rest.external-id";
 
@@ -74,6 +76,11 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
     @ConnectorProperty(names = {"iceberg.rest.vended-credentials-enabled"}, required = false,
             description = "Ask the rest catalog service to vend per-table storage credentials.")
     private boolean vendedCredentialsEnabled;
+
+    @ConnectorProperty(names = {DROP_WITH_PURGE_ENABLED}, required = false,
+            description = "Whether REST table drops request file deletion, including DROP DATABASE FORCE. "
+                    + "Default: true.")
+    private boolean dropWithPurgeEnabled = true;
 
     // Kept as Strings, not ints: the values are handed to the iceberg SDK verbatim, and a catalog that was
     // created with an unparseable one is live today -- binding them as numbers would make it unbuildable.
@@ -204,6 +211,10 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
 
     public boolean isVendedCredentialsEnabled() {
         return vendedCredentialsEnabled;
+    }
+
+    public boolean isDropWithPurgeEnabled() {
+        return dropWithPurgeEnabled;
     }
 
     public String getConnectionTimeoutMs() {
@@ -352,6 +363,11 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
         rules.requireTogether(new String[] {accessKeyId, secretAccessKey},
                 "iceberg.rest.access-key-id and iceberg.rest.secret-access-key must be set together");
         rules.validate();
+        String dropWithPurge = raw.get(DROP_WITH_PURGE_ENABLED);
+        if (dropWithPurge != null && !"true".equalsIgnoreCase(dropWithPurge)
+                && !"false".equalsIgnoreCase(dropWithPurge)) {
+            throw new IllegalArgumentException(DROP_WITH_PURGE_ENABLED + " must be true or false");
+        }
     }
 
     /**

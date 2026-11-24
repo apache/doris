@@ -113,6 +113,7 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     String lastDropTableDb;
     String lastDropTableName;
     boolean lastDropPurge;
+    RuntimeException dropTableFailure;
     String lastRenameTableDb;
     String lastRenameTableOld;
     String lastRenameTableNew;
@@ -280,6 +281,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
         lastDropTableDb = dbName;
         lastDropTableName = tableName;
         lastDropPurge = purge;
+        if (dropTableFailure != null) {
+            throw dropTableFailure;
+        }
     }
 
     @Override

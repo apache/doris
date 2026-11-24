@@ -57,6 +57,28 @@ public class IcebergRestMetaStorePropertiesTest {
                 .contains("uri"), "The shared URI alias must retain value-aware catalog masking");
     }
 
+    @Test
+    public void dropWithPurgeDefaultsToTrueAndBindsExplicitValues() {
+        Assertions.assertTrue(IcebergRestMetaStoreProperties.of(raw()).isDropWithPurgeEnabled());
+        for (String value : new String[] {"true", "TRUE", "false", "FALSE"}) {
+            Map<String, String> properties = raw("iceberg.rest.drop-with-purge-enabled", value);
+            IcebergRestMetaStoreProperties bound = IcebergRestMetaStoreProperties.of(properties);
+            bound.validate();
+            Assertions.assertEquals(Boolean.parseBoolean(value), bound.isDropWithPurgeEnabled());
+            Assertions.assertEquals(value, bound.matchedProperties().get("iceberg.rest.drop-with-purge-enabled"));
+        }
+    }
+
+    @Test
+    public void dropWithPurgeValidatesOnlyAtStatementTime() {
+        for (String value : new String[] {"", "yes", "0", " false "}) {
+            Map<String, String> properties = raw("iceberg.rest.drop-with-purge-enabled", value);
+            Assertions.assertDoesNotThrow(() -> IcebergRestMetaStoreProperties.of(properties));
+            Assertions.assertEquals("iceberg.rest.drop-with-purge-enabled must be true or false",
+                    validateError(properties));
+        }
+    }
+
     private static Map<String, String> raw(String... kv) {
         Map<String, String> m = new HashMap<>();
         for (int i = 0; i < kv.length; i += 2) {
