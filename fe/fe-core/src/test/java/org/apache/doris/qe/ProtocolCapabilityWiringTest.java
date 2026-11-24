@@ -53,6 +53,7 @@ import org.mockito.Mockito;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -63,6 +64,27 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class ProtocolCapabilityWiringTest extends TestWithFeService {
     private static final String DB_NAME = "protocol_capability_wiring_db";
+
+    @Test
+    public void testForwardedInvalidCountReturnsVariableError() throws Exception {
+        // One forwarded variable reproduces the error. The SELECT must not execute.
+        TMasterOpRequest request = new TMasterOpRequest();
+        request.setDb(DB_NAME);
+        request.setUser("root");
+        request.setCurrentUserIdent(UserIdentity.ROOT.toThrift());
+        request.setSql("select 1");
+        request.setSessionVariables(Map.of("data_queue_max_blocks", "-1"));
+        ConnectContext proxy = ConnectContext.forMysqlProxy("invalid-count");
+        try {
+            TMasterOpResult result = new MysqlConnectProcessor(proxy).proxyExecute(request);
+            Assertions.assertEquals(MysqlStateType.ERR.name(), result.getStatus());
+            Assertions.assertEquals(ErrorCode.ERR_WRONG_VALUE_FOR_VAR.getCode(), result.getStatusCode());
+            Assertions.assertTrue(proxy.getState().getErrorMessage().contains("data_queue_max_blocks"));
+            Assertions.assertEquals(0, result.getQueryResultBufListSize());
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+    }
 
     @Override
     protected void runBeforeAll() throws Exception {

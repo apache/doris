@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Splitter;
 import org.junit.jupiter.api.Assertions;
@@ -33,6 +34,25 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class AuditLoaderTest {
+
+    @Test
+    public void testLargestValidIntervalKeepsPendingBatch() {
+        // One byte is enough to reach the time check. Keep the size threshold above it.
+        // The largest valid interval must not flush this batch or call the stream loader.
+        AuditLoader loader = new AuditLoader();
+        long originalInterval = GlobalVariable.auditPluginMaxBatchInternalSec;
+        long originalBytes = GlobalVariable.auditPluginMaxBatchBytes;
+        try {
+            GlobalVariable.auditPluginMaxBatchInternalSec = 9223372036854775L;
+            GlobalVariable.auditPluginMaxBatchBytes = 2;
+            Deencapsulation.setField(loader, "auditLogBuffer", new StringBuilder("x"));
+            loader.loadIfNecessary(false);
+            Assertions.assertEquals("x", getAuditLogBuffer(loader));
+        } finally {
+            GlobalVariable.auditPluginMaxBatchInternalSec = originalInterval;
+            GlobalVariable.auditPluginMaxBatchBytes = originalBytes;
+        }
+    }
 
     @Test
     public void testAssembleAuditIsSerializedWithLoadLock() throws Exception {

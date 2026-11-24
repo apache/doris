@@ -299,16 +299,20 @@ public class Config extends ConfigBase {
     @ConfField(description = "Maximum message size of BDBJE.")
     public static long bdbje_max_message_size_bytes = Integer.MAX_VALUE; // 2 GB
 
-    @ConfField(masterOnly = true, description = "Number of threads to handle heartbeat events")
+    // Worker pools and bounded queues require positive capacity.
+    @ConfField(minValue = "1", masterOnly = true, description = "Number of threads to handle heartbeat events")
     public static int heartbeat_mgr_threads_num = 8;
 
-    @ConfField(masterOnly = true, description = "Queue size to store heartbeat tasks in heartbeat_mgr")
+    // Worker pools and bounded queues require positive capacity.
+    @ConfField(minValue = "1", masterOnly = true, description = "Queue size to store heartbeat tasks in heartbeat_mgr")
     public static int heartbeat_mgr_blocking_queue_size = 1024;
 
     @ConfField(masterOnly = true, description = "Number of threads to update tablet statistics")
     public static int tablet_stat_mgr_threads_num = -1;
 
-    @ConfField(masterOnly = true, description = "Number of threads to handle agent tasks in the agent task thread "
+    // Worker pools and bounded queues require positive capacity.
+    @ConfField(minValue = "1", masterOnly = true,
+            description = "Number of threads to handle agent tasks in the agent task thread "
             + "pool.")
     public static int max_agent_task_threads_num = 4096;
 
@@ -512,7 +516,9 @@ public class Config extends ConfigBase {
             + "seconds.")
     public static int max_create_table_timeout_second = 3600;
 
-    @ConfField(mutable = true, masterOnly = true, description = "Maximal waiting time for all publish version tasks "
+    // Negative load timeouts expire before the operation can wait.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true,
+            description = "Maximal waiting time for all publish version tasks "
             + "of one transaction to be finished, in seconds.")
     public static int publish_version_timeout_second = 30; // 30 seconds
 
@@ -534,20 +540,26 @@ public class Config extends ConfigBase {
             + "tasks")
     public static long publish_version_task_failed_log_threshold = 80;
 
-    @ConfField(masterOnly = true, description = "Number of threads to handle publish tasks")
+    // Worker pools and bounded queues require positive capacity.
+    @ConfField(minValue = "1", masterOnly = true, description = "Number of threads to handle publish tasks")
     public static int publish_thread_pool_num = 128;
 
-    @ConfField(masterOnly = true, description = "Queue size to store publish tasks in the publish thread pool")
+    // Worker pools and bounded queues require positive capacity.
+    @ConfField(minValue = "1", masterOnly = true,
+            description = "Queue size to store publish tasks in the publish thread pool")
     public static int publish_queue_size = 128;
 
     @ConfField(mutable = true, description = "Whether to enable parallel publish version")
     public static boolean enable_parallel_publish_version = true;
 
 
-    @ConfField(masterOnly = true, description = "Number of threads to handle tablet report tasks")
+    // Worker pools and bounded queues require positive capacity.
+    @ConfField(minValue = "1", masterOnly = true, description = "Number of threads to handle tablet report tasks")
     public static int tablet_report_thread_pool_num = 10;
 
-    @ConfField(masterOnly = true, description = "Queue size to store tablet report tasks in the tablet report thread "
+    // Worker pools and bounded queues require positive capacity.
+    @ConfField(minValue = "1", masterOnly = true,
+            description = "Queue size to store tablet report tasks in the tablet report thread "
             + "pool.")
     public static int tablet_report_queue_size = 1024;
 
@@ -589,7 +601,8 @@ public class Config extends ConfigBase {
     @ConfField(description = "The timeout of RPC between FE and Broker, in milliseconds")
     public static int broker_timeout_ms = 10000; // 10s
 
-    @ConfField(description = "The timeout of RPC for high-concurrency short-circuit queries")
+    // Zero keeps the existing timeout behavior; a negative timeout expires before waiting.
+    @ConfField(minValue = "0", description = "The timeout of RPC for high-concurrency short-circuit queries")
     public static int point_query_timeout_ms = 10000; // 10s
 
     @ConfField(mutable = true, masterOnly = true, description = "Default timeout for insert load jobs, in seconds.")
@@ -607,20 +620,28 @@ public class Config extends ConfigBase {
             + "returning; insert into and stream load use group " + "commit by default.")
     public static boolean wait_internal_group_commit_finish = false;
 
-    @ConfField(mutable = false, masterOnly = true, description = "Default commit interval in ms for group commit")
+    // The matching table property requires a positive value; defaults use the same contract.
+    @ConfField(minValue = "1", mutable = false, masterOnly = true,
+            description = "Default commit interval in ms for group commit")
     public static int group_commit_interval_ms_default_value = 10000;
 
-    @ConfField(mutable = false, masterOnly = true, description = "Default commit data bytes for group commit")
+    // The matching table property requires a positive value; defaults use the same contract.
+    @ConfField(minValue = "1", mutable = false, masterOnly = true,
+            description = "Default commit data bytes for group commit")
     public static int group_commit_data_bytes_default_value = 134217728;
 
     @ConfField(mutable = true, masterOnly = true, description = "The internal group commit timeout is a multiple of "
             + "the table's group_commit_interval_ms")
     public static int group_commit_timeout_multipler = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = "Default timeout for stream load jobs, in seconds.")
+    // Negative load timeouts expire before the operation can wait.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true,
+            description = "Default timeout for stream load jobs, in seconds.")
     public static int stream_load_default_timeout_second = 86400 * 3; // 3days
 
-    @ConfField(mutable = true, masterOnly = true, description = "Default pre-commit timeout for stream load jobs, in "
+    // Negative load timeouts expire before the operation can wait.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true,
+            description = "Default pre-commit timeout for stream load jobs, in "
             + "seconds.")
     public static int stream_load_default_precommit_timeout_second = 3600; // 3600s
 
@@ -633,13 +654,19 @@ public class Config extends ConfigBase {
             + "group commit mode will be forwarded to a follower FE " + "round robin.")
     public static boolean enable_forward_group_commit_stream_load_to_follower = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = "Maximum timeout for load jobs, in seconds.")
+    // Negative load timeouts expire before the operation can wait.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true,
+            description = "Maximum timeout for load jobs, in seconds.")
     public static int max_load_timeout_second = 259200; // 3days
 
-    @ConfField(mutable = true, masterOnly = true, description = "Maximum timeout for stream load jobs, in seconds.")
+    // Negative load timeouts expire before the operation can wait.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true,
+            description = "Maximum timeout for stream load jobs, in seconds.")
     public static int max_stream_load_timeout_second = 259200; // 3days
 
-    @ConfField(mutable = true, masterOnly = true, description = "Minimum timeout for load jobs, in seconds.")
+    // Negative load timeouts expire before the operation can wait.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true,
+            description = "Minimum timeout for load jobs, in seconds.")
     public static int min_load_timeout_second = 1; // 1s
 
     @ConfField(mutable = true, masterOnly = true, description = "Default timeout for ingestion load jobs, in seconds.")
@@ -741,12 +768,16 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean catalog_trash_ignore_min_erase_latency = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = "Minimum bytes that a single broker scanner will "
+    // Scanner planning divides by byte limits and requires a positive scanner capacity.
+    @ConfField(minValue = "1", mutable = true, masterOnly = true,
+            description = "Minimum bytes that a single broker scanner will "
             + "read. When splitting files in broker load, if the " + "size of a split file is less than this value, it "
             + "will not be split.")
     public static long min_bytes_per_broker_scanner = 67108864L; // 64MB
 
-    @ConfField(mutable = true, masterOnly = true, description = "Maximal concurrency of broker scanners.")
+    // Scanner planning divides by byte limits and requires a positive scanner capacity.
+    @ConfField(minValue = "1", mutable = true, masterOnly = true,
+            description = "Maximal concurrency of broker scanners.")
     public static int max_broker_concurrency = 100;
 
     // TODO(cmy): Disable by default because current checksum logic has some bugs.
@@ -769,7 +800,9 @@ public class Config extends ConfigBase {
             + "may take of it: half by default).")
     public static int qe_max_connection = 1024;
 
-    @ConfField(mutable = true, description = "Colocate join PlanFragment instance memory limit penalty factor. The "
+    // This is a divisor; -1 turns a positive query memory limit into a negative default marker.
+    @ConfField(minValue = "1", mutable = true,
+            description = "Colocate join PlanFragment instance memory limit penalty factor. The "
             + "memory_limit for colocate join PlanFragment instance = `exec_mem_limit "
             + "/ min (query_colocate_join_memory_limit_penalty_factor, instance_num)`")
     public static int query_colocate_join_memory_limit_penalty_factor = 1;
@@ -834,7 +867,8 @@ public class Config extends ConfigBase {
     @ConfField public static String locale = "zh_CN.UTF-8";
 
     // default timeout of backup job
-    @ConfField(mutable = true, masterOnly = true)
+    // A negative duration expires a newly created task immediately.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true)
     public static int backup_job_default_timeout_ms = 86400 * 1000; // 1 day
 
     /**
@@ -868,9 +902,11 @@ public class Config extends ConfigBase {
     // Only master FE collect this info from all frontends at each interval
     @ConfField public static int alive_session_update_interval_second = 5;
 
-    @ConfField public static int fe_session_mgr_threads_num = 1;
+    // Worker pools and bounded queues require positive capacity.
+    @ConfField(minValue = "1") public static int fe_session_mgr_threads_num = 1;
 
-    @ConfField public static int fe_session_mgr_blocking_queue_size = 1024;
+    // Worker pools and bounded queues require positive capacity.
+    @ConfField(minValue = "1") public static int fe_session_mgr_blocking_queue_size = 1024;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int loss_conn_fe_temp_table_keep_second = 60;
@@ -879,7 +915,8 @@ public class Config extends ConfigBase {
      * Max bytes a broker scanner can process in one broker load job.
      * Commonly, each Backends has one broker scanner.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    // Scanner planning divides by byte limits and requires a positive scanner capacity.
+    @ConfField(minValue = "1", mutable = true, masterOnly = true)
     public static long max_bytes_per_broker_scanner = 500 * 1024 * 1024 * 1024L; // 500G
 
     /**
@@ -1165,7 +1202,9 @@ public class Config extends ConfigBase {
     public static int report_queue_size = 100;
 
     // if the number of report task in FE exceed max_report_task_num_per_rpc, then split it to multiple rpc
-    @ConfField(mutable = true, masterOnly = true, description = "The maximum number of batched tasks per RPC assigned "
+    // AgentBatchTask requires a positive batch size before it splits RPC requests.
+    @ConfField(minValue = "1", mutable = true, masterOnly = true,
+            description = "The maximum number of batched tasks per RPC assigned "
             + "to each BE when resending agent tasks, the default " + "value is 10000.")
     public static int report_resend_batch_task_num_per_rpc = 10000;
 
@@ -1183,7 +1222,8 @@ public class Config extends ConfigBase {
     /**
      * the max concurrent routine load task num of a single routine load job
      */
-    @ConfField(mutable = true, masterOnly = true)
+    // Zero can stop scheduling; a negative task capacity has no meaning.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true)
     public static int max_routine_load_task_concurrent_num = 256;
 
     /**
@@ -1192,19 +1232,22 @@ public class Config extends ConfigBase {
      * than BE config 'max_routine_load_thread_pool_size'(default 1024),
      * which is the routine load task thread pool max size on BE.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    // Zero can stop scheduling; a negative task capacity has no meaning.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true)
     public static int max_routine_load_task_num_per_be = 1024;
 
     /**
      * routine load timeout is equal to maxBatchIntervalS * routine_load_task_timeout_multiplier.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    // Negative timeout settings must not be hidden by the computed minimum timeout.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true)
     public static int routine_load_task_timeout_multiplier = 10;
 
     /**
      * routine load task min timeout second.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    // Negative timeout settings must not be hidden by the computed minimum timeout.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true)
     public static int routine_load_task_min_timeout_sec = 60;
 
     /**
@@ -1223,10 +1266,12 @@ public class Config extends ConfigBase {
             description = "Minimum interval in seconds between snapshot offset persistence operations")
     public static int streaming_job_snapshot_offset_persist_interval_sec = 300;
 
-    @ConfField(mutable = true, masterOnly = true)
+    // Zero keeps the existing timeout behavior; a negative timeout expires before waiting.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true)
     public static int streaming_cdc_light_rpc_timeout_sec = 90;
 
-    @ConfField(mutable = true, masterOnly = true)
+    // Zero keeps the existing timeout behavior; a negative timeout expires before waiting.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true)
     public static int streaming_cdc_heavy_rpc_timeout_sec = 600;
 
     // Max byte length of a PG database name for a CDC job; raise only for a larger NAMEDATALEN build.
@@ -1243,7 +1288,8 @@ public class Config extends ConfigBase {
     /**
      * the max timeout of get kafka meta.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    // Zero keeps the existing timeout behavior; a negative timeout expires before waiting.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true)
     public static int max_get_kafka_meta_timeout_second = 60;
 
 
@@ -1406,9 +1452,11 @@ public class Config extends ConfigBase {
      * But in special cases, you may need to manually set these two configs
      * to ensure that the clone task will not fail due to timeout.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    // A small tablet can use this minimum directly. Zero violates the scheduler's nonzero deadline check.
+    @ConfField(minValue = "1", mutable = true, masterOnly = true)
     public static long min_clone_task_timeout_sec = 3 * 60; // 3min
-    @ConfField(mutable = true, masterOnly = true)
+    // A zero maximum forces every clone deadline to zero, which the scheduler rejects.
+    @ConfField(minValue = "1", mutable = true, masterOnly = true)
     public static long max_clone_task_timeout_sec = 2 * 60 * 60; // 2h
 
     /**
@@ -1724,7 +1772,9 @@ public class Config extends ConfigBase {
             + "to enable " + "cloud " + "restore " + "job.", varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cloud_restore_job = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = "During the cloud restore job, the maximum number of "
+    // For example, a batch size of -1 moves the snapshot or tablet cursor backwards.
+    @ConfField(minValue = "1", mutable = true, masterOnly = true,
+            description = "During the cloud restore job, the maximum number of "
             + "tablets created per create-tablets RPC. Default is " + "256.")
     public static int cloud_restore_create_tablet_batch_size = 256;
 
@@ -2020,7 +2070,8 @@ public class Config extends ConfigBase {
      * In normal case, the async remote fragment will be executed in a short time. If system are under high load
      * condition，try to set this timeout longer.
      */
-    @ConfField(mutable = true)
+    // BackendServiceClient adds 5000 ms. Limit the value to Long.MAX_VALUE - 5000 before publication.
+    @ConfField(minValue = "0", maxValue = "9223372036854770807", mutable = true)
     public static long remote_fragment_exec_timeout_ms = 30000; // 30 sec
 
     /**
@@ -2195,7 +2246,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false, description = "Max cache number of remote file system.")
     public static long max_remote_file_system_cache_num = 100;
 
-    @ConfField(mutable = false, masterOnly = false, description = "Maximum cache number of external table row counts.")
+    // Caffeine rejects negative capacity; zero keeps the cache disabled.
+    @ConfField(minValue = "0", mutable = false, masterOnly = false,
+            description = "Maximum cache number of external table row counts.")
     public static long max_external_table_row_count_cache_num = 100000;
 
     @ConfField(description = "Maximum cached file number for external table split file meta cache at query level.")
@@ -2212,16 +2265,20 @@ public class Config extends ConfigBase {
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
      */
-    @ConfField(mutable = false, masterOnly = false)
+    // The largest queue is thread count * 10000 and must fit int.
+    @ConfField(minValue = "1", maxValue = "214748", mutable = false, masterOnly = false)
     public static int max_external_cache_loader_thread_pool_size = 64;
 
-    @ConfField(description = "Workers for fair split production")
+    // Worker pools and bounded queues require positive capacity.
+    @ConfField(minValue = "1", description = "Workers for fair split production")
     public static int external_scan_split_threads = 64;
 
-    @ConfField(description = "Workers for independent metadata tasks")
+    // Worker pools and bounded queues require positive capacity.
+    @ConfField(minValue = "1", description = "Workers for independent metadata tasks")
     public static int external_scan_metadata_threads = 64;
 
-    @ConfField(description = "Maximum queued tasks per query in each external scan scheduler")
+    // Worker pools and bounded queues require positive capacity.
+    @ConfField(minValue = "1", description = "Maximum queued tasks per query in each external scan scheduler")
     public static int external_scan_task_queue_capacity = 128;
 
     /**
@@ -2647,7 +2704,8 @@ public class Config extends ConfigBase {
      * It's strongly discourage analyzing a column with a very large STRING value in the column, since it would cause
      * FE OOM.
      */
-    @ConfField
+    // Caffeine rejects negative capacity; zero keeps the cache disabled.
+    @ConfField(minValue = "0")
     public static long stats_cache_size = 50_0000;
 
     @ConfField(mutable = false, description = "Maximum queued statistics cache loads. Must be positive. "
@@ -2988,22 +3046,32 @@ public class Config extends ConfigBase {
             + "password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`")
     public static String initial_root_password = "";
 
-    @ConfField(mutable = true, masterOnly = true, description = "The maximum number of snapshots assigned to an "
+    // For example, a batch size of -1 moves the snapshot or tablet cursor backwards.
+    @ConfField(minValue = "1", mutable = true, masterOnly = true,
+            description = "The maximum number of snapshots assigned to an "
             + "upload task during the backup process. The default " + "value is 10.")
     public static int backup_upload_snapshot_batch_size = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = "The maximum number of snapshots assigned to a "
+    // For example, a batch size of -1 moves the snapshot or tablet cursor backwards.
+    @ConfField(minValue = "1", mutable = true, masterOnly = true,
+            description = "The maximum number of snapshots assigned to a "
             + "download task during the restore process. The " + "default value is 10.")
     public static int restore_download_snapshot_batch_size = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = "The maximum number of batched tasks per RPC assigned "
+    // AgentBatchTask requires a positive batch size before it splits RPC requests.
+    @ConfField(minValue = "1", mutable = true, masterOnly = true,
+            description = "The maximum number of batched tasks per RPC assigned "
             + "to each BE during the backup/restore process. The " + "default value is 10000.")
     public static int backup_restore_batch_task_num_per_rpc = 10000;
 
-    @ConfField(mutable = true, masterOnly = true, description = "The number of concurrent restore tasks per BE.")
+    // A nonpositive capacity sends no snapshot task and leaves the job waiting.
+    @ConfField(minValue = "1", mutable = true, masterOnly = true,
+            description = "The number of concurrent restore tasks per BE.")
     public static int restore_task_concurrency_per_be = 5000;
 
-    @ConfField(mutable = true, description = "The time after which a BE is considered unavailable if no heartbeat is "
+    // A negative duration expires a newly created task immediately.
+    @ConfField(minValue = "0", mutable = true,
+            description = "The time after which a BE is considered unavailable if no heartbeat is "
             + "received.")
     public static int agent_task_be_unavailable_heartbeat_timeout_second = 300;
 
@@ -3230,7 +3298,8 @@ public class Config extends ConfigBase {
     @ConfField(description = "The default directory for storing hadoop conf configuration files.")
     public static String hadoop_config_dir = EnvUtils.getDorisHome() + "/plugins/hadoop_conf/";
 
-    @ConfField(mutable = true, masterOnly = true, description = "Timeout for dictionary-related RPCs.")
+    // Zero keeps the existing timeout behavior; a negative timeout expires before waiting.
+    @ConfField(minValue = "0", mutable = true, masterOnly = true, description = "Timeout for dictionary-related RPCs.")
     public static int dictionary_rpc_timeout_seconds = 5;
 
     @ConfField(mutable = true, masterOnly = true, description = "Interval at which the dictionary triggers a data "
@@ -3360,7 +3429,8 @@ public class Config extends ConfigBase {
     @ConfField
     public static String cloud_sql_server_cluster_id = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER";
 
-    @ConfField
+    // For example, a batch size of -1 moves the snapshot or tablet cursor backwards.
+    @ConfField(minValue = "1")
     public static int cloud_txn_tablet_batch_size = 50;
 
     /**
@@ -3641,7 +3711,9 @@ public class Config extends ConfigBase {
             + "cloud mode. Default is 300s.")
     public static int calculate_delete_bitmap_task_timeout_seconds_for_transaction_load = 300;
 
-    @ConfField(mutable = true, description = "Lock wait timeout during commit phase in cloud mode. Default is 5s.")
+    // Zero keeps a nonblocking lock attempt. Negative values prevent waiting for a busy commit lock.
+    @ConfField(minValue = "0", mutable = true,
+            description = "Lock wait timeout during commit phase in cloud mode. Default is 5s.")
     public static int try_commit_lock_timeout_seconds = 5;
 
     @ConfField(mutable = true, description = "Whether to enable commit lock for all tables during transaction commit. "
@@ -3990,7 +4062,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static String aws_credentials_provider_version = "v2";
 
-    @ConfField(mutable = true, description = "The soft upper limit of FILE_CACHE percent that a single query of a "
+    // A negative percentage becomes a huge unsigned cache quota in BE.
+    @ConfField(minValue = "1", maxValue = "100", mutable = true,
+            description = "The soft upper limit of FILE_CACHE percent that a single query of a "
             + "user can use (range: 1 to 100). 100 indicates that the full FILE_CACHE " + "capacity can be used.")
     public static int file_cache_query_limit_max_percent = 100;
     @ConfField(description = "The thread pool size used by the AWS SDK to schedule asynchronous retries, timeout "
