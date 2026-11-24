@@ -232,19 +232,27 @@ public class ExplainInsertCommandTest extends TestWithFeService {
             createTable("create table combine_codec_sink (k int, a agg_state<avg(int null)> generic) "
                     + "aggregate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
             Config.be_exec_version = 20;
-            for (String suffix : new String[] {"", " having k >= 0 order by k limit 1"}) {
-                String sql = "insert into combine_codec_sink select k, avg_combine(v) "
-                        + "from combine_codec_input group by k" + suffix;
-                StatementContext context = MemoTestUtils.createStatementContext(connectContext, sql);
-                LogicalPlan logical = (LogicalPlan) ((Explainable) parser.parseSingle(sql)).getExplainPlan(connectContext);
-                PhysicalPlan plan = new NereidsPlanner(context).planWithLock(logical, PhysicalProperties.ANY);
-                List<CombineCombinator> producers = plan.<Plan>collectToList(node -> true).stream()
-                        .flatMap(node -> node.getExpressions().stream())
-                        .flatMap(expr -> expr.<CombineCombinator>collectToList(CombineCombinator.class::isInstance).stream())
-                        .collect(Collectors.toList());
-                Assertions.assertFalse(producers.isEmpty());
-                for (CombineCombinator producer : producers) {
-                    Assertions.assertEquals(19, ((AggStateType) producer.getDataType()).getBeExecVersion());
+            // Empty tables are enough to check planning. ORDER BY adds a projection
+            // with the wrapper below LIMIT; that path must also reach the producer.
+            for (String expression : new String[] {"avg_combine(v)", "if(k = 1, avg_combine(v), null)",
+                    "case when k = 1 then avg_combine(v) end",
+                    "coalesce(if(k = 1, avg_combine(v), null), if(k = 2, avg_combine(v), null))"}) {
+                for (String suffix : new String[] {"", " having k >= 0 order by k limit 1"}) {
+                    String sql = "insert into combine_codec_sink select k, " + expression + " "
+                            + "from combine_codec_input group by k" + suffix;
+                    StatementContext context = MemoTestUtils.createStatementContext(connectContext, sql);
+                    LogicalPlan logical = (LogicalPlan) ((Explainable) parser.parseSingle(sql))
+                            .getExplainPlan(connectContext);
+                    PhysicalPlan plan = new NereidsPlanner(context).planWithLock(logical, PhysicalProperties.ANY);
+                    List<CombineCombinator> producers = plan.<Plan>collectToList(node -> true).stream()
+                            .flatMap(node -> node.getExpressions().stream())
+                            .flatMap(expr -> expr.<CombineCombinator>collectToList(
+                                    CombineCombinator.class::isInstance).stream())
+                            .collect(Collectors.toList());
+                    Assertions.assertFalse(producers.isEmpty());
+                    for (CombineCombinator producer : producers) {
+                        Assertions.assertEquals(19, ((AggStateType) producer.getDataType()).getBeExecVersion());
+                    }
                 }
             }
         } finally {

@@ -30,10 +30,12 @@ import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggStateCast;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
@@ -47,8 +49,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmap
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersectCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapUnionCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -57,6 +62,7 @@ import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -68,7 +74,73 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 class CombineCombinatorTest {
+
+    @Test
+    void testConditionalCodecCastPreservesNullsAndConditions() {
+        int version = Config.be_exec_version;
+        try {
+            MemoTestUtils.createConnectContext();
+            Config.be_exec_version = 20;
+            SlotReference value = new SlotReference("v", IntegerType.INSTANCE, true);
+            SlotReference condition = new SlotReference("condition", BooleanType.INSTANCE, true);
+            CombineCombinator combine = new CombineCombinator(ImmutableList.of(value), new Avg(value));
+            AggStateType source = (AggStateType) combine.getDataType();
+            AggStateType target = source.withBeExecVersion(19);
+            If conditional = new If(condition, combine, new NullLiteral(source));
+            // CASE without ELSE has an implicit outer NULL. COALESCE must preserve
+            // explicit NULL alternatives as well, not replace them with empty states.
+            List<Expression> wrappers = ImmutableList.of(conditional,
+                    new CaseWhen(ImmutableList.of(new WhenClause(condition, combine))),
+                    new Coalesce(conditional, new NullLiteral(source)));
+            for (Expression wrapper : wrappers) {
+                Assertions.assertEquals(source, wrapper.getDataType()); // Populate cached signatures.
+                Cast converted = MoreFieldsThread.keepFunctionSignature(true,
+                        () -> ConvertAggStateCast.convert(new Cast(wrapper, target)));
+                Expression rebuilt = converted.child();
+                Assertions.assertEquals(wrapper.getClass(), rebuilt.getClass());
+                Assertions.assertEquals(target, rebuilt.getDataType());
+                Assertions.assertTrue(rebuilt.nullable());
+                List<CombineCombinator> producers = rebuilt.collectToList(CombineCombinator.class::isInstance);
+                Assertions.assertEquals(1, producers.size());
+                Assertions.assertEquals(target, producers.get(0).getDataType());
+                Assertions.assertEquals(wrapper.collectToList(NullLiteral.class::isInstance).size(),
+                        rebuilt.collectToList(NullLiteral.class::isInstance).size());
+                for (NullLiteral literal : rebuilt.<NullLiteral>collectToList(NullLiteral.class::isInstance)) {
+                    Assertions.assertEquals(target, literal.getDataType());
+                }
+                for (If expr : rebuilt.<If>collectToList(If.class::isInstance)) {
+                    Assertions.assertSame(condition, expr.getCondition());
+                }
+                for (WhenClause clause : rebuilt.<WhenClause>collectToList(WhenClause.class::isInstance)) {
+                    Assertions.assertSame(condition, clause.getOperand());
+                }
+            }
+        } finally {
+            Config.be_exec_version = version;
+        }
+    }
+
+    @Test
+    void testConditionalCastDoesNotRelabelStoredState() {
+        MemoTestUtils.createConnectContext();
+        AggStateType source = new AggStateType("avg", ImmutableList.of(IntegerType.INSTANCE),
+                ImmutableList.of(true), true, 20);
+        AggStateType target = source.withBeExecVersion(19);
+        SlotReference stored = new SlotReference("stored", source, true);
+        SlotReference condition = new SlotReference("condition", BooleanType.INSTANCE, false);
+        // A stored value has no raw-input producer to rebuild. Moving its cast into
+        // IF must not hide the unsupported 20-to-19 conversion from validation.
+        Cast converted = ConvertAggStateCast.convert(
+                new Cast(new If(condition, stored, new NullLiteral(source)), target));
+        List<Cast> storedCasts = converted.collectToList(
+                expr -> expr instanceof Cast && expr.child(0).equals(stored));
+        Assertions.assertEquals(1, storedCasts.size());
+        Assertions.assertThrows(AnalysisException.class, () -> CheckCast.validate(storedCasts.get(0)));
+        Assertions.assertEquals(source, storedCasts.get(0).child().getDataType());
+    }
 
     @Test
     void testCombineCastUsesSinkCodec() {

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -58,8 +59,8 @@ public class PushDownAggStateCast extends OneRewriteRuleFactory {
     private static Plan rewrite(LogicalProject<Plan> project) {
         Plan child = project.child();
         List<Plan> passthrough = new ArrayList<>();
-        // These operators pass through the aggregate's slots. Keep their predicates,
-        // order keys and limits unchanged; only the new producer slot passes through.
+        // Keep predicates, order keys and limits unchanged. A projection can expose
+        // a separate target-codec value while it keeps its original outputs.
         while (child instanceof LogicalFilter || child instanceof LogicalSort || child instanceof LogicalLimit
                 || (child instanceof LogicalProject && !((LogicalProject<?>) child).isDistinct())) {
             passthrough.add(child);
@@ -69,64 +70,107 @@ public class PushDownAggStateCast extends OneRewriteRuleFactory {
             return null;
         }
         LogicalAggregate<?> aggregate = (LogicalAggregate<?>) child;
-        Map<Slot, CombineCombinator> producers = new HashMap<>();
-        for (NamedExpression output : aggregate.getOutputExpressions()) {
-            if (output instanceof Alias && output.child(0) instanceof CombineCombinator) {
-                producers.put(output.toSlot(), (CombineCombinator) output.child(0));
-            }
-        }
-        // NormalizeAggregate can put a projection between HAVING/ORDER BY and the
-        // aggregate. Follow only slots and their aliases, not expressions that change
-        // the state value or its outer NULL. Do not add columns across DISTINCT.
-        for (int i = passthrough.size() - 1; i >= 0; i--) {
-            if (passthrough.get(i) instanceof LogicalProject) {
-                Map<Slot, CombineCombinator> forwarded = new HashMap<>();
-                for (NamedExpression output : ((LogicalProject<?>) passthrough.get(i)).getProjects()) {
-                    Expression input = output instanceof Alias ? output.child(0) : output;
-                    CombineCombinator producer = producers.get(input);
-                    if (producer != null) {
-                        forwarded.put(output.toSlot(), producer);
-                    }
-                }
-                producers = forwarded;
-            }
-        }
-        Map<Slot, CombineCombinator> visibleProducers = producers;
-        Map<Expression, Alias> addedOutputs = new LinkedHashMap<>();
+        StateCastRewriter rewriter = new StateCastRewriter(passthrough, aggregate);
         List<NamedExpression> projects = project.getProjects().stream()
-                .map(expr -> (NamedExpression) expr.rewriteUp(e -> {
-                    if (!(e instanceof Cast) || !(e.getDataType() instanceof AggStateType)) {
-                        return e;
-                    }
-                    CombineCombinator producer = visibleProducers.get(e.child(0));
-                    if (producer == null) {
-                        return e;
-                    }
-                    Cast converted = ConvertAggStateCast.convert(new Cast(producer, e.getDataType()));
-                    if (converted.child() == producer) {
-                        return e;
-                    }
-                    // Keep the original output: another consumer can still need version 20.
-                    // A cast to version 19 gets a separate producer and ExprId. Equal casts
-                    // share that new output, while different codecs remain distinct.
-                    return addedOutputs.computeIfAbsent(converted.child(), Alias::new).toSlot();
-                })).collect(ImmutableList.toImmutableList());
-        if (addedOutputs.isEmpty()) {
+                .map(expr -> (NamedExpression) rewriter.rewriteExpression(expr, 0))
+                .collect(ImmutableList.toImmutableList());
+        if (rewriter.addedOutputs.get(passthrough.size()).isEmpty()) {
             return null;
         }
         List<NamedExpression> outputs = ImmutableList.<NamedExpression>builder()
-                .addAll(aggregate.getOutputExpressions()).addAll(addedOutputs.values()).build();
+                .addAll(aggregate.getOutputExpressions())
+                .addAll(rewriter.addedOutputs.get(passthrough.size()).values()).build();
         Plan rewritten = aggregate.withAggOutput(outputs);
         for (int i = passthrough.size() - 1; i >= 0; i--) {
             Plan parent = passthrough.get(i);
             if (parent instanceof LogicalProject) {
                 LogicalProject<?> projection = (LogicalProject<?>) parent;
                 List<NamedExpression> forwarded = new ArrayList<>(projection.getProjects());
-                addedOutputs.values().forEach(output -> forwarded.add(output.toSlot()));
+                forwarded.addAll(rewriter.addedOutputs.get(i).values());
                 parent = projection.withProjects(forwarded);
             }
             rewritten = parent.withChildren(rewritten);
         }
         return project.withProjects(projects).withChildren(rewritten);
+    }
+
+    private static class StateCastRewriter {
+        private final List<Plan> passthrough;
+        private final Map<Slot, CombineCombinator> producers = new HashMap<>();
+        private final List<Map<Slot, Expression>> projectInputs = new ArrayList<>();
+        private final List<Map<Expression, Alias>> addedOutputs = new ArrayList<>();
+
+        StateCastRewriter(List<Plan> passthrough, LogicalAggregate<?> aggregate) {
+            this.passthrough = passthrough;
+            for (NamedExpression output : aggregate.getOutputExpressions()) {
+                if (output instanceof Alias && output.child(0) instanceof CombineCombinator) {
+                    producers.put(output.toSlot(), (CombineCombinator) output.child(0));
+                }
+            }
+            for (Plan plan : passthrough) {
+                Map<Slot, Expression> inputs = new HashMap<>();
+                if (plan instanceof LogicalProject) {
+                    for (NamedExpression output : ((LogicalProject<?>) plan).getProjects()) {
+                        inputs.put(output.toSlot(), output instanceof Alias ? output.child(0) : output);
+                    }
+                }
+                projectInputs.add(inputs);
+                addedOutputs.add(new LinkedHashMap<>());
+            }
+            addedOutputs.add(new LinkedHashMap<>()); // Aggregate outputs are at the last level.
+        }
+
+        Expression rewriteExpression(Expression expression, int level) {
+            return expression.rewriteUp(e -> {
+                if (!(e instanceof Cast) || !(e.getDataType() instanceof AggStateType)) {
+                    return e;
+                }
+                // Conditional casts now contain casts of their value slots. Visit
+                // those new casts too; the original rewriteUp has already passed them.
+                return ConvertAggStateCast.convert((Cast) e).rewriteUp(branch -> retargetSlot(branch, level));
+            });
+        }
+
+        private Expression retargetSlot(Expression expression, int level) {
+            if (!(expression instanceof Cast) || !(expression.getDataType() instanceof AggStateType)
+                    || !(expression.child(0) instanceof Slot)
+                    || !(expression.child(0).getDataType() instanceof AggStateType)) {
+                return expression;
+            }
+            AggStateType source = (AggStateType) expression.child(0).getDataType();
+            AggStateType target = (AggStateType) expression.getDataType();
+            // Only move a codec change. Leave other casts at their original location.
+            if (source.equals(target) || !source.hasSameAggregateSignature(target)) {
+                return expression;
+            }
+            if (level == passthrough.size()) {
+                CombineCombinator producer = producers.get(expression.child(0));
+                if (producer == null) {
+                    return expression;
+                }
+                Cast converted = ConvertAggStateCast.convert(new Cast(producer, expression.getDataType()));
+                if (converted.child() == producer) {
+                    return expression;
+                }
+                // Keep the original output for other consumers. Equal target-codec
+                // casts share a new producer, even when they occur in different branches.
+                return addedOutputs.get(level).computeIfAbsent(converted.child(), Alias::new).toSlot();
+            }
+            if (!(passthrough.get(level) instanceof LogicalProject)) {
+                return retargetSlot(expression, level + 1);
+            }
+            Expression input = projectInputs.get(level).get(expression.child(0));
+            if (input == null || input.containsVolatileExpression()
+                    || input.containsType(NoneMovableFunction.class)) {
+                // Do not duplicate a volatile or non-movable expression for another
+                // codec consumer. Leave its cast for the normal compatibility check.
+                return expression;
+            }
+            // A projection below ORDER BY/LIMIT can contain IF rather than a bare slot.
+            // Build its target-codec value at that same level. Keep the condition's
+            // input slots in scope and preserve the original output for other consumers.
+            Expression converted = rewriteExpression(new Cast(input, expression.getDataType()), level + 1);
+            return addedOutputs.get(level).computeIfAbsent(converted, Alias::new).toSlot();
+        }
     }
 }
