@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TPipelineInstanceParams;
+import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -66,7 +67,17 @@ public final class FileScanEncryptionGuard {
                 if (fragment.isSetFileScanParams()) {
                     paramsByNode = fragment.getFileScanParams();
                     for (TFileScanRangeParams params : paramsByNode.values()) {
-                        checker.checkParams(params);
+                        // Every worker receives this query-wide map. Unused markers carry no keys, but
+                        // actual key descriptors anywhere in the serialized payload must remain protected.
+                        checker.checkParams(params, false);
+                    }
+                }
+                if (fragment.isSetFragment() && fragment.getFragment().isSetPlan()) {
+                    for (TPlanNode node : fragment.getFragment().getPlan().getNodes()) {
+                        TFileScanRangeParams params = paramsByNode.get(node.getNodeId());
+                        if (params != null) {
+                            checker.checkParams(params);
+                        }
                     }
                 }
                 if (fragment.isSetLocalParams()) {
@@ -74,8 +85,13 @@ public final class FileScanEncryptionGuard {
                         if (instance.isSetPerNodeScanRanges()) {
                             for (Map.Entry<Integer, List<TScanRangeParams>> node
                                     : instance.getPerNodeScanRanges().entrySet()) {
+                                TFileScanRangeParams inherited = paramsByNode.get(node.getKey());
+                                // A lazy scan can start with no ranges; its assigned marker still selects a reader.
+                                if (node.getValue().isEmpty() && inherited != null) {
+                                    checker.checkParams(inherited);
+                                }
                                 for (TScanRangeParams range : node.getValue()) {
-                                    checker.checkRange(range.getScanRange(), paramsByNode.get(node.getKey()));
+                                    checker.checkRange(range.getScanRange(), inherited);
                                 }
                             }
                         }
@@ -111,16 +127,17 @@ public final class FileScanEncryptionGuard {
             this.supportsEncryption = supportsEncryption;
         }
 
-        private void checkDescriptor(TFileFormatType format, TTableFormatFileDesc table) {
+        private void checkDescriptor(TFileFormatType format, TTableFormatFileDesc table, boolean markerUsed) {
             boolean encrypted = table != null && FileScanEncryption.validate(table);
+            boolean nativeMarker = markerUsed && format == TFileFormatType.FORMAT_PARQUET_PME;
             // Remote clusters do not share the local authenticated key-transport contract.
-            if ((encrypted || format == TFileFormatType.FORMAT_PARQUET_PME) && !internalRpc) {
+            if ((encrypted || nativeMarker) && !internalRpc) {
                 throw new IllegalStateException("File encryption [KEY_TRANSPORT_UNAVAILABLE]");
             }
             if (encrypted && format != TFileFormatType.FORMAT_PARQUET_PME) {
                 throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
             }
-            if (format == TFileFormatType.FORMAT_PARQUET_PME && !needsCapability) {
+            if ((encrypted || nativeMarker) && !needsCapability) {
                 // A marker-only first batch still requires a verified reader and protected key transport.
                 if (!supportsEncryption.getAsBoolean()) {
                     throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
@@ -130,7 +147,11 @@ public final class FileScanEncryptionGuard {
         }
 
         private void checkParams(TFileScanRangeParams params) {
-            checkDescriptor(params.getFormatType(), params.getTableFormatParams());
+            checkParams(params, true);
+        }
+
+        private void checkParams(TFileScanRangeParams params, boolean markerUsed) {
+            checkDescriptor(params.getFormatType(), params.getTableFormatParams(), markerUsed);
         }
 
         private void checkRange(TScanRange range, TFileScanRangeParams inheritedParams) {
@@ -158,7 +179,7 @@ public final class FileScanEncryptionGuard {
                         // Shared params select the reader and COUNT handling for every range in a mixed scan.
                         throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
                     }
-                    checkDescriptor(format, table);
+                    checkDescriptor(format, table, true);
                 }
             }
         }

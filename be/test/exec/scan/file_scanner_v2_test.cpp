@@ -1602,6 +1602,43 @@ TEST(FileScannerV2Test, IcebergDeleteSplitKeepsInitialScannerCountCap) {
     EXPECT_FALSE(FileScanLocalState::TEST_can_generate_physical_splits(false, params, range));
 }
 
+TEST(FileScannerV2Test, EncryptedParquetCoarseRangeKeepsRefinementParallelism) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET_PME);
+    TFileRangeDesc range;
+    range.__set_path("encrypted.parquet");
+    range.__set_start_offset(0);
+    range.__set_size(256L << 20);
+    range.__set_target_split_size(64L << 20);
+    TFileEncryptionInfo encryption;
+    encryption.__set_version(1);
+    encryption.__set_key(std::string(16, 'k'));
+    encryption.__set_aad_prefix("fixture");
+    TIcebergFileDesc iceberg;
+    iceberg.__set_encryption_info(encryption);
+    TTableFormatFileDesc table_format;
+    table_format.__set_table_format_type("iceberg");
+    table_format.__set_iceberg_params(iceberg);
+    range.__set_table_format_params(table_format);
+
+    EXPECT_TRUE(FileScanLocalState::TEST_can_generate_physical_splits(false, params, range));
+    range.__set_format_type(TFileFormatType::FORMAT_PARQUET_PME);
+    const bool can_refine =
+            FileScanLocalState::TEST_can_generate_physical_splits(false, params, range);
+    ASSERT_TRUE(can_refine);
+    const int scanners = FileScanLocalState::TEST_adjust_scanner_count(16, 1, can_refine);
+    EXPECT_EQ(scanners, 16);
+    EXPECT_TRUE(FileScannerV2::TEST_should_refine_source_split(range, scanners));
+    EXPECT_FALSE(FileScannerV2::TEST_should_refine_source_split(range, 1));
+    EXPECT_FALSE(FileScanLocalState::TEST_can_generate_physical_splits(true, params, range));
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_path("delete.parquet");
+    range.table_format_params.iceberg_params.__set_delete_files({delete_file});
+    EXPECT_FALSE(FileScanLocalState::TEST_can_generate_physical_splits(false, params, range));
+    EXPECT_FALSE(FileScannerV2::TEST_should_refine_source_split(range, scanners));
+}
+
 TEST(FileScannerV2Test, NativePaimonOrcCanGeneratePhysicalSplits) {
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
