@@ -34,6 +34,8 @@ public class IcebergInsertCommandContext extends BaseExternalTableInsertCommandC
     // (col='val', ...)
     private Map<String, String> staticPartitionValues = Maps.newHashMap();
     private boolean rewriting = false;
+    // SQL MERGE shares the UPDATE executor but uses its own isolation-level property.
+    private boolean mergeInto;
     private Optional<IcebergWriteSchemaContext> writeSchemaContext = Optional.empty();
 
     public Optional<String> getBranchName() {
@@ -67,6 +69,14 @@ public class IcebergInsertCommandContext extends BaseExternalTableInsertCommandC
 
     public void setRewriting(boolean rewriting) {
         this.rewriting = rewriting;
+    }
+
+    public boolean isMergeInto() {
+        return mergeInto;
+    }
+
+    public void setMergeInto(boolean mergeInto) {
+        this.mergeInto = mergeInto;
     }
 
     public Optional<IcebergWriteSchemaContext> getWriteSchemaContext() {

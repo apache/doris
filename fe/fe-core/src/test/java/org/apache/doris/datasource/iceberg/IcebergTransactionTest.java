@@ -1298,6 +1298,7 @@ public class IcebergTransactionTest {
         org.apache.iceberg.Transaction retainedTransaction =
                 Mockito.mock(org.apache.iceberg.Transaction.class);
         Mockito.when(retainedTable.newTransaction()).thenReturn(retainedTransaction);
+        Mockito.when(retainedTransaction.table()).thenReturn(retainedTable);
 
         try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
             mockWritableTable(mockedUtils, retainedTable);
