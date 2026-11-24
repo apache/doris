@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -47,9 +48,12 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 public class PaimonNativePartitionAndCacheVersionTest {
 
@@ -202,8 +206,17 @@ public class PaimonNativePartitionAndCacheVersionTest {
             ConnectorTableHandle baseTag1 = mdTag1.getTableHandle(sTag1, "db1", "t1").orElseThrow();
             ConnectorMvccSnapshot tagPin1 = mdTag1.resolveTimeTravel(
                     sTag1, baseTag1, ConnectorTimeTravelSpec.tag("v1")).orElseThrow();
-            ConnectorSqlCacheVersion tagV1 = mdTag1.getSqlCacheVersion(
-                    sTag1, mdTag1.applySnapshot(sTag1, baseTag1, tagPin1)).orElseThrow();
+            ConnectorTableHandle tagHandle1 = mdTag1.applySnapshot(sTag1, baseTag1, tagPin1);
+            ConnectorSqlCacheVersion tagV1 = mdTag1.getSqlCacheVersion(sTag1, tagHandle1).orElseThrow();
+            Assertions.assertEquals(tagV1.getVersion(),
+                    mdTag1.getPartitionViewVersion(sTag1, tagHandle1).orElseThrow());
+            // Direct tag partition listing must reflect the tag (only dt=2026-02-01), NOT latest (which also has
+            // dt=2026-02-02), even after the underlying snapshot file for snapshot 1 was expired.
+            List<ConnectorPartitionInfo> tagPartitions = mdTag1.listPartitions(sTag1, tagHandle1, Optional.empty());
+            Assertions.assertEquals(Collections.singletonList("dt=2026-02-01"),
+                    tagPartitions.stream()
+                            .map(ConnectorPartitionInfo::getPartitionName)
+                            .collect(Collectors.toList()));
 
             ((FileStoreTable) catalog.getTable(id)).replaceTag("v1", 2L, null);
             PaimonConnectorMetadata mdTag2 = liveMetadata(ops);

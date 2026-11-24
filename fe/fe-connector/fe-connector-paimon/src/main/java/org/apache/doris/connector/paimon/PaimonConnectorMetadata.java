@@ -1821,12 +1821,19 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             table = PaimonScanParams.applyOptions(resolvedTable, scanOptions);
         } else {
             String snapshotId = scanOptions.get(CoreOptions.SCAN_SNAPSHOT_ID.key());
-            // Fence hydration receives an ordinary positive snapshot pin. Apply it before listing
-            // partitions so EXPLAIN and block-rule accounting describe the same version as the scan.
-            Table partitionTable = snapshotId == null
+            String tagName = scanOptions.get(CoreOptions.SCAN_TAG_NAME.key());
+            Map<String, String> historicalSelector = snapshotId != null
+                    ? Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId)
+                    : tagName != null
+                            ? Collections.singletonMap(CoreOptions.SCAN_TAG_NAME.key(), tagName)
+                            : null;
+            // Fence hydration receives a snapshot or direct tag pin. Apply it before listing
+            // partitions so EXPLAIN, partition view caching, and block-rule accounting describe
+            // the same version as the scan (including tags whose underlying snapshot file expired).
+            Table partitionTable = historicalSelector == null
                     ? resolvedTable
                     : PaimonScanParams.copyWithHistoricalSchema(resolvedTable, PaimonScanParams.withCatalogOptions(
-                            Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId),
+                            historicalSelector,
                             PaimonTableOptions.extractCompatible(catalogProperties.getRaw())));
             // Partition projection never opens a data reader, so reader-only settings must not
             // invalidate metadata that a later relation-scoped override can make safe.
