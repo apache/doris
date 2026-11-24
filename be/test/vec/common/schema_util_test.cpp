@@ -1983,3 +1983,43 @@ TEST_F(SchemaUtilTest, parse_variant_columns_ambiguous_paths) {
     EXPECT_FALSE(st.ok());
     EXPECT_TRUE(st.to_string().find("Ambiguous paths") != std::string::npos);
 }
+
+TEST_F(SchemaUtilTest, ExtendedDescReturnsBaseSchemaForEmptyRowsets) {
+    auto base_schema = std::make_shared<TabletSchema>();
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    auto* column = schema_pb.add_column();
+    column->set_unique_id(1);
+    column->set_name("v");
+    column->set_type("VARIANT");
+    base_schema->init_from_pb(schema_pb);
+    auto result =
+            schema_util::VariantCompactionUtil::calculate_variant_extended_schema({}, base_schema);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    ASSERT_NE(result.value(), nullptr);
+    EXPECT_EQ(result.value()->num_columns(), 1);
+    EXPECT_EQ(result.value()->column(0).name(), "v");
+}
+
+TEST_F(SchemaUtilTest, ExtendedDescPropagatesSegmentOpenFailure) {
+    auto schema = std::make_shared<TabletSchema>();
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    auto* column = schema_pb.add_column();
+    column->set_unique_id(1);
+    column->set_name("v");
+    column->set_type("VARIANT");
+    schema->init_from_pb(schema_pb);
+    auto meta = std::make_shared<RowsetMeta>();
+    RowsetId rowset_id;
+    rowset_id.init(900070899);
+    meta->set_rowset_id(rowset_id);
+    meta->set_num_segments(1);
+    auto rowset = std::make_shared<BetaRowset>(schema, meta, "./ut_dir/desc_missing_segment_70899");
+    auto result =
+            schema_util::VariantCompactionUtil::calculate_variant_extended_schema({rowset}, schema);
+    ASSERT_FALSE(result.has_value())
+            << "Unreadable segments must not return a successful base schema";
+    EXPECT_TRUE(result.error().to_string().find("could not read rowset") != std::string::npos)
+            << result.error();
+}

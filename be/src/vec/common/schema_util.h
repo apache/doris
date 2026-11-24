@@ -182,7 +182,7 @@ public:
                                                  TabletSchemaSPtr& target);
 
     // Used to collect all the subcolumns types of variant column from rowsets
-    static TabletSchemaSPtr calculate_variant_extended_schema(
+    static Result<TabletSchemaSPtr> calculate_variant_extended_schema(
             const std::vector<RowsetSharedPtr>& rowsets, const TabletSchemaSPtr& base_schema);
 
     // Check if the path stats are consistent between inputs rowsets and output rowset.
