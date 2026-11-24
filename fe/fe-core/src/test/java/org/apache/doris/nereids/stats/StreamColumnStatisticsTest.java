@@ -31,6 +31,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -115,10 +116,12 @@ class StreamColumnStatisticsTest {
         Assertions.assertEquals(1, source.hotValues.size());
         Assertions.assertNull(small.hotValues);
         Assertions.assertEquals(source.updatedTime, small.updatedTime);
-        Assertions.assertSame(source.minExpr, small.minExpr);
-        Assertions.assertSame(source.maxExpr, small.maxExpr);
-        Assertions.assertEquals(source.minValue, small.minValue);
-        Assertions.assertEquals(source.maxValue, small.maxValue);
+        Assertions.assertEquals(1, source.minValue);
+        Assertions.assertEquals(100, source.maxValue);
+        Assertions.assertNull(small.minExpr);
+        Assertions.assertNull(small.maxExpr);
+        Assertions.assertEquals(Double.NEGATIVE_INFINITY, small.minValue);
+        Assertions.assertEquals(Double.POSITIVE_INFINITY, small.maxValue);
         Assertions.assertEquals(small.ndv, small.original.ndv);
         Assertions.assertNotSame(source.original, small.original);
     }
@@ -209,6 +212,7 @@ class StreamColumnStatisticsTest {
                 Assertions.assertEquals(90, column.numNulls);
                 Assertions.assertEquals(10, column.ndv);
                 Mockito.verify(fixture.cache).getOlapTableStats(fixture.source, 10L);
+                Mockito.verify(fixture.source, Mockito.never()).getPartition(Mockito.anyLong());
             }
         }
     }
@@ -408,6 +412,37 @@ class StreamColumnStatisticsTest {
             Assertions.assertEquals(100, scanStats.getRowCount());
             Assertions.assertEquals(0, scanStats.getDeltaRowCount());
             Assertions.assertEquals(0, filtered.getRowCount());
+        }
+    }
+
+    @Test
+    void testIsNullKeepsFractionalNullEstimateAfterEnforceValid() {
+        try (ScanFixture fixture = new ScanFixture(OlapChangelogTableWrapper.class, 10)) {
+            fixture.tableStatistic(statistic(1000, 999, 1));
+            Statistics scanStats = fixture.compute();
+            scanStats.enforceValid();
+
+            LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                    ImmutableSet.of(new IsNull(fixture.slot)), fixture.scan);
+            Statistics filtered = new StatsCalculator((CascadesContext) null).computeFilter(filter, scanStats);
+            Assertions.assertEquals(0.01, scanStats.findColumnStatistics(fixture.slot).numNulls, 1e-12);
+            Assertions.assertEquals(0.01, filtered.getRowCount(), 1e-12);
+        }
+    }
+
+    @Test
+    void testHistoricalEqualityOutsideSourceBoundsUsesNdv() {
+        try (ScanFixture fixture = new ScanFixture(OlapTableWrapper.class, 100)) {
+            fixture.tableStatistic(new ColumnStatisticBuilder(statistic(1000, 10, 0))
+                    .setMinValue(1).setMinExpr(new IntLiteral(1))
+                    .setMaxValue(10).setMaxExpr(new IntLiteral(10)).build());
+            Statistics scanStats = fixture.compute();
+            scanStats.enforceValid();
+
+            LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                    ImmutableSet.of(new EqualTo(fixture.slot, new IntegerLiteral(20))), fixture.scan);
+            Statistics filtered = new StatsCalculator((CascadesContext) null).computeFilter(filter, scanStats);
+            Assertions.assertEquals(10, filtered.getRowCount(), 1e-9);
         }
     }
 

@@ -726,8 +726,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         OlapTable table = scan.getTable();
         OlapTable sourceTable = getOlapScanSourceTable(table);
         // ALTER TABLE ... SET STATS overrides previously collected partition statistics.
-        List<String> partitionNames = hasUserInjectedStats(sourceTable)
-                ? Collections.emptyList() : getSelectedPartitionNames(scan, sourceTable);
+        List<String> partitionNames = isPartitionAnalyzeEnabled() && !hasUserInjectedStats(sourceTable)
+                ? getSelectedPartitionNames(scan, sourceTable) : Collections.emptyList();
         for (Slot slot : ((Plan) scan).getOutput()) {
             String columnName = slot.getName();
             boolean beforeColumn = table instanceof OlapChangelogTableWrapper
@@ -762,9 +762,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     /**
-     * Estimate a stream/historical scan from one unmodified source population. The source range
-     * and NULL fraction are distribution approximations, including for DELETE/UPDATE_BEFORE;
-     * they are not exact historical bounds or measurements of the changed keys.
+     * Estimate a stream/historical scan from one unmodified source population. Its NULL fraction
+     * is an approximation, including for DELETE/UPDATE_BEFORE.
      */
     @VisibleForTesting
     static ColumnStatistic estimateStreamColumnStatistics(ColumnStatistic source, double rowCount, DataType dataType) {
@@ -775,9 +774,19 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             return ColumnStatistic.UNKNOWN;
         }
         double numNulls = Math.min(rowCount, Math.max(0, rowCount * (source.numNulls / source.count)));
+        double ndv = Math.min(source.ndv, rowCount - numNulls);
+        if (numNulls > rowCount - ndv) {
+            // Match enforceValid's subtraction order so rounding cannot inflate fractional NULL counts.
+            ndv = Math.nextDown(ndv);
+        }
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(source, rowCount)
                 .setNumNulls(numNulls)
-                .setNdv(Math.min(source.ndv, rowCount - numNulls))
+                .setNdv(ndv)
+                // The source bounds may exclude values visible at the scan's offset.
+                .setMinValue(Double.NEGATIVE_INFINITY)
+                .setMaxValue(Double.POSITIVE_INFINITY)
+                .setMinExpr(null)
+                .setMaxExpr(null)
                 .setDataSize(0)
                 .setOriginal(null)
                 .setHotValues(null);
@@ -1370,6 +1379,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return columnStatistics;
     }
 
+    private boolean isPartitionAnalyzeEnabled() {
+        return connectContext != null && connectContext.getSessionVariable().enablePartitionAnalyze;
+    }
+
     /**
      * Merge the column statistics of the given partitions.
      *
@@ -1379,8 +1392,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     private ColumnStatistic getPartitionColumnStatistic(
             OlapTableStatistics olapTableStatistics, String colName, List<String> partitionNames) {
-        if (partitionNames.isEmpty() || connectContext == null
-                || !connectContext.getSessionVariable().enablePartitionAnalyze) {
+        if (partitionNames.isEmpty() || !isPartitionAnalyzeEnabled()) {
             return null;
         }
         if (connectContext.getState().isPlanWithUnKnownColumnStats()) {
