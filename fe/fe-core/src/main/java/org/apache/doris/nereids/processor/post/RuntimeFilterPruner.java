@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.statistics.model.ColumnStatistic;
@@ -261,6 +262,14 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             visitPhysicalRelation(scan, context);
         }
         return scan;
+    }
+
+    @Override
+    public Plan visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate aggregate, CascadesContext context) {
+        PhysicalStorageLayerAggregate visited =
+                (PhysicalStorageLayerAggregate) super.visitPhysicalStorageLayerAggregate(aggregate, context);
+        propagateChangelog(visited, visited.getRelation(), context.getRuntimeFilterContext());
+        return visited;
     }
 
     @Override

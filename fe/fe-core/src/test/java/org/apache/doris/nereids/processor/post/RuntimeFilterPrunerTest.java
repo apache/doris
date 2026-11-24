@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -62,7 +63,7 @@ class RuntimeFilterPrunerTest extends TestWithFeService {
         connectContext.getSessionVariable().setEnableRuntimeFilterPrune(true);
         connectContext.getSessionVariable().setRuntimeFilterType(TRuntimeFilterType.BLOOM.getValue());
 
-        createTable("CREATE TABLE rf_prune_fact (id INT, agent_code INT, username VARCHAR(32)) "
+        createTable("CREATE TABLE rf_prune_fact (id INT, agent_code INT, username VARCHAR(32), k BIGINT) "
                 + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1')");
         // Merge-on-read keeps a hidden delete-sign Filter above the agent scan.
@@ -147,6 +148,13 @@ class RuntimeFilterPrunerTest extends TestWithFeService {
 
         Assertions.assertEquals(1, context.getNereidsRuntimeFilter().size());
         Assertions.assertTrue(context.prunedRF.isEmpty());
+    }
+
+    @Test
+    void testStorageAggregateKeepsStreamRuntimeFilter() {
+        assertBuildKeepsRuntimeFilter("SELECT f.id FROM rf_prune_fact f JOIN [broadcast] ("
+                + "SELECT COUNT(*) AS n FROM rf_prune_stream_base@incr('incrementType'='MIN_DELTA')"
+                + ") b ON f.k = b.n", false, PhysicalStorageLayerAggregate.class);
     }
 
     @ParameterizedTest
