@@ -23,6 +23,7 @@
 #include "common/logging.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_query_context.h"
+#include "storage/index/inverted/query/logical/gram/regex_ast.h"
 #include "util/hyperscan_util.h"
 
 namespace doris::index_query {
@@ -55,6 +56,66 @@ std::string regexp_enumeration_prefix(std::string_view pattern) {
     }
     smallest.resize(length);
     return smallest;
+}
+
+// The longest literal every match of a regular expression holds: the consecutive literal code
+// points of a concatenation, through anchors (which take no text) and into a group repeated at
+// least once; a class, `.`, an alternation and a quantifier that may take nothing end the run.
+// Under `(?i)` the parser turns letters into classes, so they name no literal.
+void collect_regexp_literal(const segment_v2::gram::RegexNode& node, std::string* run,
+                            std::string* longest) {
+    using Type = segment_v2::gram::RegexNode::Type;
+    const auto end_run = [&] {
+        if (run->size() > longest->size()) {
+            *longest = *run;
+        }
+        run->clear();
+    };
+    switch (node.type) {
+    case Type::EMPTY:
+        return;
+    case Type::LIT:
+        run->append(node.lit);
+        return;
+    case Type::CAT:
+        for (const auto& kid : node.kids) {
+            collect_regexp_literal(*kid, run, longest);
+        }
+        return;
+    case Type::PLUS:
+    case Type::REPEAT:
+        end_run();
+        if (node.type == Type::PLUS || node.rmin >= 1) {
+            std::string inner;
+            for (const auto& kid : node.kids) {
+                collect_regexp_literal(*kid, &inner, longest);
+            }
+            if (inner.size() > longest->size()) {
+                *longest = inner;
+            }
+        }
+        return;
+    case Type::CLASS:
+    case Type::ANY:
+    case Type::ALT:
+    case Type::STAR:
+    case Type::QUEST:
+        end_run();
+        return;
+    }
+}
+
+// Empty for a pattern the parser does not accept: the expansion then tests every term.
+std::string regexp_required_literal(std::string_view pattern) {
+    std::unique_ptr<segment_v2::gram::RegexNode> root;
+    bool case_insensitive = false;
+    if (!segment_v2::gram::parse_regex(pattern, &root, &case_insensitive).ok()) {
+        return {};
+    }
+    std::string run;
+    std::string longest;
+    collect_regexp_literal(*root, &run, &longest);
+    return run.size() > longest.size() ? run : longest;
 }
 
 int on_match(unsigned int /*id*/, unsigned long long /*from*/, unsigned long long /*to*/,
@@ -112,7 +173,16 @@ Status TermPattern::create(TermPatternKind kind, std::string_view pattern, TermP
         return Status::MemoryAllocFailed("cannot allocate Hyperscan scratch");
     }
     out->_scratch.reset(scratch);
-    out->_enumeration_prefix = regexp_enumeration_prefix(pattern);
+    // Hyperscan reads the expression as a C string, so a raw NUL ends it. The prefix and the
+    // literal come from that same text, or they would skip terms the expression matches.
+    const std::string_view compiled(terminated.c_str());
+    out->_enumeration_prefix = regexp_enumeration_prefix(compiled);
+    // As for a glob: an expression with a prefix already stops where the prefix ends, and CLucene
+    // checks the prefix only after this text, so '^cach.' would walk on past "cach" through every
+    // later term that lacks "cach". Only an expression that enumerates the whole dictionary keeps it.
+    if (out->_enumeration_prefix.empty()) {
+        out->_text = regexp_required_literal(compiled);
+    }
     return Status::OK();
 }
 
