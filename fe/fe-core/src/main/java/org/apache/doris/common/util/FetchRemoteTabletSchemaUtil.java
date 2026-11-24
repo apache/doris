@@ -29,6 +29,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.proto.InternalService.PFetchRemoteSchemaRequest;
 import org.apache.doris.proto.InternalService.PFetchRemoteSchemaResponse;
 import org.apache.doris.proto.InternalService.PTabletsLocation;
@@ -46,6 +47,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -68,14 +70,47 @@ public class FetchRemoteTabletSchemaUtil {
         this.remoteTablets = tablets;
     }
 
-    public static List<Column> fetchPartitions(List<Partition> partitions) throws AnalysisException {
-        List<Tablet> tablets = Lists.newArrayList();
+    public record PartitionTablets(Partition partition, List<Tablet> tablets) {
+    }
+
+    /** Capture tablet lists under the table lock. Cloud visibility can require a separate RPC. */
+    public static List<PartitionTablets> snapshotPartitions(Collection<Partition> partitions) {
+        boolean cloudMode = Config.isCloudMode();
+        List<PartitionTablets> snapshot = Lists.newArrayList();
         for (Partition partition : partitions) {
-            if (partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION) {
-                tablets.addAll(partition.getBaseIndex().getTablets());
+            if (cloudMode || partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION) {
+                snapshot.add(new PartitionTablets(partition, partition.getBaseIndex().getTablets()));
             }
         }
+        return snapshot;
+    }
+
+    public static List<Column> fetchPartitions(List<PartitionTablets> partitions) throws AnalysisException {
+        if (partitions.isEmpty()) {
+            return Collections.emptyList();
+        }
+        boolean cloudMode = Config.isCloudMode();
+        int maxTablets = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
+        List<Tablet> tablets = Lists.newArrayList();
+        long tabletCount = 0;
+        for (PartitionTablets partition : partitions) {
+            if (cloudMode && partition.partition().getVisibleVersion() <= Partition.PARTITION_INIT_VERSION) {
+                continue;
+            }
+            tabletCount += partition.tablets().size();
+            if (tabletCount <= maxTablets) {
+                tablets.addAll(partition.tablets());
+            }
+        }
+        checkTabletCount(tabletCount, maxTablets);
         return new FetchRemoteTabletSchemaUtil(tablets).fetch();
+    }
+
+    private static void checkTabletCount(long tabletCount, int maxTablets) throws AnalysisException {
+        if (tabletCount > 0 && tabletCount > maxTablets) {
+            throw new AnalysisException("Extended DESCRIBE needs to read " + tabletCount
+                    + " tablets, exceeding max_fetch_remote_schema_tablet_count=" + maxTablets);
+        }
     }
 
     private static final Map<String, Type> typeMap = new HashMap<>();
@@ -134,10 +169,7 @@ public class FetchRemoteTabletSchemaUtil {
             return Collections.emptyList();
         }
         int maxTablets = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
-        if (remoteTablets.size() > maxTablets) {
-            throw new AnalysisException("Extended DESCRIBE needs to read " + remoteTablets.size()
-                    + " tablets, exceeding max_fetch_remote_schema_tablet_count=" + maxTablets);
-        }
+        checkTabletCount(remoteTablets.size(), maxTablets);
         // 1. Find which Backend (BE) servers the tablets are on
         Map<Long, Set<Long>> beIdToTabletId = Maps.newHashMap();
         Map<Long, Backend> liveBackends = Maps.newHashMap();

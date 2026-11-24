@@ -18,14 +18,13 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil;
+import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil.PartitionTablets;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -39,22 +38,22 @@ public class RemoteIndexSchemaProcNode implements ProcNodeInterface {
             .add("Default").add("Extra")
             .build();
 
-    private List<Partition> partitions;
-    private List<Column> schema;
-    private Set<String> bfColumns;
+    private final List<PartitionTablets> partitions;
+    private final ProcResult baseSchema;
+    private final Set<String> bfColumns;
 
-    public RemoteIndexSchemaProcNode(List<Partition> partitions, List<Column> schema, Set<String> bfColumns) {
+    public RemoteIndexSchemaProcNode(List<PartitionTablets> partitions, ProcResult baseSchema, Set<String> bfColumns) {
         this.partitions = partitions;
-        this.schema = schema;
+        this.baseSchema = baseSchema;
         this.bfColumns = bfColumns;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(schema);
-        Preconditions.checkNotNull(partitions);
         List<Column> remoteSchema = FetchRemoteTabletSchemaUtil.fetchPartitions(partitions);
-        this.schema.addAll(remoteSchema);
-        return IndexSchemaProcNode.createResult(this.schema, this.bfColumns, Lists.newArrayList());
+        ProcResult remoteResult = IndexSchemaProcNode.createResult(remoteSchema, bfColumns, List.of());
+        BaseProcResult result = new BaseProcResult(baseSchema.getColumnNames(), new ArrayList<>(baseSchema.getRows()));
+        result.addRows(remoteResult.getRows());
+        return result;
     }
 }
