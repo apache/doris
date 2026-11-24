@@ -936,9 +936,10 @@ Status LogicalIndexWriter::prepare_build(io::FileWriter* posting_out) {
 
 Status LogicalIndexWriter::build_norms_section() {
     // Sparse norms drop the bytes of the NULL rows, and store a norm that every row shares once.
-    // Writers keep dense norms; this debug point lets tests choose between the two forms.
-    bool consider_sparse = false;
-    DBUG_EXECUTE_IF("LogicalIndexWriter::finalize_build.sparse_norms", { consider_sparse = true; });
+    // This debug point keeps dense norms, for tests that compare the two forms.
+    bool consider_sparse = true;
+    DBUG_EXECUTE_IF("LogicalIndexWriter::build_norms_section.dense_norms",
+                    { consider_sparse = false; });
     const std::span<const uint32_t> null_docids(null_docids_.data(), null_docids_.size());
     size_t section_size = format::NormsPodWriter::dense_section_size(doc_count_);
     bool constant = false;

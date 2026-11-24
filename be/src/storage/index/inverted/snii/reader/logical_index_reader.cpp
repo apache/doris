@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "common/compiler_util.h"
+#include "runtime/thread_context.h"
 #include "storage/index/inverted/snii/encoding/byte_source.h"
 #include "storage/index/inverted/snii/encoding/crc32c.h"
 #include "storage/index/inverted/snii/encoding/section_framer.h"
@@ -88,6 +89,26 @@ constexpr uint64_t kMaxDictLookupBatchBytes = 4ULL * 1024 * 1024;
 // separately: a dense section at its validated length, sparse norms at one
 // byte per row, the size they are expanded to.
 constexpr size_t kNormsAllocationOverheadCharge = 128;
+
+// Charges bytes held in plain allocations to the current task until it goes away.
+class TaskMemoryCharge {
+public:
+    TaskMemoryCharge() = default;
+    explicit TaskMemoryCharge(int64_t bytes) { charge(bytes); }
+    TaskMemoryCharge(const TaskMemoryCharge&) = delete;
+    TaskMemoryCharge& operator=(const TaskMemoryCharge&) = delete;
+    ~TaskMemoryCharge() { RELEASE_THREAD_MEM_TRACKER(_bytes); }
+
+    void charge(int64_t bytes) {
+        DCHECK_EQ(_bytes, 0);
+        _bytes = bytes;
+        CONSUME_THREAD_MEM_TRACKER(_bytes);
+    }
+
+private:
+    int64_t _bytes = 0;
+};
+
 // The term lookup cache keeps at most this many terms per reader, each at most this long and with
 // at most this many bytes of inline postings, so its footprint has a fixed bound.
 constexpr size_t kTermLookupCacheTerms = 32;
@@ -651,15 +672,26 @@ Status LogicalIndexReader::read_sparse_norms(std::vector<uint8_t>* dense,
                                              format::NormsPodReader* out) const {
     const RegionRef& norms = section_refs().sparse_norms;
     const auto read_len = static_cast<size_t>(norms.length);
+    // The section and the null bitmap are plain allocations freed once the norms are expanded,
+    // and the searcher cache charge covers only the expanded bytes, so charge them to the task
+    // while they live.
+    const TaskMemoryCharge section_charge(static_cast<int64_t>(read_len));
     std::vector<uint8_t> section;
     RETURN_IF_ERROR(reader_->read_at(norms.offset, read_len, &section));
     if (section.size() != read_len) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "logical_index: short sparse norms read");
     }
+    TaskMemoryCharge null_bitmap_charge;
     format::NullBitmapReader nulls;
     bool has_nulls = false;
-    RETURN_IF_ERROR(open_null_bitmap(NullDocidsDecodeReservation(), &nulls, &has_nulls));
+    // Called once the null bitmap frame is read and checked, with the size of its decoded form.
+    const auto charge_null_bitmap = [this, &null_bitmap_charge](uint64_t decoded_bytes) {
+        null_bitmap_charge.charge(
+                static_cast<int64_t>(section_refs().null_bitmap.length + decoded_bytes));
+        return Status::OK();
+    };
+    RETURN_IF_ERROR(open_null_bitmap(charge_null_bitmap, &nulls, &has_nulls));
     // Validated against uint32 when the index was opened.
     const auto doc_count = static_cast<uint32_t>(stats().doc_count);
     return format::NormsPodReader::open_sparse(Slice(section), doc_count,
