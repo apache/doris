@@ -37,6 +37,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.foundation.format.AvroFileSplitSize;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -3149,6 +3150,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * (legacy {@code IcebergScanNode.targetSplitSize}, the same value used to slice — legacy reuses it for both).
      */
     static long selectFeSplitSize(FileScanTask task, long fallbackSize, long coarseSize) {
+        // Avro walks prefix blocks at every range start, including scans with row deletes.
+        if (task.file().format() == FileFormat.AVRO) {
+            return AvroFileSplitSize.bounded(task.length(), fallbackSize);
+        }
         if (coarseSize <= 0 || !task.deletes().isEmpty()) {
             return fallbackSize;
         }
@@ -3161,7 +3166,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         Preconditions.checkArgument(fallbackSize > 0, "Split size must be positive: %s", fallbackSize);
         // Preserve the SDK iterable's lazy enumeration and close ownership while selecting per file.
         Iterable<FileScanTask> splits = FluentIterable.from(tasks)
-                .transformAndConcat(task -> task.split(selectFeSplitSize(task, fallbackSize, coarseSize)));
+                .transformAndConcat(task -> {
+                    // Iceberg's offset-aware splitter ignores targetSize and emits every stored
+                    // offset. Keep such Avro files whole rather than rewalking their prefix per block.
+                    if (task.file().format() == FileFormat.AVRO && task.file().splitOffsets() != null
+                            && task.file().splitOffsets().size() > AvroFileSplitSize.MAX_SPLITS) {
+                        return Collections.singletonList(task);
+                    }
+                    return task.split(selectFeSplitSize(task, fallbackSize, coarseSize));
+                });
         return CloseableIterable.combine(splits, tasks);
     }
 

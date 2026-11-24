@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -27,6 +28,7 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 final class HiveAvroSchemaPolicy {
@@ -68,6 +70,47 @@ final class HiveAvroSchemaPolicy {
         } catch (JsonParseException | IllegalStateException e) {
             throw unsupported();
         }
+    }
+
+    static void validatePartition(HiveTableHandle handle, HmsPartitionInfo partition, HiveFileFormat format) {
+        if (format != HiveFileFormat.AVRO) {
+            return;
+        }
+        String literal = partitionProperty(partition, LITERAL);
+        String url = partitionProperty(partition, URL);
+        // Hive opens partition files using partition-local reader properties before adapting
+        // records to the table schema. A table literal cannot hide a partition URL. Even URL
+        // "none" is a non-null URL setting in this path, rather than the literal's sentinel.
+        if ((literal == null || "none".equals(literal)) && url != null) {
+            throw unsupportedPartition();
+        }
+        literal = literal != null ? literal : property(handle, LITERAL);
+        String tableLiteral = readerSchema(handle);
+        literal = "none".equals(literal) ? null : literal;
+        // BE receives one reader schema for the whole scan. A different partition schema could
+        // supply a default (e.g. 7) where the table schema would silently materialize NULL.
+        if (!Objects.equals(literal, tableLiteral)) {
+            throw unsupportedPartition();
+        }
+        url = url != null ? url : property(handle, URL);
+        // Hive ignores schema URLs when an effective literal is present.
+        if (literal == null && url != null && !"none".equals(url)) {
+            throw unsupportedPartition();
+        }
+    }
+
+    private static String partitionProperty(HmsPartitionInfo partition, String key) {
+        // Hive overlays partition SerDe properties and then HMS partition parameters. A literal
+        // stored in the latter can replace a SerDe schema with a default of 7.
+        String value = partition.getParameters().get(key);
+        if (value == null) {
+            value = partition.getSdParameters().get(key);
+        }
+        return value;
+    }
+
+    private static DorisConnectorException unsupportedPartition() {
+        return new DorisConnectorException("Native Hive Avro partition reader schema overrides are unsupported");
     }
 
     static boolean requiresStringCoercion(List<ConnectorColumn> columns) {

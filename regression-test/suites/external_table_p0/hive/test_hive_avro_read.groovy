@@ -68,6 +68,30 @@ suite("test_hive_avro_read", "p0,external,hive,external_docker") {
             items ARRAY<INT>,labels MAP<STRING,STRING>,payload STRUCT<note:STRING,n:BIGINT>,added STRING)
             STORED AS AVRO LOCATION '${location}'"""
 
+        // The partition reader adds a default to old physical records; using the table schema
+        // instead would silently produce NULL. Native reads must reject that differing override.
+        hive_docker "DROP TABLE IF EXISTS doris_hive_avro_read.avro_partition_override"
+        hive_docker "DROP TABLE IF EXISTS doris_hive_avro_read.avro_partition_source"
+        String oldSchema = '{"type":"record","name":"partition_record","fields":[' +
+                '{"name":"id","type":["null","int"],"default":null}]}'
+        String partitionSchema = '{"type":"record","name":"partition_record","fields":[' +
+                '{"name":"id","type":["null","int"],"default":null},' +
+                '{"name":"added","type":"int","default":7}]}'
+        hive_docker """CREATE TABLE doris_hive_avro_read.avro_partition_source (id INT)
+            STORED AS AVRO TBLPROPERTIES ('avro.schema.literal'='${oldSchema}')"""
+        hive_docker "INSERT INTO doris_hive_avro_read.avro_partition_source SELECT 1"
+        def sourceLocations = hive_docker("DESCRIBE FORMATTED doris_hive_avro_read.avro_partition_source").findAll {
+            it[0]?.toString()?.trim()?.replace(':', '') == 'Location'
+        }
+        assertEquals(1, sourceLocations.size(), "Hive must report the old Avro data location")
+        String sourceLocation = sourceLocations[0][1].toString().trim()
+        hive_docker """CREATE EXTERNAL TABLE doris_hive_avro_read.avro_partition_override (id INT,added INT)
+            PARTITIONED BY (p STRING) STORED AS AVRO"""
+        hive_docker """ALTER TABLE doris_hive_avro_read.avro_partition_override
+            ADD PARTITION (p='old') LOCATION '${sourceLocation}'"""
+        hive_docker """ALTER TABLE doris_hive_avro_read.avro_partition_override PARTITION (p='old')
+            SET SERDEPROPERTIES ('avro.schema.literal'='${partitionSchema}')"""
+
         String storageProperties = ""
         if (warehouse?.startsWith("s3")) {
             String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
@@ -94,6 +118,10 @@ suite("test_hive_avro_read", "p0,external,hive,external_docker") {
             "order_qt_${hivePrefix}_partitions" "SELECT p,label,id FROM avro_partitions ORDER BY id"
             "order_qt_${hivePrefix}_pruned" "SELECT id,label FROM avro_partitions WHERE p='one' ORDER BY id"
             "qt_${hivePrefix}_partition_count" "SELECT COUNT(*),COUNT(label) FROM avro_partitions"
+            test {
+                sql "SELECT id,added FROM avro_partition_override WHERE p='old'"
+                exception "Native Hive Avro partition reader schema overrides are unsupported"
+            }
             "qt_${hivePrefix}_empty" "SELECT COUNT(*) FROM avro_empty"
             "order_qt_${hivePrefix}_evolved" "SELECT label,id,added,items FROM avro_evolved ORDER BY id"
         } finally {

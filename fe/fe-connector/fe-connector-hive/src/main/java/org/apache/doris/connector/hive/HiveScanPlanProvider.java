@@ -38,8 +38,10 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.foundation.format.AvroFileSplitSize;
 import org.apache.doris.foundation.format.FileCompression;
 import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -93,6 +95,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * surfaced through ConnectorSession.getSessionProperties() (VariableMgr dumps all visible vars).
      */
     private static final String SESSION_READ_HIVE_JSON_IN_ONE_COLUMN = "read_hive_json_in_one_column";
+    private static final String AVRO_READER_SCHEMA = "hive.avro.schema.literal";
     static final String SCAN_REUSE_NAMESPACE = "hms.scan-reuse";
 
     private final HmsClient hmsClient;
@@ -182,9 +185,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         // locks. Honor those names directly: do not enumerate or reselect the full partition universe here.
         List<String> requiredPartitions = request.getRequiredPartitions();
         List<PartitionScanInfo> partitions = requiredPartitions.isEmpty()
-                ? resolvePartitions(hiveHandle)
+                ? resolvePartitions(hiveHandle, fileFormat)
                 : convertPartitions(resolveBatchPartitions(hiveHandle, requiredPartitions, request.getScanContext()),
-                        hiveHandle.getPartitionKeyNames());
+                        hiveHandle, fileFormat);
         if (partitions.isEmpty()) {
             return Collections.emptyList();
         }
@@ -502,7 +505,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         private boolean loadNextPartitions() {
             if (partitionLoader != null) {
                 partitions = convertPartitions(partitionLoader.take(partitionBatchSize),
-                        handle.getPartitionKeyNames()).iterator();
+                        handle, tableFormat).iterator();
                 return partitions.hasNext();
             }
             List<String> keys = handle.getPartitionKeyNames();
@@ -521,7 +524,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                     return false;
                 }
                 int end = Math.min(pruned.size(), nextPartition + partitionBatchSize);
-                partitions = convertPartitions(pruned.subList(nextPartition, end), keys).iterator();
+                partitions = convertPartitions(pruned.subList(nextPartition, end), handle, tableFormat).iterator();
                 nextPartition = end;
                 return true;
             }
@@ -542,11 +545,12 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                     : Optional.empty();
             if (cached.isPresent()) {
                 partitionBatchProfile.record(handle.getDbName(), handle.getTableName(), cached.get().getStats());
-                partitions = convertPartitions(cached.get().getPartitions(), keys).iterator();
+                partitions = convertPartitions(cached.get().getPartitions(), handle, tableFormat).iterator();
                 nextPartition = end;
                 return true;
             }
-            partitions = convertPartitions(resolveBatchPartitions(handle, batch, scanContext), keys).iterator();
+            partitions = convertPartitions(resolveBatchPartitions(handle, batch, scanContext),
+                    handle, tableFormat).iterator();
             nextPartition = end;
             return true;
         }
@@ -741,7 +745,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             String readerSchema = HiveAvroSchemaPolicy.readerSchema(hiveHandle);
             if (readerSchema != null) {
                 // The native reader must validate resolution before predicates or SQL casts run.
-                props.put(ScanNodePropertyKeys.LOCATION_PREFIX + "avro.schema.literal", readerSchema);
+                props.put(AVRO_READER_SCHEMA, readerSchema);
             }
         }
 
@@ -770,11 +774,24 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 .getOrDefault(SESSION_READ_HIVE_JSON_IN_ONE_COLUMN, "false"));
     }
 
+    @Override
+    public void populateScanLevelParams(TFileScanRangeParams params, Map<String, String> nodeProperties) {
+        String literal = nodeProperties.get(AVRO_READER_SCHEMA);
+        if (literal != null) {
+            // Reader metadata belongs to the scan, not hdfs_conf: HDFS hashes all its connection
+            // settings, so placing a schema there would create a handler for every table schema.
+            Map<String, String> properties = new HashMap<>(params.isSetProperties()
+                    ? params.getProperties() : Collections.emptyMap());
+            properties.put("avro.schema.literal", literal);
+            params.setProperties(properties);
+        }
+    }
+
     /**
      * Resolves the partitions to scan, using pruned partitions from the handle
      * if available, or listing all partitions from HMS.
      */
-    private List<PartitionScanInfo> resolvePartitions(HiveTableHandle handle) {
+    private List<PartitionScanInfo> resolvePartitions(HiveTableHandle handle, HiveFileFormat format) {
         List<String> partKeyNames = handle.getPartitionKeyNames();
 
         if (partKeyNames == null || partKeyNames.isEmpty()) {
@@ -787,7 +804,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         List<HmsPartitionInfo> prunedPartitions = handle.getPrunedPartitions();
         if (prunedPartitions != null) {
             recordPruningProfile(handle);
-            return convertPartitions(prunedPartitions, partKeyNames);
+            return convertPartitions(prunedPartitions, handle, format);
         }
 
         // No pruning: list all partitions from HMS
@@ -798,7 +815,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         }
         List<HmsPartitionInfo> hmsPartitions = loadPartitionsWithProfile(
                 handle.getDbName(), handle.getTableName(), partNames);
-        return convertPartitions(hmsPartitions, partKeyNames);
+        return convertPartitions(hmsPartitions, handle, format);
     }
 
     private List<HmsPartitionInfo> loadPartitionsWithProfile(
@@ -830,9 +847,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private List<PartitionScanInfo> convertPartitions(
-            List<HmsPartitionInfo> hmsPartitions, List<String> partKeyNames) {
+            List<HmsPartitionInfo> hmsPartitions, HiveTableHandle handle, HiveFileFormat format) {
+        List<String> partKeyNames = handle.getPartitionKeyNames();
         List<PartitionScanInfo> result = new ArrayList<>(hmsPartitions.size());
         for (HmsPartitionInfo part : hmsPartitions) {
+            HiveAvroSchemaPolicy.validatePartition(handle, part, format);
             Map<String, String> partValues = new LinkedHashMap<>();
             List<String> values = part.getValues();
             for (int i = 0; i < partKeyNames.size() && i < values.size(); i++) {
@@ -986,7 +1005,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         // columnar readers handle range boundaries independently of filename compression suffixes.
         boolean compressedText = (fileFormat == HiveFileFormat.TEXT || fileFormat == HiveFileFormat.CSV)
                 && FileCompression.fromPath(normalizedPath) != FileCompression.PLAIN;
-        long splitSize = splittable && !compressedText && targetSplitSize > 0 ? targetSplitSize : fileSize;
+        long requestedSize = splittable && !compressedText && targetSplitSize > 0 ? targetSplitSize : fileSize;
+        long splitSize = fileFormat == HiveFileFormat.AVRO
+                ? AvroFileSplitSize.bounded(fileSize, requestedSize) : requestedSize;
         return new Iterator<ConnectorScanRange>() {
             private long offset;
 

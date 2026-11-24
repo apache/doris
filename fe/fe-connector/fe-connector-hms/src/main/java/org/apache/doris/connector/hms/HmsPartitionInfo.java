@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hms;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -33,10 +34,19 @@ public final class HmsPartitionInfo {
     private final String outputFormat;
     private final String serializationLib;
     private final Map<String, String> parameters;
+    private final Map<String, String> sdParameters;
 
     public HmsPartitionInfo(List<String> values, String location,
             String inputFormat, String outputFormat,
             String serializationLib, Map<String, String> parameters) {
+        this(values, location, inputFormat, outputFormat, serializationLib, parameters, Collections.emptyMap());
+    }
+
+    public HmsPartitionInfo(List<String> values, String location,
+            String inputFormat, String outputFormat, String serializationLib,
+            Map<String, String> parameters, Map<String, String> sdParameters) {
+        this.sdParameters = sdParameters == null ? Collections.emptyMap()
+                : Collections.unmodifiableMap(new HashMap<>(sdParameters));
         this.values = values == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(values);
@@ -72,6 +82,11 @@ public final class HmsPartitionInfo {
 
     public Map<String, String> getParameters() {
         return parameters;
+    }
+
+    /** Partition SerDe properties can override the table reader schema. */
+    public Map<String, String> getSdParameters() {
+        return sdParameters;
     }
 
     @Override

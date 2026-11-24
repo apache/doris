@@ -248,7 +248,11 @@ public class BrokerFileGroup {
     public void initDeferredFileFormatPropertiesIfNecessary(List<TBrokerFileStatus> fileStatuses) {
         if (fileFormatProperties instanceof DeferredFileFormatProperties) {
             Preconditions.checkState(fileStatuses != null && !fileStatuses.isEmpty());
-            TBrokerFileStatus fileStatus = fileStatuses.get(0);
+            // Empty markers such as _SUCCESS are discarded later and must not choose the
+            // reader for the non-empty data files. Preserve the original all-empty behavior.
+            TBrokerFileStatus fileStatus = fileStatuses.stream()
+                    .filter(status -> !status.isIsDir() && status.getSize() > 0)
+                    .findFirst().orElse(fileStatuses.get(0));
             TFileFormatType formatType = Util.getFileFormatTypeFromPath(fileStatus.path);
             ((DeferredFileFormatProperties) fileFormatProperties).deferInit(formatType);
         }

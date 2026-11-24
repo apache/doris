@@ -20,9 +20,12 @@
 #include <gtest/gtest.h>
 #include <zstd.h>
 
+#include <algorithm>
+#include <array>
 #include <avro/Compiler.hh>
 #include <avro/DataFile.hh>
 #include <avro/Generic.hh>
+#include <cstring>
 #include <fstream>
 #include <tuple>
 
@@ -33,9 +36,11 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "format_v2/avro/avro_container_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table_reader.h"
+#include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_state.h"
@@ -196,6 +201,150 @@ protected:
         return result;
     }
 };
+
+class VirtualAvroPrefixFileReader final : public io::FileReader {
+public:
+    static constexpr size_t kFileBytes = size_t {1} << 30;
+    static constexpr size_t kBlockBytes = 64 * 1024;
+    static constexpr size_t kPrefixBufferBytes = 1024 * 1024;
+
+    VirtualAvroPrefixFileReader() {
+        const std::string sync = "0123456789abcdef";
+        // One count byte, three payload-length bytes and the sync marker make each
+        // block exactly 64 KiB. A fixed datum has no additional payload length.
+        constexpr size_t payload_bytes = kBlockBytes - 1 - 3 - 16;
+        const std::string schema =
+                R"({"type":"record","name":"r","fields":[{"name":"payload","type":)"
+                R"({"type":"fixed","name":"payload_value","size":)" +
+                std::to_string(payload_bytes) + "}}]}";
+
+        _header.reserve(kBlockBytes);
+        _header.append("Obj\x01", 4);
+        append_long(&_header, 2);
+        append_bytes(&_header, "avro.schema");
+        append_bytes(&_header, schema);
+        append_bytes(&_header, "padding");
+        // An unknown metadata entry is legal. Its three-byte length encoding plus
+        // the map terminator and sync marker align the first block at 64 KiB.
+        const size_t padding_bytes = kBlockBytes - _header.size() - 3 - 1 - sync.size();
+        append_long(&_header, padding_bytes);
+        _header.append(padding_bytes, '\0');
+        append_long(&_header, 0);
+        _header.append(sync);
+
+        _block.reserve(kBlockBytes);
+        append_long(&_block, 1);
+        append_long(&_block, payload_bytes);
+        _block.append(payload_bytes, '\0');
+        _block.append(sync);
+    }
+
+    Status close() override {
+        _closed = true;
+        return Status::OK();
+    }
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return kFileBytes; }
+    bool closed() const override { return _closed; }
+    int64_t mtime() const override { return 0; }
+
+    size_t header_bytes() const { return _header.size(); }
+    size_t block_template_bytes() const { return _block.size(); }
+    uint64_t bytes_read() const { return _bytes_read; }
+    uint64_t read_calls() const { return _read_calls; }
+    void reset_stats() {
+        _bytes_read = 0;
+        _read_calls = 0;
+    }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext*) override {
+        *bytes_read = 0;
+        if (_closed) {
+            return Status::IOError("Virtual Avro reader is closed");
+        }
+        if (offset > kFileBytes) {
+            return Status::InvalidArgument("Virtual Avro read starts past EOF");
+        }
+        *bytes_read = std::min(result.size, kFileBytes - offset);
+        ++_read_calls;
+        _bytes_read += *bytes_read;
+        size_t copied = 0;
+        while (copied < *bytes_read) {
+            const size_t position = offset + copied;
+            const bool in_header = position < kBlockBytes;
+            const auto& source = in_header ? _header : _block;
+            const size_t local_offset =
+                    in_header ? position : (position - kBlockBytes) % kBlockBytes;
+            const size_t count = std::min(*bytes_read - copied, source.size() - local_offset);
+            std::memcpy(result.data + copied, source.data() + local_offset, count);
+            copied += count;
+        }
+        return Status::OK();
+    }
+
+private:
+    static void append_long(std::string* output, uint64_t value) {
+        // This fixture writes only bounded nonnegative Avro longs.
+        value <<= 1;
+        while (value >= 128) {
+            output->push_back(static_cast<char>((value & 127) | 128));
+            value >>= 7;
+        }
+        output->push_back(static_cast<char>(value));
+    }
+
+    static void append_bytes(std::string* output, const std::string& value) {
+        append_long(output, value.size());
+        output->append(value);
+    }
+
+    io::Path _path {"virtual-avro-prefix.avro"};
+    std::string _header;
+    std::string _block;
+    uint64_t _bytes_read = 0;
+    uint64_t _read_calls = 0;
+    bool _closed = false;
+};
+
+TEST_F(AvroReaderTest, VirtualLargeFilePrefixReadsRespectRangeStartBudget) {
+    constexpr size_t file_bytes = VirtualAvroPrefixFileReader::kFileBytes;
+    constexpr size_t block_bytes = VirtualAvroPrefixFileReader::kBlockBytes;
+    constexpr size_t buffer_bytes = VirtualAvroPrefixFileReader::kPrefixBufferBytes;
+    // A larger requested split size can put the second range beyond the midpoint.
+    // The FE cap limits the number of prefixes; it does not promise a half-file bound.
+    for (const size_t start : std::array<size_t, 3> {0, file_bytes / 2, 3 * (file_bytes / 4)}) {
+        SCOPED_TRACE(start);
+        auto file = std::make_shared<VirtualAvroPrefixFileReader>();
+        ASSERT_EQ(file->header_bytes(), block_bytes);
+        ASSERT_EQ(file->block_template_bytes(), block_bytes);
+        ASSERT_EQ(file->size(), file_bytes);
+
+        // Exercise physical container seeking without a filesystem fixture or a 1-GiB
+        // allocation. The two templates occupy 128 KiB; admission is not under test.
+        AvroContainerReader input(
+                file, std::make_shared<io::IOContext>(), [](size_t) {},
+                [](const ::avro::GenericDatum&, bool) {},
+                [](size_t) -> std::shared_ptr<void> { return {}; }, nullptr);
+        file->reset_stats();
+        int64_t skipped_rows = -1;
+        ASSERT_NO_THROW(skipped_rows = input.seek_range(static_cast<int64_t>(start)));
+        const size_t expected_position = std::max(start, block_bytes);
+        EXPECT_EQ(input.position(), expected_position);
+        EXPECT_EQ(skipped_rows,
+                  static_cast<int64_t>((expected_position - block_bytes) / block_bytes));
+        if (start == 0) {
+            EXPECT_EQ(file->bytes_read(), 0);
+            EXPECT_EQ(file->read_calls(), 0);
+        } else {
+            // Count bytes, not just requests: coalescing must not hide repeated-prefix
+            // amplification. One refill may extend past the requested split boundary.
+            EXPECT_LE(file->bytes_read(), static_cast<uint64_t>(start + buffer_bytes));
+            EXPECT_LE(file->read_calls(), static_cast<uint64_t>(start / buffer_bytes + 2));
+        }
+    }
+}
 
 TEST_F(AvroReaderTest, ReadsAllSupportedCodecsAndAbsolutePositions) {
     for (const auto codec :

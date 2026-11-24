@@ -929,7 +929,9 @@ public class ThriftHmsClient implements HmsClient {
                 sd != null ? sd.getOutputFormat() : null,
                 sd != null && sd.getSerdeInfo() != null
                         ? sd.getSerdeInfo().getSerializationLib() : null,
-                partition.getParameters());
+                partition.getParameters(),
+                // A partition reader schema overrides the table schema even when the files are old.
+                sd != null && sd.getSerdeInfo() != null ? sd.getSerdeInfo().getParameters() : null);
     }
 
     // ========== Pool management ==========

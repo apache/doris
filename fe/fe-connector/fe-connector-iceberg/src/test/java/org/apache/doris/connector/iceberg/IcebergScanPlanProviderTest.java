@@ -212,6 +212,48 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void avroSplitCountIsBoundedWithAndWithoutSdkOffsets() throws Exception {
+        long mb = 1024L * 1024L;
+        for (List<Long> offsets : Arrays.asList(Collections.<Long>emptyList(), List.of(64L, 256 * mb, 768 * mb))) {
+            Table table = createTable("bounded_avro_" + offsets.size(), SCHEMA, PartitionSpec.unpartitioned());
+            DataFiles.Builder file = DataFiles.builder(table.spec()).withPath("s3://b/db/bounded.avro")
+                    .withFormat(FileFormat.AVRO).withFileSizeInBytes(1024 * mb).withRecordCount(100);
+            if (!offsets.isEmpty()) {
+                file.withSplitOffsets(offsets);
+            }
+            table.newAppend().appendFile(file.build()).commit();
+            for (IcebergScanPlanProvider provider : Arrays.asList(
+                    new IcebergScanPlanProvider(IcebergCatalogProperties.of(Map.of()), opsReturning(table)),
+                    manifestProvider(manifestCacheProps(), table, new IcebergManifestCache()))) {
+                for (long target : new long[] {64 * mb, 768 * mb, 2048 * mb}) {
+                    ConnectorSession session = new FakeScanSession("UTC", Map.of("file_split_size", "" + target));
+                    ConnectorScanRequest request = ConnectorScanRequest.builder(
+                            new IcebergTableHandle("db1", "bounded_avro_" + offsets.size()), List.of()).build();
+                    List<ConnectorScanRange> synchronous = provider.planScan(session, request);
+                    List<ConnectorScanRange> streaming = drain(provider.streamSplits(session, request));
+                    for (List<ConnectorScanRange> ranges : Arrays.asList(synchronous, streaming)) {
+                        Assertions.assertTrue(ranges.size() >= 1 && ranges.size() <= 2,
+                                "Avro prefix traversal must be bounded independently of SDK offsets");
+                        if (!offsets.isEmpty()) {
+                            Assertions.assertEquals(1, ranges.size());
+                        } else if (target < 1024 * mb) {
+                            Assertions.assertEquals(2, ranges.size());
+                        }
+                        // Manifest planning uses its table-size heuristic instead of the explicit
+                        // file_split_size; both it and streaming must obey the same per-file cap.
+                        long end = 0;
+                        for (ConnectorScanRange range : ranges) {
+                            Assertions.assertEquals(end, range.getStart());
+                            end += range.getLength();
+                        }
+                        Assertions.assertEquals(1024 * mb, end);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     public void coarseSizeRetainsMaxFileSplitNumInSdkAndManifestPlans() {
         long mb = 1024L * 1024L;
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());

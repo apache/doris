@@ -402,6 +402,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // for JNI, only need to set properties
         if (fileFormatType == TFileFormatType.FORMAT_JNI) {
             params.setProperties(locationProperties);
+        } else if (fileFormatType == TFileFormatType.FORMAT_AVRO) {
+            // Producers convert ranges before the connector adds its reader schema. With an
+            // initial HDFS range, a later S3/Broker producer could replace that schema after a
+            // stale null check. Seed a non-null storage map before publishing producer work.
+            params.setProperties(new HashMap<>(locationProperties));
         }
 
         int numBackends = backendPolicy.numBackends();
@@ -558,7 +563,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         long coarseSize = coarseSplitSizeForBeRefinement();
         if (supportsBeSplit && coarseSize > 0 && format == TFileFormatType.FORMAT_AVRO) {
             // Avro aligns byte ranges in its reader and has no BE physical-granule planner.
-            // Apply the final target in FE so coarse ranges do not reduce parallelism.
+            // Use the final target in FE; TVF sizing also bounds repeated OCF prefix scans per file.
             return sessionVariable.getFileSplitSizeOnBe();
         }
         return supportsBeSplit && isColumnarFormat(format) && coarseSize > 0 ? coarseSize : fallbackSize;
@@ -611,7 +616,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
 
             if (locationType == TFileType.FILE_BROKER) {
-                params.setProperties(locationProperties);
+                // Later batches reuse these params after the connector adds reader properties.
+                // Replacing the map here would discard format metadata such as the Avro schema.
+                if (!params.isSetProperties()) {
+                    params.setProperties(locationProperties);
+                }
 
                 if (!params.isSetBrokerAddresses()) {
                     List<FsBroker> brokers;

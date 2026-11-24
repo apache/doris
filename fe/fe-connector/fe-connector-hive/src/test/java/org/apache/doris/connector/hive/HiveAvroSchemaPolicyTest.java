@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -118,6 +120,74 @@ public class HiveAvroSchemaPolicyTest {
             String schema = GENERATED.replace("\"int\"", value);
             Assertions.assertThrows(DorisConnectorException.class,
                     () -> inspect(Map.of(LITERAL, schema), Map.of()));
+        }
+    }
+
+    @Test
+    public void validatesEffectivePartitionOverridesWithoutChangingLiteralPrecedence() {
+        HiveTableHandle table = handle(Map.of(LITERAL, GENERATED), Map.of());
+        for (Map<String, String> serde : List.of(Map.<String, String>of(), Map.of(LITERAL, GENERATED),
+                Map.of(LITERAL, GENERATED, URL, "https://example.org/ignored.avsc"))) {
+            HmsPartitionInfo partition = new HmsPartitionInfo(List.of("one"), "s3://bucket/p=one",
+                    null, null, null, Map.of(), serde);
+            Assertions.assertDoesNotThrow(() -> HiveAvroSchemaPolicy.validatePartition(
+                    table, partition, HiveFileFormat.AVRO));
+        }
+        for (Map<String, String> serde : List.of(Map.of(LITERAL, DEFAULT_SEVEN), Map.of(LITERAL, "none"))) {
+            HmsPartitionInfo partition = new HmsPartitionInfo(List.of("one"), "s3://bucket/p=one",
+                    null, null, null, Map.of(), serde);
+            Assertions.assertThrows(DorisConnectorException.class, () -> HiveAvroSchemaPolicy.validatePartition(
+                    table, partition, HiveFileFormat.AVRO));
+            Assertions.assertDoesNotThrow(() -> HiveAvroSchemaPolicy.validatePartition(
+                    table, partition, HiveFileFormat.ORC));
+        }
+        HmsPartitionInfo url = new HmsPartitionInfo(List.of("one"), "s3://bucket/p=one",
+                null, null, null, Map.of(), Map.of(URL, "https://example.org/reader.avsc"));
+        Assertions.assertThrows(DorisConnectorException.class, () -> HiveAvroSchemaPolicy.validatePartition(
+                handle(Map.of(), Map.of()), url, HiveFileFormat.AVRO));
+    }
+
+    @Test
+    public void partitionParametersTakePrecedenceOverSerdeProperties() {
+        HiveTableHandle table = handle(Map.of(LITERAL, GENERATED), Map.of());
+        HmsPartitionInfo defaultSeven = new HmsPartitionInfo(List.of("one"), "s3://bucket/p=one",
+                null, null, null, Map.of(LITERAL, DEFAULT_SEVEN), Map.of(LITERAL, GENERATED));
+        Assertions.assertThrows(DorisConnectorException.class, () -> HiveAvroSchemaPolicy.validatePartition(
+                table, defaultSeven, HiveFileFormat.AVRO));
+        HmsPartitionInfo generated = new HmsPartitionInfo(List.of("one"), "s3://bucket/p=one",
+                null, null, null, Map.of(LITERAL, GENERATED), Map.of(LITERAL, DEFAULT_SEVEN));
+        Assertions.assertDoesNotThrow(() -> HiveAvroSchemaPolicy.validatePartition(
+                table, generated, HiveFileFormat.AVRO));
+        HmsPartitionInfo disabled = new HmsPartitionInfo(List.of("one"), "s3://bucket/p=one",
+                null, null, null, Map.of(LITERAL, "none"), Map.of(LITERAL, GENERATED));
+        Assertions.assertThrows(DorisConnectorException.class, () -> HiveAvroSchemaPolicy.validatePartition(
+                table, disabled, HiveFileFormat.AVRO));
+        HiveTableHandle implicit = handle(Map.of(), Map.of());
+        HmsPartitionInfo url = new HmsPartitionInfo(List.of("one"), "s3://bucket/p=one",
+                null, null, null, Map.of(URL, "https://example.org/reader.avsc"), Map.of(URL, "none"));
+        Assertions.assertThrows(DorisConnectorException.class, () -> HiveAvroSchemaPolicy.validatePartition(
+                implicit, url, HiveFileFormat.AVRO));
+        HmsPartitionInfo noUrl = new HmsPartitionInfo(List.of("one"), "s3://bucket/p=one",
+                null, null, null, Map.of(URL, "none"), Map.of(URL, "https://example.org/reader.avsc"));
+        Assertions.assertThrows(DorisConnectorException.class, () -> HiveAvroSchemaPolicy.validatePartition(
+                implicit, noUrl, HiveFileFormat.AVRO));
+    }
+
+    @Test
+    public void partitionLocalUrlsAreRejectedBeforeTableLiteralFallback() {
+        HiveTableHandle table = handle(Map.of(LITERAL, GENERATED), Map.of());
+        for (String url : List.of("https://example.org/reader.avsc", "none")) {
+            for (boolean parameters : List.of(false, true)) {
+                HmsPartitionInfo partition = new HmsPartitionInfo(List.of("one"), "s3://bucket/p=one",
+                        null, null, null, parameters ? Map.of(URL, url) : Map.of(),
+                        parameters ? Map.of() : Map.of(URL, url));
+                Assertions.assertThrows(DorisConnectorException.class, () -> HiveAvroSchemaPolicy.validatePartition(
+                        table, partition, HiveFileFormat.AVRO));
+            }
+            HmsPartitionInfo localLiteral = new HmsPartitionInfo(List.of("one"), "s3://bucket/p=one",
+                    null, null, null, Map.of(URL, url), Map.of(LITERAL, GENERATED));
+            Assertions.assertDoesNotThrow(() -> HiveAvroSchemaPolicy.validatePartition(
+                    table, localLiteral, HiveFileFormat.AVRO));
         }
     }
 

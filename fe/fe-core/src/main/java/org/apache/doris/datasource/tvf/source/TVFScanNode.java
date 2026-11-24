@@ -33,6 +33,7 @@ import org.apache.doris.datasource.scan.TableFormatType;
 import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.split.FileSplitter;
+import org.apache.doris.foundation.format.AvroFileSplitSize;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -151,12 +152,14 @@ public class TVFScanNode extends FileQueryScanNode {
         }
 
         long targetFileSplitSize = determineTargetFileSplitSize(fileStatuses);
+        boolean avro = getFileFormatType() == TFileFormatType.FORMAT_AVRO;
 
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             try {
                 splits.addAll(fileSplitter.splitFile(
                         LocationPath.of(fileStatus.getPath()),
-                        targetFileSplitSize,
+                        avro ? AvroFileSplitSize.bounded(fileStatus.getSize(), targetFileSplitSize)
+                                : targetFileSplitSize,
                         null,
                         fileStatus.getSize(),
                         fileStatus.getModificationTime(),
