@@ -1418,7 +1418,7 @@ public:
 
     //virtual Ptr
     //shrink (size_t length) const final  shrink many has different ptr for the column, because of
-    // here has some improvement according the origin column which use_count is 1, we can just return the origin column to avoid the copy
+    // shrink can reuse the original outer column when it is exclusively owned
     // but we should make sure the column data is absolutely the same as expand or cut with the data
     static void assert_shrink_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
         // Create an empty column to verify `cut` functionality
@@ -1439,13 +1439,12 @@ public:
                 LOG(INFO) << "now we are in shrink column : " << load_cols[i]->get_name()
                           << " with check length: " << insert_size
                           << " for column size : " << source_column->size();
-                size_t cnt = source_column->use_count();
+                bool reuses_outer_column = source_column->IColumn::is_exclusive();
                 ptr = source_column->shrink(insert_size);
-                LOG(INFO) << "use_count : " << source_column->use_count();
                 // check size
                 EXPECT_EQ(ptr->size(), insert_size);
                 // check ptr is not the same
-                if (cnt == 1) {
+                if (reuses_outer_column) {
                     // just return the origin column to avoid the copy
                     EXPECT_EQ(ptr.get(), source_column.get());
                 } else {

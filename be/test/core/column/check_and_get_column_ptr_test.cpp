@@ -55,25 +55,25 @@ TEST(CheckAndGetColumnPtrTest, checktest) {
     {
         ColumnPtr column_ptr = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
 
-        EXPECT_EQ(column_ptr->use_count(), 1);
+        EXPECT_TRUE(column_ptr->is_exclusive());
         auto column_i32 = check_and_get_column_ptr<ColumnInt32>(column_ptr);
 
         EXPECT_TRUE(column_i32);
 
-        EXPECT_EQ(column_ptr->use_count(), 2);
+        EXPECT_FALSE(column_ptr->is_exclusive());
 
-        EXPECT_EQ(column_i32->use_count(), 2);
+        EXPECT_FALSE(column_i32->is_exclusive());
     }
 
     {
         ColumnPtr column_ptr = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
 
-        EXPECT_EQ(column_ptr->use_count(), 1);
+        EXPECT_TRUE(column_ptr->is_exclusive());
         auto column_i64 = check_and_get_column_ptr<ColumnInt64>(column_ptr);
 
         EXPECT_FALSE(column_i64);
 
-        EXPECT_EQ(column_ptr->use_count(), 1);
+        EXPECT_TRUE(column_ptr->is_exclusive());
     }
 }
 
@@ -90,7 +90,6 @@ TEST(CheckAndGetColumnPtrTest, errorTest) {
         const auto* source_column = check_and_get_column<ColumnNullable>(nested_column.get());
         nested_column = source_column->get_nested_column_ptr();
         // The source_column is now a dangling pointer.
-        // std::cout<<source_column->use_count()<<std::endl;
     }
 
     {
@@ -105,7 +104,6 @@ TEST(CheckAndGetColumnPtrTest, errorTest) {
         const auto& source_column = assert_cast<const ColumnNullable&>(*nested_column);
         nested_column = source_column.get_nested_column_ptr();
         // The source_column is now a dangling pointer.
-        // std::cout<<source_column.use_count()<<std::endl;
     }
 
     {
@@ -119,40 +117,40 @@ TEST(CheckAndGetColumnPtrTest, errorTest) {
         nested_column = nested_column->convert_to_full_column_if_const();
         const auto source_column = check_and_get_column_ptr<ColumnNullable>(nested_column);
         nested_column = source_column->get_nested_column_ptr();
-        EXPECT_EQ(source_column->use_count(), 1);
+        EXPECT_TRUE(source_column->IColumn::is_exclusive());
     }
 }
 
 TEST(CheckAndGetColumnPtrTest, destructstest) {
     ColumnPtr column_ptr = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
 
-    EXPECT_EQ(column_ptr->use_count(), 1);
+    EXPECT_TRUE(column_ptr->is_exclusive());
 
     {
         auto column_i32 = check_and_get_column_ptr<ColumnInt32>(column_ptr);
 
         EXPECT_TRUE(column_i32);
 
-        EXPECT_EQ(column_ptr->use_count(), 2);
+        EXPECT_FALSE(column_ptr->is_exclusive());
 
-        EXPECT_EQ(column_i32->use_count(), 2);
+        EXPECT_FALSE(column_i32->is_exclusive());
     }
 
-    EXPECT_EQ(column_ptr->use_count(), 1);
+    EXPECT_TRUE(column_ptr->is_exclusive());
 }
 
 TEST(CheckAndGetColumnPtrTest, cast_to_column_immut) {
     {
         ColumnPtr column_ptr = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
 
-        EXPECT_EQ(column_ptr->use_count(), 1);
+        EXPECT_TRUE(column_ptr->is_exclusive());
         ColumnInt32::Ptr column_i32 = cast_to_column<ColumnInt32>(column_ptr);
 
         EXPECT_TRUE(column_i32);
 
-        EXPECT_EQ(column_ptr->use_count(), 2);
+        EXPECT_FALSE(column_ptr->is_exclusive());
 
-        EXPECT_EQ(column_i32->use_count(), 2);
+        EXPECT_FALSE(column_i32->is_exclusive());
     }
 }
 
@@ -160,12 +158,12 @@ TEST(CheckAndGetColumnPtrTest, cast_to_column_mut) {
     {
         MutableColumnPtr column_ptr = ColumnInt32::create();
 
-        EXPECT_EQ(column_ptr->use_count(), 1);
+        EXPECT_TRUE(column_ptr->is_exclusive());
         ColumnInt32::MutablePtr column_i32 = cast_to_column<ColumnInt32>(std::move(column_ptr));
 
         EXPECT_TRUE(column_i32);
 
-        EXPECT_EQ(column_i32->use_count(), 1);
+        EXPECT_TRUE(column_i32->is_exclusive());
     }
 }
 

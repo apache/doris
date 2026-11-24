@@ -51,6 +51,7 @@ import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
@@ -179,6 +180,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     private Map<String, String> staticPartitionValues = Collections.emptyMap();
     private String branchName;
     private IcebergWriteSchemaContext writeSchemaContext;
+    // The default is deliberately unsorted until sink planning proves that it executes a complete order.
+    private volatile SortOrder fileSortOrder = SortOrder.unsorted();
+    // Protected by beginLock: all groups of a shared rewrite transaction must use the same file order.
+    private boolean fileSortOrderBound;
     // The snapshot pinned at begin time for DELETE/MERGE and OVERWRITE (null for INSERT). Consumed by the
     // commit validation suite (validateFromSnapshot).
     private Long baseSnapshotId;
@@ -676,6 +681,18 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         }
     }
 
+    void bindFileSortOrder(SortOrder order) {
+        synchronized (beginLock) {
+            if (fileSortOrderBound) {
+                Preconditions.checkState(fileSortOrder.orderId() == order.orderId() && fileSortOrder.sameOrder(order),
+                        "Iceberg transaction %s file sort order changed between write groups", transactionId);
+            } else {
+                fileSortOrder = order;
+                fileSortOrderBound = true;
+            }
+        }
+    }
+
     /**
      * Rejects a fragment whose file is not recorded under a location a sink of this write carries. BE writes
      * through the normalized location (s3://b/db/t/data for an oss:// table) and must report the table's own
@@ -862,8 +879,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             return Collections.emptyList();
         }
         WriteResult writeResult = writeSchemaContext == null
-                ? IcebergWriterHelper.convertToWriterResult(transaction.table(), commitDataList, zone)
-                : IcebergWriterHelper.convertToWriterResult(writeSchemaContext, commitDataList, zone);
+                ? IcebergWriterHelper.convertToWriterResult(transaction.table(), fileSortOrder, commitDataList, zone)
+                : IcebergWriterHelper.convertToWriterResult(writeSchemaContext, fileSortOrder, commitDataList, zone);
         List<WriteResult> results = new ArrayList<>(1);
         results.add(writeResult);
         return results;
@@ -909,7 +926,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             return;
         }
         WriteResult writeResult =
-                IcebergWriterHelper.convertToWriterResult(transaction.table(), commitDataList, zone);
+                IcebergWriterHelper.convertToWriterResult(transaction.table(), fileSortOrder, commitDataList, zone);
         synchronized (filesToAdd) {
             filesToAdd.addAll(Arrays.asList(writeResult.dataFiles()));
         }
@@ -1169,9 +1186,9 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         if (!dataCommitData.isEmpty()) {
             WriteResult writeResult = writeSchemaContext == null
                     ? IcebergWriterHelper.convertToWriterResult(
-                            transaction.table(), dataCommitData, zone)
+                            transaction.table(), fileSortOrder, dataCommitData, zone)
                     : IcebergWriterHelper.convertToWriterResult(
-                            writeSchemaContext, dataCommitData, zone);
+                            writeSchemaContext, fileSortOrder, dataCommitData, zone);
             dataFiles.addAll(Arrays.asList(writeResult.dataFiles()));
         }
 

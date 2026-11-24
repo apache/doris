@@ -218,8 +218,8 @@ class LanceScalarIndexPlannerTest {
     }
 
     private static LanceTableMetadata metadata(Schema schema, List<LanceFragmentInfo> fragments) {
-        return new LanceTableMetadata(new LanceTableAccess("s3://bucket/labels.lance", Collections.emptyMap()), 42,
-                schema, fragments);
+        return new LanceTableMetadata(new LanceTableAccess("s3://bucket/labels.lance", Collections.emptyMap(), false),
+                42, schema, fragments);
     }
 
     private static Map<Long, LanceFragmentInfo> visible(List<LanceFragmentInfo> fragments) {

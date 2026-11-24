@@ -475,11 +475,11 @@ public:
             MutableColumnPtr mutable_result_column;
             uint8_t* __restrict result_data_column = nullptr;
             const uint8_t* __restrict other_data_column = rhs_data_column;
-            if (lhs_column->use_count() == 1) {
+            if (lhs_column->is_exclusive()) {
                 mutable_result_column = IColumn::mutate(std::move(lhs_column));
                 result_data_column =
                         assert_cast<ColumnUInt8*>(mutable_result_column.get())->get_data().data();
-            } else if (rhs_column->use_count() == 1) {
+            } else if (rhs_column->is_exclusive()) {
                 mutable_result_column = IColumn::mutate(std::move(rhs_column));
                 result_data_column =
                         assert_cast<ColumnUInt8*>(mutable_result_column.get())->get_data().data();

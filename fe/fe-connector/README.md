@@ -241,7 +241,11 @@ metastore/shade/cache). For a write path, the richest example is
    handle types (example: `PaimonScanPlanProvider`, `PaimonTableHandle`,
    `PaimonScanRange`). Optional behavior goes through `supports*` /
    `ConnectorCapability` opt-ins only — the engine will not special-case
-   your source.
+   your source. A format the file table functions read through your plugin
+   (`s3("uri" = ..., "format" = "<name>")`) is declared in
+   `ConnectorProvider#getFileFormats` and read by the catalog-less connector
+   that `createFileFormatConnector` builds, whose metadata implements
+   `ConnectorFileSourceOps` (example: `LanceFileFormatConnector`).
 10. **Write path** (if any). Implement the write Ops and
     `Connector#getWritePlanProvider`; copy from `fe-connector-iceberg`.
 11. **Statement-scoped memos.** Follow the `ConnectorStatementScopes`

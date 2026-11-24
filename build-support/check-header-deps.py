@@ -459,16 +459,6 @@ RULES = [
 # every header under it; a banned spelling ending in "/" bans the whole subtree.
 ANGLE_BANS = [
     (
-        "storage/index/inverted/query/",
-        "CLucene/",
-        "query algorithms use the format SPI and do not include CLucene headers",
-    ),
-    (
-        "storage/index/inverted/query/",
-        "CLucene.h",
-        "query algorithms use the format SPI and do not include CLucene headers",
-    ),
-    (
         "core/uint24.h",
         "fmt/",
         "to_string/to_buffer bodies live in uint24.cpp precisely so the "
@@ -608,10 +598,11 @@ PCH_QUOTED_WHITELIST = {
 # declarations only, so they cost nothing to include.
 FWD_SUFFIX = "_fwd.h"
 
-# CLucene-free roots. The code under these roots is moving off CLucene, and the other guards
-# cannot hold it there: ANGLE_BANS reads only a header's own includes, load_includes() keeps no
-# angle includes while most CLucene edges are angle includes, and the PCH hands CLucene to every
-# translation unit without any include at all. So two rules of their own:
+# CLucene-free roots. The code under these roots does not use CLucene, and the other guards cannot
+# keep it so: ANGLE_BANS reads only a header's own includes, load_includes() keeps no angle
+# includes while most CLucene edges are angle includes, and the PCH hands CLucene to every
+# translation unit without any include at all. So two rules of their own, neither with an
+# exception table:
 #   closure  no file under a root, sources included, and no project header a root reaches
 #            includes a CLucene header;
 #   symbols  the code under a root, with comments, string literals and includes stripped, names
@@ -635,17 +626,10 @@ CODE_NOISE = re.compile(
     re.S | re.M,
 )
 CLUCENE_WHY = (
-    "SNII, the analysis layer and ANN are moving off CLucene, and an include anywhere in the "
-    "closure of a root, or a symbol the PCH makes visible, ties them back to it"
+    "SNII, the analysis layer, the query engine, the shared inverted index code and ANN do not "
+    "use CLucene, and an include anywhere in the closure of a root, or a symbol the PCH makes "
+    "visible, ties them back to it"
 )
-# What still breaks the rules while the migration goes on, keyed by the file that breaks them,
-# not by the roots: one shared header puts many roots in violation, and its entry goes when the
-# task that cuts it lands. A missing entry and an entry that no longer breaks the rule both fail
-# the gate, so the tables only shrink.
-# Files that include a CLucene header and are under a root or reached from one.
-CLUCENE_INCLUDING_FILES = set()
-# Files under a root whose code names a CLucene symbol.
-CLUCENE_SYMBOL_FILES = set()
 
 
 def load_includes():
@@ -843,8 +827,6 @@ def enforce_clucene_closure(includes, clucene):
             if path in clucene and (header not in offenders or len(chain) < len(offenders[header])):
                 offenders[header] = chain
     for header, chain in sorted(offenders.items()):
-        if header in CLUCENE_INCLUDING_FILES:
-            continue
         failures += 1
         include = clucene[resolve(header, includes)][0]
         if len(chain) == 1:
@@ -855,50 +837,31 @@ def enforce_clucene_closure(includes, clucene):
         print("  chain:  " + "\n       -> ".join(chain + [f"<{include}>"]), file=sys.stderr)
         print(
             "  fix:    keep the CLucene type out of the header (forward-declare it, or put "
-            "the code behind an interface the root does not see); CLUCENE_INCLUDING_FILES "
-            "only lists what the migration has not cut yet",
+            "the code behind an interface the root does not see)",
             file=sys.stderr,
         )
-    for header in sorted(CLUCENE_INCLUDING_FILES - offenders.keys()):
-        failures += 1
-        print(
-            f"error: CLUCENE_INCLUDING_FILES lists {header}, which no CLucene-free root "
-            "reaches with a CLucene include any more",
-            file=sys.stderr,
-        )
-        print("  fix:    delete the entry", file=sys.stderr)
     return failures
 
 
 def enforce_clucene_symbols(includes):
     """The code under a root names no CLucene symbol."""
     failures = 0
-    offenders = {}
     for name in clucene_free_files(includes):
         with open(os.path.join(INCLUDE_ROOT, name), encoding="utf-8", errors="ignore") as handle:
             # Every stripped piece becomes the newlines it held, so line numbers stay right.
             code = CODE_NOISE.sub(lambda m: "\n" * m.group(0).count("\n"), handle.read())
         match = CLUCENE_SYMBOLS.search(code)
-        if match:
-            offenders[name] = (code.count("\n", 0, match.start()) + 1, match.group(0))
-    for name, (line, symbol) in sorted(offenders.items()):
-        if name in CLUCENE_SYMBOL_FILES:
+        if not match:
             continue
         failures += 1
-        print(f"error: {name}:{line} names the CLucene symbol {symbol}", file=sys.stderr)
+        line = code.count("\n", 0, match.start()) + 1
+        print(f"error: {name}:{line} names the CLucene symbol {match.group(0)}", file=sys.stderr)
         print(f"  reason: {CLUCENE_WHY}", file=sys.stderr)
         print(
             "  fix:    use the Doris type or error instead; the PCH makes CLucene visible "
             "without an include, so the compiler does not catch this",
             file=sys.stderr,
         )
-    for name in sorted(CLUCENE_SYMBOL_FILES - offenders.keys()):
-        failures += 1
-        print(
-            f"error: CLUCENE_SYMBOL_FILES lists {name}, which names no CLucene symbol any more",
-            file=sys.stderr,
-        )
-        print("  fix:    delete the entry", file=sys.stderr)
     return failures
 
 
@@ -1137,8 +1100,8 @@ def main():
             f"header hygiene: {len(RULES)} layering rule(s), "
             f"{len(ANGLE_BANS)} third-party ban(s), "
             f"{len(FORWARD_CLOSURE_BUDGETS)}+{len(REVERSE_REACH_BASELINES)} "
-            f"budget(s), pch whitelist, CLucene-free roots ({len(CLUCENE_INCLUDING_FILES)}+"
-            f"{len(CLUCENE_SYMBOL_FILES)} exception(s)): all satisfied"
+            f"budget(s), pch whitelist, {len(CLUCENE_FREE_ROOTS)} CLucene-free root(s): "
+            "all satisfied"
         )
     return 0
 
