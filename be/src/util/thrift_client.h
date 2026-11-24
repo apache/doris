@@ -25,6 +25,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <type_traits>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -39,6 +40,7 @@ class TTransport;
 } // namespace apache
 
 namespace doris {
+class TPaloBrokerServiceClient;
 
 #define THRIFT_MOVE_VALUES(thrift, member, value) \
     thrift.__isset.member = true;                 \
@@ -50,6 +52,8 @@ public:
     virtual ~ThriftClientImpl() { close(); }
     const std::string& ipaddress() { return _ipaddress; }
     int port() const { return _port; }
+
+    void set_peer_hostname(const std::string& hostname);
 
     // Open the connection to the remote server. May be called
     // repeatedly, is idempotent unless there is a failure to connect.
@@ -91,6 +95,7 @@ public:
 
 protected:
     ThriftClientImpl(const std::string& ipaddress, int port);
+    ThriftClientImpl(const std::string& ipaddress, int port, bool internal_rpc);
 
     std::string _ipaddress;
     int _port;
@@ -109,6 +114,8 @@ public:
     ThriftClient(const std::string& ipaddress, int port);
 
     ThriftClient(const std::string& ipaddress, int port, ThriftServer::ServerType server_type);
+    ThriftClient(const std::string& ipaddress, int port, ThriftServer::ServerType server_type,
+                 bool internal_rpc);
 
     // Returns the object used to actually make RPCs against the remote server
     InterfaceType* iface() { return _iface.get(); }
@@ -119,7 +126,8 @@ private:
 
 template <class InterfaceType>
 ThriftClient<InterfaceType>::ThriftClient(const std::string& ipaddress, int port)
-        : ThriftClientImpl(ipaddress, port) {
+        : ThriftClientImpl(ipaddress, port,
+                           !std::is_same_v<InterfaceType, TPaloBrokerServiceClient>) {
     _transport.reset(new apache::thrift::transport::TBufferedTransport(_socket));
     _transport->getConfiguration()->setMaxMessageSize(config::thrift_max_message_size);
     _protocol.reset(new apache::thrift::protocol::TBinaryProtocol(_transport));
@@ -129,7 +137,13 @@ ThriftClient<InterfaceType>::ThriftClient(const std::string& ipaddress, int port
 template <class InterfaceType>
 ThriftClient<InterfaceType>::ThriftClient(const std::string& ipaddress, int port,
                                           ThriftServer::ServerType server_type)
-        : ThriftClientImpl(ipaddress, port) {
+        : ThriftClient(ipaddress, port, server_type,
+                       !std::is_same_v<InterfaceType, TPaloBrokerServiceClient>) {}
+
+template <class InterfaceType>
+ThriftClient<InterfaceType>::ThriftClient(const std::string& ipaddress, int port,
+                                          ThriftServer::ServerType server_type, bool internal_rpc)
+        : ThriftClientImpl(ipaddress, port, internal_rpc) {
     switch (server_type) {
     case ThriftServer::NON_BLOCKING:
         _transport.reset(new apache::thrift::transport::TFramedTransport(_socket));

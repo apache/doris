@@ -45,6 +45,7 @@
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::format {
 namespace {
@@ -383,8 +384,8 @@ TEST(HudiHybridReaderTest, ForwardsLatePredicatesToActiveChild) {
 }
 
 TEST(HudiHybridReaderTest, NativeCountStarReportsMetadataRowsThroughHybridReader) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_hudi_hybrid_count_star_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("hudi_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_hudi_hybrid_count_star_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto file_path = (test_dir / "base-file.parquet").string();

@@ -85,10 +85,12 @@ public final class OssFileSystemProperties
             description = "The endpoint of OSS.")
     private String endpoint = "";
 
+    // Access-key aliases must not escape through typed diagnostic rendering.
     @ConnectorProperty(names = {ACCESS_KEY, "s3.access_key", "s3.access-key-id", "AWS_ACCESS_KEY",
             "access_key", "ACCESS_KEY", "dlf.access_key", "dlf.catalog.accessKeyId",
             "fs.oss.accessKeyId", "OSS_ACCESS_KEY"},
             required = false,
+            sensitive = true,
             description = "The access key of OSS.")
     private String accessKey = "";
 

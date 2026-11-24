@@ -109,7 +109,7 @@ void ColumnSpatial<Kind>::insert_data(const char* pos, size_t length) {
     if (length <= StringView::kInlineSize) {
         _data.emplace_back(pos, cast_set<uint32_t>(length));
     } else {
-        _data.emplace_back(_arena->insert(pos, length), cast_set<uint32_t>(length));
+        _data.emplace_back(_arena.insert(pos, length), cast_set<uint32_t>(length));
     }
 }
 
@@ -194,31 +194,6 @@ size_t ColumnSpatial<Kind>::filter(const IColumn::Filter& filter) {
 }
 
 template <PrimitiveType Kind>
-void ColumnSpatial<Kind>::erase(size_t start, size_t length) {
-    // Move retained views first; reclaim their arena periodically below to bound window memory.
-    // Match ColumnVector: empty/out-of-range requests are no-ops and long ranges are clipped.
-    if (start >= size() || length == 0) {
-        return;
-    }
-    length = std::min(length, size() - start);
-    std::move(_data.begin() + start + length, _data.end(), _data.begin() + start);
-    _data.resize(size() - length);
-    size_t retained_bytes = 0;
-    for (const auto& value : _data) {
-        retained_bytes += value.isInline() ? 0 : value.size();
-    }
-    // A bounded analytic frame can discard most WKB while continuing to append new blocks.
-    // Once more than half the payload is dead, copy survivors once and release the old arena.
-    // Keeping the old storage until both swaps also preserves ownership if copying throws.
-    if (retained_bytes < _arena->used_size() / 2) {
-        auto compacted = Self::create();
-        compacted->insert_range_from(*this, 0, size());
-        _data.swap(compacted->_data);
-        _arena.swap(compacted->_arena);
-    }
-}
-
-template <PrimitiveType Kind>
 MutableColumnPtr ColumnSpatial<Kind>::permute(const IColumn::Permutation& perm,
                                               size_t limit) const {
     limit = limit ? std::min(size(), limit) : size();
@@ -242,7 +217,7 @@ void ColumnSpatial<Kind>::replace_column_data(const IColumn& rhs, size_t row, si
         _data[self_row] = StringView(value.data, cast_set<uint32_t>(value.size));
     } else {
         _data[self_row] =
-                StringView(_arena->insert(value.data, value.size), cast_set<uint32_t>(value.size));
+                StringView(_arena.insert(value.data, value.size), cast_set<uint32_t>(value.size));
     }
 }
 

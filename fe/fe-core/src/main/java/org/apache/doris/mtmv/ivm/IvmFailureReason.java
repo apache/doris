@@ -37,6 +37,7 @@ public enum IvmFailureReason {
     INCREMENTAL_EXECUTION_FAILED,
     AGG_UNSUPPORTED,
     MIN_MAX_BOUNDARY_HIT,
+    NEGATIVE_AGGREGATE_COUNT,
     BITMAP_AGG_DELETE,
     PLAN_SIGNATURE_MISMATCH,
     /** A previous IVM refresh txn committed but its data is not yet visible. */
@@ -51,6 +52,7 @@ public enum IvmFailureReason {
         return this == CHANGELOG_BROKEN
                 || this == STREAM_UNSUPPORTED
                 || this == MIN_MAX_BOUNDARY_HIT
+                || this == NEGATIVE_AGGREGATE_COUNT
                 || this == BITMAP_AGG_DELETE
                 || this == PLAN_SIGNATURE_MISMATCH;
     }

@@ -40,10 +40,10 @@ public class JdbcConnectorProviderSecuritySurfaceTest {
     }
 
     @Test
-    public void declaresThePasswordInBothSpellings() {
+    public void declaresPasswordsAndConnectionUrlsInBothSpellings() {
         // A catalog may write any key with the jdbc. prefix, so the engine has to mask both spellings.
         ConnectorSecuritySurface surface = new JdbcConnectorProvider().securitySurface();
-        Assertions.assertEquals(new HashSet<>(Arrays.asList("password", "jdbc.password")),
+        Assertions.assertEquals(new HashSet<>(Arrays.asList("password", "jdbc.password", "jdbc_url", "jdbc.jdbc_url")),
                 new HashSet<>(surface.sensitiveKeys()));
         Assertions.assertTrue(surface.sensitiveKeyPrefixes().isEmpty());
     }

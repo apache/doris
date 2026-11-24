@@ -17,13 +17,13 @@
 
 suite("predefine_insert_into_select_doc_mode", "p0"){
     def variantV2Function = "parse_to_variant"
-    sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_enable_doc_mode = true """
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
+    sql """ set debug_variant_enable_doc_mode = true """
     boolean minrowszero = new Random().nextBoolean();
     if (minrowszero) {
-        sql """ set default_variant_doc_materialization_min_rows = 0 """
+        sql """ set debug_variant_doc_materialization_min_rows = 0 """
     } else {
-        sql """ set default_variant_doc_materialization_min_rows = 1000000 """
+        sql """ set debug_variant_doc_materialization_min_rows = 1000000 """
     }
 
     sql "DROP TABLE IF EXISTS fromTable"

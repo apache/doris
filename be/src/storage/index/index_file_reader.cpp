@@ -22,12 +22,26 @@
 
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "storage/index/ann/ann_index_storage.h"
 #include "storage/index/index_compound_reader.h"
 #include "storage/index/index_fs_directory.h"
+#include "storage/index/inverted/clucene/lucene_ann_store.h"
+#include "storage/index/inverted/snii/snii_ann_store.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
+
+IndexFileReader::IndexFileReader(io::FileSystemSPtr fs, std::string index_path_prefix,
+                                 InvertedIndexStorageFormatPB storage_format,
+                                 InvertedIndexFileInfo idx_file_info, int64_t tablet_id)
+        : _fs(std::move(fs)),
+          _index_path_prefix(std::move(index_path_prefix)),
+          _storage_format(storage_format),
+          _idx_file_info(std::move(idx_file_info)),
+          _tablet_id(tablet_id) {}
+
+IndexFileReader::~IndexFileReader() = default;
 
 Status IndexFileReader::init(int32_t read_buffer_size, const io::IOContext* io_ctx) {
     std::unique_lock<std::shared_mutex> lock(_mutex); // Lock for writing
@@ -212,72 +226,22 @@ Result<InvertedIndexDirectoryMap> IndexFileReader::get_all_directories() {
     return res;
 }
 
+int64_t IndexFileReader::get_inverted_file_size() const {
+    if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+        return _snii_file_reader == nullptr ? 0 : _snii_file_reader->size();
+    }
+    return _stream == nullptr ? 0 : _stream->length();
+}
+
 Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::_open(
         int64_t index_id, const std::string& index_suffix, const io::IOContext* io_ctx) const {
-    std::unique_ptr<DorisCompoundReader, DirectoryDeleter> compound_reader;
-
+    // No SNII index is a CLucene directory: text and BKD indexes have readers of
+    // their own, and an ANN index is read through open_ann_source().
     if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
-        // A blob logical index is a named-sub-file table over the container, and
-        // a compound reader is a named-sub-file table over a stream -- the same
-        // shape. The offsets recorded in the directory are ABSOLUTE container
-        // offsets, exactly like a V2 compound entry, so the sub-files need no
-        // rebasing and DorisCompoundReader is reused unchanged.
-        const auto index_file_path =
-                InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
-        EntriesType entries;
-        int64_t container_size = 0;
-        // The lock spans every use of _snii_segment_reader state, not just the
-        // lookup: `entry` points into the reader's decoded directory, and every
-        // other SNII accessor on this class holds the lock across the whole use.
-        // Narrowing it here would make this the one site whose safety rests on
-        // "the segment reader is never reset after init" rather than on the lock.
-        {
-            std::shared_lock<std::shared_mutex> lock(_mutex);
-            if (_snii_segment_reader == nullptr) {
-                return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                        "SNII index file {} is not opened", index_file_path));
-            }
-            const doris::snii::format::LogicalIndexMetadataRef* entry = nullptr;
-            RETURN_IF_ERROR_RESULT(_snii_segment_reader->blob_entry(cast_set<uint64_t>(index_id),
-                                                                    index_suffix, &entry));
-            DORIS_CHECK(entry != nullptr);
-            // Only an ANN index is served through a CLucene directory. A BKD blob
-            // has its own reader and must not be reachable this way, or a caller
-            // would get a directory over bytes no CLucene code can parse.
-            if (entry->kind != doris::snii::format::LogicalIndexKind::kAnn) {
-                return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                        "SNII logical index {} is not an ANN blob; it has no CLucene directory",
-                        index_id));
-            }
-            // Blob extents were bounded against the container at open time
-            // (SniiSegmentReader::validate_blob_files), so they are safe to hand
-            // to the compound reader as-is.
-            for (const auto& blob : entry->files) {
-                auto file_entry = std::make_unique<ReaderFileEntry>();
-                file_entry->file_name = blob.name;
-                file_entry->offset = cast_set<int64_t>(blob.offset);
-                file_entry->length = cast_set<int64_t>(blob.length);
-                entries.emplace(blob.name, std::move(file_entry));
-            }
-            container_size = get_inverted_file_size();
-        }
-
-        CLuceneError err;
-        CL_NS(store)::IndexInput* index_input = nullptr;
-        // The container size is already resident -- init() opened the file to read
-        // its directory. Passing -1 here would make the filesystem re-discover it,
-        // which is a stat() locally and a HeadObject round trip on S3, on every
-        // cold ANN index load.
-        if (!DorisFSDirectory::FSIndexInput::open(_fs, index_file_path.c_str(), index_input, err,
-                                                  _read_buffer_size, container_size, _tablet_id)) {
-            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "CLuceneError occur when open SNII container {}, error msg: {}",
-                    index_file_path, err.what()));
-        }
-        compound_reader.reset(
-                new DorisCompoundReader(index_input, entries, _read_buffer_size, io_ctx));
-        return compound_reader;
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "SNII format does not open CLucene directories"));
     }
+    std::unique_ptr<DorisCompoundReader, DirectoryDeleter> compound_reader;
 
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
         auto index_file_path = InvertedIndexDescriptor::get_index_file_path_v1(
@@ -495,6 +459,42 @@ Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::
     auto index_id = index_meta->index_id();
     auto index_suffix = index_meta->get_index_suffix();
     return _open(index_id, index_suffix, io_ctx);
+}
+
+Result<std::unique_ptr<AnnIndexSource>> IndexFileReader::open_ann_source(
+        const TabletIndex* index_meta, const io::IOContext* io_ctx) const {
+    if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+        // SNII keeps an ANN index as a blob in the container init() opened, and
+        // reads its sub-files through that container's reader: no second open
+        // of the file. Nothing is read here; the directory entry is in memory.
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        if (_snii_segment_reader == nullptr) {
+            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                    "SNII index file {} is not opened",
+                    InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)));
+        }
+        const doris::snii::format::LogicalIndexMetadataRef* entry = nullptr;
+        RETURN_IF_ERROR_RESULT(
+                _snii_segment_reader->blob_entry(cast_set<uint64_t>(index_meta->index_id()),
+                                                 index_meta->get_index_suffix(), &entry));
+        DORIS_CHECK(entry != nullptr);
+        // A BKD blob has its own reader and must not be reachable this way, or a
+        // caller would get files no ANN code can parse.
+        if (entry->kind != doris::snii::format::LogicalIndexKind::kAnn) {
+            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "SNII logical index {} is not an ANN blob", index_meta->index_id()));
+        }
+        return std::make_unique<snii_doris::SniiAnnSource>(_snii_file_reader, *entry,
+                                                           cast_set<size_t>(_read_buffer_size));
+    }
+    // V1 and V2 serve an ANN index through the compound reader of their files:
+    // V1 its per-index file, V2 its entry table over the one index file.
+    auto compound_reader = open(index_meta, io_ctx);
+    if (!compound_reader.has_value()) {
+        return ResultError(compound_reader.error());
+    }
+    return std::make_unique<LuceneAnnSource>(
+            std::shared_ptr<lucene::store::Directory>(std::move(compound_reader.value())));
 }
 
 std::string IndexFileReader::get_index_file_cache_key(const TabletIndex* index_meta) const {

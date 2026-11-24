@@ -30,6 +30,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
@@ -124,8 +125,10 @@ public class AdminSetFrontendConfigCommand extends Command implements Redirect {
      */
     public OriginStatement getLocalSetStmt() {
         Object[] keyArr = configs.keySet().toArray();
-        String sql = String.format("ADMIN SET %s CONFIG (\"%s\" = \"%s\");", applyToAll ? "ALL FRONTENDS" : "FRONTEND",
-                keyArr[0].toString(), configs.get(keyArr[0].toString()));
+        // Peers reparse this SQL under the forwarded sql_mode, so encode the decoded strings for that mode.
+        String sql = String.format("ADMIN SET %s CONFIG (%s = %s);", applyToAll ? "ALL FRONTENDS" : "FRONTEND",
+                SqlLiteralUtils.quoteStringLiteral(keyArr[0].toString()),
+                SqlLiteralUtils.quoteStringLiteral(configs.get(keyArr[0].toString())));
 
         return new OriginStatement(sql, originStmt == null ? 0 : originStmt.idx);
     }

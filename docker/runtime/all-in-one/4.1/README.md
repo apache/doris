@@ -82,7 +82,7 @@ anywhere. Run the script from anywhere.
 
 ## Runtime security
 
-The default base is a digest-pinned Temurin 17 JRE on Ubuntu 22.04. It provides
+The default base is a digest-pinned Temurin 17 JRE on Ubuntu 26.04 LTS. It provides
 the maintained JVM and CA bundle; the shared `base-image/install-runtime.sh`
 updates APT first, upgrades retained packages over HTTPS, and records installed
 versions at `/usr/share/doris/runtime-packages.tsv`. Binutils is installed only
@@ -91,7 +91,7 @@ packages or Operator tools.
 
 For a security rebuild, refresh the pinned base and run `build.sh --no-cache`.
 The script always checks for the selected base with `--pull`. Set `BASE_IMAGE`
-to an approved Jammy-based JRE image with `JAVA_HOME` and a CA bundle, and
+to an approved Ubuntu 26.04-based JRE image (or a Jammy JRE for rollback) with `JAVA_HOME` and a CA bundle, and
 `FE_IMAGE`, `BE_IMAGE`, and `MS_IMAGE` to published component references such
 as `apache/doris@sha256:<digest>` when reproducible artifact inputs are needed.
 These environment variables are forwarded as Docker build arguments.

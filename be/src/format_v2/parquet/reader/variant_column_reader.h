@@ -64,4 +64,11 @@ Status materialize_variant_columns(const VariantMaterializationNode& plan, Colum
                                    MutableColumnPtr& output,
                                    const ParquetColumnReaderProfile& profile = {});
 
+#ifdef BE_TEST
+namespace detail {
+void reset_variant_shredded_validation_counts();
+size_t variant_shredded_residual_validation_count();
+} // namespace detail
+#endif
+
 } // namespace doris::format::parquet

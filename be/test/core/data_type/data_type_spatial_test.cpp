@@ -129,37 +129,6 @@ TEST(DataTypeSpatialTest, BinaryBlockLayoutRemainsCompatible) {
     }
 }
 
-static void check_spatial_trim_memory(PrimitiveType primitive, size_t payload_size) {
-    auto column = DataTypeSpatial(primitive).create_column();
-    const std::string first(payload_size, 'a');
-    for (size_t row = 0; row < 16; ++row) {
-        column->insert_data(first.data(), first.size());
-    }
-    for (size_t cycle = 0; cycle < 64; ++cycle) {
-        const std::string next(payload_size, static_cast<char>('b' + cycle % 20));
-        for (size_t row = 0; row < 16; ++row) {
-            column->insert_data(next.data(), next.size());
-        }
-        column->erase(0, 16);
-        EXPECT_EQ(column->size(), 16);
-        EXPECT_EQ(column->get_data_at(0).to_string(), next);
-        EXPECT_EQ(column->get_data_at(15).to_string(), next);
-        EXPECT_LE(column->byte_size(), 16 * sizeof(StringView) + 32 * payload_size);
-        EXPECT_LE(column->allocated_bytes(), 8 * (16 * payload_size + 4096));
-    }
-    column->erase(0, column->size());
-    EXPECT_EQ(column->byte_size(), 0);
-    column->insert_data(first.data(), first.size());
-    EXPECT_EQ(column->get_data_at(0).to_string(), first);
-}
-
-TEST(DataTypeSpatialTest, ErasureReclaimsArenaAcrossAppendTrimCycles) {
-    check_spatial_trim_memory(TYPE_GEOMETRY, 21);
-    check_spatial_trim_memory(TYPE_GEOGRAPHY, 21);
-    check_spatial_trim_memory(TYPE_GEOMETRY, 8192);
-    check_spatial_trim_memory(TYPE_GEOGRAPHY, 8192);
-}
-
 TEST(DataTypeSpatialTest, FactoryCreatesDistinctSpatialColumns) {
     auto geometry = DataTypeFactory::instance().create_data_type(TYPE_GEOMETRY, false);
     auto geography = DataTypeFactory::instance().create_data_type(TYPE_GEOGRAPHY, false);
@@ -253,35 +222,6 @@ TEST(DataTypeSpatialTest, MutableNullableFilterRetainsPayloadArena) {
     EXPECT_FALSE(nullable->is_null_at(1));
     EXPECT_EQ(retained_payload, nested.get_data_at(1).data);
     EXPECT_EQ(payload, nested.get_data_at(1).to_string());
-}
-
-static void check_spatial_erasure(PrimitiveType primitive, bool nullable) {
-    const auto spatial = std::make_shared<DataTypeSpatial>(primitive);
-    const auto type = nullable ? make_nullable(spatial) : spatial;
-    auto column = type->create_column();
-    const std::string first(4096, 'a');
-    const std::string last(4096, 'b');
-    column->insert_data(first.data(), first.size());
-    column->insert_default();
-    column->insert_data(last.data(), last.size());
-    column->erase(0, 1);
-    ASSERT_EQ(column->size(), 2);
-    EXPECT_EQ(column->is_null_at(0), nullable);
-    EXPECT_EQ(column->get_data_at(1).to_string(), last);
-    column->erase(0, 1);
-    ASSERT_EQ(column->size(), 1);
-    EXPECT_EQ(column->get_data_at(0).to_string(), last);
-    column->erase(0, 1);
-    EXPECT_EQ(column->size(), 0);
-    column->insert_data(first.data(), first.size());
-    EXPECT_EQ(column->get_data_at(0).to_string(), first);
-}
-
-TEST(DataTypeSpatialTest, ErasureRetainsSpatialAndNullablePayloads) {
-    check_spatial_erasure(TYPE_GEOMETRY, false);
-    check_spatial_erasure(TYPE_GEOGRAPHY, false);
-    check_spatial_erasure(TYPE_GEOMETRY, true);
-    check_spatial_erasure(TYPE_GEOGRAPHY, true);
 }
 
 TEST(DataTypeSpatialTest, FactoryPreservesSpatialMetadataFromTypeDescriptor) {

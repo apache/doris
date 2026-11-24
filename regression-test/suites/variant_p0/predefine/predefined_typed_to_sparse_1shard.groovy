@@ -38,7 +38,7 @@ suite("test_predefine_typed_to_sparse_1shard", "p0,nonConcurrent") {
             cast(var['ipv6_1'] as ipv6), cast(var['largeint_1'] as largeint),
             cast(var['char_1'] as text)"""
     sql """ set enable_segment_limit_pushdown = true """
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_doc_mode = false """
 
      def load_json_data = {table_name, file_name ->
         // load the json data
@@ -70,7 +70,7 @@ suite("test_predefine_typed_to_sparse_1shard", "p0,nonConcurrent") {
     }
 
     def tableName = "test_predefine_typed_to_sparse_1shard"
-    sql "set default_variant_sparse_hash_shard_count = 1"
+    sql "set debug_variant_sparse_hash_shard_count = 1"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
         CREATE TABLE ${tableName} (

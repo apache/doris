@@ -233,21 +233,23 @@ class ObsFileSystemPropertiesTest {
         Assertions.assertFalse(rendered.contains("obs-token-plain"), rendered);
         Assertions.assertTrue(rendered.contains("secretKey=***"), rendered);
         Assertions.assertTrue(rendered.contains("sessionToken=***"), rendered);
-        // accessKey is an identifier, not a secret: shown in clear text for diagnostics.
-        Assertions.assertTrue(rendered.contains("accessKey=obs-ak-plain"), rendered);
+        // Access-key identifiers must follow the same display policy as the other credentials.
+        Assertions.assertFalse(rendered.contains("obs-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("accessKey=***"), rendered);
+        Assertions.assertEquals("obs-ak-plain", properties.getAccessKey());
         Assertions.assertTrue(rendered.contains("https://obs.cn-north-4.myhuaweicloud.com"), rendered);
     }
 
     @Test
-    void provider_sensitivePropertyKeysCoverSecretsButNotAccessKey() {
+    void provider_sensitivePropertyKeysCoverAllCredentials() {
         Set<String> keys = new ObsFileSystemProvider().sensitivePropertyKeys();
 
         Assertions.assertTrue(keys.contains("obs.secret_key"), keys.toString());
         Assertions.assertTrue(keys.contains("OBS_SECRET_KEY"), keys.toString());
         Assertions.assertTrue(keys.contains("OBS_SESSION_TOKEN"), keys.toString());
-        // accessKey is not sensitive, so its aliases must not be registered for masking.
-        Assertions.assertFalse(keys.contains("OBS_ACCESS_KEY"), keys.toString());
-        Assertions.assertFalse(keys.contains("obs.access_key"), keys.toString());
+        // Access-key aliases follow the same masking contract as the secret and session token.
+        Assertions.assertTrue(keys.contains("OBS_ACCESS_KEY"), keys.toString());
+        Assertions.assertTrue(keys.contains("obs.access_key"), keys.toString());
     }
 
     @Test

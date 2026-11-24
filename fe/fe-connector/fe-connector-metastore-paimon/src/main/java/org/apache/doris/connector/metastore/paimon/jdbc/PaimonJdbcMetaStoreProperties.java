@@ -38,7 +38,9 @@ import java.util.Map;
 public final class PaimonJdbcMetaStoreProperties extends AbstractMetaStoreProperties
         implements JdbcMetaStoreProperties {
 
-    @ConnectorProperty(names = {"uri", "paimon.jdbc.uri"}, required = false,
+    // URI values may contain credentials; the shared alias still needs value-aware catalog rendering.
+    @ConnectorProperty(names = {"uri", "paimon.jdbc.uri"}, required = false, sensitive = true,
+            sensitiveInDiagnosticsOnly = true,
             description = "The JDBC connection URI.")
     private String uri = "";
 

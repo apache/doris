@@ -260,7 +260,7 @@ class GcsFileSystemPropertiesTest {
     }
 
     @Test
-    void toString_masksSecretsButNotAccessKey() {
+    void toString_masksAllCredentials() {
         String rendered = GcsFileSystemProperties.of(Map.of(
                 "gs.access_key", "gcs-ak-plain",
                 "gs.secret_key", "gcs-sk-plain",
@@ -268,7 +268,8 @@ class GcsFileSystemPropertiesTest {
 
         Assertions.assertFalse(rendered.contains("gcs-sk-plain"), rendered);
         Assertions.assertFalse(rendered.contains("gcs-token-plain"), rendered);
-        Assertions.assertTrue(rendered.contains("accessKey=gcs-ak-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("gcs-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("accessKey=***"), rendered);
     }
 
     @Test

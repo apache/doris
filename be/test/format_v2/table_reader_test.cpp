@@ -3045,8 +3045,8 @@ TEST(TableReaderTest, SinglePhysicalSplitUsesFinalRuntimeFilterPlaceholderSnapsh
 }
 
 TEST(TableReaderTest, PendingRuntimeFilterDisablesMinMaxPushdown) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_pending_rf_minmax_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_pending_rf_minmax_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto file_path = (test_dir / "split.parquet").string();
@@ -3885,8 +3885,9 @@ TEST(TableReaderTest, LegacyPlanRetainsOrderedCurrentNameAndAliasLookup) {
 }
 
 TEST(TableReaderTest, IcebergInitialDefaultMetadataOverridesGenericBinaryDefaultExpr) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_top_level_binary_initial_default_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_table_reader_top_level_binary_initial_default_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto file_path = (test_dir / "split.parquet").string();
@@ -3940,8 +3941,8 @@ TEST(TableReaderTest, IcebergInitialDefaultMetadataOverridesGenericBinaryDefault
 }
 
 TEST(TableReaderTest, IcebergLegacyPlanKeepsGenericBinaryDefaultExpr) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_legacy_binary_default_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_legacy_binary_default_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto file_path = (test_dir / "split.parquet").string();
@@ -4446,7 +4447,8 @@ TEST(TableReaderTest, CollectionParentMaskKeepsRequiredNullInHiddenEntry) {
 }
 
 TEST(TableReaderTest, ReopenSplitAfterClose) {
-    const auto test_dir = std::filesystem::temp_directory_path() / "doris_table_reader_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -4608,9 +4610,9 @@ TEST(TableReaderTest, ConditionCacheSeparatesInt96TimezoneContracts) {
 TEST(TableReaderTest, Int96ConditionCacheCannotHideRowsUnderAnotherTimezone) {
     ScopedConditionCacheForTest cache;
     TimezoneUtils::load_timezones_to_cache();
-    const auto path = (std::filesystem::temp_directory_path() /
-                       "doris_int96_condition_cache_contract.parquet")
-                              .string();
+    const doris::test::ScopedTempDirectory scoped_path("table_reader_test");
+    const auto path =
+            (scoped_path.path() / "doris_int96_condition_cache_contract.parquet").string();
     const auto arrow_type = arrow::timestamp(arrow::TimeUnit::MICRO);
     arrow::TimestampBuilder builder(arrow_type, arrow::default_memory_pool());
     constexpr int64_t ROWS = ConditionCacheContext::GRANULE_SIZE;
@@ -5356,7 +5358,8 @@ TEST(TableReaderTest, ConditionCacheMissIsDroppedWhenStopTurnsReadIntoEof) {
 }
 
 TEST(TableReaderTest, PushDownCountFromNewParquetReader) {
-    const auto test_dir = std::filesystem::temp_directory_path() / "doris_table_reader_count_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_count_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -5396,8 +5399,8 @@ TEST(TableReaderTest, PushDownCountFromNewParquetReader) {
 }
 
 TEST(TableReaderTest, TableLevelCountUsesAssignedRowCount) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_table_count_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_table_count_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -5454,8 +5457,8 @@ TEST(TableReaderTest, TableLevelCountUsesAssignedRowCount) {
 }
 
 TEST(TableReaderTest, TableLevelCountRequiresExplicitCountStarArguments) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_table_count_arguments_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_table_count_arguments_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -5504,7 +5507,8 @@ TEST(TableReaderTest, TableLevelCountRequiresExplicitCountStarArguments) {
 }
 
 TEST(TableReaderTest, PushDownMinMaxFromNewParquetReader) {
-    const auto test_dir = std::filesystem::temp_directory_path() / "doris_table_reader_minmax_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_minmax_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -5550,8 +5554,8 @@ TEST(TableReaderTest, PushDownMinMaxFromNewParquetReader) {
 }
 
 TEST(TableReaderTest, PushDownMinMaxFallsBackForFileToTableCast) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_minmax_cast_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_minmax_cast_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -5602,8 +5606,8 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForFileToTableCast) {
 }
 
 TEST(TableReaderTest, PushDownMinMaxFromProjectedStructLeaf) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_minmax_struct_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_minmax_struct_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -5652,8 +5656,8 @@ TEST(TableReaderTest, PushDownMinMaxFromProjectedStructLeaf) {
 }
 
 TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_minmax_list_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_minmax_list_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -5721,8 +5725,8 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
 }
 
 TEST(TableReaderTest, ProjectedListStructReadsSelectedElementChild) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_list_projection_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_list_projection_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -5781,8 +5785,8 @@ TEST(TableReaderTest, ProjectedListStructReadsSelectedElementChild) {
 }
 
 TEST(TableReaderTest, NestedEqualityReachesParquetBloomProbe) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_nested_bloom_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_nested_bloom_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto file_path = (test_dir / "split.parquet").string();
@@ -5842,8 +5846,9 @@ TEST(TableReaderTest, NestedEqualityReachesParquetBloomProbe) {
 }
 
 TEST(TableReaderTest, ArrayAccessorDoesNotHideRequiredUnreferencedSibling) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_array_sibling_nullability_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_table_reader_array_sibling_nullability_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto file_path = (test_dir / "split.parquet").string();
@@ -5896,8 +5901,9 @@ TEST(TableReaderTest, ArrayAccessorDoesNotHideRequiredUnreferencedSibling) {
 }
 
 TEST(TableReaderTest, ArrayAccessorDoesNotHideLossyUnreferencedSiblingConversion) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_array_sibling_conversion_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_table_reader_array_sibling_conversion_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto file_path = (test_dir / "split.parquet").string();
@@ -5947,8 +5953,9 @@ TEST(TableReaderTest, ArrayAccessorDoesNotHideLossyUnreferencedSiblingConversion
 }
 
 TEST(TableReaderTest, RejectedArrayAccessorFencesLaterDefaultConstantPruning) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_array_constant_pruning_barrier_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_table_reader_array_constant_pruning_barrier_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto file_path = (test_dir / "split.parquet").string();
@@ -6013,8 +6020,8 @@ TEST(TableReaderTest, RejectedArrayAccessorFencesLaterDefaultConstantPruning) {
 }
 
 TEST(TableReaderTest, ProjectedListStructReordersRenamedAndMissingElementChildren) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_list_schema_evolution_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_list_schema_evolution_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -6091,8 +6098,9 @@ TEST(TableReaderTest, ProjectedListStructReordersRenamedAndMissingElementChildre
 // Scenario: when every projected array-element struct child is missing/default-only, the reader
 // still receives a full element projection and can materialize the default child without crashing.
 TEST(TableReaderTest, ProjectedListStructOnlyMissingElementChildFallsBackToFullElement) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_list_only_missing_child_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_table_reader_list_only_missing_child_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -6147,8 +6155,8 @@ TEST(TableReaderTest, ProjectedListStructOnlyMissingElementChildFallsBackToFullE
 }
 
 TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_minmax_map_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_minmax_map_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -6217,8 +6225,8 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
 }
 
 TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_map_schema_evolution_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_map_schema_evolution_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -6486,8 +6494,8 @@ TEST(TableReaderTest, MaterializeMapValueStructUsesTableTypeOrder) {
 }
 
 TEST(TableReaderTest, PushDownMinMaxOnlyUsesSelectedRowGroupInFileRange) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_minmax_range_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_minmax_range_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -6528,8 +6536,8 @@ TEST(TableReaderTest, PushDownMinMaxOnlyUsesSelectedRowGroupInFileRange) {
 }
 
 TEST(TableReaderTest, PushDownCountOnlyUsesSelectedRowGroupInFileRange) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_count_range_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_count_range_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -6567,8 +6575,8 @@ TEST(TableReaderTest, PushDownCountOnlyUsesSelectedRowGroupInFileRange) {
 }
 
 TEST(TableReaderTest, PushDownCountFallsBackWithTableConjunct) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_count_conjunct_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_count_conjunct_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -6609,8 +6617,8 @@ TEST(TableReaderTest, PushDownCountFallsBackWithTableConjunct) {
 }
 
 TEST(TableReaderTest, PushDownCountFallsBackWithFilter) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_count_predicate_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_count_predicate_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -6651,8 +6659,9 @@ TEST(TableReaderTest, PushDownCountFallsBackWithFilter) {
 }
 
 TEST(TableReaderTest, NestedStructPredicateAcceptsTableNullableChildren) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_nested_struct_predicate_nullability_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_table_reader_nested_struct_predicate_nullability_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -6701,8 +6710,8 @@ TEST(TableReaderTest, NestedStructPredicateAcceptsTableNullableChildren) {
 }
 
 TEST(TableReaderTest, PushDownMinMaxFallsBackWithoutDirectFileMapping) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_minmax_missing_mapping_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_minmax_missing_mapping_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -6741,8 +6750,8 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackWithoutDirectFileMapping) {
 }
 
 TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_conjunct_filter_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_conjunct_filter_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -6811,8 +6820,8 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
 }
 
 TEST(TableReaderTest, OpenReaderPushesVExprPredicateToParquetReader) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_column_predicate_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_column_predicate_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -6860,8 +6869,8 @@ TEST(TableReaderTest, OpenReaderPushesVExprPredicateToParquetReader) {
 }
 
 TEST(TableReaderTest, VExprPredicateSurvivesReopenSplit) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_predicate_reopen_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_predicate_reopen_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7129,8 +7138,8 @@ TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) 
 }
 
 TEST(TableReaderTest, OpenReaderPushesMultiColumnConjunctToParquetReader) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_multi_conjunct_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_multi_conjunct_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7185,8 +7194,8 @@ TEST(TableReaderTest, OpenReaderPushesMultiColumnConjunctToParquetReader) {
 }
 
 TEST(TableReaderTest, ProjectedColumnsFillDefaultForParquetSchemaMismatch) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_schema_mismatch_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_schema_mismatch_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7227,8 +7236,8 @@ TEST(TableReaderTest, ProjectedColumnsFillDefaultForParquetSchemaMismatch) {
 }
 
 TEST(TableReaderTest, DefaultExprResultMatchesNullableTableType) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_nullable_default_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_nullable_default_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7279,8 +7288,9 @@ TEST(TableReaderTest, DefaultExprResultMatchesNullableTableType) {
 }
 
 TEST(TableReaderTest, DefaultExprAlignsNestedNullableArrayTableType) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_nested_nullable_array_default_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_table_reader_nested_nullable_array_default_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7340,8 +7350,8 @@ TEST(TableReaderTest, DefaultExprAlignsNestedNullableArrayTableType) {
 }
 
 TEST(TableReaderTest, ProjectedColumnsFillMissingParquetColumnWithDefault) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_schema_mismatch_reject_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_schema_mismatch_reject_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7387,8 +7397,8 @@ TEST(TableReaderTest, ProjectedColumnsFillMissingParquetColumnWithDefault) {
 }
 
 TEST(TableReaderTest, ProjectedStructFillsMissingChildWithBinaryInitialDefault) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_struct_missing_child_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_struct_missing_child_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7449,8 +7459,9 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithBinaryInitialDefault) 
 }
 
 TEST(TableReaderTest, NestedMissingChildDefaultPreservesStructListAndMapNulls) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_nested_missing_child_default_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_table_reader_nested_missing_child_default_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7569,8 +7580,9 @@ TEST(TableReaderTest, NestedMissingChildDefaultPreservesStructListAndMapNulls) {
 }
 
 TEST(TableReaderTest, ReusedBlockClearsProjectedStructWithNullableChild) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_struct_nullable_child_reuse_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_table_reader_struct_nullable_child_reuse_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7626,8 +7638,9 @@ TEST(TableReaderTest, ReusedBlockClearsProjectedStructWithNullableChild) {
 }
 
 TEST(TableReaderTest, ProjectedRenamedStructPreservesParentDeclaredChildNullability) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_struct_parent_child_nullability_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_table_reader_struct_parent_child_nullability_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7683,8 +7696,8 @@ TEST(TableReaderTest, ProjectedRenamedStructPreservesParentDeclaredChildNullabil
 }
 
 TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_partition_value_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_partition_value_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7732,8 +7745,9 @@ TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
 }
 
 TEST(TableReaderTest, ConstantPartitionFilterSkipsSplitWhenFalse) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_constant_partition_filter_skip_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_table_reader_constant_partition_filter_skip_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7775,8 +7789,9 @@ TEST(TableReaderTest, ConstantPartitionFilterSkipsSplitWhenFalse) {
 }
 
 TEST(TableReaderTest, ConstantPartitionFilterKeepsSplitWhenTrue) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_table_reader_constant_partition_filter_keep_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_table_reader_constant_partition_filter_keep_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7819,8 +7834,8 @@ TEST(TableReaderTest, ConstantPartitionFilterKeepsSplitWhenTrue) {
 }
 
 TEST(TableReaderTest, RuntimeFilterOnConstantPartitionIsNotPreExecuted) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_constant_runtime_filter";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_constant_runtime_filter";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7865,8 +7880,8 @@ TEST(TableReaderTest, RuntimeFilterOnConstantPartitionIsNotPreExecuted) {
 }
 
 TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_file_range_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_file_range_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7915,8 +7930,8 @@ TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {
 }
 
 TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionForSameNameDifferentIdParquetSchema) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_same_name_diff_id_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_same_name_diff_id_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -7959,8 +7974,8 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionForSameNameDifferentIdP
 }
 
 TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismatch) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_mapper_expr_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("table_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_table_reader_mapper_expr_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 

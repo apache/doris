@@ -26,17 +26,16 @@ import java.util.Arrays;
 import java.util.HashSet;
 
 /**
- * Pins the MaxCompute connector's secrets: the properties it marks sensitive, the access key pair. Before
- * the connector declared them, fe-core masked only {@code mc.secret_key} and SHOW CREATE CATALOG printed
- * {@code mc.access_key} in clear.
+ * Pins all MaxCompute credential keys, including tokens retained in catalog properties even when the
+ * current authentication binding does not consume them.
  */
 public class MaxComputeConnectorProviderSecuritySurfaceTest {
 
     @Test
-    public void declaresTheAccessKeyPair() {
+    public void declaresTheAccessKeyPairAndSessionToken() {
         ConnectorSecuritySurface surface = new MaxComputeConnectorProvider().securitySurface();
         Assertions.assertEquals(new HashSet<>(Arrays.asList(MCCatalogProperties.ACCESS_KEY,
-                MCCatalogProperties.SECRET_KEY)), new HashSet<>(surface.sensitiveKeys()));
+                MCCatalogProperties.SECRET_KEY, "mc.session_token")), new HashSet<>(surface.sensitiveKeys()));
         Assertions.assertTrue(surface.sensitiveKeyPrefixes().isEmpty());
     }
 }

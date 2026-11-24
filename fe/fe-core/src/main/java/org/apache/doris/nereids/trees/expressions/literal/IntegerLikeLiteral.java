@@ -36,6 +36,14 @@ public abstract class IntegerLikeLiteral extends NumericLiteral {
         super(dataType);
     }
 
+    /** Check inclusive bounds without narrowing LARGEINT values to long. */
+    public boolean isValueInRange(long minimum, long maximum) {
+        // For example, -18446744073709551615 must not become the valid positive value 1.
+        BigDecimal value = getBigDecimalValue();
+        return value.compareTo(BigDecimal.valueOf(minimum)) >= 0
+                && value.compareTo(BigDecimal.valueOf(maximum)) <= 0;
+    }
+
     public int getIntValue() {
         return getNumber().intValue();
     }

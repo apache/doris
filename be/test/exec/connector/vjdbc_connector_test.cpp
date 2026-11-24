@@ -25,12 +25,15 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/jdbc_utils.h"
 
 namespace doris {
 
 class JdbcUtilsTest : public ::testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"vjdbc_connector_test"};
+
     void SetUp() override {
         // Save original config and environment
         original_jdbc_drivers_dir_ = config::jdbc_drivers_dir;
@@ -41,10 +44,8 @@ protected:
         }
 
         // Set DORIS_HOME for testing
-        temp_home_ = std::filesystem::temp_directory_path() /
-                     ("doris_jdbc_utils_test_" + std::to_string(::getpid()));
-        second_temp_home_ = std::filesystem::temp_directory_path() /
-                            ("doris_jdbc_utils_test_second_" + std::to_string(::getpid()));
+        temp_home_ = scoped_temp_dir_.path() / "home";
+        second_temp_home_ = scoped_temp_dir_.path() / "second_home";
         std::filesystem::remove_all(temp_home_);
         std::filesystem::remove_all(second_temp_home_);
         std::filesystem::create_directories(temp_home_);

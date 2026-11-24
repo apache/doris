@@ -124,8 +124,8 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
 
     @Override
     public PhysicalResultSink<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalResultSink<>(outputExprs, groupExpression,
-                null, physicalProperties, statistics, child());
+        return rebuildKeepingStates(this, new PhysicalResultSink<>(outputExprs, groupExpression,
+                null, physicalProperties, statistics, child()));
     }
 
     @Override

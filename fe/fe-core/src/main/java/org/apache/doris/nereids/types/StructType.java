@@ -25,6 +25,7 @@ import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
 import com.google.common.collect.ImmutableList;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -76,6 +77,15 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
 
     public Map<String, StructField> getNameToFields() {
         return nameToFields;
+    }
+
+    /** Resolve a one-based integer selector at its SQL precision. */
+    public StructField getFieldByOrdinal(BigDecimal ordinal) {
+        // For example, 4294967297 becomes 1 if converted to int before this comparison.
+        if (ordinal.signum() <= 0 || ordinal.compareTo(BigDecimal.valueOf(fields.size())) > 0) {
+            return null;
+        }
+        return fields.get(ordinal.intValueExact() - 1);
     }
 
     /** Get a field by its case-insensitive runtime name. */

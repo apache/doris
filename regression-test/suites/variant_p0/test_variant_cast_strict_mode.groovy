@@ -27,7 +27,7 @@
 suite("test_variant_cast_strict_mode", "variant_type") {
 
     def variantV2Function = "parse_to_variant"
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_doc_mode = false """
 
     def variant_src = "test_variant_cast_strict_mode_src"
     def target_tbl = "test_variant_cast_strict_mode_target"
