@@ -48,6 +48,10 @@ public:
 
     const Schema& schema() const override { return *_schema; }
 
+    // The segment merge takes the newer row of a key from the segment with the larger data_id. The
+    // segment id is known before init() loads the segment, unlike the inner iterator.
+    uint64_t data_id() const override { return static_cast<uint64_t>(_segment_id); }
+
     Status current_block_row_locations(std::vector<RowLocation>* locations) override {
         return _inner_iterator->current_block_row_locations(locations);
     }
