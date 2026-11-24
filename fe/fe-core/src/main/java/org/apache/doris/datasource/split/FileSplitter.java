@@ -100,6 +100,21 @@ public class FileSplitter {
                 List<String> partitionValues,
                 SplitCreator splitCreator)
                 throws IOException {
+        return splitFile(path, specifiedFileSplitSize, blockLocations, length, modificationTime,
+                splittable, TFileCompressType.UNKNOWN, partitionValues, splitCreator);
+    }
+
+    public List<Split> splitFile(
+                LocationPath path,
+                long specifiedFileSplitSize,
+                FileBlockLocation[] blockLocations,
+                long length,
+                long modificationTime,
+                boolean splittable,
+                TFileCompressType configuredCompression,
+                List<String> partitionValues,
+                SplitCreator splitCreator)
+                throws IOException {
         if (length <= 0) {
             // Zero-length files contain no data; skip to avoid sending empty splits to BE.
             return Lists.newArrayList();
@@ -111,7 +126,11 @@ public class FileSplitter {
             blockLocations[0] = new FileBlockLocation(null, 0L, length);
         }
         List<Split> result = Lists.newArrayList();
-        TFileCompressType compressType = Util.inferFileCompressTypeByPath(path.getNormalizedLocation());
+        // Match schema inference and BE ranges: explicit GZ may have no suffix, and PLAIN may end in .gz.
+        // Parquet/ORC leave the envelope codec unset because their compression is internal to the file.
+        TFileCompressType compressType = Util.getOrInferCompressType(
+                configuredCompression == null ? TFileCompressType.UNKNOWN : configuredCompression,
+                path.getNormalizedLocation());
         if (!splittable || compressType != TFileCompressType.PLAIN) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Path {} is not splittable.", path);

@@ -161,6 +161,7 @@ public class TVFScanNode extends FileQueryScanNode {
                         fileStatus.getSize(),
                         fileStatus.getModificationTime(),
                         fileStatus.isSplitable && needSplit,
+                        tableValuedFunction.getTFileCompressType(),
                         null,
                         FileSplitCreator.DEFAULT));
             } catch (IOException e) {
