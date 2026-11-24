@@ -26,7 +26,7 @@ suite("test_outfile_csv_variant_type", "p0") {
     // open nereids
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_doc_mode = false """
 
     String ak = getS3AK()
     String sk = getS3SK()

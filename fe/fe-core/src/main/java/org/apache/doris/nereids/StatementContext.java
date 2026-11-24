@@ -243,6 +243,7 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, Map<ExprId, ExprId>> producerExprIdRemap = new HashMap<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
+    private final boolean showQuery;
 
     // generate for next id for prepared statement's placeholders, which is
     // connection level
@@ -271,6 +272,10 @@ public class StatementContext implements Closeable {
     // prepared-statement context drops it per execution via resetConnectorStatementScope() (see
     // ExecuteCommand) so one execution's cached tables never leak into the next.
     private ConnectorStatementScopeImpl connectorStatementScope;
+    // Connector exports are shared per SessionVariable instance until invalidation or an execution reset,
+    // avoiding repeated reflection while observing hints parsed after a view metadata session was created.
+    private Map<String, String> connectorSessionProperties;
+    private SessionVariable connectorSessionPropertySource;
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
@@ -449,9 +454,9 @@ public class StatementContext implements Closeable {
         this(ConnectContext.get(), null, 0);
     }
 
-    // For StatementScopeIdGenerator
+    // For StatementScopeIdGenerator; its fallback only allocates IDs and must not retain a connection.
     public StatementContext(int initialId) {
-        this(ConnectContext.get(), null, initialId);
+        this(null, null, initialId);
     }
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
@@ -462,15 +467,21 @@ public class StatementContext implements Closeable {
      * StatementContext
      */
     private StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId) {
+        this(connectContext, originStatement, initialId, false);
+    }
+
+    private StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId,
+            boolean showQuery) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
+        this.showQuery = showQuery;
         exprIdGenerator = ExprId.createGenerator(initialId);
-        if (connectContext != null && connectContext.getSessionVariable() != null) {
+        if (!showQuery && connectContext != null && connectContext.getSessionVariable() != null) {
             if (CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
                 // cannot set the queryId here because the queryId for the current query is set
                 // in the subsequent steps.
-                this.sqlCacheContext = new SqlCacheContext(
-                        connectContext.getCurrentUserIdentity());
+                this.sqlCacheContext = new SqlCacheContext(connectContext.getCurrentUserIdentity(),
+                        Env.getCurrentEnv().getSqlCacheManager().newMetadataSnapshot());
                 if (originStatement != null) {
                     this.sqlCacheContext.setOriginSql(originStatement.originStmt);
                 }
@@ -507,25 +518,36 @@ public class StatementContext implements Closeable {
      * scope, ...) starts empty/fresh on the new context.
      */
     public StatementContext createNextExecuteContext() {
-        // Continue the id generators from the previous context. The cached analyzed plan from
-        // PREPARE (and every prior execution) already consumed ids from them, so a fresh
-        // generator starting at 0 would collide with those ids during this execution's planning.
-        StatementContext next = new StatementContext(connectContext, originStatement,
-                exprIdGenerator.getCurrentId());
+        StatementContext next = copyExpressionState(connectContext, showQuery);
+        // Carry over the short-circuit state used to execute the cached prepared plan.
+        next.idToComparisonSlot.putAll(idToComparisonSlot);
+        next.isShortCircuitQuery = isShortCircuitQuery;
+        next.hasNondeterministic = hasNondeterministic;
+        return next;
+    }
+
+    /**
+     * Create a context for a query that filters SHOW output using the already parsed predicate.
+     */
+    public StatementContext createShowQueryContext(ConnectContext internalContext) {
+        return copyExpressionState(internalContext, true);
+    }
+
+    public boolean isShowQuery() {
+        return showQuery;
+    }
+
+    private StatementContext copyExpressionState(ConnectContext context, boolean showQuery) {
+        // Already parsed or analyzed expressions may hold ids allocated by this context.
+        StatementContext next = new StatementContext(context, originStatement,
+                exprIdGenerator.getCurrentId(), showQuery);
         next.objectIdGenerator.resetId(objectIdGenerator.getCurrentId());
         next.relationIdGenerator.resetId(relationIdGenerator.getCurrentId());
         next.cteIdGenerator.resetId(cteIdGenerator.getCurrentId());
         next.talbeIdGenerator.resetId(talbeIdGenerator.getCurrentId());
         next.placeHolderIdGenerator.resetId(placeHolderIdGenerator.getCurrentId());
-        // Placeholder bindings of this EXECUTE, and the comparison-slot registry used to replace
-        // conjuncts on the cached short-circuit plan without re-planning.
         next.idToPlaceholderRealExpr.putAll(idToPlaceholderRealExpr);
-        next.idToComparisonSlot.putAll(idToComparisonSlot);
         next.placeholders = new ArrayList<>(placeholders);
-        // Short-circuit gating flags are computed by the previous execution's planning and gate
-        // the fast path of this execution before any re-planning happens.
-        next.isShortCircuitQuery = isShortCircuitQuery;
-        next.hasNondeterministic = hasNondeterministic;
         return next;
     }
 
@@ -1181,6 +1203,17 @@ public class StatementContext implements Closeable {
         return this.disableRules;
     }
 
+    /** Reuses an immutable export for the same variable instance until invalidation or reset. */
+    public synchronized Map<String, String> getOrComputeConnectorSessionProperties(
+            SessionVariable sessionVariable, Supplier<Map<String, String>> compute) {
+        // Internal-view guards replace and restore SessionVariable without invalidating individual keys.
+        if (this.connectorSessionProperties == null || this.connectorSessionPropertySource != sessionVariable) {
+            this.connectorSessionProperties = Collections.unmodifiableMap(compute.get());
+            this.connectorSessionPropertySource = sessionVariable;
+        }
+        return this.connectorSessionProperties;
+    }
+
     /**
      * Returns this statement's connector scope, lazily creating it on first use (mirrors
      * {@link #getOrCacheDisableRules}). A connector reaches it through
@@ -1236,6 +1269,8 @@ public class StatementContext implements Closeable {
         invalidatePartitionPolicy(true);
         closeConnectorStatementScope();
         this.connectorStatementScope = null;
+        this.connectorSessionProperties = null;
+        this.connectorSessionPropertySource = null;
         this.connectorWriteSchemas.clear();
         this.connectorWriteMetadataIdentities.clear();
         this.connectorDeleteTargets.clear();
@@ -1278,6 +1313,10 @@ public class StatementContext implements Closeable {
      */
     public synchronized void invalidCache(String cacheKey) {
         contextCacheMap.remove(cacheKey);
+        // External-view hints can change variables after metadata lookup captured a connector session.
+        // Replace the next export while keeping already-built sessions and their statement scope intact.
+        this.connectorSessionProperties = null;
+        this.connectorSessionPropertySource = null;
         if (cacheKey.equalsIgnoreCase(SessionVariable.DISABLE_NEREIDS_RULES)) {
             this.disableRules = null;
         }

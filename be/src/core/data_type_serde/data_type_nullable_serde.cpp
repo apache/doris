@@ -33,12 +33,15 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "exprs/function/cast/cast_base.h"
 #include "format/transformer/vcsv_transformer.h"
+#include "util/defer_op.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "util/simd/bits.h"
@@ -410,15 +413,33 @@ Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
                                                      const arrow::Array* arrow_array, int64_t start,
                                                      int64_t end,
                                                      const cctz::time_zone& ctz) const {
+    if (arrow_array->type_id() == arrow::Type::NA) {
+        // Arrow Null has neither a validity bitmap nor values, even when sliced. Avoid the
+        // physical SerDe for Doris's UInt8 placeholder and keep nested values and nulls aligned.
+        if (arrow_array->offset() < 0 || start < 0 || end < start || end > arrow_array->length()) {
+            return Status::InvalidArgument(
+                    "Invalid Arrow Null read range: start={}, end={}, "
+                    "length={}, offset={}",
+                    start, end, arrow_array->length(), arrow_array->offset());
+        }
+        column.insert_many_defaults(end - start);
+        return Status::OK();
+    }
     if (config::enable_arrow_input_validation) {
         check_arrow_array_range(*arrow_array, start, end);
         check_arrow_validity_bitmap(*arrow_array);
     }
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     NullMap& map_data = col.get_null_map_data();
-    for (auto i = start; i < end; ++i) {
-        auto is_null = arrow_array->IsNull(i);
-        map_data.emplace_back(is_null);
+    const auto old_size = map_data.size();
+    map_data.resize(old_size + (end - start));
+    auto* null_flags = map_data.data() + old_size;
+    if (arrow_array->null_count() == 0) {
+        memset(null_flags, 0, end - start);
+    } else {
+        for (auto i = start; i < end; ++i) {
+            null_flags[i - start] = arrow_array->IsNull(i);
+        }
     }
     return nested_serde->read_column_from_arrow(col.get_nested_column(), arrow_array, start, end,
                                                 ctz);
@@ -683,4 +704,55 @@ Status DataTypeNullableSerDe::read_column_from_orc(IColumn& column,
     }
     return st;
 }
+Status DataTypeNullableSerDe::decode_bson_value(IColumn& column, const BsonValueView& value,
+                                                const BsonDecodeContext& context) const {
+    auto& target = assert_cast<ColumnNullable&>(column);
+    const size_t before = target.size();
+    bool committed = false;
+    Defer rollback([&] {
+        if (!committed) {
+            auto& nested = target.get_nested_column();
+            if (nested.size() > before) {
+                nested.pop_back(nested.size() - before);
+            }
+            target.get_null_map_data().resize(before);
+        }
+    });
+    if (value.is_null()) {
+        target.insert_default();
+        committed = true;
+        return Status::OK();
+    }
+    Status status =
+            nested_serde->read_one_cell_from_bson(target.get_nested_column(), value, context);
+    if (!status.ok()) {
+        if (context.mismatch_as_null && context.depth == 0 &&
+            status.code() == ErrorCode::INVALID_ARGUMENT) {
+            // Nested SerDes roll back first: [1, "bad"] must yield one NULL, not a stray array element.
+            target.insert_default();
+            committed = true;
+            return Status::OK();
+        }
+        return status;
+    }
+    target.get_null_map_data().push_back(0);
+    committed = true;
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::deserialize_one_cell_from_simdjson(
+        IColumn& column, simdjson::ondemand::value& input, const FormatOptions& options,
+        SimdJsonReadContext& context, const std::string& column_name) const {
+    auto& target = assert_cast<ColumnNullable&>(column);
+    if (input.type().value() == simdjson::ondemand::json_type::null) {
+        target.insert_default();
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(nested_serde->deserialize_one_cell_from_simdjson(
+            target.get_nested_column(), input, options, context, column_name));
+    target.get_null_map_data().push_back(0);
+    return Status::OK();
+}
+
 } // namespace doris

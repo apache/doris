@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <simdjson.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -91,6 +93,9 @@ class Arena;
 class IDataType;
 struct CastParameters;
 
+struct BsonValueView;
+struct BsonDecodeContext;
+struct SimdJsonReadContext;
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
 using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
@@ -390,6 +395,14 @@ public:
                                             int64_t end_idx, BufferWritable& bw,
                                             FormatOptions& options) const = 0;
 
+    // Consumes one borrowed value and appends one cell. Errors propagate to the caller;
+    // the reader retains responsibility for handling invalid rows.
+    virtual Status deserialize_one_cell_from_simdjson(IColumn& column,
+                                                      simdjson::ondemand::value& value,
+                                                      const FormatOptions& options,
+                                                      SimdJsonReadContext& context,
+                                                      const std::string& column_name) const;
+
     virtual Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                   const FormatOptions& options) const = 0;
 
@@ -492,6 +505,11 @@ public:
                                          const FormatOptions& options) const = 0;
 
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
+
+    Status read_one_cell_from_bson(IColumn& column, const BsonValueView& value,
+                                   const BsonDecodeContext& context) const;
+    virtual Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                                     const BsonDecodeContext& context) const;
 
     // return true if output as string
     // return false if output null

@@ -23,11 +23,15 @@
 #include <arrow/type.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include <condition_variable>
+#include <vector>
+
 #include "core/block/block.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
 #include "runtime/exec_env.h"
+#include "runtime/frontend_info.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_profile.h"
@@ -35,8 +39,42 @@
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
+#include "util/client_cache.h"
 
 namespace doris::flight {
+
+namespace {
+// Poll cancellation on the RPC thread: no background thread may retain ServerCallContext.
+template <typename Response>
+class FlightReadCallback : public DummyBrpcCallback<Response> {
+public:
+    void call() override {
+        std::scoped_lock lock(_mutex);
+        _done = true;
+        _cv.notify_all();
+    }
+
+    void wait(const std::function<bool()>& is_cancelled) {
+        std::unique_lock lock(_mutex);
+        while (!_done) {
+            if (is_cancelled()) {
+                lock.unlock();
+                brpc::StartCancel(this->call_id_);
+                this->join();
+                return;
+            }
+            _cv.wait_for(lock, std::chrono::milliseconds(20));
+        }
+        lock.unlock();
+        this->join();
+    }
+
+private:
+    std::mutex _mutex;
+    std::condition_variable _cv;
+    bool _done = false;
+};
+} // namespace
 
 ArrowFlightBatchReaderBase::ArrowFlightBatchReaderBase(
         const std::shared_ptr<QueryStatement>& statement)
@@ -55,7 +93,97 @@ arrow::Status ArrowFlightBatchReaderBase::_return_invalid_status(const std::stri
     return arrow::Status::Invalid(status_msg);
 }
 
+bool ArrowFlightBatchReaderBase::is_cancelled() const {
+    return _closed.load() || (_is_cancelled && _is_cancelled());
+}
+
+void ArrowFlightBatchReaderBase::close(const Status& reason) {
+    if (_closed.exchange(true) || _eof.load()) {
+        return;
+    }
+    auto* env = ExecEnv::GetInstance();
+    if (_statement->result_addr.hostname == BackendOptions::get_localhost() &&
+        _statement->result_addr.port == config::brpc_port) {
+        env->result_mgr()->cancel_arrow_flight_query(_statement->query_id, reason);
+    }
+    // A result endpoint can outlive its local fragment. Find the owning FE by buffer ID,
+    // then use its query-wide cancellation route, including for older result BEs.
+    // Only the FE that planned the query holds the route, and the master reaches that FE unless it
+    // has lost the master's heartbeat since. So the FEs the master reaches go first, and those it
+    // reports with process UUID 0 (it cannot reach them, and they stay on the list until dropped)
+    // go last: a stopped FE then delays an early close only when no reachable FE holds the route.
+    std::vector<TNetworkAddress> frontends;
+    std::vector<TNetworkAddress> unknown_state_frontends;
+    for (const auto& [address, info] : env->get_running_frontends()) {
+        (info.info.process_uuid != 0 ? frontends : unknown_state_frontends).push_back(address);
+    }
+    frontends.insert(frontends.end(), unknown_state_frontends.begin(),
+                     unknown_state_frontends.end());
+    for (const auto& address : frontends) {
+        Status status;
+        // One retry: the FE keeps the route when an attempt fails (for example a BE missed the
+        // FE's one-second deadline), and a cached connection to the FE may have gone stale.
+        // Neither applies to an FE that cannot be connected to, so that one gets no retry.
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            // An FE that sorts before the one that planned the query delays every early close on
+            // every BE. So the connection comes from a cache that holds only transports opened
+            // with this 2 s timeout, and acquiring it does not back off (max_retries = 0).
+            FrontendServiceConnection client(env->flight_cancel_frontend_client_cache(), address,
+                                             2000, &status, 0);
+            const bool connected = status.ok();
+            if (connected) {
+                try {
+                    TStatus result;
+                    client->cancelFlightQuery(result, _statement->query_id);
+                    status = Status::create(result);
+                    if (status.ok()) {
+                        return;
+                    }
+                    if (result.status_code == TStatusCode::NOT_FOUND) {
+                        // Only the FE that planned the query holds its route. With two FEs, the
+                        // other one answers NOT_FOUND, so move on to the next FE.
+                        break;
+                    }
+                } catch (const apache::thrift::TException& e) {
+                    status = Status::RpcError("Flight cancellation failed: {}", e.what());
+                    // Discard a transport that may contain an incomplete response.
+                    static_cast<void>(client.reopen(2000));
+                }
+            }
+            LOG(WARNING) << "Failed to cancel Flight result " << print_id(_statement->query_id)
+                         << " through FE " << address << ": " << status;
+            if (!connected) {
+                break;
+            }
+        }
+    }
+}
+
+arrow::Status ArrowFlightBatchReaderBase::Close() {
+    close(Status::Cancelled("Arrow Flight result stream closed before EOF"));
+    return arrow::Status::OK();
+}
+
+arrow::Status ArrowFlightBatchReaderBase::ReadNext(std::shared_ptr<arrow::RecordBatch>* out) {
+    *out = nullptr;
+    if (is_cancelled()) {
+        (void)Close();
+        return arrow::Status::Cancelled("Arrow Flight fetch cancelled");
+    }
+    auto status = [&]() -> arrow::Status {
+        RETURN_ARROW_STATUS_IF_CATCH_EXCEPTION(ReadNextImpl(out));
+    }();
+    if (!status.ok()) {
+        close(to_doris_status(status));
+    } else if (!*out) {
+        _eof = true;
+    }
+    return status;
+}
+
 ArrowFlightBatchReaderBase::~ArrowFlightBatchReaderBase() {
+    // Transport errors can destroy a stream without another ReadNext/Close call.
+    (void)ArrowFlightBatchReaderBase::Close();
     LOG(INFO) << fmt::format(
             "ArrowFlightBatchReader finished, packet_seq={}, result_addr={}:{}, finistId={}, "
             "convert_arrow_batch_timer={}, deserialize_block_timer={}, peak_memory_usage={}",
@@ -74,7 +202,7 @@ ArrowFlightBatchLocalReader::ArrowFlightBatchLocalReader(
 }
 
 arrow::Result<std::shared_ptr<ArrowFlightBatchLocalReader>> ArrowFlightBatchLocalReader::Create(
-        const std::shared_ptr<QueryStatement>& statement) {
+        const std::shared_ptr<QueryStatement>& statement, std::function<bool()> is_cancelled) {
     DCHECK(statement->result_addr.hostname == BackendOptions::get_localhost());
     std::shared_ptr<ArrowFlightResultBlockBuffer> arrow_buffer;
     RETURN_ARROW_STATUS_IF_ERROR(
@@ -86,6 +214,7 @@ arrow::Result<std::shared_ptr<ArrowFlightBatchLocalReader>> ArrowFlightBatchLoca
     std::shared_ptr<MemTrackerLimiter> mem_tracker = arrow_buffer->mem_tracker();
     std::shared_ptr<ArrowFlightBatchLocalReader> result(
             new ArrowFlightBatchLocalReader(statement, schema, mem_tracker));
+    result->_is_cancelled = std::move(is_cancelled);
     arrow_buffer->get_timezone(result->_timezone_obj);
     return result;
 }
@@ -99,10 +228,16 @@ arrow::Status ArrowFlightBatchLocalReader::ReadNextImpl(std::shared_ptr<arrow::R
     RETURN_ARROW_STATUS_IF_ERROR(
             ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, arrow_buffer));
     std::shared_ptr<Block> result;
-    auto st = arrow_buffer->get_arrow_batch(&result);
-    st.prepend("ArrowFlightBatchLocalReader fetch arrow data failed");
-    ARROW_RETURN_NOT_OK(to_arrow_status(st));
-    if (result == nullptr) {
+    bool eos = false;
+    while (!result && !eos) {
+        if (is_cancelled()) {
+            return arrow::Status::Cancelled("Arrow Flight fetch cancelled");
+        }
+        auto st = arrow_buffer->get_arrow_batch(&result, &eos);
+        st.prepend("ArrowFlightBatchLocalReader fetch arrow data failed");
+        ARROW_RETURN_NOT_OK(to_arrow_status(st));
+    }
+    if (eos) {
         // eof, normal path end
         return arrow::Status::OK();
     }
@@ -110,8 +245,8 @@ arrow::Status ArrowFlightBatchLocalReader::ReadNextImpl(std::shared_ptr<arrow::R
     {
         // convert one batch
         SCOPED_ATOMIC_TIMER(&_convert_arrow_batch_timer);
-        st = ArrowFlightArrowBlockConvertor(_schema, _timezone_obj)
-                     .convert_to_arrow(*result, arrow::default_memory_pool(), out);
+        auto st = ArrowFlightArrowBlockConvertor(_schema, _timezone_obj)
+                          .convert_to_arrow(*result, arrow::default_memory_pool(), out);
         st.prepend("ArrowFlightBatchLocalReader convert block to arrow batch failed");
         ARROW_RETURN_NOT_OK(to_arrow_status(st));
     }
@@ -124,10 +259,6 @@ arrow::Status ArrowFlightBatchLocalReader::ReadNextImpl(std::shared_ptr<arrow::R
     return arrow::Status::OK();
 }
 
-arrow::Status ArrowFlightBatchLocalReader::ReadNext(std::shared_ptr<arrow::RecordBatch>* out) {
-    RETURN_ARROW_STATUS_IF_CATCH_EXCEPTION(ReadNextImpl(out));
-}
-
 ArrowFlightBatchRemoteReader::ArrowFlightBatchRemoteReader(
         const std::shared_ptr<QueryStatement>& statement,
         const std::shared_ptr<PBackendService_Stub>& stub)
@@ -138,7 +269,7 @@ ArrowFlightBatchRemoteReader::ArrowFlightBatchRemoteReader(
 }
 
 arrow::Result<std::shared_ptr<ArrowFlightBatchRemoteReader>> ArrowFlightBatchRemoteReader::Create(
-        const std::shared_ptr<QueryStatement>& statement) {
+        const std::shared_ptr<QueryStatement>& statement, std::function<bool()> is_cancelled) {
     std::shared_ptr<PBackendService_Stub> stub =
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                     statement->result_addr);
@@ -153,6 +284,7 @@ arrow::Result<std::shared_ptr<ArrowFlightBatchRemoteReader>> ArrowFlightBatchRem
 
     std::shared_ptr<ArrowFlightBatchRemoteReader> result(
             new ArrowFlightBatchRemoteReader(statement, stub));
+    result->_is_cancelled = std::move(is_cancelled);
     ARROW_RETURN_NOT_OK(result->init_schema());
     return result;
 }
@@ -163,17 +295,20 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_schema() {
     auto* pfinst_id = request->mutable_finst_id();
     pfinst_id->set_hi(_statement->query_id.hi);
     pfinst_id->set_lo(_statement->query_id.lo);
-    auto callback = DummyBrpcCallback<PFetchArrowFlightSchemaResult>::create_shared();
+    auto callback = std::make_shared<FlightReadCallback<PFetchArrowFlightSchemaResult>>();
     auto closure = AutoReleaseClosure<
             PFetchArrowFlightSchemaRequest,
-            DummyBrpcCallback<PFetchArrowFlightSchemaResult>>::create_unique(request, callback);
+            FlightReadCallback<PFetchArrowFlightSchemaResult>>::create_unique(request, callback);
     callback->cntl_->set_timeout_ms(config::arrow_flight_reader_brpc_controller_timeout_ms);
     callback->cntl_->ignore_eovercrowded();
 
     _brpc_stub->fetch_arrow_flight_schema(closure->cntl_.get(), closure->request_.get(),
                                           closure->response_.get(), closure.get());
     closure.release();
-    callback->join();
+    callback->wait([this] { return is_cancelled(); });
+    if (is_cancelled()) {
+        return arrow::Status::Cancelled("Arrow Flight fetch cancelled");
+    }
 
     if (callback->cntl_->Failed()) {
         if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
@@ -213,17 +348,20 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data() {
         auto* pfinst_id = request->mutable_finst_id();
         pfinst_id->set_hi(_statement->query_id.hi);
         pfinst_id->set_lo(_statement->query_id.lo);
-        auto callback = DummyBrpcCallback<PFetchArrowDataResult>::create_shared();
+        auto callback = std::make_shared<FlightReadCallback<PFetchArrowDataResult>>();
         auto closure = AutoReleaseClosure<
                 PFetchArrowDataRequest,
-                DummyBrpcCallback<PFetchArrowDataResult>>::create_unique(request, callback);
+                FlightReadCallback<PFetchArrowDataResult>>::create_unique(request, callback);
         callback->cntl_->set_timeout_ms(config::arrow_flight_reader_brpc_controller_timeout_ms);
         callback->cntl_->ignore_eovercrowded();
 
         _brpc_stub->fetch_arrow_data(closure->cntl_.get(), closure->request_.get(),
                                      closure->response_.get(), closure.get());
         closure.release();
-        callback->join();
+        callback->wait([this] { return is_cancelled(); });
+        if (is_cancelled()) {
+            return arrow::Status::Cancelled("Arrow Flight fetch cancelled");
+        }
 
         if (callback->cntl_->Failed()) {
             if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
@@ -263,8 +401,13 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data() {
 
         std::call_once(_timezone_once_flag, [this, callback] {
             DCHECK(callback->response_->has_timezone());
-            TimezoneUtils::find_cctz_time_zone(callback->response_->timezone(), _timezone_obj);
+            _timezone_valid = TimezoneUtils::find_cctz_time_zone(callback->response_->timezone(),
+                                                                 _timezone_obj);
         });
+        if (!_timezone_valid) {
+            return _return_invalid_status(
+                    fmt::format("Invalid timezone: {}", callback->response_->timezone()));
+        }
 
         {
             SCOPED_ATOMIC_TIMER(&_deserialize_block_timer);
@@ -316,10 +459,6 @@ arrow::Status ArrowFlightBatchRemoteReader::ReadNextImpl(std::shared_ptr<arrow::
                     << (*out)->num_columns() << ", packet_seq: " << _packet_seq;
     }
     return arrow::Status::OK();
-}
-
-arrow::Status ArrowFlightBatchRemoteReader::ReadNext(std::shared_ptr<arrow::RecordBatch>* out) {
-    RETURN_ARROW_STATUS_IF_CATCH_EXCEPTION(ReadNextImpl(out));
 }
 
 } // namespace doris::flight

@@ -2014,14 +2014,39 @@ public class MTMVTaskTest {
     }
 
     @Test
+    public void testSuccessfulIncrementalRefreshPublishesFirstSignature() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        MTMVRefreshContext refreshContext = mockIvmIncrRefreshContext();
+        IvmPlanSignature signature = new IvmPlanSignature("layout", "signature", "plan tree");
+        StmtExecutor executor = executorWithPlanSignature(signature);
+
+        try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(IvmIncrRefreshManager.class,
+                (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any())).thenAnswer(invocation -> {
+                    IvmIncrRefreshContext refresh = invocation.getArgument(0);
+                    refresh.getExecutorConsumer().accept(executor);
+                    refresh.getExecutorConsumer().accept(null);
+                    return IvmIncrRefreshResult.success();
+                }))) {
+            IvmIncrRefreshResult result = Deencapsulation.invoke(task, "executeSingleIvmAttempt",
+                    refreshContext, Collections.emptySet());
+            Assertions.assertTrue(result.isSuccess());
+        }
+        Mockito.verify(mtmv).initializeIvmPlanSignature(Mockito.same(signature), Mockito.anyLong(),
+                Mockito.eq(task.getTaskId()), Mockito.eq(IvmRefreshMethod.INCREMENTAL));
+    }
+
+    @Test
     public void testSignatureMismatchCompleteCapturesConsistentPlanSignature() throws Exception {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         Deencapsulation.setField(task, "ivmFallbackReason", IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name());
-        IvmPlanSignature signature = new IvmPlanSignature("layout_s2", "signature_s2");
+        IvmPlanSignature signature = new IvmPlanSignature("layout_s2", "signature_s2", "plan tree");
 
         executeCompleteRefresh(task, signature, signature);
 
-        Assertions.assertEquals("signature_s2", task.getRefreshedIvmPlanSignature());
+        Assertions.assertSame(signature, task.takeRefreshedIvmPlanSignature());
+        Assertions.assertNull(task.takeRefreshedIvmPlanSignature());
     }
 
     @Test
@@ -2030,22 +2055,32 @@ public class MTMVTaskTest {
         Deencapsulation.setField(task, "ivmFallbackReason", IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name());
 
         JobException exception = Assertions.assertThrows(JobException.class, () -> executeCompleteRefresh(task,
-                new IvmPlanSignature("layout_s2", "signature_s2"),
-                new IvmPlanSignature("layout_s3", "signature_s3")));
+                new IvmPlanSignature("layout_s2", "signature_s2", "plan tree"),
+                new IvmPlanSignature("layout_s3", "signature_s3", "plan tree")));
 
         Assertions.assertTrue(exception.getMessage().contains("inconsistent plan signatures"));
-        Assertions.assertNull(task.getRefreshedIvmPlanSignature());
+        Assertions.assertNull(task.takeRefreshedIvmPlanSignature());
     }
 
     @Test
-    public void testOtherCompleteFallbackDoesNotCapturePlanSignature() throws Exception {
+    public void testOtherCompleteFallbackCapturesPlanSignature() throws Exception {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         Deencapsulation.setField(task, "ivmFallbackReason", IvmFailureReason.CHANGELOG_BROKEN.name());
-        IvmPlanSignature signature = new IvmPlanSignature("layout_s2", "signature_s2");
+        IvmPlanSignature signature = new IvmPlanSignature("layout_s2", "signature_s2", "plan tree");
 
         executeCompleteRefresh(task, signature, signature);
 
-        Assertions.assertNull(task.getRefreshedIvmPlanSignature());
+        Assertions.assertSame(signature, task.takeRefreshedIvmPlanSignature());
+    }
+
+    @Test
+    public void testCapacityRebuildCapturesPlanSignatureWithoutFallback() throws Exception {
+        Mockito.when(mtmv.getStatus()).thenReturn(new MTMVStatus(MTMVState.SCHEMA_CHANGE, "capacity changed"));
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        IvmPlanSignature signature = new IvmPlanSignature("layout_k4", "signature_k4", "plan tree");
+        executeCompleteRefresh(task, signature, signature);
+        Assertions.assertNull(Deencapsulation.getField(task, "ivmFallbackReason"));
+        Assertions.assertSame(signature, task.takeRefreshedIvmPlanSignature());
     }
 
     @Test
@@ -2128,7 +2163,8 @@ public class MTMVTaskTest {
     @Test
     public void testRefreshedIvmPlanSignatureIsNotSerialized() {
         MTMVTask task = new MTMVTask();
-        Deencapsulation.setField(task, "refreshedIvmPlanSignature", "new_signature");
+        Deencapsulation.setField(task, "refreshedIvmPlanSignature",
+                new IvmPlanSignature("layout", "new_signature", "plan tree"));
 
         Assertions.assertFalse(GsonUtils.GSON.toJson(task).contains("new_signature"));
     }

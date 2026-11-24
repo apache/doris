@@ -38,11 +38,12 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        if (jobContext.getCascadesContext().getConnectContext() == null
-                || !jobContext.getCascadesContext().getConnectContext().getState().isQuery()) {
+        StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
+        ConnectContext ctx = jobContext.getCascadesContext().getConnectContext();
+        if (ctx == null || !ctx.getState().isQuery() || statementContext.isShowQuery()) {
             return plan;
         }
-        return plan.accept(this, jobContext.getCascadesContext().getStatementContext());
+        return plan.accept(this, statementContext);
     }
 
     @Override

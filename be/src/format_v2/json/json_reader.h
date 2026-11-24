@@ -28,6 +28,7 @@
 
 #include "core/custom_allocator.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "exprs/json_functions.h"
 #include "format_v2/file_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -110,7 +111,10 @@ public:
     Status close() override;
 
 #ifdef BE_TEST
-    size_t TEST_document_buffer_size() const { return _document_buffer.size(); }
+    bool TEST_document_in_padding_buffer() const {
+        return !_document_view.empty() && _document_view.data() == _padding_buffer.data();
+    }
+    size_t TEST_padding_buffer_size() const { return _padding_buffer.size(); }
 #endif
 
 private:
@@ -138,6 +142,8 @@ private:
     // Chunked HTTP transfers concatenate their pipe buffers into one document.
     Status _read_one_document(size_t* size, bool* eof);
     Status _read_one_document_from_pipe(size_t* read_size);
+    // Grows `_padding_buffer` to hold `size` bytes plus simdjson padding, keeping its contents.
+    void _grow_padding_buffer(size_t size);
     // Moves the logical document into a simdjson-padded buffer and creates an ondemand document.
     Status _parse_next_json(size_t* size, bool* eof);
     // Applies json_root and validates the object/array shape required by strip_outer_array.
@@ -148,6 +154,7 @@ private:
     Status _append_nested_jsonpath_row(Block* block, bool* is_empty_row, bool* eof);
     Status _set_column_values_from_object(simdjson::ondemand::object* object_value, Block* block,
                                           bool* valid);
+    Status _has_matching_jsonpath(simdjson::ondemand::object* object_value, bool* matches) const;
     Status _write_columns_by_jsonpath(simdjson::ondemand::object* object_value, Block* block,
                                       bool* valid);
     template <bool use_string_cache>
@@ -191,6 +198,8 @@ private:
     std::unique_ptr<Decompressor> _decompressor;
     std::unique_ptr<NewPlainTextLineReader> _line_reader;
     int64_t _current_offset = 0;
+    // Partition-only scans have no file columns, so Block::rows() cannot count their records.
+    size_t _logical_rows = 0;
     bool _reader_eof = false;
     bool _skip_first_line = false;
     bool _single_document_read = false;
@@ -219,12 +228,10 @@ private:
     simdjson::ondemand::value _json_value;
     simdjson::ondemand::array _array;
     simdjson::ondemand::array_iterator _array_iter;
-    std::string _document_buffer;
     std::string_view _document_view;
     std::string _padding_buffer;
     size_t _original_doc_size = 0;
-    size_t _padded_size = 1024 * 1024 * 8 + simdjson::SIMDJSON_PADDING;
-    std::unordered_map<std::string_view, std::string_view> _cached_string_values;
+    SimdJsonReadContext _simdjson_context;
 };
 
 } // namespace doris::format::json

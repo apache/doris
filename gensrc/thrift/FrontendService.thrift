@@ -486,7 +486,7 @@ struct TMasterOpResult {
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
     11: optional i64 affectedRows;
-    // Lets the forwarding FE wait for the final statistics of external write fragments.
+    // Lets the forwarding FE wait for the final statistics of dispatched fragments.
     12: optional list<i64> auditStatisticsBackendIds;
     // Confirms that the executing FE serialized raw MySQL packets with CLIENT_DEPRECATE_EOF.
     13: optional bool clientDeprecatedEofApplied;
@@ -703,8 +703,8 @@ struct TRLTaskTxnCommitAttachment {
     9: optional i64 loadCostMs
     10: optional TKafkaRLTaskProgress kafkaRLTaskProgress
     11: optional string errorLogUrl
-    12: optional TKinesisRLTaskProgress kinesisRLTaskProgress
-    13: optional string firstErrorMsg
+    12: optional string firstErrorMsg
+    13: optional TKinesisRLTaskProgress kinesisRLTaskProgress
 }
 
 struct TTxnCommitAttachment {
@@ -2156,4 +2156,7 @@ service FrontendService {
     TRecordFinishedLoadJobResult recordFinishedLoadJobRequest(1: TRecordFinishedLoadJobRequest request)
 
     Status.TStatus syncCloudTabletStats(1: TSyncCloudTabletStatsRequest request)
+
+    // Result buffers can outlive their local fragments; abort through the owning FE's query-level route.
+    Status.TStatus cancelFlightQuery(1: Types.TUniqueId result_id)
 }

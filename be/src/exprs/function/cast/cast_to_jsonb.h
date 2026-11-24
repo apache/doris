@@ -166,12 +166,12 @@ WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
 }
 
 struct ParseJsonbFromString {
-    static Status parse_json(const StringRef& str, ColumnString& column_string) {
+    static Status parse_json(const StringRef& str, ColumnString& column_string,
+                             JsonBinaryValue& value) {
         if (str.empty()) {
             return Status::InvalidArgument("Empty string cannot be parsed as jsonb");
         }
-        JsonBinaryValue value;
-        auto st = (value.from_json_string(str.data, str.size));
+        auto st = value.from_json_string(str.data, str.size);
         if (!st.ok()) {
             return Status::InvalidArgument("Failed to parse json string: {}, error: {}",
                                            str.to_string(), st.msg());
@@ -185,9 +185,10 @@ struct ParseJsonbFromString {
         auto col_to = ColumnString::create();
         auto col_null = ColumnBool::create(size, 0);
         auto& vec_null_map_to = col_null->get_data();
+        JsonBinaryValue value;
 
         for (size_t i = 0; i < size; ++i) {
-            Status st = parse_json(col_from.get_data_at(i), *col_to);
+            Status st = parse_json(col_from.get_data_at(i), *col_to, value);
             vec_null_map_to[i] = !st.ok();
             if (!st.ok()) [[unlikely]] {
                 col_to->insert_default();
@@ -201,12 +202,13 @@ struct ParseJsonbFromString {
     static Status execute_strict(const ColumnString& col_from, const NullMap::value_type* null_map,
                                  size_t size, ColumnPtr& column_result) {
         auto col_to = ColumnString::create();
+        JsonBinaryValue value;
         for (size_t i = 0; i < size; ++i) {
             if (null_map && null_map[i]) {
                 col_to->insert_default();
                 continue;
             }
-            RETURN_IF_ERROR(parse_json(col_from.get_data_at(i), *col_to));
+            RETURN_IF_ERROR(parse_json(col_from.get_data_at(i), *col_to, value));
         }
         column_result = ColumnNullable::create(std::move(col_to), ColumnBool::create(size, 0));
         return Status::OK();

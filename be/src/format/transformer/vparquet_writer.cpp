@@ -21,18 +21,21 @@
 #include <arrow/table.h>
 #include <glog/logging.h>
 #include <parquet/api/reader.h>
+#include <parquet/arrow/schema.h>
 #include <parquet/column_writer.h>
 #include <parquet/platform.h>
 #include <parquet/schema.h>
 #include <parquet/type_fwd.h>
 #include <parquet/types.h>
 
+#include <algorithm>
 #include <ctime>
 #include <exception>
 #include <ostream>
 #include <string>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -46,6 +49,9 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
+namespace {
+constexpr int64_t HADOOP_LZ4_DEFAULT_BUFFER_SIZE = 256 * 1024;
+} // namespace
 
 ParquetOutputStream::ParquetOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0) {
@@ -141,7 +147,6 @@ void ParquetBuildHelper::build_compression_type(
         break;
     }
     case TParquetCompressionType::LZ4_HADOOP: {
-        constexpr int64_t HADOOP_LZ4_DEFAULT_BUFFER_SIZE = 256 * 1024;
         // Hadoop-framed LZ4 -> Parquet thrift codec "LZ4" (deprecated). This matches what
         // Spark/Iceberg writes for `write.parquet.compression-codec=lz4`. Arrow 17 emits one
         // Hadoop LZ4 block per Parquet page/dictionary page, while Hadoop JVM readers default to
@@ -213,6 +218,20 @@ Status VParquetWriter::_parse_properties() {
         ::parquet::WriterProperties::Builder builder;
         ParquetBuildHelper::build_compression_type(builder, _parquet_options.compression_type);
         ParquetBuildHelper::build_version(builder, _parquet_options.parquet_version);
+        const auto& query_options = _state->query_options();
+        // Preserve the current enabled default explicitly, including when older FEs omit the field.
+        if (query_options.enable_parquet_write_page_index) {
+            builder.enable_write_page_index();
+        } else {
+            builder.disable_write_page_index();
+        }
+        int64_t page_size = query_options.parquet_write_data_page_size;
+        DORIS_CHECK_GT(page_size, 0);
+        // A 1 MiB session target must still respect the 128 KiB Hadoop-framed LZ4 limit.
+        if (_parquet_options.compression_type == TParquetCompressionType::LZ4_HADOOP) {
+            page_size = std::min(page_size, HADOOP_LZ4_DEFAULT_BUFFER_SIZE / 2);
+        }
+        builder.data_pagesize(page_size);
         if (_parquet_options.parquet_disable_dictionary) {
             builder.disable_dictionary();
         } else {
@@ -231,6 +250,26 @@ Status VParquetWriter::_parse_properties() {
         }
         arrow_builder.store_schema();
         _arrow_properties = arrow_builder.build();
+
+        if (query_options.enable_parquet_write_bloom_filter) {
+            // Arrow's build() moves options out of its builder; copy the finalized properties.
+            ::parquet::WriterProperties::Builder bloom_builder(*_parquet_writer_properties);
+            std::shared_ptr<::parquet::SchemaDescriptor> schema;
+            RETURN_DORIS_STATUS_IF_ERROR(::parquet::arrow::ToParquetSchema(
+                    _arrow_block_convertor->arrow_schema().get(), *_parquet_writer_properties,
+                    *_arrow_properties, &schema));
+            for (int i = 0; i < schema->num_columns(); ++i) {
+                const auto* column = schema->Column(i);
+                // Use physical leaf paths: ARRAY<INT>, for example, writes items.list.element.
+                // Arrow rejects BOOLEAN Bloom filters; keep deprecated INT96 output unchanged.
+                if (column->physical_type() != ::parquet::Type::BOOLEAN &&
+                    column->physical_type() != ::parquet::Type::INT96) {
+                    bloom_builder.enable_bloom_filter(column->path(),
+                                                      ::parquet::BloomFilterOptions {});
+                }
+            }
+            _parquet_writer_properties = bloom_builder.build();
+        }
     } catch (const ::parquet::ParquetException& e) {
         return Status::InternalError("parquet writer parse properties error: {}", e.what());
     }
@@ -249,14 +288,17 @@ Status VParquetWriter::write(const Block& block) {
         return Status::OK();
     }
 
-    // serialize
-    std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(_arrow_block_convertor->convert_to_arrow(
-            block, ExecEnv::GetInstance()->arrow_memory_pool(), &result));
-    if (_write_size == 0) {
-        RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
-    }
-    RETURN_DORIS_STATUS_IF_ERROR(_writer->WriteRecordBatch(*result));
+    // Bloom bitsets use Doris's throwing query allocator, which Arrow does not catch.
+    // Async sinks need this scope both to enforce the query limit and return allocation failures.
+    RETURN_IF_CATCH_EXCEPTION({
+        std::shared_ptr<arrow::RecordBatch> result;
+        RETURN_IF_ERROR(_arrow_block_convertor->convert_to_arrow(
+                block, ExecEnv::GetInstance()->arrow_memory_pool(), &result));
+        if (_write_size == 0) {
+            RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
+        }
+        RETURN_DORIS_STATUS_IF_ERROR(_writer->WriteRecordBatch(*result));
+    });
     _write_size += block.bytes();
     if (_write_size >= doris::config::min_row_group_size) {
         _write_size = 0;
@@ -282,7 +324,6 @@ Status VParquetWriter::open() {
             return Status::InvalidArgument("Invalid Parquet INT96 writer timezone: {}", _timezone);
         }
     }
-    RETURN_IF_ERROR(_parse_properties());
     DataTypes types;
     types.reserve(_output_vexpr_ctxs.size());
     for (const auto& context : _output_vexpr_ctxs) {
@@ -300,6 +341,7 @@ Status VParquetWriter::open() {
             _create_arrow_block_convertor(std::move(types), std::move(names), _timezone,
                                           _timezone_obj, _parquet_options.enable_int96_timestamps);
     RETURN_IF_ERROR(_arrow_block_convertor->init());
+    RETURN_IF_ERROR(_parse_properties());
     try {
         RETURN_DORIS_STATUS_IF_ERROR(_open_file_writer());
     } catch (const ::parquet::ParquetStatusException& e) {

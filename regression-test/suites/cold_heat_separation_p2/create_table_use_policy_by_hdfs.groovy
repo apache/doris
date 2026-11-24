@@ -73,6 +73,7 @@ suite("create_table_use_policy_by_hdfs") {
             file """${getS3Url()}/regression/tpch/sf1/lineitem.csv.split${partnum}.gz"""
 
             time 10000 // limit inflight 10s
+            retryIfHttpError true
 
             // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
 

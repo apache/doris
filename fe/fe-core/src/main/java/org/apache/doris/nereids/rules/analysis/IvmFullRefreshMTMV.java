@@ -63,7 +63,7 @@ public class IvmFullRefreshMTMV extends OneRewriteRuleFactory {
         return logicalOlapScan()
                 .whenNot(LogicalOlapTableStreamScan.class::isInstance)
                 .when(scan -> ConnectContext.get().getStatementContext().getIvmRewriteContext()
-                        .filter(context -> context.getMode() == IvmRewriteContext.Mode.FULL)
+                        .filter(IvmRewriteContext::isPartitionBasedRefresh)
                         .filter(IvmRewriteContext::hasFullRefreshStreamScans)
                         .isPresent())
                 .thenApply(ctx -> {

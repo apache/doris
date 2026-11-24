@@ -67,6 +67,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -76,9 +77,11 @@ import org.apache.doris.nereids.trees.expressions.functions.LambdaBinding;
 import org.apache.doris.nereids.trees.expressions.functions.LambdaBindingSpec;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
@@ -474,6 +477,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     private Expression analyzeLambdaFunction(Expression lambdaFunction,
             List<Slot> boundedSlots, ExpressionRewriteContext context) {
+        // Check the body before binding can fold subqueries or resolve names in the lambda scope.
+        // Subqueries supplying the enclosing function's array inputs are outside this body.
+        if (lambdaFunction.containsType(SubqueryExpr.class)) {
+            throw new AnalysisException("Subqueries are not supported in lambda expressions");
+        }
         ExpressionAnalyzer enclosingAnalyzer = this;
         ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
                 boundedSlots), context == null ? null : context.cascadesContext,
@@ -638,13 +646,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
         if (wantToParseSqlFromSqlCache) {
             sqlCacheContext = context.cascadesContext.getStatementContext().getSqlCacheContext();
-            if (builder instanceof AliasUdfBuilder
-                    || buildResult.second instanceof Udf) {
-                if (sqlCacheContext.isPresent()) {
-                    sqlCacheContext.get().setCannotProcessExpression(true);
-                }
-            }
         }
+        disableSqlCacheForUnsupportedFunction(buildResult.second);
         if (unboundFunction.isSkew() && unboundFunction.isDistinct() && buildResult.first instanceof AggregateFunction
                 && buildResult.first instanceof SupportMultiDistinct) {
             Expression bound = ((AggregateFunction) buildResult.first).withIsSkew(true);
@@ -674,7 +677,16 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
+        disableSqlCacheForUnsupportedFunction(boundFunction);
         return TypeCoercionUtils.processBoundFunction(boundFunction);
+    }
+
+    private void disableSqlCacheForUnsupportedFunction(BoundFunction function) {
+        if (wantToParseSqlFromSqlCache
+                && (function instanceof Udf || function instanceof AIFunction || function instanceof AIAgg)) {
+            getCascadesContext().getStatementContext().getSqlCacheContext()
+                    .ifPresent(cache -> cache.setCannotProcessExpression(true));
+        }
     }
 
     private ElementAt canonicalizeStructSelector(ElementAt elementAt) {

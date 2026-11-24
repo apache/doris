@@ -167,6 +167,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     // Set during filter pushdown; may be updated from the original table handle.
     private ConnectorTableHandle currentHandle;
+    // A query TVF has no shared table identity; persisted base/sys scans retain their pre-handle observation.
+    private final Optional<PluginDrivenExternalTable.MetadataRead> metadataRead;
 
     // Nereids partition-pruning result, injected by the translator. Defaults to NOT_PRUNED
     // so that connectors / non-partitioned tables read all partitions unless pruning applies.
@@ -219,10 +221,19 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             boolean needCheckColumnPriv, SessionVariable sv,
             ScanContext scanContext, Connector connector,
             ConnectorSession connectorSession, ConnectorTableHandle tableHandle) {
+        this(id, desc, needCheckColumnPriv, sv, scanContext, connector, connectorSession, tableHandle,
+                Optional.empty());
+    }
+
+    private PluginDrivenScanNode(PlanNodeId id, TupleDescriptor desc,
+            boolean needCheckColumnPriv, SessionVariable sv, ScanContext scanContext, Connector connector,
+            ConnectorSession connectorSession, ConnectorTableHandle tableHandle,
+            Optional<PluginDrivenExternalTable.MetadataRead> metadataRead) {
         super(id, desc, "PluginDrivenScanNode", scanContext, needCheckColumnPriv, sv);
         this.connector = connector;
         this.connectorSession = connectorSession;
         this.currentHandle = tableHandle;
+        this.metadataRead = metadataRead;
     }
 
     @Override
@@ -305,6 +316,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return m;
     }
 
+    private <T> T readMetadata(Supplier<T> operation) {
+        return metadataRead.isPresent() ? metadataRead.get().execute(operation) : operation.get();
+    }
+
     /**
      * Creates a PluginDrivenScanNode by resolving the connector, session, and table handle
      * from the plugin-driven catalog and table.
@@ -316,6 +331,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         Connector connector = catalog.getConnector();
         ConnectorSession session = catalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        PluginDrivenExternalTable.MetadataRead read = table.observeConnectorMetadata(session, metadata);
         // Resolve through the table's sys-aware seam (NOT raw metadata.getTableHandle): for a normal
         // table this is identical to getTableHandle(session, dbName, remoteName), but for a
         // PluginDrivenSysExternalTable the override returns the connector's SYSTEM handle (carrying
@@ -328,7 +344,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                                 + (table.getDb() == null ? "" : table.getDb().getFullName()) + "." + table.getName()
                                 + "' does not exist"));
         return new PluginDrivenScanNode(id, desc, needCheckColumnPriv, sv,
-                scanContext, connector, session, handle);
+                scanContext, connector, session, handle, Optional.of(read));
     }
 
     /**
@@ -791,6 +807,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     @Override
     protected List<String> getPathPartitionKeys() throws UserException {
+        // Asked first while the node initializes, before the filter is attached: a provider that can name
+        // the columns directly spares building its whole property map, which is rebuilt once the filter is in.
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider != null) {
+            Optional<List<String>> named = onPluginClassLoader(scanProvider,
+                    () -> scanProvider.getPathPartitionKeys(connectorSession, currentHandle));
+            if (named.isPresent()) {
+                return named.get();
+            }
+        }
         Map<String, String> props = getOrLoadScanNodeProperties();
         String keys = props.get(ScanNodePropertyKeys.PATH_PARTITION_KEYS);
         if (keys != null && !keys.isEmpty()) {
@@ -1310,7 +1336,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         ConnectorFilterConstraint constraint = buildFilterConstraint(conjuncts);
         Optional<FilterApplicationResult<ConnectorTableHandle>> result;
         try {
-            result = metadata.applyFilter(connectorSession, currentHandle, constraint);
+            result = readMetadata(() -> metadata.applyFilter(connectorSession, currentHandle, constraint));
         } catch (RuntimeException failure) {
             if (scanProvider != null) {
                 try {
@@ -1922,6 +1948,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .requiredPartitions(requiredPartitions)
                 .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
                 .countPushdown(countPushdown)
+                .coarseSplitSize(coarseSplitSizeForBeRefinement())
                 .aggregatePushdown(getPushDownAggNoGroupingOp() != TPushAggOp.NONE)
                 .backendCapabilities(commonBackendCapabilities(backendPolicy.getBackends()))
                 // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
@@ -1931,8 +1958,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .explainOnly(isExplainOnly())
                 .build();
         List<ConnectorScanRange> ranges = executeWithProfileFinalization(
-                () -> onPluginClassLoader(scanProvider,
-                        () -> scanProvider.planScan(connectorSession, request)),
+                () -> readMetadata(() -> onPluginClassLoader(scanProvider,
+                        () -> scanProvider.planScan(connectorSession, request))),
                 () -> collectAndAppendConnectorScanProfiles(scanProvider));
 
         if (variantCompatibilityDeferred) {
@@ -2181,8 +2208,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // scans below the partition-batch threshold.
         if (hasSlots) {
             boolean countPushdown = isTableLevelCountStarPushdown();
-            long estimate = onPluginClassLoader(scanProvider, () -> scanProvider.streamingSplitEstimate(
-                    connectorSession, currentHandle, buildRemainingFilter(), countPushdown));
+            long estimate = readMetadata(() -> onPluginClassLoader(scanProvider,
+                    () -> scanProvider.streamingSplitEstimate(
+                            connectorSession, currentHandle, buildRemainingFilter(), countPushdown)));
             if (estimate >= 0) {
                 // Streaming does not know the final scanned-partition count before dispatch. Partition
                 // rules need that count now; use synchronous planning, which publishes the connector count.
@@ -2332,6 +2360,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         pinRewriteFileScope();
         queryFinishCleanup.bind(resolveScanProvider());
         return ConnectorScanRequest.builder(currentHandle, columns).filter(remainingFilter)
+                .coarseSplitSize(isTableLevelCountStarPushdown() ? -1 : coarseSplitSizeForBeRefinement())
                 .scanContext(splitAssignment.getScanContext()).build();
     }
 
@@ -2360,6 +2389,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         });
 
         // Admission does no connector I/O and remains owned by the planning thread.
+        int startedSources = 0;
         try {
             splitAssignment.startEnumeration();
             Executor scheduleExecutor = connectorSession.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT);
@@ -2367,6 +2397,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 if (batchException.get() != null || splitAssignment.isStop()) {
                     break;
                 }
+                startedSources++;
                 profileFinalizer.taskSubmitted();
                 new SplitProducer(splitAssignment, scheduleExecutor, source, failure -> {
                     try {
@@ -2382,6 +2413,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         } catch (Exception e) {
             publishBatchFailure(batchException, splitAssignment, new UserException(e.getMessage(), e));
         } finally {
+            for (int i = startedSources; i < sources.size(); i++) {
+                try {
+                    sources.get(i).close();
+                } catch (Exception e) {
+                    publishBatchFailure(batchException, splitAssignment, new UserException(e.getMessage(), e));
+                }
+            }
             profileFinalizer.closeDispatch();
         }
     }
@@ -2395,6 +2433,14 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (producerLimit > 0) {
             sourceCount = Math.min(sourceCount, producerLimit);
         }
+        int maxSources = sourceCount;
+        Optional<List<ConnectorSplitSource>> cooperating = onPluginClassLoader(scanProvider,
+                () -> scanProvider.streamPartitionSources(connectorSession,
+                        request.withRequiredPartitions(partitions), partitionsPerBatch, maxSources));
+        if (cooperating.isPresent()) {
+            return cooperating.get().stream().map(source -> cooperatingBatchSource(scanProvider, source))
+                    .collect(Collectors.toList());
+        }
         List<SplitProducer.BatchSource> sources = new ArrayList<>(sourceCount);
         // Bound active partition batches even when full queues make producers yield their workers.
         // Hive streams within each batch; the SPI adapter retains one list for older implementations.
@@ -2405,7 +2451,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
                 @Override
                 public List<Split> getNextBatch() {
-                    return onPluginClassLoader(scanProvider, () -> {
+                    return readMetadata(() -> onPluginClassLoader(scanProvider, () -> {
                         List<Split> splits = new ArrayList<>(splitAssignment.getSplitBatchSize());
                         while (splits.size() < splitAssignment.getSplitBatchSize()
                                 && splitAssignment.needMoreSplit()) {
@@ -2424,7 +2470,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                                     request.withRequiredPartitions(partitions.subList(begin, end)));
                         }
                         return splits;
-                    });
+                    }));
                 }
 
                 private void closeSource() {
@@ -2451,6 +2497,60 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return sources;
     }
 
+    private SplitProducer.BatchSource cooperatingBatchSource(ConnectorScanPlanProvider scanProvider,
+            ConnectorSplitSource source) {
+        return new SplitProducer.BatchSource() {
+            private final PluginDrivenSplit.Factory splitFactory = new PluginDrivenSplit.Factory();
+            private CompletableFuture<Void> blocked;
+
+            @Override
+            public CompletableFuture<Void> isBlocked() {
+                return blocked;
+            }
+
+            @Override
+            public List<Split> getNextBatch() {
+                return readMetadata(() -> onPluginClassLoader(scanProvider, () -> {
+                    blocked = null;
+                    List<Split> splits = new ArrayList<>(splitAssignment.getSplitBatchSize());
+                    while (splits.size() < splitAssignment.getSplitBatchSize()
+                            && splitAssignment.needMoreSplit()) {
+                        CompletableFuture<Void> dependency = source.isBlocked();
+                        if (dependency != null) {
+                            if (!dependency.isDone()) {
+                                blocked = dependency;
+                                break;
+                            }
+                            dependency.join();
+                        }
+                        if (source.hasNext()) {
+                            splits.add(toSplit(source.next(), splitFactory));
+                            continue;
+                        }
+                        blocked = source.isBlocked();
+                        if (blocked == null || !blocked.isDone()) {
+                            break;
+                        }
+                        blocked.join();
+                    }
+                    return splits;
+                }));
+            }
+
+            @Override
+            public void close() {
+                onPluginClassLoader(scanProvider, () -> {
+                    try {
+                        source.close();
+                    } catch (IOException e) {
+                        throw new UncheckedIOException(e);
+                    }
+                    return null;
+                });
+            }
+        };
+    }
+
     private SplitProducer.BatchSource createStreamingBatchSource(ConnectorScanPlanProvider scanProvider,
             ConnectorScanRequest request, SummaryProfile summaryProfile) {
         RuntimeProfile generationProfile = new RuntimeProfile("Split Generation " + getId());
@@ -2468,7 +2568,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
             @Override
             public List<Split> getNextBatch() {
-                return onPluginClassLoader(scanProvider, () -> {
+                return readMetadata(() -> onPluginClassLoader(scanProvider, () -> {
                     request.getScanContext().checkCancelled();
                     if (source == null) {
                         source = scanProvider.streamSplits(connectorSession, request);
@@ -2482,7 +2582,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                     }
                     generatedSplits.setValue(generatedSplits.getValue() + splits.size());
                     return splits;
-                });
+                }));
             }
 
             @Override
@@ -2501,6 +2601,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 }
             }
         };
+    }
+
+    @Override
+    protected boolean supportsBeSplitRefinement(FileSplit split) {
+        return ((PluginDrivenSplit) split).getConnectorScanRange().supportsBeSplitRefinement();
     }
 
     @Override
@@ -2672,9 +2777,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 // rebuilds it over the full schema (no-op for every non-lazy-mat read / every connector
                 // without a pruned dictionary).
                 pinTopnLazyMaterialize();
-                cachedPropertiesResult = onPluginClassLoader(scanProvider,
+                cachedPropertiesResult = readMetadata(() -> onPluginClassLoader(scanProvider,
                         () -> scanProvider.getScanNodePropertiesResult(
-                                connectorSession, currentHandle, columns, filter));
+                                connectorSession, currentHandle, columns, filter)));
             }
             if (cachedPropertiesResult == null) {
                 cachedPropertiesResult = ScanNodePropertiesResult.of(Collections.emptyMap());
@@ -2718,11 +2823,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 return TFileFormatType.FORMAT_AVRO;
             case "es_http":
                 return TFileFormatType.FORMAT_ES_HTTP;
+            case "mongodb":
+                return TFileFormatType.FORMAT_MONGODB;
             case "arrow":
                 // A connector whose reader hands BE Arrow record batches rather than a file (adbc, and the
                 // remote_doris scan node already outside this switch). Without this the format falls to
                 // FORMAT_JNI below and BE never enters the Arrow reader path.
                 return TFileFormatType.FORMAT_ARROW;
+            case "lance":
+                // BE reads a Lance dataset through lance-c rather than a file reader or JNI.
+                return TFileFormatType.FORMAT_LANCE;
             default:
                 return TFileFormatType.FORMAT_JNI;
         }
@@ -2763,9 +2873,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
         Map<String, ConnectorColumnHandle> allHandles;
         if (pinnedSchema != null) {
-            allHandles = metadata.getColumnHandles(connectorSession, currentHandle, connectorSnapshot);
+            ConnectorMvccSnapshot pinnedSnapshot = connectorSnapshot;
+            allHandles = readMetadata(() -> metadata.getColumnHandles(connectorSession, currentHandle, pinnedSnapshot));
         } else {
-            allHandles = metadata.getColumnHandles(connectorSession, currentHandle);
+            allHandles = readMetadata(() -> metadata.getColumnHandles(connectorSession, currentHandle));
         }
         if (allHandles.isEmpty()) {
             return Collections.emptyList();
@@ -2868,7 +2979,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     /**
      * Builds the remaining filter expression from unconsumed conjuncts.
      * If no conjuncts remain, returns {@link Optional#empty()}.
-     * Filters out CAST-containing predicates when the connector does not support CAST pushdown.
+     * Filters out CAST-containing predicates when the connector does not support CAST pushdown, and
+     * TIMESTAMPTZ and complex-kind casts ({@link #containsComplexKindCast}) for every connector.
      */
     private Optional<ConnectorExpression> buildRemainingFilter() {
         if (conjuncts == null || conjuncts.isEmpty()) {
@@ -2881,8 +2993,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         for (int i = 0; i < conjuncts.size(); i++) {
             Expr conjunct = conjuncts.get(i);
             // The neutral converter strips CASTs. Instant casts can depend on the Doris session
-            // timezone, so both the predicate and its LIMIT must stay local before type information is lost.
-            if ((!supportsCast && containsCastExpr(conjunct)) || containsTimestampTzCast(conjunct)) {
+            // timezone, and a cast into or out of a complex type changes the shape of the value, so in
+            // both cases the predicate and its LIMIT must stay local before type information is lost.
+            if ((!supportsCast && containsCastExpr(conjunct)) || containsTimestampTzCast(conjunct)
+                    || containsComplexKindCast(conjunct)) {
                 continue;
             }
             pushableConjuncts.add(conjunct);
@@ -2902,6 +3016,25 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         expr.collect(node -> node instanceof CastExpr
                 && (node.getType().isTimeStampTz() || node.getChild(0).getType().isTimeStampTz()), casts);
         return !casts.isEmpty();
+    }
+
+    /**
+     * Whether {@code expr} holds a CAST into or out of ARRAY, MAP or STRUCT, other than one between two types of
+     * the same kind. Such a cast changes the shape of the value, so the operand the converter hands over in its
+     * place is not what the cast yields: {@code CAST([true] AS STRING)} is the text {@code [1]} in Doris, but its
+     * operand reaches the connector as the element list {@code [true]}, and {@code CAST(arr AS STRING) = '[1]'}
+     * reaches it as {@code arr = '[1]'}.
+     */
+    static boolean containsComplexKindCast(Expr expr) {
+        List<Expr> casts = new ArrayList<>();
+        expr.collect(node -> node instanceof CastExpr
+                && changesComplexKind(node.getChild(0).getType(), node.getType()), casts);
+        return !casts.isEmpty();
+    }
+
+    private static boolean changesComplexKind(Type from, Type to) {
+        return from.isArrayType() != to.isArrayType() || from.isMapType() != to.isMapType()
+                || from.isStructType() != to.isStructType();
     }
 
     static boolean containsCastExpr(Expr expr) {

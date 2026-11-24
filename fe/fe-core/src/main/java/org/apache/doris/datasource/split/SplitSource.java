@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.split;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.scan.FileScanEncryptionGuard;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -58,6 +59,8 @@ public class SplitSource {
     private final AtomicBoolean firstBatchRequested = new AtomicBoolean();
     private final long maxWaitTime;
     private final int initialBatchSize;
+    // Accessed only under getNextBatch's monitor; a denied final batch must not turn into EOF on retry.
+    private UserException dispatchFailure;
 
     public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime) {
         this(backend, splitAssignment, maxWaitTime, Integer.MAX_VALUE);
@@ -84,6 +87,9 @@ public class SplitSource {
      */
     public synchronized List<TScanRangeLocations> getNextBatch(int maxBatchSize) throws UserException {
         Preconditions.checkArgument(maxBatchSize > 0, "Requested split batch size must be positive");
+        if (dispatchFailure != null) {
+            throw dispatchFailure;
+        }
         if (isLastBatch.get()) {
             return Collections.emptyList();
         }
@@ -157,6 +163,16 @@ public class SplitSource {
                 Thread.currentThread().interrupt();
                 throw new UserException(e.getMessage(), e);
             }
+        }
+        // Lazy splits leave FE after initial dispatch; apply the same checks before each RPC response.
+        try {
+            FileScanEncryptionGuard.checkBatch(scanRanges);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            // The rejected ranges were already drained. Stop every producer and preserve the error,
+            // including when this source had marked its last batch before checking the descriptors.
+            dispatchFailure = new UserException(e.getMessage(), e);
+            splitAssignment.setException(dispatchFailure);
+            throw dispatchFailure;
         }
         return FileScanRangeCompactor.compactSplitBatch(scanRanges);
     }

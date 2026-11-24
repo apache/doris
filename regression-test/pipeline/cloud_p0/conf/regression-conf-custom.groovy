@@ -114,3 +114,33 @@ s3Endpoint = "oss-cn-hongkong-internal.aliyuncs.com"
 recycleServiceHttpAddress = "127.0.0.1:6000"
 
 pythonUdfRuntimeVersion = "3.12.11"
+// Temporary exclusions for CI using the unmodified framework with rootless containers and STS.
+// These suites failed in migration adapters; this does not establish an upstream framework bug.
+// Re-enable after the relevant framework compatibility fixes are reviewed and validated upstream.
+// Restore product assertion, timeout and suspected-memory cases. Only identified
+// environment prerequisites remain excluded; each has an explicit restoration condition.
+if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
+    // Suite-name filtering also selects same-named export_p0 outfile suites.
+    excludeSuites += "," + [
+        // Requires root SSH/SCP or remote filesystem access; restore with the rootless filesystem contract.
+        "test_export_view",
+        // Requires a mysqldump client with compatible column-statistics options; restore after the client probe passes.
+        "test_mysqldump",
+        // Requires root SSH/SCP or remote filesystem access; restore with the rootless filesystem contract.
+        "test_outfile",
+        // Requires root SSH/SCP or remote filesystem access; restore with the rootless filesystem contract.
+        "test_outfile_expr",
+        // Requires root SSH/SCP or remote filesystem access; restore with the rootless filesystem contract.
+        "test_outfile_parquet",
+        // Requires root SSH/SCP or remote filesystem access; restore with the rootless filesystem contract.
+        "test_install_plugin_command",
+        // Requires regressionAliyunStsRegion, regressionAliyunStsRoleArn and AssumeRole access; restore once supplied.
+        "test_s3_load_with_tmp_token"
+    ].join(",")
+    // Preserve the Hong Kong regression fixtures and their public HTTPS endpoint.
+    s3BucketName = "doris-regression-hk"
+    s3Endpoint = "oss-cn-hongkong.aliyuncs.com"
+    s3Region = "oss-cn-hongkong"
+    // OSS requires its hostname addressing; CI must not silently replace the S3 provider.
+    s3Provider = "OSS"
+}

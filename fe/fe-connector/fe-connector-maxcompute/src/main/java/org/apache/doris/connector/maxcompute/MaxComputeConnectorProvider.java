@@ -21,6 +21,8 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -87,5 +89,14 @@ public class MaxComputeConnectorProvider implements ConnectorProvider {
         candidate.putAll(updatedProperties);
         MCCatalogProperties.of(candidate).checkCreateTimeOnlyRules();
         CacheSpec.checkWeightProperties(candidate, updatedProperties, "max_compute", "partition");
+    }
+
+    /** The engine masks credentials wherever it shows catalog properties. */
+    @Override
+    public ConnectorSecuritySurface securitySurface() {
+        Set<String> sensitiveKeys = ConnectorPropertiesUtils.getSensitiveKeys(MCCatalogProperties.class);
+        // Retained token properties must stay masked even though the current authentication binder ignores them.
+        sensitiveKeys.add("mc.session_token");
+        return ConnectorSecuritySurface.EMPTY.withSensitiveKeys(sensitiveKeys);
     }
 }

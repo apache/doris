@@ -93,7 +93,9 @@ public class FeServiceClient {
         this.user = user;
         this.password = password;
         this.retryCount = retryCount;
-        this.timeoutMs = (int) TimeUnit.SECONDS.toMillis(timeoutS);
+        // Catalog metadata timeouts are in seconds, the pooled Thrift sockets take int milliseconds: reject a
+        // timeout that does not fit instead of letting it wrap around.
+        this.timeoutMs = Math.toIntExact(TimeUnit.SECONDS.toMillis(timeoutS));
     }
 
     private List<TNetworkAddress> getAddresses() {
@@ -102,7 +104,7 @@ public class FeServiceClient {
 
     private FrontendService.Client getRemoteFeClient(TNetworkAddress address, int timeoutMs) {
         try {
-            return ClientPool.frontendPool.borrowObject(address, timeoutMs);
+            return ClientPool.remoteFrontendPool.borrowObject(address, timeoutMs);
         } catch (Exception e) {
             String msg = String.format("failed to get remote doris:%s fe connection", name);
             throw new RuntimeException(msg, e);
@@ -111,9 +113,9 @@ public class FeServiceClient {
 
     private void returnClient(TNetworkAddress address, FrontendService.Client client, boolean returnObj) {
         if (returnObj) {
-            ClientPool.frontendPool.returnObject(address, client);
+            ClientPool.remoteFrontendPool.returnObject(address, client);
         } else {
-            ClientPool.frontendPool.invalidateObject(address, client);
+            ClientPool.remoteFrontendPool.invalidateObject(address, client);
         }
     }
 

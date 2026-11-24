@@ -49,7 +49,7 @@ suite("variant_relational_performance", "p2,nonConcurrent") {
         def actualRows = (sql("SELECT count(*) FROM github_events"))[0][0].toString().toLong()
         assertEquals(expectedRows, actualRows)
         if (phase == "prepare") {
-            sql "SET default_variant_max_subcolumns_count = 0"
+            sql "SET debug_variant_max_subcolumns_count = 0"
             keys.each { key, spec ->
                 def nativeKey = "${spec.column}['${spec.path}']"
                 sql "DROP TABLE IF EXISTS variant_relational_dim_${key}"

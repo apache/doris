@@ -127,8 +127,14 @@ public class PhysicalBlackholeSink<CHILD_TYPE extends Plan> extends PhysicalSink
 
     @Override
     public PhysicalBlackholeSink<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalBlackholeSink<>(outputExprs, groupExpression,
-                null, physicalProperties, statistics, child());
+        return rebuildKeepingStates(this, new PhysicalBlackholeSink<>(outputExprs, groupExpression,
+                null, physicalProperties, statistics, child()));
+    }
+
+    @Override
+    public boolean canComputeResultInFe(List<Slot> outputSlots) {
+        CHILD_TYPE child = child();
+        return child instanceof ComputeResultSet && ((ComputeResultSet) child).canComputeResultInFe(outputSlots);
     }
 
     @Override

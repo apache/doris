@@ -18,16 +18,19 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.maxcompute.MCProperties;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface.SensitiveKeyPrefix;
 import org.apache.doris.foundation.util.BasicPrintableMap;
 
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Locale;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
     private boolean hidePassword;
@@ -36,13 +39,23 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
     public static final Set<String> SENSITIVE_KEY;
     public static final Set<String> HIDDEN_KEY;
     public static final String PASSWORD_MASK = "*XXX";
+    // Namespaces of secret keys, see isSensitiveKey: the engine's own below, and the ones connector providers
+    // declare, added at FE startup.
+    private static final List<SensitiveKeyPrefix> SENSITIVE_KEY_PREFIXES = new CopyOnWriteArrayList<>();
 
     static {
         SENSITIVE_KEY = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         SENSITIVE_KEY.add("password");
         SENSITIVE_KEY.add("kerberos_keytab_content");
         SENSITIVE_KEY.add("bos_secret_accesskey");
+        // The JDBC, MongoDB, Elasticsearch, MaxCompute, Iceberg REST and Fluss entries below were added before
+        // connectors could declare secret properties on ConnectorSecuritySurface. They now declare their secrets
+        // themselves; the entries stay so that a catalog whose connector plugin is not loaded still prints
+        // them masked. A new connector key belongs on its connector's security surface, not here.
         SENSITIVE_KEY.add("jdbc.password");
+        // MongoDB URIs can embed credentials even when no separate password is configured.
+        SENSITIVE_KEY.add("mongodb.uri");
+        SENSITIVE_KEY.add("mongodb.password");
         SENSITIVE_KEY.add("elasticsearch.password");
         SENSITIVE_KEY.add("ai.api_key");
         SENSITIVE_KEY.add("ai.embed.api_key");
@@ -75,11 +88,20 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         // carried sensitive keys). Note the overlap with the inlined storage keys below is
         // uneven and must NOT be relied on: iceberg.rest.secret-access-key aliases the (sensitive) S3 secret
         // key, but iceberg.rest.session-token aliases the S3 session-token field which is NOT sensitive, so
-        // omitting it here would silently unmask it. Keep in sync with the connector's sensitive REST keys.
+        // omitting it here would silently unmask it.
         SENSITIVE_KEY.add("iceberg.rest.oauth2.token");
         SENSITIVE_KEY.add("iceberg.rest.oauth2.credential");
         SENSITIVE_KEY.add("iceberg.rest.secret-access-key");
         SENSITIVE_KEY.add("iceberg.rest.session-token");
+        // Fluss client SASL credentials use a small, stable set of exact keys. The lake options are
+        // deliberately open-ended and namespaced, however: new paimon/filesystem credential names may arrive
+        // without a Doris release, so a lake option is a secret when its name carries a credential-like word,
+        // and endpoints and other operational settings stay visible.
+        SENSITIVE_KEY.add("fluss.client.security.sasl.username");
+        SENSITIVE_KEY.add("fluss.client.security.sasl.password");
+        SENSITIVE_KEY.add("fluss.client.security.sasl.jaas.config");
+        SENSITIVE_KEY_PREFIXES.addAll(ConnectorSecuritySurface.ofSensitiveKeyPrefix("fluss.lake.paimon.",
+                "key", "secret", "password", "token", "credential").sensitiveKeyPrefixes());
         // Inlined union of the legacy typed storage classes' @ConnectorProperty(sensitive = true)
         // key aliases (S3/GCS/Azure/OSS/OSS-HDFS/COS/OBS/Minio Properties). The set is
         // case-insensitive, so alias spellings differing only in case are listed once. Locked
@@ -145,7 +167,9 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
      * cannot statically reference their typed properties classes the way the static block does for the
      * legacy {@code *Properties}. Instead, {@code FileSystemPluginManager} aggregates each loaded
      * provider's {@code sensitivePropertyKeys()} and registers them here at FE startup, before any
-     * SHOW CREATE / error-log printing occurs.
+     * SHOW CREATE / error-log printing occurs. {@code ConnectorPluginManager} does the same with each
+     * admitted connector provider's {@code securitySurface().sensitiveKeys()}, so fe-core needs no
+     * connector's secret property names.
      */
     public static void registerSensitiveKeys(Collection<String> keys) {
         if (keys == null) {
@@ -157,12 +181,19 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
     }
 
     /**
-     * Whether a property key must be masked in any user-visible catalog rendering.
-     *
-     * <p>Most connectors register exact aliases. Fluss lake options are deliberately open-ended and
-     * namespaced, however: new paimon/filesystem credential names may arrive without a Doris release.
-     * Match credential-like tails only inside that namespace so endpoints and other operational settings
-     * remain visible. Fluss client SASL credentials use a small, stable set of exact keys.
+     * Registers a namespace of secret keys that a connector provider declared with
+     * {@link ConnectorSecuritySurface#withSensitiveKeyPrefix}. {@code ConnectorPluginManager} registers them
+     * with the provider at FE startup, as it does the provider's exact keys through
+     * {@link #registerSensitiveKeys}.
+     */
+    public static void registerSensitiveKeyPrefix(SensitiveKeyPrefix keyPrefix) {
+        SENSITIVE_KEY_PREFIXES.add(keyPrefix);
+    }
+
+    /**
+     * Whether a property name is sensitive: registered exact keys and prefixes are combined with built-in
+     * credential/connection-string rules and the configurable name pattern. Provider declarations remain
+     * effective even when the configurable pattern is disabled.
      */
     public static boolean isSensitiveKey(Object key) {
         if (!(key instanceof String)) {
@@ -172,19 +203,25 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         if (SENSITIVE_KEY.contains(stringKey)) {
             return true;
         }
-        String lower = stringKey.toLowerCase(Locale.ROOT);
-        if (lower.equals("fluss.client.security.sasl.username")
-                || lower.equals("fluss.client.security.sasl.password")
-                || lower.equals("fluss.client.security.sasl.jaas.config")) {
-            return true;
+        for (SensitiveKeyPrefix keyPrefix : SENSITIVE_KEY_PREFIXES) {
+            if (keyPrefix.covers(stringKey)) {
+                return true;
+            }
         }
-        String lakePrefix = "fluss.lake.paimon.";
-        if (!lower.startsWith(lakePrefix)) {
-            return false;
-        }
-        String tail = lower.substring(lakePrefix.length());
-        return tail.contains("key") || tail.contains("secret") || tail.contains("password")
-                || tail.contains("token") || tail.contains("credential");
+        return DatasourcePropertyRedactor.isSensitiveName(stringKey);
+    }
+
+    /** Masks a display value without changing the stored configuration used by a connector. */
+    public static String redactProperty(Object key, Object value) {
+        return DatasourcePropertyRedactor.redact(key, value);
+    }
+
+    /**
+     * Sanitize one task-selected file location whose native path is already decoded.
+     * Never use this for untrusted SQL properties or URI-list strings.
+     */
+    public static String redactResolvedFileLocation(String location) {
+        return DatasourcePropertyRedactor.redactResolvedFileLocation(location);
     }
 
     @Override
@@ -194,8 +231,8 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
 
     @Override
     protected String formatValue(Map.Entry<K, V> entry) {
-        if (hidePassword && isSensitiveKey(entry.getKey())) {
-            return PASSWORD_MASK;
+        if (hidePassword) {
+            return redactProperty(entry.getKey(), entry.getValue());
         }
         return super.formatValue(entry);
     }

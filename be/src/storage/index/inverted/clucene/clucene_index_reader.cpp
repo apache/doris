@@ -47,6 +47,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/bkd_field_encoding.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_fs_directory.h"
 #include "storage/index/index_reader_helper.h"

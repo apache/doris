@@ -45,7 +45,15 @@ TARGETS=(
     "be/src/util/pretty_printer.h"
     "be/src/pch/pch.h"
     "be/src/storage/index/inverted/query/spi/index_source.h"
+    "be/src/storage/index/inverted/query/engine/intersection.cpp"
+    "be/src/storage/index/inverted/common/query_info.h"
+    "build-support/check-header-deps.py"
+    "be/src/storage/index/ann/ann_index_writer.h"
+    "be/src/storage/index/ann/ann_index_storage.h"
 )
+# Files the CLucene cases create; restore() removes them.
+PROBE_INNER="be/src/util/zz_clucene_probe_inner.h"
+PROBE_OUTER="be/src/util/zz_clucene_probe_outer.h"
 for t in "${TARGETS[@]}"; do
     mkdir -p "${BACKUP}/$(dirname "${t}")"
     cp "${ROOT}/${t}" "${BACKUP}/${t}"
@@ -54,6 +62,7 @@ restore() {
     for t in "${TARGETS[@]}"; do
         cp "${BACKUP}/${t}" "${ROOT}/${t}"
     done
+    rm -f "${ROOT}/${PROBE_INNER}" "${ROOT}/${PROBE_OUTER}"
     rm -rf "${BACKUP}"
 }
 trap restore EXIT
@@ -99,6 +108,90 @@ cp "${BACKUP}/be/src/storage/index/inverted/query/spi/index_source.h" \
     "${ROOT}/be/src/storage/index/inverted/query/spi/index_source.h"
 
 # ---- RED: third-party ban (uint24.h must not include fmt) ----
+# CLucene-free roots: an angle include two hops away from a root.
+printf '#pragma once\n#include <CLucene/util/Misc.h>\n' > "${ROOT}/${PROBE_INNER}"
+printf '#pragma once\n#include "util/zz_clucene_probe_inner.h"\n' > "${ROOT}/${PROBE_OUTER}"
+printf '#include "util/zz_clucene_probe_outer.h"\n' \
+    >> "${ROOT}/be/src/storage/index/inverted/query/spi/index_source.h"
+OUT="$(run_gate)"; EC=$?
+[ "${EC}" -eq 1 ] || fail "two-hop CLucene include expected exit 1, got ${EC}"
+echo "${OUT}" | grep -q \
+    "query/spi/index_source.h reaches CLucene through util/zz_clucene_probe_inner.h" \
+    || fail "two-hop CLucene include not reported"
+echo "${OUT}" | grep -q -- "-> <CLucene/util/Misc.h>" \
+    || fail "CLucene closure failure lacks the include at the end of its chain"
+cp "${BACKUP}/be/src/storage/index/inverted/query/spi/index_source.h" \
+    "${ROOT}/be/src/storage/index/inverted/query/spi/index_source.h"
+rm -f "${ROOT}/${PROBE_INNER}" "${ROOT}/${PROBE_OUTER}"
+
+# A source file under a root is a root too. The leading newline matters: the file does not end
+# with one.
+printf '\n#include <CLucene.h>\n' \
+    >> "${ROOT}/be/src/storage/index/inverted/query/engine/intersection.cpp"
+OUT="$(run_gate)"; EC=$?
+[ "${EC}" -eq 1 ] || fail "CLucene include in a root source expected exit 1, got ${EC}"
+echo "${OUT}" | grep -q "query/engine/intersection.cpp includes <CLucene.h>" \
+    || fail "CLucene include in a root source not reported"
+cp "${BACKUP}/be/src/storage/index/inverted/query/engine/intersection.cpp" \
+    "${ROOT}/be/src/storage/index/inverted/query/engine/intersection.cpp"
+
+# An exception that no longer breaks the rule fails the gate. The tables are empty, so the probe
+# lists a clean file under a root, query_info.h. Written into the existing file, which keeps its
+# mode: e.g. "CLUCENE_INCLUDING_FILES = set()" becomes a set holding that one entry.
+add_clucene_exception() {
+    awk -v table="$1 = set()" -v entry="$1 = {\"$2\"}" '{ print ($0 == table ? entry : $0) }' \
+        "${BACKUP}/build-support/check-header-deps.py" > "${GATE}"
+}
+add_clucene_exception CLUCENE_INCLUDING_FILES "storage/index/inverted/common/query_info.h"
+OUT="$(run_gate)"; EC=$?
+[ "${EC}" -eq 1 ] || fail "stale CLucene include exception expected exit 1, got ${EC}"
+echo "${OUT}" | grep -q \
+    "CLUCENE_INCLUDING_FILES lists storage/index/inverted/common/query_info.h" \
+    || fail "stale CLucene include exception not reported"
+cat "${BACKUP}/build-support/check-header-deps.py" > "${GATE}"
+
+# The ANN index is CLucene-free and has no exception: a CLucene include in one of its headers fails.
+printf '\n#include <CLucene.h>\n' >> "${ROOT}/be/src/storage/index/ann/ann_index_writer.h"
+OUT="$(run_gate)"; EC=$?
+[ "${EC}" -eq 1 ] || fail "CLucene include in an ANN header expected exit 1, got ${EC}"
+echo "${OUT}" | grep -q "storage/index/ann/ann_index_writer.h includes <CLucene.h>" \
+    || fail "CLucene include in an ANN header not reported"
+cp "${BACKUP}/be/src/storage/index/ann/ann_index_writer.h" \
+    "${ROOT}/be/src/storage/index/ann/ann_index_writer.h"
+
+# CLucene words in comments and string literals are no dependency; a symbol in code is.
+printf '\n// lucene::analysis::Token in a comment\ninline const char* clucene_gate_probe = "CLuceneError lucene::Token";\n' \
+    >> "${ROOT}/be/src/storage/index/inverted/common/query_info.h"
+OUT="$(run_gate)"; EC=$?
+[ "${EC}" -eq 0 ] || fail "CLucene words in comments and strings expected green, got ${EC}:"$'\n'"${OUT}"
+printf '\ninline lucene::analysis::Token* clucene_gate_symbol = nullptr;\n' \
+    >> "${ROOT}/be/src/storage/index/inverted/common/query_info.h"
+OUT="$(run_gate)"; EC=$?
+[ "${EC}" -eq 1 ] || fail "CLucene symbol in a root expected exit 1, got ${EC}"
+echo "${OUT}" | grep -q "common/query_info.h:[0-9]* names the CLucene symbol lucene::" \
+    || fail "CLucene symbol in a root not reported"
+cp "${BACKUP}/be/src/storage/index/inverted/common/query_info.h" \
+    "${ROOT}/be/src/storage/index/inverted/common/query_info.h"
+
+# A symbol exception that no longer breaks the rule fails the gate; the same made-up entry.
+add_clucene_exception CLUCENE_SYMBOL_FILES "storage/index/inverted/common/query_info.h"
+OUT="$(run_gate)"; EC=$?
+[ "${EC}" -eq 1 ] || fail "stale CLucene symbol exception expected exit 1, got ${EC}"
+echo "${OUT}" | grep -q \
+    "CLUCENE_SYMBOL_FILES lists storage/index/inverted/common/query_info.h" \
+    || fail "stale CLucene symbol exception not reported"
+cat "${BACKUP}/build-support/check-header-deps.py" > "${GATE}"
+
+# A CLucene symbol in ANN code fails the gate as well.
+printf '\ninline lucene::store::Directory* clucene_gate_ann_symbol = nullptr;\n' \
+    >> "${ROOT}/be/src/storage/index/ann/ann_index_storage.h"
+OUT="$(run_gate)"; EC=$?
+[ "${EC}" -eq 1 ] || fail "CLucene symbol in ANN code expected exit 1, got ${EC}"
+echo "${OUT}" | grep -q "storage/index/ann/ann_index_storage.h:[0-9]* names the CLucene symbol lucene::" \
+    || fail "CLucene symbol in ANN code not reported"
+cp "${BACKUP}/be/src/storage/index/ann/ann_index_storage.h" \
+    "${ROOT}/be/src/storage/index/ann/ann_index_storage.h"
+
 printf '#include <fmt/format.h>\n' >> "${ROOT}/be/src/core/uint24.h"
 OUT="$(run_gate)"; EC=$?
 [ "${EC}" -eq 1 ] || fail "angle-ban injection expected exit 1, got ${EC}"
@@ -152,7 +245,7 @@ OUT="$("${PYTHON}" "${GATE}" --closure common/status.h 2>&1)"; EC=$?
 [ "${EC}" -eq 0 ] || fail "--closure expected exit 0, got ${EC}"
 echo "${OUT}" | grep -q "common/status.h: .* project header(s)" \
     || fail "--closure output missing summary line"
-OUT="$("${PYTHON}" "${GATE}" --reach io/fs/s3_file_system.h 2>&1)"; EC=$?
+OUT="$("${PYTHON}" "${GATE}" --reach io/fs/obj_storage_file_system.h 2>&1)"; EC=$?
 [ "${EC}" -eq 0 ] || fail "--reach expected exit 0, got ${EC}"
 echo "${OUT}" | grep -q "via this edge alone" \
     || fail "--reach output missing edge ranking"
@@ -162,7 +255,7 @@ OUT="$(run_gate)"; EC=$?
 [ "${EC}" -eq 0 ] || fail "restored tree expected green, got ${EC}:"$'\n'"${OUT}"
 
 if [ "${FAILED}" -eq 0 ]; then
-    echo "PASS: rules/bans/budgets/pch-lock all fire on injection, restore to green, diagnostics work."
+    echo "PASS: rules/bans/budgets/pch-lock/CLucene roots all fire on injection, restore to green, diagnostics work."
     exit 0
 fi
 exit 1

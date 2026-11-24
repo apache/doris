@@ -595,6 +595,9 @@ message TableStreamOffsetPB {
     optional TableStreamOffsetStatePB state = 2;
     optional int64 offset_tso = 3;
     optional int64 last_consumption_time_ms = 4;
+    // FE-sampled counts belonging to this consumption offset; -1 means unavailable.
+    optional int64 base_row_count = 5;
+    optional int64 changelog_row_count = 6;
 }
 
 message TableStreamPartitionSetPB {
@@ -607,6 +610,9 @@ message TableStreamPartitionUpdatePB {
     optional TableStreamOffsetStatePB expected_state = 2;
     optional int64 expected_offset_tso = 3;
     optional int64 next_offset_tso = 4;
+    // FE-sampled counts belonging to this consumption offset; -1 means unavailable.
+    optional int64 base_row_count = 5;
+    optional int64 changelog_row_count = 6;
 }
 
 message TableStreamUpdatePB {
@@ -1015,6 +1021,8 @@ message TabletStatsPB {
     // - Normal case: dynamically filled with ClusterPB.mtime (not persisted)
     // - Deleted case: persisted when first detected as deleted, reused thereafter
     optional int64 last_active_cluster_status_mtime_ms = 19;
+    // Partition version from the same metadata snapshot as num_rows. Set on request.
+    optional int64 row_count_partition_version = 20;
 }
 
 message ObjectFilePB {
@@ -1132,6 +1140,18 @@ message TableStatsPB {
     optional int64 table_version = 3;
 }
 
+// Physical changelog rows written by this transaction, separate from base table statistics.
+message ChangelogStatsPB {
+    optional int64 table_id = 1;
+    optional int64 partition_id = 2;
+    optional int64 index_id = 3;
+    optional int64 updated_row_count = 4;
+    // Preserve tablet identity so a late response cannot update replacement data.
+    repeated int64 tablet_ids = 5;
+    // Final partition version, including all subtransactions in this commit.
+    optional int64 version = 6;
+}
+
 message CommitTxnResponse {
     optional MetaServiceResponseStatus status = 1;
     optional TxnInfoPB txn_info = 2;
@@ -1148,6 +1168,8 @@ message CommitTxnResponse {
     optional bool is_lazy_commit_incomplete = 9;
     // The current master fence when commit_tso is rejected as stale.
     optional int64 tso_fence = 10;
+    // Absent on retries of visible transactions and before lazy visibility completes.
+    repeated ChangelogStatsPB changelog_stats = 11;
 }
 
 message AbortTxnRequest {
@@ -1577,6 +1599,9 @@ message TableStreamPartitionReadStatePB {
     optional int64 end_tso = 4;
     optional int64 visible_version = 5;
     optional int64 last_consumption_time_ms = 6;
+    // FE-sampled counts belonging to this consumption offset; -1 means unavailable.
+    optional int64 base_row_count = 7;
+    optional int64 changelog_row_count = 8;
 }
 
 message TableStreamReadBindingResultPB {
@@ -1644,6 +1669,11 @@ message CreateInstanceResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
+message BootstrapInstanceRequest {
+    optional string instance_id = 1;
+    optional ClusterPB initial_fe_cluster = 2;
+}
+
 message AlterInstanceRequest {
     enum Operation {
         UNKNOWN                     = 0;
@@ -1669,6 +1699,7 @@ message AlterInstanceRequest {
     optional string name = 3;
     optional string request_ip = 4;
     map<string, string> properties = 5; // key is the Name of SnapshotProperty value.
+    optional string cloud_unique_id = 6; // For auth
 }
 
 message AlterInstanceResponse {
@@ -1752,6 +1783,7 @@ message GetTabletStatsRequest {
     optional string cloud_unique_id = 1;
     repeated TabletIndexPB tablet_idx = 2;
     optional string request_ip = 3;
+    repeated int64 tablet_ids_with_row_count_version = 4;
 }
 
 message GetTabletStatsResponse {
@@ -1806,17 +1838,6 @@ message GetIamResponse {
     optional MetaServiceResponseStatus status = 1;
     optional RamUserPB iam_user = 2;
     optional RamUserPB ram_user = 3;
-}
-
-message AlterIamRequest {
-    optional string account_id = 1;
-    optional string ak = 2;
-    optional string sk = 3;
-    optional string request_ip = 4;
-}
-
-message AlterIamResponse {
-    optional MetaServiceResponseStatus status = 1;
 }
 
 message AlterRamUserRequest {
@@ -2519,6 +2540,7 @@ service MetaService {
     rpc alter_storage_vault(AlterObjStoreInfoRequest) returns (AlterObjStoreInfoResponse);
     rpc update_ak_sk(UpdateAkSkRequest) returns (UpdateAkSkResponse);
     rpc create_instance(CreateInstanceRequest) returns (CreateInstanceResponse);
+    rpc bootstrap_instance(BootstrapInstanceRequest) returns (CreateInstanceResponse);
     rpc alter_instance(AlterInstanceRequest) returns (AlterInstanceResponse);
     rpc get_instance(GetInstanceRequest) returns (GetInstanceResponse);
     rpc alter_cluster(AlterClusterRequest) returns (AlterClusterResponse);
@@ -2532,7 +2554,6 @@ service MetaService {
     rpc get_stage(GetStageRequest) returns (GetStageResponse);
     rpc drop_stage(DropStageRequest) returns (DropStageResponse);
     rpc get_iam(GetIamRequest) returns (GetIamResponse);
-    rpc alter_iam(AlterIamRequest) returns (AlterIamResponse);
     rpc alter_ram_user(AlterRamUserRequest) returns (AlterRamUserResponse);
     // copy into
     rpc begin_copy(BeginCopyRequest) returns (BeginCopyResponse);
@@ -2574,7 +2595,6 @@ service MetaService {
 };
 
 service RecyclerService {
-    rpc recycle_instance(RecycleInstanceRequest) returns (RecycleInstanceResponse);
     rpc http(MetaServiceHttpRequest) returns (MetaServiceHttpResponse);
 };
 

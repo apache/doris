@@ -34,7 +34,6 @@ import org.apache.doris.qe.ResultReceiver;
 import org.apache.doris.qe.ResultReceiverConsumer;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.rpc.RpcException;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TReportExecStatusParams;
 
 import com.google.common.base.Strings;
@@ -95,13 +94,12 @@ public class QueryProcessor extends AbstractJobProcessor {
                 continue;
             }
             DistributedPlanWorker topWorker = topInstance.getAssignedWorker();
-            TNetworkAddress execBeAddr = new TNetworkAddress(topWorker.host(), topWorker.brpcPort());
             receivers.add(
                     new ResultReceiver(
                             coordinatorContext.queryId,
                             topInstance.instanceId(),
                             topWorker.id(),
-                            execBeAddr,
+                            coordinatorContext.getBackendRpcTarget(topWorker),
                             coordinatorContext.timeoutDeadline.get(),
                             coordinatorContext.connectContext.getSessionVariable().getMaxMsgSizeOfResultReceiver(),
                             enableParallelResultSink
@@ -128,7 +126,6 @@ public class QueryProcessor extends AbstractJobProcessor {
 
             // if reached limit rows, cancel this query immediately
             // to avoid BE from reading more data.
-            // ATTN: if change here, also need to change the same logic in Coordinator.getNext();
             boolean reachedLimit = LimitUtils.cancelIfReachLimit(
                     resultBatch, limitRows, numReceivedRows, coordinatorContext::cancelSchedule);
             if (reachedLimit) {

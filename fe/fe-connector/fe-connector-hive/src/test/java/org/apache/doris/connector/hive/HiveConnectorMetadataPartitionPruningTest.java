@@ -30,6 +30,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.ConnectorFunctionCall;
 import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
@@ -915,6 +916,59 @@ public class HiveConnectorMetadataPartitionPruningTest {
             Assertions.assertEquals(expected,
                     partitionNames(metadata.listPartitions(null, result.get().getHandle(), Optional.empty())));
         }
+    }
+
+    @Test
+    public void testComplexLiteralIsNeverAPartitionValue() {
+        // p = CAST([TRUE] AS STRING): the engine strips the CAST, so the literal arrives as the element list [true]
+        // while BE renders the cast as "[1]"; a MAP or STRUCT literal arrives as its display text. Read as a
+        // partition value, either would ask HMS for p = '[true]' and drop the p=[1] partition, and in an IN,
+        // skipping just that item would narrow the list to 'x'.
+        List<String> parts = Arrays.asList("p=%5B1%5D", "p=x");
+        for (ConnectorLiteral literal : complexLiterals()) {
+            HmsFilterClient client = new HmsFilterClient(parts, Collections.emptyList());
+            HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                    client, HiveTestProperties.minimal(), new FakeConnectorContext());
+            HiveTableHandle handle = typedHandle("p", "STRING");
+            for (ConnectorExpression expr : Arrays.asList(
+                    new ConnectorComparison(ConnectorComparison.Operator.EQ, colRef("p"), literal),
+                    new ConnectorIn(colRef("p"), Arrays.asList(literal, lit("x")), false))) {
+                Assertions.assertFalse(applyFilter(metadata, handle, expr).isPresent(), expr.toString());
+                Assertions.assertEquals(parts,
+                        partitionNames(metadata.listPartitions(null, handle, Optional.of(expr))), expr.toString());
+            }
+            Assertions.assertNull(client.filter, literal.toString());
+        }
+    }
+
+    @Test
+    public void testInListWithAnItemThatIsNotALiteralDoesNotPrune() {
+        // p IN (f(), 'x') with a call the planner did not fold: skipping the call would keep only p=x and lose the
+        // rows whose p equals what f() returns. A NULL item matches no partition, so the IN still prunes without it.
+        HmsFilterClient client = new HmsFilterClient(Arrays.asList("p=a", "p=x"), Collections.singletonList("p=x"));
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                client, HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = typedHandle("p", "STRING");
+        ConnectorExpression withCall = new ConnectorIn(colRef("p"), Arrays.asList(
+                new ConnectorFunctionCall("f", ConnectorType.of("STRING"), Collections.emptyList()), lit("x")), false);
+        ConnectorExpression withNull = new ConnectorIn(colRef("p"),
+                Arrays.asList(ConnectorLiteral.ofNull(ConnectorType.of("STRING")), lit("x")), false);
+
+        Assertions.assertFalse(applyFilter(metadata, handle, withCall).isPresent());
+        Assertions.assertNull(client.filter);
+        Assertions.assertEquals(Collections.singletonList("p=x"),
+                prunedLocations(applyFilter(metadata, handle, withNull)));
+    }
+
+    /** An ARRAY, a MAP and a STRUCT literal, each with the value the engine's converter gives that type. */
+    private static List<ConnectorLiteral> complexLiterals() {
+        return Arrays.asList(
+                new ConnectorLiteral(ConnectorType.arrayOf(ConnectorType.of("BOOLEAN")),
+                        Collections.singletonList(true)),
+                new ConnectorLiteral(ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("INT")),
+                        "{\"k\":1}"),
+                new ConnectorLiteral(ConnectorType.structOf(Collections.singletonList("f"),
+                        Collections.singletonList(ConnectorType.of("INT"))), "{\"f\":1}"));
     }
 
     private List<String> partitionNames(List<ConnectorPartitionInfo> partitions) {

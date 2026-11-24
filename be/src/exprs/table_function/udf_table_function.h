@@ -34,7 +34,7 @@ public:
     UDFTableFunction(const TFunction& t_fn);
     ~UDFTableFunction() override = default;
 
-    Status open() override;
+    Status open(RuntimeState* state) override;
     Status process_init(Block* block, RuntimeState* state) override;
     void process_row(size_t row_idx) override;
     void process_close() override;

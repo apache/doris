@@ -92,6 +92,7 @@
 #include "storage/utils.h"
 #include "testutil/benchmark_control.h"
 #include "testutil/mock/mock_query_context.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/coding.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
@@ -180,6 +181,55 @@ TEST(ParquetScanMetadataSafetyTest, CheckedChunkRangesDrivePrefetchAndSplitAssig
     metadata.row_groups[0].columns[0].meta_data.__set_data_page_offset(190);
     EXPECT_FALSE(format::parquet::detail::build_native_prefetch_ranges(
                          metadata, file_schema, {field_projection(0)}, 0, 200, false, &ranges)
+                         .ok());
+}
+
+TEST(ParquetScanMetadataSafetyTest, ExactRowGroupUsesPrecomputedFirstRows) {
+    tparquet::FileMetaData metadata;
+    tparquet::RowGroup unrelated_before;
+    unrelated_before.__set_num_rows(-1);
+    tparquet::RowGroup selected_group;
+    selected_group.__set_num_rows(7);
+    tparquet::RowGroup unrelated_after;
+    unrelated_after.__set_num_rows(-1);
+    metadata.__set_row_groups({unrelated_before, selected_group, unrelated_after});
+
+    const std::vector<int64_t> first_rows {0, 10, 17};
+    const format::parquet::ParquetScanRange exact_group {
+            .start_offset = 0, .size = -1, .file_size = 1, .row_group_id = 1};
+    std::vector<int> selected;
+    ASSERT_TRUE(format::parquet::detail::select_native_row_groups_by_scan_range(
+                        metadata, exact_group, first_rows, &selected)
+                        .ok());
+    EXPECT_EQ(selected, std::vector<int>({1}));
+}
+
+TEST(ParquetScanMetadataSafetyTest, CoalescedSplitSelectsExactRowGroups) {
+    tparquet::FileMetaData metadata;
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(1);
+    metadata.__set_row_groups({row_group, row_group, row_group, row_group});
+
+    const std::vector<int64_t> first_rows {0, 1, 2, 3};
+    const format::parquet::ParquetScanRange coalesced {.start_offset = 0,
+                                                       .size = -1,
+                                                       .file_size = 1,
+                                                       .row_group_id = 1,
+                                                       .row_group_id_end = 3};
+    std::vector<int> selected;
+    ASSERT_TRUE(format::parquet::detail::select_native_row_groups_by_scan_range(
+                        metadata, coalesced, first_rows, &selected)
+                        .ok());
+    EXPECT_EQ(selected, std::vector<int>({1, 2, 3}));
+
+    auto invalid = coalesced;
+    invalid.row_group_id_end = 0;
+    EXPECT_FALSE(format::parquet::detail::select_native_row_groups_by_scan_range(
+                         metadata, invalid, first_rows, &selected)
+                         .ok());
+    invalid.row_group_id_end = 4;
+    EXPECT_FALSE(format::parquet::detail::select_native_row_groups_by_scan_range(
+                         metadata, invalid, first_rows, &selected)
                          .ok());
 }
 
@@ -1975,10 +2025,11 @@ void use_schema_order_positions(format::FileScanRequest* request,
 
 class ParquetScanTest : public testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"parquet_scan_test"};
+
     void SetUp() override {
         // Paired baseline/candidate benchmarks must not remove the other process's fixtures.
-        _test_dir = std::filesystem::temp_directory_path() /
-                    ("doris_format_v2_parquet_scan_test_" + std::to_string(getpid()));
+        _test_dir = scoped_temp_dir_.path() / "scan";
         std::filesystem::remove_all(_test_dir);
         std::filesystem::create_directories(_test_dir);
         _file_path = (_test_dir / "scan.parquet").string();
@@ -2540,8 +2591,10 @@ TEST(ParquetScanConditionCacheTest, HitKeepsCachedBaseWhenCurrentPlanStartsLater
              .selected_ranges = {{.start = 0, .length = ConditionCacheContext::GRANULE_SIZE}},
              .page_skip_plans = {},
              .offset_indexes = {},
+             .prunable_variant_projection_ordinals = {},
              .full_variant_projection_ordinals = {},
              .variant_leaf_projection_columns = 0,
+             .variant_residual_projection_columns = 0,
              .variant_full_projection_columns = 0,
              .expensive_pruning_pending = false});
 
@@ -2568,6 +2621,9 @@ TEST_F(ParquetScanTest, AggregateCountAndMinMaxUseAllSelectedRowGroups) {
     format::FileAggregateResult count_result;
     format::FileAggregateRequest count_request;
     count_request.agg_type = TPushAggOp::COUNT;
+    format::FileAggregateResult metadata_count_result;
+    ASSERT_TRUE(reader->get_metadata_aggregate_result(count_request, &metadata_count_result).ok());
+    EXPECT_EQ(metadata_count_result.count, 6);
     ASSERT_TRUE(reader->get_aggregate_result(count_request, &count_result).ok());
     EXPECT_EQ(count_result.count, 6);
     EXPECT_TRUE(count_result.columns.empty());
@@ -2576,6 +2632,11 @@ TEST_F(ParquetScanTest, AggregateCountAndMinMaxUseAllSelectedRowGroups) {
     format::FileAggregateRequest required_count_request;
     required_count_request.agg_type = TPushAggOp::COUNT;
     required_count_request.columns.push_back({.projection = field_projection(0)});
+    format::FileAggregateResult metadata_required_count_result;
+    ASSERT_TRUE(reader->get_metadata_aggregate_result(required_count_request,
+                                                      &metadata_required_count_result)
+                        .ok());
+    EXPECT_EQ(metadata_required_count_result.count, 6);
     ASSERT_TRUE(reader->get_aggregate_result(required_count_request, &required_count_result).ok());
     // The required scalar projection is retained for logical-type validation, but after that
     // validation COUNT(id) can reuse the same selected-row-group footer count as COUNT(*).
@@ -2586,6 +2647,10 @@ TEST_F(ParquetScanTest, AggregateCountAndMinMaxUseAllSelectedRowGroups) {
     minmax_request.agg_type = TPushAggOp::MINMAX;
     minmax_request.columns.push_back({.projection = field_projection(0)});
     minmax_request.columns.push_back({.projection = field_projection(1)});
+    format::FileAggregateResult metadata_minmax_result;
+    ASSERT_TRUE(
+            reader->get_metadata_aggregate_result(minmax_request, &metadata_minmax_result).ok());
+    ASSERT_EQ(metadata_minmax_result.columns.size(), 2);
     ASSERT_TRUE(reader->get_aggregate_result(minmax_request, &minmax_result).ok());
     EXPECT_EQ(minmax_result.count, 6);
     ASSERT_EQ(minmax_result.columns.size(), 2);
@@ -2777,6 +2842,11 @@ TEST_F(ParquetScanTest, AggregateCountOnStructRecordsSelectedRowsRead) {
     format::FileAggregateRequest aggregate_request;
     aggregate_request.agg_type = TPushAggOp::COUNT;
     aggregate_request.columns.push_back({.projection = field_projection(0)});
+    format::FileAggregateResult metadata_result;
+    const auto metadata_status =
+            reader->get_metadata_aggregate_result(aggregate_request, &metadata_result);
+    EXPECT_TRUE(metadata_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << metadata_status;
+    EXPECT_EQ(file_reader_stats.read_rows, 0);
     format::FileAggregateResult result;
     ASSERT_TRUE(reader->get_aggregate_result(aggregate_request, &result).ok());
     EXPECT_EQ(result.count, 4);
@@ -2878,8 +2948,8 @@ TEST_F(ParquetScanTest, GlobalRowIdUsesFileLocalPositionForScanRange) {
             const auto location = decode_rowid(rowid_column, row);
             EXPECT_EQ(location.version, context.version);
             EXPECT_EQ(location.backend_id, context.backend_id);
-            EXPECT_EQ(location.file_id, context.file_id);
-            row_ids.push_back(location.row_id);
+            EXPECT_EQ(location.file_local.file_id, context.file_id);
+            row_ids.push_back(location.file_local.row_id);
         }
     }
 
@@ -5201,8 +5271,8 @@ TEST_F(ParquetScanTest, TopNReadsBestRowGroupBeforePublishingBound) {
                         ascending ? (GROUPS - 1 - value / GROUP_ROWS) * GROUP_ROWS +
                                             value % GROUP_ROWS
                                   : value;
-                EXPECT_EQ(location.row_id, expected_position);
-                EXPECT_EQ(location.file_id, rowid_context.file_id);
+                EXPECT_EQ(location.file_local.row_id, expected_position);
+                EXPECT_EQ(location.file_local.file_id, rowid_context.file_id);
             }
             std::ranges::sort(
                     top, [ascending](int32_t a, int32_t b) { return ascending ? a < b : a > b; });

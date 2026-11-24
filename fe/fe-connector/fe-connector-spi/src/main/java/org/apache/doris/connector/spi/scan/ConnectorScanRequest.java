@@ -48,6 +48,7 @@ public final class ConnectorScanRequest {
     private final List<ConnectorColumnHandle> columns;
     private final Optional<ConnectorExpression> filter;
     private final long limit;
+    private final long coarseSplitSize;
     private final List<String> requiredPartitions;
     private final boolean partitionsPrunedToEmpty;
     private final boolean countPushdown;
@@ -57,13 +58,14 @@ public final class ConnectorScanRequest {
     private final ConnectorScanContext scanContext;
 
     private ConnectorScanRequest(ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter, long limit, List<String> requiredPartitions,
+            Optional<ConnectorExpression> filter, long limit, long coarseSplitSize, List<String> requiredPartitions,
             boolean partitionsPrunedToEmpty, boolean countPushdown, boolean aggregatePushdown, boolean explainOnly,
             Set<String> backendCapabilities, ConnectorScanContext scanContext) {
         this.tableHandle = tableHandle;
         this.columns = columns;
         this.filter = filter;
         this.limit = limit;
+        this.coarseSplitSize = coarseSplitSize;
         this.requiredPartitions = requiredPartitions;
         this.partitionsPrunedToEmpty = partitionsPrunedToEmpty;
         this.countPushdown = countPushdown;
@@ -102,6 +104,15 @@ public final class ConnectorScanRequest {
     /** The maximum number of rows to return, or {@code -1} for no limit. */
     public long getLimit() {
         return limit;
+    }
+
+    /**
+     * FE's coarse byte target for native ranges that support BE refinement, or {@code -1} to keep
+     * the connector's existing split policy. Connectors still decide eligibility per range, for
+     * example excluding Iceberg delete files. This is a planning hint, not a BE authorization gate.
+     */
+    public long getCoarseSplitSize() {
+        return coarseSplitSize;
     }
 
     /**
@@ -176,7 +187,7 @@ public final class ConnectorScanRequest {
 
     /** This request with the partition set replaced — the batched scan's per-batch request. */
     public ConnectorScanRequest withRequiredPartitions(List<String> partitions) {
-        return new ConnectorScanRequest(tableHandle, columns, filter, limit,
+        return new ConnectorScanRequest(tableHandle, columns, filter, limit, coarseSplitSize,
                 normalizePartitions(partitions), partitionsPrunedToEmpty, countPushdown, aggregatePushdown, explainOnly,
                 backendCapabilities, scanContext);
     }
@@ -192,6 +203,7 @@ public final class ConnectorScanRequest {
         private final List<ConnectorColumnHandle> columns;
         private Optional<ConnectorExpression> filter = Optional.empty();
         private long limit = -1;
+        private long coarseSplitSize = -1;
         private List<String> requiredPartitions = Collections.emptyList();
         private boolean partitionsPrunedToEmpty;
         private boolean countPushdown;
@@ -212,6 +224,11 @@ public final class ConnectorScanRequest {
 
         public Builder limit(long limit) {
             this.limit = limit;
+            return this;
+        }
+
+        public Builder coarseSplitSize(long coarseSplitSize) {
+            this.coarseSplitSize = coarseSplitSize;
             return this;
         }
 
@@ -257,7 +274,7 @@ public final class ConnectorScanRequest {
         }
 
         public ConnectorScanRequest build() {
-            return new ConnectorScanRequest(tableHandle, columns, filter, limit,
+            return new ConnectorScanRequest(tableHandle, columns, filter, limit, coarseSplitSize,
                     requiredPartitions, partitionsPrunedToEmpty, countPushdown, aggregatePushdown, explainOnly,
                     backendCapabilities, scanContext);
         }

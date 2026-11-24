@@ -32,6 +32,7 @@ void collect_multi_segment_doc_set(const WeightPtr& weight, const QueryExecution
                                    const std::string& binding_key,
                                    const std::shared_ptr<roaring::Roaring>& roaring,
                                    const CollectionSimilarityPtr& similarity, bool enable_scoring,
-                                   roaring::Roaring* null_rows = nullptr);
+                                   roaring::Roaring* null_rows = nullptr,
+                                   const roaring::Roaring* candidates = nullptr);
 
 } // namespace doris::segment_v2::inverted_index::query_v2

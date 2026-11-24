@@ -19,6 +19,7 @@ package org.apache.doris.cdcclient.source.deserialize;
 
 import static org.apache.flink.cdc.connectors.mysql.debezium.dispatcher.EventDispatcherImpl.HISTORY_RECORD_FIELD;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,6 +34,8 @@ import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.sql.Types;
 import java.util.Collections;
@@ -53,6 +56,34 @@ class MySqlSchemaChangeDeserializeTest {
     private static final FlinkJsonTableChangeSerializer TABLE_CHANGE_SERIALIZER =
             new FlinkJsonTableChangeSerializer();
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "VECTOR",
+        "VECTOR(4)",
+        "VECTOR(4) GENERATED ALWAYS AS (TO_VECTOR(info ->> '$.a1')) VIRTUAL",
+        "VECTOR(4) GENERATED ALWAYS AS (TO_VECTOR(info ->> '$.a1')) STORED"
+    })
+    void addedVectorColumnEmitsArrayDdl(String definition) throws Exception {
+        Table baseline = table("id").edit().addColumn(
+                Column.editor().name("info").type("JSON").jdbcType(Types.OTHER)
+                        .optional(true).create()).create();
+        Column vector = Column.editor().name("v1").type("VECTOR").jdbcType(Types.OTHER)
+                .length(definition.equals("VECTOR") ? 2048 : 4).optional(true).create();
+        Table fresh = baseline.edit().addColumn(vector).create();
+        MySqlDebeziumJsonDeserializer deserializer = newDeserializer(baseline);
+
+        DeserializeResult result = deserializer.deserialize(CONTEXT,
+                schemaChangeRecord("ALTER TABLE t1 ADD COLUMN v1 " + definition, fresh));
+
+        assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertNull(result.getUnsupportedReason());
+        assertEquals(Collections.singletonList("ALTER TABLE `doris_db`.`t1` ADD COLUMN `v1` ARRAY<FLOAT>"),
+                result.getDdls());
+        assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
+        // The caller applies the candidate schema only after the target DDL succeeds.
+        assertEquals(baseline, deserializer.getTableSchemas().get(TABLE).getTable());
+    }
+
     @Test
     void parserFailureRequiresConfirmationWithoutApplyingBaseline() throws Exception {
         Table baseline = table("id");
@@ -60,12 +91,14 @@ class MySqlSchemaChangeDeserializeTest {
 
         DeserializeResult result =
                 deserializer.deserialize(
-                        Collections.emptyMap(),
+                        CONTEXT,
                         schemaChangeRecord(null, table("id", "city")));
 
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
         assertNotNull(result.getUnsupportedReason());
         assertTrue(result.getUnsupportedReason().contains("Cannot parse schema change"));
+        assertTrue(result.getUnsupportedReason().contains("Table: db1.t1 -> doris_db.t1"));
+        assertFalse(result.getUnsupportedReason().contains("Source DDL:"));
         assertTrue(result.getSchemaChanges().isEmpty());
         assertEquals(1, result.getUpdatedSchemas().size());
         assertEquals(table("id", "city"), result.getUpdatedSchemas().get(TABLE).getTable());
@@ -190,7 +223,8 @@ class MySqlSchemaChangeDeserializeTest {
             assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
             if ("evolve".equals(behavior)) {
                 assertNotNull(result.getUnsupportedReason());
-                assertTrue(result.getUnsupportedReason().contains("MODIFY COLUMN"));
+                assertTrue(result.getUnsupportedReason().contains("MODIFY COLUMN is not supported (city)"));
+                assertFalse(result.getUnsupportedReason().contains("city -> city"));
             } else {
                 assertNull(result.getUnsupportedReason());
             }
@@ -207,19 +241,48 @@ class MySqlSchemaChangeDeserializeTest {
 
     @Test
     void schemaChangeMixedAddAndSameNameChangeRequiresConfirmation() throws Exception {
-        Table baseline = table("id", "age");
-        Table fresh = table("id", "age", "city");
+        Table baseline = table("id", "age", "old_col");
+        Table fresh = table("id", "age", "city", "note");
         for (String alter : new String[] {"MODIFY COLUMN age INT", "CHANGE COLUMN age age INT"}) {
             MySqlDebeziumJsonDeserializer deserializer = newDeserializer(baseline);
+            deserializer.targetTableMappingsCache = Map.of("t1", "mapped_t1");
+            String ddl = "ALTER TABLE t1 ADD COLUMN city INT, " + alter
+                    + ", DROP COLUMN old_col, ADD COLUMN note INT;";
             DeserializeResult result =
                     deserializer.deserialize(
                             CONTEXT,
-                            schemaChangeRecord("ALTER TABLE t1 ADD COLUMN city INT, " + alter, fresh));
+                            schemaChangeRecord(ddl, fresh));
 
             assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
             assertNotNull(result.getUnsupportedReason());
+            String reason = result.getUnsupportedReason();
+            assertTrue(reason.contains("COLUMN is not supported (age)"));
+            assertFalse(reason.contains("age -> age"));
+            assertTrue(reason.contains("Table: db1.t1 -> doris_db.mapped_t1"));
+            assertTrue(reason.contains("columns added=[city, note]"));
+            assertTrue(reason.contains("removed=[old_col]"));
+            assertTrue(reason.contains("Source DDL: [" + ddl + "]"));
             assertTrue(result.getSchemaChanges().isEmpty(), "mixed DDL must not be partially applied");
             assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
+            assertEquals(baseline, deserializer.getTableSchemas().get(TABLE).getTable());
+        }
+    }
+
+    @Test
+    void renamedColumnRetainsBothNamesAndSourceDdl() throws Exception {
+        Table baseline = table("id", "age");
+        Table fresh = table("id", "age2");
+        for (String alter : new String[] {"CHANGE COLUMN age age2 INT", "RENAME COLUMN age TO age2"}) {
+            MySqlDebeziumJsonDeserializer deserializer = newDeserializer(baseline);
+            String ddl = "ALTER TABLE t1 " + alter;
+
+            DeserializeResult result = deserializer.deserialize(CONTEXT, schemaChangeRecord(ddl, fresh));
+
+            assertNotNull(result.getUnsupportedReason());
+            assertTrue(result.getUnsupportedReason().contains("COLUMN is not supported (age -> age2)"));
+            assertTrue(result.getUnsupportedReason().contains("Table: db1.t1 -> doris_db.t1"));
+            assertTrue(result.getUnsupportedReason().contains("Source DDL: [" + ddl + "]"));
+            assertTrue(result.getSchemaChanges().isEmpty());
             assertEquals(baseline, deserializer.getTableSchemas().get(TABLE).getTable());
         }
     }

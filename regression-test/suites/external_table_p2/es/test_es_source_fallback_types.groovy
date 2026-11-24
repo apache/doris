@@ -26,7 +26,7 @@ suite("test_es_source_fallback_types", "p2,external") {
     String port = context.config.otherConfigs.get("es_8_port")
     assertTrue(port != null && !port.isEmpty(), "es_8_port must be configured")
     def endpoint = "http://${host}:${port}"
-    def request = { String method, String path, Object body = null ->
+    def request = { String method, String path, Object body = null, boolean probeSourceMode = false ->
         def connection = new URL("${endpoint}/${path}").openConnection()
         connection.requestMethod = method
         connection.connectTimeout = 10000
@@ -42,8 +42,18 @@ suite("test_es_source_fallback_types", "p2,external") {
                 return null
             }
             def text = (status < 400 ? connection.inputStream : connection.errorStream).getText("UTF-8")
+            def response = new JsonSlurper().parseText(text)
+            // Older ES8 images reject this mapping syntax; every other HTTP failure remains fatal.
+            if (probeSourceMode && status == 400
+                    && response.error?.type == "mapper_parsing_exception"
+                    && response.error?.caused_by?.reason ==
+                            "unknown parameter [mode] on mapper [_source] of type [null]") {
+                logger.info("The ES fixture does not support _source.mode; its syntax is not covered here, "
+                        + "using enabled:false")
+                return null
+            }
             assertTrue(status >= 200 && status < 300, "ES ${method} ${path}: ${status} ${text}")
-            return new JsonSlurper().parseText(text)
+            return response
         } finally {
             connection.disconnect()
         }
@@ -70,9 +80,15 @@ suite("test_es_source_fallback_types", "p2,external") {
     ["flag", "mode"].each { kind ->
         def disabled = "doris_source_disabled_${kind}"
         request("DELETE", disabled)
-        request("PUT", disabled, [settings: settings, mappings: [
+        def created = request("PUT", disabled, [settings: settings, mappings: [
             _source: kind == "flag" ? [enabled: false] : [mode: "disabled"],
-            properties: [row_id: properties.row_id, a: properties.a, n: properties.n]]])
+            properties: [row_id: properties.row_id, a: properties.a, n: properties.n]]], kind == "mode")
+        if (created == null) {
+            // Both syntaxes disable the source. Keep the same row/alias checks on baseline ES8.
+            request("PUT", disabled, [settings: settings, mappings: [
+                _source: [enabled: false],
+                properties: [row_id: properties.row_id, a: properties.a, n: properties.n]]])
+        }
         request("PUT", "${disabled}/_doc/1?refresh=true", [row_id: 1, a: "ok", n: 1])
         request("POST", "_aliases", [actions: [[add: [index: index, alias: "doris_source_disabled_alias_${kind}"]],
             [add: [index: disabled, alias: "doris_source_disabled_alias_${kind}"]]]])
@@ -130,7 +146,8 @@ suite("test_es_source_fallback_types", "p2,external") {
     sql "insert into es_retained_not_expected values (1,null,'miss'),(2,1,'miss'),(3,2,'hit'),(4,2,'miss')"
     def notExpected = "internal.${context.dbName}.es_retained_not_expected"
     def originalNotRules = sql("show variables like 'disable_nereids_expression_rules'")[0][1]
-    def originalV2 = sql("show variables like 'enable_file_scanner_v2'")[0][1]
+    // SHOW prefixes deprecated variable names; scalar access keeps the compatibility name stable.
+    def originalV2 = sql("SELECT @@enable_file_scanner_v2")[0][0]
     def originalParallel = sql("show variables like 'enable_es_parallel_scroll'")[0][1]
     def originalZone = sql("show variables like 'time_zone'")[0][1]
     try {

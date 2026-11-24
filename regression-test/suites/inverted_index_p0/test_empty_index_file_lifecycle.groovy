@@ -23,7 +23,7 @@
 //
 //     rowset schema owns an inverted index  <=>  every segment owns an index file
 //
-// An empty index file (E-6004 "is empty") is therefore expected wherever a
+// An empty index file (E-6003 "is empty") is therefore expected wherever a
 // rowset's schema still has the index, and NO index file at all (E-6003 "not
 // found") is expected once it has none. Every producer has to keep the first half
 // true -- load, compaction, light and direct schema change, BUILD INDEX -- and
@@ -34,8 +34,8 @@ suite("test_empty_index_file_lifecycle", "p0") {
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
 
     // show_nested_index_file reports the first rowset it cannot open, so there is
-    // one status per tablet: "E-6004" empty index file, "E-6003" none at all,
-    // "OK" an index file with real indexes in it.
+    // one status per tablet: E-6003 for both empty and absent containers,
+    // distinguished by the message; "OK" for a file with real indexes in it.
     def index_file_status = { String tableName ->
         def statuses = [] as Set
         for (def tablet : sql_return_maparray(" show tablets from ${tableName} ")) {
@@ -44,7 +44,11 @@ suite("test_empty_index_file_lifecycle", "p0") {
             def (code, out, err) = http_client("GET", String.format(
                     "http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet.TabletId))
             logger.info("show_nested_index_file tablet=${tablet.TabletId}: code=${code}, out=${out}, err=${err}")
-            statuses.add(code == 500 ? parseJson(out.trim()).status : "OK")
+            def status = code == 500 ? parseJson(out.trim()).status : "OK"
+            if (status == "E-6003") {
+                status += out.contains(" is empty") ? " (empty)" : " (missing)"
+            }
+            statuses.add(status)
         }
         return statuses
     }
@@ -109,7 +113,7 @@ suite("test_empty_index_file_lifecycle", "p0") {
         sql " insert into ${tableName} values (1, NULL) "
         sql " insert into ${tableName} values (2, NULL) "
         sql "sync"
-        assert_index_file_status(tableName, "E-6004", "load")
+        assert_index_file_status(tableName, "E-6003 (empty)", "load")
         assert_readable(tableName)
 
         // The steps below do not depend on the write path that loaded the rows, so
@@ -120,14 +124,14 @@ suite("test_empty_index_file_lifecycle", "p0") {
 
         // 2. compaction: two empty-index inputs produce one empty-index output
         trigger_and_wait_compaction(tableName, "full")
-        assert_index_file_status(tableName, "E-6004", "full compaction")
+        assert_index_file_status(tableName, "E-6003 (empty)", "full compaction")
         assert_readable(tableName)
 
         // 3. light schema change: a default-valued ADD COLUMN keeps the segments
         //    and their index files (locally it hard-links them)
         sql """ ALTER TABLE ${tableName} ADD COLUMN c INT DEFAULT "7" """
         wait_alter_done(tableName)
-        assert_index_file_status(tableName, "E-6004", "light schema change")
+        assert_index_file_status(tableName, "E-6003 (empty)", "light schema change")
         assert_readable(tableName)
 
         // 4. direct schema change: a type change rewrites every rowset, so the
@@ -135,14 +139,14 @@ suite("test_empty_index_file_lifecycle", "p0") {
         //    to be repeated, or FE rejects the statement as a default value change.
         sql """ ALTER TABLE ${tableName} MODIFY COLUMN c BIGINT DEFAULT "7" """
         wait_alter_done(tableName)
-        assert_index_file_status(tableName, "E-6004", "direct schema change")
+        assert_index_file_status(tableName, "E-6003 (empty)", "direct schema change")
         assert_readable(tableName)
 
         if (!isCloudMode()) {
             // 5. ADD INDEX + BUILD INDEX runs IndexBuilder over the existing index
             //    files. An empty one means "nothing to carry over", exactly like a
             //    rowset written before any index existed; failing on it aborts the
-            //    whole ALTER with "[E-6004] ... is empty".
+            //    whole ALTER with "[E-6003] ... is empty".
             sql " ALTER TABLE ${tableName} ADD INDEX id_idx (`id`) USING INVERTED "
             wait_alter_done(tableName)
             build_index_on_table("id_idx", tableName)
@@ -155,7 +159,7 @@ suite("test_empty_index_file_lifecycle", "p0") {
             //    surviving index is the all-NULL VARIANT one
             sql " ALTER TABLE ${tableName} DROP INDEX id_idx "
             wait_alter_done(tableName)
-            assert_index_file_status(tableName, "E-6004", "dropping one of two indexes")
+            assert_index_file_status(tableName, "E-6003 (empty)", "dropping one of two indexes")
             assert_readable(tableName)
         }
 
@@ -165,13 +169,13 @@ suite("test_empty_index_file_lifecycle", "p0") {
         sql " ALTER TABLE ${tableName} DROP INDEX v_idx "
         wait_alter_done(tableName)
         if (!isCloudMode()) {
-            assert_index_file_status(tableName, "E-6004", "dropping the last index")
+            assert_index_file_status(tableName, "E-6003 (empty)", "dropping the last index")
         }
         // Full compaction needs a second rowset, or it has nothing to merge.
         sql " insert into ${tableName} (id, v) values (3, NULL) "
         if (!isCloudMode()) {
             trigger_and_wait_compaction(tableName, "full")
-            assert_index_file_status(tableName, "E-6003", "compacting a table with no index")
+            assert_index_file_status(tableName, "E-6003 (missing)", "compacting a table with no index")
         }
         assert_readable(tableName, 3)
     }

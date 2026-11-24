@@ -228,6 +228,13 @@ LIBRDKAFKA_NAME=librdkafka-2.16.0.tar.gz
 LIBRDKAFKA_SOURCE=librdkafka-2.16.0
 LIBRDKAFKA_MD5SUM="6d2c62921241863d2bc95c58be27af6f"
 
+# MongoDB C Driver (libmongoc and libbson are released and built together).
+# 2.5.8 fixes malformed cursor namespaces and compressed-reply buffer leaks.
+MONGO_C_DRIVER_DOWNLOAD="https://github.com/mongodb/mongo-c-driver/releases/download/2.5.8/mongo-c-driver-2.5.8.tar.gz"
+MONGO_C_DRIVER_NAME=mongo-c-driver-2.5.8.tar.gz
+MONGO_C_DRIVER_SOURCE=mongo-c-driver-2.5.8
+MONGO_C_DRIVER_MD5SUM="e088246c56b3de5c658aff8e00f166ed"
+
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
 ZSTD_NAME=zstd-1.5.7.tar.gz
@@ -275,28 +282,26 @@ ARROW_MD5SUM="66c53bd00baa79034bd2ca167beea436"
 ARROW_ADBC_DOWNLOAD="https://github.com/apache/arrow-adbc/archive/refs/tags/apache-arrow-adbc-24.tar.gz"
 ARROW_ADBC_NAME="apache-arrow-adbc-24.tar.gz"
 ARROW_ADBC_SOURCE="arrow-adbc-apache-arrow-adbc-24"
-ARROW_ADBC_MD5SUM="2b2a18e95c33bdfd2bfa33a8b57c78d6"
+ARROW_ADBC_MD5SUM="3d6aaf071d384fe8d3c12a9b5f62aa4e"
 
-# arrow-adbc Flight SQL driver, prebuilt.
-# Upstream writes this driver in Go and publishes no bare shared library, so it is
-# taken from the official release wheel (a zip) rather than adding a Go toolchain to
-# the thirdparty build. It must come from the same release as the source tree above
-# (C/Go 1.12.0): partition descriptors are driver-private bytes, so the FE and every
-# BE have to load the very same file. ADBC tests only, not shipped -- same treatment
-# as the SQLite driver. Linux only; the macOS wheels carry a .dylib no test looks for.
+# The test driver includes the connection-info isolation patch and its local capability.
+# Keep normal Doris builds Go-free; the release asset includes the standalone build recipe.
+ARROW_ADBC_FLIGHTSQL_SOURCE=""
 if [[ "$(uname -s)" == 'Linux' ]]; then
-    ARROW_ADBC_FLIGHTSQL_SOURCE="adbc_driver_flightsql"
     if [[ "${MACHINE_TYPE}" == 'x86_64' ]]; then
-        ARROW_ADBC_FLIGHTSQL_DOWNLOAD="https://files.pythonhosted.org/packages/2b/5b/f8566aa6d05eb40225f5874f8f5f5e8b8b4a4ce866d817a5ff352f326302/adbc_driver_flightsql-1.12.0-py3-none-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl"
-        ARROW_ADBC_FLIGHTSQL_NAME="adbc_driver_flightsql-1.12.0-x86_64.zip"
-        ARROW_ADBC_FLIGHTSQL_MD5SUM="975a283dc72db0c646204e512b396e2a"
-    elif [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
-        ARROW_ADBC_FLIGHTSQL_DOWNLOAD="https://files.pythonhosted.org/packages/57/45/6468fb425f3c0ae868c1ca9ab8e15cba76b59e941edd7e80e892e5476728/adbc_driver_flightsql-1.12.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl"
-        ARROW_ADBC_FLIGHTSQL_NAME="adbc_driver_flightsql-1.12.0-aarch64.zip"
-        ARROW_ADBC_FLIGHTSQL_MD5SUM="4ab31967910f9d2af20663b06412e6aa"
-    else
-        echo "no prebuilt adbc flightsql driver for ${MACHINE_TYPE}, skipping it"
-        ARROW_ADBC_FLIGHTSQL_SOURCE=""
+        ARROW_ADBC_FLIGHTSQL_SOURCE="adbc-flightsql-1.12.0-doris-info-v1-linux-x86_64-glibc2.17"
+        ARROW_ADBC_FLIGHTSQL_MD5SUM="b7a5907dcfb1651fdadbec2a24754217"
+        ARROW_ADBC_FLIGHTSQL_SHA256="d8fce8236ab0888467e779a15c4034788d94fcb4d2ccffbe0ac440e659f43e1c"
+        ARROW_ADBC_FLIGHTSQL_LIBRARY_SHA256="e5bb1894b18b4dc9acfbfe0ae406aafc07cf29b9fc35cbe233b6be790f825805"
+    elif [[ "${MACHINE_TYPE}" == 'aarch64' || "${MACHINE_TYPE}" == 'arm64' ]]; then
+        ARROW_ADBC_FLIGHTSQL_SOURCE="adbc-flightsql-1.12.0-doris-info-v1-linux-aarch64-glibc2.17"
+        ARROW_ADBC_FLIGHTSQL_MD5SUM="87e156c668c078753a923aeb7ef016e1"
+        ARROW_ADBC_FLIGHTSQL_SHA256="8051812339dfaf78733d453eb7c7b2ad18cfcc19c5582082abf0dccae9868439"
+        ARROW_ADBC_FLIGHTSQL_LIBRARY_SHA256="674311b8f64d58e5a77ebbdca251352455fdb7f2be80e0482211401c93bfdcb5"
+    fi
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+        ARROW_ADBC_FLIGHTSQL_NAME="${ARROW_ADBC_FLIGHTSQL_SOURCE}.tar.gz"
+        ARROW_ADBC_FLIGHTSQL_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/adbc-flightsql-1.12.0-doris-info-v1/${ARROW_ADBC_FLIGHTSQL_NAME}"
     fi
 fi
 
@@ -386,6 +391,12 @@ BOOTSTRAP_TABLE_CSS_DOWNLOAD="https://unpkg.com/bootstrap-table@1.17.1/dist/boot
 BOOTSTRAP_TABLE_CSS_NAME="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
+
+# Alibaba Cloud OSS C++ SDK V2
+OSS_SDK_DOWNLOAD="https://github.com/aliyun/alibabacloud-oss-cpp-sdk-v2/archive/refs/tags/0.2.0.tar.gz"
+OSS_SDK_NAME="alibabacloud-oss-cpp-sdk-v2-0.2.0.tar.gz"
+OSS_SDK_SOURCE="alibabacloud-oss-cpp-sdk-v2-0.2.0"
+OSS_SDK_MD5SUM="56e4c251034670db38e29deff27c0aa3"
 
 # aws sdk
 AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.221.tar.gz"
@@ -626,10 +637,10 @@ LANCE_C_SOURCE="lance-c-a51ab47a9c814a746cb1714c99fad93dd3a188b8"
 LANCE_C_MD5SUM="d1282cff3d63acfc0450db1f00d6ab6f"
 
 # paimon-rust
-PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"
-PAIMON_RUST_NAME="paimon-rust-v0.4.0-rc1.tar.gz"
-PAIMON_RUST_SOURCE="paimon-rust-0.4.0-rc1"
-PAIMON_RUST_MD5SUM="23cd0634692108debf77a26ef4dc20a7"
+PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.5.0.tar.gz"
+PAIMON_RUST_NAME="paimon-rust-v0.5.0.tar.gz"
+PAIMON_RUST_SOURCE="paimon-rust-0.5.0"
+PAIMON_RUST_MD5SUM="b9288421921d2e018d6c7b1b67285da0"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -660,6 +671,7 @@ export TP_ARCHIVES=(
     'BRPC'
     'ROCKSDB'
     'CYRUS_SASL'
+    'MONGO_C_DRIVER'
     'LIBRDKAFKA'
     'FLATBUFFERS'
     'ARROW'
@@ -683,6 +695,7 @@ export TP_ARCHIVES=(
     'BOOTSTRAP_TABLE_JS'
     'BOOTSTRAP_TABLE_CSS'
     'TSAN_HEADER'
+    'OSS_SDK'
     'AWS_SDK'
     'LZMA'
     'XML2'
@@ -722,10 +735,8 @@ export TP_ARCHIVES=(
     'PAIMON_RUST'
 )
 
-# This variable is unset on macOS; callers may source this file with nounset.
-if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]]; then
-    read -r -a TP_ARCHIVES <<<"${TP_ARCHIVES[*]} ARROW_ADBC_FLIGHTSQL"
-    export TP_ARCHIVES
+if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+    TP_ARCHIVES+=('ARROW_ADBC_FLIGHTSQL')
 fi
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

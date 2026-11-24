@@ -34,23 +34,31 @@ import org.apache.thrift.transport.TTransport;
 import org.apache.thrift.transport.TTransportException;
 
 import java.lang.reflect.Constructor;
+import java.util.Objects;
 
 public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
     private static final Logger LOG = LogManager.getLogger(GenericPool.class);
     private static final ThriftClientTransportProvider TRANSPORT_PROVIDER =
             ThriftClientTransportProviderFactory.create();
 
-    private GenericKeyedObjectPool<TNetworkAddress, VALUE> pool;
+    private GenericKeyedObjectPool<Object, VALUE> pool;
     private String className;
     private int timeoutMs;
     private boolean isNonBlockingIO;
+    private final ThriftClientTransportProvider.RpcPurpose rpcPurpose;
 
     public GenericPool(String className, GenericKeyedObjectPoolConfig config, int timeoutMs, boolean isNonBlockingIO) {
+        this(className, config, timeoutMs, isNonBlockingIO, ThriftClientTransportProvider.RpcPurpose.INTERNAL_RPC);
+    }
+
+    public GenericPool(String className, GenericKeyedObjectPoolConfig config, int timeoutMs, boolean isNonBlockingIO,
+            ThriftClientTransportProvider.RpcPurpose rpcPurpose) {
         this.className = "org.apache.doris.thrift." + className + "$Client";
-        ThriftClientFactory factory = new ThriftClientFactory();
-        pool = new GenericKeyedObjectPool<>(factory, config);
         this.timeoutMs = timeoutMs;
         this.isNonBlockingIO = isNonBlockingIO;
+        this.rpcPurpose = rpcPurpose;
+        ThriftClientFactory factory = new ThriftClientFactory();
+        pool = new GenericKeyedObjectPool<>(factory, config);
     }
 
     public GenericPool(String className, GenericKeyedObjectPoolConfig config, int timeoutMs) {
@@ -195,7 +203,43 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
         }
     }
 
-    private class ThriftClientFactory extends BaseKeyedPooledObjectFactory<TNetworkAddress, VALUE> {
+    // Different logical peers at one IP must not share an authenticated socket. Ordinary callers
+    // keep their original address key, while resolved heartbeat endpoints include both identities.
+    private record PeerAddress(TNetworkAddress address, String peerHost) {
+    }
+
+    private Object peerKey(TNetworkAddress address, String peerHost) {
+        Objects.requireNonNull(peerHost);
+        return peerHost.equals(address.hostname) ? address : new PeerAddress(new TNetworkAddress(address), peerHost);
+    }
+
+    public VALUE borrowObject(TNetworkAddress address, String peerHost) throws Exception {
+        return pool.borrowObject(peerKey(address, peerHost));
+    }
+
+    public void clearPool(TNetworkAddress address, String peerHost) {
+        pool.clear(peerKey(address, peerHost));
+    }
+
+    public void returnObject(TNetworkAddress address, VALUE object, String peerHost) {
+        if (address == null || object == null) {
+            return;
+        }
+        pool.returnObject(peerKey(address, peerHost), object);
+    }
+
+    public void invalidateObject(TNetworkAddress address, VALUE object, String peerHost) {
+        if (address == null || object == null) {
+            return;
+        }
+        try {
+            pool.invalidateObject(peerKey(address, peerHost), object);
+        } catch (Exception e) {
+            LOG.warn("failed to invalidate object. address: {}", address, e);
+        }
+    }
+
+    private class ThriftClientFactory extends BaseKeyedPooledObjectFactory<Object, VALUE> {
 
         private Object newInstance(String className, TProtocol protocol) throws Exception {
             Class newoneClass = Class.forName(className);
@@ -204,12 +248,15 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
         }
 
         @Override
-        public VALUE create(TNetworkAddress key) throws Exception {
+        public VALUE create(Object poolKey) throws Exception {
+            TNetworkAddress key = poolKey instanceof PeerAddress peer ? peer.address() : (TNetworkAddress) poolKey;
             if (LOG.isDebugEnabled()) {
                 LOG.debug("before create socket hostname={} key.port={} timeoutMs={}",
                         key.hostname, key.port, timeoutMs);
             }
-            TTransport transport = TRANSPORT_PROVIDER.createTransport(key, timeoutMs, isNonBlockingIO);
+            TTransport transport = poolKey instanceof PeerAddress peer
+                    ? TRANSPORT_PROVIDER.createTransport(key, timeoutMs, isNonBlockingIO, rpcPurpose, peer.peerHost())
+                    : TRANSPORT_PROVIDER.createTransport(key, timeoutMs, isNonBlockingIO, rpcPurpose);
             if (!transport.isOpen()) {
                 transport.open();
             }
@@ -224,7 +271,7 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
         }
 
         @Override
-        public boolean validateObject(TNetworkAddress key, PooledObject<VALUE> p) {
+        public boolean validateObject(Object key, PooledObject<VALUE> p) {
             boolean isOpen = p.getObject().getOutputProtocol().getTransport().isOpen();
             if (LOG.isDebugEnabled()) {
                 LOG.debug("isOpen={}", isOpen);
@@ -233,7 +280,7 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
         }
 
         @Override
-        public void destroyObject(TNetworkAddress key, PooledObject<VALUE> p) {
+        public void destroyObject(Object key, PooledObject<VALUE> p) {
             // InputProtocol and OutputProtocol have the same reference in OurCondition
             if (p.getObject().getOutputProtocol().getTransport().isOpen()) {
                 p.getObject().getOutputProtocol().getTransport().close();

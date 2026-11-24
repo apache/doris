@@ -40,6 +40,7 @@
 #include "storage/index/inverted/snii/snii_query_oracle.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 
 // An exact phrase whose terms hold many positions per document streams them through the shared
 // engine, each document's positions decoded only as far as the match reads them; any other phrase
@@ -51,8 +52,9 @@ using reader::LogicalIndexReader;
 using reader::SniiSegmentReader;
 
 std::string temp_path() {
+    static const doris::test::ScopedTempDirectory temp_dir("phrase_streaming_test");
     static int counter = 0;
-    return "/tmp/snii_phrase_streaming_" + std::to_string(getpid()) + "_" +
+    return (temp_dir.path() / "snii_phrase_streaming_").string() + std::to_string(getpid()) + "_" +
            std::to_string(counter++) + ".idx";
 }
 

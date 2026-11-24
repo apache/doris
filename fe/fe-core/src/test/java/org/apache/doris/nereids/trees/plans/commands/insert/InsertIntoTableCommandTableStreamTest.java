@@ -30,7 +30,9 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate.PartitionUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.proto.Cloud;
@@ -48,6 +50,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.CloudTableStreamReadStateHook;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.distribute.worker.BackendDistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -62,9 +65,12 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.tso.MasterTsoProvider;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -181,7 +187,8 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
 
         Assertions.assertTrue(info.getUpdate() instanceof OlapTableStreamUpdate);
         OlapTableStreamUpdate update = (OlapTableStreamUpdate) info.getUpdate();
-        Assertions.assertTrue(update.getPrev().isEmpty());
+        Assertions.assertTrue(update.getPartitionUpdates().values().stream()
+                .allMatch(partition -> partition.getPreviousOffset() == null));
 
         List<AbstractInsertExecutor.InsertExecutorListener> listeners = Deencapsulation.getField(insertExecutor,
                 "listeners");
@@ -201,7 +208,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         Assertions.assertTrue(txnInfo.getUpdate() instanceof OlapTableStreamUpdate);
 
         AbstractTableStreamUpdate txnUpdate = txnInfo.getUpdate();
-        Assertions.assertEquals(update.getNext(), ((OlapTableStreamUpdate) txnUpdate).getNext());
+        Assertions.assertEquals(update.getPartitionUpdates(), ((OlapTableStreamUpdate) txnUpdate).getPartitionUpdates());
     }
 
     @Test
@@ -447,10 +454,10 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                     .collect(Collectors.toMap(TableStreamUpdateInfo::getStreamId, info -> info));
             Assertions.assertEquals(Set.of(baseTable.getPartition("p1").getId()),
                     ((OlapTableStreamUpdate) updatesByStream.get(firstStream.getId()).getUpdate())
-                            .getNext().keySet());
+                            .getPartitionUpdates().keySet());
             Assertions.assertEquals(Set.of(baseTable.getPartition("p2").getId()),
                     ((OlapTableStreamUpdate) updatesByStream.get(secondStream.getId()).getUpdate())
-                            .getNext().keySet());
+                            .getPartitionUpdates().keySet());
         } finally {
             insertExecutor.onFail(new RuntimeException("test cleanup"));
             resetQueryContext();
@@ -516,7 +523,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 + "properties('show_initial_rows' = 'false')");
         OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s_no_init");
 
-        Map<Long, Long> prev = new HashMap<>();
+        Map<Long, PartitionUpdate> updates = Maps.newHashMapWithExpectedSize(baseTable.getPartitionNum());
         Map<Long, Long> next = new HashMap<>();
         long offset = 0;
         for (Partition partition : baseTable.getPartitions()) {
@@ -524,12 +531,13 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             long previousOffset = stream.getStreamUpdate(pid).first;
             Assertions.assertNotNull(previousOffset);
             Assertions.assertFalse(stream.hasHistoricalData(pid));
-            prev.put(pid, previousOffset);
             // Construct a strictly larger TSO so we can detect the advance.
-            next.put(pid, previousOffset + 4242 + offset);
+            long nextOffset = previousOffset + 4242 + offset;
+            next.put(pid, nextOffset);
+            updates.put(pid, new PartitionUpdate(previousOffset, PartitionStreamState.initial().atOffset(nextOffset)));
             offset++;
         }
-        OlapTableStreamUpdate update = new OlapTableStreamUpdate(prev, next);
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(updates);
 
         long ts = 12345L;
         baseTable.writeLock();
@@ -546,12 +554,9 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             Assertions.assertFalse(stream.hasHistoricalData(pid),
                     "no historical offset should be present after advance without prior history");
         }
-        // partitionConsumptionTime is private; verify via reflection on the same field name.
-        @SuppressWarnings("unchecked")
-        Map<Long, Long> consumptionTime = (Map<Long, Long>) Deencapsulation.getField(stream,
-                "partitionConsumptionTime");
+        Map<Long, PartitionStreamState> partitionStates = Deencapsulation.getField(stream, "partitionStates");
         for (Long pid : next.keySet()) {
-            Assertions.assertEquals(Long.valueOf(ts), consumptionTime.get(pid),
+            Assertions.assertEquals(Long.valueOf(ts), partitionStates.get(pid).getConsumptionTime(),
                     "partitionConsumptionTime must be recorded with the commit ts");
         }
     }
@@ -568,23 +573,22 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 + "properties('show_initial_rows' = 'false')");
         OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s_history");
 
-        @SuppressWarnings("unchecked")
-        Map<Long, Long> historicalPartitionTSO = (Map<Long, Long>) Deencapsulation.getField(stream,
-                "historicalPartitionTSO");
+        Map<Long, PartitionStreamState> partitionStates = Deencapsulation.getField(stream, "partitionStates");
 
-        Map<Long, Long> prev = new HashMap<>();
+        Map<Long, PartitionUpdate> updates = Maps.newHashMapWithExpectedSize(baseTable.getPartitionNum());
         Map<Long, Long> next = new HashMap<>();
         long seed = 0;
         for (Partition partition : baseTable.getPartitions()) {
             long pid = partition.getId();
             long histTso = 8000L + seed;
             long nextTso = 9999L + seed;
-            historicalPartitionTSO.put(pid, histTso);
-            prev.put(pid, histTso);
+            partitionStates.put(pid, PartitionStreamState.restored(
+                    partitionStates.get(pid).getOffset(), -1, histTso, -1L, -1L));
+            updates.put(pid, new PartitionUpdate(histTso, PartitionStreamState.initial().atOffset(nextTso)));
             next.put(pid, nextTso);
             seed++;
         }
-        OlapTableStreamUpdate update = new OlapTableStreamUpdate(prev, next);
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(updates);
 
         long ts = 67890L;
         baseTable.writeLock();
@@ -594,18 +598,15 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             baseTable.writeUnlock();
         }
 
-        @SuppressWarnings("unchecked")
-        Map<Long, Long> consumptionTime = (Map<Long, Long>) Deencapsulation.getField(stream,
-                "partitionConsumptionTime");
         for (Map.Entry<Long, Long> entry : next.entrySet()) {
             long pid = entry.getKey();
             Assertions.assertFalse(stream.hasHistoricalData(pid),
                     "historicalPartitionTSO must be cleared after commit");
-            Assertions.assertFalse(historicalPartitionTSO.containsKey(pid),
-                    "historicalPartitionTSO must be cleared after commit");
+            Assertions.assertNull(partitionStates.get(pid).getHistoricalTso(),
+                    "historical TSO must be cleared after commit");
             Assertions.assertEquals(entry.getValue(), stream.getStreamUpdate(pid).first,
                     "partitionOffset must be advanced to update.next after history consumed");
-            Assertions.assertEquals(Long.valueOf(ts), consumptionTime.get(pid),
+            Assertions.assertEquals(Long.valueOf(ts), partitionStates.get(pid).getConsumptionTime(),
                     "partitionConsumptionTime must be recorded with the commit ts");
         }
     }
@@ -622,9 +623,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         // s1 was created with show_initial_rows=true. Seed historicalPartitionTSO for one
         // partition to also cover the history branch.
         OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s1");
-        @SuppressWarnings("unchecked")
-        Map<Long, Long> historicalPartitionTSO = (Map<Long, Long>) Deencapsulation.getField(stream,
-                "historicalPartitionTSO");
+        Map<Long, PartitionStreamState> partitionStates = Deencapsulation.getField(stream, "partitionStates");
 
         // Bump partition versions so partition.getTso() differs from any initial seed and
         // is a meaningful upper bound. Pass tso explicitly (third arg) to simulate a
@@ -647,7 +646,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         Partition historyPartition = baseTable.getPartitions().iterator().next();
         long historyPid = historyPartition.getId();
         long historyTso = 6789L;
-        historicalPartitionTSO.put(historyPid, historyTso);
+        partitionStates.put(historyPid, PartitionStreamState.restored(null, -1, historyTso, -1L, -1L));
 
         String sql = "insert into test_stream.tbl_target select * from test_stream.s1";
         LogicalPlan logicalPlan = parser.parseSingle(sql);
@@ -664,19 +663,18 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         List<TableStreamUpdateInfo> streamUpdateInfos = insertExecutor.getStreamUpdateInfos();
         Assertions.assertEquals(1, streamUpdateInfos.size());
         OlapTableStreamUpdate update = (OlapTableStreamUpdate) streamUpdateInfos.get(0).getUpdate();
-        Map<Long, Long> producedNext = update.getNext();
-        Map<Long, Long> producedPrev = update.getPrev();
+        Map<Long, PartitionUpdate> producedNext = update.getPartitionUpdates();
         Assertions.assertFalse(producedNext.isEmpty());
 
-        for (Map.Entry<Long, Long> entry : producedNext.entrySet()) {
+        for (Map.Entry<Long, PartitionUpdate> entry : producedNext.entrySet()) {
             long pid = entry.getKey();
             // next always equals partition commit tso, regardless of history.
-            Assertions.assertEquals(baseTable.getPartition(pid).getTso(), entry.getValue(),
+            Assertions.assertEquals(baseTable.getPartition(pid).getTso(), entry.getValue().getNextState().getOffset(),
                     "next must equal partition.tso (commit tso)");
         }
         // history partition's prev is the historical TSO snapshot encoded as negative
         // (see StreamConsumptionInfoExtractor).
-        Assertions.assertEquals(Long.valueOf(-historyTso), producedPrev.get(historyPid),
+        Assertions.assertEquals(Long.valueOf(-historyTso), producedNext.get(historyPid).getPreviousOffset(),
                 "prev of history partition must equal negated historicalPartitionTSO");
     }
 
@@ -710,6 +708,8 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         for (Backend backend : previousSystemInfo.getAllClusterBackends(false)) {
             cloudSystemInfo.addBackend(backend);
         }
+        BackendDistributedPlanWorkerManager workers =
+                new BackendDistributedPlanWorkerManager(connectContext, false, false);
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         AbstractInsertExecutor p1Executor = null;
         try {
@@ -718,7 +718,11 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             Config.meta_service_endpoint = "127.0.0.1:20121";
             Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", cloudSystemInfo);
             try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class);
-                    MockedStatic<MasterTsoProvider> mockedTso = Mockito.mockStatic(MasterTsoProvider.class)) {
+                    MockedStatic<MasterTsoProvider> mockedTso = Mockito.mockStatic(MasterTsoProvider.class);
+                    MockedConstruction<BackendDistributedPlanWorkerManager> mockedWorkers = Mockito.mockConstruction(
+                            BackendDistributedPlanWorkerManager.class,
+                            Mockito.withSettings().defaultAnswer(AdditionalAnswers.delegatesTo(workers)))) {
+                // The fixture mocks cloud metadata while distributing on the local test backends.
                 // The read-state fixture uses offsets 100..130; keep the TTL reference in the same clock.
                 mockedTso.when(() -> MasterTsoProvider.getCurrentTso(connectContext)).thenReturn(130L);
                 mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);

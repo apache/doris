@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
@@ -88,6 +89,8 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.HllType;
+import org.apache.doris.nereids.types.IPv4Type;
+import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
@@ -252,6 +255,49 @@ public class TypeCoercionUtilsTest {
                 TypeCoercionUtils.implicitCast(TimeStampNsType.INSTANCE, IntegerType.INSTANCE));
         Assertions.assertEquals(Optional.of(TimeStampNsType.INSTANCE),
                 TypeCoercionUtils.implicitCast(DateTimeV2Type.MAX, TimeStampNsType.INSTANCE));
+    }
+
+    @Test
+    public void testTimestampNsImplicitCastsDoNotUseExplicitCastFallback() {
+        for (DataType source : ImmutableList.of(IntegerType.INSTANCE, DecimalV3Type.SYSTEM_DEFAULT,
+                DateV2Type.INSTANCE, TimeStampTzType.of(3), TimeV2Type.of(3))) {
+            Assertions.assertEquals(Optional.of(TimeStampNsType.INSTANCE),
+                    TypeCoercionUtils.implicitCast(source, TimeStampNsType.INSTANCE));
+        }
+        // These casts exist, but implicit type-only coercion must not lose NS precision or representation.
+        for (DataType target : ImmutableList.of(DateV2Type.INSTANCE, DateTimeV2Type.MAX,
+                TimeStampTzType.MAX, TimeV2Type.MAX, BigIntType.INSTANCE, VariantType.INSTANCE)) {
+            Assertions.assertTrue(CheckCast.check(TimeStampNsType.INSTANCE, target, false));
+            Assertions.assertTrue(TypeCoercionUtils.implicitCast(TimeStampNsType.INSTANCE, target).isEmpty());
+        }
+        for (DataType source : ImmutableList.of(BooleanType.INSTANCE, JsonType.INSTANCE, VariantType.INSTANCE)) {
+            Assertions.assertTrue(TypeCoercionUtils.implicitCast(source, TimeStampNsType.INSTANCE).isEmpty());
+        }
+    }
+
+    @Test
+    public void testNestedTimestampNsImplicitCastsPreservePrimitiveRestrictions() {
+        DataType nsArray = ArrayType.of(TimeStampNsType.INSTANCE);
+        Assertions.assertEquals(Optional.of(nsArray),
+                TypeCoercionUtils.implicitCast(ArrayType.of(DateV2Type.INSTANCE), nsArray));
+        Assertions.assertTrue(TypeCoercionUtils.implicitCast(
+                nsArray, ArrayType.of(DateTimeV2Type.MAX)).isEmpty());
+        Assertions.assertTrue(TypeCoercionUtils.implicitCast(
+                ArrayType.of(BooleanType.INSTANCE), nsArray).isEmpty());
+
+        DataType nsMap = MapType.of(StringType.INSTANCE, TimeStampNsType.INSTANCE);
+        Assertions.assertEquals(Optional.of(nsMap), TypeCoercionUtils.implicitCast(
+                MapType.of(StringType.INSTANCE, DateV2Type.INSTANCE), nsMap));
+        Assertions.assertTrue(TypeCoercionUtils.implicitCast(
+                nsMap, MapType.of(StringType.INSTANCE, TimeStampTzType.MAX)).isEmpty());
+        Assertions.assertTrue(TypeCoercionUtils.implicitCast(MapType.of(TimeStampNsType.INSTANCE, StringType.INSTANCE),
+                MapType.of(DateTimeV2Type.MAX, StringType.INSTANCE)).isEmpty());
+
+        StructType nsStruct = new StructType(ImmutableList.of(
+                new StructField("event_time", TimeStampNsType.INSTANCE, true, "")));
+        StructType datetimeStruct = new StructType(ImmutableList.of(
+                new StructField("event_time", DateTimeV2Type.MAX, true, "")));
+        Assertions.assertTrue(TypeCoercionUtils.implicitCast(nsStruct, datetimeStruct).isEmpty());
     }
 
     @Test
@@ -679,17 +725,17 @@ public class TypeCoercionUtilsTest {
                             ImmutableList.of(new WhenClause(flag, source)), target));
                     Expression coalesce = TypeCoercionUtils.processBoundFunction(new Coalesce(source, target));
                     for (Expression cast : ImmutableList.of(
-                            TypeCoercionUtils.castIfNotSameTypeForTimeStampNsCoercion(source, targetType),
-                            TypeCoercionUtils.castIfNotSameTypeStrictForTimeStampNsCoercion(source, targetType),
+                            TypeCoercionUtils.castForCommonType(source, targetType),
+                            TypeCoercionUtils.castForCommonTypeWithExactTarget(source, targetType),
                             caseWhen.child(0).child(1), coalesce.child(0))) {
                         Assertions.assertInstanceOf(Cast.class, cast);
                         Assertions.assertFalse(((Cast) cast).isStrict(), cast.toSql());
                         Assertions.assertEquals(source, cast.child(0));
                     }
                     for (Expression cast : ImmutableList.of(
-                            TypeCoercionUtils.castIfNotSameTypeForTimeStampNsCoercion(
+                            TypeCoercionUtils.castForCommonType(
                                     source, temporalTargets.get(i)),
-                            TypeCoercionUtils.castIfNotSameTypeStrictForTimeStampNsCoercion(
+                            TypeCoercionUtils.castForCommonTypeWithExactTarget(
                                     source, temporalTargets.get(i)))) {
                         Assertions.assertInstanceOf(Cast.class, cast);
                         Assertions.assertTrue(((Cast) cast).isStrict(), cast.toSql());
@@ -798,6 +844,61 @@ public class TypeCoercionUtilsTest {
         IntegerType integerType = IntegerType.INSTANCE;
         IntegralType integralType = IntegralType.INSTANCE;
         Assertions.assertEquals(integerType, TypeCoercionUtils.implicitCast(integerType, integralType).get());
+    }
+
+    @Test
+    public void testImplicitCastFallbackUsesCastLegalityInBothModes() {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
+        try {
+            for (boolean strict : new boolean[] {false, true}) {
+                connectContext.getSessionVariable().enableStrictCast = strict;
+                Assertions.assertEquals(Optional.of(TimeStampTzType.of(3)), TypeCoercionUtils.implicitCast(
+                        DateTimeV2Type.of(3), TimeStampTzType.of(3)));
+                Assertions.assertEquals(Optional.of(DateTimeV2Type.of(3)), TypeCoercionUtils.implicitCast(
+                        TimeStampTzType.of(3), DateTimeV2Type.of(3)));
+                Assertions.assertEquals(Optional.of(DateTimeV2Type.of(3)), TypeCoercionUtils.implicitCast(
+                        TimeV2Type.of(3), DateTimeV2Type.of(3)));
+                Assertions.assertEquals(Optional.of(DateV2Type.INSTANCE),
+                        TypeCoercionUtils.implicitCast(StringType.INSTANCE, DateV2Type.INSTANCE));
+                Assertions.assertEquals(Optional.of(IPv6Type.INSTANCE),
+                        TypeCoercionUtils.implicitCast(IPv4Type.INSTANCE, IPv6Type.INSTANCE));
+                Assertions.assertEquals(Optional.of(IntegerType.INSTANCE),
+                        TypeCoercionUtils.implicitCast(BooleanType.INSTANCE, IntegerType.INSTANCE));
+                Assertions.assertEquals(strict ? Optional.empty() : Optional.of(DoubleType.INSTANCE),
+                        TypeCoercionUtils.implicitCast(DateV2Type.INSTANCE, DoubleType.INSTANCE));
+
+                Assertions.assertTrue(TypeCoercionUtils.implicitCast(
+                        BooleanType.INSTANCE, DateV2Type.INSTANCE).isEmpty());
+                Assertions.assertTrue(TypeCoercionUtils.implicitCast(
+                        BitmapType.INSTANCE, IntegerType.INSTANCE).isEmpty());
+                Assertions.assertTrue(TypeCoercionUtils.implicitCast(
+                        IntegerType.INSTANCE, ArrayType.of(IntegerType.INSTANCE)).isEmpty());
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testImplicitCastTemporalWildcardsKeepConcretePrecision() {
+        DataType datetime = DateTimeV2Type.of(3);
+        DataType time = TimeV2Type.of(4);
+        DataType timestampTz = TimeStampTzType.of(5);
+        Assertions.assertSame(datetime,
+                TypeCoercionUtils.implicitCast(datetime, DateTimeV2Type.WILDCARD).orElseThrow());
+        Assertions.assertSame(time,
+                TypeCoercionUtils.implicitCast(time, TimeV2Type.WILDCARD).orElseThrow());
+        Assertions.assertSame(timestampTz,
+                TypeCoercionUtils.implicitCast(timestampTz, TimeStampTzType.WILDCARD).orElseThrow());
+        Assertions.assertEquals(Optional.of(ArrayType.of(time)),
+                TypeCoercionUtils.implicitCast(ArrayType.of(time), ArrayType.of(TimeV2Type.WILDCARD)));
+        Assertions.assertEquals(Optional.of(MapType.of(datetime, timestampTz)), TypeCoercionUtils.implicitCast(
+                MapType.of(datetime, timestampTz), MapType.of(DateTimeV2Type.WILDCARD, TimeStampTzType.WILDCARD)));
     }
 
     @Test
@@ -1049,6 +1150,49 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
+    public void testStringArithmeticDefersValueConversionToCast() {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
+        try {
+            // Analysis must keep a CAST in both modes. CAST evaluation returns NULL or an error.
+            // The same rule applies to STRING, VARCHAR, and CHAR literals on either side.
+            for (boolean strict : new boolean[] {false, true}) {
+                connectContext.getSessionVariable().enableStrictCast = strict;
+                for (Expression string : ImmutableList.of(new StringLiteral("abc"),
+                        new VarcharLiteral("abc"), new CharLiteral("abc", 3))) {
+                    IntegerLiteral one = new IntegerLiteral(1);
+                    Expression left = TypeCoercionUtils.processBinaryArithmetic(new Add(string, one));
+                    Expression right = TypeCoercionUtils.processBinaryArithmetic(new Add(one, string));
+                    Assertions.assertEquals(new Cast(string, DoubleType.INSTANCE), left.child(0));
+                    Assertions.assertEquals(new Cast(string, DoubleType.INSTANCE), right.child(1));
+                    Assertions.assertEquals(DoubleType.INSTANCE, left.getDataType());
+                    Assertions.assertEquals(DoubleType.INSTANCE, right.getDataType());
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testStringArithmeticKeepsNumericTypeSelection() {
+        // An integer string must still use integer arithmetic. It must not become DOUBLE.
+        Expression integer = TypeCoercionUtils.processBinaryArithmetic(
+                new Add(new StringLiteral("1"), new IntegerLiteral(1)));
+        Assertions.assertEquals(BigIntType.INSTANCE, integer.getDataType());
+
+        // DOUBLE accepts spaces around a number. BigDecimal rejects this input before CAST runs.
+        StringLiteral spaced = new StringLiteral(" 1 ");
+        Expression floating = TypeCoercionUtils.processBinaryArithmetic(new Add(spaced, new IntegerLiteral(1)));
+        Assertions.assertEquals(new Cast(spaced, DoubleType.INSTANCE), floating.child(0));
+        Assertions.assertEquals(DoubleType.INSTANCE, floating.getDataType());
+    }
+
+    @Test
     public void testDecimalArithmetic() {
         Multiply multiply = new Multiply(new DecimalLiteral(new BigDecimal("987654.321")),
                 new DecimalV3Literal(new BigDecimal("123.45")));
@@ -1243,19 +1387,24 @@ public class TypeCoercionUtilsTest {
 
     @Test
     public void testCharacterLiteralTypeCoercion() {
+        // Character parsing may choose a wider type instead of narrowing the literal's value.
+        Assertions.assertEquals(new SmallIntLiteral((short) 128),
+                TypeCoercionUtils.characterLiteralTypeCoercion("128", TinyIntType.INSTANCE).orElseThrow());
+        Assertions.assertTrue(TypeCoercionUtils.characterLiteralTypeCoercion(
+                "invalid", TinyIntType.INSTANCE).isEmpty());
+        String date = "2020-02-02";
         // datev2
         Assertions.assertEquals(DateV2Type.INSTANCE,
-                TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateV2Type.INSTANCE).get().getDataType());
+                TypeCoercionUtils.characterLiteralTypeCoercion(date, DateV2Type.INSTANCE).get().getDataType());
         // datetimev2
         Assertions.assertEquals(DateTimeV2Type.of(0),
-                TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateTimeV2Type.of(0)).get().getDataType());
+                TypeCoercionUtils.characterLiteralTypeCoercion(date, DateTimeV2Type.of(0)).get().getDataType());
         // date
         Assertions.assertEquals(DateV2Type.INSTANCE,
-                        TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateType.INSTANCE).get()
-                                        .getDataType());
+                TypeCoercionUtils.characterLiteralTypeCoercion(date, DateType.INSTANCE).get().getDataType());
         // datetime
         Assertions.assertEquals(DateTimeV2Type.SYSTEM_DEFAULT,
-                                TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateTimeType.INSTANCE).get().getDataType());
+                TypeCoercionUtils.characterLiteralTypeCoercion(date, DateTimeType.INSTANCE).get().getDataType());
         // timestamptz wildcard
         Assertions.assertEquals(TimeStampTzType.SYSTEM_DEFAULT,
                 TypeCoercionUtils.characterLiteralTypeCoercion("2023-08-17T01:41:18Z", TimeStampTzType.WILDCARD)

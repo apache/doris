@@ -184,7 +184,8 @@ suite("test_es_source_semantics", "p2,external") {
         "sibling like '[%'", "sibling not in ('cat')", "not (sibling = 'cat')",
         "sibling = 'cat' or row_id = 1", "sibling = 'cat' and row_id > 0",
         "not (sibling = 'cat' and row_id = 1)"]
-    def originalV2 = sql("show variables like 'enable_file_scanner_v2'")[0][1]
+    // SHOW prefixes deprecated variable names; scalar access keeps the compatibility name stable.
+    def originalV2 = sql("SELECT @@enable_file_scanner_v2")[0][0]
     def originalParallel = sql("show variables like 'enable_es_parallel_scroll'")[0][1]
     def originalBatch = sql("show variables like 'batch_size'")[0][1]
     try {

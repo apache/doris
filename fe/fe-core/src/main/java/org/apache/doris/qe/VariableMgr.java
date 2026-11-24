@@ -484,9 +484,7 @@ public class VariableMgr {
 
     // Whether SHOW VARIABLES lists the variable: a removed or an invisible one it does not.
     private static boolean isShown(VarContext ctx) {
-        VarAttrDef.VarAttr varAttr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
-        return !VariableAnnotation.REMOVED.equals(varAttr.varType())
-                && (VarAttrDef.INVISIBLE & varAttr.flag()) == 0;
+        return ctx.isShown();
     }
 
     // The value a SetVar assigns: its literal, or the variable's default for `set variable = DEFAULT`.
@@ -1063,8 +1061,14 @@ public class VariableMgr {
         private Object obj;
         private int flag;
         private String defaultValue;
+        // Read once from the field's annotation: every dump of the session variables (the audit log of
+        // each query, each connector session) asks for every variable.
+        private final boolean shown;
 
         public VarContext(Field field, Object obj, int flag, String defaultValue) {
+            VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+            this.shown = varAttr != null && !VariableAnnotation.REMOVED.equals(varAttr.varType())
+                    && (VarAttrDef.INVISIBLE & varAttr.flag()) == 0;
             this.field = field;
             this.obj = obj;
             this.flag = flag;
@@ -1085,6 +1089,10 @@ public class VariableMgr {
 
         public String getDefaultValue() {
             return defaultValue;
+        }
+
+        public boolean isShown() {
+            return shown;
         }
     }
 

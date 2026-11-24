@@ -165,3 +165,47 @@ its own tables. The bucket remains in MinIO's existing data volume.
 This bug regression does not simulate an additional server row policy. A
 client-supplied filter and a server-imposed policy are different contracts;
 server-forced planning mode is covered separately by real RESTCatalog unit tests.
+
+## Encrypted HMS metadata regression
+
+The stack also starts a separate Hive metastore, disposable Moto KMS and reference
+fixture for `test_iceberg_encrypted_hms_metadata`. The startup script downloads
+checksum-pinned Iceberg 1.12.0 reference jars into `encryption/jars`; it keeps the
+existing Spark/REST data fixture on its current SDK.
+
+| Environment option | Default port | Regression option |
+| --- | --- | --- |
+| `ICEBERG_ENCRYPTION_HMS_PORT` | 18383 | `iceberg_encryption_metastore_port` |
+| `ICEBERG_ENCRYPTION_KMS_PORT` | 18384 | `iceberg_encryption_kms_port` |
+| `ICEBERG_ENCRYPTION_FIXTURE_PORT` | 18385 | `iceberg_encryption_fixture_port` |
+
+The encryption fixture uses the stack's existing MinIO endpoint. Start the stack,
+set `enableIcebergTest=true`, and run:
+
+```sh
+bash run-regression-test.sh --run -d external_table_p0/iceberg \
+    -s test_iceberg_encrypted_hms_metadata
+```
+
+The suite resets only its own two HMS tables before use and keeps them afterward.
+It checks encrypted Parquet/manifest/manifest-list samples using both Iceberg SDK
+and Spark SQL historical reads, then validates Doris's default-off admission and
+plaintext compatibility. KMS credentials and keys are synthetic; never use these
+services or the fixture credential provider in a production deployment. Missing
+services, decryption failures or incorrect reference results fail the enabled suite.
+See the connector's [metadata validation contract](../../../../fe/fe-connector/docs/iceberg-encryption-read.md#hmskms-metadata-validation)
+for the KMS failure coverage and encrypted-query boundary.
+
+The fixture reset removes only the two fixture HMS entries and their dedicated
+object prefixes, without decrypting old manifests. This also handles `stop`/`up`:
+HMS retains its entries while the disposable KMS starts with new keys. Run the
+lifecycle regression against an isolated stack (it restarts the fixture and KMS):
+
+```sh
+bash docker/thirdparties/docker-compose/iceberg/encryption/test_restart.sh \
+    docker/thirdparties/docker-compose/iceberg/iceberg.yaml \
+    isolated-project http://localhost:18385
+```
+
+The test requires the first reset after restart to succeed and then checks the
+SDK/Spark snapshot results and KMS failure cases again. It never retries reset.

@@ -17,14 +17,88 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.connector.ConnectorPluginManager;
+import org.apache.doris.connector.iceberg.IcebergConnectorProvider;
+import org.apache.doris.connector.maxcompute.MaxComputeConnectorProvider;
+import org.apache.doris.connector.paimon.PaimonConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.filesystem.ozone.OzoneFileSystemProvider;
+import org.apache.doris.fs.FileSystemPluginManager;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 public class DatasourcePrintableMapTest {
+
+    @Test
+    public void testMetastoreDiagnosticAnnotationsPreserveValueAwareRestDisplay() {
+        ConnectorPluginManager manager = new ConnectorPluginManager();
+        manager.registerProvider(new IcebergConnectorProvider());
+        manager.registerProvider(new PaimonConnectorProvider());
+        Map<String, String> raw = Map.of(
+                "uri", "https://api.example.com/v1",
+                "iceberg.rest.uri", "https://api.example.com/v1",
+                "paimon.rest.uri", "https://api.example.com/v1",
+                "iceberg.jdbc.uri", "jdbc:fixture://db.example.com/metadata?password=fixture-uri-secret");
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getProperties()).thenReturn(raw);
+        Map<String, String> shown = CatalogMgr.getCatalogPropertiesWithPrintable(catalog);
+        Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey("uri"));
+        for (String key : List.of("uri", "iceberg.rest.uri", "paimon.rest.uri")) {
+            Assertions.assertEquals(raw.get(key), shown.get(key));
+        }
+        Assertions.assertEquals(DatasourcePrintableMap.PASSWORD_MASK, shown.get("iceberg.jdbc.uri"));
+        Assertions.assertTrue(raw.get("iceberg.jdbc.uri").contains("fixture-uri-secret"));
+    }
+
+    @Test
+    public void testProviderCredentialsAreMaskedAcrossCatalogAndAuditOutputs() {
+        new ConnectorPluginManager().registerProvider(new MaxComputeConnectorProvider());
+        new FileSystemPluginManager().registerProvider(new OzoneFileSystemProvider());
+        Map<String, String> properties = Map.of(
+                "mc.session_token", "fixture-session-token",
+                "MC.SESSION_TOKEN", "fixture-uppercase-token",
+                "ozone.access_key", "fixture-access-key",
+                "OZONE.ACCESS_KEY", "fixture-uppercase-access-key",
+                "ozone.endpoint", "https://storage.example.com");
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getProperties()).thenReturn(properties);
+
+        Map<String, String> shown = CatalogMgr.getCatalogPropertiesWithPrintable(catalog);
+        String ddlProperties = new DatasourcePrintableMap<>(properties, "=", true, true, true).toString();
+        properties.forEach((key, value) -> {
+            if ("ozone.endpoint".equals(key)) {
+                Assertions.assertEquals(value, shown.get(key));
+                Assertions.assertTrue(ddlProperties.contains(value), ddlProperties);
+            } else {
+                Assertions.assertEquals(DatasourcePrintableMap.PASSWORD_MASK, shown.get(key));
+                Assertions.assertFalse(ddlProperties.contains(value), ddlProperties);
+            }
+        });
+        NeedAuditEncryption audit = () -> true;
+        for (String sql : List.of(
+                "CREATE CATALOG masking_catalog PROPERTIES ('type' = 'max_compute', "
+                        + "'mc.session_token' = 'fixture-session-token', 'ozone.access_key' = 'fixture-access-key')",
+                "ALTER CATALOG masking_catalog SET PROPERTIES "
+                        + "('mc.session_token' = 'fixture-session-token', 'ozone.access_key' = 'fixture-access-key')")) {
+            String masked = audit.geneEncryptionSQL(sql);
+            Assertions.assertFalse(masked.contains("fixture-session-token"), masked);
+            Assertions.assertFalse(masked.contains("fixture-access-key"), masked);
+            Assertions.assertTrue(masked.contains("\"mc.session_token\" = \"*XXX\""), masked);
+            Assertions.assertTrue(masked.contains("\"ozone.access_key\" = \"*XXX\""), masked);
+        }
+        Assertions.assertEquals("fixture-session-token", properties.get("mc.session_token"));
+        Assertions.assertEquals("fixture-access-key", properties.get("ozone.access_key"));
+    }
 
     @Test
     public void testSensitiveKeysContainAliyunDLFProperties() {
@@ -57,6 +131,15 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("AWS_SECRET_KEY"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("obs.secret_key"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("oss.secret_key"));
+    }
+
+    @Test
+    public void testMongoCredentialsAreMasked() {
+        String result = new DatasourcePrintableMap<>(Map.of(
+                "mongodb.uri", "mongodb://fixture-user:fixture-secret@localhost:27017",
+                "mongodb.password", "fixture-secret"), "=", true, true, true).toString();
+        Assertions.assertFalse(result.contains("fixture-secret"));
+        Assertions.assertFalse(result.contains("mongodb://"));
     }
 
     @Test
@@ -217,6 +300,7 @@ public class DatasourcePrintableMapTest {
         properties.put("fluss.lake.paimon.oss.secret-key", "oss-secret");
         properties.put("fluss.lake.paimon.azure.oauth2_client_secret", "azure-secret");
         properties.put("fluss.lake.paimon.rest.token", "rest-token");
+        properties.put("FLUSS.LAKE.PAIMON.GCS.Secret-Key", "upper-case-secret");
         properties.put("fluss.lake.paimon.s3.endpoint", "http://minio:9000");
 
         String result = new DatasourcePrintableMap<>(properties, "=", false, false, true).toString();
@@ -227,6 +311,7 @@ public class DatasourcePrintableMapTest {
         Assertions.assertFalse(result.contains("oss-secret"), result);
         Assertions.assertFalse(result.contains("azure-secret"), result);
         Assertions.assertFalse(result.contains("rest-token"), result);
+        Assertions.assertFalse(result.contains("upper-case-secret"), result);
         Assertions.assertTrue(result.contains("fluss.lake.paimon.s3.endpoint = http://minio:9000"), result);
     }
 
@@ -323,5 +408,30 @@ public class DatasourcePrintableMapTest {
         Assertions.assertFalse(result.contains("super_secret_value"));
         Assertions.assertTrue(result.contains(
                 "PROVIDER_CONTRIBUTED_SECRET_KEY = " + DatasourcePrintableMap.PASSWORD_MASK));
+    }
+
+    @Test
+    public void testRegisterSensitiveKeyPrefixMasksTheKeysItCovers() {
+        // Simulates connector providers declaring pass-through namespaces at startup; the list is
+        // process-wide, hence prefixes no other test uses.
+        ConnectorSecuritySurface surface = ConnectorSecuritySurface
+                .ofSensitiveKeyPrefix("prefix_test_passthrough.", "Password", "token")
+                .withSensitiveKeyPrefix("prefix_test_all.");
+        surface.sensitiveKeyPrefixes().forEach(DatasourcePrintableMap::registerSensitiveKeyPrefix);
+
+        Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey("prefix_test_passthrough.connection-password"));
+        Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey("PREFIX_TEST_PASSTHROUGH.auth.TOKEN"));
+        Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey("prefix_test_passthrough.connection-url"));
+        // The global name rule also protects credential-like names outside provider namespaces.
+        Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey("other.prefix_test_passthrough.password"));
+        Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey("prefix_test_all.endpoint"));
+        Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey("prefix_test_al.endpoint"));
+
+        Map<String, String> testMap = new HashMap<>();
+        testMap.put("prefix_test_passthrough.connection-password", "super_secret_value");
+        testMap.put("prefix_test_passthrough.connection-url", "https://host.example.com");
+        String result = new DatasourcePrintableMap<>(testMap, "=", false, false, true).toString();
+        Assertions.assertFalse(result.contains("super_secret_value"), result);
+        Assertions.assertTrue(result.contains("prefix_test_passthrough.connection-url = https://host.example.com"), result);
     }
 }

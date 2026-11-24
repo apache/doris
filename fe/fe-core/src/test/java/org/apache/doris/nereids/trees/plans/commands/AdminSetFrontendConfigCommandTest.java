@@ -27,16 +27,77 @@ import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.VariableAnnotation;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.system.NodeType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
+    @Test
+    public void testForwardedRegexConfigPreservesMasking() throws Exception {
+        long originalMode = connectContext.getSessionVariable().getSqlMode();
+        String originalPattern = Config.datasource_sensitive_property_pattern;
+        try {
+            for (long mode : new long[] {SqlModeHelper.MODE_DEFAULT, SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES}) {
+                connectContext.getSessionVariable().setSqlMode(mode);
+                String inputPattern = mode == SqlModeHelper.MODE_DEFAULT
+                        ? "^custom[.]pin\\\\d+$" : "^custom[.]pin\\d+$";
+                String sql = "ADMIN SET ALL FRONTENDS CONFIG (\"datasource_sensitive_property_pattern\" = \""
+                        + inputPattern + "\")";
+                NereidsParser parser = new NereidsParser();
+                AdminSetFrontendConfigCommand local = (AdminSetFrontendConfigCommand) parser.parseSingle(sql);
+                Assertions.assertEquals("^custom[.]pin\\d+$",
+                        local.getConfigs().get("datasource_sensitive_property_pattern"));
+                Env.getCurrentEnv().setConfig(local, true);
+                Assertions.assertEquals(DatasourcePrintableMap.PASSWORD_MASK,
+                        DatasourcePrintableMap.redactProperty("custom.pin1", "fixture"));
+
+                AdminSetFrontendConfigCommand peer = (AdminSetFrontendConfigCommand) parser.parseSingle(
+                        local.getLocalSetStmt().originStmt);
+                Env.getCurrentEnv().setConfig(peer, true);
+                Assertions.assertEquals(DatasourcePrintableMap.PASSWORD_MASK,
+                        DatasourcePrintableMap.redactProperty("custom.pin1", "fixture"));
+                Assertions.assertEquals("fixture", DatasourcePrintableMap.redactProperty("custom.pind", "fixture"));
+                Assertions.assertEquals(local.getConfigs(), peer.getConfigs());
+                Assertions.assertTrue(peer.isApplyToAll());
+            }
+        } finally {
+            Config.datasource_sensitive_property_pattern = originalPattern;
+            connectContext.getSessionVariable().setSqlMode(originalMode);
+        }
+    }
+
+    @Test
+    public void testForwardedConfigStringLiteralsRoundTrip() {
+        long originalMode = connectContext.getSessionVariable().getSqlMode();
+        try {
+            for (long mode : new long[] {SqlModeHelper.MODE_DEFAULT, SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES}) {
+                connectContext.getSessionVariable().setSqlMode(mode);
+                for (boolean applyToAll : new boolean[] {false, true}) {
+                    for (String value : List.of("\\d+", "one\"two", "one'two", "quote\\\"and\\\\tail\\",
+                            "\\n\\t\\r\\b\\0\\Z", "\n\t\r\b\0\032", "percent%_\\%", "")) {
+                        AdminSetFrontendConfigCommand command = new AdminSetFrontendConfigCommand(NodeType.FRONTEND,
+                                Map.of("datasource_sensitive_property_pattern", value), applyToAll);
+                        AdminSetFrontendConfigCommand peer = (AdminSetFrontendConfigCommand) new NereidsParser()
+                                .parseSingle(command.getLocalSetStmt().originStmt);
+                        Assertions.assertEquals(command.getConfigs(), peer.getConfigs());
+                        Assertions.assertEquals(applyToAll, peer.isApplyToAll());
+                    }
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().setSqlMode(originalMode);
+        }
+    }
+
     @Test
     public void testNormal() throws Exception {
         String sql = "admin set frontend config(\"alter_table_timeout_second\" = \"60\");";

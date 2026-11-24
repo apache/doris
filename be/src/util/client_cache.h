@@ -31,6 +31,7 @@
 #include <mutex>
 #include <ostream>
 #include <string>
+#include <type_traits>
 #include <typeinfo>
 #include <unordered_map>
 
@@ -229,7 +230,9 @@ public:
                                              std::placeholders::_1, std::placeholders::_2);
     }
 
-    ClientCache(int max_cache_size) : _client_cache_helper(max_cache_size) {
+    ClientCache(int max_cache_size,
+                bool internal_rpc = !std::is_same_v<T, TPaloBrokerServiceClient>)
+            : _client_cache_helper(max_cache_size), _internal_rpc(internal_rpc) {
         _client_factory =
                 std::bind<ThriftClientImpl*>(std::mem_fn(&ClientCache::make_client), this,
                                              std::placeholders::_1, std::placeholders::_2);
@@ -255,6 +258,7 @@ private:
     // Function pointer, bound to make_client, which produces clients when the cache is empty
     using ClientFactory = ClientCacheHelper::ClientFactory;
     ClientFactory _client_factory;
+    const bool _internal_rpc = !std::is_same_v<T, TPaloBrokerServiceClient>;
 
     // Obtains a pointer to a Thrift interface object (of type T),
     // backed by a live transport which is already open. Returns
@@ -281,7 +285,7 @@ private:
     // Factory method to produce a new ThriftClient<T> for the wrapped cache
     ThriftClientImpl* make_client(const TNetworkAddress& hostport, void** client_key) {
         static ThriftServer::ServerType server_type = get_thrift_server_type();
-        Client* client = new Client(hostport.hostname, hostport.port, server_type);
+        auto* client = new Client(hostport.hostname, hostport.port, server_type, _internal_rpc);
         *client_key = reinterpret_cast<void*>(client->iface());
         return client;
     }

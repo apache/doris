@@ -51,6 +51,9 @@ suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
+
+// The default private RPC regression provisions its own TLS/plaintext clusters from these local packages.
+privateRpcTlsPackageHome = "${DORIS_HOME}"
 sslCertificatePath = "${DORIS_HOME}/regression-test/ssl_default_certificate"
 
 // suite configs
@@ -251,7 +254,12 @@ extArrowFlightHttpPort= 8030
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
 iceberg_scan_planning_rest_uri_port=18182
+// Avoid the hms_port suffix: shared CI rewrites it for the default Hive service.
+iceberg_encryption_metastore_port=18383
+iceberg_encryption_kms_port=18384
+iceberg_encryption_fixture_port=18385
 iceberg_minio_port=19001
+lance_rest_port=19102
 iceberg_rest_uri_port_s3=19181
 iceberg_rest_uri_port_oss=19182
 iceberg_rest_uri_port_cos=19183

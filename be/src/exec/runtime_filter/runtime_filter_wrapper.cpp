@@ -128,8 +128,7 @@ bool RuntimeFilterWrapper::build_bf_by_runtime_size() const {
 // Pre-existing size/complexity debt from the per-filter-type switch below, already over
 // threshold before this change; not addressed here to keep this diff focused.
 // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
-Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other,
-                                   bool other_exclusively_owned) {
+Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
     DORIS_CHECK(!_bucket_prune_hashes_started.load());
     if (_state == State::DISABLED) {
         return Status::OK();
@@ -193,14 +192,9 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other,
                     RETURN_IF_ERROR(_bloom_filter_func->init_with_fixed_length(0));
                     RETURN_IF_ERROR(_change_to_bloom_filter());
                 }
-            } else if (other_exclusively_owned) {
-                // `other` has no other reader, so its bf can be taken over directly instead of
-                // cloned before inserting the hybrid set data into it.
-                _bloom_filter_func = other->_bloom_filter_func;
-                RETURN_IF_ERROR(_change_to_bloom_filter());
             } else {
-                // case1&case2: use a copy of input bf and insert hybrid set data into it. `other`
-                // may still be used by its own consumers, so it must not be written.
+                // Use a private copy before adding this IN set; the input Bloom may still be
+                // read by its own consumers.
                 RETURN_IF_ERROR(other->_bloom_filter_func->clone(&_bloom_filter_func, true));
                 RETURN_IF_ERROR(_change_to_bloom_filter());
             }
@@ -237,7 +231,7 @@ Status RuntimeFilterWrapper::clone(std::shared_ptr<RuntimeFilterWrapper>* res) c
     if (_bloom_filter_func) {
         // An IN_OR_BLOOM filter which is still an IN filter never reads its bloom filter: a
         // later merge which changes the copy to a bloom filter either re-initializes the bloom
-        // filter or takes a copy of the input one first. So do not copy the unused bloom filter.
+        // filter or clones the input one first. So do not copy the unused bloom filter.
         RETURN_IF_ERROR(_bloom_filter_func->clone(
                 &cloned->_bloom_filter_func, get_real_type() == RuntimeFilterType::BLOOM_FILTER));
     }
@@ -561,8 +555,7 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         int64_t max_val = minmax_filter.max_val().longval();
         return _minmax_func->assign(&min_val, &max_val);
     }
-    case TYPE_DATETIME:
-    case TYPE_DATE: {
+    case TYPE_DATETIME: {
         const auto& min_val_ref = minmax_filter.min_val().stringval();
         const auto& max_val_ref = minmax_filter.max_val().stringval();
         VecDateTimeValue min_val;
@@ -571,6 +564,19 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
                 {min_val_ref.c_str(), min_val_ref.length()}, min_val, nullptr, params);
         CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                {max_val_ref.c_str(), max_val_ref.length()}, max_val, nullptr, params);
+        return _minmax_func->assign(&min_val, &max_val);
+    }
+    case TYPE_DATE: {
+        const auto& min_val_ref = minmax_filter.min_val().stringval();
+        const auto& max_val_ref = minmax_filter.max_val().stringval();
+        VecDateTimeValue min_val;
+        VecDateTimeValue max_val;
+        CastParameters params;
+        // Preserve the DATE tag so the consumer creates DATE literals for DATE scan predicates.
+        CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
+                {min_val_ref.c_str(), min_val_ref.length()}, min_val, nullptr, params);
+        CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
                 {max_val_ref.c_str(), max_val_ref.length()}, max_val, nullptr, params);
         return _minmax_func->assign(&min_val, &max_val);
     }

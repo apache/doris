@@ -179,7 +179,10 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.delete_handler = &_delete_handler;
     _reader_context.stats = &_stats;
     _reader_context.use_page_cache = read_params.use_page_cache;
-    _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
+    // A table with a sequence map needs every row of a key: each column group comes from the row
+    // with the largest sequence value of that group.
+    _reader_context.is_unique =
+            tablet()->keys_type() == UNIQUE_KEYS && !_tablet_schema->has_seq_map();
     _reader_context.merged_rows = &_merged_rows;
     _reader_context.delete_bitmap = read_params.delete_bitmap;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();

@@ -1,0 +1,20 @@
+# Lance connector plugin configuration.
+#
+# build.sh seeds lance.conf from this file on first deploy and never overwrites it, so an upgrade that
+# unzips a new plugin build over this directory keeps whatever you configured here.
+# This file must exist on EVERY FE node -- it is not replicated through Doris metadata.
+# Changes take effect after an FE restart.
+#
+# Every setting below is optional and falls back to the default named with it. fe.conf is not read for
+# them: before Lance became a connector plugin, the setting below was an fe.conf key of the same name,
+# and a value set there no longer takes effect -- move it here.
+
+# Java Arrow memory, in bytes, that one Lance catalog may use while it reads dataset metadata
+# (namespace listings, schemas, fragment lists). Must be positive. REFRESH CATALOG gives the catalog new
+# resources while the reads already running finish on the old ones, which keep their own limit in use
+# until the last of those reads ends; repeated refreshes during slow reads can keep several in use.
+# Each set of resources also holds a Lance Session, whose caches (up to 64 MiB of metadata and 128 MiB of
+# index metadata, outside the Java heap) are not counted. BE reads the data itself, so this does not bound
+# query execution.
+# Default: 268435456 (256 MiB)
+# lance_catalog_arrow_memory_limit_bytes=268435456
