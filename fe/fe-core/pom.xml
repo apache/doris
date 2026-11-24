@@ -100,6 +100,23 @@ under the License.
             </exclusions>
         </dependency>
         <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-iceberg-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Iceberg loads GCSFileIO by name, including inside serialized metadata scan tasks. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-gcp</artifactId>
+            <version>${iceberg.version}</version>
+        </dependency>
+        <!-- iceberg-gcp does not declare the Google storage/auth runtime closure. -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-storage</artifactId>
+            <version>${google-cloud-storage.version}</version>
+        </dependency>
+        <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-foundation</artifactId>
         </dependency>
