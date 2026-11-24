@@ -23,6 +23,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.spm.SPMOptimizer;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -49,7 +50,10 @@ import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,6 +62,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * rewrite CteAnchor consumer side and producer side recursively， all CteAnchor must at top of the plan
@@ -134,10 +139,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
     }
 
     private static Set<LogicalCTEConsumer> collectCteConsumers(Plan outer, CTEId cteId) {
-        // SPM needs a DETERMINISTIC consumer order: the plan digest (and with it the baseline
-        // identity) must not change between two runs of the same query, so the set is a
-        // LinkedHashSet - the traversal order of the plan decides it, not the hash of the nodes
-        Set<LogicalCTEConsumer> cteConsumers = Sets.newLinkedHashSet();
+        Set<LogicalCTEConsumer> cteConsumers = Sets.newHashSet();
         outer.foreach(p -> {
             if (p instanceof LogicalCTEConsumer) {
                 LogicalCTEConsumer logicalCTEConsumer = (LogicalCTEConsumer) p;
@@ -270,26 +272,32 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         Set<RelationId> consumerIds = cascadesContext.getCteIdToConsumers().get(cteId).stream()
                 .map(LogicalCTEConsumer::getRelationId)
                 .collect(Collectors.toSet());
-        List<Set<Expression>> filtersAboveEachConsumer = cascadesContext.getConsumerIdToFilters().entrySet().stream()
-                .filter(kv -> consumerIds.contains(kv.getKey()))
-                .map(Entry::getValue)
+        boolean capture = SPMOptimizer.isCapturePlanning();
+        Stream<Entry<RelationId, Set<Expression>>> consumerFilters =
+                cascadesContext.getConsumerIdToFilters().entrySet().stream()
+                        .filter(entry -> consumerIds.contains(entry.getKey()));
+        if (capture) {
+            // The first consumer determines which slot groups can be pushed to the producer.
+            consumerFilters = consumerFilters.sorted(Comparator.comparingInt(entry -> entry.getKey().asInt()));
+        }
+        List<Set<Expression>> filtersAboveEachConsumer = consumerFilters.map(Entry::getValue)
                 .collect(Collectors.toList());
         Set<Expression> someone = filtersAboveEachConsumer.stream().findFirst().orElse(null);
         if (someone == null) {
             return child;
         }
         int filterSize = cascadesContext.getCteIdToConsumers().get(cteId).size();
-        Set<Expression> conjuncts = Sets.newLinkedHashSet();
+        Set<Expression> conjuncts = new HashSet<>();
         for (Expression f : someone) {
             int matchCount = 0;
             Set<SlotReference> slots = f.collect(e -> e instanceof SlotReference);
-            Set<Expression> mightBeJoined = Sets.newLinkedHashSet();
+            Set<Expression> mightBeJoined = new HashSet<>();
             for (Set<Expression> another : filtersAboveEachConsumer) {
                 if (another.equals(someone)) {
                     matchCount++;
                     continue;
                 }
-                Set<Expression> matched = Sets.newLinkedHashSet();
+                Set<Expression> matched = new HashSet<>();
                 for (Expression e : another) {
                     Set<SlotReference> otherSlots = e.collect(ae -> ae instanceof SlotReference);
                     if (otherSlots.equals(slots)) {
@@ -303,18 +311,22 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             }
             if (matchCount >= filterSize) {
                 mightBeJoined.add(f);
-                conjuncts.add(ExpressionUtils.or(mightBeJoined));
+                conjuncts.add(ExpressionUtils.or(orderCaptureFilters(mightBeJoined, capture)));
             }
         }
         if (!conjuncts.isEmpty()) {
             // distinct conjuncts
             ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builderWithExpectedSize(conjuncts.size());
-            for (Expression conjunct : conjuncts) {
+            for (Expression conjunct : orderCaptureFilters(conjuncts, capture)) {
                 newConjuncts.addAll(ExpressionUtils.extractConjunction(conjunct));
             }
             LogicalPlan filter = new LogicalFilter<>(newConjuncts.build(), child);
             return pushPlanUnderAnchor(filter);
         }
         return child;
+    }
+
+    private static Collection<Expression> orderCaptureFilters(Set<Expression> filters, boolean capture) {
+        return capture ? filters.stream().sorted(Comparator.comparing(Expression::toSql)).toList() : filters;
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
+import org.apache.doris.nereids.spm.SPMOptimizer;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -70,7 +71,7 @@ public abstract class SplitAggBaseRule {
                 ));
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
                 .addAll(localAggGroupBySet)
-                .addAll(localAggFunctionToAlias.values())
+                .addAll(SPMOptimizer.orderCaptureOutputs(localAggFunctionToAlias.values()))
                 .build();
         List<Expression> localAggGroupBy = Utils.fastToImmutableList(localAggGroupBySet);
         boolean isGroupByEmptySelectEmpty = localAggGroupBy.isEmpty() && localAggOutput.isEmpty();

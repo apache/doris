@@ -69,9 +69,13 @@ public class SPMRound92GuardTest {
             "element_at(deduplicate_map(map('x', NULL)), 'x')",
             "element_at(array_agg(NULL), 1)",
             "element_at(collect_list(NULL), 1)",
-            "element_at(collect_set(NULL), 1)"
+            "element_at(collect_set(NULL), 1)",
+            "max_by(NULL, k)",
+            "min_by(NULL, k)",
+            "element_at(map_agg('x', NULL), 'x')",
+            "element_at(map_agg_v2('x', NULL), 'x')"
     })
-    public void testContainerProducerKeepsTheBooleanMarkerType(String operand) {
+    public void testBooleanOperandKeepsTheMarkerType(String operand) {
         String query = "SELECT k, k > 0 OR %s AS c FROM t";
         List<SpmConstVar> nullMarkers = markers(String.format(query, operand));
         List<SpmConstVar> valueMarkers = markers(String.format(query, operand.replace("NULL", "TRUE")));
@@ -85,6 +89,26 @@ public class SPMRound92GuardTest {
         Scope scope = new Scope(List.of(new SlotReference("k", IntegerType.INSTANCE)));
         Expression analyzed = new ExpressionAnalyzer(null, scope, null, true, true).analyze(parameterized);
         Assertions.assertEquals(nullMarkers.size(), analyzed.collect(expr -> expr instanceof SpmConstVar).size());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "ASSERT_ROWS (SELECT k FROM %s WHERE k > %d)",
+            "(SELECT k FROM %s WHERE k > %d /*+PREAGGOPEN*/)"
+    })
+    public void testWrappedInputsContributeToSpmDigestInJoinOrder(String wrappedQuery) {
+        String query = "SELECT a.k-b.k AS d FROM %s a CROSS JOIN %s b";
+        String left = String.format(wrappedQuery, "t", 0);
+        String right = String.format(wrappedQuery, "u", 0);
+        String leftVariant = String.format(wrappedQuery, "t", 1);
+        NereidsParser parser = new NereidsParser();
+        Plan original = parser.parseSingle(String.format(query, left, right));
+        Plan swapped = parser.parseSingle(String.format(query, right, left));
+        Plan literalVariant = parser.parseSingle(String.format(query, leftVariant, right));
+
+        Assertions.assertNotEquals(original.toSpmDigest(), swapped.toSpmDigest());
+        Assertions.assertEquals(original.toSpmDigest(), literalVariant.toSpmDigest());
+        Assertions.assertEquals(original.toDigest(), swapped.toDigest());
     }
 
     @ParameterizedTest

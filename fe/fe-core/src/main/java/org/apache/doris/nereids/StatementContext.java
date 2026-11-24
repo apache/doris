@@ -227,12 +227,12 @@ public class StatementContext implements Closeable {
     private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
     private final IdGenerator<TableId> talbeIdGenerator = TableId.createGenerator();
 
-    private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new LinkedHashMap<>();
-    private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new LinkedHashMap<>();
+    private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
+    private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
 
     private final Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer = new HashMap<>();
 
-    private final Map<RelationId, Set<Expression>> consumerIdToFilters = new LinkedHashMap<>();
+    private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
     private final Map<RelationId, Long> consumerIdToLimitRows = new HashMap<>();
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
@@ -1744,9 +1744,9 @@ public class StatementContext implements Closeable {
     }
 
     private static <K, V> Map<K, Set<V>> copyMapOfSets(Map<K, Set<V>> source) {
-        Map<K, Set<V>> copied = new LinkedHashMap<>();
+        Map<K, Set<V>> copied = new HashMap<>();
         for (Map.Entry<K, Set<V>> entry : source.entrySet()) {
-            copied.put(entry.getKey(), new LinkedHashSet<>(entry.getValue()));
+            copied.put(entry.getKey(), new HashSet<>(entry.getValue()));
         }
         return copied;
     }

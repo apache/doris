@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.ChildOutputPropertyDeriver;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.spm.SPMOptimizer;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -45,8 +46,7 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -89,8 +89,8 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
         // select sum(A+B), ...
         // "A+B" is a cse candidate
         // cseCandidates: A+B -> alias(A+B)
-        Map<Expression, Alias> cseCandidates = new LinkedHashMap<>();
-        Set<Slot> inputSlots = new LinkedHashSet<>();
+        Map<Expression, Alias> cseCandidates = new HashMap<>();
+        Set<Slot> inputSlots = new HashSet<>();
         List<Expression> allAggFunctionChildren = new ArrayList<>();
 
         for (Expression expr : aggregate.getExpressions()) {
@@ -124,7 +124,7 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
         // select sum(A+B),...
         // slotMap: A+B -> alias(A+B) to slot#3
         // sum(A+B) is replaced by sum(slot#3)
-        Map<Expression, Slot> slotMap = new LinkedHashMap<>();
+        Map<Expression, Slot> slotMap = new HashMap<>();
         for (Expression key : cseCandidates.keySet()) {
             slotMap.put(key, cseCandidates.get(key).toSlot());
         }
@@ -166,7 +166,7 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
                     newProjections.add(expr);
                 }
             }
-            newProjections.addAll(cseCandidates.values());
+            newProjections.addAll(SPMOptimizer.orderCaptureOutputs(cseCandidates.values()));
 
             project = project.withProjectionsAndChild(newProjections, project.child());
             PhysicalProperties projectPhysicalProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
@@ -203,11 +203,11 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
             }
             PhysicalDistribute<?> distribute = (PhysicalDistribute<?>) aggregate.child();
             List<NamedExpression> projections = new ArrayList<>();
-            projections.addAll(inputSlots);
-            projections.addAll(cseCandidates.values());
+            projections.addAll(SPMOptimizer.orderCaptureOutputs(inputSlots));
+            projections.addAll(SPMOptimizer.orderCaptureOutputs(cseCandidates.values()));
             List<Slot> projectOutput = new ImmutableList.Builder<Slot>()
-                    .addAll(inputSlots)
-                    .addAll(slotMap.values())
+                    .addAll(SPMOptimizer.orderCaptureOutputs(inputSlots))
+                    .addAll(SPMOptimizer.orderCaptureOutputs(slotMap.values()))
                     .build();
             LogicalProperties projectLogicalProperties = new LogicalProperties(
                     () -> projectOutput,
@@ -248,11 +248,11 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
                     .withChildren(newDistribute);
         } else {
             List<NamedExpression> projections = new ArrayList<>();
-            projections.addAll(inputSlots);
-            projections.addAll(cseCandidates.values());
+            projections.addAll(SPMOptimizer.orderCaptureOutputs(inputSlots));
+            projections.addAll(SPMOptimizer.orderCaptureOutputs(cseCandidates.values()));
             List<Slot> projectOutput = new ImmutableList.Builder<Slot>()
-                    .addAll(inputSlots)
-                    .addAll(slotMap.values())
+                    .addAll(SPMOptimizer.orderCaptureOutputs(inputSlots))
+                    .addAll(SPMOptimizer.orderCaptureOutputs(slotMap.values()))
                     .build();
             LogicalProperties projectLogicalProperties = new LogicalProperties(
                     () -> projectOutput,

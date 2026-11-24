@@ -388,7 +388,7 @@ public class OrToIn {
                     literal = (Literal) eq.left();
                 }
                 if (compareExpr != null) {
-                    Set<Literal> literals = Sets.newLinkedHashSet();
+                    Set<Literal> literals = Sets.newHashSet();
                     literals.add(literal);
                     addCandidate(candidates, conflicted, compareExpr, literals);
                 }

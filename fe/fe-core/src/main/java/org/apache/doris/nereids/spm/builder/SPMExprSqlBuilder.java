@@ -305,9 +305,11 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         //
         // CompoundPredicate is not a BinaryOperator (And/Or extend CompoundPredicate
         // directly), so resolve the symbol here instead of using operatorSymbol.
+        // Frozen SQL orders commutative operands independently of optimizer hash collections.
         String symbol = compoundPredicate instanceof And ? "AND" : "OR";
         String joined = ExpressionUtils.extract(compoundPredicate).stream()
                 .map(operand -> operand.accept(this, context))
+                .sorted()
                 .collect(Collectors.joining(" " + symbol + " "));
         // AND / OR need parentheses to keep the precedence
         return "(" + joined + ")";

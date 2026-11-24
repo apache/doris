@@ -73,6 +73,11 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
+    public String toDigest() {
+        return Plan.spmDigestMode() ? "ASSERT_ROWS (" + child().toDigest() + ")" : super.toDigest();
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

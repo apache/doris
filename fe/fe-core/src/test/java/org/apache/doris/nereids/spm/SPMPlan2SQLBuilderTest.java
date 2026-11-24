@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -50,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
@@ -245,6 +247,24 @@ public class SPMPlan2SQLBuilderTest {
         String sql = new SPMPlan2SQLBuilder().toSQL(project);
         // expected: SELECT a, b FROM (SELECT * FROM t1 WHERE (a > 100)) t_N
         Assertions.assertTrue(sql.contains("SELECT a, b FROM (SELECT * FROM t1 WHERE (a > CAST(100 AS INT)))"));
+    }
+
+    @Test
+    public void testFrozenFilterIgnoresConjunctAndDisjunctOrder() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(a, b));
+        Expression first = new EqualTo(a, SpmConstVar.of(1L, new IntegerLiteral(1)));
+        Expression second = new EqualTo(a, SpmConstVar.of(2L, new IntegerLiteral(2)));
+        Expression other = new GreaterThan(b, SpmConstVar.of(3L, new IntegerLiteral(3)));
+        PhysicalFilter original = mockFilter(new And(new Or(first, second), other), scan);
+        PhysicalFilter reordered = mockFilter(new And(other, new Or(second, first)), scan);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(original);
+        Assertions.assertEquals(sql, new SPMPlan2SQLBuilder().toSQL(reordered));
+        for (long id = 1; id <= 3; id++) {
+            Assertions.assertTrue(sql.contains("_spm_const_var(" + id + ")"));
+        }
     }
 
     @Test

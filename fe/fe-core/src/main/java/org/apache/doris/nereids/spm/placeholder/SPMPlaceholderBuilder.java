@@ -471,6 +471,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         String name = ((Function) expression).getName();
         return "min".equalsIgnoreCase(name) || "max".equalsIgnoreCase(name)
+                || "min_by".equalsIgnoreCase(name) || "max_by".equalsIgnoreCase(name)
                 || "first_value".equalsIgnoreCase(name) || "last_value".equalsIgnoreCase(name)
                 || "nth_value".equalsIgnoreCase(name) || "any_value".equalsIgnoreCase(name);
     }
@@ -568,7 +569,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         return isAllNullArray(expr) || isAllNullMap(expr);
     }
 
-    /** Follows a map's value type through constructors and type-preserving wrappers. */
+    /** Follows a map's value type through producers and type-preserving wrappers. */
     private static boolean isAllNullMap(Expression expr) {
         return allMapComponentsMatch(expr, false, SPMPlaceholderBuilder::producesNullType);
     }
@@ -590,7 +591,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (isTypePreservingMapCall(expr)) {
             return expr.arity() > 0 && allMapComponentsMatch(expr.child(0), key, predicate);
         }
-        if (!isMapConstructor(expr)) {
+        if (!isMapPairProducer(expr)) {
             return false;
         }
         List<Expression> pairs = expr.children();
@@ -810,17 +811,14 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         return "array_min".equalsIgnoreCase(name) || "array_max".equalsIgnoreCase(name);
     }
 
-    /**
-     * Whether the expression builds a MAP value (see isAllNullMap).
-     *
-     * Matched by NAME through Function, which covers both the unbound map(...) call and
-     * the bound CreateMap (its function name is map).
-     *
-     * Parameter expr: the expression to classify
-     * Returns: whether it is a map constructor
-     */
-    private static boolean isMapConstructor(Expression expr) {
-        return expr instanceof Function && "map".equalsIgnoreCase(((Function) expr).getName());
+    /** MAP and MAP_AGG derive key and value types from alternating key/value arguments. */
+    private static boolean isMapPairProducer(Expression expr) {
+        if (!(expr instanceof Function)) {
+            return false;
+        }
+        String name = ((Function) expr).getName();
+        return "map".equalsIgnoreCase(name) || "map_agg".equalsIgnoreCase(name)
+                || "map_agg_v2".equalsIgnoreCase(name);
     }
 
     /**
@@ -1120,7 +1118,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (containerElementDepth == 0) {
             return false;
         }
-        if (isMapConstructor(parent)) {
+        if (isMapPairProducer(parent)) {
             return (currentChildIndex() % 2 == 0) == (mapKeyDepth == 0);
         }
         if ((parent instanceof WhenClause || isIfConditional(parent) || isFirstArgumentTypedResult(parent))
@@ -1199,7 +1197,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (isElementAtCall(expression)) {
             return mapKeyDepth + 1;
         }
-        if (isMapConstructor(expression) || isArrayConstructor(expression) || isArrayMapCall(expression)
+        if (isMapPairProducer(expression) || isArrayConstructor(expression) || isArrayMapCall(expression)
                 || elementTypeArgumentIndex(expression) >= 0) {
             return Math.max(mapKeyDepth - 1, NO_MAP_KEY_DEPENDENCY);
         }

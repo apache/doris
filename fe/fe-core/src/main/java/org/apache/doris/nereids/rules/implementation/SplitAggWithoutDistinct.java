@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.spm.SPMOptimizer;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,7 +41,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -116,7 +117,7 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
             return ImmutableList.of();
         }
         AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
-        Map<AggregateFunction, Alias> aggFunctionToAlias = new LinkedHashMap<>();
+        Map<AggregateFunction, Alias> aggFunctionToAlias = new HashMap<>();
         for (Expression expr : aggregate.getOutputExpressions()) {
             expr.accept(new DefaultExpressionVisitor<Void, Map<String, String>>() {
                 @Override
@@ -139,7 +140,7 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
         }
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
                 .addAll((List) aggregate.getGroupByExpressions())
-                .addAll(aggFunctionToAlias.values())
+                .addAll(SPMOptimizer.orderCaptureOutputs(aggFunctionToAlias.values()))
                 .build();
 
         PhysicalHashAggregate<? extends Plan> localAgg = new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(),

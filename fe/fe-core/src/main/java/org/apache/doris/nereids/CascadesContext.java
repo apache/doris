@@ -70,7 +70,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -509,7 +509,7 @@ public class CascadesContext implements ScheduleContext {
 
     public void putCTEIdToConsumer(LogicalCTEConsumer cteConsumer) {
         Set<LogicalCTEConsumer> consumers = this.statementContext.getCteIdToConsumers()
-                .computeIfAbsent(cteConsumer.getCteId(), k -> new LinkedHashSet<>());
+                .computeIfAbsent(cteConsumer.getCteId(), k -> new HashSet<>());
         consumers.add(cteConsumer);
     }
 
@@ -518,7 +518,7 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public void putConsumerIdToFilter(RelationId id, Expression filter) {
-        Set<Expression> filters = this.getConsumerIdToFilters().computeIfAbsent(id, k -> new LinkedHashSet<>());
+        Set<Expression> filters = this.getConsumerIdToFilters().computeIfAbsent(id, k -> new HashSet<>());
         filters.add(filter);
     }
 

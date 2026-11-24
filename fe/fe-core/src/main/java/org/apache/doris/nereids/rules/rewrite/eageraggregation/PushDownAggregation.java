@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
+import org.apache.doris.nereids.spm.SPMOptimizer;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -115,12 +116,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             }
         }
 
-        // LinkedHashSet: the iteration order of this set becomes the function order of the
-        // pushed-down aggregate (via new ArrayList<>(aggFunctions) below). A plain
-        // HashSet iterates in hash-bucket order, which depends on per-JVM identity
-        // hashes (class object hashes) and made the produced plan - and therefore the
-        // decompiled baseline plan_sql - flip across FE restarts.
-        Set<AggregateFunction> aggFunctions = Sets.newLinkedHashSet();
+        Set<AggregateFunction> aggFunctions = Sets.newHashSet();
         boolean hasDecomposedAggIf = false;
         boolean containsNullToNonNull = false;
         Map<NamedExpression, List<AggregateFunction>> aggFunctionsForOutputExpressions = Maps.newHashMap();
@@ -194,7 +190,13 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         }
 
         groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
-        PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
+        // Carry the encounter order of the aggregate output expressions into frozen SQL.
+        List<AggregateFunction> pushDownFunctions = SPMOptimizer.isCapturePlanning() && !hasDistinctAgg
+                ? agg.getOutputExpressions().stream()
+                        .flatMap(output -> aggFunctionsForOutputExpressions.get(output).stream())
+                        .distinct().collect(Collectors.toList())
+                : new ArrayList<>(aggFunctions);
+        PushDownAggContext pushDownContext = new PushDownAggContext(pushDownFunctions,
                 groupKeys, null, context.getCascadesContext(), false, hasDecomposedAggIf, containsNullToNonNull,
                 new BilateralState());
         if (groupKeys.isEmpty() || !pushDownContext.isValid()) {
