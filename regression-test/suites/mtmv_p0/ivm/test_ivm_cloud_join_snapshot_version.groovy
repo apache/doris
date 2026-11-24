@@ -25,6 +25,8 @@ suite("test_ivm_cloud_join_snapshot_version", "nonConcurrent") {
     setFeConfigTemporary([cloud_enable_version_syncer: false]) {
         sql "SET enable_materialized_view_rewrite = false"
         sql "SET enable_dml_materialized_view_rewrite = false"
+        // Both stale-version probes must scan the left table instead of reusing an earlier result.
+        sql "SET enable_sql_cache = false"
 
         sql "DROP MATERIALIZED VIEW IF EXISTS ivm_cloud_join_snapshot_mv"
         sql "DROP TABLE IF EXISTS ivm_cloud_join_snapshot_left"
