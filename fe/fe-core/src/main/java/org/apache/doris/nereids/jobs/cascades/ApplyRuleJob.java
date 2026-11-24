@@ -22,7 +22,9 @@ import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.CopyInResult;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -61,6 +63,8 @@ public class ApplyRuleJob extends Job {
                 || groupExpression.isUnused()) {
             return;
         }
+        Memo memo = context.getCascadesContext().getMemo();
+        Group targetGroup = groupExpression.getOwnerGroup();
         List<DeriveStatsJob> deriveStatsJobs = Lists.newArrayList();
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
@@ -75,11 +79,14 @@ public class ApplyRuleJob extends Job {
                 if (newPlan == plan) {
                     continue;
                 }
-                CopyInResult result = context.getCascadesContext()
-                        .getMemo()
-                        .copyIn(newPlan, groupExpression.getOwnerGroup(), false,
-                                context.getCascadesContext().getStatementContext().isDpHyp());
+                CopyInResult result = memo.copyIn(newPlan, targetGroup, false,
+                        context.getCascadesContext().getStatementContext().isDpHyp());
                 if (!result.generateNewExpression) {
+                    // A successful merge can retire the running input. Keep its remaining cached
+                    // matches in the surviving group; a refused merge leaves the target registered.
+                    if (memo.getGroup(targetGroup.getGroupId()) == null) {
+                        targetGroup = result.correspondingExpression.getOwnerGroup();
+                    }
                     continue;
                 }
                 GroupExpression newGroupExpression = result.correspondingExpression;

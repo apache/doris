@@ -27,10 +27,13 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -41,12 +44,17 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.ArrayDeque;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 class MergeProjectsCBOTest {
     private final ConnectContext connectContext = MemoTestUtils.createConnectContext();
@@ -217,5 +225,93 @@ class MergeProjectsCBOTest {
             }
             MemoValidator.validate(memo);
         }
+    }
+
+    @Test
+    void testRetiredRunningInputKeepsRemainingMatchesInLiveGroup() {
+        SlotReference slot = (SlotReference) scan.getOutput().get(0);
+        List<NamedExpression> key = ImmutableList.of(slot);
+        // Reuse the constant's ExprId so E0 has the same output in every group.
+        List<NamedExpression> extra = ImmutableList.of(slot, new Alias(new TinyIntLiteral((byte) 0)));
+        CascadesContext cascades = MemoTestUtils.createCascadesContext(connectContext,
+                new LogicalProject<>(key, new LogicalProject<>(extra,
+                        new LogicalFilter<>(ImmutableSet.of(BooleanLiteral.TRUE), scan))));
+        Memo memo = cascades.getMemo();
+        Group root = memo.getRoot();
+        GroupExpression rootInput = root.getLogicalExpression();
+        Group a = rootInput.child(0);
+        Group filtered = a.getLogicalExpression().child(0);
+        Group leaf = filtered.getLogicalExpression().child(0);
+
+        Group e2 = addProject(memo, ImmutableList.of(slot, new Alias(new TinyIntLiteral((byte) 2))),
+                filtered, null).getOwnerGroup();
+        GroupExpression bFirst = addProject(memo, extra, e2, null);
+        Group b = bFirst.getOwnerGroup();
+        Group e6 = addProject(memo, ImmutableList.of(slot, new Alias(new TinyIntLiteral((byte) 6))),
+                leaf, null).getOwnerGroup();
+        GroupExpression bSecond = addProject(memo, extra, e6, b);
+        Group e3 = addProject(memo, ImmutableList.of(slot, new Alias(new TinyIntLiteral((byte) 3))),
+                filtered, null).getOwnerGroup();
+        GroupExpression c = addProject(memo, extra, e3, null);
+        GroupExpression q = addProject(memo, key, b, null);
+        Group r = addProject(memo, key, filtered, null).getOwnerGroup();
+        GroupExpression rInput = addProject(memo, key, c.getOwnerGroup(), r);
+        memo.copyIn(new LogicalFilter<>(ImmutableSet.of(BooleanLiteral.TRUE),
+                new GroupPlan(q.getOwnerGroup())), root, false);
+        memo.copyIn(new LogicalFilter<>(ImmutableSet.of(BooleanLiteral.TRUE), new GroupPlan(r)), root, false);
+
+        Rule rule = new MergeProjectsCBO().build();
+        new ApplyRuleJob(rootInput, rule, cascades.getCurrentJobContext()).execute();
+        new ApplyRuleJob(rInput, rule, cascades.getCurrentJobContext()).execute();
+        GroupExpression rIntermediate = r.getLogicalExpressions().stream()
+                .filter(expression -> expression.child(0) == e3).findFirst().orElseThrow();
+        new ApplyRuleJob(rIntermediate, rule, cascades.getCurrentJobContext()).execute();
+        new ApplyRuleJob(bFirst, rule, cascades.getCurrentJobContext()).execute();
+        new ApplyRuleJob(c, rule, cascades.getCurrentJobContext()).execute();
+        Assertions.assertSame(a, bSecond.getOwnerGroup());
+        Assertions.assertSame(a, rInput.child(0));
+        Assertions.assertTrue(rootInput.hasApplied(rule));
+        Assertions.assertTrue(rInput.hasApplied(rule));
+        // Introduce E0(L) after the rooted P(A) expressions have already run this rule.
+        new ApplyRuleJob(bSecond, rule, cascades.getCurrentJobContext()).execute();
+
+        // The first cached match merges Q into R and retires q. The last one produces P(L).
+        new ApplyRuleJob(q, rule, cascades.getCurrentJobContext()).execute();
+
+        Assertions.assertTrue(q.isUnused());
+        Assertions.assertNull(q.getOwnerGroup());
+        GroupExpression flat = memo.getGroupExpressions().values().stream()
+                .filter(expression -> expression.getPlan() instanceof LogicalProject
+                        && expression.arity() == 1 && expression.child(0) == leaf
+                        && ((LogicalProject<?>) expression.getPlan()).getProjects().equals(key))
+                .findFirst().orElseThrow();
+        Set<Group> reachable = new HashSet<>();
+        ArrayDeque<Group> pending = new ArrayDeque<>();
+        pending.add(memo.getRoot());
+        while (!pending.isEmpty()) {
+            Group group = pending.removeFirst();
+            if (reachable.add(group)) {
+                group.getLogicalExpressions().forEach(expression -> pending.addAll(expression.children()));
+            }
+        }
+        Assertions.assertTrue(reachable.contains(flat.getOwnerGroup()),
+                "The remaining P(L) match must participate in rooted costing");
+        Assertions.assertSame(r, flat.getOwnerGroup());
+        MemoValidator.validate(memo);
+
+        cascades.setJobContext(PhysicalProperties.GATHER);
+        memo.getRoot().getLogicalExpressions().forEach(expression -> cascades.pushJob(
+                new DeriveStatsJob(expression, cascades.getCurrentJobContext())));
+        cascades.getJobScheduler().executeJobPool(cascades);
+        cascades.pushJob(new OptimizeGroupJob(memo.getRoot(), cascades.getCurrentJobContext()));
+        cascades.getJobScheduler().executeJobPool(cascades);
+        Assertions.assertEquals(1, PlanChecker.from(cascades).getBestPlanTree()
+                .collect(plan -> plan instanceof PhysicalProject).size());
+        MemoValidator.validate(memo);
+    }
+
+    private static GroupExpression addProject(Memo memo, List<NamedExpression> projects, Group child, Group target) {
+        return memo.copyIn(new LogicalProject<>(projects, new GroupPlan(child)), target, false)
+                .correspondingExpression;
     }
 }
