@@ -54,7 +54,7 @@ class PrivateRpcTlsFixtureTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "requires local FE and BE packages"):
             package_root(self.root)
 
-    def test_disposable_backends_keep_packaged_sanitizer_suppressions(self):
+    def test_disposable_nodes_keep_configuration_scoped_to_their_roles(self):
         package = self.package(self.root / "package")
         configuration = package / "be/conf"
         configuration.mkdir()
@@ -64,10 +64,16 @@ class PrivateRpcTlsFixtureTest(unittest.TestCase):
         fixture = Fixture(package, self.root / "logs")
         try:
             fixture.prepare()
+            frontends = [node for _, role, node in fixture.nodes if role == "fe"]
+            self.assertEqual(2, len(frontends))
+            for node in frontends:
+                config = (node / "conf/fe.conf").read_text().splitlines()
+                self.assertIn("allow_empty_password_for_root_admin = true", config)
             backends = [node for _, role, node in fixture.nodes if role == "be"]
             self.assertEqual(3, len(backends))
             self.assertEqual(2, len(fixture.clusters["local"]["backends"]))
             for node in backends:
+                self.assertNotIn("allow_empty_password_for_root_admin", (node / "conf/be.conf").read_text())
                 for name in names:
                     self.assertEqual((configuration / name).read_bytes(),
                                      (node / "conf" / name).read_bytes())
