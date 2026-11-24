@@ -24,6 +24,7 @@
 #include <sstream>
 #include <unordered_set>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
@@ -38,12 +39,16 @@
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/clucene/delete_sign_rows_file.h"
 #include "storage/index/inverted/clucene/searcher_cache_value.h"
 #include "storage/index/inverted/clucene/spi/clucene_index_source.h"
 #include "storage/index/inverted/common/inverted_index_cache.h"
+#include "storage/index/inverted/common/norm_length_sums.h"
+#include "storage/index/inverted/common/recorded_delete_sign_rows.h"
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/query/exec/term_pattern.h"
 #include "storage/index/inverted/snii/reader/snii_index_source.h"
+#include "storage/index/inverted/snii/searcher_cache_value.h"
 #include "storage/index/inverted/snii/snii_doris_adapter.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
@@ -54,6 +59,7 @@
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/uid_util.h"
 
@@ -97,6 +103,88 @@ Result<std::shared_ptr<lucene::search::IndexSearcher>> open_optional_clucene_sta
     stream->setIoContext(nullptr);
     stream->setIndexFile(false);
     return std::make_shared<lucene::search::IndexSearcher>(reader, true);
+}
+
+Result<std::unique_ptr<::doris::snii::reader::LogicalIndexReader>> open_snii_stats_reader(
+        const segment_v2::IndexFileReader& file_reader, const TabletIndex* index,
+        const io::IOContext* io_ctx) {
+    auto logical_reader = file_reader.open_snii_index(index, io_ctx);
+    if (!logical_reader.has_value()) {
+        auto status = std::move(logical_reader.error());
+        if (status.code() == ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND ||
+            status.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
+            status.code() == ErrorCode::INVERTED_INDEX_BYPASS) {
+            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "SNII scoring requires every logical index in the collection: {}",
+                    status.msg()));
+        }
+        return ResultError(std::move(status));
+    }
+    return std::move(logical_reader.value());
+}
+
+// A segment's SNII logical index as the statistics read it, and the norm length sums kept with it.
+// Outside tests the reader is the one the query path caches in the searcher cache, so the sums
+// live and are evicted with it, and a query whose segments are cached opens no index.
+struct SniiStatsReader {
+#ifdef BE_TEST
+    std::unique_ptr<::doris::snii::reader::LogicalIndexReader> owned_reader;
+    segment_v2::NormLengthSums owned_norm_length_sums;
+    segment_v2::RecordedDeleteSignRows owned_delete_sign_rows;
+#else
+    InvertedIndexCacheHandle cache_handle;
+#endif
+    const ::doris::snii::reader::LogicalIndexReader* reader = nullptr;
+    segment_v2::NormLengthSums* norm_length_sums = nullptr;
+    segment_v2::RecordedDeleteSignRows* delete_sign_rows = nullptr;
+};
+
+Status open_snii_stats_reader(const std::shared_ptr<segment_v2::IndexFileReader>& file_reader,
+                              const TabletIndex* index, const io::IOContext* io_ctx,
+                              SniiStatsReader* out) {
+#ifdef BE_TEST
+    out->owned_reader = DORIS_TRY(open_snii_stats_reader(*file_reader, index, io_ctx));
+    out->reader = out->owned_reader.get();
+    out->norm_length_sums = &out->owned_norm_length_sums;
+    out->delete_sign_rows = &out->owned_delete_sign_rows;
+#else
+    InvertedIndexSearcherCache::CacheKey cache_key(file_reader->get_index_file_cache_key(index));
+    if (!InvertedIndexSearcherCache::instance()->lookup(cache_key, &out->cache_handle)) {
+        auto opened = DORIS_TRY(open_snii_stats_reader(*file_reader, index, io_ctx));
+        // As the query path does before it charges and shares the reader (SniiIndexReader): the
+        // queries that find this reader in the cache look their terms up through it, and a reader
+        // cached without the term lookup cache would serve every one of them without it.
+        opened->enable_term_lookup_cache();
+        const size_t reader_size = std::max<size_t>(opened->memory_usage(), 1);
+        auto* cache_value = new segment_v2::SniiLogicalReaderCacheValue(
+                std::move(opened), reader_size, UnixMillis(), file_reader);
+        InvertedIndexSearcherCache::instance()->insert(cache_key, cache_value, &out->cache_handle);
+    }
+    auto* cache_value = out->cache_handle.get<segment_v2::SniiLogicalReaderCacheValue>();
+    out->reader = cache_value->reader.get();
+    out->norm_length_sums = &cache_value->norm_length_sums;
+    out->delete_sign_rows = &cache_value->delete_sign_rows;
+#endif
+    DORIS_CHECK(out->reader != nullptr);
+    return Status::OK();
+}
+
+// The NULL rows of a SNII index, for exclude_hidden_docs. The memory tracker macros alone make up
+// its cognitive complexity.
+Status read_snii_null_docs( // NOLINT(readability-function-cognitive-complexity)
+        const ::doris::snii::reader::LogicalIndexReader& reader,
+        std::shared_ptr<const roaring::Roaring>* out) {
+    std::vector<uint32_t> null_doc_ids;
+    RETURN_IF_ERROR(reader.read_null_docids(&null_doc_ids));
+    // The SNII reader returns a plain vector; charge it while it lives.
+    const auto null_doc_id_bytes = static_cast<int64_t>(null_doc_ids.capacity() * sizeof(uint32_t));
+    CONSUME_THREAD_MEM_TRACKER(null_doc_id_bytes);
+    Defer release_null_doc_ids(
+            [null_doc_id_bytes] { RELEASE_THREAD_MEM_TRACKER(null_doc_id_bytes); });
+    auto null_docs = std::make_shared<roaring::Roaring>();
+    null_docs->addMany(null_doc_ids.size(), null_doc_ids.data());
+    *out = std::move(null_docs);
+    return Status::OK();
 }
 
 // Whether a SNII segment has no terms for this field: it indexed the field with BKD, see
@@ -218,21 +306,24 @@ Status sum_non_null_norm_lengths(index_query::IndexSource& source,
     return Status::OK();
 }
 
-Status exclude_hidden_docs(index_query::IndexSource& source, std::span<const uint32_t> hidden_docs,
-                           const roaring::Roaring& null_docs, uint64_t non_null_length_sum,
-                           index_query::IndexScoringStats* stats) {
-    return exclude_hidden_docs(
-            hidden_docs, null_docs, non_null_length_sum,
-            [&source](std::span<const uint32_t> docs, uint64_t* out) {
-                return source.sum_norm_lengths_of(docs, out);
-            },
-            stats);
+Status sum_hidden_non_null_norm_lengths(index_query::IndexSource& source,
+                                        std::span<const uint32_t> hidden_docs,
+                                        const roaring::Roaring& null_docs, uint64_t* out) {
+    // Most segments have no NULL rows, and then the hidden rows are summed as they are.
+    if (null_docs.isEmpty()) {
+        return source.sum_norm_lengths_of(hidden_docs, out);
+    }
+    DorisVector<uint32_t> hidden_non_null_docs;
+    std::ranges::copy_if(hidden_docs, std::back_inserter(hidden_non_null_docs),
+                         [&null_docs](uint32_t doc) { return !null_docs.contains(doc); });
+    return source.sum_norm_lengths_of(hidden_non_null_docs, out);
 }
 
-Status exclude_hidden_docs(std::span<const uint32_t> hidden_docs, const roaring::Roaring& null_docs,
-                           uint64_t non_null_length_sum,
-                           const SumNormLengthsOf& sum_norm_lengths_of,
+Status exclude_hidden_docs(index_query::IndexSource& source, const std::wstring& field,
+                           std::span<const uint32_t> hidden_docs,
+                           const ReadNullDocs& read_null_docs, segment_v2::NormLengthSums* sums,
                            index_query::IndexScoringStats* stats) {
+    DORIS_CHECK(sums != nullptr);
     DORIS_CHECK(stats != nullptr);
     if (!hidden_docs.empty() && hidden_docs.back() >= stats->doc_count) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
@@ -248,20 +339,40 @@ Status exclude_hidden_docs(std::span<const uint32_t> hidden_docs, const roaring:
     // The exact token count of the hidden rows is not stored anywhere, and norms hold lengths
     // only approximately, so count the lengths the norms of the returned rows stand for. A
     // replica that has compacted the hidden rows away counts the same rows with the same norms.
-    // Most segments have no NULL rows, and then the hidden rows are summed as they are.
-    DorisVector<uint32_t> hidden_non_null_docs;
-    std::span<const uint32_t> summed_docs = hidden_docs;
-    if (!null_docs.isEmpty()) {
-        std::ranges::copy_if(hidden_docs, std::back_inserter(hidden_non_null_docs),
-                             [&null_docs](uint32_t doc) { return !null_docs.contains(doc); });
-        summed_docs = hidden_non_null_docs;
+    // The sums are kept with the index, so a query whose sums are kept reads neither norms nor
+    // NULL rows; the NULL rows are read once at most, when a sum is not kept yet.
+    std::shared_ptr<const roaring::Roaring> null_docs;
+    auto ensure_null_docs = [&]() {
+        if (null_docs == nullptr) {
+            RETURN_IF_ERROR(read_null_docs(&null_docs));
+            DORIS_CHECK(null_docs != nullptr);
+        }
+        return Status::OK();
+    };
+    uint64_t non_null_length_sum = 0;
+    RETURN_IF_ERROR(sums->non_null_norm_length_sum(
+            field,
+            [&](uint64_t* out) {
+                RETURN_IF_ERROR(ensure_null_docs());
+                // Row ID lists are as large as the segment's NULL or hidden rows, so they are
+                // charged to the query's memory.
+                DorisVector<uint32_t> null_doc_ids(null_docs->cardinality());
+                null_docs->toUint32Array(null_doc_ids.data());
+                return sum_non_null_norm_lengths(source, null_doc_ids, out);
+            },
+            &non_null_length_sum));
+    uint64_t hidden_length_sum = 0;
+    if (!hidden_docs.empty()) {
+        RETURN_IF_ERROR(sums->hidden_norm_length_sum(
+                field, hidden_docs,
+                [&](uint64_t* out) {
+                    RETURN_IF_ERROR(ensure_null_docs());
+                    return sum_hidden_non_null_norm_lengths(source, hidden_docs, *null_docs, out);
+                },
+                &hidden_length_sum));
     }
-    uint64_t hidden_lengths = 0;
-    if (!summed_docs.empty()) {
-        RETURN_IF_ERROR(sum_norm_lengths_of(summed_docs, &hidden_lengths));
-    }
-    DORIS_CHECK(hidden_lengths <= non_null_length_sum);
-    stats->token_count = non_null_length_sum - hidden_lengths;
+    DORIS_CHECK(hidden_length_sum <= non_null_length_sum);
+    stats->token_count = non_null_length_sum - hidden_length_sum;
     return Status::OK();
 }
 
@@ -300,81 +411,99 @@ VisibleDocFreq cached_visible_doc_freq(index_query::IndexSource& source,
 
 namespace {
 
-// The rows of a segment that a scan with `hidden_rows` does not return, ascending.
+// Adds the rows of a segment written with the delete sign to `rows`, read from its delete-sign
+// column: for a segment none of whose indexes records them, as an older BE wrote it.
+Status read_delete_sign_column(const RowsetSharedPtr& rowset, const RowsetSegmentView& seg,
+                               const TabletSchema& tablet_schema, const MowHiddenRows& hidden_rows,
+                               const io::IOContext* io_ctx, roaring::Roaring* rows) {
+    // Lets a test tell the record of an index from this read, which gives the same statistics.
+    DBUG_EXECUTE_IF("CollectionStatistics.read_delete_sign_column", {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "debug point: BM25 statistics read the delete-sign column");
+    });
+    OlapReaderStatistics stats;
+    SegmentCacheHandle cache_handle;
+    // The delete sign is column data, read as the query reads its columns.
+    io::IOContext data_io_ctx;
+    if (io_ctx != nullptr) {
+        data_io_ctx = *io_ctx;
+    }
+    data_io_ctx.is_inverted_index = false;
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
+            std::static_pointer_cast<BetaRowset>(rowset), seg.ref(), &cache_handle,
+            hidden_rows.use_segment_cache, false, &stats, &data_io_ctx));
+    DORIS_CHECK(cache_handle.get_segments().size() == 1);
+    const auto& segment = cache_handle.get_segments()[0];
+    const TabletColumn& delete_sign = tablet_schema.column(tablet_schema.delete_sign_idx());
+
+    StorageReadOptions read_options(stats);
+    read_options.version = rowset->version();
+    read_options.io_ctx = data_io_ctx;
+    std::shared_ptr<segment_v2::ColumnReader> column_reader;
+    RETURN_IF_ERROR(
+            segment->get_column_reader_for_pruning(delete_sign, read_options, &column_reader));
+    if (column_reader->has_zone_map()) {
+        segment_v2::ZoneMap zone_map;
+        RETURN_IF_ERROR(column_reader->get_segment_zone_map(&zone_map));
+        // Any sign other than 0 deletes the row. Bounds the zone map cannot vouch for say
+        // nothing.
+        const bool may_hold_deletes =
+                zone_map.pass_all ||
+                (zone_map.has_not_null && (zone_map.min_value.get<TYPE_TINYINT>() != 0 ||
+                                           zone_map.max_value.get<TYPE_TINYINT>() != 0));
+        if (!may_hold_deletes) {
+            return Status::OK();
+        }
+    }
+    std::unique_ptr<segment_v2::ColumnIterator> iterator;
+    RETURN_IF_ERROR(segment->new_column_iterator(delete_sign, &iterator, &read_options));
+    segment_v2::ColumnIteratorOptions iterator_options {
+            .use_page_cache = hidden_rows.use_page_cache && !config::disable_storage_page_cache,
+            .file_reader = segment->file_reader().get(),
+            .stats = &stats,
+            .io_ctx = read_options.io_ctx,
+    };
+    RETURN_IF_ERROR(iterator->init(iterator_options));
+    RETURN_IF_ERROR(iterator->seek_to_ordinal(0));
+    auto data_type = DataTypeFactory::instance().create_data_type(delete_sign);
+    constexpr size_t kBatch = 4096;
+    for (uint32_t begin = 0; begin < segment->num_rows();) {
+        size_t batch_rows = std::min<size_t>(kBatch, segment->num_rows() - begin);
+        MutableColumnPtr column = data_type->create_column();
+        bool has_null = false;
+        RETURN_IF_ERROR(iterator->next_batch(&batch_rows, column, &has_null));
+        if (batch_rows == 0) {
+            return Status::Corruption("segment {} ended after {} of its {} rows", segment->id(),
+                                      begin, segment->num_rows());
+        }
+        const auto& signs = assert_cast<const ColumnInt8&>(*column).get_data();
+        for (size_t i = 0; i < batch_rows; ++i) {
+            if (signs[i] != 0) {
+                rows->add(begin + static_cast<uint32_t>(i));
+            }
+        }
+        begin += static_cast<uint32_t>(batch_rows);
+    }
+    return Status::OK();
+}
+
+// The rows of a segment that a scan with `hidden_rows` does not return, ascending: those the delete
+// bitmap marks, and those written with the delete sign, which a scan filters out by predicate
+// until base compaction removes them. `recorded_delete_sign_rows` are the latter when an index of
+// the segment records them; null makes them read from the delete-sign column.
 Status collect_hidden_docs(const RowsetSharedPtr& rowset, const RowsetSegmentView& seg,
                            const TabletSchema& tablet_schema, const MowHiddenRows& hidden_rows,
+                           const roaring::Roaring* recorded_delete_sign_rows,
                            const io::IOContext* io_ctx, DorisVector<uint32_t>* hidden_docs) {
     DORIS_CHECK(hidden_rows.delete_bitmap != nullptr);
     DORIS_CHECK(hidden_rows.version >= 0);
     roaring::Roaring hidden =
             *hidden_rows.delete_bitmap->get_agg(seg.delete_bitmap_key(hidden_rows.version));
-
-    // A row written with the delete sign stays readable until base compaction removes it, while
-    // queries filter it out by predicate.
-    if (tablet_schema.delete_sign_idx() >= 0) {
-        OlapReaderStatistics stats;
-        SegmentCacheHandle cache_handle;
-        // The delete sign is column data, read as the query reads its columns.
-        io::IOContext data_io_ctx;
-        if (io_ctx != nullptr) {
-            data_io_ctx = *io_ctx;
-        }
-        data_io_ctx.is_inverted_index = false;
-        RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
-                std::static_pointer_cast<BetaRowset>(rowset), seg.ref(), &cache_handle,
-                hidden_rows.use_segment_cache, false, &stats, &data_io_ctx));
-        DORIS_CHECK(cache_handle.get_segments().size() == 1);
-        const auto& segment = cache_handle.get_segments()[0];
-        const TabletColumn& delete_sign = tablet_schema.column(tablet_schema.delete_sign_idx());
-
-        StorageReadOptions read_options(stats);
-        read_options.version = rowset->version();
-        read_options.io_ctx = data_io_ctx;
-        std::shared_ptr<segment_v2::ColumnReader> column_reader;
+    if (recorded_delete_sign_rows != nullptr) {
+        hidden |= *recorded_delete_sign_rows;
+    } else if (tablet_schema.delete_sign_idx() >= 0) {
         RETURN_IF_ERROR(
-                segment->get_column_reader_for_pruning(delete_sign, read_options, &column_reader));
-        bool may_hold_deletes = true;
-        if (column_reader->has_zone_map()) {
-            segment_v2::ZoneMap zone_map;
-            RETURN_IF_ERROR(column_reader->get_segment_zone_map(&zone_map));
-            // Any sign other than 0 deletes the row. Bounds the zone map cannot vouch for say
-            // nothing.
-            may_hold_deletes = zone_map.pass_all || (zone_map.has_not_null &&
-                                                     (zone_map.min_value.get<TYPE_TINYINT>() != 0 ||
-                                                      zone_map.max_value.get<TYPE_TINYINT>() != 0));
-        }
-        if (may_hold_deletes) {
-            std::unique_ptr<segment_v2::ColumnIterator> iterator;
-            RETURN_IF_ERROR(segment->new_column_iterator(delete_sign, &iterator, &read_options));
-            segment_v2::ColumnIteratorOptions iterator_options {
-                    .use_page_cache =
-                            hidden_rows.use_page_cache && !config::disable_storage_page_cache,
-                    .file_reader = segment->file_reader().get(),
-                    .stats = &stats,
-                    .io_ctx = read_options.io_ctx,
-            };
-            RETURN_IF_ERROR(iterator->init(iterator_options));
-            RETURN_IF_ERROR(iterator->seek_to_ordinal(0));
-            auto data_type = DataTypeFactory::instance().create_data_type(delete_sign);
-            constexpr size_t kBatch = 4096;
-            for (uint32_t begin = 0; begin < segment->num_rows();) {
-                size_t rows = std::min<size_t>(kBatch, segment->num_rows() - begin);
-                MutableColumnPtr column = data_type->create_column();
-                bool has_null = false;
-                RETURN_IF_ERROR(iterator->next_batch(&rows, column, &has_null));
-                if (rows == 0) {
-                    return Status::Corruption("segment {} ended after {} of its {} rows",
-                                              segment->id(), begin, segment->num_rows());
-                }
-                const auto& signs = assert_cast<const ColumnInt8&>(*column).get_data();
-                for (size_t i = 0; i < rows; ++i) {
-                    if (signs[i] != 0) {
-                        hidden.add(begin + static_cast<uint32_t>(i));
-                    }
-                }
-                begin += static_cast<uint32_t>(rows);
-            }
-        }
+                read_delete_sign_column(rowset, seg, tablet_schema, hidden_rows, io_ctx, &hidden));
     }
 
     hidden_docs->resize(hidden.cardinality());
@@ -541,7 +670,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
     auto seg_path = DORIS_TRY(seg.path());
     auto rowset_meta = rowset->rowset_meta();
 
-    auto idx_file_reader = std::make_unique<IndexFileReader>(
+    auto idx_file_reader = std::make_shared<IndexFileReader>(
             rowset_meta->fs(),
             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
             tablet_schema->get_inverted_index_storage_format(), seg.inverted_index_file_info(),
@@ -559,13 +688,24 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         return init_status;
     }
 
-    // Row ID lists are as large as the segment's hidden or NULL rows, so they are charged to the
-    // query's memory.
+    // The rows the scan does not return, ascending, found for the first field that collects
+    // statistics here. Row ID lists are as large as the segment's hidden or NULL rows, so they are
+    // charged to the query's memory.
     DorisVector<uint32_t> hidden_docs;
-    if (hidden_rows != nullptr) {
-        RETURN_IF_ERROR(collect_hidden_docs(rowset, seg, *tablet_schema, *hidden_rows, io_ctx,
-                                            &hidden_docs));
-    }
+    bool hidden_docs_found = false;
+    // `recorded_delete_sign_rows` are the rows written with the delete sign that the field's index
+    // records, or null. Every index that records them records all of the segment's, so the first
+    // field's serve the others; when its index records none, as an older BE wrote it, the
+    // delete-sign column is read, once for the segment.
+    auto find_hidden_docs = [&](const roaring::Roaring* recorded_delete_sign_rows) -> Status {
+        DORIS_CHECK(hidden_rows != nullptr);
+        if (!hidden_docs_found) {
+            RETURN_IF_ERROR(collect_hidden_docs(rowset, seg, *tablet_schema, *hidden_rows,
+                                                recorded_delete_sign_rows, io_ctx, &hidden_docs));
+            hidden_docs_found = true;
+        }
+        return Status::OK();
+    };
 
     if (is_snii) {
         segment_v2::snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(io_ctx);
@@ -576,41 +716,28 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
             if (no_terms) {
                 continue;
             }
-            auto logical_reader_result =
-                    idx_file_reader->open_snii_index(collect_info.index_meta, io_ctx);
-            if (!logical_reader_result.has_value()) {
-                auto status = std::move(logical_reader_result.error());
-                if (status.code() == ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND ||
-                    status.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
-                    status.code() == ErrorCode::INVERTED_INDEX_BYPASS) {
-                    return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                            "SNII scoring requires every logical index in the collection: {}",
-                            status.msg());
-                }
-                return status;
-            }
-            auto logical_reader = std::move(logical_reader_result.value());
-            ::doris::snii::reader::SniiIndexSource source(*logical_reader);
+            SniiStatsReader stats_reader;
+            RETURN_IF_ERROR(open_snii_stats_reader(idx_file_reader, collect_info.index_meta, io_ctx,
+                                                   &stats_reader));
+            const auto& logical_reader = *stats_reader.reader;
+            ::doris::snii::reader::SniiIndexSource source(logical_reader);
             index_query::IndexScoringStats scoring_stats;
             RETURN_IF_ERROR(source.scoring_stats(&scoring_stats));
             if (hidden_rows != nullptr) {
-                roaring::Roaring null_docs;
-                uint64_t non_null_length_sum = 0;
-                if (scoring_stats.has_norms) {
-                    std::vector<uint32_t> null_doc_ids;
-                    RETURN_IF_ERROR(logical_reader->read_null_docids(&null_doc_ids));
-                    // The SNII reader returns a plain vector; charge it while it lives.
-                    const auto null_doc_id_bytes =
-                            static_cast<int64_t>(null_doc_ids.capacity() * sizeof(uint32_t));
-                    CONSUME_THREAD_MEM_TRACKER(null_doc_id_bytes);
-                    Defer release_null_doc_ids(
-                            [null_doc_id_bytes] { RELEASE_THREAD_MEM_TRACKER(null_doc_id_bytes); });
-                    null_docs.addMany(null_doc_ids.size(), null_doc_ids.data());
-                    RETURN_IF_ERROR(collection_statistics_detail::sum_non_null_norm_lengths(
-                            source, null_doc_ids, &non_null_length_sum));
-                }
+                std::shared_ptr<const roaring::Roaring> delete_sign_rows;
+                RETURN_IF_ERROR(stats_reader.delete_sign_rows->get(
+                        [&logical_reader](std::shared_ptr<const roaring::Roaring>* out) {
+                            return logical_reader.read_delete_sign_rows(out);
+                        },
+                        &delete_sign_rows));
+                RETURN_IF_ERROR(find_hidden_docs(delete_sign_rows.get()));
+                auto read_null_docs =
+                        [&logical_reader](std::shared_ptr<const roaring::Roaring>* out) {
+                            return read_snii_null_docs(logical_reader, out);
+                        };
                 RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_docs(
-                        source, hidden_docs, null_docs, non_null_length_sum, &scoring_stats));
+                        source, ws_field_name, hidden_docs, read_null_docs,
+                        stats_reader.norm_length_sums, &scoring_stats));
             }
             const uint64_t segment_doc_count = scoring_stats.doc_count;
             RETURN_IF_ERROR(admit_snii_scoring_segment(
@@ -702,45 +829,41 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         index_query::IndexScoringStats scoring_stats;
         RETURN_IF_ERROR(source->scoring_stats(&scoring_stats));
         if (hidden_rows != nullptr) {
-            std::shared_ptr<roaring::Roaring> null_docs = std::make_shared<roaring::Roaring>();
-            uint64_t non_null_length_sum = 0;
-            if (scoring_stats.has_norms) {
-                segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            auto read_null_docs = [&](std::shared_ptr<const roaring::Roaring>* out) {
                 RETURN_IF_ERROR(segment_v2::read_clucene_null_bitmap(
                         *idx_file_reader, *collect_info.index_meta, io_ctx,
                         &null_bitmap_cache_handle));
-                null_docs = null_bitmap_cache_handle.get_bitmap();
-                DORIS_CHECK(null_docs != nullptr);
-                auto sum_lengths = [&source, &null_docs](uint64_t* out) {
-                    DorisVector<uint32_t> null_doc_ids(null_docs->cardinality());
-                    null_docs->toUint32Array(null_doc_ids.data());
-                    return collection_statistics_detail::sum_non_null_norm_lengths(
-                            *source, null_doc_ids, out);
-                };
-#ifdef BE_TEST
-                RETURN_IF_ERROR(sum_lengths(&non_null_length_sum));
-#else
-                RETURN_IF_ERROR(inverted_index_cache_handle.get<CluceneSearcherCacheValue>()
-                                        ->non_null_norm_length_sum(ws_field_name, sum_lengths,
-                                                                   &non_null_length_sum));
-#endif
-            }
-            // The statistics keep no norms, so the lengths of a segment's hidden rows are summed
-            // once per set of hidden rows and kept with the searcher.
-            auto sum_hidden_lengths = [&](std::span<const uint32_t> docs, uint64_t* out) {
-                auto sum = [&source, docs](uint64_t* lengths) {
-                    return source->sum_norm_lengths_of(docs, lengths);
-                };
-#ifdef BE_TEST
-                return sum(out);
-#else
-                return inverted_index_cache_handle.get<CluceneSearcherCacheValue>()
-                        ->hidden_norm_length_sum(ws_field_name, docs, sum, out);
-#endif
+                *out = null_bitmap_cache_handle.get_bitmap();
+                return Status::OK();
             };
+            // The statistics keep no norms, so the norm length sums of a segment are summed once
+            // and kept with the searcher, as are the rows written with the delete sign.
+#ifdef BE_TEST
+            segment_v2::NormLengthSums norm_length_sums;
+            segment_v2::NormLengthSums* sums = &norm_length_sums;
+            segment_v2::RecordedDeleteSignRows recorded_delete_sign_rows;
+            segment_v2::RecordedDeleteSignRows* recorded = &recorded_delete_sign_rows;
+#else
+            auto* cache_value = inverted_index_cache_handle.get<CluceneSearcherCacheValue>();
+            segment_v2::NormLengthSums* sums = &cache_value->norm_length_sums;
+            segment_v2::RecordedDeleteSignRows* recorded = &cache_value->delete_sign_rows;
+#endif
+            std::shared_ptr<const roaring::Roaring> delete_sign_rows;
+            RETURN_IF_ERROR(recorded->get(
+                    [&](std::shared_ptr<const roaring::Roaring>* out) {
+                        // The rows are index meta, which the searcher's stream no longer reads
+                        // once the searcher is open, so they are read through a directory of
+                        // their own, as the null bitmap is.
+                        auto directory =
+                                DORIS_TRY(idx_file_reader->open(collect_info.index_meta, io_ctx));
+                        return segment_v2::read_clucene_delete_sign_rows(
+                                directory.get(), cast_set<uint32_t>(index_reader->maxDoc()), out);
+                    },
+                    &delete_sign_rows));
+            RETURN_IF_ERROR(find_hidden_docs(delete_sign_rows.get()));
             RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_docs(
-                    hidden_docs, *null_docs, non_null_length_sum, sum_hidden_lengths,
-                    &scoring_stats));
+                    *source, ws_field_name, hidden_docs, read_null_docs, sums, &scoring_stats));
         }
         total_segment_docs =
                 std::max(total_segment_docs, static_cast<int32_t>(scoring_stats.doc_count));

@@ -111,6 +111,9 @@ public:
         // One byte of BM25 norms per document; empty for keyword or positionless indexes.
         // If nonempty, its size must equal doc_count, and postings retain frequencies for scoring.
         std::vector<uint8_t> encoded_norms;
+        // Merge-on-write only: the docids written with the delete sign, which the terms leave out
+        // and the index records. Null when the index records none.
+        const roaring::Roaring* delete_sign_rows = nullptr;
     };
     Status add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
                           doris::snii::writer::TrackedNullDocids null_docids,
@@ -137,12 +140,15 @@ public:
             std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
             doris::snii::writer::SniiStreamedIndexSession** session);
     // Sessions with write_norms=true must supply norms through set_encoded_norms before finish.
-    // Compaction rebuilds them in the same pass that merges postings.
+    // Compaction rebuilds them in the same pass that merges postings. `delete_sign_rows` are the
+    // docids written with the delete sign that the index records, as SniiAddIndexOptions has
+    // them; null when it records none.
     Status add_snii_index_streamed(
             const TabletIndex* index_meta, uint32_t doc_count,
             doris::snii::writer::TrackedNullDocids null_docids, bool write_norms,
             doris::snii::format::IndexConfig index_config,
             std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
+            const roaring::Roaring* delete_sign_rows,
             doris::snii::writer::SniiStreamedIndexSession** session);
     // Registers one opaque BLOB logical index (a numeric BKD, an ANN graph, ...)
     // on this SNII compound. Unlike add_snii_index it feeds the writer no terms:

@@ -367,6 +367,7 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.doc_count = doc_count;
     input.encoded_norms = std::move(options.encoded_norms);
     input.gram_scheme = options.gram_scheme;
+    input.delete_sign_rows = options.delete_sign_rows;
     input.term_source = term_buffer;
     input.mem_reporter = mem_reporter;
     snii_resolve_index_write_params(options.is_direct_load, !input.encoded_norms.empty(), &input);
@@ -405,7 +406,7 @@ Status IndexFileWriter::add_snii_index_streamed(
         doris::snii::writer::SniiStreamedIndexSession** session) {
     return add_snii_index_streamed(index_meta, doc_count, std::move(null_docids),
                                    /*write_norms=*/false, index_config, std::move(mem_reporter),
-                                   session);
+                                   /*delete_sign_rows=*/nullptr, session);
 }
 
 Status IndexFileWriter::add_snii_index_streamed(
@@ -413,6 +414,7 @@ Status IndexFileWriter::add_snii_index_streamed(
         doris::snii::writer::TrackedNullDocids null_docids, bool write_norms,
         doris::snii::format::IndexConfig index_config,
         std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
+        const roaring::Roaring* delete_sign_rows,
         doris::snii::writer::SniiStreamedIndexSession** session) {
     DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
     DCHECK(index_meta != nullptr);
@@ -443,6 +445,7 @@ Status IndexFileWriter::add_snii_index_streamed(
     input.doc_count = doc_count;
     input.mem_reporter = mem_reporter.get();
     input.write_norms = write_norms;
+    input.delete_sign_rows = delete_sign_rows;
     // Merge output is always the settled-segment shape: COMPACTION prx level.
     snii_resolve_index_write_params(/*is_direct_load=*/false, write_norms, &input);
     if (mem_reporter != nullptr) {

@@ -37,6 +37,17 @@ namespace doris::snii::compaction {
 
 class TermMergeFrontier;
 
+// The docids written with the delete sign that each destination of a merge records: those the
+// sources record (SniiSectionRefsPB.delete_sign_rows), moved through `rowid_conversion`, less
+// the rows the merge drops, as base compaction drops these rows. Their terms were left out of
+// the sources, so the merge leaves them out too. nullopt when a source records none, as an older
+// BE wrote or merged it: its rows with the sign hold terms the merge carries, and which rows they
+// are is not known here, so the destinations record none and BM25 statistics read their
+// delete-sign column.
+Status merge_delete_sign_rows(const std::vector<const reader::LogicalIndexReader*>& source_indexes,
+                              const ValidatedRowIdConversion& rowid_conversion,
+                              std::optional<std::vector<roaring::Roaring>>* destination_rows);
+
 // Prepared, one-shot merge of one homogeneous SNII index across source segments.
 // prepare() performs metadata, row-id and NULL
 // preflight before the caller creates destination streamed sessions. execute()

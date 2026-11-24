@@ -25,7 +25,9 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -56,6 +58,8 @@
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/clucene/delete_sign_rows_file.h"
+#include "storage/index/inverted/clucene/inverted_index_compaction.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/index/inverted/snii/query/bm25_scorer.h"
@@ -520,11 +524,14 @@ public:
 
     // Writes `batches` of `rows`, each a (row_pos, num_rows) pair, through a column writer of
     // `column` that builds the index `index_meta`, as a segment writer does.
+    // `delete_sign_rows` are the rows a merge-on-write segment writer marks as written with the
+    // delete sign, or null.
     void write_through_column_writer(const TabletColumn& column, ColumnMetaPB meta,
                                      std::string_view rowset_id, const IColumn& rows,
                                      const std::vector<std::pair<size_t, size_t>>& batches,
                                      IndexFileWriter* index_file_writer,
-                                     const TabletIndex* index_meta) {
+                                     const TabletIndex* index_meta,
+                                     const roaring::Roaring* delete_sign_rows = nullptr) {
         io::FileWriterPtr data_file;
         ASSERT_TRUE(io::global_local_filesystem()
                             ->create_file(local_segment_path(kTestDir, rowset_id, 0), &data_file)
@@ -534,6 +541,7 @@ public:
         opts.need_inverted_index = true;
         opts.inverted_indexes = {index_meta};
         opts.index_file_writer = index_file_writer;
+        opts.delete_sign_rows = delete_sign_rows;
         std::unique_ptr<ColumnWriter> writer;
         ASSERT_TRUE(ColumnWriter::create(opts, &column, data_file.get(), &writer).ok());
         ASSERT_TRUE(writer->init().ok());
@@ -572,6 +580,148 @@ public:
             column->insert(Field::create_field<TYPE_ARRAY>(array));
         }
         return column;
+    }
+
+    // The rows written with the delete sign that the CLucene index at `index_path_prefix` records,
+    // or std::nullopt when it records none.
+    static std::optional<std::vector<uint32_t>> clucene_delete_sign_rows(
+            const std::string& index_path_prefix, const TabletIndex* index_meta) {
+        IndexFileReader reader(io::global_local_filesystem(), index_path_prefix,
+                               InvertedIndexStorageFormatPB::V2);
+        EXPECT_TRUE(reader.init().ok());
+        auto directory = reader.open(index_meta);
+        EXPECT_TRUE(directory.has_value()) << directory.error();
+        std::shared_ptr<const roaring::Roaring> rows;
+        const Status st = read_clucene_delete_sign_rows(
+                directory.value().get(), std::numeric_limits<uint32_t>::max(), &rows);
+        EXPECT_TRUE(st.ok()) << st;
+        if (rows == nullptr) {
+            return std::nullopt;
+        }
+        std::vector<uint32_t> listed(rows->cardinality());
+        rows->toUint32Array(listed.data());
+        return listed;
+    }
+
+    // A VARCHAR column for the keyword indexes of the delete-sign tests.
+    static TabletColumn delete_sign_varchar_column(bool nullable) {
+        TabletColumn column;
+        column.set_name("c_varchar");
+        column.set_unique_id(1);
+        column.set_type(FieldType::OLAP_FIELD_TYPE_VARCHAR);
+        column.set_length(16);
+        column.set_is_nullable(nullable);
+        return column;
+    }
+
+    // A CLucene keyword index of `values`, recording `marked` as the rows written with the
+    // delete sign unless it is null.
+    void write_clucene_values(const TabletColumn& column, const std::string& rowset_id,
+                              const std::vector<std::string>& values,
+                              const std::vector<uint32_t>* marked, TabletIndex* index_meta,
+                              std::string* index_path_prefix) {
+        roaring::Roaring delete_sign_rows;
+        if (marked != nullptr) {
+            delete_sign_rows.addMany(marked->size(), marked->data());
+        }
+        write_clucene_keyword_index(
+                column, rowset_id, 256,
+                [&](IndexFileWriter* index_file_writer) {
+                    std::unique_ptr<IndexColumnWriter> writer;
+                    ASSERT_TRUE(IndexColumnWriter::create(&column, &writer, index_file_writer,
+                                                          index_meta)
+                                        .ok());
+                    if (marked != nullptr) {
+                        writer->set_delete_sign_rows(&delete_sign_rows);
+                    }
+                    for (const auto& value : values) {
+                        const Slice slice(value);
+                        ASSERT_TRUE(writer->add_values(reinterpret_cast<const uint8_t*>(&slice), 1)
+                                            .ok());
+                    }
+                    ASSERT_TRUE(writer->finish().ok());
+                },
+                index_meta, index_path_prefix);
+    }
+
+    // What each merged segment's index records, or std::nullopt where it records none.
+    using RecordedPerSegment = std::vector<std::optional<std::vector<uint32_t>>>;
+
+    // Merges the delete-sign rows of the indexes at `source_prefixes`, a source of two rows and
+    // one of three, into the two segments of `rowset_id`, as index compaction does. The first
+    // source's rows go to the first merged segment; the second source's row 0 is dropped, and its
+    // rows 1 and 2 go to rows 2 of the first and 0 of the second.
+    RecordedPerSegment merge_clucene_delete_sign_rows(
+            const TabletIndex& index_meta, const std::string& rowset_id,
+            const std::vector<std::string>& source_prefixes) {
+        constexpr uint32_t kDropped = std::numeric_limits<uint32_t>::max();
+        const std::vector<std::vector<std::pair<uint32_t, uint32_t>>> trans_vec {
+                {{0, 0}, {0, 1}}, {{kDropped, kDropped}, {0, 2}, {1, 0}}};
+        std::vector<std::unique_ptr<IndexFileReader>> source_files;
+        std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> sources;
+        for (const auto& prefix : source_prefixes) {
+            source_files.push_back(std::make_unique<IndexFileReader>(
+                    io::global_local_filesystem(), prefix, InvertedIndexStorageFormatPB::V2));
+            EXPECT_TRUE(source_files.back()->init().ok());
+            auto directory = source_files.back()->open(&index_meta);
+            EXPECT_TRUE(directory.has_value()) << directory.error();
+            sources.push_back(std::move(directory.value()));
+        }
+        std::vector<std::string> merged_prefixes;
+        std::vector<std::unique_ptr<IndexFileWriter>> merged_files;
+        std::vector<std::shared_ptr<DorisFSDirectory>> merged_dirs;
+        std::vector<lucene::store::Directory*> dests;
+        for (int64_t segment = 0; segment < 2; ++segment) {
+            merged_prefixes.emplace_back(InvertedIndexDescriptor::get_index_file_path_prefix(
+                    local_segment_path(kTestDir, rowset_id, segment)));
+            io::FileWriterPtr compound_file;
+            EXPECT_TRUE(io::global_local_filesystem()
+                                ->create_file(InvertedIndexDescriptor::get_index_file_path_v2(
+                                                      merged_prefixes.back()),
+                                              &compound_file)
+                                .ok());
+            merged_files.push_back(std::make_unique<IndexFileWriter>(
+                    io::global_local_filesystem(), merged_prefixes.back(), rowset_id, segment,
+                    InvertedIndexStorageFormatPB::V2, std::move(compound_file)));
+            merged_dirs.push_back(merged_files.back()->open(&index_meta).value());
+            dests.push_back(merged_dirs.back().get());
+            // Stands in for the merged index the compaction writes before the rows, so the
+            // segment's index exists whether or not its rows are recorded.
+            lucene::store::IndexOutput* merged_index =
+                    dests.back()->createOutput("merged_index_stand_in");
+            merged_index->writeByte(0);
+            merged_index->close();
+            _CLDELETE(merged_index);
+        }
+        const Status st = merge_delete_sign_rows(sources, dests, trans_vec);
+        EXPECT_TRUE(st.ok()) << st;
+        RecordedPerSegment recorded;
+        for (size_t segment = 0; segment < merged_files.size(); ++segment) {
+            EXPECT_TRUE(merged_files[segment]->begin_close().ok());
+            EXPECT_TRUE(merged_files[segment]->finish_close().ok());
+            recorded.push_back(clucene_delete_sign_rows(merged_prefixes[segment], &index_meta));
+        }
+        return recorded;
+    }
+
+    // A SNII keyword index of "a", "b", "", "a" and a NULL, recording `marked` as the rows written
+    // with the delete sign unless it is null.
+    void write_snii_values_and_null(const std::string& rowset_id, const roaring::Roaring* marked,
+                                    std::unique_ptr<IndexFileReader>* file_reader,
+                                    std::unique_ptr<snii::reader::LogicalIndexReader>* logical) {
+        const std::vector<std::string> values {"a", "b", "", "a"};
+        write_snii_keyword_index(
+                delete_sign_varchar_column(/*nullable=*/true), rowset_id, 32,
+                [&](IndexColumnWriter* writer) {
+                    writer->set_delete_sign_rows(marked);
+                    for (const auto& value : values) {
+                        const Slice slice(value);
+                        ASSERT_TRUE(writer->add_values(reinterpret_cast<const uint8_t*>(&slice), 1)
+                                            .ok());
+                    }
+                    ASSERT_TRUE(writer->add_nulls(1).ok());
+                },
+                file_reader, logical);
     }
 
     // An ARRAY<VARCHAR> column whose items may be NULL.
@@ -2299,6 +2449,238 @@ TEST_F(InvertedIndexWriterTest, NormsFollowIndexNormsProperty) {
             << "the config must leave an ordinary column index alone";
 
     config::inverted_index_skip_norms_for_variant = original_skip_norms_for_variant;
+}
+
+// A CLucene record of the delete-sign rows reads back as written, an absent one as null, and one
+// with a row past its segment is corrupted rather than moved or counted past the segment's rows.
+TEST_F(InvertedIndexWriterTest, CluceneDeleteSignRowsPastTheSegmentAreCorrupted) {
+    auto* ram_dir = new lucene::store::RAMDirectory();
+    std::shared_ptr<const roaring::Roaring> rows;
+    ASSERT_TRUE(read_clucene_delete_sign_rows(ram_dir, 10, &rows).ok());
+    EXPECT_EQ(rows, nullptr);
+
+    ASSERT_TRUE(write_clucene_delete_sign_rows(ram_dir, roaring::Roaring {2, 9}).ok());
+    ASSERT_TRUE(read_clucene_delete_sign_rows(ram_dir, 10, &rows).ok());
+    ASSERT_NE(rows, nullptr);
+    EXPECT_EQ(*rows, (roaring::Roaring {2, 9}));
+
+    rows = nullptr;
+    const Status st = read_clucene_delete_sign_rows(ram_dir, 9, &rows);
+    EXPECT_TRUE(st.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << st;
+    EXPECT_EQ(rows, nullptr);
+
+    ram_dir->close();
+    _CLLDELETE(ram_dir);
+}
+
+// A merge-on-write segment writer marks the rows written with the delete sign: a text index gives
+// them no terms, NULL or not, and records them all, so BM25 statistics leave them out without
+// reading the delete-sign column. Batches split the rows as a segment writer's appends do.
+TEST_F(InvertedIndexWriterTest, ColumnWriterGivesDeleteSignRowsNoTermsAndRecordsThem) {
+    TabletColumn column;
+    column.set_name("c_char");
+    column.set_unique_id(1);
+    column.set_type(FieldType::OLAP_FIELD_TYPE_CHAR);
+    column.set_length(4);
+    column.set_is_nullable(true);
+    auto values = ColumnString::create();
+    for (const std::string value : {"ab", "cd", "ab", "", "efgh"}) {
+        values->insert_data(value.data(), value.size());
+    }
+    auto null_map = ColumnUInt8::create();
+    for (const uint8_t is_null : {0, 0, 0, 1, 0}) {
+        null_map->insert_value(is_null);
+    }
+    const auto rows = ColumnNullable::create(std::move(values), std::move(null_map));
+    roaring::Roaring delete_sign_rows;
+    delete_sign_rows.addMany(2, std::array<uint32_t, 2> {1, 3}.data());
+
+    using Terms = std::vector<std::pair<std::string, std::vector<int>>>;
+    auto write = [&](const std::string& rowset_id, const roaring::Roaring* marked) {
+        TabletIndex index_meta;
+        std::string index_path_prefix;
+        write_clucene_keyword_index(
+                column, rowset_id, 256,
+                [&](IndexFileWriter* index_file_writer) {
+                    write_through_column_writer(column, char_column_meta(0, 4), rowset_id, *rows,
+                                                {{0, 2}, {2, 3}}, index_file_writer, &index_meta,
+                                                marked);
+                },
+                &index_meta, &index_path_prefix);
+        return std::make_pair(
+                clucene_terms(index_path_prefix, InvertedIndexStorageFormatPB::V2, &index_meta),
+                clucene_delete_sign_rows(index_path_prefix, &index_meta));
+    };
+
+    const auto [terms, recorded] = write("clucene_delete_sign_rows", &delete_sign_rows);
+    EXPECT_EQ(terms, (Terms {{"ab", {0, 2}}, {"efgh", {4}}}));
+    EXPECT_EQ(recorded, (std::vector<uint32_t> {1, 3}));
+
+    // Without the marks, as on a table other than merge-on-write, the index records none.
+    const auto [unmarked_terms, unmarked_recorded] = write("clucene_no_delete_sign_rows", nullptr);
+    EXPECT_EQ(unmarked_terms, (Terms {{"ab", {0, 2}}, {"cd", {1}}, {"efgh", {4}}}));
+    EXPECT_EQ(unmarked_recorded, std::nullopt);
+}
+
+// A row written with the delete sign records no terms however many items its array holds, and
+// the index still records it when no row has the sign, so BM25 statistics need not read the
+// delete-sign column to learn there are none.
+TEST_F(InvertedIndexWriterTest, ArrayColumnWriterGivesDeleteSignRowsNoTerms) {
+    TabletColumn column;
+    column.set_name("c_array_char");
+    column.set_unique_id(1);
+    column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    column.set_is_nullable(false);
+    TabletColumn item_column;
+    item_column.set_name("item");
+    item_column.set_type(FieldType::OLAP_FIELD_TYPE_CHAR);
+    item_column.set_length(4);
+    item_column.set_is_nullable(true);
+    column.add_sub_column(item_column);
+    ColumnMetaPB meta;
+    meta.set_column_id(0);
+    meta.set_unique_id(1);
+    meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    meta.set_length(0);
+    meta.set_encoding(DEFAULT_ENCODING);
+    meta.set_compression(segment_v2::CompressionTypePB::LZ4F);
+    meta.set_is_nullable(false);
+    *meta.add_children_columns() = char_column_meta(1, 4);
+    const auto rows = string_array_column({{"x"}, {"ab", "cd"}, {"ab", "x"}});
+
+    using Terms = std::vector<std::pair<std::string, std::vector<int>>>;
+    auto write = [&](const std::string& rowset_id, const roaring::Roaring& marked) {
+        TabletIndex index_meta;
+        std::string index_path_prefix;
+        write_clucene_keyword_index(
+                column, rowset_id, 256,
+                [&](IndexFileWriter* index_file_writer) {
+                    write_through_column_writer(column, meta, rowset_id, *rows, {{0, 1}, {1, 2}},
+                                                index_file_writer, &index_meta, &marked);
+                },
+                &index_meta, &index_path_prefix);
+        return std::make_pair(
+                clucene_terms(index_path_prefix, InvertedIndexStorageFormatPB::V2, &index_meta),
+                clucene_delete_sign_rows(index_path_prefix, &index_meta));
+    };
+
+    roaring::Roaring delete_sign_rows;
+    delete_sign_rows.add(1);
+    const auto [terms, recorded] = write("clucene_array_delete_sign_rows", delete_sign_rows);
+    EXPECT_EQ(terms, (Terms {{"ab", {2}}, {"x", {0, 2}}}));
+    EXPECT_EQ(recorded, (std::vector<uint32_t> {1}));
+
+    const auto [all_terms, none_recorded] =
+            write("clucene_array_no_delete_sign_row", roaring::Roaring());
+    EXPECT_EQ(all_terms, (Terms {{"ab", {1, 2}}, {"cd", {1}}, {"x", {0, 2}}}));
+    EXPECT_EQ(none_recorded, (std::vector<uint32_t> {}));
+}
+
+// Index compaction merges the indexes of a column without rewriting their rows. It moves the rows
+// written with the delete sign that the sources record to the rows they become, drops those the
+// compaction drops, as base compaction drops these rows, and records nothing when a source, which
+// an older BE wrote, records none: its rows with the sign hold terms, and which they are is not
+// known here.
+TEST_F(InvertedIndexWriterTest, IndexCompactionMovesDeleteSignRowsToTheirMergedRows) {
+    const TabletColumn column = delete_sign_varchar_column(/*nullable=*/false);
+    const std::vector<uint32_t> first_marked {1};
+    const std::vector<uint32_t> second_marked {0, 2};
+    TabletIndex index_meta;
+    std::string first_prefix;
+    std::string second_prefix;
+    write_clucene_values(column, "compaction_source_0", {"a", "b"}, &first_marked, &index_meta,
+                         &first_prefix);
+    write_clucene_values(column, "compaction_source_1", {"c", "d", "e"}, &second_marked,
+                         &index_meta, &second_prefix);
+
+    EXPECT_EQ(merge_clucene_delete_sign_rows(index_meta, "compaction_merged",
+                                             {first_prefix, second_prefix}),
+              (RecordedPerSegment {std::vector<uint32_t> {1}, std::vector<uint32_t> {0}}));
+}
+
+TEST_F(InvertedIndexWriterTest, IndexCompactionRecordsNoDeleteSignRowsWhenASourceRecordsNone) {
+    const TabletColumn column = delete_sign_varchar_column(/*nullable=*/false);
+    const std::vector<uint32_t> first_marked {1};
+    TabletIndex index_meta;
+    std::string first_prefix;
+    std::string unmarked_prefix;
+    write_clucene_values(column, "compaction_source_0", {"a", "b"}, &first_marked, &index_meta,
+                         &first_prefix);
+    write_clucene_values(column, "compaction_source_2", {"f", "g", "h"}, nullptr, &index_meta,
+                         &unmarked_prefix);
+
+    EXPECT_EQ(merge_clucene_delete_sign_rows(index_meta, "compaction_merged_with_unmarked",
+                                             {first_prefix, unmarked_prefix}),
+              (RecordedPerSegment {std::nullopt, std::nullopt}));
+}
+
+// SNII gives the rows written with the delete sign no terms either. On a keyword index an empty
+// value is a term, so a marked row is not read as an empty value. The rows are recorded in a
+// section of their own, and an index without marks has none.
+TEST_F(InvertedIndexWriterTest, SniiGivesDeleteSignRowsNoTermsAndRecordsThem) {
+    roaring::Roaring delete_sign_rows;
+    delete_sign_rows.addMany(3, std::array<uint32_t, 3> {1, 2, 4}.data());
+    std::unique_ptr<IndexFileReader> file_reader;
+    std::unique_ptr<snii::reader::LogicalIndexReader> logical;
+    write_snii_values_and_null("snii_delete_sign_rows", &delete_sign_rows, &file_reader, &logical);
+    std::vector<uint32_t> docids;
+    ASSERT_TRUE(snii::query::term_query(*logical, "a", &docids).ok());
+    EXPECT_EQ(docids, (std::vector<uint32_t> {0, 3}));
+    ASSERT_TRUE(snii::query::term_query(*logical, "b", &docids).ok());
+    EXPECT_TRUE(docids.empty());
+    ASSERT_TRUE(snii::query::term_query(*logical, "", &docids).ok());
+    EXPECT_TRUE(docids.empty());
+    // A marked row is a document all the same, and a marked NULL row is still NULL.
+    EXPECT_EQ(logical->stats().doc_count, 5);
+    EXPECT_EQ(logical->stats().null_count, 1);
+    std::shared_ptr<const roaring::Roaring> recorded;
+    ASSERT_TRUE(logical->read_delete_sign_rows(&recorded).ok());
+    ASSERT_NE(recorded, nullptr);
+    EXPECT_EQ(*recorded, delete_sign_rows);
+}
+
+TEST_F(InvertedIndexWriterTest, SniiRecordsNoDeleteSignRowsWithoutMarks) {
+    std::unique_ptr<IndexFileReader> file_reader;
+    std::unique_ptr<snii::reader::LogicalIndexReader> unmarked;
+    write_snii_values_and_null("snii_no_delete_sign_rows", nullptr, &file_reader, &unmarked);
+    std::vector<uint32_t> docids;
+    ASSERT_TRUE(snii::query::term_query(*unmarked, "b", &docids).ok());
+    EXPECT_EQ(docids, (std::vector<uint32_t> {1}));
+    std::shared_ptr<const roaring::Roaring> recorded;
+    ASSERT_TRUE(unmarked->read_delete_sign_rows(&recorded).ok());
+    EXPECT_EQ(recorded, nullptr);
+}
+
+TEST_F(InvertedIndexWriterTest, SniiArrayGivesDeleteSignRowsNoTerms) {
+    const auto column = string_array_column({{"x"}, {"y", "z"}, {"y"}});
+    const auto& col_array = assert_cast<const ColumnArray&>(*column);
+    auto offsets = ColumnOffset64::create();
+    rebase_offsets(col_array.get_offsets(), 0, 3, 0, offsets.get());
+    roaring::Roaring delete_sign_rows;
+    delete_sign_rows.add(1);
+
+    std::unique_ptr<IndexFileReader> file_reader;
+    std::unique_ptr<snii::reader::LogicalIndexReader> logical;
+    write_snii_keyword_index(
+            string_array_tablet_column(), "snii_array_delete_sign_rows", 32,
+            [&](IndexColumnWriter* writer) {
+                writer->set_delete_sign_rows(&delete_sign_rows);
+                StorageBuffers buffer;
+                ASSERT_TRUE(feed_array_index(writer, FieldType::OLAP_FIELD_TYPE_VARCHAR,
+                                             col_array.get_data(), 0, *offsets, nullptr, buffer)
+                                    .ok());
+            },
+            &file_reader, &logical);
+
+    std::vector<uint32_t> docids;
+    ASSERT_TRUE(snii::query::term_query(*logical, "y", &docids).ok());
+    EXPECT_EQ(docids, (std::vector<uint32_t> {2}));
+    ASSERT_TRUE(snii::query::term_query(*logical, "z", &docids).ok());
+    EXPECT_TRUE(docids.empty());
+    std::shared_ptr<const roaring::Roaring> recorded;
+    ASSERT_TRUE(logical->read_delete_sign_rows(&recorded).ok());
+    ASSERT_NE(recorded, nullptr);
+    EXPECT_EQ(*recorded, delete_sign_rows);
 }
 
 } // namespace doris::segment_v2

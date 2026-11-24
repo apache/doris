@@ -1454,6 +1454,15 @@ Status Compaction::do_inverted_index_compaction() {
                     }
                 }
 
+                // Read before prepare() takes the sources.
+                std::optional<std::vector<roaring::Roaring>> destination_delete_sign_rows;
+                if (merge_status.ok()) {
+                    DORIS_CHECK(validated_snii_rowid_conversion != nullptr);
+                    merge_status = snii::compaction::merge_delete_sign_rows(
+                            plan_sources, *validated_snii_rowid_conversion,
+                            &destination_delete_sign_rows);
+                }
+
                 std::unique_ptr<snii::compaction::SniiPlainT2MergePlan> merge_plan;
                 if (merge_status.ok()) {
                     DORIS_CHECK(validated_snii_rowid_conversion != nullptr);
@@ -1483,6 +1492,9 @@ Status Compaction::do_inverted_index_compaction() {
                                 merge_plan->take_destination_null_docids(destination_ordinal),
                                 merge_plan->destination_writes_norms(),
                                 merge_plan->destination_index_config(), snii_merge_memory_reporter,
+                                destination_delete_sign_rows.has_value()
+                                        ? &(*destination_delete_sign_rows)[destination_ordinal]
+                                        : nullptr,
                                 &destination_sessions[destination_ordinal]);
                         if (!merge_status.ok()) {
                             break;

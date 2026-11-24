@@ -65,6 +65,7 @@ public:
     // Marks docid as NULL (adding the same docid twice is idempotent).
     void add_null(uint32_t docid);
     void add_many(std::span<const uint32_t> docids);
+    void add_bitmap(const roaring::Roaring& docids);
 
     // Number of distinct null docids accumulated so far.
     uint32_t null_count() const;

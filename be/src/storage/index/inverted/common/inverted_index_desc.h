@@ -56,6 +56,9 @@ public:
     static std::string get_index_file_name_v2(const std::string& rowset_id, int64_t seg_id);
 
     static const char* get_temporary_null_bitmap_file_name() { return "null_bitmap"; }
+    // The rows written with the delete sign that a merge-on-write text index gives no terms, see
+    // delete_sign_rows_file.h. Absent from other indexes and from those an older BE wrote.
+    static const char* get_delete_sign_rows_file_name() { return "delete_sign_rows"; }
     static const char* get_temporary_bkd_index_data_file_name() { return "bkd"; }
     static const char* get_temporary_bkd_index_meta_file_name() { return "bkd_meta"; }
     static const char* get_temporary_bkd_index_file_name() { return "bkd_index"; }

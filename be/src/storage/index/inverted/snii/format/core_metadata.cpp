@@ -149,6 +149,12 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
     }
     RETURN_IF_ERROR(decode_region_ref(refs.null_bitmap(), &out->section_refs.null_bitmap));
     RETURN_IF_ERROR(decode_region_ref(refs.bsbf(), &out->section_refs.bsbf));
+    if (refs.has_delete_sign_rows()) {
+        RETURN_IF_ERROR(
+                decode_region_ref(refs.delete_sign_rows(), &out->section_refs.delete_sign_rows));
+    } else {
+        out->section_refs.delete_sign_rows = {};
+    }
 
     // Tombstones for the removed CommonGrams feature. Fields 4/5 identify segments written with
     // a CommonGrams analyzer (gram terms, escaped keys, or mixed posting policies). Their term
@@ -217,6 +223,11 @@ Status encode_core_metadata(const CoreMetadata& metadata, ByteSink* out) {
     }
     encode_region_ref(metadata.section_refs.null_bitmap, refs->mutable_null_bitmap());
     encode_region_ref(metadata.section_refs.bsbf, refs->mutable_bsbf());
+    // Field 6 only where the index records rows written with the delete sign, so other indexes
+    // keep their bytes. A recorded empty set still frames a few bytes, so its length is nonzero.
+    if (metadata.section_refs.delete_sign_rows.length != 0) {
+        encode_region_ref(metadata.section_refs.delete_sign_rows, refs->mutable_delete_sign_rows());
+    }
     if (metadata.gram_scheme.has_value()) {
         core_metadata_detail::encode_gram_scheme(*metadata.gram_scheme, core.mutable_gram_scheme());
     }

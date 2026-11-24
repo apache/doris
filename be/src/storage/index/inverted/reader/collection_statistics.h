@@ -48,6 +48,10 @@ class IndexSource;
 struct IndexScoringStats;
 } // namespace index_query
 
+namespace segment_v2 {
+class NormLengthSums;
+} // namespace segment_v2
+
 namespace io {
 class FileSystem;
 using FileSystemSPtr = std::shared_ptr<FileSystem>;
@@ -70,9 +74,14 @@ using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 // not return: rows a later load overwrote or deleted, which the delete bitmap marks, and rows
 // written with the delete sign, which queries filter out. Compaction removes both, on each
 // replica at its own time, so statistics counting them would differ between the replicas of a
-// tablet, and so would every BM25 score. Rows written with the delete sign are left out even when
-// the query returns them (`skip_delete_sign`, `show_hidden_columns`), and rows deleted by a delete
-// predicate (`enable_mow_light_delete`) are still counted, as the delete bitmap does not mark them.
+// tablet, and so would every BM25 score. Rows deleted by a delete predicate
+// (`enable_mow_light_delete`) are still counted, as the delete bitmap does not mark them.
+//
+// A text index this BE writes gives the rows written with the delete sign no terms and records them
+// (IndexColumnWriter::set_delete_sign_rows). The statistics read those rows from the index, and
+// from the delete-sign column only for a segment none of whose indexes records them, as an older
+// BE wrote it. A query that sets `skip_delete_sign` or `show_hidden_columns` returns these rows,
+// which match nothing on an index that records them, and its statistics leave them out as well.
 //
 // The cache flags carry the query's choices to the segment and column reads of the delete sign;
 // the file cache choices come with the I/O context.
@@ -257,21 +266,24 @@ void add_term_doc_frequency(
 Status sum_non_null_norm_lengths(index_query::IndexSource& source,
                                  std::span<const uint32_t> null_docs, uint64_t* out);
 
-// Turns a segment's scoring statistics into those of its documents other than the ascending
-// `hidden_docs`: their count, and the sum of the lengths the norms of the non-NULL ones stand
-// for, or their count when the index has no norms. `non_null_length_sum` is the segment's
-// sum_non_null_norm_lengths(), and `null_docs` its NULL rows; both are unused without norms.
-Status exclude_hidden_docs(index_query::IndexSource& source, std::span<const uint32_t> hidden_docs,
-                           const roaring::Roaring& null_docs, uint64_t non_null_length_sum,
-                           index_query::IndexScoringStats* stats);
+// The sum of the lengths the norms of the ascending `hidden_docs` stand for, leaving out those in
+// `null_docs`, which hold no tokens.
+Status sum_hidden_non_null_norm_lengths(index_query::IndexSource& source,
+                                        std::span<const uint32_t> hidden_docs,
+                                        const roaring::Roaring& null_docs, uint64_t* out);
 
-// Sums the lengths the norms of ascending rows of a segment's index stand for.
-using SumNormLengthsOf = std::function<Status(std::span<const uint32_t> docs, uint64_t* out)>;
+// The NULL rows of a segment's index.
+using ReadNullDocs = std::function<Status(std::shared_ptr<const roaring::Roaring>* out)>;
 
-// exclude_hidden_docs, the lengths of the hidden non-NULL rows summed by `sum_norm_lengths_of`.
-Status exclude_hidden_docs(std::span<const uint32_t> hidden_docs, const roaring::Roaring& null_docs,
-                           uint64_t non_null_length_sum,
-                           const SumNormLengthsOf& sum_norm_lengths_of,
+// Turns a segment's scoring statistics of the index field `field` into those of its documents
+// other than the ascending `hidden_docs`: their count, and the sum of the lengths the norms of the
+// non-NULL ones stand for, or their count when the index has no norms. The sums of the lengths of
+// the non-NULL rows and of the hidden non-NULL rows come from `sums`, which keeps them with the
+// index: only when it does not hold them yet are they summed from `source`'s norms and the NULL
+// rows `read_null_docs` reads.
+Status exclude_hidden_docs(index_query::IndexSource& source, const std::wstring& field,
+                           std::span<const uint32_t> hidden_docs,
+                           const ReadNullDocs& read_null_docs, segment_v2::NormLengthSums* sums,
                            index_query::IndexScoringStats* stats);
 
 // The terms whose document frequencies a segment adds for `collect_info`: its scoring terms, then

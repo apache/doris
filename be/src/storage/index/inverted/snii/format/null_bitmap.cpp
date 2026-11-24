@@ -117,6 +117,10 @@ void NullBitmapWriter::add_many(std::span<const uint32_t> docids) {
     bitmap_->addMany(docids.size(), docids.data());
 }
 
+void NullBitmapWriter::add_bitmap(const roaring::Roaring& docids) {
+    *bitmap_ |= docids;
+}
+
 uint32_t NullBitmapWriter::null_count() const {
     return static_cast<uint32_t>(bitmap_->cardinality());
 }

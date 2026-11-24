@@ -262,7 +262,8 @@ Status SniiSegmentReader::load_inherited_index(const LogicalIndexKey& key,
 
     for (const format::RegionRef& region :
          {core.section_refs.dict_region, core.section_refs.posting_region, core.section_refs.norms,
-          core.section_refs.null_bitmap, core.section_refs.bsbf}) {
+          core.section_refs.null_bitmap, core.section_refs.bsbf,
+          core.section_refs.delete_sign_rows}) {
         if (region.offset > metadata_area_begin ||
             region.length > metadata_area_begin - region.offset) {
             return corrupted("segment: inherited section reference is outside the physical area");
