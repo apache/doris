@@ -111,8 +111,8 @@ ZoneMapFilterResult VTopNPred::evaluate_zonemap_filter(const ZoneMapEvalContext&
         return ZoneMapFilterResult::kMayMatch;
     }
     const auto* slot = assert_cast<const VSlotRef*>(_children[0].get());
-    const auto zone = ctx.zone_map(slot->column_id());
-    const auto type = ctx.data_type(slot->column_id());
+    const auto zone = ctx.zone_map({slot->column_id()});
+    const auto type = ctx.data_type({slot->column_id()});
     if (zone == nullptr || !expr_zonemap::data_types_compatible(type, slot->data_type())) {
         return unsupported_zonemap_filter(ctx);
     }
@@ -122,7 +122,7 @@ ZoneMapFilterResult VTopNPred::evaluate_zonemap_filter(const ZoneMapEvalContext&
     if (!zone->has_not_null) {
         return ZoneMapFilterResult::kNoMatch;
     }
-    if (ctx.floating_nan_count_unknown(slot->column_id()) || bound.is_nan() ||
+    if (ctx.floating_nan_count_unknown({slot->column_id()}) || bound.is_nan() ||
         !expr_zonemap::range_stats_usable_for_zonemap(*zone, type) ||
         !expr_zonemap::field_types_compatible(bound.get_type(),
                                               remove_nullable(type)->get_primitive_type())) {
@@ -286,7 +286,7 @@ ZoneMapFilterResult VTopNPred::evaluate_dictionary_filter(const DictionaryEvalCo
     }
     const auto slot = std::dynamic_pointer_cast<VSlotRef>(_children[0]);
     DORIS_CHECK(slot != nullptr);
-    const auto* dictionary = ctx.slot(slot->column_id());
+    const auto* dictionary = ctx.slot({slot->column_id()});
     if (dictionary == nullptr ||
         !expr_zonemap::data_types_compatible(dictionary->data_type, slot->data_type())) {
         return ZoneMapFilterResult::kUnsupported;

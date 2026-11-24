@@ -159,6 +159,8 @@ struct TStructField {
     1: required string name
     2: optional string comment
     3: optional bool contains_null
+    // Unique id of the corresponding subcolumn; -1 when the schema has no id assigned.
+    4: optional i32 col_unique_id = -1
 }
 
 struct TTypeNode {

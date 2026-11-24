@@ -60,6 +60,8 @@ class DataTypeStruct final : public IDataType {
 private:
     DataTypes elems;
     Strings names;
+    // Subfield unique ids, parallel to elems/names; -1 for schemas written before ids existed.
+    std::vector<int32_t> unique_ids;
     bool have_explicit_names;
 
 public:
@@ -68,6 +70,8 @@ public:
 
     explicit DataTypeStruct(const DataTypes& elems);
     DataTypeStruct(const DataTypes& elems, const Strings& names);
+    DataTypeStruct(const DataTypes& elems, const Strings& names,
+                   const std::vector<int32_t>& unique_ids);
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_STRUCT; }
 
     std::string do_get_name() const override;
@@ -92,6 +96,8 @@ public:
     const DataTypes& get_elements() const { return elems; }
     const String& get_element_name(size_t i) const { return names[i]; }
     const Strings& get_element_names() const { return names; }
+    int32_t get_unique_id(size_t i) const { return i < unique_ids.size() ? unique_ids[i] : -1; }
+    const std::vector<int32_t>& get_unique_ids() const { return unique_ids; }
 
     size_t get_position_by_name(const String& name) const;
     std::optional<size_t> try_get_position_by_name(const String& name) const;
@@ -121,6 +127,7 @@ public:
             node.struct_fields.push_back(TStructField());
             node.struct_fields.back().name = get_element_name(i);
             node.struct_fields.back().contains_null = get_element(i)->is_nullable();
+            node.struct_fields.back().col_unique_id = get_unique_id(i);
         }
         for (size_t i = 0; i < get_elements().size(); i++) {
             get_element(i)->to_thrift(thrift_type);

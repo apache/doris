@@ -86,6 +86,21 @@ DataTypeStruct::DataTypeStruct(const DataTypes& elems_, const Strings& names_)
     Status st = check_tuple_names(names);
 }
 
+// Constructor that also carries each subfield's unique id, used to match subfields across
+// schema changes instead of relying on their ordinal position.
+DataTypeStruct::DataTypeStruct(const DataTypes& elems_, const Strings& names_,
+                               const std::vector<int32_t>& unique_ids_)
+        : elems(elems_), names(names_), unique_ids(unique_ids_), have_explicit_names(true) {
+    size_t size = elems.size();
+    if (names.size() != size) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Wrong number of names passed to constructor of DataTypeStruct");
+        __builtin_unreachable();
+    }
+
+    Status st = check_tuple_names(names);
+}
+
 std::string DataTypeStruct::do_get_name() const {
     size_t size = elems.size();
     std::stringstream s;

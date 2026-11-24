@@ -396,14 +396,15 @@ suite("test_expr_zonemap_pruning") {
 
     // Runs the same query with expr zonemap pruning on and off and asserts the two agree. The
     // counter only shows that pruning fired; this is what shows it fired correctly.
-    def assertSameWithAndWithoutPruning = { String predicate ->
+    def assertSameWithAndWithoutPruning = { String tableName = "test_expr_zonemap_pruning_two_columns",
+                                           String predicate ->
         sql """ set enable_expr_zonemap_filter = false """
         def withoutPruning = sql """
-            SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE ${predicate}
+            SELECT COUNT(*) FROM ${tableName} WHERE ${predicate}
         """
         sql """ set enable_expr_zonemap_filter = true """
         def withPruning = sql """
-            SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE ${predicate}
+            SELECT COUNT(*) FROM ${tableName} WHERE ${predicate}
         """
         assertEquals(withoutPruning[0][0] as long, withPruning[0][0] as long)
         return withPruning[0][0] as long
@@ -772,4 +773,50 @@ suite("test_expr_zonemap_pruning") {
     assertSameOnHiddenCol("__DORIS_VERSION_COL__ = ${hiddenVersion} OR v = -1")
     qt_hidden_version_or_miss """SELECT COUNT(*) FROM test_expr_zonemap_pruning_hidden_col WHERE __DORIS_VERSION_COL__ = ${hiddenVersion} OR v = -1"""
     sql """ set show_hidden_columns = false """
+
+
+    // STRUCT field-access predicate pruning. The table carries a struct column `s`
+    // with scalar subfield `a` (nullable int), `b` (nullable string) and a nested
+    // struct `e` (with `f` int, `g` string). Every predicate is verified against
+    // both the pruned and unpruned plans (which must agree) and pinned to an exact
+    // row count, including AND/OR combinations across subfields and NULL handling.
+    sql """ set enable_expr_zonemap_filter = true """
+    sql """ DROP TABLE IF EXISTS test_expr_zonemap_pruning_struct """
+    sql """
+        CREATE TABLE test_expr_zonemap_pruning_struct (
+            id INT,
+            s STRUCT<a:INT, b:STRING, e:STRUCT<f:INT, g:STRING>>
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "disable_auto_compaction" = "true"
+        )
+    """
+    sql """
+        INSERT INTO test_expr_zonemap_pruning_struct VALUES
+            (1, named_struct('a', 1, 'b', 'apple',  'e', named_struct('f', 1, 'g', 'xx'))),
+            (2, named_struct('a', CAST(NULL AS INT), 'b', 'banana', 'e', named_struct('f', 2, 'g', 'yy'))),
+            (3, named_struct('a', 3, 'b', CAST(NULL AS STRING), 'e', named_struct('f', 3, 'g', 'zz'))),
+            (4, named_struct('a', 4, 'b', 'date', 'e', named_struct('f', CAST(NULL AS INT), 'g', 'aa'))),
+            (5, named_struct('a', 5, 'b', 'elder',  'e', named_struct('f', 5, 'g', 'bb'))),
+            (6, named_struct('a', 6, 'b', 'fig',    'e', named_struct('f', 6, 'g', 'cc')));
+    """
+    sql """ sync """
+
+    def assertStructCount = { String predicate, long expected ->
+        assertEquals(expected,
+                assertSameWithAndWithoutPruning("test_expr_zonemap_pruning_struct", predicate))
+    }
+    assertStructCount("s.a <= 3", 2L)
+    assertStructCount("s.a > 2", 4L)
+    assertStructCount("s.a = 2", 0L)
+    assertStructCount("s.b < 'c'", 2L)
+    assertStructCount("s.b = 'cherry'", 0L)
+    assertStructCount("s.e.f <= 2", 2L)
+    assertStructCount("s.e.g = 'zz'", 1L)
+    assertStructCount("s.a <= 3 AND s.b < 'c'", 1L)
+    assertStructCount("s.a <= 3 AND s.e.g = 'zz'", 1L)
+    assertStructCount("s.a <= 3 AND s.e.g = 'cc'", 0L)
 }

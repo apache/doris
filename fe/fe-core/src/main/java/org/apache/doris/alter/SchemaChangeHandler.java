@@ -53,6 +53,8 @@ import org.apache.doris.catalog.Replica.ReplicaContext;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.RowTtlConfig;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
@@ -932,7 +934,8 @@ public class SchemaChangeHandler extends AlterHandler {
 
     // User can modify column type and column position
     private boolean processModifyColumn(ModifyColumnOp modifyColumnOp, OlapTable olapTable,
-                                        Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
+                                        Map<Long, LinkedList<Column>> indexSchemaMap,
+                                        Map<Long, IntSupplier> colUniqueIdSupplierMap) throws DdlException {
         Column modColumn = modifyColumnOp.getColumn();
         boolean lightSchemaChange = false;
 
@@ -1068,6 +1071,12 @@ public class SchemaChangeHandler extends AlterHandler {
         // retain old column name
         modColumn.setName(oriColumn.getName());
         modColumn.setUniqueId(oriColumn.getUniqueId());
+        // Light schema change must preserve the identity of existing subfields; only genuinely
+        // new ones get fresh ids, otherwise BE cannot match them to the data already on disk.
+        if (lightSchemaChange && modColumn.getType().isStructType() && oriColumn.getType().isStructType()) {
+            IntSupplier colUniqueIdSupplier = colUniqueIdSupplierMap.get(indexIdForFindingColumn);
+            alignStructSubColumnUniqueId(oriColumn, modColumn, colUniqueIdSupplier);
+        }
 
         if (!modColumn.equals(oriColumn) && oriColumn.isAutoInc() != modColumn.isAutoInc()) {
             throw new DdlException("Can't modify the column["
@@ -1168,6 +1177,80 @@ public class SchemaChangeHandler extends AlterHandler {
         }
         LOG.info("modify column {} ", modColumn);
         return lightSchemaChange;
+    }
+
+    /**
+     * Aligns a modified STRUCT column's subcolumn ids with the original column: existing subfields
+     * keep their ids while newly added ones draw fresh ids from {@code colUniqueIdSupplier}.
+     */
+    private void alignStructSubColumnUniqueId(Column oriColumn, Column newColumn, IntSupplier colUniqueIdSupplier) {
+        List<Column> oriChildren = oriColumn.getChildren();
+        List<Column> newChildren = newColumn.getChildren();
+        int oriChildCount = (oriChildren == null) ? 0 : oriChildren.size();
+        int newChildCount = (newChildren == null) ? 0 : newChildren.size();
+        for (int i = 0; i < newChildCount; i++) {
+            Column newChild = newChildren.get(i);
+            if (i < oriChildCount) {
+                newChild.setUniqueId(oriChildren.get(i).getUniqueId());
+                if (newChild.getType().isStructType()) {
+                    alignStructSubColumnUniqueId(oriChildren.get(i), newChild, colUniqueIdSupplier);
+                }
+            } else {
+                assignNewSubColumnUniqueId(newChild, colUniqueIdSupplier);
+            }
+        }
+        syncStructFieldUniqueId(newColumn);
+    }
+
+    /**
+     * Assigns a fresh unique id to a newly added subcolumn and, recursively, to its nested
+     * subcolumns, then syncs them into the STRUCT type metadata.
+     */
+    private void assignNewSubColumnUniqueId(Column column, IntSupplier colUniqueIdSupplier) {
+        column.setUniqueId(colUniqueIdSupplier.getAsInt());
+        if (column.getType().isStructType()) {
+            List<Column> children = column.getChildren();
+            if (children != null && !children.isEmpty()) {
+                for (Column child : children) {
+                    assignNewSubColumnUniqueId(child, colUniqueIdSupplier);
+                }
+            }
+        }
+        syncStructFieldUniqueId(column);
+    }
+
+    /**
+     * Copies subcolumn unique ids from a column's children into its STRUCT type metadata.
+     */
+    private void syncStructFieldUniqueId(Column column) {
+        if (!column.getType().isStructType()) {
+            return;
+        }
+        List<StructField> fields = ((StructType) column.getType()).getFields();
+        List<Column> children = column.getChildren();
+        if (fields == null || children == null) {
+            return;
+        }
+        int count = Math.min(fields.size(), children.size());
+        for (int i = 0; i < count; i++) {
+            fields.get(i).setUniqueId(children.get(i).getUniqueId());
+        }
+    }
+
+    /**
+     * Returns the largest unique id in a column and, recursively, in its STRUCT subcolumns.
+     */
+    private int getMaxColumnUniqueIdRecursively(Column column) {
+        int max = column.getUniqueId();
+        if (column.getType().isStructType()) {
+            List<Column> children = column.getChildren();
+            if (children != null && !children.isEmpty()) {
+                for (Column child : children) {
+                    max = Math.max(max, getMaxColumnUniqueIdRecursively(child));
+                }
+            }
+        }
+        return max;
     }
 
     private void processReorderColumn(ReorderColumnsOp reorderColumnsOp, Table externalTable, List<Column> newSchema)
@@ -1467,6 +1550,17 @@ public class SchemaChangeHandler extends AlterHandler {
          * AGGREGATION:
          *      1. Add it to base index, as well as specified rollup index.
          */
+        // Newly added STRUCT subcolumns need ids from the base index's supplier so all indexes
+        // agree on the same subcolumn identity.
+        if (lightSchemaChange && newColumn.getType().isStructType()) {
+            IntSupplier baseIndexColUniqueIdSupplier = colUniqueIdSupplierMap.get(baseIndexId);
+            if (baseIndexColUniqueIdSupplier != null) {
+                for (Column child : newColumn.getChildren()) {
+                    assignNewSubColumnUniqueId(child, baseIndexColUniqueIdSupplier);
+                }
+                syncStructFieldUniqueId(newColumn);
+            }
+        }
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
             List<Column> modIndexSchema;
             if (newColumn.isKey()) {
@@ -2554,7 +2648,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 } else if (alterOp instanceof ModifyColumnOp) {
                     // modify column
                     boolean clauseCanLightSchemaChange = processModifyColumn((ModifyColumnOp) alterOp,
-                            olapTable, indexSchemaMap);
+                            olapTable, indexSchemaMap, colUniqueIdSupplierMap);
                     if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
                         requiresHeavyChange = true;
@@ -3814,9 +3908,7 @@ public class SchemaChangeHandler extends AlterHandler {
             //update max column unique id
             int maxColUniqueId = currentIndexMeta.getMaxColUniqueId();
             for (Column column : indexSchema) {
-                if (column.getUniqueId() > maxColUniqueId) {
-                    maxColUniqueId = column.getUniqueId();
-                }
+                maxColUniqueId = Math.max(maxColUniqueId, getMaxColumnUniqueIdRecursively(column));
             }
             currentIndexMeta.setMaxColUniqueId(maxColUniqueId);
             currentIndexMeta.setIndexes(indexes);

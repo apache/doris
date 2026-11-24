@@ -401,9 +401,15 @@ public:
 
     Status finish_current_page() override;
 
+    // Forward zone map writing to each sub-column writer. Scalar subfields build their own zone
+    // map (enabled in create_struct_writer); non-scalar subfields have need_zone_map=false and are
+    // no-ops here. The STRUCT column itself does not store a zone map.
     Status write_zone_map() override {
-        if (_opts.need_zone_map) {
-            return Status::NotSupported("struct not support zone map");
+        for (auto& column_writer : _sub_column_writers) {
+            auto st = column_writer->write_zone_map();
+            if (!st.ok()) {
+                return st;
+            }
         }
         return Status::OK();
     }

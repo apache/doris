@@ -21,25 +21,30 @@
 
 namespace doris {
 
-std::shared_ptr<const segment_v2::ZoneMap> ZoneMapEvalContext::zone_map(int slot_index) const {
-    auto it = slots.find(slot_index);
-    if (it == slots.end()) {
-        return nullptr;
+const ZoneMapEvalContext::SlotZoneMap* ZoneMapEvalContext::lookup(
+        const std::vector<int>& slot_index) const {
+    if (slot_index.size() == 1) {
+        auto it = slots.find(slot_index[0]);
+        return it == slots.end() ? nullptr : &it->second;
     }
-    return it->second.zone_map;
+    auto it = nested_slots.find(slot_index);
+    return it == nested_slots.end() ? nullptr : &it->second;
 }
 
-DataTypePtr ZoneMapEvalContext::data_type(int slot_index) const {
-    auto it = slots.find(slot_index);
-    if (it == slots.end()) {
-        return nullptr;
-    }
-    return it->second.data_type;
+std::shared_ptr<const segment_v2::ZoneMap> ZoneMapEvalContext::zone_map(
+        const std::vector<int>& slot_index) const {
+    const auto* szm = lookup(slot_index);
+    return szm ? szm->zone_map : nullptr;
 }
 
-bool ZoneMapEvalContext::floating_nan_count_unknown(int slot_index) const {
-    auto it = slots.find(slot_index);
-    return it != slots.end() && it->second.floating_nan_count_unknown;
+DataTypePtr ZoneMapEvalContext::data_type(const std::vector<int>& slot_index) const {
+    const auto* szm = lookup(slot_index);
+    return szm ? szm->data_type : nullptr;
+}
+
+bool ZoneMapEvalContext::floating_nan_count_unknown(const std::vector<int>& slot_index) const {
+    const auto* szm = lookup(slot_index);
+    return szm != nullptr && szm->floating_nan_count_unknown;
 }
 
 void ZoneMapEvalStats::merge_page_eval_stats(const ZoneMapEvalStats& src) {

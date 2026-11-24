@@ -365,7 +365,6 @@ inline ZoneMapFilterResult evaluate_slot_slot(const ZoneMapEvalContext& ctx,
     const auto right_type = expr_zonemap::fetch_compatible_slot_type(
             ctx, slot_slot.right_slot_index, slot_slot.right_type);
     if (left_type == nullptr || right_type == nullptr) {
-        // The context skips a slot entirely when the segment cannot apply predicates on it.
         return unsupported_zonemap_filter(ctx);
     }
     const auto left_zone_map = ctx.zone_map(slot_slot.left_slot_index);
@@ -421,6 +420,10 @@ inline ZoneMapFilterResult evaluate_slot_slot(const ZoneMapEvalContext& ctx,
 
 inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSPtrs& arguments,
                                     Op op) {
+    if (auto struct_sl = expr_zonemap::extract_struct_field_and_literal(arguments);
+        struct_sl.has_value()) {
+        return evaluate_slot_literal(ctx, *struct_sl, op);
+    }
     if (auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
         slot_literal.has_value()) {
         return evaluate_slot_literal(ctx, *slot_literal, op);
@@ -454,6 +457,23 @@ inline bool can_evaluate(const VExprSPtrs& arguments) {
         return false;
     }
 
+    return true;
+}
+
+// Struct-field comparison (`struct.field OP literal`) capability gate for the zonemap path only.
+inline bool can_evaluate_struct_field(const VExprSPtrs& arguments) {
+    auto struct_sl = expr_zonemap::extract_struct_field_and_literal(arguments);
+    if (!struct_sl.has_value()) {
+        return false;
+    }
+    if (struct_sl->literal.is_null()) {
+        return false;
+    }
+    DORIS_CHECK(struct_sl->slot_type != nullptr);
+    DORIS_CHECK(struct_sl->literal_type != nullptr);
+    if (!expr_zonemap::data_types_compatible(struct_sl->slot_type, struct_sl->literal_type)) {
+        return false;
+    }
     return true;
 }
 
@@ -768,7 +788,8 @@ public:
             return false;
         }
         return comparison_zonemap_detail::can_evaluate(arguments) ||
-               comparison_zonemap_detail::can_evaluate_slot_slot(arguments);
+               comparison_zonemap_detail::can_evaluate_slot_slot(arguments) ||
+               comparison_zonemap_detail::can_evaluate_struct_field(arguments);
     }
 
     ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx,

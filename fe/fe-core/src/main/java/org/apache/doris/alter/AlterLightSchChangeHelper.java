@@ -25,6 +25,8 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -239,6 +241,13 @@ public class AlterLightSchChangeHelper {
                 newSchema.add(newColumn);
                 maxColId = Math.max(columnId, maxColId);
             }
+            // Legacy schemas may carry STRUCT subcolumns without unique ids; assign them before
+            // the new max column id is persisted.
+            for (Column newColumn : newSchema) {
+                if (newColumn.getType().isStructType()) {
+                    maxColId = assignStructSubColumnUniqueIdIfAbsent(newColumn, maxColId);
+                }
+            }
             schemaPairs.add(Pair.of(maxColId, newSchema));
             indexIds.add(indexId);
         });
@@ -258,5 +267,52 @@ public class AlterLightSchChangeHelper {
         }
         // write table property
         olapTable.setEnableLightSchemaChange(true);
+    }
+
+    /**
+     * Assigns unique ids to STRUCT subcolumns that still lack one, recursing into nested structs,
+     * and mirrors the ids into the corresponding {@link StructField}s.
+     *
+     * @param column the column whose subcolumns are processed
+     * @param maxColId the current maximum column unique id
+     * @return the updated maximum column unique id
+     */
+    private int assignStructSubColumnUniqueIdIfAbsent(Column column, int maxColId) {
+        if (!column.getType().isStructType()) {
+            return maxColId;
+        }
+        List<Column> children = column.getChildren();
+        if (children == null || children.isEmpty()) {
+            return maxColId;
+        }
+        for (Column child : children) {
+            if (child.getUniqueId() < 0) {
+                child.setUniqueId(++maxColId);
+            } else {
+                maxColId = Math.max(maxColId, child.getUniqueId());
+            }
+            maxColId = assignStructSubColumnUniqueIdIfAbsent(child, maxColId);
+        }
+        syncStructFieldUniqueId(column);
+        return maxColId;
+    }
+
+    /**
+     * Copies subcolumn unique ids from a column's children into its STRUCT type metadata, which is
+     * what gets serialized into the table schema.
+     */
+    private void syncStructFieldUniqueId(Column column) {
+        if (!column.getType().isStructType()) {
+            return;
+        }
+        List<StructField> fields = ((StructType) column.getType()).getFields();
+        List<Column> children = column.getChildren();
+        if (fields == null || children == null) {
+            return;
+        }
+        int count = Math.min(fields.size(), children.size());
+        for (int i = 0; i < count; i++) {
+            fields.get(i).setUniqueId(children.get(i).getUniqueId());
+        }
     }
 }

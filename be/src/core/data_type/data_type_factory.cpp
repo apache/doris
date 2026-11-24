@@ -581,14 +581,18 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
         DCHECK_GE(node.struct_fields.size(), 1);
         DataTypes data_types;
         Strings names;
+        // Preserve each subfield's unique id so BE can resolve subfield readers by id.
+        std::vector<int32_t> unique_ids;
         data_types.reserve(node.struct_fields.size());
         names.reserve(node.struct_fields.size());
+        unique_ids.reserve(node.struct_fields.size());
         for (size_t i = 0; i < node.struct_fields.size(); i++) {
             ++(*idx);
             data_types.push_back(create_data_type(types, idx, node.struct_fields[i].contains_null));
             names.push_back(node.struct_fields[i].name);
+            unique_ids.push_back(node.struct_fields[i].col_unique_id);
         }
-        nested = std::make_shared<DataTypeStruct>(data_types, names);
+        nested = std::make_shared<DataTypeStruct>(data_types, names, unique_ids);
         break;
     }
     case TTypeNodeType::MAP: {
