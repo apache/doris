@@ -155,12 +155,14 @@ public class VariantType extends PrimitiveType {
 
     /**
      * Resolves a VARIANT type for a newly created table/MV column. Unbound compute placeholders
-     * ({@link #INSTANCE} or {@link ConnectorComputeVariantType}) carry no storage limit, so they
-     * adopt the default subcolumn limit alongside V2; types with an explicit limit keep it.
+     * ({@link #INSTANCE} or {@link ConnectorComputeVariantType}) and pruned sub-paths carry no
+     * independent subcolumn limit, so they adopt the default limit alongside V2, except when
+     * nested group is enabled (which requires max subcolumns count to stay 0).
      */
     public VariantType forNewTableColumn(DataType rawType, boolean isSubPath, int defaultMaxSubcolumnsCount) {
         VariantType result = this.withSerializeType(TVariantSerializeType.V2);
-        if (isSubPath || rawType == INSTANCE || rawType instanceof ConnectorComputeVariantType) {
+        if (!result.enableNestedGroup
+                && (isSubPath || rawType == INSTANCE || rawType instanceof ConnectorComputeVariantType)) {
             result = result.withMaxSubcolumnsCount(defaultMaxSubcolumnsCount);
         }
         return result;
@@ -235,8 +237,7 @@ public class VariantType extends PrimitiveType {
             // The field of the column's mode holds the shard count. Output at least 1 for backward compatibility:
             // old data without the parameter defaults to 0.
             sb.append("\"variant_doc_hash_shard_count\" = \"")
-                    .append(String.valueOf(Math.max(1, enableVariantDocMode ? variantDocShardCount
-                            : variantSparseHashShardCount))).append("\"");
+                    .append(String.valueOf(effectiveShardCount())).append("\"");
         }
         sb.append(")>");
         return sb.toString();
@@ -246,7 +247,7 @@ public class VariantType extends PrimitiveType {
         if (enableNestedGroup) {
             return 0;
         }
-        return enableVariantDocMode ? variantDocShardCount : variantSparseHashShardCount;
+        return Math.max(1, enableVariantDocMode ? variantDocShardCount : variantSparseHashShardCount);
     }
 
     private int effectiveMaxSparseColumnStatisticsSize() {

@@ -222,8 +222,7 @@ public class VariantType extends ScalarType {
             // The field of the column's mode holds the shard count. Output at least 1 for backward compatibility:
             // old data without the parameter defaults to 0.
             sb.append("\"variant_doc_hash_shard_count\" = \"")
-                    .append(String.valueOf(Math.max(1, enableVariantDocMode ? variantDocShardCount
-                            : variantSparseHashShardCount))).append("\"");
+                    .append(String.valueOf(effectiveShardCount())).append("\"");
         }
         sb.append(")>");
         return sb.toString();
@@ -262,7 +261,7 @@ public class VariantType extends ScalarType {
         if (enableNestedGroup) {
             return 0;
         }
-        return enableVariantDocMode ? variantDocShardCount : variantSparseHashShardCount;
+        return Math.max(1, enableVariantDocMode ? variantDocShardCount : variantSparseHashShardCount);
     }
 
     private int effectiveMaxSparseColumnStatisticsSize() {

@@ -163,6 +163,41 @@ public class VariantSerializeTypeDdlTest extends TestWithFeService {
         Assertions.assertEquals(0, type.getVariantMaxSubcolumnsCount());
     }
 
+    @Test
+    public void testCtasOfNestedGroupSubPathKeepsCountZeroAndAllowsModify() throws Exception {
+        // Direct check: a pruned NestedGroup sub-path must keep max_subcolumns_count=0 so the
+        // resulting storage type stays representable in DDL and MODIFY COLUMN.
+        org.apache.doris.nereids.types.VariantType ngType = new org.apache.doris.nereids.types.VariantType(
+                Lists.newArrayList(), 0, false, 0, 0, false, 0L, 0, true, TVariantSerializeType.V2);
+        org.apache.doris.nereids.types.VariantType resolved = ngType.forNewTableColumn(ngType, true, 2048);
+        Assertions.assertTrue(resolved.getEnableNestedGroup());
+        Assertions.assertEquals(0, resolved.getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(TVariantSerializeType.V2, resolved.getVariantSerializeType());
+
+        createTable("CREATE TABLE variant_serialize_type.t_ng_src "
+                + "(k INT, v VARIANT<PROPERTIES(\"variant_enable_nested_group\"=\"true\")>) "
+                + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES ('replication_num'='1', 'variant_escape_dots_in_keys'='false')");
+        String prevDisableRules = String.join(",", connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        try {
+            connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            org.apache.doris.nereids.types.VariantType type = ctasVariantType(
+                    "CREATE TABLE t_ng_subpath DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                            + "PROPERTIES ('replication_num'='1') "
+                            + "AS SELECT k, v['profile'] AS pv FROM t_ng_src");
+            Assertions.assertEquals(0, type.getVariantMaxSubcolumnsCount());
+            Assertions.assertEquals(TVariantSerializeType.V2, type.getVariantSerializeType());
+            // Both the inferred CTAS type and a NestedGroup sub-path type round-trip through DDL + MODIFY COLUMN.
+            createTable("CREATE TABLE variant_serialize_type.t_ng_dst "
+                    + "(k INT, pv " + type.toSql() + ", ng_pv " + resolved.toSql() + ") "
+                    + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1')");
+            alterTableSync("ALTER TABLE t_ng_dst MODIFY COLUMN pv " + type.toSql() + " COMMENT 'updated'");
+            alterTableSync("ALTER TABLE t_ng_dst MODIFY COLUMN ng_pv " + resolved.toSql() + " COMMENT 'updated'");
+        } finally {
+            connectContext.getSessionVariable().setDisableNereidsRules(prevDisableRules);
+        }
+    }
+
     private MTMV createMvOfOldColumn(String name) throws Exception {
         createTableWithOldColumn(name + "_source");
         createMvByNereids("CREATE MATERIALIZED VIEW " + name + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL "
@@ -241,6 +276,18 @@ public class VariantSerializeTypeDdlTest extends TestWithFeService {
         VariantType cDoc8 = new VariantType(Lists.newArrayList(), 2048, false, 0, 0, true, 0L, 8,
                 false, TVariantSerializeType.V2);
         Assertions.assertNotEquals(cDoc64, cDoc8);
+        // Shard count 0 (default/legacy) and 1 both mean a single shard in either mode.
+        VariantType cNonDocShard1 = new VariantType(Lists.newArrayList(), 0, false, 10000, 1, false, 0L, 0,
+                false, TVariantSerializeType.V1);
+        Assertions.assertEquals(cBase, cNonDocShard1);
+        Assertions.assertEquals(cBase.hashCode(), cNonDocShard1.hashCode());
+        VariantType cDocShard0 = new VariantType(Lists.newArrayList(), 2048, false, 0, 0, true, 0L, 0,
+                false, TVariantSerializeType.V2);
+        VariantType cDocShard1 = new VariantType(Lists.newArrayList(), 2048, false, 0, 0, true, 0L, 1,
+                false, TVariantSerializeType.V2);
+        Assertions.assertEquals(cDocShard0, cDocShard1);
+        Assertions.assertEquals(cDocShard0.hashCode(), cDocShard1.hashCode());
+        Assertions.assertNotEquals(cDocShard1, cDoc8);
     }
 
     @Test
