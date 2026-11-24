@@ -120,11 +120,52 @@ void validate_json_keys(const rapidjson::Value& value) {
     }
 }
 
+std::string uncomment_hive_schema(const std::string& json) {
+    // Hive accepts Java comments, including CR-only // lines. Replace them with whitespace
+    // before the depth scan: a comment such as /* [ " */ is not schema structure.
+    std::string result = json;
+    bool quoted = false, escaped = false;
+    for (size_t i = 0; i < json.size(); ++i) {
+        const char c = json[i];
+        if (quoted) {
+            if (escaped) {
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else if (c == '"') {
+                quoted = false;
+            }
+        } else if (c == '"') {
+            quoted = true;
+        } else if (c == '/' && i + 1 < json.size()) {
+            size_t end = i;
+            if (json[i + 1] == '/') {
+                end = json.find_first_of("\r\n", i + 2);
+                end = end == std::string::npos ? json.size() : end;
+            } else if (json[i + 1] == '*') {
+                end = json.find("*/", i + 2);
+                require(end != std::string::npos, "Invalid Avro schema JSON");
+                end += 2;
+            }
+            if (end != i) {
+                // Do not concatenate tokens or alter quoted slash/escape bytes.
+                std::fill(result.begin() + i, result.begin() + end, ' ');
+                i = end - 1;
+            }
+        }
+    }
+    return result;
+}
+
 rapidjson::Document physical_schema_document(const std::string& json, bool hive_validation) {
+    // The caller's schema workspace already covers preprocessing copies. Writer schemas
+    // remain strict JSON; only Hive's validated reader literal admits comments.
+    const auto uncommented = hive_validation ? uncomment_hive_schema(json) : std::string();
+    const auto& source = hive_validation ? uncommented : json;
     // Bound recursion before either JSON parser runs, including header-only files.
     size_t depth = 0;
     bool quoted = false, escaped = false;
-    for (const char c : json) {
+    for (const char c : source) {
         if (quoted) {
             if (escaped) {
                 escaped = false;
@@ -144,7 +185,7 @@ rapidjson::Document physical_schema_document(const std::string& json, bool hive_
     }
     require(depth == 0 && !quoted, "Invalid Avro schema JSON");
     rapidjson::Document document;
-    document.Parse(json.data(), json.size());
+    document.Parse(source.data(), source.size());
     require(!document.HasParseError(), "Invalid Avro schema JSON");
     validate_json_keys(document);
     strip_field_defaults(document, hive_validation);
@@ -472,6 +513,23 @@ struct AvroContainerReader::Impl {
         }
     }
 
+    void grow_buffer(std::vector<uint8_t>& buffer, size_t size) const {
+        const auto maximum =
+                std::min(buffer.max_size(), size_t(std::numeric_limits<int64_t>::max()) / 2);
+        require(size <= maximum, "Avro allocation size overflows");
+        if (size > buffer.capacity()) {
+            // Chunked output must not retain every superseded capacity (64+128+... KiB).
+            // Admit only the delta; a 2->4 MiB reallocation still needs a scoped 2 MiB
+            // lease so its actual 6 MiB old/new overlap is checked before allocating.
+            const auto target = std::max(
+                    size,
+                    buffer.capacity() + std::min(buffer.capacity(), maximum - buffer.capacity()));
+            auto old_buffer = buffer.capacity() == 0 ? nullptr : workspace(buffer.capacity());
+            reserve(target - buffer.capacity());
+            buffer.reserve(target);
+        }
+    }
+
     template <typename Cursor>
     std::string read_string(Cursor& input) {
         const auto length = read_long(input);
@@ -575,7 +633,7 @@ struct AvroContainerReader::Impl {
         require(snappy::GetUncompressedLength(reinterpret_cast<const char*>(compressed.data()),
                                               length, &output_size),
                 "Invalid Avro Snappy block");
-        growth(uncompressed.capacity(), output_size);
+        grow_buffer(uncompressed, output_size);
         uncompressed.resize(output_size);
         require(snappy::RawUncompress(reinterpret_cast<const char*>(compressed.data()), length,
                                       reinterpret_cast<char*>(uncompressed.data())),
@@ -685,7 +743,7 @@ struct AvroContainerReader::Impl {
     void append(const uint8_t* bytes, size_t count) {
         require(count <= std::numeric_limits<size_t>::max() - uncompressed.size(),
                 "Avro decompression size overflows");
-        growth(uncompressed.capacity(), uncompressed.size() + count);
+        grow_buffer(uncompressed, uncompressed.size() + count);
         uncompressed.insert(uncompressed.end(), bytes, bytes + count);
     }
 
@@ -1016,7 +1074,7 @@ bool AvroContainerReader::hasMoreBefore(int64_t end) {
                 "Avro row count overflows");
         s.total_rows += s.remaining_rows;
         const size_t bytes = payload_end - s.file.position();
-        s.growth(s.compressed.capacity(), bytes);
+        s.grow_buffer(s.compressed, bytes);
         s.compressed.resize(bytes);
         s.file.read(s.compressed.data(), bytes);
         s.verify_sync();

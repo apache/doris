@@ -1088,6 +1088,89 @@ TEST_F(AvroReaderTest, UnprojectedNamesAreAdmittedForTheWholeMappingLifetime) {
     EXPECT_TRUE(table.close().ok());
 }
 
+TEST_F(AvroReaderTest, HiveCommentedReaderSchemasReachTheTableReader) {
+    const std::string literal =
+            R"({"type":"record","name":"r","fields":[{"name":"v","type":["null","int"],"default":null}]})";
+    write_header_json(R"({"type":"record","name":"r","fields":[{"name":"v","type":"int"}]})",
+                      std::vector<uint8_t> {2});
+    auto scan = [&](const std::string& reader_schema, bool hdfs, Block* block) {
+        TFileScanRangeParams params;
+        params.__set_file_type(TFileType::FILE_LOCAL);
+        params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+        if (hdfs) {
+            THdfsConf conf;
+            conf.__set_key("avro.schema.literal");
+            conf.__set_value(reader_schema);
+            THdfsParams hdfs_params;
+            hdfs_params.__set_hdfs_conf({conf});
+            params.__set_hdfs_params(hdfs_params);
+        } else {
+            params.__set_properties({{"avro.schema.literal", reader_schema}});
+        }
+        ColumnDefinition projected;
+        projected.name = "v";
+        projected.identifier = Field::create_field<TYPE_STRING>("v");
+        projected.type = make_nullable(std::make_shared<DataTypeInt32>());
+        hive::HiveReader table;
+        RETURN_IF_ERROR(table.init({.projected_columns = {projected},
+                                    .conjuncts = {},
+                                    .format = FileFormat::AVRO,
+                                    .scan_params = &params,
+                                    .io_ctx = std::make_shared<io::IOContext>(),
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile}));
+        Defer close([&] { EXPECT_TRUE(table.close().ok()); });
+        SplitReadOptions split;
+        split.current_range.__set_path(path);
+        split.current_range.__set_start_offset(0);
+        split.current_range.__set_size(std::filesystem::file_size(path));
+        split.current_range.__set_file_size(std::filesystem::file_size(path));
+        split.current_split_format = FileFormat::AVRO;
+        RETURN_IF_ERROR(table.prepare_split(split));
+        block->insert({projected.type->create_column(), projected.type, projected.name});
+        bool eof = false;
+        return table.get_block(block, &eof);
+    };
+    const auto quoted =
+            literal.substr(0, literal.size() - 1) + R"(,"doc":"/* quoted */ // ] } \""})";
+    const std::vector<std::string> accepted {
+            "/* reader */ " + literal,
+            "/* \" " + std::string(256, '[') + " */" + literal,
+            "// \" ] }\n" + literal + "// trailing",
+            "// \" ] }\r" + literal,
+            "// \" ] }\r\n" + literal,
+            literal.substr(0, 1) + "/* ] \" */" + literal.substr(1),
+            quoted};
+    const std::vector<std::string> rejected {
+            literal + "/* unterminated", "/* " + literal,
+            literal.substr(0, literal.size() - 1) + R"(,"invalid":NULL})",
+            literal.substr(0, literal.size() - 1) + ",\"deep\":" + std::string(129, '[') + "0" +
+                    std::string(129, ']') + "}"};
+    for (bool hdfs : {false, true}) {
+        for (const auto& value : accepted) {
+            SCOPED_TRACE(testing::Message() << "hdfs=" << hdfs << " schema=" << value);
+            Block block;
+            const auto status = scan(value, hdfs, &block);
+            ASSERT_TRUE(status.ok()) << status;
+            ASSERT_EQ(block.rows(), 1);
+            const auto& column = block.get_by_position(0);
+            EXPECT_EQ(column.type->to_string(*column.column, 0), "1");
+        }
+        for (const auto& value : rejected) {
+            SCOPED_TRACE(value);
+            Block block;
+            EXPECT_FALSE(scan(value, hdfs, &block).ok());
+        }
+    }
+}
+
+TEST_F(AvroReaderTest, HiveCommentSupportDoesNotRelaxWriterSchemaJson) {
+    write_header_json("/* writer */ " + std::string(ID_SCHEMA));
+    auto input = reader();
+    EXPECT_FALSE(initialize(input.get()).ok());
+    EXPECT_TRUE(input->close().ok());
+}
+
 TEST_F(AvroReaderTest, HiveValidatesImplicitAndTransportedReaderSchemasBeforeMapping) {
     auto record = [](const std::string& type) {
         return "{\"type\":\"record\",\"name\":\"r\",\"fields\":[{\"name\":\"v\",\"type\":" + type +
@@ -2031,6 +2114,93 @@ TEST_F(AvroReaderTest, CollectionGrowthFailureReleasesReservationsOnClose) {
     thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
     EXPECT_EQ(tracker->reserved_consumption(), reserved_baseline);
     EXPECT_EQ(tracker->consumption(), baseline);
+}
+
+TEST_F(AvroReaderTest, CompressedCountAdmitsOnlyLiveBufferCapacityAndReleasesOnClose) {
+    constexpr size_t length = 3 * 1024 * 1024;
+    const auto avro_schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"r","fields":[{"name":"value","type":"string"}]})");
+    for (auto codec : {::avro::DEFLATE_CODEC, ::avro::ZSTD_CODEC}) {
+        if (codec == ::avro::DEFLATE_CODEC) {
+            ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), avro_schema, 32,
+                                                                codec);
+            ::avro::GenericDatum datum(avro_schema);
+            datum.value<::avro::GenericRecord>().fieldAt(0).value<std::string>().assign(length,
+                                                                                        'x');
+            writer.write(datum);
+            writer.close();
+        } else {
+            std::vector<uint8_t> payload;
+            uint64_t encoded = length * 2;
+            while (encoded >= 128) {
+                payload.push_back((encoded & 127) | 128);
+                encoded >>= 7;
+            }
+            payload.push_back(encoded);
+            payload.insert(payload.end(), length, 'x');
+            std::vector<uint8_t> compressed(ZSTD_compressBound(payload.size()));
+            std::unique_ptr<ZSTD_CCtx, decltype(&ZSTD_freeCCtx)> context(ZSTD_createCCtx(),
+                                                                         &ZSTD_freeCCtx);
+            ASSERT_NE(context, nullptr);
+            // Bound the frame window so the 8 MiB test measures output-buffer admission,
+            // rather than legitimately exhausting the budget on a large codec workspace.
+            ASSERT_FALSE(ZSTD_isError(ZSTD_CCtx_setParameter(context.get(), ZSTD_c_windowLog, 16)));
+            const auto size = ZSTD_compress2(context.get(), compressed.data(), compressed.size(),
+                                             payload.data(), payload.size());
+            ASSERT_FALSE(ZSTD_isError(size));
+            compressed.resize(size);
+            write_raw_block(avro_schema, codec, compressed);
+        }
+        for (int64_t budget : {8 * 1024 * 1024, 5 * 1024 * 1024}) {
+            SCOPED_TRACE(testing::Message() << "codec=" << codec << " budget=" << budget);
+            auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                            "avro_compressed_count", budget);
+            SCOPED_ATTACH_TASK(tracker);
+            thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+            const auto baseline = tracker->consumption();
+            {
+                RuntimeProfile scan_profile("avro_compressed_count");
+                TFileScanRangeParams params;
+                params.__set_file_type(TFileType::FILE_LOCAL);
+                params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+                ColumnDefinition carrier;
+                carrier.name = "__dummy_col";
+                carrier.identifier = Field::create_field<TYPE_STRING>(carrier.name);
+                carrier.type = make_nullable(std::make_shared<DataTypeString>());
+                TableReader table;
+                ASSERT_TRUE(table.init({.projected_columns = {carrier},
+                                        .conjuncts = {},
+                                        .format = FileFormat::AVRO,
+                                        .scan_params = &params,
+                                        .io_ctx = std::make_shared<io::IOContext>(),
+                                        .runtime_state = &state,
+                                        .scanner_profile = &scan_profile,
+                                        .push_down_agg_type = TPushAggOp::COUNT,
+                                        .push_down_count_columns = std::vector<GlobalIndex> {}})
+                                    .ok());
+                SplitReadOptions split;
+                split.current_range.__set_path(path);
+                split.current_range.__set_start_offset(0);
+                split.current_range.__set_size(std::filesystem::file_size(path));
+                split.current_range.__set_file_size(std::filesystem::file_size(path));
+                split.current_split_format = FileFormat::AVRO;
+                ASSERT_TRUE(table.prepare_split(split).ok());
+                Block block {{carrier.type->create_column(), carrier.type, carrier.name}};
+                bool eof = false;
+                const auto status = table.get_block(&block, &eof);
+                if (budget == 8 * 1024 * 1024) {
+                    ASSERT_TRUE(status.ok()) << status;
+                    EXPECT_EQ(block.rows(), 1);
+                } else {
+                    EXPECT_EQ(status.code(), ErrorCode::QUERY_MEMORY_EXCEEDED) << status;
+                    EXPECT_EQ(block.rows(), 0);
+                }
+                EXPECT_TRUE(table.close().ok());
+            }
+            thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+            EXPECT_EQ(tracker->consumption(), baseline);
+        }
+    }
 }
 
 TEST_F(AvroReaderTest, FixedAndCompressedBlocksReserveBeforeMaterializing) {
