@@ -24,6 +24,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <cctype>
 #include <exception>
 #include <memory>
 #include <mutex>
@@ -42,7 +43,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/lance_blob_reader.h"
-#include "runtime/lance_blob_source_dictionary.h"
 #include "runtime/memory/heap_profiler.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
@@ -230,12 +230,31 @@ void QueryContext::record_spill_data_dir(SpillDataDir* data_dir) {
     _spill_data_dirs.emplace(data_dir);
 }
 
-Status QueryContext::init_lance_blob() {
-    auto source_dictionary = std::make_unique<LanceBlobSourceDictionary>();
-    RETURN_IF_ERROR(source_dictionary->init(file_scan_range_params_map));
-    auto reader = std::make_unique<LanceBlobReader>();
-    _lance_blob_source_dictionary = std::move(source_dictionary);
-    _lance_blob_reader = std::move(reader);
+Status QueryContext::init_lance_blob_resources(std::map<int32_t, TLanceBlobResource> resources) {
+    for (const auto& [source_id, resource] : resources) {
+        if (source_id <= 0 || !resource.__isset.dataset_uri ||
+            resource.dataset_uri.find('\0') != std::string::npos || !resource.__isset.version ||
+            resource.version <= 0 || !resource.__isset.column_name ||
+            resource.column_name.empty() || resource.column_name.find('\0') != std::string::npos) {
+            return Status::InvalidArgument("Incomplete FE Lance BLOB resource {}", source_id);
+        }
+        const auto scheme_end = resource.dataset_uri.find("://");
+        auto scheme = resource.dataset_uri.substr(0, scheme_end);
+        std::transform(scheme.begin(), scheme.end(), scheme.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (scheme_end == std::string::npos || scheme.empty() || scheme == "file" ||
+            scheme == "memory") {
+            return Status::NotSupported("Lance BLOB resources require remote storage");
+        }
+        for (const auto& [key, value] : resource.storage_options) {
+            if (key.find('\0') != std::string::npos || value.find('\0') != std::string::npos) {
+                return Status::InvalidArgument(
+                        "Lance BLOB resource {} has a NUL in storage options", source_id);
+            }
+        }
+    }
+    _lance_blob_resources = std::move(resources);
+    _lance_blob_reader = std::make_unique<LanceBlobReader>();
     return Status::OK();
 }
 
@@ -244,15 +263,15 @@ LanceBlobReader& QueryContext::get_lance_blob_reader() {
     return *_lance_blob_reader;
 }
 
-const LanceBlobSourceDictionary& QueryContext::get_lance_blob_source_dictionary() const {
-    DCHECK(_lance_blob_source_dictionary != nullptr);
-    return *_lance_blob_source_dictionary;
+const TLanceBlobResource* QueryContext::get_lance_blob_resource(uint32_t source_id) const {
+    const auto it = _lance_blob_resources.find(static_cast<int32_t>(source_id));
+    return it == _lance_blob_resources.end() ? nullptr : &it->second;
 }
 
 QueryContext::~QueryContext() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
     _lance_blob_reader.reset();
-    _lance_blob_source_dictionary.reset();
+    _lance_blob_resources.clear();
     // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
     // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
     // query mem tracker consumption is not equal to 0 after use, because there is memory consumed

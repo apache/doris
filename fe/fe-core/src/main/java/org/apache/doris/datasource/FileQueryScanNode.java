@@ -406,8 +406,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return params;
     }
 
-    /** Assign query-wide FILE source IDs before fragment serialization. Non-Lance scans have none. */
-    public int assignFileReadSources(int nextSourceId) {
+    /** Assign query-wide BLOB resource IDs before fragment serialization. */
+    public int assignBlobSourceIds(int nextSourceId) {
         return nextSourceId;
     }
 
@@ -437,12 +437,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             genSlotToSchemaIdMapForOrc();
         }
         params.setFormatType(fileFormatType);
-        if (fileFormatType == TFileFormatType.FORMAT_LANCE) {
-            if (!params.isSetLanceScanParams()) {
-                params.setLanceScanParams(new TLanceScanParams());
-            }
-            // The complete map is sent to every BE, including those that only consume FILEs.
-            params.getLanceScanParams().setScanNodeId(getId().asInt());
+        if (fileFormatType == TFileFormatType.FORMAT_LANCE && !params.isSetLanceScanParams()) {
+            params.setLanceScanParams(new TLanceScanParams());
         }
         boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON
                 || fileFormatType == TFileFormatType.FORMAT_TEXT;

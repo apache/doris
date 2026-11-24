@@ -31,7 +31,7 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
-import org.apache.doris.datasource.lance.source.LanceBlobReadSourcePlanner;
+import org.apache.doris.datasource.lance.source.LanceBlobResourcePlanner;
 import org.apache.doris.datasource.lance.source.LanceScanNode;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.datasource.lance.source.LanceSplitBuilder;
@@ -48,8 +48,8 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TLanceScanParams;
-import org.apache.doris.thrift.TLanceSplitParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
@@ -131,7 +131,7 @@ public class TVFScanNode extends FileQueryScanNode {
     public void createScanRangeLocations() throws UserException {
         if (tableValuedFunction.isLanceFormat() && !blobReadColumns().isEmpty()
                 && (tableValuedFunction.getTFileType() == TFileType.FILE_LOCAL
-                        || !LanceBlobReadSourcePlanner.isRemoteDataset(tableValuedFunction.getFilePath())
+                        || !LanceBlobResourcePlanner.isRemoteDataset(tableValuedFunction.getFilePath())
                         || tableValuedFunction.getLanceDatasetVersion() <= 0)) {
             throw new UserException("Lance BLOB TVF reads require remote storage and a fixed snapshot; "
                     + "local BLOB TVFs are not supported");
@@ -166,11 +166,11 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public int assignFileReadSources(int nextSourceId) {
+    public int assignBlobSourceIds(int nextSourceId) {
         if (!tableValuedFunction.isLanceFormat()) {
             return nextSourceId;
         }
-        return LanceBlobReadSourcePlanner.assign(params.getLanceScanParams(),
+        return LanceBlobResourcePlanner.assign(params.getLanceScanParams(),
                 blobReadColumns(), nextSourceId);
     }
 
@@ -276,14 +276,14 @@ public class TVFScanNode extends FileQueryScanNode {
                 throw new IllegalArgumentException("Expected LanceSplit but got " + split.getClass().getName());
             }
             LanceSplit lanceSplit = (LanceSplit) split;
-            TLanceSplitParams splitParams = new TLanceSplitParams();
+            TLanceFileDesc splitParams = new TLanceFileDesc();
             if (lanceSplit.hasFragmentIds()) {
                 splitParams.setFragmentIds(lanceSplit.getFragmentIds());
             }
 
             TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
             tableFormatFileDesc.setTableFormatType(TableFormatType.LANCE.value());
-            tableFormatFileDesc.setLanceSplitParams(splitParams);
+            tableFormatFileDesc.setLanceParams(splitParams);
             rangeDesc.setTableFormatParams(tableFormatFileDesc);
             return;
         }

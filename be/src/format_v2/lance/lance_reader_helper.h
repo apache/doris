@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -265,9 +266,8 @@ Status import_lance_dataset_schema(LanceDataset* dataset, std::shared_ptr<arrow:
 
 // Validate and convert the fragment and index-segment identifiers carried by the FE into the
 // unsigned and packed representations expected by lance-c.
-Status parse_fragment_ids(const TLanceSplitParams& split_params,
-                          std::vector<uint64_t>* fragment_ids);
-Status parse_index_segment_uuids(const TLanceSplitParams& split_params,
+Status parse_fragment_ids(const TLanceFileDesc& split_params, std::vector<uint64_t>* fragment_ids);
+Status parse_index_segment_uuids(const TLanceFileDesc& split_params,
                                  std::vector<uint8_t>* segment_uuids, size_t* segment_count);
 
 // Resolves one Arrow field once when a stream schema is bound. Runtime conversion then reuses this
@@ -310,6 +310,8 @@ Status convert_arrow_schema_to_doris(const std::shared_ptr<arrow::Schema>& arrow
 // The FE sends storage options in Lance's own vocabulary. Preserve the key-value sequence exactly
 // while validating that every value can cross the C-string boundary into lance-c.
 Status build_lance_storage_options(const TFileScanRangeParams* scan_params,
+                                   std::vector<std::string>* options);
+Status build_lance_storage_options(const std::map<std::string, std::string>& storage_options,
                                    std::vector<std::string>* options);
 
 // Copy and release lance-c's thread-local error message before returning a Doris status.

@@ -521,7 +521,8 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                         if (params.__isset.file_scan_params) {
                             query_ctx->file_scan_range_params_map = params.file_scan_params;
                         }
-                        RETURN_IF_ERROR(query_ctx->init_lance_blob());
+                        RETURN_IF_ERROR(
+                                query_ctx->init_lance_blob_resources(params.lance_blob_resources));
 
                         query_ctx->query_globals = params.query_globals;
 

@@ -589,7 +589,7 @@ union TExternalSearchQuery {
 }
 
 // A provider-independent logical search request. Physical target information remains in the
-// provider scan/split params (for example, TLanceScanParams and TLanceSplitParams).
+// provider scan/split params (for example, TLanceScanParams and TLanceFileDesc).
 struct TExternalSearchRequest {
     1: optional i32 schema_version = 1
     2: optional TExternalSearchQuery search_query
@@ -600,11 +600,13 @@ struct TExternalSearchRequest {
     5: optional bool prefilter
 }
 
-// Deprecated. Retained with its original field IDs for protocol history; new requests use
-// TLanceScanParams for dataset identity and TLanceSplitParams for split-local work.
+// Split-local scan work. Dataset identity and storage options live in TLanceScanParams.
 struct TLanceFileDesc {
+    // Deprecated. Use TLanceScanParams.dataset_uri; retain this field and its original ID.
     1: optional string dataset_uri
+    // Unset for a local whole-dataset scan or a metadata-only COUNT split.
     2: optional list<i64> fragment_ids
+    // Deprecated. Use TLanceScanParams.version; retain this field and its original ID.
     3: optional i64 version
     // Per-split row limit pushed down from the query LIMIT. Each scanner returns at
     // most this many rows; the upper LIMIT operator still enforces the global bound.
@@ -619,18 +621,6 @@ struct TLanceFileDesc {
     // so these tasks filter their rows without repeating global scalar-index evaluation.
     // Unset preserves Lance's default; an explicit scalar segment must not be combined with false.
     6: optional bool use_scalar_index
-}
-
-// Split-local scan work. Dataset URI, version and storage options live in TLanceScanParams.
-struct TLanceSplitParams {
-    // Unset for a local whole-dataset scan or a metadata-only COUNT split.
-    1: optional list<i64> fragment_ids
-    // Per-split row limit for ordinary scans whose predicates are fully pushed into Lance.
-    2: optional i64 limit
-    // Each physical index-segment UUID is 16 bytes in RFC 4122 order.
-    3: optional list<binary> index_segment_uuids
-    // False for uncovered-fragment tasks that must skip global scalar-index evaluation.
-    4: optional bool use_scalar_index
 }
 
 struct TLanceScanParams {
@@ -650,19 +640,23 @@ struct TLanceScanParams {
     // with a static option set, so credentials that expire mid-scan are not re-vended. Renewal
     // needs a refresh channel of its own, which this field is not.
     3: optional map<string, string> lance_storage_options
-    // Fields 4 (descriptor/inline output switch) and 5 (BLOB size limit) are retired; do not reuse.
-    // Query-global scan node identity. Its storage options are also sent to consumer BEs in
-    // TPipelineFragmentParams.file_scan_params; FILE source IDs refer to this dataset indirectly.
-    6: optional i32 scan_node_id
-    // Field 7 (blob_dataset/TLanceDatasetOpenSpec) is retired; do not reuse.
-    // Actual Lance column name -> query-wide source ID, assigned by FE. Zero is unbound.
-    // All participating BEs receive this map; ID meanings never change during a query.
-    8: optional map<string, i32> blob_read_source_ids
-    // Common to every split and FILE consumer of this scan node.
-    9: optional string dataset_uri
+    // Common to every split of this scan node.
+    4: optional string dataset_uri
     // FE-pinned positive version for catalog/remote TVF scans, searches and BLOB reads.
     // Zero is allowed only for local non-BLOB TVFs, where BE opens the latest snapshot.
-    10: optional i64 version
+    5: optional i64 version
+    // Actual Lance column name -> query-wide source ID, assigned by FE. Zero is unbound.
+    // IDs refer directly to TPipelineFragmentParams.lance_blob_resources.
+    6: optional map<string, i32> blob_read_source_ids
+}
+
+// Query-local configuration for reading one BLOB column, independent of scan-node parameters.
+// FE sends the complete resource map to every participating BE, including FILE consumers.
+struct TLanceBlobResource {
+    1: optional string dataset_uri
+    2: optional i64 version
+    3: optional string column_name
+    4: optional map<string, string> storage_options
 }
 
 struct TTableFormatFileDesc {
@@ -678,10 +672,7 @@ struct TTableFormatFileDesc {
     10: optional TRemoteDorisFileDesc remote_doris_params
     // JDBC connection parameters (used when table_format_type == "jdbc")
     11: optional map<string, string> jdbc_params
-    // Deprecated. Retained with TLanceFileDesc; new requests use lance_split_params.
     12: optional TLanceFileDesc lance_params
-    // Fields 13-16 are used by other maintained branches; do not reuse them here.
-    17: optional TLanceSplitParams lance_split_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type

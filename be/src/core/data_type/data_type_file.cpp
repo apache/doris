@@ -206,14 +206,20 @@ char* DataTypeFile::serialize(const IColumn& column, char* buf, int version) con
         buf = _elements[i]->serialize(file.get_column(i), buf, version);
     }
     if (file.size() != 0) {
-        const auto& ids = assert_cast<const ColumnOffset32&>(file.blob_source_ids()).get_data();
-        const auto& row_ids = assert_cast<const ColumnOffset64&>(file.blob_row_ids()).get_data();
         const auto id_bytes = file.size() * sizeof(uint32_t);
         const auto row_bytes = file.size() * sizeof(uint64_t);
-        std::memcpy(buf, ids.data(), id_bytes);
-        buf += id_bytes;
-        std::memcpy(buf, row_ids.data(), row_bytes);
-        buf += row_bytes;
+        if (file.blob_source_ids() != nullptr) {
+            const auto& ids =
+                    assert_cast<const ColumnOffset32&>(*file.blob_source_ids()).get_data();
+            const auto& row_ids =
+                    assert_cast<const ColumnOffset64&>(*file.blob_row_ids()).get_data();
+            std::memcpy(buf, ids.data(), id_bytes);
+            std::memcpy(buf + id_bytes, row_ids.data(), row_bytes);
+        } else {
+            // Preserve the wire layout without materializing zero ID columns.
+            std::memset(buf, 0, id_bytes + row_bytes);
+        }
+        buf += id_bytes + row_bytes;
     }
     return buf;
 }
@@ -229,18 +235,19 @@ const char* DataTypeFile::deserialize(const char* buf, MutableColumnPtr* column,
         buf = _elements[i]->deserialize(buf, &child, version);
         file.get_column_ptr(i) = std::move(child);
     }
-    auto ids = ColumnOffset32::create(file.size());
-    auto row_ids = ColumnOffset64::create(file.size());
-    if (file.size() != 0) {
-        const auto id_bytes = file.size() * sizeof(uint32_t);
-        const auto row_bytes = file.size() * sizeof(uint64_t);
+    const auto id_bytes = file.size() * sizeof(uint32_t);
+    const auto row_bytes = file.size() * sizeof(uint64_t);
+    const auto bytes = id_bytes + row_bytes;
+    if (std::any_of(buf, buf + bytes, [](char value) { return value != 0; })) {
+        auto ids = ColumnOffset32::create(file.size());
+        auto row_ids = ColumnOffset64::create(file.size());
         std::memcpy(ids->get_data().data(), buf, id_bytes);
-        buf += id_bytes;
-        std::memcpy(row_ids->get_data().data(), buf, row_bytes);
-        buf += row_bytes;
+        std::memcpy(row_ids->get_data().data(), buf + id_bytes, row_bytes);
+        file.set_blob_ids(std::move(ids), std::move(row_ids));
+    } else {
+        file.reset_blob_ids();
     }
-    file.blob_source_ids_ptr() = std::move(ids);
-    file.blob_row_ids_ptr() = std::move(row_ids);
+    buf += bytes;
     file.sanity_check();
     return buf;
 }

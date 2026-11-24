@@ -22,6 +22,8 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <tuple>
 #include <vector>
 
 #include "common/status.h"
@@ -31,13 +33,14 @@ struct LanceDataset;
 namespace doris {
 class ColumnVarbinary;
 class RuntimeState;
+class TLanceBlobResource;
 
 // One instance per BE/query. Dataset ownership is independent of Scanner EOF and of expression
 // clones; opened dataset handles are shared. Input/output positions remain call-local.
 class LanceBlobReader {
 public:
     struct BlobRequest {
-        // ID in the current query's LanceBlobSourceDictionary.
+        // ID in the current query's lance_blob_resources.
         uint32_t blob_source_id;
         // Native Lance row ID, independent of the input/output column positions.
         uint64_t blob_row_id;
@@ -47,11 +50,22 @@ public:
                      ColumnVarbinary* output);
 
 private:
-    Status _get_or_open_dataset(RuntimeState* state, int32_t scan_node_id,
+    struct DatasetKey {
+        std::string uri;
+        int64_t version;
+        std::map<std::string, std::string> storage_options;
+
+        bool operator<(const DatasetKey& other) const {
+            return std::tie(uri, version, storage_options) <
+                   std::tie(other.uri, other.version, other.storage_options);
+        }
+    };
+
+    Status _get_or_open_dataset(RuntimeState* state, const TLanceBlobResource& resource,
                                 std::shared_ptr<LanceDataset>* dataset);
     std::mutex _dataset_cache_mutex;
-    // Open dataset handles shared by all BLOB columns from the same scan node.
-    std::map<int32_t, std::shared_ptr<LanceDataset>> _datasets_by_scan_node_id;
+    // URI, pinned version and access options define dataset identity, independently of the column.
+    std::map<DatasetKey, std::shared_ptr<LanceDataset>> _datasets_by_open_spec;
 };
 
 } // namespace doris

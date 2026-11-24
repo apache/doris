@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -88,7 +89,6 @@ const std::string toString(QuerySource query_source);
 // that will slow down each execution of fragments when DeSer them every time.
 class DescriptorTbl;
 class LanceBlobReader;
-class LanceBlobSourceDictionary;
 class QueryContext : public std::enable_shared_from_this<QueryContext> {
     ENABLE_FACTORY_CREATOR(QueryContext);
 
@@ -109,10 +109,10 @@ public:
     void init_query_task_controller();
 
     ExecEnv* exec_env() const { return _exec_env; }
-    // Initialize after installing FE scan parameters and before starting any fragment.
-    Status init_lance_blob();
+    // Install FE resources before starting any fragment; definitions stay fixed for this query.
+    Status init_lance_blob_resources(std::map<int32_t, TLanceBlobResource> resources);
     LanceBlobReader& get_lance_blob_reader();
-    const LanceBlobSourceDictionary& get_lance_blob_source_dictionary() const;
+    const TLanceBlobResource* get_lance_blob_resource(uint32_t source_id) const;
 
     bool is_timeout(timespec now) const {
         if (_timeout_second <= 0) {
@@ -341,7 +341,7 @@ public:
 
 private:
     std::unique_ptr<LanceBlobReader> _lance_blob_reader;
-    std::unique_ptr<LanceBlobSourceDictionary> _lance_blob_source_dictionary;
+    std::map<int32_t, TLanceBlobResource> _lance_blob_resources;
     // Task-level progress counters for current query.
     friend class QueryTaskController;
 

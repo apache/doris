@@ -397,12 +397,12 @@ Status DataTypeFileSerDe::write_column_to_pb(const IColumn& column, PValues& res
         auto* ids = result.add_child_element();
         ids->mutable_type()->set_id(PGenericType::UINT32);
         const auto& blob_source_ids =
-                assert_cast<const ColumnOffset32&>(file.blob_source_ids()).get_data();
+                assert_cast<const ColumnOffset32&>(*file.blob_source_ids()).get_data();
         ids->mutable_uint32_value()->Add(blob_source_ids.begin() + start,
                                          blob_source_ids.begin() + end);
         auto* rows = result.add_child_element();
         rows->mutable_type()->set_id(PGenericType::UINT64);
-        const auto& row_data = assert_cast<const ColumnOffset64&>(file.blob_row_ids()).get_data();
+        const auto& row_data = assert_cast<const ColumnOffset64&>(*file.blob_row_ids()).get_data();
         rows->mutable_uint64_value()->Add(row_data.begin() + start, row_data.begin() + end);
     }
     return Status::OK();
@@ -448,16 +448,24 @@ Status DataTypeFileSerDe::read_column_from_pb(IColumn& column, const PValues& ar
         }
         RETURN_IF_ERROR(check_pb_null_map(ids, rows));
         RETURN_IF_ERROR(check_pb_null_map(row_ids, rows));
-        auto restored_ids = ColumnOffset32::create();
-        auto restored_rows = ColumnOffset64::create();
-        restored_ids->reserve(rows);
-        restored_rows->reserve(rows);
-        for (int row = 0; row < rows; ++row) {
-            restored_ids->insert_value(ids.uint32_value(row));
-            restored_rows->insert_value(row_ids.uint64_value(row));
+        const auto has_ids =
+                std::any_of(ids.uint32_value().begin(), ids.uint32_value().end(),
+                            [](uint32_t id) { return id != 0; }) ||
+                std::any_of(row_ids.uint64_value().begin(), row_ids.uint64_value().end(),
+                            [](uint64_t id) { return id != 0; });
+        if (has_ids) {
+            auto restored_ids = ColumnOffset32::create();
+            auto restored_rows = ColumnOffset64::create();
+            restored_ids->reserve(rows);
+            restored_rows->reserve(rows);
+            for (int row = 0; row < rows; ++row) {
+                restored_ids->insert_value(ids.uint32_value(row));
+                restored_rows->insert_value(row_ids.uint64_value(row));
+            }
+            file.set_blob_ids(std::move(restored_ids), std::move(restored_rows));
+        } else {
+            file.reset_blob_ids();
         }
-        file.blob_source_ids_ptr() = std::move(restored_ids);
-        file.blob_row_ids_ptr() = std::move(restored_rows);
     } else {
         file.reset_blob_ids();
     }

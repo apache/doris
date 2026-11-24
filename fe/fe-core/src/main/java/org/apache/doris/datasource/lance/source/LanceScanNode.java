@@ -46,8 +46,8 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFtsQueryType;
 import org.apache.doris.thrift.TFullTextSearchParams;
+import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TLanceScanParams;
-import org.apache.doris.thrift.TLanceSplitParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchParams;
@@ -248,7 +248,7 @@ public class LanceScanNode extends FileQueryScanNode {
     @Override
     public void createScanRangeLocations() throws UserException {
         if (!blobReadColumns().isEmpty()
-                && (!LanceBlobReadSourcePlanner.isRemoteDataset(plannedMetadata.getDatasetUri())
+                && (!LanceBlobResourcePlanner.isRemoteDataset(plannedMetadata.getDatasetUri())
                         || plannedMetadata.getVersion() <= 0)) {
             throw new UserException("Lance BLOB reads require a remote dataset and a fixed snapshot");
         }
@@ -288,8 +288,8 @@ public class LanceScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public int assignFileReadSources(int nextSourceId) {
-        return LanceBlobReadSourcePlanner.assign(getOrCreateLanceScanParams(),
+    public int assignBlobSourceIds(int nextSourceId) {
+        return LanceBlobResourcePlanner.assign(getOrCreateLanceScanParams(),
                 blobReadColumns(), nextSourceId);
     }
 
@@ -312,7 +312,7 @@ public class LanceScanNode extends FileQueryScanNode {
             throw new IllegalArgumentException("Expected LanceSplit but got " + split.getClass().getName());
         }
         LanceSplit lanceSplit = (LanceSplit) split;
-        TLanceSplitParams splitParams = new TLanceSplitParams();
+        TLanceFileDesc splitParams = new TLanceFileDesc();
         if (lanceSplit.hasFragmentIds()) {
             if (searchKind == SearchKind.FULL_TEXT && lanceSplit.getKind() != LanceSplit.Kind.INDEX_SEGMENT) {
                 throw new IllegalArgumentException(
@@ -347,7 +347,7 @@ public class LanceScanNode extends FileQueryScanNode {
         // Match the Iceberg convention: always set explicitly, -1 for ordinary and search scans
         // so BE never mistakes a stale value for a metadata count.
         tableFormatParams.setTableLevelRowCount(lanceSplit.getTableLevelRowCount());
-        tableFormatParams.setLanceSplitParams(splitParams);
+        tableFormatParams.setLanceParams(splitParams);
         rangeDesc.setTableFormatParams(tableFormatParams);
     }
 

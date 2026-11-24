@@ -779,6 +779,8 @@ struct TPipelineFragmentParams {
   45: optional map<string, TAIResource> ai_resources
   46: optional bool need_notify_close
   47: optional map<string, Types.TS3Resource> s3_resources
+  // Query-wide BLOB source ID -> complete resource configuration, fixed before execution.
+  48: optional map<i32, PlanNodes.TLanceBlobResource> lance_blob_resources
 
   // For cloud
   1000: optional bool is_mow_table;

@@ -39,7 +39,6 @@
 #include "format_v2/lance/lance_runtime_filter_helper.h"
 #include "format_v2/lance/lance_session_manager.h"
 #include "runtime/file_scan_profile.h"
-#include "runtime/lance_blob_source_dictionary.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
@@ -835,9 +834,8 @@ void LanceTableReader::_init_scanner_profile() {
 }
 
 Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
-    if (!range.__isset.table_format_params ||
-        !range.table_format_params.__isset.lance_split_params) {
-        return Status::InvalidArgument("Lance scan range requires TLanceSplitParams");
+    if (!range.__isset.table_format_params || !range.table_format_params.__isset.lance_params) {
+        return Status::InvalidArgument("Lance scan range requires TLanceFileDesc");
     }
     _init_scanner_profile();
     SCOPED_TIMER(_scanner_configure_time);
@@ -928,7 +926,7 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
     }
     RETURN_IF_ERROR(_configure_scan_options(scanner));
 
-    const auto& split_params = range.table_format_params.lance_split_params;
+    const auto& split_params = range.table_format_params.lance_params;
     switch (_search_kind) {
     case SearchKind::NORMAL:
         RETURN_IF_ERROR(_configure_normal_scan(scanner, split_params));
@@ -972,7 +970,7 @@ Status LanceTableReader::_configure_scan_options(LanceScanner* scanner) const {
 }
 
 Status LanceTableReader::_configure_normal_scan(LanceScanner* scanner,
-                                                const TLanceSplitParams& split_params) const {
+                                                const TLanceFileDesc& split_params) const {
     DORIS_CHECK(scanner != nullptr);
     std::vector<uint64_t> fragment_ids;
     RETURN_IF_ERROR(parse_fragment_ids(split_params, &fragment_ids));
@@ -1015,7 +1013,7 @@ Status LanceTableReader::_configure_normal_scan(LanceScanner* scanner,
 }
 
 Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
-                                                  const TLanceSplitParams& split_params) const {
+                                                  const TLanceFileDesc& split_params) const {
     DORIS_CHECK(scanner != nullptr);
     DORIS_CHECK(_scan_params != nullptr);
     DORIS_CHECK(_scan_params->__isset.lance_scan_params);
@@ -1205,7 +1203,7 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
 }
 
 Status LanceTableReader::_configure_full_text_search(LanceScanner* scanner,
-                                                     const TLanceSplitParams& split_params) const {
+                                                     const TLanceFileDesc& split_params) const {
     DORIS_CHECK(scanner != nullptr);
     DORIS_CHECK(_fts_query_context != nullptr);
     DORIS_CHECK(_scan_params != nullptr);
@@ -1403,8 +1401,7 @@ Status LanceTableReader::_convert_record_batch(const std::shared_ptr<arrow::Reco
         if (version == 0 || lance_last_error_code() != LANCE_OK) {
             return lance_error("get pinned dataset version for FILE references");
         }
-        const auto& source_dictionary =
-                _runtime_state->get_query_ctx()->get_lance_blob_source_dictionary();
+        const auto* query = _runtime_state->get_query_ctx();
         const auto& lance = _scan_params->lance_scan_params;
         const auto& source_ids = lance.blob_read_source_ids;
         for (const auto& column : _projected_columns) {
@@ -1417,11 +1414,13 @@ Status LanceTableReader::_convert_record_batch(const std::shared_ptr<arrow::Reco
                                                column.name);
             }
             const auto source_id = static_cast<uint32_t>(id->second);
-            const auto* source = source_dictionary.find_source(source_id);
-            if (source == nullptr || source->column_name != column.name ||
-                source->scan_node_id != lance.scan_node_id ||
-                static_cast<uint64_t>(lance.version) != version) {
-                return Status::InvalidArgument("Lance BLOB source does not match the FE snapshot");
+            const auto* resource = query->get_lance_blob_resource(source_id);
+            if (resource == nullptr || resource->column_name != column.name ||
+                resource->dataset_uri != lance.dataset_uri || resource->version != lance.version ||
+                resource->storage_options != lance.lance_storage_options ||
+                static_cast<uint64_t>(resource->version) != version) {
+                return Status::InvalidArgument(
+                        "Lance BLOB resource does not match the scan dataset");
             }
             MutableColumnPtr data;
             RETURN_IF_ERROR(build_lance_blob_descriptors(batch->GetColumnByName(column.name), ids,

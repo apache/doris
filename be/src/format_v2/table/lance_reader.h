@@ -83,12 +83,11 @@ private:
     Status _open_scanner(const TFileRangeDesc& range);
     void _init_scanner_profile();
     Status _configure_scan_options(LanceScanner* scanner) const;
-    Status _configure_normal_scan(LanceScanner* scanner,
-                                  const TLanceSplitParams& split_params) const;
+    Status _configure_normal_scan(LanceScanner* scanner, const TLanceFileDesc& split_params) const;
     Status _configure_vector_search(LanceScanner* scanner,
-                                    const TLanceSplitParams& split_params) const;
+                                    const TLanceFileDesc& split_params) const;
     Status _configure_full_text_search(LanceScanner* scanner,
-                                       const TLanceSplitParams& split_params) const;
+                                       const TLanceFileDesc& split_params) const;
     // Collect the cumulative statistics owned by this dataset handle. The Lance-C API returns an
     // absolute snapshot, so this method replaces rather than increments the profile counters.
     void _collect_data_cache_statistics();

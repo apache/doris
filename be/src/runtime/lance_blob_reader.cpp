@@ -26,38 +26,27 @@
 #include "core/column/column_varbinary.h"
 #include "format_v2/lance/lance_reader_helper.h"
 #include "format_v2/lance/lance_session_manager.h"
-#include "runtime/lance_blob_source_dictionary.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
 
 namespace doris {
 
-Status LanceBlobReader::_get_or_open_dataset(RuntimeState* state, int32_t scan_node_id,
+Status LanceBlobReader::_get_or_open_dataset(RuntimeState* state,
+                                             const TLanceBlobResource& resource,
                                              std::shared_ptr<LanceDataset>* dataset) {
+    DatasetKey key {resource.dataset_uri, resource.version, resource.storage_options};
     {
         std::lock_guard lock(_dataset_cache_mutex);
-        const auto cached = _datasets_by_scan_node_id.find(scan_node_id);
-        if (cached != _datasets_by_scan_node_id.end()) {
+        const auto cached = _datasets_by_open_spec.find(key);
+        if (cached != _datasets_by_open_spec.end()) {
             *dataset = cached->second;
             return Status::OK();
         }
     }
     RETURN_IF_CANCELLED(state);
-    auto* query = state->get_query_ctx();
-    const auto params = query->file_scan_range_params_map.find(scan_node_id);
-    if (params == query->file_scan_range_params_map.end() ||
-        !params->second.__isset.lance_scan_params ||
-        !params->second.lance_scan_params.__isset.scan_node_id ||
-        params->second.lance_scan_params.scan_node_id != scan_node_id ||
-        !params->second.lance_scan_params.__isset.dataset_uri ||
-        !params->second.lance_scan_params.__isset.version) {
-        return Status::InvalidArgument("Lance scan node {} has no dataset parameters in this query",
-                                       scan_node_id);
-    }
-    const auto& scan_params = params->second.lance_scan_params;
     std::vector<std::string> options;
-    RETURN_IF_ERROR(format::lance::build_lance_storage_options(&params->second, &options));
+    RETURN_IF_ERROR(format::lance::build_lance_storage_options(resource.storage_options, &options));
     std::vector<const char*> option_ptrs;
     for (const auto& option : options) {
         option_ptrs.push_back(option.c_str());
@@ -65,12 +54,12 @@ Status LanceBlobReader::_get_or_open_dataset(RuntimeState* state, int32_t scan_n
     option_ptrs.push_back(nullptr);
     LanceDataset* raw = nullptr;
     RETURN_IF_ERROR(format::lance::LanceSessionManager::instance().open_dataset(
-            scan_params.dataset_uri.c_str(), options.empty() ? nullptr : option_ptrs.data(),
-            static_cast<uint64_t>(scan_params.version), &raw));
+            resource.dataset_uri.c_str(), options.empty() ? nullptr : option_ptrs.data(),
+            static_cast<uint64_t>(resource.version), &raw));
     std::shared_ptr<LanceDataset> opened(raw, lance_dataset_close);
     // Concurrent expressions may open the same source; retain one and safely release the other.
     std::lock_guard lock(_dataset_cache_mutex);
-    *dataset = _datasets_by_scan_node_id.try_emplace(scan_node_id, std::move(opened)).first->second;
+    *dataset = _datasets_by_open_spec.try_emplace(std::move(key), std::move(opened)).first->second;
     return Status::OK();
 }
 
@@ -79,7 +68,7 @@ Status LanceBlobReader::read_blob(RuntimeState* state, const std::vector<BlobReq
     if (state == nullptr || state->get_query_ctx() == nullptr) {
         return Status::InvalidArgument("External FILE content requires a query read context");
     }
-    const auto& source_dictionary = state->get_query_ctx()->get_lance_blob_source_dictionary();
+    const auto* query = state->get_query_ctx();
     std::map<uint32_t, std::map<uint64_t, std::vector<size_t>>> groups;
     for (const auto& request : requests) {
         if (request.output_row_index >= output->size()) {
@@ -89,12 +78,13 @@ Status LanceBlobReader::read_blob(RuntimeState* state, const std::vector<BlobReq
     }
     for (const auto& [source_id, rows] : groups) {
         RETURN_IF_CANCELLED(state);
-        const auto* source = source_dictionary.find_source(source_id);
-        if (source == nullptr) {
-            return Status::InvalidArgument("FILE read source {} is not declared by FE", source_id);
+        const auto* resource = query->get_lance_blob_resource(source_id);
+        if (resource == nullptr) {
+            return Status::InvalidArgument("Lance BLOB resource {} is not declared by FE",
+                                           source_id);
         }
         std::shared_ptr<LanceDataset> dataset;
-        RETURN_IF_ERROR(_get_or_open_dataset(state, source->scan_node_id, &dataset));
+        RETURN_IF_ERROR(_get_or_open_dataset(state, *resource, &dataset));
         std::vector<uint64_t> ids;
         ids.reserve(rows.size());
         for (const auto& entry : rows) {
@@ -109,7 +99,7 @@ Status LanceBlobReader::read_blob(RuntimeState* state, const std::vector<BlobReq
             }
         });
         if (lance_dataset_take_blobs(dataset.get(), ids.data(), ids.size(),
-                                     source->column_name.c_str(), handles.data()) != 0) {
+                                     resource->column_name.c_str(), handles.data()) != 0) {
             return format::lance::lance_error("resolve FILE payload handles");
         }
         // Validate each Blob's length before allocating and reading its payload.

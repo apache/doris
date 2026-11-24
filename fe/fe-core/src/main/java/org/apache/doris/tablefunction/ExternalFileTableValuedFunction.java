@@ -82,8 +82,8 @@ import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
+import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TLanceScanParams;
-import org.apache.doris.thrift.TLanceSplitParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
@@ -662,7 +662,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (isLanceFormat()) {
             TTableFormatFileDesc tableFormatParams = new TTableFormatFileDesc();
             tableFormatParams.setTableFormatType(TableFormatType.LANCE.value());
-            tableFormatParams.setLanceSplitParams(new TLanceSplitParams());
+            tableFormatParams.setLanceParams(new TLanceFileDesc());
             fileRangeDesc.setTableFormatParams(tableFormatParams);
         }
         // set TFileScanRange

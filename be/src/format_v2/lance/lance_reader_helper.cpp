@@ -657,8 +657,7 @@ size_t lance_vector_element_width(TVectorElementType::type type) {
     return 0;
 }
 
-Status parse_fragment_ids(const TLanceSplitParams& split_params,
-                          std::vector<uint64_t>* fragment_ids) {
+Status parse_fragment_ids(const TLanceFileDesc& split_params, std::vector<uint64_t>* fragment_ids) {
     DORIS_CHECK(fragment_ids != nullptr);
     fragment_ids->clear();
     if (!split_params.__isset.fragment_ids || split_params.fragment_ids.empty()) {
@@ -675,7 +674,7 @@ Status parse_fragment_ids(const TLanceSplitParams& split_params,
     return Status::OK();
 }
 
-Status parse_index_segment_uuids(const TLanceSplitParams& split_params,
+Status parse_index_segment_uuids(const TLanceFileDesc& split_params,
                                  std::vector<uint8_t>* segment_uuids, size_t* segment_count) {
     DORIS_CHECK(segment_uuids != nullptr);
     DORIS_CHECK(segment_count != nullptr);
@@ -741,7 +740,14 @@ Status build_lance_storage_options(const TFileScanRangeParams* scan_params,
         !scan_params->lance_scan_params.__isset.lance_storage_options) {
         return Status::OK();
     }
-    const auto& storage_options = scan_params->lance_scan_params.lance_storage_options;
+    return build_lance_storage_options(scan_params->lance_scan_params.lance_storage_options,
+                                       options);
+}
+
+Status build_lance_storage_options(const std::map<std::string, std::string>& storage_options,
+                                   std::vector<std::string>* options) {
+    DORIS_CHECK(options != nullptr);
+    options->clear();
     options->reserve(storage_options.size() * 2);
     for (const auto& [key, value] : storage_options) {
         // Both values cross a C-string boundary. Reject embedded NULs instead of silently opening
