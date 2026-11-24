@@ -32,8 +32,6 @@ under the License.
     <properties>
         <doris.home>${basedir}/../../</doris.home>
         <fe_ut_parallel>1</fe_ut_parallel>
-        <luben.zstd.jni.version>1.5.4-2</luben.zstd.jni.version>
-        <hive-apache.version>3.1.2-22</hive-apache.version>
     </properties>
 
     <dependencies>
@@ -144,7 +142,6 @@ under the License.
         <dependency>
             <groupId>com.github.luben</groupId>
             <artifactId>zstd-jni</artifactId>
-            <version>${luben.zstd.jni.version}</version>
         </dependency>
 
         <dependency>
@@ -157,7 +154,6 @@ under the License.
         <dependency>
             <groupId>io.trino.hive</groupId>
             <artifactId>hive-apache</artifactId>
-            <version>${hive-apache.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.apache.thrift</groupId>
