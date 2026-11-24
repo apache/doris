@@ -79,6 +79,71 @@ public class IcebergExternalTableTest {
     }
 
     @Test
+    public void testViewSnapshotDoesNotUseTableMetadata() {
+        IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
+        IcebergExternalTable view = Mockito.spy(
+                new IcebergExternalTable(10L, "view", "view", mockCatalog, database));
+        Mockito.doReturn(true).when(view).isView();
+        Mockito.clearInvocations(mockCatalog);
+        MvccSnapshot fence = new EmptyMvccSnapshot();
+        try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class)) {
+            List<MvccSnapshot> snapshots = Arrays.asList(
+                    view.loadSnapshot(Optional.empty(), Optional.empty()),
+                    view.loadSnapshot(Optional.empty(), Optional.empty(), Optional.empty()),
+                    view.loadSnapshot(Optional.empty(), Optional.empty(), Optional.of(fence)),
+                    view.loadLatestSnapshotFence());
+            for (MvccSnapshot snapshot : snapshots) {
+                Assertions.assertInstanceOf(EmptyMvccSnapshot.class, snapshot);
+            }
+            utils.verifyNoInteractions();
+        }
+        Mockito.verifyNoInteractions(mockCatalog, icebergTable);
+    }
+
+    @Test
+    public void testViewSnapshotRejectsScanParamsWithoutTableMetadata() {
+        IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
+        IcebergExternalTable view = Mockito.spy(
+                new IcebergExternalTable(10L, "view", "view", mockCatalog, database));
+        Mockito.doReturn(true).when(view).isView();
+        Mockito.clearInvocations(mockCatalog);
+        MvccSnapshot fence = new EmptyMvccSnapshot();
+        Map<String, String> incrementalParams = Maps.newHashMap();
+        incrementalParams.put("startSnapshotId", "1");
+        incrementalParams.put("endSnapshotId", "5");
+        List<TableScanParams> selectors = Arrays.asList(
+                new TableScanParams(TableScanParams.BRANCH,
+                        Collections.emptyMap(), Collections.singletonList("b1")),
+                new TableScanParams(TableScanParams.BRANCH,
+                        Collections.singletonMap(TableScanParams.PARAMS_NAME, "b1"), Collections.emptyList()),
+                new TableScanParams(TableScanParams.TAG,
+                        Collections.emptyMap(), Collections.singletonList("t1")),
+                new TableScanParams(TableScanParams.TAG,
+                        Collections.singletonMap(TableScanParams.PARAMS_NAME, "t1"), Collections.emptyList()),
+                new TableScanParams(TableScanParams.INCREMENTAL_READ, incrementalParams, Collections.emptyList()),
+                new TableScanParams(TableScanParams.OPTIONS,
+                        Collections.singletonMap("scan.snapshot-id", "7"), Collections.emptyList()));
+
+        try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class)) {
+            for (TableScanParams selector : selectors) {
+                List<UnsupportedOperationException> errors = Arrays.asList(
+                        Assertions.assertThrows(UnsupportedOperationException.class,
+                                () -> view.loadSnapshot(Optional.empty(), Optional.of(selector))),
+                        Assertions.assertThrows(UnsupportedOperationException.class,
+                                () -> view.loadSnapshot(Optional.empty(), Optional.of(selector), Optional.empty())),
+                        Assertions.assertThrows(UnsupportedOperationException.class,
+                                () -> view.loadSnapshot(Optional.empty(), Optional.of(selector), Optional.of(fence))));
+                for (UnsupportedOperationException error : errors) {
+                    Assertions.assertEquals("view not supported with scan params: @" + selector.getParamType(),
+                            error.getMessage());
+                }
+            }
+            utils.verifyNoInteractions();
+        }
+        Mockito.verifyNoInteractions(mockCatalog, icebergTable);
+    }
+
+    @Test
     public void testSelectViewTextMissingRepairsLookup() {
         verifyMissingViewRead(IcebergExternalTable::getViewText, false);
     }
