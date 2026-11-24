@@ -283,7 +283,8 @@ TEST(FileAggregateTest, AnyValueCarriesFileAcrossEmptyNullAndPartialStates) {
             if (nullable) {
                 EXPECT_TRUE(empty_result->is_null_at(0));
             } else {
-                const auto& empty_fields = (*empty_result)[0].get<TYPE_FILE>();
+                const auto empty_value = (*empty_result)[0];
+                const auto& empty_fields = empty_value.get<TYPE_FILE>();
                 ASSERT_EQ(empty_fields.size(), 6);
                 for (const auto& child : empty_fields) {
                     EXPECT_TRUE(child.is_null());
