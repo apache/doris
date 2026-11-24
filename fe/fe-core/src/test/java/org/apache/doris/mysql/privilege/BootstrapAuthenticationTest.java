@@ -40,6 +40,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.BootstrapPasswordGuard;
 import org.apache.doris.qe.ConnectContext;
@@ -54,6 +55,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -61,6 +63,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -199,6 +202,17 @@ class BootstrapAuthenticationTest {
     }
 
     @Test
+    void testExactAccountPasswordErrorIncludesItsHost() throws Exception {
+        UserIdentity account = UserIdentity.createAnalyzedUserIdentWithIp("certificate_user", "10.0.0.%");
+        auth.getUserManager().createUser(account, MysqlPassword.makeScrambledPassword("configured-password"),
+                null, false, "");
+        AuthenticationException error = Assertions.assertThrows(AuthenticationException.class,
+                () -> auth.checkPlainPasswordForUserIdentity(account, "incorrect-password", new ArrayList<>()));
+        Assertions.assertEquals(ErrorCode.ERR_ACCESS_DENIED_ERROR, error.errorCode);
+        Assertions.assertTrue(error.getMessage().contains(account.toString()), error.getMessage());
+    }
+
+    @Test
     void testOrdinaryEmptyPasswordUserIsUnaffected() throws Exception {
         auth.setSecureInitialization();
         UserIdentity worker = UserIdentity.createAnalyzedUserIdentWithIp("bootstrap_worker", "%");
@@ -206,6 +220,27 @@ class BootstrapAuthenticationTest {
         List<UserIdentity> identities = new ArrayList<>();
         auth.checkPlainPassword("bootstrap_worker", "10.0.0.8", "", identities);
         Assertions.assertEquals(List.of(worker), identities);
+    }
+
+    @Test
+    void testSameNameHostAccountsKeepOrdinaryPasswordRules() throws Exception {
+        auth.setSecureInitialization();
+        String host = "10.0.0.8";
+        for (String name : List.of("root", "admin")) {
+            UserIdentity account = UserIdentity.createAnalyzedUserIdentWithIp(name, host);
+            auth.getUserManager().createUser(account, new byte[0], null, false, "");
+            List<UserIdentity> identities = new ArrayList<>();
+            Assertions.assertFalse(auth.checkPassword(name, host, new byte[0], new byte[20], identities,
+                    AuthenticationProtocol.MYSQL));
+            Assertions.assertEquals(List.of(account), identities);
+            auth.checkPlainPasswordForUserIdentity(account, "", new ArrayList<>());
+            Assertions.assertFalse(auth.checkBootstrapAuthentication(account, host, AuthenticationProtocol.OTHER));
+            auth.setPassword(account, MysqlPassword.makeScrambledPassword("configured-password"));
+            AuthenticationException error = Assertions.assertThrows(AuthenticationException.class,
+                    () -> auth.checkPassword(name, host, new byte[0], new byte[20], new ArrayList<>(),
+                            AuthenticationProtocol.MYSQL));
+            Assertions.assertEquals(ErrorCode.ERR_ACCESS_DENIED_ERROR, error.errorCode);
+        }
     }
 
     @Test
@@ -361,6 +396,28 @@ class BootstrapAuthenticationTest {
     }
 
     @Test
+    void testInitialPasswordCanResumeWithoutReplacingReplayedCredentials() throws Exception {
+        auth.setSecureInitialization();
+        String password = "configured-password";
+        String hash = new String(MysqlPassword.makeScrambledPassword(password), StandardCharsets.UTF_8);
+        auth.setInitialRootPassword(hash);
+        auth.checkPlainPasswordForUserIdentity(UserIdentity.ROOT, password, null);
+
+        ArgumentCaptor<PrivInfo> recordedPassword = ArgumentCaptor.forClass(PrivInfo.class);
+        Mockito.verify(env.getEditLog()).logSetPassword(recordedPassword.capture());
+        Auth restored = new Auth();
+        restored.setSecureInitialization();
+        restored.replaySetPassword(recordedPassword.getValue());
+        Mockito.when(env.getAuth()).thenReturn(restored);
+
+        String replacement = new String(MysqlPassword.makeScrambledPassword("replacement-password"),
+                StandardCharsets.UTF_8);
+        restored.setInitialRootPassword(replacement);
+        restored.checkPlainPasswordForUserIdentity(UserIdentity.ROOT, password, null);
+        Mockito.verify(env.getEditLog()).logSetPassword(Mockito.any(PrivInfo.class));
+    }
+
+    @Test
     void testInitialPasswordMustBeHashedAndCannotAppearInError() throws Exception {
         String password = "must-not-appear-in-an-error";
         Exception error = Assertions.assertThrows(Exception.class, () -> Auth.parseInitialRootPassword(password));
@@ -368,7 +425,7 @@ class BootstrapAuthenticationTest {
         Assertions.assertNull(error.getCause());
         Assertions.assertEquals(0, Auth.parseInitialRootPassword("").length);
         String hash = new String(MysqlPassword.makeScrambledPassword("root-password"),
-                java.nio.charset.StandardCharsets.UTF_8);
+                StandardCharsets.UTF_8);
         Assertions.assertArrayEquals(MysqlPassword.makeScrambledPassword("root-password"),
                 Auth.parseInitialRootPassword(hash));
     }

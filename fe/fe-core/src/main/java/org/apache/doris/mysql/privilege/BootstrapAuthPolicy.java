@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -58,22 +59,31 @@ public final class BootstrapAuthPolicy {
     }
 
     public static AuthenticationException accessDenied(String userName, String host, boolean suppliedPassword) {
-        ErrorCode code = isBuiltinUser(userName) && !suppliedPassword
+        return accessDenied(isBuiltinUser(userName), userName + "@" + host, suppliedPassword);
+    }
+
+    public static AuthenticationException accessDenied(UserIdentity identity, String host, boolean suppliedPassword) {
+        String account = host == null ? identity.toString() : identity.getQualifiedUser() + "@" + host;
+        return accessDenied(identity.isSystemUser(), account, suppliedPassword);
+    }
+
+    private static AuthenticationException accessDenied(boolean builtin, String account, boolean suppliedPassword) {
+        ErrorCode code = builtin && !suppliedPassword
                 ? ErrorCode.ERR_ACCESS_DENIED_EMPTY_PASSWORD : ErrorCode.ERR_ACCESS_DENIED_ERROR;
-        return new AuthenticationException(code, userName + "@" + host, suppliedPassword ? "YES" : "NO");
+        return new AuthenticationException(code, account, suppliedPassword ? "YES" : "NO");
     }
 
     /** Returns whether the authenticated connection must set its own password before normal SQL. */
     public static boolean check(User user, boolean secureInitialization, String host,
             AuthenticationProtocol protocol, boolean suppliedPassword) throws AuthenticationException {
-        String userName = user.getUserIdentity().getQualifiedUser();
-        if (!secureInitialization || Config.allow_empty_password_for_root_admin || !isBuiltinUser(userName)
+        UserIdentity identity = user.getDomainUserIdentity();
+        if (!secureInitialization || Config.allow_empty_password_for_root_admin || !identity.isSystemUser()
                 || user.getPassword().getPassword().length != 0) {
             return false;
         }
-        if (Auth.ROOT_USER.equals(userName) && protocol == AuthenticationProtocol.MYSQL && isLocalAddress(host)) {
+        if (identity.isRootUser() && protocol == AuthenticationProtocol.MYSQL && isLocalAddress(host)) {
             return true;
         }
-        throw accessDenied(userName, host, suppliedPassword);
+        throw accessDenied(identity, host, suppliedPassword);
     }
 }

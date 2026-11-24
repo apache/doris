@@ -226,6 +226,26 @@ public class MysqlProto {
             return false;
         }
         context.setConnectAttributes(authPacket.getConnectAttributes());
+        if (!initializeNamespace(context, authPacket.getDb())) {
+            return false;
+        }
+
+        // set resource tag if has
+        context.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(qualifiedUser));
+        return true;
+    }
+
+    private static boolean initializeNamespace(ConnectContext context, String db) throws IOException {
+        if (context.isPasswordResetRequired()) {
+            // Keep bootstrap logins in the internal namespace until the password is set.
+            if (Strings.isNullOrEmpty(db)) {
+                return true;
+            }
+            context.getState().setError(ErrorCode.ERR_MUST_CHANGE_PASSWORD,
+                    ErrorCode.ERR_MUST_CHANGE_PASSWORD.formatErrorMsg());
+            sendResponsePacket(context);
+            return false;
+        }
 
         // try to change catalog, if default_init_catalog inside user property is not 'internal'
         try {
@@ -243,7 +263,6 @@ public class MysqlProto {
         }
 
         // set database
-        String db = authPacket.getDb();
         if (!Strings.isNullOrEmpty(db)) {
             Optional<Pair<ErrorCode, String>> res = ConnectContextUtil.initCatalogAndDb(context, db);
             if (res.isPresent()) {
@@ -253,8 +272,6 @@ public class MysqlProto {
             }
         }
 
-        // set resource tag if has
-        context.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(qualifiedUser));
         return true;
     }
 

@@ -58,10 +58,6 @@ public class AlterUserCommand extends AlterCommand implements NeedAuditEncryptio
         }
     }
 
-    public AlterUserInfo getAlterUserInfo() {
-        return alterUserInfo;
-    }
-
     @Override
     public void afterForwardToMaster(ConnectContext ctx) {
         if (ctx.getExecutor().getProxyStatusCode() != 0) {

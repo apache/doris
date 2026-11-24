@@ -307,7 +307,7 @@ public class Auth implements Writable {
 
     public boolean checkBootstrapAuthentication(UserIdentity identity, String remoteHost,
             AuthenticationProtocol protocol) throws AuthenticationException {
-        if (!BootstrapAuthPolicy.isBuiltinUser(identity.getQualifiedUser())) {
+        if (!identity.isSystemUser()) {
             return false;
         }
         if (BootstrapAuthPolicy.isRecoveryLogin(identity.getQualifiedUser(), remoteHost, protocol,
@@ -2067,20 +2067,25 @@ public class Auth implements Writable {
     }
 
     public void setInitialRootPassword(String initialRootPassword) throws DdlException {
-        // Skip set root password if `initial_root_password` set to empty string
         if (StringUtils.isEmpty(initialRootPassword)) {
             return;
         }
-        byte[] scramble;
+        writeLock();
         try {
-            scramble = parseInitialRootPassword(initialRootPassword);
-        } catch (AnalysisException e) {
-            // Invalid input may be plaintext: preserve neither the value nor its original exception.
-            throw new DdlException("initial_root_password must be a two-stage SHA-1 hash");
+            if (!hasEmptyPassword(UserIdentity.ROOT)) {
+                return;
+            }
+            byte[] scramble;
+            try {
+                scramble = parseInitialRootPassword(initialRootPassword);
+            } catch (AnalysisException e) {
+                // Invalid input may be plaintext: preserve neither the value nor its original exception.
+                throw new DdlException("initial_root_password must be a two-stage SHA-1 hash");
+            }
+            setPasswordInternal(UserIdentity.ROOT, scramble, null, true, false, false);
+        } finally {
+            writeUnlock();
         }
-        UserIdentity rootUser = new UserIdentity(ROOT_USER, "%");
-        rootUser.setIsAnalyzed();
-        setPasswordInternal(rootUser, scramble, null, false, false, false);
     }
 
     public boolean hasEmptyPassword(UserIdentity identity) {

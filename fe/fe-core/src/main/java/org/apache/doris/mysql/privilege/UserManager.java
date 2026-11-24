@@ -163,10 +163,10 @@ public class UserManager implements Writable {
             if (!user.isAnyHost() && !user.getHostPattern().match(remoteHost)) {
                 continue;
             }
-            if (getAuthenticationUser(user).isAuthenticationBound()) {
-                throw BootstrapAuthPolicy.accessDenied(remoteUser, remoteHost, suppliedPassword);
-            }
             UserIdentity curUser = user.getDomainUserIdentity();
+            if (getAuthenticationUser(user).isAuthenticationBound()) {
+                throw BootstrapAuthPolicy.accessDenied(curUser, remoteHost, suppliedPassword);
+            }
             int matchedSlot = matchUserPassword(user, remotePasswd, randomString, remotePasswdStr, plain);
             if (matchedSlot != MATCH_NONE) {
                 passwdPolicyMgr.checkAccountLockedAndPasswordExpiration(curUser);
@@ -180,7 +180,7 @@ public class UserManager implements Writable {
             }
             // A matching user@host with the wrong password must not fall back to a broader host entry.
             passwdPolicyMgr.onFailedLogin(curUser);
-            throw BootstrapAuthPolicy.accessDenied(remoteUser, remoteHost, suppliedPassword);
+            throw BootstrapAuthPolicy.accessDenied(curUser, remoteHost, suppliedPassword);
         }
         throw BootstrapAuthPolicy.accessDenied(remoteUser, remoteHost, suppliedPassword);
     }
@@ -192,7 +192,7 @@ public class UserManager implements Writable {
         boolean suppliedPassword = plain ? !Strings.isEmpty(remotePasswdStr) : remotePasswd.length != 0;
         User user = getUserByUserIdentity(userIdentity);
         if (user == null || getAuthenticationUser(user).isAuthenticationBound()) {
-            throw BootstrapAuthPolicy.accessDenied(userIdentity.getQualifiedUser(), remoteHost, suppliedPassword);
+            throw BootstrapAuthPolicy.accessDenied(userIdentity, remoteHost, suppliedPassword);
         }
         UserIdentity currentIdentity = user.getDomainUserIdentity();
         int matchedSlot = matchUserPassword(user, remotePasswd, randomString, remotePasswdStr, plain);
@@ -207,7 +207,7 @@ public class UserManager implements Writable {
             return passwordResetRequired;
         }
         passwdPolicyMgr.onFailedLogin(currentIdentity);
-        throw BootstrapAuthPolicy.accessDenied(userIdentity.getQualifiedUser(), remoteHost, suppliedPassword);
+        throw BootstrapAuthPolicy.accessDenied(userIdentity, remoteHost, suppliedPassword);
     }
 
     public User getAuthenticationUser(User user) {

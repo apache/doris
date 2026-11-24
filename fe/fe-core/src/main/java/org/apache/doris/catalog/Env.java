@@ -1005,7 +1005,7 @@ public class Env {
     public void logBootstrapAuthenticationState() {
         auth.logBootstrapAuthenticationState();
         if (!isFirstTimeStartUp && !Strings.isNullOrEmpty(Config.initial_root_password)) {
-            LOG.info("initial_root_password is ignored on an initialized cluster and can be removed");
+            LOG.info("initial_root_password is used only during cluster initialization and can be removed");
         }
     }
 
@@ -1821,9 +1821,12 @@ public class Env {
                 // OP_ADD_FIRST_FRONTEND is emitted, so it can write to BDBJE even if canWrite is false
                 editLog.logAddFirstFrontend(self);
                 auth.setSecureInitialization();
+            }
 
+            // The first master-info record follows bootstrap setup and precedes serving clients.
+            // Finish setup after replay if the first frontend record was the last durable step.
+            if (auth.isSecureInitialization() && Strings.isNullOrEmpty(masterInfo.getHost())) {
                 initLowerCaseTableNames();
-                // Set initial root password if master FE first time launch.
                 auth.setInitialRootPassword(Config.initial_root_password);
             } else {
                 VariableMgr.forceUpdateVariables();
