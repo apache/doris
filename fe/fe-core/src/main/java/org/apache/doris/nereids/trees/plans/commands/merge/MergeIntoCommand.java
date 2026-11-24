@@ -68,6 +68,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
@@ -402,7 +403,7 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
                         // null, we use the literal string of the default value, or it may be
                         // default value function, like CURRENT_TIMESTAMP.
                         Expression unboundDefaultValue = new NereidsParser().parseExpression(
-                                column.getDefaultValueSql());
+                                column.getDefaultValueSql(SqlModeHelper.hasNoBackSlashEscapes()));
                         if (unboundDefaultValue instanceof UnboundAlias) {
                             unboundDefaultValue = ((UnboundAlias) unboundDefaultValue).child();
                         }

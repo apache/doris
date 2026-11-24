@@ -201,10 +201,11 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
     prepareLocalDataDirectory("conversion_defaults")
     sql "INSERT INTO conversion_defaults VALUES (1, STRUCT(10)), (2, NULL)"
     sql "SET time_zone = '+00:00'"
+    // The beginning of the CET spring gap maps to 01:00 UTC.
     sql """ALTER TABLE conversion_defaults ADD COLUMN ns TIMESTAMP_NS
-        DEFAULT '2027-03-28 02:30:00.123456789CET'"""
+        DEFAULT '2027-03-28 02:00:00.123456789CET'"""
     sql """ALTER TABLE conversion_defaults ADD COLUMN s.ns TIMESTAMP_NS NOT NULL
-        DEFAULT '2027-03-28 02:30:00.123456789CET'"""
+        DEFAULT '2027-03-28 02:00:00.123456789CET'"""
     sql "SET time_zone = 'CET'"
     sql """ALTER TABLE conversion_defaults ADD COLUMN (
         overlap_implicit TIMESTAMPTZ(0) NOT NULL DEFAULT '2021-10-31 02:59:59.6',
@@ -241,7 +242,7 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
         sql "SET sql_mode = '${previousSqlMode}'"
     }
     "order_qt_conversion_old_files" """SELECT *,
-        ns = CAST('2027-03-28 02:30:00.123456789CET' AS TIMESTAMP_NS)
+        ns = CAST('2027-03-28 02:00:00.123456789CET' AS TIMESTAMP_NS)
         FROM conversion_defaults ORDER BY id"""
     sql "INSERT INTO conversion_defaults (id) VALUES (3)"
     try {
@@ -255,10 +256,20 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
     "order_qt_conversion_write_defaults" "SELECT * FROM conversion_defaults ORDER BY id"
     order_qt_conversion_string_bytes """SELECT id, HEX(label), HEX(s.label)
         FROM conversion_defaults ORDER BY id"""
+    // The position inside the skipped hour is preserved for both top-level and nested historical defaults.
+    sql """ALTER TABLE conversion_defaults ADD COLUMN gap_midpoint TIMESTAMP_NS
+        DEFAULT '2027-03-28 02:30:00.123456789CET'"""
+    sql """ALTER TABLE conversion_defaults ADD COLUMN s.gap_midpoint TIMESTAMP_NS NOT NULL
+        DEFAULT '2027-03-28 02:30:00.123456789CET'"""
     order_qt_conversion_zoned_equality """SELECT id, overlap_implicit = overlap_explicit,
         milli_implicit = milli_explicit,
-        overlap_implicit = CAST('2021-10-31 01:00:00+00:00' AS TIMESTAMPTZ(0)),
-        s.overlap_implicit = s.overlap_explicit FROM conversion_defaults ORDER BY id"""
+        overlap_implicit = CAST('2021-10-31 01:00:00+00:00' AS TIMESTAMPTZ(0))
+            AND gap_midpoint = CAST('2027-03-28 01:30:00.123456789' AS TIMESTAMP_NS),
+        s.overlap_implicit = s.overlap_explicit
+            AND s.gap_midpoint = CAST('2027-03-28 01:30:00.123456789' AS TIMESTAMP_NS)
+        FROM conversion_defaults ORDER BY id"""
+    sql "ALTER TABLE conversion_defaults DROP COLUMN s.gap_midpoint"
+    sql "ALTER TABLE conversion_defaults DROP COLUMN gap_midpoint"
     for (String type : ["FLOAT", "DOUBLE"]) {
         for (String value : ["NaN", "Infinity", "-Infinity"]) {
             // FLOAT NaN fails the existing precision check before connector conversion.

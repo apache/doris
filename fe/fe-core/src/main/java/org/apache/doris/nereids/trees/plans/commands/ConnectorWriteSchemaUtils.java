@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
 
@@ -111,7 +112,7 @@ public final class ConnectorWriteSchemaUtils {
 
     /** Parse the catalog default expression for a connector write column. */
     public static Expression resolveDefault(Column column) {
-        String defaultSql = column.getDefaultValueSql();
+        String defaultSql = column.getDefaultValueSql(SqlModeHelper.hasNoBackSlashEscapes());
         if (defaultSql == null) {
             throw new AnalysisException(
                     "Column has no default value, column=" + column.getName());

@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
@@ -490,7 +491,7 @@ public class NereidsLoadScanProvider {
                         exprs.add(funcExpr.child(1));
                     } else {
                         if (column.getDefaultValue() != null) {
-                            String exprSql = column.getDefaultValueSql();
+                            String exprSql = column.getDefaultValueSql(SqlModeHelper.hasNoBackSlashEscapes());
                             exprs.add(NereidsLoadUtils.parseExpressionSeq(exprSql).get(0));
                         } else {
                             if (column.isAllowNull()) {
@@ -510,7 +511,7 @@ public class NereidsLoadScanProvider {
                         innerIfExprs.add(funcExpr.child(1));
                     } else {
                         if (column.getDefaultValue() != null) {
-                            String exprSql = column.getDefaultValueSql();
+                            String exprSql = column.getDefaultValueSql(SqlModeHelper.hasNoBackSlashEscapes());
                             innerIfExprs.add(NereidsLoadUtils.parseExpressionSeq(exprSql).get(0));
                         } else {
                             if (column.isAllowNull()) {

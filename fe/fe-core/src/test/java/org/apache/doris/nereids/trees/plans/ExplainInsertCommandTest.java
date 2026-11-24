@@ -26,13 +26,16 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.insert.FastInsertIntoValuesPlanner;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -126,6 +129,39 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     public void testInsertIntoSomeColumns() throws Exception {
         String sql = "explain insert into t1 (v1, v2) select v1 + 1, v2 + 4 from src";
         Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
+    }
+
+    @Test
+    public void testOlapStringDefaultAcrossSqlModes() throws Exception {
+        long previousMode = connectContext.getSessionVariable().getSqlMode();
+        String value = "owner's \"a\\b\"\\";
+        long[] modes = {0L, SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES};
+        try {
+            for (long ddlMode : modes) {
+                connectContext.getSessionVariable().setSqlMode(ddlMode);
+                String table = "escaped_default_" + ddlMode;
+                String literal = ddlMode == 0 ? "'owner''s \"a\\\\b\"\\\\'" : "'owner''s \"a\\b\"\\'";
+                createTable("create table " + table + " (k int, v string default " + literal + ") "
+                        + "duplicate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
+                for (long writeMode : modes) {
+                    connectContext.getSessionVariable().setSqlMode(writeMode);
+                    for (String source : new String[] {"(k) select k1 from src", "values(1, DEFAULT)"}) {
+                        String sql = "explain insert into " + table + " " + source;
+                        MemoTestUtils.createStatementContext(connectContext, sql);
+                        ExplainCommand explain = (ExplainCommand) parser.parseSingle(sql);
+                        Plan insert = ((Explainable) explain.getLogicalPlan()).getExplainPlan(connectContext);
+                        Plan bound = PlanChecker.from(connectContext).analyze(insert)
+                                .getCascadesContext().getRewritePlan();
+                        Assertions.assertTrue(bound.anyMatch(node -> ((Plan) node).getExpressions().stream()
+                                .anyMatch(expr -> expr.anyMatch(child -> child instanceof StringLikeLiteral
+                                        && value.equals(((StringLikeLiteral) child).getStringValue())))),
+                                "DDL mode " + ddlMode + ", write mode " + writeMode + ": " + sql);
+                    }
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().setSqlMode(previousMode);
+        }
     }
 
     @Test

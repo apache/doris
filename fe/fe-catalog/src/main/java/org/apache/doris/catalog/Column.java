@@ -683,6 +683,10 @@ public class Column implements GsonPostProcessable {
     }
 
     public String getDefaultValueSql() {
+        return getDefaultValueSql(false);
+    }
+
+    public String getDefaultValueSql(boolean noBackslashEscapes) {
         if (connectorDefaultValueSql != null) {
             return connectorDefaultValueSql;
         }
@@ -695,7 +699,7 @@ public class Column implements GsonPostProcessable {
         if (this.type.isNumericType()) {
             return defaultValue;
         } else {
-            return "'" + defaultValue.replace("'", "''") + "'";
+            return SqlUtils.quoteStringLiteral(defaultValue, noBackslashEscapes);
         }
     }
 
@@ -918,6 +922,11 @@ public class Column implements GsonPostProcessable {
 
     /** Use a placeholder only for internal CREATE TABLE LIKE parsing; restore the expression before analysis. */
     public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder) {
+        return toSql(isUniqueTable, isCompatible, useGeneratedColumnPlaceholder, false);
+    }
+
+    public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder,
+            boolean noBackslashEscapes) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
@@ -948,7 +957,7 @@ public class Column implements GsonPostProcessable {
             if (defaultValueExprDef != null) {
                 sb.append(" DEFAULT ").append(defaultValue).append("");
             } else {
-                sb.append(" DEFAULT \"").append(defaultValue).append("\"");
+                sb.append(" DEFAULT ").append(SqlUtils.quoteStringLiteral(defaultValue, noBackslashEscapes));
             }
         }
         if ((getDataType() == PrimitiveType.BITMAP) && defaultValue != null) {

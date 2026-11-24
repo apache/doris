@@ -82,6 +82,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.InsertStreamTxnExecutor;
 import org.apache.doris.qe.MasterTxnExecutor;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
@@ -830,7 +831,7 @@ public class InsertUtils {
         if (generatedColumnInfo != null) {
             return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
         }
-        String defaultValueSql = column.getDefaultValueSql();
+        String defaultValueSql = column.getDefaultValueSql(SqlModeHelper.hasNoBackSlashEscapes());
         if (defaultValueSql == null) {
             if (!column.isAllowNull() && !column.isAutoInc()) {
                 throw new AnalysisException("Column has no default value, column=" + column.getName());

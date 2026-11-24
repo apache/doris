@@ -111,7 +111,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.time.LocalDateTime;
+import java.time.DateTimeException;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -1888,36 +1889,47 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     private static Literal<?> parseAddColumnDefault(ConnectorSession session,
             ConnectorColumn column, Type icebergType) {
-        Literal<?> defaultValue = IcebergSchemaBuilder.parseDefaultLiteral(column.getDefaultValue(), icebergType,
-                IcebergTimeUtils.resolveSessionZone(session));
-        if (!column.isNullable() && defaultValue == null) {
-            throw new DorisConnectorException("can't add a non-nullable column to an Iceberg table: "
-                    + column.getName() + " without a non-null default");
-        }
-        if (defaultValue != null && icebergType.typeId() == Type.TypeID.TIMESTAMP) {
-            long micros = (Long) defaultValue.value();
-            boolean zoned = ((Types.TimestampType) icebergType).shouldAdjustToUTC();
-            int precision = column.getType().getPrecision();
-            // Round the resolved instant, so equivalent explicit/session zones retain the same value.
-            if (zoned && precision >= 0 && precision < 6) {
-                long unit = (long) Math.pow(10, 6 - precision);
-                long remainder = Math.floorMod(micros, unit);
-                micros -= remainder;
-                if (remainder >= unit / 2) {
-                    micros += unit;
-                }
+        String value = column.getDefaultValue();
+        if (value == null) {
+            if (!column.isNullable()) {
+                throw new DorisConnectorException("can't add a non-nullable column to an Iceberg table: "
+                        + column.getName() + " without a non-null default");
             }
-            int year = LocalDateTime.ofEpochSecond(Math.floorDiv(micros, 1_000_000L),
-                    (int) (Math.floorMod(micros, 1_000_000L) * 1000), ZoneOffset.UTC).getYear();
-            // Physical Parquet timestamp reads require years 0001 through 9999, including new writes.
-            if (year < 1 || year > 9999) {
-                throw new IllegalArgumentException("Iceberg timestamp default for column " + column.getName()
-                        + " is outside the supported " + (zoned ? "UTC " : "")
-                        + "range 0001-9999: " + column.getDefaultValue());
-            }
-            defaultValue = Literal.of(micros);
+            return null;
         }
-        return defaultValue;
+        ZoneId sessionZone = IcebergTimeUtils.resolveSessionZone(session);
+        if (icebergType.typeId() != Type.TypeID.TIMESTAMP) {
+            return IcebergSchemaBuilder.parseDefaultLiteral(value, icebergType, sessionZone);
+        }
+
+        Types.TimestampType timestampType = (Types.TimestampType) icebergType;
+        Instant instant;
+        if (value.matches("[+-]?[0-9]+")) {
+            long micros = Long.parseLong(value);
+            instant = Instant.ofEpochSecond(Math.floorDiv(micros, 1_000_000L),
+                    Math.floorMod(micros, 1_000_000L) * 1000L);
+        } else {
+            try {
+                instant = IcebergPartitionUtils.parseTimestamp(value, timestampType, sessionZone);
+            } catch (DateTimeException e) {
+                throw new IllegalArgumentException("Invalid Iceberg timestamp default for column "
+                        + column.getName() + ": " + value, e);
+            }
+        }
+        long unit = 1000L;
+        if (timestampType.shouldAdjustToUTC()) {
+            int scale = column.getType().getPrecision();
+            unit = scale >= 0 && scale < 6 ? (long) Math.pow(10, 9 - scale) : 1000L;
+            // Round once, after zone resolution, including the carry across a DST transition.
+            instant = instant.plusNanos(unit / 2);
+        }
+        int year = instant.atOffset(ZoneOffset.UTC).getYear();
+        if (year < 1 || year > 9999) {
+            throw new IllegalArgumentException("Iceberg timestamp default for column " + column.getName()
+                    + " is outside the supported " + (timestampType.shouldAdjustToUTC() ? "UTC " : "")
+                    + "range 0001-9999: " + value);
+        }
+        return Literal.of(instant.getEpochSecond() * 1_000_000L + instant.getNano() / unit * (unit / 1000L));
     }
 
     /** Rejects aggregated / auto-increment columns on iceberg, mirroring legacy {@code validateCommonColumnInfo}. */

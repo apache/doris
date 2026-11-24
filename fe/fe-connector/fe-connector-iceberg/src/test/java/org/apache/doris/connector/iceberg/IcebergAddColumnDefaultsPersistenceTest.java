@@ -150,15 +150,16 @@ public class IcebergAddColumnDefaultsPersistenceTest {
 
     @Test
     public void zonedDefaultsRoundAfterResolvingTheInstant() {
-        String[] zones = {"CET", "CET", "CET", "CET", "CET", "UTC", "UTC", "UTC", "UTC"};
+        String[] zones = {"CET", "CET", "CET", "CET", "CET", "UTC", "UTC", "UTC", "UTC", "CET", "CET", "CET"};
         String[] values = {"2021-10-31 02:59:59.6", "2021-10-31 00:59:59.6+00:00",
                 "2021-10-31 02:59:59.9996", "2021-03-28 01:59:59.6", "2021-03-28 02:30:00.6",
                 "1969-12-31 23:59:59.5", "1969-12-31 23:59:59.9995", "1969-12-31 23:59:59.4999",
-                "1704164645123456"};
-        int[] precisions = {0, 0, 3, 0, 0, 0, 3, 0, -1};
+                "1704164645123456", "2021-10-31 02:59:59.9994999", "2021-10-31 02:59:59.9999995",
+                "2021-10-31 00:59:59.9999995+00:00"};
+        int[] precisions = {0, 0, 3, 0, 0, 0, 3, 0, -1, 3, 6, 6};
         long[] expected = {1635642000000000L, 1635642000000000L, 1635642000000000L,
-                1616893200000000L, 1616893201000000L, 0, 0, -1000000L,
-                1704164645123456L};
+                1616893200000000L, 1616895001000000L, 0, 0, -1000000L,
+                1704164645123456L, 1635641999999000L, 1635642000000000L, 1635642000000000L};
         for (int i = 0; i < values.length; i++) {
             ConnectorSession session = session(zones[i]);
             ConnectorType type = precisions[i] == -1 ? ConnectorType.of("TIMESTAMPTZ")

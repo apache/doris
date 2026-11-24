@@ -234,11 +234,7 @@ public class AddColumnOp extends AlterTableOp {
             }
         }
 
-        if (nestedColumn) {
-            columnDef.validateNestedColumn(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
-        } else {
-            columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
-        }
+        columnDef.validateForAddColumn(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, nestedColumn);
         if (!columnDef.isNullable() && !columnDef.hasDefaultValue()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DEFAULT_FOR_FIELD, columnDef.getName());
         }

@@ -37,6 +37,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -303,7 +304,7 @@ public abstract class FileScanNode extends ExternalScanNode {
             Expression expression;
             if (applyColumnDefaultsOnRead && column.getDefaultValue() != null) {
                 expression = new NereidsParser().parseExpression(
-                        column.getDefaultValueSql());
+                        column.getDefaultValueSql(SqlModeHelper.hasNoBackSlashEscapes()));
                 ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
                         null, new Scope(ImmutableList.of()), null, true, true);
                 expression = analyzer.analyze(expression);

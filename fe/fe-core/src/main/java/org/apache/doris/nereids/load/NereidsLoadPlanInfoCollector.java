@@ -73,6 +73,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -441,7 +442,8 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             if (column != null) {
                 Expression expression;
                 if (column.getDefaultValue() != null) {
-                    expression = new NereidsParser().parseExpression(column.getDefaultValueSql());
+                    expression = new NereidsParser().parseExpression(
+                            column.getDefaultValueSql(SqlModeHelper.hasNoBackSlashEscapes()));
                     ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
                             null, new Scope(ImmutableList.of()), null, true, true);
                     expression = analyzer.analyze(expression);

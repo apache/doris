@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
 
@@ -111,7 +112,7 @@ public class RewriteDefaultExpression implements ExpressionPatternRuleFactory {
             }
         }
 
-        String defaultValueSql = column.getDefaultValueSql();
+        String defaultValueSql = column.getDefaultValueSql(SqlModeHelper.hasNoBackSlashEscapes());
         if (defaultValueSql == null) {
             if (column.isAllowNull()) {
                 return new NullLiteral(targetType);

@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
@@ -413,7 +412,7 @@ public class ColumnDefinition {
     public void validate(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet, boolean isEnableMergeOnWrite,
             KeysType keysType, boolean isSystemGeneratedTable) {
         validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false,
-                isSystemGeneratedTable);
+                isSystemGeneratedTable, false);
     }
 
     /**
@@ -421,7 +420,13 @@ public class ColumnDefinition {
      */
     public void validateNestedColumn(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
             boolean isEnableMergeOnWrite, KeysType keysType) {
-        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true, false);
+        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true, false, false);
+    }
+
+    /** ADD hands temporal defaults to the connector for final precision and range checks. */
+    public void validateForAddColumn(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
+            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn) {
+        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, nestedColumn, false, true);
     }
 
     private static String normalizeCompactDateTimeFraction(String value) {
@@ -434,7 +439,8 @@ public class ColumnDefinition {
     }
 
     private void validateInternal(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
-            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn, boolean isSystemGeneratedTable) {
+            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn, boolean isSystemGeneratedTable,
+            boolean isAddColumn) {
         try {
             // if enableAddHiddenColumn is true, can add hidden column.
             // So does not check if the column name starts with __DORIS_
@@ -593,23 +599,18 @@ public class ColumnDefinition {
                     if (type.isDateTimeV2Type() || type.isTimeStampTzType()) {
                         value = normalizeCompactDateTimeFraction(value);
                     }
-                    Literal normalized;
                     if (type.isTimeStampTzType()) {
-                        TimeStampTzType zonedType = (TimeStampTzType) type;
-                        // Retain civil precision until the connector binds the session zone.
-                        normalized = DateTimeChecker.hasTimeZone(value)
-                                ? new TimestampTzLiteral(zonedType, value)
-                                : new DateTimeV2Literal(DateTimeV2Type.MAX, value);
+                        value = TimestampTzLiteral.normalizeExternalDefault((TimeStampTzType) type, value, isAddColumn);
                     } else if (type.isTimeStampNsType()) {
-                        normalized = new TimeStampNsLiteral(value);
+                        value = new TimeStampNsLiteral(value).getStringValue();
                     } else if (type.isDateTimeV2Type()) {
-                        normalized = new DateTimeV2Literal((DateTimeV2Type) type, value);
+                        value = new DateTimeV2Literal((DateTimeV2Type) type, value).getStringValue();
                     } else {
-                        normalized = Literal.fromLegacyLiteral(
+                        value = Literal.fromLegacyLiteral(
                                 DateLiteralUtils.createLiteral(value, type.toCatalogDataType()),
-                                type.toCatalogDataType());
+                                type.toCatalogDataType()).getStringValue();
                     }
-                    defaultValue = Optional.of(new DefaultValue(normalized.getStringValue()));
+                    defaultValue = Optional.of(new DefaultValue(value));
                 }
                 if (!isOlap && type.isUuidType() && defaultValue.get().getDefaultValueExprDef() == null) {
                     defaultValue = Optional.of(new DefaultValue(

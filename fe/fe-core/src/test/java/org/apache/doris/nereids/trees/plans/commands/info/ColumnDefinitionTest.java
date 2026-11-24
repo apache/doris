@@ -108,14 +108,16 @@ public class ColumnDefinitionTest {
     @Test
     public void testZonedExternalDefaultsRetainCivilPrecisionUntilZoneBinding() {
         String[] values = {"20240102030405", "20240102030405.123456", "2024-01-02 03:04:05.123999",
-                "2024-01-02 03:04:05.123999+08:00"};
+                "2024-01-02 03:04:05.123999+08:00", "2021-10-31 02:59:59.9994999CET",
+                "2021-10-31 02:59:59.9994999", "2021-10-31 02:59:59.9996CET"};
         String[] expected = {"2024-01-02 03:04:05.000000", "2024-01-02 03:04:05.123456",
                 "2024-01-02 03:04:05.123999",
-                "2024-01-01 19:04:05.124+00:00"};
+                "2024-01-01 19:04:05.124+00:00", "2021-10-31 00:59:59.999+00:00",
+                "2021-10-31 02:59:59.9994999", "2021-10-31 01:00:00.000+00:00"};
         for (int i = 0; i < values.length; i++) {
             ColumnDefinition column = new ColumnDefinition("ts", TimeStampTzType.of(3),
                     false, null, false, Optional.of(new DefaultValue(values[i])), "");
-            column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+            column.validateForAddColumn(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS, false);
             Assertions.assertEquals(expected[i], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
         }
     }
@@ -188,7 +190,7 @@ public class ColumnDefinitionTest {
             ColumnDefinition column = new ColumnDefinition("ns", TimeStampNsType.INSTANCE,
                     false, null, false, Optional.of(new DefaultValue(value)), "");
             column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
-            Assertions.assertEquals("2027-03-28 01:00:00.123456789",
+            Assertions.assertEquals("2027-03-28 01:30:00.123456789",
                     column.translateToCatalogStyle().getDefaultValue());
             Assertions.assertEquals(new TimeStampNsLiteral(value).getStringValue(),
                     column.translateToCatalogStyleForSchemaChange().getDefaultValue());
