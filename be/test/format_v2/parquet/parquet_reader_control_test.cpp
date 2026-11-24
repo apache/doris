@@ -447,6 +447,53 @@ TEST(ParquetColumnReaderControlTest, PendingRequestActivatesOnlyAtRowGroupBounda
     EXPECT_TRUE(scheduler._predicate_runtime_stats.empty());
 }
 
+TEST(ParquetColumnReaderControlTest, PhysicalChildrenRestoreAdaptiveStateByPredicateSnapshot) {
+    auto adaptive_context = std::make_shared<ParquetAdaptiveContext>();
+    auto first_request = std::make_shared<format::FileScanRequest>();
+    first_request->predicate_snapshot_digest = 17;
+
+    ParquetScanScheduler first;
+    first.set_adaptive_context(adaptive_context);
+    first.set_scan_request(first_request);
+    first._predicate_runtime_stats.emplace(
+            3, detail::AdaptivePredicateStats {
+                       .cost_per_input_row_ns = 11, .survival_ratio = 0.25, .samples = 8});
+    first._predicate_survival_ratio = 0.25;
+    first._predicate_batch_sequence = 8;
+    first._empty_predicate_batch_rows = 4096;
+    first._publish_adaptive_state(*first_request);
+
+    ParquetScanScheduler sibling;
+    sibling.set_adaptive_context(adaptive_context);
+    sibling.set_scan_request(first_request);
+    ASSERT_EQ(sibling._predicate_runtime_stats.at(3).samples, 8);
+    EXPECT_DOUBLE_EQ(sibling._predicate_survival_ratio, 0.25);
+    EXPECT_EQ(sibling._predicate_batch_sequence, 8);
+    EXPECT_EQ(sibling._empty_predicate_batch_rows, 4096);
+
+    adaptive_context->publish(17, {.predicate_runtime_stats = {{3,
+                                                                detail::AdaptivePredicateStats {
+                                                                        .cost_per_input_row_ns = 99,
+                                                                        .survival_ratio = 0.9,
+                                                                        .samples = 1}}},
+                                   .predicate_survival_ratio = 0.9,
+                                   .predicate_batch_sequence = 1,
+                                   .empty_predicate_batch_rows = 256});
+    const auto monotonic_snapshot = adaptive_context->restore(17);
+    EXPECT_EQ(monotonic_snapshot.predicate_runtime_stats.at(3).samples, 8);
+    EXPECT_DOUBLE_EQ(monotonic_snapshot.predicate_survival_ratio, 0.25);
+    EXPECT_EQ(monotonic_snapshot.empty_predicate_batch_rows, 4096);
+
+    auto refreshed_request = std::make_shared<format::FileScanRequest>();
+    refreshed_request->predicate_snapshot_digest = 19;
+    sibling.queue_scan_request(refreshed_request);
+    sibling.activate_pending_scan_request_at_row_group_boundary();
+    EXPECT_TRUE(sibling._predicate_runtime_stats.empty());
+    EXPECT_EQ(sibling._predicate_survival_ratio, -1);
+    EXPECT_EQ(sibling._predicate_batch_sequence, 0);
+    EXPECT_EQ(sibling._empty_predicate_batch_rows, 0);
+}
+
 TEST(ParquetColumnReaderControlTest, PendingOutputDrainsBeforePageCrossingSample) {
     ParquetScanScheduler scheduler;
     scheduler._batch_size = 1;

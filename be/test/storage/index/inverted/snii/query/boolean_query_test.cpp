@@ -36,6 +36,7 @@
 #include "storage/index/inverted/snii/snii_query_oracle.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using namespace doris::snii::reader;
@@ -45,9 +46,10 @@ using doris::Status;
 namespace {
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("boolean_query_test");
     static int counter = 0;
-    return "/tmp/snii_boolean_query_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
-           ".idx";
+    return (temp_dir.path() / "snii_boolean_query_").string() + std::to_string(getpid()) + "_" +
+           std::to_string(counter++) + ".idx";
 }
 
 struct Corpus {

@@ -34,6 +34,7 @@
 #include "storage/index/inverted/snii/writer/logical_index_writer.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using namespace doris::snii::format;
@@ -43,9 +44,10 @@ using doris::Status;
 namespace {
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("spimi_spill_writer_test");
     static int counter = 0;
-    return "/tmp/snii_spill_test_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
-           ".idx";
+    return (temp_dir.path() / "snii_spill_test_").string() + std::to_string(getpid()) + "_" +
+           std::to_string(counter++) + ".idx";
 }
 
 std::vector<uint8_t> ReadAll(const std::string& path) {

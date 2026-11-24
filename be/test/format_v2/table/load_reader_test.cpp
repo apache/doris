@@ -187,6 +187,8 @@ private:
 
 class LoadReaderTest : public testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"load_reader_test"};
+
     void SetUp() override {
         TTupleDescriptor tuple;
         tuple.__set_id(0);
@@ -2186,8 +2188,7 @@ TEST_F(LoadReaderTest, NativeReadersPreserveValidRowsAroundMalformedRecords) {
         SCOPED_TRACE(json ? "JSON" : "CSV");
         params.__set_format_type(json ? TFileFormatType::FORMAT_JSON
                                       : TFileFormatType::FORMAT_CSV_PLAIN);
-        input_path = std::filesystem::temp_directory_path() /
-                     ("v2_load_reader_" + std::to_string(getpid()));
+        input_path = scoped_temp_dir_.path() / "input";
         {
             std::ofstream file(input_path);
             file << (json ? "{\"raw_value\":1}\n{\"raw_value\":\"bad\"}\nnot-json\n"
@@ -2257,8 +2258,7 @@ TEST_F(LoadReaderTest, NativeJsonMissingFieldUsesDefaultButExplicitNullDoesNot) 
     TExpr expression;
     expression.__set_nodes({literal});
     params.__set_default_value_of_src_slot({{10, expression}});
-    input_path = std::filesystem::temp_directory_path() /
-                 ("v2_load_defaults_" + std::to_string(getpid()));
+    input_path = scoped_temp_dir_.path() / "input";
     {
         std::ofstream file(input_path);
         file << "{\"anchor\":\"a\"}\n{\"anchor\":\"b\",\"raw_value\":null}\n";

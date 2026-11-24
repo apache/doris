@@ -133,6 +133,7 @@ Status VTabletWriterV2::_init_row_distribution() {
                             .vpartition = _vpartition,
                             .add_partition_request_timer = _add_partition_request_timer,
                             .txn_id = _txn_id,
+                            .remote_endpoint = _t_sink.olap_table_sink.remote_endpoint,
                             .pool = _pool,
                             .location = _location,
                             .vec_output_expr_ctxs = &_vec_output_expr_ctxs,
@@ -319,7 +320,7 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreamStubs
                     { tablets_for_schema.clear(); });
     auto st = streams.open(_state->exec_env()->brpc_streaming_client_cache(), *node_info, _txn_id,
                            *_schema, tablets_for_schema, _total_streams, idle_timeout_ms,
-                           _state->enable_profile());
+                           _state->enable_profile(), _t_sink.olap_table_sink.remote_endpoint);
     if (!st.ok()) {
         LOG(WARNING) << "failed to open stream to backend " << dst_id
                      << ", load_id=" << print_id(_load_id) << ", err=" << st;

@@ -81,6 +81,13 @@ public class YearsSub extends ScalarFunction implements BinaryExpression, Explic
     }
 
     @Override
+    public boolean canEvaluateRange() {
+        // Local leap-day clamping and DST transitions are not bounded by UTC calendar days.
+        return !child(0).getDataType().isTimeStampTzType()
+                && CalendarAddSubMonotonic.super.canEvaluateRange();
+    }
+
+    @Override
     public Expression withConstantArgs(Expression literal) {
         return new YearsSub(literal, child(1));
     }

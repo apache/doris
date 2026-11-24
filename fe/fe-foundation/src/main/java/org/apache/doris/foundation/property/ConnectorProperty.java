@@ -30,6 +30,13 @@ public @interface ConnectorProperty {
 
     boolean sensitive() default false;
 
+    /**
+     * Masks sensitive structured addresses in diagnostics without exporting their aliases as unconditional
+     * secret keys. Catalog output must apply its value-aware address policy instead; a shared URI alias
+     * must not make ordinary endpoints in every catalog secret. Has no effect unless sensitive is true.
+     */
+    boolean sensitiveInDiagnosticsOnly() default false;
+
     boolean isRegionField() default false;
 
     Class<? extends ConnectorPropertyValidator> validator() default ConnectorPropertyValidator.None.class;

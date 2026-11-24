@@ -39,6 +39,7 @@
 #include "storage/index/inverted/snii/snii_query_oracle.h"
 #include "storage/index/inverted/snii/writer/logical_index_writer.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
+#include "testutil/scoped_temp_dir.h"
 
 // Checks that each POD-backed term stores adjacent [prx][frq] spans and that readers resolve their offsets correctly across tiers and indexes.
 namespace {
@@ -52,9 +53,10 @@ using doris::snii::reader::SniiSegmentReader;
 using doris::snii::reader::read_windowed_posting;
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("posting_interleave_test");
     static int counter = 0;
-    return "/tmp/snii_posting_interleave_" + std::to_string(getpid()) + "_" +
-           std::to_string(counter++) + ".idx";
+    return (temp_dir.path() / "snii_posting_interleave_").string() + std::to_string(getpid()) +
+           "_" + std::to_string(counter++) + ".idx";
 }
 
 TermPostings MakeTerm(const std::string& term, const std::vector<uint32_t>& docs,

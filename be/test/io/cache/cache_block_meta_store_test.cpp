@@ -27,14 +27,17 @@
 #include <vector>
 
 #include "common/status.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::io {
 
 class CacheBlockMetaStoreTest : public ::testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"cache_block_meta_store_test"};
+
     void SetUp() override {
         // Create a temporary directory for test database
-        test_db_path_ = std::filesystem::temp_directory_path() / "cache_block_meta_store_test";
+        test_db_path_ = scoped_temp_dir_.path() / "cache_block_meta_store_test";
         std::filesystem::remove_all(test_db_path_);
         std::filesystem::create_directories(test_db_path_);
 

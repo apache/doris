@@ -18,6 +18,7 @@
 package org.apache.doris.connector.mongodb;
 
 import com.mongodb.ConnectionString;
+import com.mongodb.ReadPreference;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -25,6 +26,15 @@ import java.util.HashMap;
 import java.util.Map;
 
 class MongoCatalogPropertiesTest {
+    @Test
+    void snapshotReadConcernIsAnExplicitCatalogOrStatementPolicy() {
+        var defaults = MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017"));
+        Assertions.assertEquals("snapshot", Assertions.assertDoesNotThrow(() -> defaults.resolveReadConcern("SNAPSHOT")));
+        var catalog = MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017",
+                "mongodb.read_concern", "snapshot"));
+        Assertions.assertEquals("snapshot", catalog.resolveReadConcern("inherit"));
+    }
+
     @Test
     void appliesBoundedDefaultsAndRedactsDiagnostics() {
         MongoCatalogProperties properties = MongoCatalogProperties.of(Map.of(
@@ -49,6 +59,23 @@ class MongoCatalogPropertiesTest {
     }
 
     @Test
+    void snapshotProbeRetainsRoutingCriteriaWhenReplacingOnlyTheMode() {
+        String uri = "mongodb://localhost:27017/?readPreference=secondary"
+                + "&readPreferenceTags=region:analytics&readPreferenceTags=&maxStalenessSeconds=90";
+        var properties = MongoCatalogProperties.of(Map.of("mongodb.uri", uri));
+        var inherited = new ConnectionString(uri).getReadPreference();
+        Assertions.assertEquals(inherited, properties.readPreferenceForSnapshot("inherit"));
+        var expected = inherited.toDocument();
+        expected.put("mode", new org.bson.BsonString("nearest"));
+        Assertions.assertEquals(expected, properties.readPreferenceForSnapshot("nearest").toDocument());
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> properties.readPreferenceForSnapshot("primary"));
+        var defaults = MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017"));
+        Assertions.assertEquals(ReadPreference.primary(), defaults.readPreferenceForSnapshot("inherit"));
+        Assertions.assertEquals(ReadPreference.secondary(), defaults.readPreferenceForSnapshot("secondary"));
+    }
+
+    @Test
     void rejectsConflictingCredentialSources() {
         Assertions.assertThrows(IllegalArgumentException.class, () -> MongoCatalogProperties.of(Map.of(
                 "mongodb.uri", "mongodb://fixture_user:fixture_secret@localhost:27017",
@@ -66,7 +93,7 @@ class MongoCatalogPropertiesTest {
     void rejectsUnimplementedModesAndInvalidResourceBounds() {
         for (Map.Entry<String, String> invalid : Map.of(
                 "mongodb.schema.mode", "inferred", "mongodb.type_mismatch", "skip",
-                "mongodb.read_concern", "snapshot", "mongodb.pool_max_clients", "0",
+                "mongodb.read_concern", "linearizable", "mongodb.pool_max_clients", "0",
                 "mongodb.socket_timeout_ms", "-1", "mongodb.datetime_timezone", "Asia/Shanghai").entrySet()) {
             Map<String, String> properties = new HashMap<>();
             properties.put("mongodb.uri", "mongodb://localhost:27017");

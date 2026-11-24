@@ -17,10 +17,37 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import java.sql.ResultSet;
+import java.sql.Types;
+import java.util.Optional;
 
 public class JdbcMySQLClientTest {
+
+    @Test
+    public void testVectorTypeMappingUsesNativeTypeName() throws Exception {
+        JdbcMySQLClient client = Mockito.mock(JdbcMySQLClient.class, Mockito.CALLS_REAL_METHODS);
+        JdbcFieldSchema field = new JdbcFieldSchema(Mockito.mock(ResultSet.class));
+        field.setDataTypeName(Optional.of("VECTOR"));
+        for (int jdbcType : new int[] {Types.OTHER, Types.LONGVARBINARY}) {
+            field.setDataType(jdbcType);
+            Assertions.assertEquals(Type.UNSUPPORTED, client.jdbcTypeToDoris(field));
+        }
+        client.enableVectorMapping();
+        for (int jdbcType : new int[] {Types.OTHER, Types.LONGVARBINARY}) {
+            field.setDataType(jdbcType);
+            Assertions.assertEquals(ArrayType.create(Type.FLOAT, true), client.jdbcTypeToDoris(field));
+        }
+        field.setDataTypeName(Optional.of("UNKNOWN"));
+        Assertions.assertEquals(Type.UNSUPPORTED, client.jdbcTypeToDoris(field));
+    }
 
     @Test
     public void testIsDorisServerIdentity() {

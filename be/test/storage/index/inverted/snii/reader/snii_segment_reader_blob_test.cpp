@@ -39,6 +39,7 @@
 #include "storage/index/inverted/snii/format/tail_pointer.h"
 #include "storage/index/inverted/snii/io/local_file.h"
 #include "storage/index/inverted/snii/reader/snii_segment_reader.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using namespace doris::snii::format;
@@ -49,9 +50,10 @@ namespace {
 constexpr size_t kV1TailPointerSize = 31;
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("snii_segment_reader_blob_test");
     static int counter = 0;
-    return "/tmp/snii_seg_blob_test_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
-           ".idx";
+    return (temp_dir.path() / "snii_seg_blob_test_").string() + std::to_string(getpid()) + "_" +
+           std::to_string(counter++) + ".idx";
 }
 
 std::vector<uint8_t> EncodeV1Tail(uint64_t directory_offset, Slice directory) {

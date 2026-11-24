@@ -150,6 +150,10 @@ suite("test_ivm_explain_refresh") {
                        'num_nulls'='0', 'min_value'='100', 'max_value'='300');
     """
 
+    // Only t1 has pending changes. WITH ALL STREAMS includes the exhausted t2 stream
+    // during delta rewriting, but t2's unique join key allows snapshot-free NULL repair.
+    // Its empty detail/aggregate contribution is removed during optimization, so the
+    // final shape does not retain the old UNION and two snapshot ANTI JOIN branches.
     explainIvmPlanWithoutStreamId("all_streams_shape_plan", """
         EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL WITH ALL STREAMS
     """)
@@ -175,7 +179,13 @@ suite("test_ivm_explain_refresh") {
         contains "LogicalJoin"
         contains "LEFT_OUTER_JOIN"
         contains "test_ivm_explain_refresh_t1"
-        contains "test_ivm_explain_refresh_t2"
+        // t2 is read through its incremental/snapshot stream scans. Unique-key repair
+        // no longer adds the ordinary t2 post-snapshot scan that exposed its base name.
+        contains "readMode=INCREMENTAL"
+        contains "readMode=SNAPSHOT"
+        contains "LogicalAggregate"
+        contains "__DORIS_IVM_NULL_SIDE_NET_COUNT__"
+        notContains "LEFT_ANTI_JOIN"
     }
 
     explain {

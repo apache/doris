@@ -866,7 +866,8 @@ public class StringArithmetic {
             return chr;
         }
         String[] parts = first.getValue().split(Pattern.quote(chr.getValue()), -1);
-        if (Math.abs(number.getValue()) >= parts.length) {
+        // Widen before abs. A count of INT_MIN exceeds every valid part count and returns the full string.
+        if (Math.abs((long) number.getValue()) >= parts.length) {
             return first;
         }
         int leftIndex;

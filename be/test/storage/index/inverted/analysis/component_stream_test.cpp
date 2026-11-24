@@ -48,11 +48,14 @@
 #include "storage/index/inverted/analysis/token_filter/token_filter_factory.h"
 #include "storage/index/inverted/analysis/token_filter/word_delimiter_filter.h"
 #include "storage/index/inverted/analysis/tokenizer/basic/basic_tokenizer.h"
+#include "storage/index/inverted/analysis/tokenizer/english/english_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/icu/icu_tokenizer.h"
+#include "storage/index/inverted/analysis/tokenizer/jieba/jieba_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/gram_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/ngram_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/standard/standard_tokenizer.h"
+#include "storage/index/inverted/analysis/tokenizer/standard/uax29_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/tokenizer_factory.h"
 #include "util/defer_op.h"
 
@@ -63,7 +66,7 @@ constexpr size_t kLongRowBytes = 2 * 1024 * 1024;
 constexpr size_t kReservedAfterShortRowLimit = 1024 * 1024;
 
 Settings settings_of(std::unordered_map<std::string, std::string> args) {
-    return Settings(std::move(args));
+    return {std::move(args)};
 }
 
 std::string repeat_to(std::string_view unit, size_t bytes) {
@@ -221,16 +224,88 @@ TEST(ComponentStreamTest, CharGroupTokenizerKeepsNothing) {
                                 [] { return size_t {0}; });
 }
 
-TEST(ComponentStreamTest, BasicTokenizerReleasesItsTokenList) {
+size_t basic_member_bytes(const BasicTokenizer& basic) {
+    return basic._tokens_text.capacity() * sizeof(std::string_view);
+}
+
+TEST(ComponentStreamTest, LowercaseTokenizersBoundScratchWithinRow) {
+    std::vector<std::unique_ptr<TextTokenStream>> streams;
+    streams.push_back(std::make_unique<EnglishTokenizer>(true));
+    streams.push_back(std::make_unique<BasicTokenizer>(true));
+    constexpr size_t kMaxScratchBytes = 256 * 1024;
+    for (auto& stream : streams) {
+        for (char fill : {' ', 'A'}) {
+            SCOPED_TRACE(fill);
+            const std::string row(10 * 1024 * 1024, fill);
+            stream->reset(row);
+            ASSERT_LE(stream->reserved_bytes(), kMaxScratchBytes);
+            TokenBatch batch;
+            size_t tokens = 0;
+            while (stream->next_batch(batch)) {
+                ASSERT_LE(stream->reserved_bytes() + batch.capacity_bytes(), kMaxScratchBytes);
+                tokens += batch.size();
+            }
+            EXPECT_EQ(tokens == 0, fill == ' ');
+            EXPECT_LE(stream->reserved_bytes() + batch.capacity_bytes(), kMaxScratchBytes);
+        }
+    }
+}
+
+TEST(ComponentStreamTest, BasicTokenizerReleasesItsBuffers) {
     Components components;
+    // The block loop keeps nothing in proportion to the value; the scalar loop of extra chars
+    // keeps its token list.
     for (const Settings& settings : {Settings {}, settings_of({{"extra_chars", "-_"}})}) {
         expect_text_stream_contract([&] { return components.tokenizer("basic", settings); },
                                     contract_texts());
         auto tokenizer = components.tokenizer("basic", settings);
         auto& basic = as<BasicTokenizer>(*tokenizer);
-        expect_released_at_next_row(
-                *tokenizer, repeat_to("ab ", kLongRowBytes), "short", true,
-                [&] { return basic._tokens_text.capacity() * sizeof(std::string_view); });
+        expect_released_at_next_row(*tokenizer, repeat_to("ab ", kLongRowBytes), "short",
+                                    basic._has_extra_chars,
+                                    [&] { return basic_member_bytes(basic); });
+    }
+    // The builtin basic parser keeps lowercased terms in the output batch.
+    expect_text_stream_contract([] { return std::make_unique<BasicTokenizer>(true); },
+                                contract_texts());
+    BasicTokenizer lowering(true);
+    lowering.initialize();
+    expect_released_at_next_row(lowering, repeat_to("Ab ", kLongRowBytes), "short", false,
+                                [&] { return basic_member_bytes(lowering); });
+}
+
+TEST(ComponentStreamTest, EnglishTokenizerKeepsNoRowSizedScratch) {
+    for (bool lowercase : {true, false}) {
+        SCOPED_TRACE(lowercase);
+        expect_text_stream_contract(
+                [lowercase] { return std::make_unique<EnglishTokenizer>(lowercase); },
+                contract_texts());
+        EnglishTokenizer english(lowercase);
+        expect_released_at_next_row(english, repeat_to("Ab ", kLongRowBytes), "short", false,
+                                    [] { return size_t {0}; });
+    }
+}
+
+TEST(ComponentStreamTest, JiebaTokenizerReleasesItsCopyAndWordList) {
+    const JiebaTokenizerFactory factory(
+            false, true, "./contrib/clucene/src/contribs-lib/CLucene/analysis/jieba/dict");
+    expect_text_stream_contract([&] { return factory.create(); }, contract_texts());
+    auto tokenizer = factory.create();
+    auto& jieba = as<JiebaTokenizer>(*tokenizer);
+    expect_released_at_next_row(*tokenizer, repeat_to("我们 ", kLongRowBytes), "short", true, [&] {
+        return jieba._value.capacity() + jieba._words.capacity() * sizeof(std::string_view) +
+               jieba._scratch.reserved_bytes();
+    });
+}
+
+TEST(ComponentStreamTest, Uax29TokenizerReleasesItsLoweredCopy) {
+    for (bool lowercase : {true, false}) {
+        SCOPED_TRACE(lowercase);
+        expect_text_stream_contract(
+                [lowercase] { return std::make_unique<Uax29Tokenizer>(lowercase, true); },
+                contract_texts());
+        Uax29Tokenizer standard(lowercase, true);
+        expect_released_at_next_row(standard, repeat_to("Ab ", kLongRowBytes), "short", lowercase,
+                                    [&] { return lowercase ? standard._lowered.capacity() : 0; });
     }
 }
 
@@ -284,15 +359,12 @@ TEST(ComponentStreamTest, IKTokenizerReleasesItsWords) {
         auto& ik = as<IKTokenizer>(*tokenizer);
         expect_released_at_next_row(
                 *tokenizer, repeat_to("中华人民共和国 ab ", kLongRowBytes), "short", true, [&] {
-                    size_t bytes = ik.tokens_.capacity() * sizeof(std::string) +
-                                   ik.ik_segmenter_->arena_.size() +
-                                   ik.ik_segmenter_->context_->segment_buff_.capacity() +
-                                   ik.ik_segmenter_->context_->typed_runes_.capacity() *
-                                           sizeof(CharacterUtil::TypedRune);
-                    for (const std::string& text : ik.tokens_) {
-                        bytes += text.capacity();
-                    }
-                    return bytes;
+                    return ik.words_.capacity() * sizeof(IKTokenizer::Word) +
+                           ik.words_bytes_.capacity() + ik.ik_segmenter_->arena_.size() +
+                           ik.ik_segmenter_->context_->segment_buff_.capacity() +
+                           ik.ik_segmenter_->context_->typed_runes_.capacity() *
+                                   sizeof(CharacterUtil::TypedRune) +
+                           ik.ik_segmenter_->context_->results_.capacity() * sizeof(Lexeme);
                 });
     }
 }
@@ -302,16 +374,16 @@ std::unique_ptr<TextTokenStream> whole_value(Components& components) {
     return components.tokenizer("empty");
 }
 
-TEST(ComponentStreamTest, LowerCaseFilterReleasesItsScratch) {
+TEST(ComponentStreamTest, LowerCaseFilterKeepsNothingOfItsOwn) {
     Components components;
     expect_text_stream_contract(
             [&] { return components.filter("lowercase", components.tokenizer("standard")); },
             contract_texts());
     auto stream = components.filter("lowercase", whole_value(components));
     auto& lower = as<LowerCaseFilter>(*stream);
-    expect_released_at_next_row(*stream, repeat_to("ÄBC", kLongRowBytes), "short", true, [&] {
-        return lower._lower_term.capacity() + per_token_filter_bytes(lower);
-    });
+    // A lowercased term goes to the batch, which the consumer owns.
+    expect_released_at_next_row(*stream, repeat_to("ÄBC", kLongRowBytes), "short", false,
+                                [&] { return lower._in->reserved_bytes(); });
 }
 
 TEST(ComponentStreamTest, ASCIIFoldingFilterReleasesItsScratch) {
@@ -325,12 +397,21 @@ TEST(ComponentStreamTest, ASCIIFoldingFilterReleasesItsScratch) {
                                              settings);
                 },
                 contract_texts());
-        auto stream = components.filter("asciifolding", whole_value(components), settings);
-        auto& folding = as<ASCIIFoldingFilter>(*stream);
-        expect_released_at_next_row(*stream, repeat_to("café", kLongRowBytes), "short", true, [&] {
-            return folding._output.capacity() + per_token_filter_bytes(folding);
-        });
     }
+    // Without preserve_original the filter folds into its scratch and copies the folded term into
+    // the batch; with it, a per-token filter keeps its input batch as well.
+    auto stream = components.filter("asciifolding", whole_value(components),
+                                    settings_of({{"preserve_original", "false"}}));
+    auto& folding = as<ASCIIFoldingFilter>(*stream);
+    expect_released_at_next_row(*stream, repeat_to("café", kLongRowBytes), "short", true, [&] {
+        return folding._output.capacity() + folding._in->reserved_bytes();
+    });
+    auto preserving = components.filter("asciifolding", whole_value(components),
+                                        settings_of({{"preserve_original", "true"}}));
+    auto& preserve = as<ASCIIFoldingPreserveOriginalFilter>(*preserving);
+    expect_released_at_next_row(*preserving, repeat_to("café", kLongRowBytes), "short", true, [&] {
+        return preserve._output.capacity() + per_token_filter_bytes(preserve);
+    });
 }
 
 TEST(ComponentStreamTest, ICUNormalizerFilterReleasesItsScratch) {
@@ -342,7 +423,7 @@ TEST(ComponentStreamTest, ICUNormalizerFilterReleasesItsScratch) {
     auto& normalizer = as<ICUNormalizerFilter>(*stream);
     // NFKC_CF folds case, so the normalized token is as long as the row.
     expect_released_at_next_row(*stream, repeat_to("ABc", kLongRowBytes), "short", true, [&] {
-        return normalizer._output_buffer.capacity() + per_token_filter_bytes(normalizer);
+        return normalizer._output_buffer.capacity() + normalizer._in->reserved_bytes();
     });
 }
 
@@ -441,7 +522,7 @@ TEST(ComponentStreamTest, AValueAChainFoldsToNothingMakesNoToken) {
     EXPECT_TRUE(collect_checked(*stream, "").empty());
 }
 
-TEST(ComponentStreamTest, StrictUtf8ThrowsInIcuAndNGramOnly) {
+TEST(ComponentStreamTest, StrictUtf8ThrowsInIcuAndNGram) {
     DictPathScope dict_path;
     Components components;
     const std::string invalid =
@@ -462,6 +543,13 @@ TEST(ComponentStreamTest, StrictUtf8ThrowsInIcuAndNGramOnly) {
         strict->set_strict_utf8(false);
         EXPECT_EQ(collect_terms(*strict, invalid), lenient_terms);
     }
+}
+
+TEST(ComponentStreamTest, StrictUtf8LeavesTheOtherTokenizersAlone) {
+    Components components;
+    const std::string invalid =
+            "ab\xFF"
+            "cd";
     for (const char* name : {"standard", "keyword", "basic", "char_group"}) {
         SCOPED_TRACE(name);
         auto lenient = components.tokenizer(name);

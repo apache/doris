@@ -36,6 +36,7 @@
 #include "storage/index/inverted/snii/reader/snii_segment_reader.h"
 #include "storage/index/inverted/snii/snii_query_test_util.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
+#include "storage/rowid_conversion.h"
 
 namespace {
 
@@ -881,6 +882,52 @@ TEST(SniiPostingCursorTest, DecodesAllShapesWithPositionDerivedFrequencies) {
     assert_ok(windowed_cursor.init());
     assert_ok(drain(&windowed_cursor, &got));
     EXPECT_EQ(got, (std::vector<PostingCopy> {{0, 0, 3, {1, 4, 9}}}));
+}
+
+TEST(SniiPostingCursorTest, CompressedMappingMatchesDenseForAllShapesAndDeletes) {
+    SourceFixture source;
+    assert_ok(build_source(posting_shapes(), kDocCount, &source));
+    for (bool holes : {false, true}) {
+        doris::RowsetId rowset;
+        rowset.init(92);
+        doris::RowIdConversion compressed(doris::RowIdConversion::Mode::COMPRESSED);
+        doris::RowIdConversion dense;
+        for (auto* map : {&compressed, &dense}) {
+            assert_ok(map->init_segment_map(rowset, {7, 19}, {kDocCount, kDocCount}));
+        }
+        std::vector<doris::RowLocation> rows;
+        for (uint32_t doc = 0; doc < kDocCount; ++doc) {
+            if (!holes || doc % 3 != 0) rows.emplace_back(rowset, 7, doc);
+            rows.emplace_back(rowset, 19, doc);
+        }
+        std::vector<uint32_t> destinations {8000, static_cast<uint32_t>(rows.size() - 8000)};
+        for (auto* map : {&compressed, &dense}) {
+            assert_ok(map->add(rows, destinations));
+            assert_ok(map->finalize(destinations));
+        }
+        std::unique_ptr<ValidatedRowIdConversion> compressed_token, dense_token;
+        std::array<uint32_t, 2> source_rows {kDocCount, kDocCount};
+        assert_ok(ValidatedRowIdConversion::create(&compressed, source_rows, destinations,
+                                                   &compressed_token));
+        assert_ok(
+                ValidatedRowIdConversion::create(&dense, source_rows, destinations, &dense_token));
+        doris::CompressedRowIdMap::DecodeWorkspace workspace;
+        for (const char* term : {"inline", "slim", "windowed"}) {
+            TermRef ref = lookup_term(source.index, term);
+            auto compressed_read = make_read_context(&source.index, 1U << 20);
+            auto dense_read = make_read_context(&source.index, 1U << 20);
+            SniiPostingCursor encoded(compressed_read.get(), ref.entry, ref.frq_base, ref.prx_base,
+                                      0, compressed_token.get(), &workspace);
+            SniiPostingCursor original(dense_read.get(), ref.entry, ref.frq_base, ref.prx_base, 0,
+                                       dense_token.get());
+            assert_ok(encoded.init());
+            assert_ok(original.init());
+            std::vector<PostingCopy> actual, expected;
+            assert_ok(drain(&encoded, &actual));
+            assert_ok(drain(&original, &expected));
+            EXPECT_EQ(actual, expected) << term << " holes=" << holes;
+        }
+    }
 }
 
 } // namespace

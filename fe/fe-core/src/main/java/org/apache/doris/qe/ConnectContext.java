@@ -473,6 +473,39 @@ public class ConnectContext {
         init();
     }
 
+    /**
+     * Isolate a read-only internal query from the client protocol and statement state while
+     * retaining the caller's session identity, name resolution and variable values.
+     * The caller still owns the session and its cleanup.
+     */
+    public ConnectContext createInternalQueryContext() {
+        return new ConnectContext(this);
+    }
+
+    private ConnectContext(ConnectContext parent) {
+        protocolAdapter = new MysqlProtocolAdapter(new DummyMysqlChannel());
+        command = MysqlCommand.COM_QUERY;
+        state = new QueryState();
+        sessionVariable = VariableMgr.cloneSessionVariable(parent.sessionVariable);
+        userVars.putAll(parent.userVars);
+        env = parent.env;
+        currentUserIdentity = parent.currentUserIdentity;
+        authenticatedPrincipal = parent.authenticatedPrincipal;
+        authenticatedRoles = parent.authenticatedRoles;
+        sessionContext = parent.sessionContext;
+        isTempUser = parent.isTempUser;
+        remoteIP = parent.remoteIP;
+        connectionId = parent.connectionId;
+        startTime = parent.startTime;
+        startTimeInstant = parent.startTimeInstant;
+        lastQueryId = parent.lastQueryId;
+        computeGroup = parent.computeGroup;
+        cloudCluster = parent.cloudCluster;
+        restoreNameSpaceContext(parent.getNameSpaceContext());
+        // Borrow the caller's temporary-table namespace without registering a new session.
+        sessionId = parent.sessionId;
+    }
+
     /** The context of a MySQL client connection. */
     public static ConnectContext forMysql(StreamConnection connection) {
         return new ConnectContext(connection);
@@ -1092,11 +1125,13 @@ public class ConnectContext {
     }
 
     // A request that failed after deferring its query: the query is cancelled on the backends, then
-    // its executor finalized (see FlightProtocolAdapter.cancelDeferredExecutors).
-    public void cancelFlightSqlDeferredExecutors(Status cancelReason) {
+    // its executor finalized (see FlightProtocolAdapter.cancelDeferredExecutors). Returns the ids of the
+    // queries it cancelled.
+    public List<TUniqueId> cancelFlightSqlDeferredExecutors(Status cancelReason) {
         if (protocolAdapter instanceof FlightProtocolAdapter) {
-            ((FlightProtocolAdapter) protocolAdapter).cancelDeferredExecutors(cancelReason);
+            return ((FlightProtocolAdapter) protocolAdapter).cancelDeferredExecutors(cancelReason);
         }
+        return Collections.emptyList();
     }
 
     /**

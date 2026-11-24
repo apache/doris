@@ -23,10 +23,10 @@ suite("test_search_bkd_skip_threshold", "p0") {
     sql """ set enable_common_expr_pushdown = true """
     sql """ set enable_inverted_index_query_cache = true """
     sql """ set inverted_index_skip_threshold = 50 """
-    sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     // Keep both v.n and v.p as indexed subcolumns; a fuzzy budget of 1 would push one to sparse.
-    sql """ set default_variant_max_subcolumns_count = 2048 """
+    sql """ set debug_variant_max_subcolumns_count = 2048 """
 
     sql "DROP TABLE IF EXISTS test_search_bkd_skip_threshold_t"
     sql """

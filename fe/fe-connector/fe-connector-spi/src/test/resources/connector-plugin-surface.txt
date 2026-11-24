@@ -96,8 +96,16 @@ org.apache.doris.connector.spi.ConnectorProvider#validatePropertiesForUpdate(jav
 org.apache.doris.connector.spi.ConnectorSecuritySurface#jdbcDriverUrlFlavorKey():java.lang.String
 org.apache.doris.connector.spi.ConnectorSecuritySurface#jdbcDriverUrlKeys():java.util.List
 org.apache.doris.connector.spi.ConnectorSecuritySurface#ofJdbcDriverUrls(java.lang.String,java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
+org.apache.doris.connector.spi.ConnectorSecuritySurface#ofSensitiveKeyPrefix(java.lang.String,java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
+org.apache.doris.connector.spi.ConnectorSecuritySurface#ofSensitiveKeys(java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
 org.apache.doris.connector.spi.ConnectorSecuritySurface#ofSsrfEndpoints(java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
+org.apache.doris.connector.spi.ConnectorSecuritySurface#sensitiveKeyPrefixes():java.util.List
+org.apache.doris.connector.spi.ConnectorSecuritySurface#sensitiveKeys():java.util.List
 org.apache.doris.connector.spi.ConnectorSecuritySurface#ssrfEndpointKeys():java.util.List
+org.apache.doris.connector.spi.ConnectorSecuritySurface#withSensitiveKeyPrefix(java.lang.String,java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
+org.apache.doris.connector.spi.ConnectorSecuritySurface#withSensitiveKeys(java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
+org.apache.doris.connector.spi.ConnectorSecuritySurface#withSensitiveKeys(java.util.Collection):org.apache.doris.connector.spi.ConnectorSecuritySurface
+org.apache.doris.connector.spi.ConnectorSecuritySurface#withSsrfEndpoints(java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
 org.apache.doris.connector.spi.ConnectorSession#allocateTransactionId():long
 org.apache.doris.connector.spi.ConnectorSession#getBeExecVersion():int
 org.apache.doris.connector.spi.ConnectorSession#getCatalogId():long
@@ -210,6 +218,7 @@ org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#classifyColumn(jav
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#collectScanProfiles(org.apache.doris.connector.spi.ConnectorSession):java.util.List
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#getDeleteFiles(org.apache.doris.thrift.TTableFormatFileDesc):java.util.List
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#getMustReadColumns(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle):java.util.Set
+org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#getPathPartitionKeys(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle):java.util.Optional
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#getScanNodeProperties(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.List,java.util.Optional):java.util.Map
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#getScanNodePropertiesResult(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.List,java.util.Optional):org.apache.doris.connector.spi.scan.ScanNodePropertiesResult
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#ignorePartitionPruneShortCircuit():boolean
@@ -247,9 +256,11 @@ org.apache.doris.connector.spi.scan.ConnectorScanRange#isNativeReadRange():boole
 org.apache.doris.connector.spi.scan.ConnectorScanRange#isPartitionBearing():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRange#isSingleUse():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRange#populateRangeParams(org.apache.doris.thrift.TTableFormatFileDesc,org.apache.doris.thrift.TFileRangeDesc):void
+org.apache.doris.connector.spi.scan.ConnectorScanRange#supportsBeSplitRefinement():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#allBackendsSupport(java.lang.String):boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#builder(org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.List):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getBackendCapabilities():java.util.Set
+org.apache.doris.connector.spi.scan.ConnectorScanRequest#getCoarseSplitSize():long
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getColumns():java.util.List
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getFilter():java.util.Optional
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getLimit():long
@@ -264,6 +275,7 @@ org.apache.doris.connector.spi.scan.ConnectorScanRequest#withRequiredPartitions(
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#aggregatePushdown(boolean):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#backendCapabilities(java.util.Set):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#build():org.apache.doris.connector.spi.scan.ConnectorScanRequest
+org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#coarseSplitSize(long):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#countPushdown(boolean):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#explainOnly(boolean):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#filter(java.util.Optional):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder

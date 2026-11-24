@@ -18,7 +18,7 @@
 suite("regression_test_variant_insert_into_select", "variant_type"){
     def variantV2Function = "parse_to_variant"
     def table_name = "insert_into_select"
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     sql "DROP TABLE IF EXISTS ${table_name}_var"
     sql "DROP TABLE IF EXISTS ${table_name}_str"
     sql """

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubRearrangeable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -38,7 +39,7 @@ import java.util.List;
  * ScalarFunction 'Seconds_sub'.
  */
 public class SecondsSub extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
-        PropagateNullable, DateAddSubMonotonic {
+        PropagateNullable, DateAddSubMonotonic, DateAddSubRearrangeable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(FunctionSignature
             .ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD, BigIntType.INSTANCE), FunctionSignature

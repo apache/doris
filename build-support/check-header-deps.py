@@ -265,11 +265,11 @@ RULES = [
     ),
     (
         "runtime/runtime_state.h",
-        "io/fs/s3_file_system.h",
+        "io/fs/obj_storage_file_system.h",
         set(),
-        "RuntimeState holds the error-log S3 filesystem only behind a shared_ptr "
-        "(forward-declared, dereferenced in runtime_state.cpp); s3_file_system.h "
-        "carries util/s3_util.h, the AWS SDK surface and gen_cpp/cloud.pb.h, "
+        "RuntimeState holds the error-log object storage filesystem only behind a shared_ptr "
+        "(forward-declared, dereferenced in runtime_state.cpp); obj_storage_file_system.h "
+        "carries object storage client configuration and generated headers, "
         "which must not ride into the ~1060 TUs that include RuntimeState",
     ),
     (
@@ -585,7 +585,7 @@ REVERSE_REACH_BASELINES = {
     "gen_cpp/cloud.pb.h": 50,
     "gen_cpp/BackendService_types.h": 150,
     "gen_cpp/data.pb.h": 120,
-    "io/fs/s3_file_system.h": 50,  # the AWS SDK surface
+    "io/fs/obj_storage_file_system.h": 50,  # object storage configuration
     "util/brpc_closure.h": 50,
     "runtime/workload_group/workload_group.h": 42,  # thrift type universe carrier
 }
@@ -643,43 +643,9 @@ CLUCENE_WHY = (
 # task that cuts it lands. A missing entry and an entry that no longer breaks the rule both fail
 # the gate, so the tables only shrink.
 # Files that include a CLucene header and are under a root or reached from one.
-CLUCENE_INCLUDING_FILES = {
-    # ANN storage (T11, T12).
-    "storage/index/ann/ann_index_writer.h",
-    "storage/index/ann/faiss_ann_index.cpp",
-    "storage/index/ann/faiss_ann_index.h",
-    # Shared index file headers the roots reach (T11 to T13).
-    "storage/index/index_common_impl.h",
-    "storage/index/index_compound_reader.h",
-    "storage/index/index_file_reader.h",
-    "storage/index/index_file_writer.h",
-    "storage/index/index_fs_directory.h",
-    "storage/index/inverted/clucene/inverted_index_searcher.h",
-    # The analysis layer (T3, T4, T8, T9).
-    "storage/index/inverted/analysis/analyzer/analyzer.cpp",
-    # SNII (T3, T12, T13).
-    "storage/index/inverted/snii/snii_blob_directory.h",
-    "storage/index/inverted/snii/snii_blob_staging_directory.h",
-    "storage/index/inverted/snii/snii_index_reader.cpp",
-}
+CLUCENE_INCLUDING_FILES = set()
 # Files under a root whose code names a CLucene symbol.
-CLUCENE_SYMBOL_FILES = {
-    # ANN storage (T11, T12).
-    "storage/index/ann/ann_index.h",
-    "storage/index/ann/ann_index_reader.cpp",
-    "storage/index/ann/ann_index_writer.cpp",
-    "storage/index/ann/ann_index_writer.h",
-    "storage/index/ann/faiss_ann_index.cpp",
-    "storage/index/ann/faiss_ann_index.h",
-    # The analysis layer (T3, T4, T8, T9).
-    "storage/index/inverted/analysis/analyzer/analyzer.cpp",
-    # SNII (T3, T12, T13).
-    "storage/index/inverted/snii/snii_blob_directory.cpp",
-    "storage/index/inverted/snii/snii_blob_directory.h",
-    "storage/index/inverted/snii/snii_blob_staging_directory.cpp",
-    "storage/index/inverted/snii/snii_blob_staging_directory.h",
-    "storage/index/inverted/snii/snii_index_reader.cpp",
-}
+CLUCENE_SYMBOL_FILES = set()
 
 
 def load_includes():

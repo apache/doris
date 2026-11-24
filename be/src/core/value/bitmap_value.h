@@ -2783,8 +2783,8 @@ public:
         case EMPTY:
             return 0;
         case SINGLE: {
-            //only single value, so offset must start 0
-            if (offset == 0) {
+            //only single value, so offset must start 0 or -1
+            if (offset == 0 || offset == -1) {
                 ret_bitmap->add(_sv);
                 return 1;
             } else {

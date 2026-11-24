@@ -53,6 +53,11 @@ public class S3 extends TableValuedFunction implements SupportPruneNestedColumn 
         return new S3(properties, fileStatuses);
     }
 
+    /** Task-selected files without triggering schema discovery; null for an ordinary SQL TVF. */
+    public List<TBrokerFileStatus> getFileStatuses() {
+        return fileStatuses;
+    }
+
     @Override
     protected boolean extraEquals(Expression that) {
         return super.extraEquals(that) && Objects.equals(fileStatuses, ((S3) that).fileStatuses);
