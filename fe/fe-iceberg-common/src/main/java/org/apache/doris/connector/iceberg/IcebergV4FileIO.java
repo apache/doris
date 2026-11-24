@@ -28,25 +28,22 @@ import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestListFile;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
-import org.apache.iceberg.StructLike;
 import org.apache.iceberg.TableMetadata;
-import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.avro.AvroIterable;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
-import org.apache.iceberg.types.Types;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.io.UncheckedIOException;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /** Serializable, borrowed read view for table-relative format v4 locations. */
 public final class IcebergV4FileIO implements FileIO {
@@ -54,10 +51,8 @@ public final class IcebergV4FileIO implements FileIO {
     private static final Pattern SCHEME = Pattern.compile("^[a-zA-Z][a-zA-Z0-9+.-]*:.*", Pattern.DOTALL);
     private final FileIO delegate;
     private final String tableLocation;
-    private final String metadataFileLocation;
-    private final Map<Long, String> inlineSnapshotLists;
-    private transient volatile TableMetadata metadata;
-    private transient LoadingCache<String, TableMetadata> metadataFiles;
+    private final Map<String, MetadataLocation> taskLocations;
+    private final transient TableMetadata metadata;
     private transient LoadingCache<String, Integer> manifestVersions;
     private transient LoadingCache<Long, MetadataHeader> snapshotHeaders;
     private transient ConcurrentMap<String, MetadataLocation> metadataLocations;
@@ -67,20 +62,15 @@ public final class IcebergV4FileIO implements FileIO {
     }
 
     public IcebergV4FileIO(FileIO delegate, String tableLocation, TableMetadata metadata) {
-        this(delegate, tableLocation, metadata, metadata == null ? null : metadata.metadataFileLocation(),
-                metadata != null && metadata.metadataFileLocation() == null ? metadata.snapshots().stream()
-                        .filter(snapshot -> snapshot.manifestListLocation() != null)
-                        .collect(Collectors.toMap(Snapshot::snapshotId, Snapshot::manifestListLocation)) : Map.of());
+        this(delegate, tableLocation, metadata, Map.of());
     }
 
     private IcebergV4FileIO(FileIO delegate, String tableLocation,
-            TableMetadata metadata, String metadataFileLocation, Map<Long, String> inlineSnapshotLists) {
+            TableMetadata metadata, Map<String, MetadataLocation> taskLocations) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.tableLocation = tableLocation;
         this.metadata = metadata;
-        this.metadataFileLocation = metadataFileLocation;
-        // REST responses may supply inline metadata without a metadata-file identity to reopen on the BE.
-        this.inlineSnapshotLists = Map.copyOf(inlineSnapshotLists);
+        this.taskLocations = Map.copyOf(taskLocations);
     }
 
     public FileIO delegate() {
@@ -88,24 +78,24 @@ public final class IcebergV4FileIO implements FileIO {
     }
 
     public IcebergV4FileIO withDelegate(FileIO replacement) {
-        return new IcebergV4FileIO(replacement, tableLocation, metadata, metadataFileLocation, inlineSnapshotLists);
+        return new IcebergV4FileIO(replacement, tableLocation, metadata, taskLocations);
     }
 
-    private TableMetadata metadata() {
-        if (metadata == null && metadataFileLocation != null) {
-            metadata = metadataFiles().get(metadataFileLocation);
-        }
-        return metadata;
+    /** Bind just this task's concrete reference; neither metadata JSON nor snapshot history crosses the wire. */
+    public IcebergV4FileIO forManifest(ManifestFile file) {
+        prepareManifest(file);
+        MetadataLocation location = locations().get(file.path());
+        return new IcebergV4FileIO(delegate, tableLocation, null,
+                location == null ? Map.of() : Map.of(file.path(), location));
     }
 
-    private synchronized LoadingCache<String, TableMetadata> metadataFiles() {
-        if (metadataFiles == null) {
-            // Transport only the immutable metadata-file identity, not all snapshot history in every JNI task.
-            // The cache coalesces lazy remote loads without doing I/O under this initialization lock.
-            metadataFiles = Caffeine.newBuilder().maximumSize(1)
-                    .build(path -> TableMetadataParser.read(delegate, path));
+    public IcebergV4FileIO forManifestList(ManifestListFile file, long snapshotId) {
+        if (!file.location().startsWith("/")) {
+            return new IcebergV4FileIO(delegate, tableLocation);
         }
-        return metadataFiles;
+        snapshotHeader(file.location(), snapshotId);
+        return new IcebergV4FileIO(delegate, tableLocation, null,
+                Map.of(file.location(), locations().get(file.location())));
     }
 
     public static String resolve(String tableLocation, String path) {
@@ -176,7 +166,7 @@ public final class IcebergV4FileIO implements FileIO {
     private synchronized ConcurrentMap<String, MetadataLocation> locations() {
         if (metadataLocations == null) {
             // Query-owned provenance, not a cross-query cache. Retain only ambiguous slash-leading references.
-            metadataLocations = new ConcurrentHashMap<>();
+            metadataLocations = new ConcurrentHashMap<>(taskLocations);
         }
         return metadataLocations;
     }
@@ -192,9 +182,8 @@ public final class IcebergV4FileIO implements FileIO {
     private synchronized LoadingCache<Long, MetadataHeader> snapshots() {
         if (snapshotHeaders == null) {
             snapshotHeaders = Caffeine.newBuilder().maximumSize(256).build(id -> {
-                TableMetadata current = metadata();
-                Snapshot snapshot = current == null ? null : current.snapshot(id);
-                String path = snapshot == null ? inlineSnapshotLists.get(id) : snapshot.manifestListLocation();
+                Snapshot snapshot = metadata == null ? null : metadata.snapshot(id);
+                String path = snapshot == null ? null : snapshot.manifestListLocation();
                 return path == null ? null : snapshotHeader(path, id);
             });
         }
@@ -202,8 +191,8 @@ public final class IcebergV4FileIO implements FileIO {
     }
 
     private MetadataHeader snapshotHeader(String path, long snapshotId) {
-        String relative = resolve(tableLocation, path);
-        MetadataHeader header = existingHeader(relative, FileFormat.AVRO);
+        String relative = hasBase() || isAbsolute(path) ? resolve(tableLocation, path) : null;
+        MetadataHeader header = relative == null ? null : existingHeader(relative, FileFormat.AVRO);
         if (header != null && Objects.equals(header.snapshotId, snapshotId)) {
             if (path.startsWith("/")) {
                 remember(path, relative, snapshotId);
@@ -232,46 +221,30 @@ public final class IcebergV4FileIO implements FileIO {
         if (source != null && source.version < 4) {
             return remember(path, path, file.snapshotId());
         }
-        String relative = resolve(tableLocation, path);
-        if (existingInput(relative) != null) {
+        String relative = hasBase() ? resolve(tableLocation, path) : null;
+        if (relative != null && existingInput(relative) != null) {
             return remember(path, relative, file.snapshotId());
         }
         if (source != null && source.version >= 4 && !source.location.startsWith("/")) {
             throw new NotFoundException("Cannot find relative V4 manifest: %s", relative);
         }
-        // SDK 1.12 retains unqualified write.metadata.path locations after subsequent V4 commits.
-        // Rewrites may contain only EXISTING entries, so their snapshot ID cannot be proved from ADDED rows.
-        // A physically rooted list in the same directory establishes the SDK's filesystem metadata convention.
-        InputFile root = existingInput(path);
-        if (root != null && (hasRootedMetadataDirectory(path)
-                || containsAddedSnapshot(root, FileFormat.fromFileName(path), file.snapshotId()))) {
+        // A retained manifest keeps its immutable descriptor even after its creator expires or metadata moves.
+        // Validate the concrete rooted file, rather than guessing its identity from today's directory or ADDED rows.
+        InputFile rooted = existingInput(path);
+        if (rooted != null) {
+            if (rooted.getLength() != file.length()) {
+                throw new IllegalArgumentException("Rooted manifest length does not match its descriptor: " + path);
+            }
             return remember(path, path, file.snapshotId());
         }
-        throw new NotFoundException("Cannot resolve manifest for snapshot %s: %s", file.snapshotId(), path);
+        if (relative == null) {
+            resolve(tableLocation, path);
+        }
+        throw new NotFoundException("Cannot find manifest at %s or retained rooted location %s", relative, path);
     }
 
-    private boolean hasRootedMetadataDirectory(String path) {
-        String directory = path.substring(0, path.lastIndexOf('/') + 1);
-        TableMetadata current = metadata();
-        Snapshot latest = current == null ? null : current.currentSnapshot();
-        String list = latest == null ? null : latest.manifestListLocation();
-        Long snapshotId = latest == null ? null : latest.snapshotId();
-        if (current == null) {
-            Map.Entry<Long, String> inline = inlineSnapshotLists.entrySet().stream()
-                    .filter(entry -> entry.getValue().startsWith("/")
-                            && directory.equals(entry.getValue().substring(0, entry.getValue().lastIndexOf('/') + 1)))
-                    .findFirst().orElse(null);
-            if (inline == null) {
-                return false;
-            }
-            list = inline.getValue();
-            snapshotId = inline.getKey();
-        }
-        if (list == null || !list.startsWith("/")
-                || !directory.equals(list.substring(0, list.lastIndexOf('/') + 1))) {
-            return false;
-        }
-        return snapshots().get(snapshotId).location.equals(list);
+    private boolean hasBase() {
+        return tableLocation != null && !tableLocation.isEmpty();
     }
 
     private InputFile existingInput(String location) {
@@ -303,22 +276,6 @@ public final class IcebergV4FileIO implements FileIO {
         }
     }
 
-    private static boolean containsAddedSnapshot(InputFile input, FileFormat format, Long snapshotId) {
-        Schema projection = new Schema(Types.NestedField.required(0, "status", Types.IntegerType.get()),
-                Types.NestedField.optional(1, "snapshot_id", Types.LongType.get()));
-        try (CloseableIterable<StructLike> entries = InternalData.read(format, input).project(projection).build()) {
-            for (StructLike entry : entries) {
-                if (entry.get(0, Integer.class) == 1 && snapshotId != null
-                        && snapshotId.equals(entry.get(1, Long.class))) {
-                    return true;
-                }
-            }
-            return false;
-        } catch (IOException failure) {
-            throw new UncheckedIOException("Failed to read Iceberg manifest provenance: " + input.location(), failure);
-        }
-    }
-
     private static final class MetadataHeader {
         private final int version;
         private final Long snapshotId;
@@ -331,7 +288,8 @@ public final class IcebergV4FileIO implements FileIO {
         }
     }
 
-    private static final class MetadataLocation {
+    private static final class MetadataLocation implements Serializable {
+        private static final long serialVersionUID = 1L;
         private final String location;
         private final Long snapshotId;
 
@@ -343,12 +301,36 @@ public final class IcebergV4FileIO implements FileIO {
 
     @Override
     public InputFile newInputFile(String path) {
-        return delegate.newInputFile(resolve(tableLocation, path));
+        return delegate.newInputFile(inputLocation(path));
     }
 
     @Override
     public InputFile newInputFile(String path, long length) {
-        return delegate.newInputFile(resolve(tableLocation, path), length);
+        return delegate.newInputFile(inputLocation(path), length);
+    }
+
+    private String inputLocation(String path) {
+        if (path.startsWith("/")) {
+            MetadataLocation bound = locations().get(path);
+            if (bound != null) {
+                return bound.location;
+            }
+        }
+        // Static metadata-table tasks size the frozen metadata JSON using its original pointer, not a V4
+        // content descriptor. Preserve an existing rooted JSON pointer without relaxing content-file resolution.
+        if (path.startsWith("/") && metadata != null && path.equals(metadata.metadataFileLocation())
+                && existingInput(path) != null) {
+            return path;
+        }
+        // MANIFESTS also sizes its list through the string overload before opening the typed descriptor.
+        if (path.startsWith("/") && metadata != null) {
+            for (Snapshot snapshot : metadata.snapshots()) {
+                if (path.equals(snapshot.manifestListLocation())) {
+                    return snapshotHeader(path, snapshot.snapshotId()).location;
+                }
+            }
+        }
+        return resolve(tableLocation, path);
     }
 
     // Absolute descriptors may carry encryption metadata understood by the delegate. Relative V4 encrypted
@@ -380,18 +362,31 @@ public final class IcebergV4FileIO implements FileIO {
         if (!path.startsWith("/")) {
             return isAbsolute(path) ? delegate.newInputFile(file) : FileIO.super.newInputFile(file);
         }
-        TableMetadata current = metadata();
-        Long snapshotId = current == null ? inlineSnapshotLists.entrySet().stream()
-                .filter(entry -> path.equals(entry.getValue())).map(Map.Entry::getKey).findFirst().orElse(null)
-                : current.snapshots().stream()
-                .filter(snapshot -> path.equals(snapshot.manifestListLocation()))
-                .map(Snapshot::snapshotId).findFirst().orElse(null);
-        if (snapshotId == null) {
-            return FileIO.super.newInputFile(file);
+        MetadataLocation bound = locations().get(path);
+        if (bound == null) {
+            Long snapshotId = metadata == null ? null : metadata.snapshots().stream()
+                    .filter(snapshot -> path.equals(snapshot.manifestListLocation()))
+                    .map(Snapshot::snapshotId).findFirst().orElse(null);
+            if (snapshotId != null) {
+                snapshotHeader(path, snapshotId);
+            } else {
+                // Directly serialized IO has no table history. Production metadata tasks bind the expected
+                // list identity on the FE; standalone readers still validate the candidate's list header.
+                String relative = hasBase() ? resolve(tableLocation, path) : null;
+                MetadataHeader header = relative == null ? null : existingHeader(relative, FileFormat.AVRO);
+                if (header != null && header.snapshotId != null) {
+                    remember(path, relative, header.snapshotId);
+                } else {
+                    header = existingHeader(path, FileFormat.AVRO);
+                    if (header == null || header.snapshotId == null) {
+                        throw new NotFoundException("Cannot find manifest list: %s", path);
+                    }
+                    remember(path, path, header.snapshotId);
+                }
+            }
+            bound = locations().get(path);
         }
-        snapshots().get(snapshotId);
-        return locations().get(path).location.equals(path)
-                ? delegate.newInputFile(file) : FileIO.super.newInputFile(file);
+        return bound.location.equals(path) ? delegate.newInputFile(file) : FileIO.super.newInputFile(file);
     }
 
     @Override

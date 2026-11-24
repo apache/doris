@@ -64,8 +64,8 @@ import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.IcebergLabelsDataTask;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
-import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.ManifestReader;
+import org.apache.iceberg.ManifestReaderAccess;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
@@ -1889,8 +1889,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static OptionalLong livePositionDeleteRowCount(Table table, Snapshot snapshot) {
         long exactCount = 0;
         for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
+            // Preserve the SDK byte-cache bypass while projecting only fields needed for metadata-only COUNT.
             try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
-                    manifest, new IcebergScanFileIO(table.io(), () -> { }), table.specs())) {
+                    manifest, new IcebergScanFileIO(table.io(), () -> { }), table.specs())
+                    .select(List.of("content", "record_count", "key_metadata"))) {
                 for (DeleteFile delete : reader) {
                     // Netting delete counts happens before file-task planning. Keep the same early
                     // encryption rejection here so COUNT cannot escape through the manifest shortcut.
@@ -2627,8 +2629,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             if (!manifest.hasAddedFiles() && !manifest.hasExistingFiles()) {
                 continue;
             }
+            // Equality-field discovery also needs the byte-cache bypass before encryption is classified.
             try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
-                    manifest, new IcebergScanFileIO(table.io(), () -> { }), table.specs())) {
+                    manifest, new IcebergScanFileIO(table.io(), () -> { }), table.specs())
+                    .select(List.of("content", "equality_ids"))) {
                 for (DeleteFile deleteFile : reader) {
                     if (deleteFile.content() == FileContent.EQUALITY_DELETES) {
                         fieldIds.addAll(deleteFile.equalityFieldIds());

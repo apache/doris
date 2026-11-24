@@ -17,6 +17,7 @@
 
 package org.apache.doris.iceberg;
 
+import org.apache.doris.connector.iceberg.IcebergV4FileIO;
 import org.apache.doris.jni.spi.DorisPlugin;
 import org.apache.doris.jni.spi.JniScanner;
 import org.apache.doris.jni.spi.JniScannerFactory;
@@ -24,22 +25,28 @@ import org.apache.doris.jni.spi.utils.OffHeap;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.hadoop.HadoopTables;
+import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.NativeGcsResolvingFileIO;
 import org.apache.iceberg.types.Types;
@@ -342,6 +349,46 @@ public class IcebergPluginTest {
             }
             Assertions.assertEquals(1, totalRows, "the Parquet manifest must be opened after deserialization");
         }
+    }
+
+    @Test
+    public void scansBoundV4ManifestWithoutMetadataJson(@TempDir Path warehouse) throws IOException {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("metadata", Map.of(CatalogProperties.WAREHOUSE_LOCATION, warehouse.toUri().toString()));
+        catalog.createNamespace(Namespace.of("db"));
+        Table table = catalog.createTable(TableIdentifier.of("db", "table"),
+                new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get())),
+                PartitionSpec.unpartitioned(), Map.of(TableProperties.FORMAT_VERSION, "4",
+                        TableProperties.WRITE_METADATA_LOCATION, warehouse.resolve("metadata").toString()));
+        table.newFastAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("data/first.parquet").withFileSizeInBytes(100).withRecordCount(7).build()).commit();
+        TableMetadata metadata = ((BaseTable) table).operations().current();
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        Assertions.assertTrue(manifest.path().startsWith("/"));
+        IcebergV4FileIO io = new IcebergV4FileIO(table.io(), table.location(), metadata).forManifest(manifest);
+        Table bound = new BaseTable(new StaticTableOperations(metadata, io), table.name());
+        Table files = MetadataTableUtils.createMetadataTableInstance(bound, MetadataTableType.FILES);
+        int totalRows = 0;
+        try (CloseableIterable<FileScanTask> tasks = files.newScan().select("record_count").planFiles()) {
+            for (FileScanTask task : tasks) {
+                // Remove the JSON before serialization so even an in-memory delegate cannot carry it to BE.
+                table.io().deleteFile(metadata.metadataFileLocation());
+                Map<String, String> params = Map.of("serialized_split", SerializationUtil.serializeToBase64(task),
+                        "required_fields", "record_count", "required_types", "bigint", "time_zone", "UTC");
+                JniScanner scanner = loadPlugin().getScannerFactories().iterator().next().create(16, params);
+                scanner.open();
+                try {
+                    Assertions.assertNotEquals(0, scanner.getNextBatchMeta());
+                    Assertions.assertEquals(7L, scanner.getTable().getColumn(0).getLong(0));
+                    totalRows += scanner.getTable().getNumRows();
+                    scanner.releaseTable();
+                    Assertions.assertEquals(0, scanner.getNextBatchMeta());
+                } finally {
+                    scanner.close();
+                }
+            }
+        }
+        Assertions.assertEquals(1, totalRows);
     }
 
     /**

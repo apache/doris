@@ -61,6 +61,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
@@ -658,6 +659,216 @@ class IcebergFormatV4ReadTest {
                         .map(range -> range.getPath().orElseThrow()).collect(Collectors.toSet()));
             }
         }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"2,false", "2,true", "3,false", "3,true", "4,false", "4,true"})
+    void retainedRootedManifestsSurviveDirectoryMovesAndMissingBase(int originalVersion, boolean missingBase)
+            throws Exception {
+        Table table = createTable(originalVersion);
+        table.updateProperties().set(TableProperties.WRITE_METADATA_LOCATION,
+                "/metadata/old-" + tempDir.getFileName()).commit();
+        String retainedData = originalVersion < 4 ? "/data/" : "s3://example-bucket/data/";
+        for (String name : List.of("first", "second")) {
+            table.newFastAppend().appendFile(data(table, retainedData + name + ".parquet")).commit();
+        }
+        table.rewriteManifests().clusterBy(file -> 0).commit();
+        ManifestFile retained = table.currentSnapshot().dataManifests(table.io()).get(0);
+        Assertions.assertEquals(0, retained.addedFilesCount());
+        Assertions.assertEquals(2, retained.existingFilesCount());
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "4")
+                .set(TableProperties.WRITE_METADATA_LOCATION, table.location() + "/new-metadata").commit();
+        table.newFastAppend().appendFile(data(table, "s3://example-bucket/data/third.parquet")).commit();
+        org.apache.iceberg.ExpireSnapshots expiration = table.expireSnapshots().cleanExpiredFiles(false);
+        for (org.apache.iceberg.Snapshot snapshot : table.snapshots()) {
+            if (snapshot.snapshotId() != table.currentSnapshot().snapshotId()) {
+                expiration.expireSnapshotId(snapshot.snapshotId());
+            }
+        }
+        expiration.commit();
+        TableMetadata metadata = ((BaseTable) table).operations().current();
+        ObjectNode json = (ObjectNode) JsonUtil.mapper().readTree(TableMetadataParser.toJson(metadata));
+        if (missingBase) {
+            json.remove("location");
+        }
+        Table cold = new BaseTable(new StaticTableOperations(TableMetadataParser.fromJson(
+                metadata.metadataFileLocation(), json.toString()), table.io()), table.name());
+        Assertions.assertNull(cold.snapshot(retained.snapshotId()));
+        Set<String> expected = Set.of(retainedData + "first.parquet", retainedData + "second.parquet",
+                "s3://example-bucket/data/third.parquet");
+        Table view = IcebergSnapshotTableOperations.v4ReadTable(cold);
+        FileIO restored = SerializationUtil.deserializeFromBase64(SerializationUtil.serializeToBase64(view.io()));
+        Set<String> actual = new java.util.HashSet<>();
+        for (ManifestFile manifest : cold.currentSnapshot().allManifests(restored)) {
+            try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, restored, cold.specs())) {
+                for (DataFile file : reader) {
+                    actual.add(((IcebergV4FileIO) restored).resolveContentFile(file));
+                }
+            }
+        }
+        Assertions.assertEquals(expected, actual);
+        for (boolean cached : new boolean[] {false, true}) {
+            IcebergScanPlanProvider provider = provider(cold, cached);
+            for (int attempt = 0; attempt < 2; attempt++) {
+                Assertions.assertEquals(expected, provider.planScan(null, request()).stream()
+                        .map(range -> range.getPath().orElseThrow()).collect(Collectors.toSet()));
+            }
+        }
+    }
+
+    @Test
+    void retainedRootedManifestRequiresItsDescriptorLength() throws Exception {
+        Table table = createTable(4);
+        table.updateProperties().set(TableProperties.WRITE_METADATA_LOCATION,
+                "/metadata/" + tempDir.getFileName()).commit();
+        table.newFastAppend().appendFile(data(table, "data/first.parquet")).commit();
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        IcebergV4FileIO io = new IcebergV4FileIO(table.io(), table.location());
+        Assertions.assertTrue(io.newInputFile(manifest).exists());
+        GenericManifestFile invalid = (GenericManifestFile) manifest.copy();
+        invalid.put(1, manifest.length() + 1);
+        IcebergV4FileIO fresh = new IcebergV4FileIO(table.io(), table.location());
+        IllegalArgumentException failure = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> fresh.newInputFile(invalid));
+        Assertions.assertTrue(failure.getMessage().contains("length"));
+    }
+
+    @Test
+    void missingRelativeV4ManifestDoesNotReadAnUnrelatedRootedFile() throws Exception {
+        Table table = createTable(4);
+        String path = "/metadata/leading.parquet";
+        ManifestWriter<DataFile> writer = ManifestFiles.write(4, table.spec(),
+                table.io().newOutputFile(table.location() + "/" + path), null);
+        try (ManifestWriter<DataFile> closeable = writer) {
+            closeable.add(data(table, "data/first.parquet"));
+        }
+        GenericManifestFile manifest = (GenericManifestFile) writer.toManifestFile().copy();
+        manifest.put(0, path);
+        table.newFastAppend().appendManifest(manifest).commit();
+        try (org.apache.iceberg.io.SeekableInputStream input =
+                        table.io().newInputFile(table.location() + "/" + path).newStream();
+                OutputStream output = table.io().newOutputFile(path).create()) {
+            input.transferTo(output);
+        }
+        Table readable = IcebergSnapshotTableOperations.v4ReadTable(coldMetadata(table));
+        ManifestFile valid = readable.currentSnapshot().dataManifests(readable.io()).get(0);
+        try (ManifestReader<DataFile> reader = ManifestFiles.read(valid, readable.io(), readable.specs())) {
+            Assertions.assertEquals(10L, reader.iterator().next().recordCount());
+        }
+        table.io().deleteFile(table.location() + "/" + path);
+        Table cold = coldMetadata(table);
+        IcebergV4FileIO io = (IcebergV4FileIO) IcebergSnapshotTableOperations.v4ReadTable(cold).io();
+        ManifestFile descriptor = cold.currentSnapshot().dataManifests(io).get(0);
+        Assertions.assertThrows(org.apache.iceberg.exceptions.NotFoundException.class,
+                () -> io.newInputFile(descriptor));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void serializedMetadataReferencesDoNotReopenAnUnresolvedJsonPointer(boolean leadingSlash) throws Exception {
+        Table table = createTable(4);
+        table.updateProperties().set(TableProperties.WRITE_METADATA_LOCATION,
+                "/metadata/root-" + tempDir.getFileName()).commit();
+        table.newFastAppend().appendFile(data(table, "s3://example-bucket/data/first.parquet")).commit();
+        String reference = (leadingSlash ? "/" : "") + "metadata/relative.metadata.json";
+        String json = TableMetadataParser.toJson(((BaseTable) table).operations().current());
+        try (OutputStream output = table.io().newOutputFile(table.location() + "/" + reference).create()) {
+            output.write(json.getBytes(StandardCharsets.UTF_8));
+        }
+        Table cold = new BaseTable(new StaticTableOperations(
+                TableMetadataParser.fromJson(reference, json), table.io()), table.name());
+        Table view = IcebergSnapshotTableOperations.v4ReadTable(cold);
+        FileIO restored = SerializationUtil.deserializeFromBase64(SerializationUtil.serializeToBase64(view.io()));
+        try (org.apache.iceberg.io.SeekableInputStream input = restored.newInputFile(reference).newStream()) {
+            Assertions.assertArrayEquals(json.getBytes(StandardCharsets.UTF_8), input.readAllBytes());
+        }
+        ManifestFile manifest = cold.currentSnapshot().allManifests(restored).get(0);
+        try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, restored, cold.specs())) {
+            Assertions.assertEquals("s3://example-bucket/data/first.parquet", reader.iterator().next().location());
+        }
+    }
+
+    @Test
+    void serializedInlineReadViewDoesNotGrowWithSnapshotHistory() throws Exception {
+        Table table = createTable(4);
+        table.newFastAppend().appendFile(data(table, "s3://example-bucket/data/first.parquet")).commit();
+        ObjectNode json = (ObjectNode) JsonUtil.mapper().readTree(
+                TableMetadataParser.toJson(((BaseTable) table).operations().current()));
+        int compact = inlineViewSize(json, table.name());
+        int compactTask = inlineTaskSize(json, table);
+        com.fasterxml.jackson.databind.node.ArrayNode snapshots =
+                (com.fasterxml.jackson.databind.node.ArrayNode) json.get("snapshots");
+        ObjectNode template = (ObjectNode) snapshots.get(0);
+        for (int i = 1; i <= 2000; i++) {
+            ObjectNode snapshot = template.deepCopy();
+            snapshot.put("snapshot-id", i);
+            snapshot.put("manifest-list", "/metadata/history/snapshot-" + i + ".avro");
+            snapshots.add(snapshot);
+        }
+        int large = inlineViewSize(json, table.name());
+        int largeTask = inlineTaskSize(json, table);
+        Assertions.assertTrue(large <= compact + 1024,
+                "Each JNI task must carry its read context, not the table's entire snapshot history: "
+                        + compact + " -> " + large);
+        Assertions.assertTrue(largeTask <= compactTask + 1024,
+                "The complete metadata task must not amplify inline snapshot history: "
+                        + compactTask + " -> " + largeTask);
+    }
+
+    private static int inlineViewSize(ObjectNode json, String name) {
+        TableMetadata metadata = TableMetadataParser.fromJson(json.toString());
+        Table table = new BaseTable(new StaticTableOperations(metadata,
+                new org.apache.iceberg.inmemory.InMemoryFileIO()), name);
+        return SerializationUtil.serializeToBase64(IcebergSnapshotTableOperations.v4ReadTable(table).io()).length();
+    }
+
+    private static int inlineTaskSize(ObjectNode json, Table source) throws IOException {
+        Table table = IcebergSnapshotTableOperations.v4ReadTable(new BaseTable(new StaticTableOperations(
+                TableMetadataParser.fromJson(json.toString()), source.io()), source.name()));
+        Table files = org.apache.iceberg.MetadataTableUtils.createMetadataTableInstance(
+                table, org.apache.iceberg.MetadataTableType.FILES);
+        int length = 0;
+        int count = 0;
+        try (CloseableIterable<FileScanTask> tasks = files.newScan().select("record_count").planFiles()) {
+            for (FileScanTask task : tasks) {
+                String serialized = IcebergSystemTableSerialization.serializeToBase64(task);
+                FileScanTask restored = IcebergSystemTableSerialization.deserializeFromBase64(serialized);
+                try (CloseableIterable<org.apache.iceberg.StructLike> rows = restored.asDataTask().rows()) {
+                    Assertions.assertEquals(10L, rows.iterator().next().get(0, Long.class));
+                }
+                length += serialized.length();
+                count++;
+            }
+        }
+        Assertions.assertEquals(1, count);
+        return length;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"FILES", "ENTRIES", "ALL_MANIFESTS", "MANIFESTS", "SNAPSHOTS", "HISTORY", "REFS",
+            "METADATA_LOG_ENTRIES", "PARTITIONS"})
+    void serializedTasksPinTheirConcreteMetadataReference(String type) throws Exception {
+        Table table = createTable(4);
+        table.updateProperties().set(TableProperties.WRITE_METADATA_LOCATION,
+                "/metadata/" + tempDir.getFileName()).commit();
+        table.newFastAppend().appendFile(data(table, "s3://example-bucket/data/first.parquet")).commit();
+        Table view = IcebergSnapshotTableOperations.v4ReadTable(coldMetadata(table));
+        Table metadataTable = org.apache.iceberg.MetadataTableUtils.createMetadataTableInstance(
+                view, org.apache.iceberg.MetadataTableType.valueOf(type));
+        String column = type.equals("FILES") ? "record_count" : type.equals("ENTRIES") ? "data_file.record_count"
+                : metadataTable.schema().columns().get(0).name();
+        int count = 0;
+        try (CloseableIterable<FileScanTask> tasks = metadataTable.newScan().select(column).planFiles()) {
+            for (FileScanTask task : tasks) {
+                FileScanTask restored = IcebergSystemTableSerialization.deserializeFromBase64(
+                        IcebergSystemTableSerialization.serializeToBase64(task));
+                try (CloseableIterable<org.apache.iceberg.StructLike> rows = restored.asDataTask().rows()) {
+                    Assertions.assertTrue(rows.iterator().hasNext());
+                    count++;
+                }
+            }
+        }
+        Assertions.assertEquals(1, count);
     }
 
     @Test

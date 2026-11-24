@@ -64,6 +64,22 @@ public class IcebergManifestEntryKey {
         return content;
     }
 
+    String getTableLocation() {
+        return tableLocation;
+    }
+
+    Long getSnapshotId() {
+        return snapshotId;
+    }
+
+    Long getSequenceNumber() {
+        return sequenceNumber;
+    }
+
+    Long getFirstRowId() {
+        return firstRowId;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

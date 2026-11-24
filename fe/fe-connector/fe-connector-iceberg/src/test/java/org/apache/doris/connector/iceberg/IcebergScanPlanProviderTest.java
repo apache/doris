@@ -6651,6 +6651,62 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(cacheEnabled ? 3 : 0, cache.size());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"equality_fields", "count_capability", "position_count", "streaming_estimate",
+            "data_key_probe"})
+    public void v4DirectManifestProbesHandleExpiredPartitionSources(String operation) throws IOException {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "p", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        Table table = createPersistedTable("v4_direct_probes", schema, spec,
+                Map.of(TableProperties.FORMAT_VERSION, "4"));
+        DataFile original = dataFile(spec, "s3://example-bucket/data/first.parquet", 1000, null, "p=7");
+        table.newFastAppend().appendFile(original).commit();
+        boolean equality = operation.equals("equality_fields");
+        if (!operation.equals("data_key_probe")) {
+            FileMetadata.Builder delete = FileMetadata.deleteFileBuilder(spec);
+            if (equality) {
+                delete.ofEqualityDeletes(1).withPath("s3://example-bucket/data/equality.parquet")
+                        .withFormat(FileFormat.PARQUET);
+            } else {
+                delete.ofPositionDeletes().withPath("s3://example-bucket/data/vector.puffin")
+                        .withFormat(FileFormat.PUFFIN).withReferencedDataFile(original.location())
+                        .withContentOffset(16).withContentSizeInBytes(64);
+            }
+            table.newRowDelta().addDeletes(delete.withFileSizeInBytes(128).withRecordCount(1)
+                    .withPartitionPath("p=7").build()).commit();
+        }
+        table.updateSpec().removeField("p").commit();
+        table.updateSchema().deleteColumn("p").commit();
+        table.newFastAppend().appendFile(dataFile(table.spec(), "s3://example-bucket/data/new.parquet",
+                1000, null, null)).commit();
+        table.expireSnapshots().expireOlderThan(System.currentTimeMillis() + 1000).retainLast(1)
+                .cleanExpiredMetadata(true).cleanExpiredFiles(false).commit();
+        table = reloadPersistedTable(table);
+        Assertions.assertEquals(Type.TypeID.UNKNOWN, table.specs().get(0).rawPartitionType().fields().get(0)
+                .type().typeId());
+        Assertions.assertTrue(table.currentSnapshot().allManifests(table.io()).stream()
+                .allMatch(manifest -> FileFormat.fromFileName(manifest.path()) == FileFormat.PARQUET));
+        IcebergScanPlanProvider provider = manifestProvider(manifestCacheProps(), table, new IcebergManifestCache());
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "v4_direct_probes");
+        ConnectorSession session = new FakeScanSession("UTC", Map.of("ignore_iceberg_dangling_delete", "true"));
+        if (equality) {
+            Table view = provider.wrapTableForScan(table);
+            Assertions.assertEquals(Set.of(1), IcebergScanPlanProvider.applicableEqualityDeleteFieldIds(
+                    view, view.newScan()));
+            Assertions.assertFalse(provider.getScanNodeProperties(session, handle, Collections.emptyList(),
+                    Optional.empty()).isEmpty());
+        } else if (operation.equals("streaming_estimate")) {
+            Assertions.assertEquals(-1, provider.streamingSplitEstimate(session, handle, Optional.empty(), true));
+        } else if (operation.equals("position_count")) {
+            List<ConnectorScanRange> ranges = provider.planScan(session, scanOf(handle).countPushdown(true).build());
+            Assertions.assertEquals(1, ranges.size());
+            Assertions.assertEquals(19, ranges.get(0).getPushDownRowCount());
+        } else {
+            Assertions.assertTrue(provider.canServeMetadataOnlyCount(session, handle, Optional.empty()));
+        }
+    }
+
     @Test
     public void uncachedStreamingManifestFailurePropagatesWithoutRetryingSdk() throws IOException {
         Table table = createTable("uncached_failure", SCHEMA, PartitionSpec.unpartitioned());

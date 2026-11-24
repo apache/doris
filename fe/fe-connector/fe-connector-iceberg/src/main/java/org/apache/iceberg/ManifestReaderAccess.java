@@ -21,16 +21,100 @@ import org.apache.iceberg.avro.AvroIterable;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.parquet.ManifestMetadataAccess;
+import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.JsonUtil;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.doris.connector.iceberg.IcebergV4FileIO;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Package bridge for filtering borrowed manifest entries before copying retained files. */
 public final class ManifestReaderAccess {
     private ManifestReaderAccess() {
+    }
+
+    /** Freeze each transported task's actual reference instead of serializing table-wide read history. */
+    public static FileScanTask prepareTask(FileScanTask task) {
+        if (task instanceof BaseFilesTable.ManifestReadTask) {
+            BaseFilesTable.ManifestReadTask files = (BaseFilesTable.ManifestReadTask) task;
+            if (files.io() instanceof IcebergV4FileIO) {
+                return new BaseFilesTable.ManifestReadTask(files.dataTableSchema(),
+                        ((IcebergV4FileIO) files.io()).forManifest(files.manifest()), files.specsById(),
+                        files.manifest(), files.projection(), files.residual());
+            }
+        } else if (task instanceof BaseEntriesTable.ManifestReadTask) {
+            BaseEntriesTable.ManifestReadTask entries = (BaseEntriesTable.ManifestReadTask) task;
+            if (entries.io() instanceof IcebergV4FileIO) {
+                return new BaseEntriesTable.ManifestReadTask(entries.dataTableSchema(),
+                        ((IcebergV4FileIO) entries.io()).forManifest(entries.manifest()), entries.specsById(),
+                        entries.manifest(), entries.projection(), entries.residual());
+            }
+        } else if (task instanceof AllManifestsTable.ManifestListReadTask) {
+            AllManifestsTable.ManifestListReadTask lists = (AllManifestsTable.ManifestListReadTask) task;
+            if (lists.io() instanceof IcebergV4FileIO) {
+                return new AllManifestsTable.ManifestListReadTask(lists.dataTableSchema(),
+                        ((IcebergV4FileIO) lists.io()).forManifestList(
+                                lists.manifestList(), lists.referenceSnapshotId()),
+                        lists.schema(), lists.specsById(), lists.manifestList(), lists.residual(),
+                        lists.referenceSnapshotId());
+            }
+        }
+        return task;
+    }
+
+    /** Metadata-only probes must not decode unused partitions or require their expired source schemas. */
+    public static ManifestReader<DataFile> readDataMetadata(ManifestFile manifest, Table table, List<String> columns) {
+        return ManifestFiles.read(manifest, table.io(), table.specs()).select(columns);
+    }
+
+    public static ManifestReader<DeleteFile> readDeleteMetadata(ManifestFile manifest, Table table,
+            List<String> columns) {
+        return ManifestFiles.readDeleteManifest(manifest, table.io(), table.specs()).select(columns);
+    }
+
+    /** Recover physical partition types, consulting the header when commit metadata lacks a source. */
+    public static Map<Integer, PartitionSpec> readSpecs(ManifestFile manifest, Table table, FileIO io)
+            throws IOException {
+        PartitionSpec spec = table.specs().get(manifest.partitionSpecId());
+        // Fixed-result transforms (bucket/year/month/day/hour) remain readable without their source
+        // schema. Iceberg resolves their result from UNKNOWN; do not require expired source schemas.
+        boolean missingSource = spec.rawPartitionType().fields().stream()
+                .anyMatch(field -> field.type().typeId() == org.apache.iceberg.types.Type.TypeID.UNKNOWN);
+        if (!missingSource) {
+            return Collections.singletonMap(spec.specId(), spec);
+        }
+        Long commitSnapshotId = manifest.snapshotId();
+        Snapshot commitSnapshot = commitSnapshotId == null ? null : table.snapshot(commitSnapshotId);
+        Schema commitSchema = commitSnapshot == null ? null : table.schemas().get(commitSnapshot.schemaId());
+        if (commitSchema == null
+                || spec.fields().stream().anyMatch(field -> commitSchema.findField(field.sourceId()) == null)) {
+            // A rewrite can retain older physical types while committing after source removal. Recover the
+            // header types so data and delete partitions use the same canonical representation after adaptation.
+            PartitionSpec readable = ManifestReaderAccess.readPartitionSpec(manifest, io);
+            return Collections.singletonMap(readable.specId(), readable);
+        }
+        Map<Integer, Types.NestedField> sources = new LinkedHashMap<>();
+        Set<String> reservedNames = new HashSet<>();
+        spec.fields().forEach(field -> reservedNames.add(field.name()));
+        for (PartitionField field : spec.fields()) {
+            Types.NestedField source = commitSchema.findField(field.sourceId());
+            String name = "source_" + field.sourceId();
+            while (!reservedNames.add(name)) {
+                name += "_";
+            }
+            sources.put(field.sourceId(), Types.NestedField.optional(field.sourceId(), name, source.type()));
+        }
+        PartitionSpec readable = spec.toUnbound().bind(new Schema(
+                new ArrayList<>(sources.values())), true);
+        return Collections.singletonMap(readable.specId(), readable);
     }
 
     /** Recover header types without rejecting historical fields whose source columns were dropped. */

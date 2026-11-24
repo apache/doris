@@ -1123,6 +1123,23 @@ public class IcebergManifestCacheTest {
     }
 
     @Test
+    public void weightBoundedV4ManifestAccountsForItsTableContext() {
+        Table table = tableWithTwoDataFiles();
+        table.updateLocation().setLocation("s3://example-bucket/" + "nested/".repeat(12000)).commit();
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "4").commit();
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergManifestCache cache = new IcebergManifestCache(owner,
+                    Collections.singletonMap("meta.cache.iceberg.manifest.max-weight", "32KB"));
+            ManifestCacheValue value = cache.getManifestCacheValue(manifest, table);
+            Assertions.assertEquals(2, value.getDataFiles().size());
+            Assertions.assertTrue(value.getSizeEstimate().getBytes() < 32 * 1024,
+                    "The payload alone fits; the V4 key is what exceeds this budget");
+            Assertions.assertEquals(0, cache.size(), "An oversized retained V4 key must reject cache admission");
+        }
+    }
+
+    @Test
     public void equalityDeleteFieldIdsLoadOncePerSnapshot() {
         IcebergManifestCache cache = new IcebergManifestCache();
         AtomicInteger loads = new AtomicInteger();
