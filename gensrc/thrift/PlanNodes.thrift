@@ -91,10 +91,16 @@ enum TChangelogScanType {
 }
 
 enum TTabletSamplingAlgorithm {
-  FIXED_ROWID_BLOCK = 0
+  FIXED_ROWID_BLOCK = 0,
+  KEY_RANGE_BLOCK = 1
 }
 
 struct TFixedRowIdBlockSampleParams {
+  1: optional i64 sample_unit_rows
+  2: optional i64 max_sample_units_per_tablet
+}
+
+struct TKeyRangeBlockSampleParams {
   1: optional i64 sample_unit_rows
   2: optional i64 max_sample_units_per_tablet
 }
@@ -106,6 +112,7 @@ struct TTabletSampleOptions {
   4: optional i64 seed
   5: optional TFixedRowIdBlockSampleParams fixed_rowid_block_params
   6: optional double tablet_inclusion_probability
+  7: optional TKeyRangeBlockSampleParams key_range_block_params
 }
 
 struct TPaloScanRange {

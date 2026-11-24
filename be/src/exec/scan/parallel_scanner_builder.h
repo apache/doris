@@ -68,6 +68,8 @@ public:
 
     Status build_scanners(std::list<ScannerSPtr>& scanners);
 
+    static io::IOContext create_preload_io_context(RuntimeState* state,
+                                                   OlapReaderStatistics* stats);
     static Status load_segment_rows(RuntimeState* state, const RowsetSharedPtr& rowset,
                                     io::FileCacheStatistics* stats, std::vector<uint32_t>* rows);
 

@@ -20,8 +20,11 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.FixedBlockSampleSpec;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -32,6 +35,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -128,7 +132,15 @@ class FixedBlockTableSamplePlanTest {
         Assertions.assertEquals(Set.of(101L, 107L, 108L), spec.tabletIds());
         Assertions.assertEquals(0.08, spec.groupFor(101L).unitRate);
         Assertions.assertEquals(1.0, spec.groupFor(108L).unitRate);
+        TableSample keyRange = parse(SAMPLE.replace("FIXED_BLOCK", "KEY_RANGE_BLOCK"));
+        Assertions.assertNotEquals(first, keyRange);
+        var rangeOpts = keyRange.fixedBlockSpec.toThrift(101);
+        Assertions.assertEquals(TTabletSamplingAlgorithm.KEY_RANGE_BLOCK, rangeOpts.getAlgorithm());
+        Assertions.assertFalse(rangeOpts.isSetFixedRowidBlockParams());
+        Assertions.assertEquals(1024, rangeOpts.getKeyRangeBlockParams().getSampleUnitRows());
+        Assertions.assertEquals(2048, rangeOpts.getKeyRangeBlockParams().getMaxSampleUnitsPerTablet());
         state.setInternal(false);
+        Assertions.assertThrows(AnalysisException.class, () -> parse(SAMPLE.replace("FIXED_BLOCK", "KEY_RANGE_BLOCK")));
         Assertions.assertThrows(AnalysisException.class, () -> parse(SAMPLE));
         Assertions.assertEquals(new TableSample(10, true, -1), parse("(10 PERCENT)"));
         Assertions.assertEquals(new TableSample(25, false, 0), parse("(25 ROWS) REPEATABLE 0"));
@@ -223,6 +235,31 @@ class FixedBlockTableSamplePlanTest {
                     new TabletMeta(1, 23, 1, 10, 0, TStorageMedium.HDD, false)));
             assertBindingFails(context, " TEMPORARY PARTITION(tp)", "temporary partition");
             bind(context, "");
+            var key = new Column("k", Type.INT, true, null, "0", "");
+            var schema = List.of(key, new Column(Column.DELETE_SIGN, Type.TINYINT),
+                    new Column(Column.TTL_COL, Type.BIGINT));
+            var base = Mockito.mock(MaterializedIndexMeta.class);
+            Mockito.when(base.getKeysType()).thenReturn(KeysType.UNIQUE_KEYS);
+            Mockito.when(base.getSchema()).thenReturn(schema);
+            Mockito.when(table.getIndexMetaByIndexId(10L)).thenReturn(base);
+            Mockito.when(table.getDefaultDistributionInfo()).thenReturn(new HashDistributionInfo(1, List.of(key)));
+            Mockito.when(table.getBaseSchema(true)).thenReturn(schema);
+            Mockito.when(table.hasDeleteSign()).thenReturn(true);
+            Mockito.when(table.hasRowTtl()).thenReturn(true);
+            Mockito.when(table.isMorTable()).thenReturn(true);
+            var relation = parseRelation("SELECT 1 FROM internal.db.tbl TABLESAMPLE "
+                    + SAMPLE.replace("FIXED_BLOCK", "KEY_RANGE_BLOCK"));
+            var binding = new BindRelation().build();
+            Plan visible = binding.transform(relation, context).get(0);
+            var ttl = Assertions.assertInstanceOf(LogicalFilter.class, visible);
+            Assertions.assertTrue(ttl.getConjuncts().toString().contains(Column.TTL_COL));
+            var delete = Assertions.assertInstanceOf(LogicalFilter.class, ttl.child());
+            Assertions.assertTrue(delete.getConjuncts().toString().contains(Column.DELETE_SIGN));
+            Assertions.assertTrue(((LogicalOlapScan) delete.child()).getPreAggStatus().isOff());
+            Mockito.when(statement.isHintForcePreAggOn()).thenReturn(true);
+            var conflict = Assertions.assertThrows(AnalysisException.class, () -> binding.transform(relation, context));
+            Assertions.assertTrue(conflict.getMessage().contains("PREAGGOPEN"));
+            Mockito.when(statement.isHintForcePreAggOn()).thenReturn(false);
             Mockito.when(inverted.getTabletMetaList(List.of(101L)))
                     .thenReturn(Collections.singletonList(null));
             assertBindingFails(context, "", "index 10");
@@ -291,6 +328,12 @@ class FixedBlockTableSamplePlanTest {
         BackendHbResponse hb = new BackendHbResponse(7, 9060, 8040, 8060, 1L, 1L, "test", "mix", 0, 0, false, 0);
         hb.setSupportsFixedBlockSamplingV1(true);
         backend.handleHbResponse(hb, false);
+        var keyRange = parse(SAMPLE.replace("FIXED_BLOCK", "KEY_RANGE_BLOCK")).translateToLegacyTableSample();
+        Assertions.assertThrows(UserException.class, () -> scan(backend, keyRange, List.of(1L), Set.of()));
+        hb.setSupportsKeyRangeBlockSamplingV1(true);
+        backend.handleHbResponse(hb, false);
+        Assertions.assertEquals(TTabletSamplingAlgorithm.KEY_RANGE_BLOCK, scan(backend, keyRange, List.of(1L), Set.of())
+                .getScanRangeLocations(0).get(0).getScanRange().getPaloScanRange().getSampleOptions().getAlgorithm());
         OlapScanNode hit = scan(backend, sample, List.of(1L, 2L), Set.of());
         Assertions.assertTrue(hit.getNodeExplainString("", TExplainLevel.BRIEF)
                 .contains("TABLET SAMPLE: FIXED_BLOCK("));
@@ -314,6 +357,8 @@ class FixedBlockTableSamplePlanTest {
         backend.handleHbResponse(new BackendHbResponse(7, 9060, 8040, 8060, 2L, 2L, "old", "mix", 0, 0, false, 0),
                 false);
         Assertions.assertFalse(backend.isSupportsFixedBlockSamplingV1());
+        Assertions.assertFalse(backend.isSupportsKeyRangeBlockSamplingV1());
+        Assertions.assertThrows(UserException.class, () -> scan(backend, keyRange, List.of(1L), Set.of()));
     }
 
     private OlapScanNode scan(Backend backend, org.apache.doris.analysis.TableSample sample,
@@ -325,6 +370,13 @@ class FixedBlockTableSamplePlanTest {
             List<Long> partitions, Set<Long> prunedTablets) throws UserException {
         OlapTable table = Mockito.mock(OlapTable.class);
         Mockito.when(table.getBaseIndexId()).thenReturn(10L);
+        var key = new Column("k", Type.INT, true, null, "0", "");
+        var distribution = new HashDistributionInfo(1, List.of(key));
+        var metadata = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.when(metadata.getSchema()).thenReturn(List.of(key));
+        Mockito.when(metadata.getKeysType()).thenReturn(KeysType.AGG_KEYS);
+        Mockito.when(table.getIndexMetaByIndexId(99L)).thenReturn(metadata);
+        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(distribution);
         ImmutableMap.Builder<Long, Backend> byId = ImmutableMap.builder();
         List<Replica> replicas = new ArrayList<>();
         for (Backend backend : backends) {

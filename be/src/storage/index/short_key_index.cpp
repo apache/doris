@@ -94,6 +94,16 @@ Status ShortKeyIndexDecoder::parse(const Slice& body, const segment_v2::ShortKey
     return Status::OK();
 }
 
+std::pair<uint32_t, uint32_t> ShortKeyIndexDecoder::ordinal_window(const Slice& prefix,
+                                                                   uint32_t limit,
+                                                                   bool prefix_start) const {
+    const auto first = lower_bound(prefix).ordinal();
+    const auto past = prefix_start ? first : upper_bound(prefix).ordinal();
+    const uint64_t stride = num_rows_per_block();
+    return {std::min<uint64_t>(limit, std::max<ssize_t>(0, first - 1) * stride),
+            std::min<uint64_t>(limit, past * stride)};
+}
+
 ShortKeyIndexDecoder::~ShortKeyIndexDecoder() {
     if (_parsed) {
         g_short_key_index_memory_bytes << -sizeof(_footer) - _key_data.size -

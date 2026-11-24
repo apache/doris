@@ -85,6 +85,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .reader_type = ReaderType::READER_QUERY,
                                  .read_changelog = params.read_changelog,
                                  .aggregation = params.aggregation,
+                                 .key_range_sample = params.key_range_sample,
                                  .version = {0, params.version},
                                  .start_key {},
                                  .end_key {},
@@ -400,7 +401,12 @@ Status OlapScanner::_init_tablet_reader_params(
     auto* olap_local_state = static_cast<OlapScanLocalState*>(_local_state);
     bool read_mor_as_dup = olap_local_state->olap_scan_node().__isset.read_mor_as_dup &&
                            olap_local_state->olap_scan_node().read_mor_as_dup;
-    if (_state->skip_storage_engine_merge() || read_mor_as_dup) {
+    if (_tablet_reader_params.key_range_sample) {
+        // A sampled source may contain only one surviving split. Its keys still require
+        // the ordinary MOR winner/AGG reader and all corresponding storage slots.
+        _tablet_reader_params.direct_mode = false;
+        DCHECK(!_tablet_reader_params.aggregation);
+    } else if (_state->skip_storage_engine_merge() || read_mor_as_dup) {
         _tablet_reader_params.direct_mode = true;
         _tablet_reader_params.aggregation = true;
     } else {

@@ -71,26 +71,25 @@ class OlapSamplingIntegrationTest {
             util.when(StatisticsUtil::enableFixedBlockStatsSampling).thenReturn(true);
             Mockito.when(frame.allCandidatesSupportFixedBlock()).thenReturn(true);
             Assertions.assertInstanceOf(HierarchicalFixedBudgetTabletSamplingMethod.class,
-                    task.chooseTabletSamplingMethod(table, KeysType.DUP_KEYS, regular, 123));
+                    task.chooseTabletSamplingMethod(table, KeysType.DUP_KEYS, false, regular, 123));
             Assertions.assertInstanceOf(LegacyTabletSamplingMethod.class,
-                    task.chooseTabletSamplingMethod(table, KeysType.AGG_KEYS, regular, 123));
+                    task.chooseTabletSamplingMethod(table, KeysType.AGG_KEYS, false, regular, 123));
             Assertions.assertInstanceOf(LegacyTabletSamplingMethod.class,
-                    task.chooseTabletSamplingMethod(table, KeysType.UNIQUE_KEYS, regular, 123));
-            Mockito.when(table.getEnableUniqueKeyMergeOnWrite()).thenReturn(true);
+                    task.chooseTabletSamplingMethod(table, KeysType.UNIQUE_KEYS, false, regular, 123));
             Assertions.assertInstanceOf(HierarchicalFixedBudgetTabletSamplingMethod.class,
-                    task.chooseTabletSamplingMethod(table, KeysType.UNIQUE_KEYS,
+                    task.chooseTabletSamplingMethod(table, KeysType.UNIQUE_KEYS, true,
                             new ColumnPhysicalLayout(true, false, true, true), 123));
             Assertions.assertInstanceOf(LegacyTabletSamplingMethod.class, task.chooseTabletSamplingMethod(
-                    table, KeysType.DUP_KEYS, new ColumnPhysicalLayout(true, false, false, true), 123));
+                    table, KeysType.DUP_KEYS, false, new ColumnPhysicalLayout(true, false, false, true), 123));
             Assertions.assertInstanceOf(LegacyTabletSamplingMethod.class,
-                    task.chooseTabletSamplingMethod(table, KeysType.DUP_KEYS, regular, 0));
+                    task.chooseTabletSamplingMethod(table, KeysType.DUP_KEYS, false, regular, 0));
             Mockito.when(frame.allCandidatesSupportFixedBlock()).thenReturn(false);
             Assertions.assertInstanceOf(LegacyTabletSamplingMethod.class,
-                    task.chooseTabletSamplingMethod(table, KeysType.DUP_KEYS, regular, 123));
+                    task.chooseTabletSamplingMethod(table, KeysType.DUP_KEYS, false, regular, 123));
             Mockito.when(frame.allCandidatesSupportFixedBlock()).thenReturn(true);
             util.when(StatisticsUtil::enableFixedBlockStatsSampling).thenReturn(false);
             Assertions.assertInstanceOf(LegacyTabletSamplingMethod.class,
-                    task.chooseTabletSamplingMethod(table, KeysType.DUP_KEYS, regular, 123));
+                    task.chooseTabletSamplingMethod(table, KeysType.DUP_KEYS, false, regular, 123));
         }
     }
 

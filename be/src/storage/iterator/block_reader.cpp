@@ -470,7 +470,10 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     // check if rowsets are noneoverlapping
     {
         SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
-        _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
+        // Full encoded rowset bounds concatenate VARCHAR fields. For example ("a","z")
+        // and ("a\x01","a") need a typed comparison. Always merge key-range samples.
+        _is_rowsets_overlapping =
+                read_params.key_range_sample || _rowsets_not_mono_asc_disjoint(read_params);
         const bool is_min_delta_stream =
                 read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA;
         const bool force_merge = read_params.read_orderby_key || is_min_delta_stream;

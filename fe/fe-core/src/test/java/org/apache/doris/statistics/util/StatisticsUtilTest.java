@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -40,6 +41,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalDatabase;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.analysis.AnalysisManager;
 import org.apache.doris.statistics.analysis.ColStatsMeta;
@@ -424,9 +426,29 @@ class StatisticsUtilTest {
         Assertions.assertFalse(StatisticsUtil.canCollectColumn(column, table, true, 1));
 
         // Test unique mor key column return true
-        column = new Column("testColumn", Type.INT, true, null, null, "");
-        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, true, 1));
+        Column keyCol = new Column("testColumn", Type.INT, true, null, null, "");
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(keyCol, table, true, 1));
 
+        // Key-range block sampling allows MOR and AGG value columns when enabled and key-routed
+        Column valueCol = new Column("valColumn", Type.INT, false, null, null, "");
+        List<Column> kvSchema = List.of(keyCol, valueCol);
+        MaterializedIndexMeta aggMeta = new MaterializedIndexMeta(1L, kvSchema, 1, 1, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS, null);
+        Mockito.doReturn(1L).when(table).getBaseIndexId();
+        Mockito.doReturn(aggMeta).when(table).getIndexMetaByIndexId(1L);
+        Mockito.doReturn(new HashDistributionInfo(1, List.of(keyCol))).when(table).getDefaultDistributionInfo();
+        boolean prev = VariableMgr.getDefaultSessionVariable().enableFixedBlockStatsSampling;
+        try {
+            VariableMgr.getDefaultSessionVariable().enableFixedBlockStatsSampling = true;
+            Assertions.assertTrue(StatisticsUtil.canCollectColumn(valueCol, table, true, 1));
+            MaterializedIndexMeta morMeta = new MaterializedIndexMeta(1L, kvSchema, 1, 1, (short) 1,
+                    TStorageType.COLUMN, KeysType.UNIQUE_KEYS, null);
+            Mockito.doReturn(morMeta).when(table).getIndexMetaByIndexId(1L);
+            Mockito.doReturn(false).when(table).getEnableUniqueKeyMergeOnWrite();
+            Assertions.assertTrue(StatisticsUtil.canCollectColumn(valueCol, table, true, 1));
+        } finally {
+            VariableMgr.getDefaultSessionVariable().enableFixedBlockStatsSampling = prev;
+        }
     }
 
     @Test

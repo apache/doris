@@ -17,8 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -26,6 +31,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TFixedRowIdBlockSampleParams;
+import org.apache.doris.thrift.TKeyRangeBlockSampleParams;
 import org.apache.doris.thrift.TTabletSampleOptions;
 import org.apache.doris.thrift.TTabletSamplingAlgorithm;
 
@@ -44,12 +50,22 @@ public final class FixedBlockSampleSpec {
     public static final int MAX_GROUPS = 1024;
     public static final int MAX_TABLETS = 65536;
 
+    public enum Mode {
+        FIXED_BLOCK, KEY_RANGE_BLOCK
+    }
+
+    public final Mode mode;
     public final long unitRows;
     public final long seed;
     public final List<Group> groups;
     private final Map<Long, Group> byTablet;
 
     public FixedBlockSampleSpec(long unitRows, long seed, List<Group> groups) {
+        this(Mode.FIXED_BLOCK, unitRows, seed, groups);
+    }
+
+    public FixedBlockSampleSpec(Mode mode, long unitRows, long seed, List<Group> groups) {
+        this.mode = Objects.requireNonNull(mode);
         if (unitRows <= 0 || seed < 0 || groups.isEmpty() || groups.size() > MAX_GROUPS) {
             throw new AnalysisException("Invalid FIXED_BLOCK unit_rows, REPEATABLE seed or group count");
         }
@@ -73,6 +89,9 @@ public final class FixedBlockSampleSpec {
     /** Validate the bound index before pruning and recheck tablet ownership when building scan ranges. */
     public void validateTablets(OlapTable table, long selectedIndexId, Optional<Boolean> expectTempPartition)
             throws UserException {
+        if (mode == Mode.KEY_RANGE_BLOCK && !supportsKeyRange(table, selectedIndexId)) {
+            throw new UserException("KEY_RANGE_BLOCK requires a hash-routed MOR or AGG index with its storage keys");
+        }
         List<Long> ids = ImmutableList.copyOf(tabletIds());
         List<TabletMeta> metas = Env.getCurrentInvertedIndex().getTabletMetaList(ids);
         for (int pos = 0; pos < ids.size(); pos++) {
@@ -93,10 +112,62 @@ public final class FixedBlockSampleSpec {
             if (index == null || index.getTablet(tabletId) == null) {
                 throw staleTablet(table, selectedIndexId, tabletId);
             }
+            if (mode == Mode.KEY_RANGE_BLOCK && table.isTemporaryPartition(meta.getPartitionId())
+                    && !routesByKeys(table.getIndexMetaByIndexId(selectedIndexId), part.getDistributionInfo())) {
+                throw new UserException("KEY_RANGE_BLOCK requires a hash-routed temporary partition");
+            }
             if (index.isChangelog()) {
                 throw new UserException("FIXED_BLOCK cannot read a changelog index");
             }
         }
+    }
+
+    public static boolean supportsKeyRange(OlapTable table, long indexId) {
+        MaterializedIndexMeta meta = table.getIndexMetaByIndexId(indexId);
+        if (meta == null || !(meta.getKeysType() == KeysType.AGG_KEYS
+                || meta.getKeysType() == KeysType.UNIQUE_KEYS && !table.getEnableUniqueKeyMergeOnWrite())
+                || table.isZOrderSort() || meta.getSchema().stream().anyMatch(Column::isClusterKey)) {
+            return false;
+        }
+        if (indexId != table.getBaseIndexId()) {
+            // Storage reads hidden columns and column-level sequence mappings by their physical names.
+            Set<String> sequenceColumns = table.getColumnSeqMapping().keySet();
+            for (Column source : table.getBaseSchema(true)) {
+                if ((!source.isVisible() || sequenceColumns.stream().anyMatch(source.getName()::equalsIgnoreCase))
+                        && meta.getSchema().stream().noneMatch(target -> target.getName().equalsIgnoreCase(
+                                source.getName()) && mapsTo(meta, target, source))) {
+                    return false;
+                }
+            }
+        }
+        return routesByKeys(meta, table.getDefaultDistributionInfo()) && table.getPartitions().stream()
+                .allMatch(part -> routesByKeys(meta, part.getDistributionInfo()));
+    }
+
+    public static boolean retainsPartitionKeys(OlapTable table, MaterializedIndexMeta meta) {
+        return table.getPartitionInfo().getPartitionColumns().stream().allMatch(col -> hasKey(meta, col));
+    }
+
+    private static boolean routesByKeys(MaterializedIndexMeta meta, DistributionInfo distribution) {
+        return distribution instanceof HashDistributionInfo hash && !hash.getDistributionColumns().isEmpty()
+                && hash.getDistributionColumns().stream().allMatch(col -> hasKey(meta, col));
+    }
+
+    private static boolean hasKey(MaterializedIndexMeta meta, Column base) {
+        return meta.getSchema().stream().anyMatch(target -> target.isKey() && mapsTo(meta, target, base));
+    }
+
+    private static boolean mapsTo(MaterializedIndexMeta meta, Column target, Column base) {
+        if (!target.getType().equals(base.getType()) || target.isAllowNull() != base.isAllowNull()) {
+            return false;
+        }
+        if (target.getDefineExpr() instanceof SlotRef slot) {
+            return base.getName().equalsIgnoreCase(slot.getColumnName());
+        }
+        // ADD ROLLUP copies base columns and may assign them new UIDs. An expression-defined MV
+        // requires an explicit direct slot mapping before it can prove identical routing.
+        return target == base || (meta.getDefineStmt() == null && target.getDefineExpr() == null
+                && target.getName().equalsIgnoreCase(base.getName()));
     }
 
     private static UserException staleTablet(OlapTable table, long indexId, long tabletId) {
@@ -114,15 +185,23 @@ public final class FixedBlockSampleSpec {
 
     public TTabletSampleOptions toThrift(long tabletId) {
         Group group = Objects.requireNonNull(groupFor(tabletId));
-        TFixedRowIdBlockSampleParams params = new TFixedRowIdBlockSampleParams();
-        params.setSampleUnitRows(unitRows);
-        params.setMaxSampleUnitsPerTablet(group.maxUnits);
         TTabletSampleOptions options = new TTabletSampleOptions();
         options.setProtocolVersion(1);
-        options.setAlgorithm(TTabletSamplingAlgorithm.FIXED_ROWID_BLOCK);
+        if (mode == Mode.KEY_RANGE_BLOCK) {
+            TKeyRangeBlockSampleParams params = new TKeyRangeBlockSampleParams();
+            params.setSampleUnitRows(unitRows);
+            params.setMaxSampleUnitsPerTablet(group.maxUnits);
+            options.setKeyRangeBlockParams(params);
+            options.setAlgorithm(TTabletSamplingAlgorithm.KEY_RANGE_BLOCK);
+        } else {
+            TFixedRowIdBlockSampleParams params = new TFixedRowIdBlockSampleParams();
+            params.setSampleUnitRows(unitRows);
+            params.setMaxSampleUnitsPerTablet(group.maxUnits);
+            options.setFixedRowidBlockParams(params);
+            options.setAlgorithm(TTabletSamplingAlgorithm.FIXED_ROWID_BLOCK);
+        }
         options.setIntraTabletUnitProbability(group.unitRate);
         options.setSeed(seed);
-        options.setFixedRowidBlockParams(params);
         options.setTabletInclusionProbability(group.tabletRate);
         return options;
     }
@@ -133,17 +212,17 @@ public final class FixedBlockSampleSpec {
             return false;
         }
         FixedBlockSampleSpec that = (FixedBlockSampleSpec) other;
-        return unitRows == that.unitRows && seed == that.seed && groups.equals(that.groups);
+        return mode == that.mode && unitRows == that.unitRows && seed == that.seed && groups.equals(that.groups);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(unitRows, seed, groups);
+        return Objects.hash(mode, unitRows, seed, groups);
     }
 
     @Override
     public String toString() {
-        return "FIXED_BLOCK(unit_rows=" + unitRows + ", groups=" + groups + ") REPEATABLE " + seed;
+        return mode + "(unit_rows=" + unitRows + ", groups=" + groups + ") REPEATABLE " + seed;
     }
 
     /** Tablet and within-tablet inclusion probabilities apply at different sampling stages. */

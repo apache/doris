@@ -134,6 +134,7 @@ public:
         bool read_changelog = false;
         bool direct_mode = false;
         bool aggregation = false;
+        bool key_range_sample = false;
         // for compaction, schema_change, check_sum: we don't use page cache
         // for query, when the BE config disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;

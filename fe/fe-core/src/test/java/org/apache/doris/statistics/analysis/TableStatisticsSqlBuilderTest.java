@@ -49,6 +49,8 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.commons.text.StringSubstitutor;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -84,12 +86,14 @@ class TableStatisticsSqlBuilderTest {
                 .orElseThrow(() -> new AssertionError(plan.treeString())).getResultRows().get(0);
     }
 
-    @Test
-    void fixedHotAndUniquePlansHaveOnePhysicalSampleScan() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void fixedHotAndUniquePlansHaveOnePhysicalSampleScan(boolean logical) throws Exception {
         OlapTable table = Mockito.spy(PlanConstructor.newOlapTable(100, "events", 0));
+        var model = logical ? KeysType.AGG_KEYS : KeysType.DUP_KEYS;
         table.setBaseIndexId(10);
-        table.setIndexMeta(10, "events", table.getFullSchema(), 0, 0, (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS);
-        table.setIndexMeta(11, "rollup_events", table.getFullSchema(), 0, 0, (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS);
+        table.setIndexMeta(10, "events", table.getFullSchema(), 0, 0, (short) 1, TStorageType.COLUMN, model);
+        table.setIndexMeta(11, "rollup_events", table.getFullSchema(), 0, 0, (short) 1, TStorageType.COLUMN, model);
         Database db = new Database(10, "stats_test");
         Mockito.doReturn(db).when(table).getDatabase();
         table.setQualifiedDbName(db.getFullName());
@@ -97,6 +101,7 @@ class TableStatisticsSqlBuilderTest {
         TabletMeta meta = new TabletMeta(10, 100, 12, 11, 0, TStorageMedium.HDD, false);
         Backend be = Mockito.spy(new Backend(14, "127.0.0.1", 9050));
         be.setAlive(true);
+        Mockito.doReturn(logical).when(be).isSupportsKeyRangeBlockSamplingV1();
         Mockito.doReturn(true).when(be).isSupportsFixedBlockSamplingV1();
         Mockito.doReturn(ImmutableMap.of(be.getId(), be)).when(table).getAllBackendsByAllCluster();
         LocalTablet tablet = new LocalTablet(13);
@@ -109,7 +114,8 @@ class TableStatisticsSqlBuilderTest {
         table.addPartition(part);
         TabletInvertedIndex inverted = Mockito.mock(TabletInvertedIndex.class);
         Mockito.when(inverted.getTabletMetaList(List.of(13L))).thenReturn(List.of(meta));
-        var blocks = new FixedBlockSampleSpec(8, 123, List.of(new FixedBlockSampleSpec.Group(0.5, 0.5, 64, List.of(13L))));
+        var blocks = new FixedBlockSampleSpec(logical ? FixedBlockSampleSpec.Mode.KEY_RANGE_BLOCK
+                : FixedBlockSampleSpec.Mode.FIXED_BLOCK, 8, 123, List.of(new FixedBlockSampleSpec.Group(0.5, 0.5, 64, List.of(13L))));
         Map<String, String> params = new HashMap<>();
         params.put("index", "INDEX `rollup_events`");
         params.put("colName", "`name`");
@@ -147,7 +153,7 @@ class TableStatisticsSqlBuilderTest {
             Map<String, Boolean> queries = new LinkedHashMap<>();
             for (int topK : List.of(10, 0, -1)) {
                 params.put("hotValueCollectCount", Integer.toString(Math.max(0, topK)));
-                queries.put(TableStatisticsSqlBuilder.fixed(params, topK < 0), true);
+                queries.put(TableStatisticsSqlBuilder.sampleSql(params, topK < 0, logical), true);
             }
             params.put("sampleHints", "");
             params.put("dataSizeFunction", "SUM(LENGTH(`name`))");
@@ -166,6 +172,9 @@ class TableStatisticsSqlBuilderTest {
                 Assertions.assertEquals(11, scans.get(0).getSelectedIndexId());
                 Assertions.assertTrue(physical.treeString().contains("assert_true"), physical.treeString());
                 if (query.getValue()) {
+                    if (logical) {
+                        Assertions.assertTrue(scans.get(0).getPreAggStatus().isOff());
+                    }
                     Assertions.assertEquals(blocks, scans.get(0).getTableSample().orElseThrow().fixedBlockSpec);
                 }
                 PlanTranslatorContext translated = new PlanTranslatorContext();

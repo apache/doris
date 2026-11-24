@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.AnalyticWindow;
 import org.apache.doris.analysis.AssertNumRowsElement;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FixedBlockSampleSpec;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.JoinOperator;
@@ -1018,6 +1019,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             case UNIQUE_KEYS:
             case DUP_KEYS:
                 PreAggStatus preAgg = olapScan.getPreAggStatus();
+                if (olapScan.hasFixedBlockSample()
+                        && olapScan.getTableSample().get().fixedBlockSpec.mode
+                                == FixedBlockSampleSpec.Mode.KEY_RANGE_BLOCK) {
+                    Preconditions.checkState(preAgg.isOff(), "KEY_RANGE_BLOCK requires merged rows");
+                }
                 olapScanNode.setSelectedIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(),
                         preAgg.getOffReason());
                 break;

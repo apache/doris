@@ -32,6 +32,16 @@ import java.util.Map;
 
 /** Three-stage sample with a common unconditional inclusion probability for every physical block. */
 public final class HierarchicalFixedBudgetTabletSamplingMethod implements TabletSamplingMethod {
+    private final FixedBlockSampleSpec.Mode mode;
+
+    public HierarchicalFixedBudgetTabletSamplingMethod() {
+        this(FixedBlockSampleSpec.Mode.FIXED_BLOCK);
+    }
+
+    public HierarchicalFixedBudgetTabletSamplingMethod(FixedBlockSampleSpec.Mode mode) {
+        this.mode = mode;
+    }
+
     private static final long PARTITION = 0x706172746974696fL;
     private static final long ROUNDING = 0x726f756e64696e67L;
     private static final long TABLET = 0x7461626c6574L;
@@ -41,24 +51,12 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
         SamplingBudget budget = request.budget();
         List<PartitionSampleMeta> partitions = request.scope().partitions();
         long k = 1 + (budget.targetRows() - 1) / budget.unitRows();
-        long min = Long.MAX_VALUE;
-        long max = 0;
-        double blocks = 0;
-        double rows = 0;
-        boolean imputed = false;
-        for (PartitionSampleMeta part : partitions) {
-            for (TabletSampleMeta t : part.tablets()) {
-                long b = t.blocks(budget.unitRows());
-                min = Math.min(min, b);
-                max = Math.max(max, b);
-                blocks += b;
-                rows += t.estimatedRows();
-                imputed |= t.imputed();
-            }
-        }
-        if (!imputed && (rows <= budget.targetRows() || k >= blocks)) {
+        Population population = Population.of(partitions, budget.unitRows());
+        if (population.isCensus(budget.targetRows(), budget.unitRows())) {
             return TabletSampleSpec.fullScan();
         }
+        long min = population.min();
+        long max = population.max();
         int tiers = max <= 4.0 * min ? 1 : Math.min(3, budget.maxSampleGroups());
         double step = Math.pow((double) max / min, 1.0 / tiers);
         double[] boundaries = new double[tiers - 1];
@@ -86,7 +84,7 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
             cells.add(strata);
         }
         int cap = Math.min(budget.maxSelectedTablets(),
-                SampledScanSqlRenderer.tabletCapacity(budget.maxInternalSqlBytes(), tiers));
+                SampledScanSqlRenderer.tabletCapacity(budget.maxInternalSqlBytes(), tiers, mode));
         if (cap < 1) {
             throw new AnalyzeSkipException("Fixed-block SQL budget cannot fit one tablet");
         }
@@ -97,7 +95,7 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
         // Even if every selected tablet reads all its blocks, equal marginals need at least
         // q * tabletCount seats. Reduce q before water-filling if the nominal target is infeasible.
         long tabletCount = Arrays.stream(counts).asLongStream().sum();
-        double q = Math.min(Math.min(alpha, k / blocks), (double) seats / tabletCount);
+        double q = Math.min(Math.min(alpha, k / population.blocks()), (double) seats / tabletCount);
         double[] beta = allocate(counts, weights, seats / alpha, q / alpha);
 
         // Any common offset u < 1 gives floor(worst + u) <= cap when worst <= cap.
@@ -119,6 +117,31 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
             }
         }
         return draw(request, partitions, cells, m, alpha, beta, rates, q, largest);
+    }
+
+    public record Population(long min, long max, double rows, double blocks, boolean imputed) {
+        public static Population of(List<PartitionSampleMeta> partitions, long unitRows) {
+            long min = Long.MAX_VALUE;
+            long max = 0;
+            double blocks = 0;
+            double rows = 0;
+            boolean imputed = false;
+            for (PartitionSampleMeta part : partitions) {
+                for (TabletSampleMeta t : part.tablets()) {
+                    long b = t.blocks(unitRows);
+                    min = Math.min(min, b);
+                    max = Math.max(max, b);
+                    blocks += b;
+                    rows += t.estimatedRows();
+                    imputed |= t.imputed();
+                }
+            }
+            return new Population(min, max, rows, blocks, imputed);
+        }
+
+        public boolean isCensus(long targetRows, long unitRows) {
+            return !imputed && (rows <= targetRows || 1 + (targetRows - 1) / unitRows >= blocks);
+        }
     }
 
     private static BigInteger worstCost(List<Cell[]> cells, int m, BigInteger[] rates) {
@@ -158,7 +181,7 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
         return rates;
     }
 
-    private static TabletSampleSpec draw(TabletSamplingRequest request, List<PartitionSampleMeta> partitions,
+    private TabletSampleSpec draw(TabletSamplingRequest request, List<PartitionSampleMeta> partitions,
             List<Cell[]> cells, int m, double alpha, double[] beta, BigInteger[] rates, double q, long[] largest) {
         long seed = request.seed();
         List<Integer> order = new ArrayList<>();
@@ -201,7 +224,7 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
         List<FixedBlockSampleSpec.Group> groups = combined.entrySet().stream().map(e -> new FixedBlockSampleSpec.Group(
                 e.getKey().tabletRate(), e.getKey().unitRate(), e.getKey().maxUnits(), e.getValue())).toList();
         return new TabletSampleSpec(new FixedBlockScanClause(new FixedBlockSampleSpec(
-                request.budget().unitRows(), seed, groups)), new EqualProbabilitySamplingSemantics(q));
+                mode, request.budget().unitRows(), seed, groups)), new EqualProbabilitySamplingSemantics(q));
     }
 
     /** Every nonnegative binary64 probability is an integer multiple of 2^-1074. */

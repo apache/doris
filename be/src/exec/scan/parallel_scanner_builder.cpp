@@ -49,7 +49,10 @@ io::FileCacheStatistics take_initial_file_cache_stats(
     return stats;
 }
 
-io::IOContext create_preload_io_context(RuntimeState* state, OlapReaderStatistics* preload_stats) {
+} // namespace
+
+io::IOContext ParallelScannerBuilder::create_preload_io_context(
+        RuntimeState* state, OlapReaderStatistics* preload_stats) {
     io::IOContext io_ctx;
     io_ctx.reader_type = ReaderType::READER_QUERY;
     io_ctx.file_cache_stats = preload_stats ? &preload_stats->file_cache_stats : nullptr;
@@ -64,8 +67,6 @@ io::IOContext create_preload_io_context(RuntimeState* state, OlapReaderStatistic
     }
     return io_ctx;
 }
-
-} // namespace
 
 Status ParallelScannerBuilder::build_scanners(std::list<ScannerSPtr>& scanners) {
     RETURN_IF_ERROR(_load());

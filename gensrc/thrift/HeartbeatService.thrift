@@ -69,6 +69,7 @@ struct TBackendInfo {
     // Reserved for the Paimon Rust reader and aligned with its branch-4.1 forward-port.
     11: optional bool supports_paimon_rust_reader
     12: optional bool supports_fixed_block_sampling_v1
+    13: optional bool supports_key_range_block_sampling_v1
     // For cloud
     1000: optional i64 fragment_executing_count
     1001: optional i64 fragment_last_active_time

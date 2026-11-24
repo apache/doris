@@ -88,6 +88,7 @@ public:
         // Set when the tablet is split across several scanners, so that they all score with
         // statistics of the entire tablet instead of only the rowsets each one reads.
         std::shared_ptr<TabletCollectionStatistics> tablet_collection_statistics;
+        bool key_range_sample = false;
     };
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);

@@ -16,16 +16,15 @@
 // under the License.
 
 suite("test_fixed_block_analyze", "nonConcurrent") {
-    def table = "fixed_block_analyze_dup"
     def variables = ["enable_fixed_block_stats_sampling", "statistics_sample_unit_rows", "enable_auto_analyze"]
     def original = variables.collectEntries { name ->
         [(name): sql("SHOW GLOBAL VARIABLES LIKE '${name}'")[0][1]]
     }
-    def waitForRows = { name ->
+    def waitForRows = { name, reported = 8192 ->
         def deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MINUTES.toNanos(10)
         while (true) {
             def data = sql_return_maparray("SHOW DATA FROM ${name}")
-            if (data.any { it.IndexName == name && it.RowCount.toString() == "8192" }) {
+            if (data.any { it.IndexName == name && it.RowCount.toString() == reported.toString() }) {
                 break
             }
             assertTrue(System.nanoTime() < deadline, "Index row count for ${name} was not reported: ${data}")
@@ -46,17 +45,17 @@ suite("test_fixed_block_analyze", "nonConcurrent") {
         sql "SET GLOBAL enable_auto_analyze = false"
         sql "SET GLOBAL enable_fixed_block_stats_sampling = true"
         sql "SET GLOBAL statistics_sample_unit_rows = 8"
-        sql "DROP TABLE IF EXISTS ${table}"
-        sql """CREATE TABLE ${table} (k INT NOT NULL, bucket INT, v VARCHAR(32), missing INT, wide STRING)
+        sql "DROP TABLE IF EXISTS fixed_block_analyze_dup"
+        sql """CREATE TABLE fixed_block_analyze_dup (k INT NOT NULL, bucket INT, v VARCHAR(32), missing INT, wide STRING)
                DUPLICATE KEY(k, bucket)
                PARTITION BY RANGE(k) (PARTITION p1 VALUES LESS THAN (4096), PARTITION p2 VALUES LESS THAN (8192))
                DISTRIBUTED BY HASH(bucket) BUCKETS 4 PROPERTIES ("replication_num"="1")"""
-        sql """INSERT INTO ${table} SELECT number, number % 17, IF(number % 4 = 0, NULL, 'a:;b'), NULL,
+        sql """INSERT INTO fixed_block_analyze_dup SELECT number, number % 17, IF(number % 4 = 0, NULL, 'a:;b'), NULL,
                REPEAT('x', 128) FROM numbers("number"="8192")"""
-        waitForRows(table)
+        waitForRows("fixed_block_analyze_dup")
         setFeConfigTemporary([statistics_max_string_column_length: 64]) {
-            sql "ANALYZE TABLE ${table} WITH SAMPLE ROWS 1024 WITH SYNC"
-            def rows = sql "SHOW COLUMN STATS ${table}"
+            sql "ANALYZE TABLE fixed_block_analyze_dup WITH SAMPLE ROWS 1024 WITH SYNC"
+            def rows = sql "SHOW COLUMN STATS fixed_block_analyze_dup"
             def byName = rows.collectEntries { [(it[0]): it] }
             assertEquals(["k", "bucket", "v", "missing"] as Set, byName.keySet())
             checkCounts(rows, ["k", "v", "missing"])
@@ -73,20 +72,31 @@ suite("test_fixed_block_analyze", "nonConcurrent") {
         for (def mode : ["mow", "mor", "agg"]) {
             def name = "fixed_block_analyze_${mode}"
             def agg = mode == "agg"
-            def keys = agg ? "AGGREGATE KEY(k, v)" : "UNIQUE KEY(k)"
+            def keys = agg ? "AGGREGATE KEY(k)" : "UNIQUE KEY(k)"
             def props = agg ? "" : """, "enable_unique_key_merge_on_write"="${mode == 'mow'}" """
             sql "DROP TABLE IF EXISTS ${name}"
-            sql """CREATE TABLE ${name} (k INT NOT NULL, v INT NOT NULL) ${keys}
-                   DISTRIBUTED BY HASH(k) BUCKETS 4 PROPERTIES ("replication_num"="1" ${props})"""
+            sql """CREATE TABLE ${name} (k INT NOT NULL, v INT ${agg ? "SUM" : ""} NOT NULL) ${keys}
+                   DISTRIBUTED BY HASH(k) BUCKETS 4 PROPERTIES ("replication_num"="1", "disable_auto_compaction"="true" ${props})"""
             sql """INSERT INTO ${name} SELECT number, number % 8 FROM numbers("number"="8192")"""
-            waitForRows(name)
+            if (mode != "mow") {
+                sql """INSERT INTO ${name} SELECT number, 1 FROM numbers("number"="8192")"""
+            }
+            waitForRows(name, mode == "mow" ? 8192 : 16384)
             if (mode == "mow") {
                 sql "DELETE FROM ${name} WHERE k < 32"
                 assertEquals(8160L, sql("SELECT COUNT(1) FROM ${name}")[0][0] as long)
             }
             sql "ANALYZE TABLE ${name} WITH SAMPLE ROWS 1024 WITH SYNC"
             def rows = sql "SHOW COLUMN STATS ${name}"
-            checkCounts(rows, mode == "mow" ? ["k", "v"] : [])
+            assertEquals(["k", "v"] as Set, rows.collect { it[0] } as Set)
+            checkCounts(rows, ["k", "v"])
+            if (mode != "mow") {
+                // The full-scan clause must publish the count seen after storage merge.
+                sql "ANALYZE TABLE ${name} WITH SAMPLE ROWS 32768 WITH SYNC"
+                def census = sql "SHOW COLUMN STATS ${name}"
+                def logical = sql("SELECT COUNT(1) FROM ${name} ORDER BY 1")[0][0] as double
+                census.each { stat -> assertEquals(logical, stat[2] as double) }
+            }
             def key = rows.find { it[0] == "k" }
             assertNotNull(key)
             if (!agg) {

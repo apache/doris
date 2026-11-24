@@ -39,6 +39,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -56,6 +57,8 @@ public class AnalysisJob {
 
     private final long samplingSeed = ThreadLocalRandom.current().nextLong() & Long.MAX_VALUE;
     private final Map<Long, Long> reportedRows = new ConcurrentHashMap<>();
+    private final Map<Long, Supplier<Boolean>> keyRangeDecisions = new ConcurrentHashMap<>();
+    private final Map<Long, List<String>> sampleColumns = new HashMap<>();
     private final Map<Long, Long> indexRows = new ConcurrentHashMap<>();
     private final Map<Long, ReportState> reportStates = new ConcurrentHashMap<>();
     private final Map<Long, Supplier<IndexSamplingSnapshot>> samplingFrames = new ConcurrentHashMap<>();
@@ -69,6 +72,18 @@ public class AnalysisJob {
         if (state == ReportState.PENDING || (state == ReportState.READY && reportedIndexRows(table, indexId) <= 0)) {
             throw new AnalyzeSkipException("Written partitions have no usable row count for index " + indexId);
         }
+    }
+
+    boolean useKeyRange(long indexId, Supplier<Boolean> eligible) {
+        return keyRangeDecisions.computeIfAbsent(indexId, ignored -> Suppliers.memoize(eligible::get)).get();
+    }
+
+    List<String> sampleColumns(long indexId, long baseIndexId) {
+        List<String> columns = new ArrayList<>(sampleColumns.getOrDefault(indexId, List.of()));
+        if (indexId == baseIndexId) {
+            columns.addAll(sampleColumns.getOrDefault(-1L, List.of()));
+        }
+        return columns;
     }
 
     long samplingSeed(long seek) {
@@ -106,6 +121,9 @@ public class AnalysisJob {
         minMaxCollector = new ColumnMinMaxBatchCollector(queryingTask, StatisticsUtil.getMinMaxBatchColumns());
         for (BaseAnalysisTask task : queryingTask) {
             task.job = this;
+            if (task instanceof OlapAnalysisTask && task.tableSample != null && task.info != null) {
+                sampleColumns.computeIfAbsent(task.info.indexId, ignored -> new ArrayList<>()).add(task.info.colName);
+            }
         }
         this.queryingTask = Collections.synchronizedSet(new HashSet<>(queryingTask));
         this.queryFinished = Collections.synchronizedSet(new HashSet<>());

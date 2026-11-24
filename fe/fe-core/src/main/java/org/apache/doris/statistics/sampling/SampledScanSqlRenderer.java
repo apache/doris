@@ -35,7 +35,7 @@ public final class SampledScanSqlRenderer {
         String suffix = "";
         if (clause instanceof FixedBlockScanClause fixed) {
             FixedBlockSampleSpec spec = fixed.blocks();
-            suffix = "TABLESAMPLE (FIXED_BLOCK unit_rows = " + spec.unitRows + ", "
+            suffix = "TABLESAMPLE (" + spec.mode + " unit_rows = " + spec.unitRows + ", "
                     + spec.groups.stream().map(g -> "GROUP (tablet_rate = " + g.tabletRate + ", unit_rate = "
                             + g.unitRate + ", max_units = " + g.maxUnits + ", TABLETS (" + ids(g.tablets) + "))")
                             .collect(Collectors.joining(", "))
@@ -54,8 +54,9 @@ public final class SampledScanSqlRenderer {
     }
 
     // 19 digits per positive long, two separator bytes. The fixed fields allow 24 bytes per double.
-    static int tabletCapacity(int bytes, int groups) {
-        int payload = Math.max(0, bytes - 80);
+    static int tabletCapacity(int bytes, int groups, FixedBlockSampleSpec.Mode mode) {
+        int overhead = 80 + mode.name().length() - FixedBlockSampleSpec.Mode.FIXED_BLOCK.name().length();
+        int payload = Math.max(0, bytes - overhead);
         int groupBytes = 160;
         int tabletBytes = 21;
         // Each nonempty group needs at least one tablet. A one-tablet draw can only emit one group.

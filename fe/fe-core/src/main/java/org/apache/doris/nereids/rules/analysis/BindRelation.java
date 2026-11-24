@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.FixedBlockSampleSpec;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.AggStateType;
@@ -315,6 +316,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
         }
         if (scan.hasFixedBlockSample()) {
+            if (scan.getTableSample().get().fixedBlockSpec.mode == FixedBlockSampleSpec.Mode.KEY_RANGE_BLOCK) {
+                if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {
+                    throw new AnalysisException("PREAGGOPEN cannot read a KEY_RANGE_BLOCK sample");
+                }
+                OlapTable olap = (OlapTable) table;
+                var session = ConnectContext.get().getSessionVariable();
+                if (session.isInDebugMode()
+                        || session.isReadMorAsDupEnabled(olap.getQualifiedDbName(), olap.getName())) {
+                    throw new AnalysisException("KEY_RANGE_BLOCK requires ordinary row visibility and storage merge");
+                }
+                scan = scan.withPreAggStatus(PreAggStatus.off("KEY_RANGE_BLOCK requires merged rows"));
+            }
             try {
                 // A partition predicate can remove this scan entirely before physical translation.
                 scan.getTableSample().get().fixedBlockSpec.validateTablets((OlapTable) table,

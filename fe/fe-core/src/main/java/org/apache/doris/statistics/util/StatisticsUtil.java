@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DecimalLiteralUtils;
+import org.apache.doris.analysis.FixedBlockSampleSpec;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
@@ -37,6 +38,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
@@ -561,14 +563,27 @@ public class StatisticsUtil {
         if (!(table instanceof OlapTable)) {
             return true;
         }
-        OlapTable olapTable = (OlapTable) table;
-        // Skip agg table value columns
-        KeysType keysType = olapTable.getIndexMetaByIndexId(indexId).getKeysType();
-        if (KeysType.AGG_KEYS.equals(keysType) && !c.isKey()) {
-            return false;
+        if (c.isKey()) {
+            return true;
         }
-        // Skip mor unique table value columns
-        return !KeysType.UNIQUE_KEYS.equals(keysType) || olapTable.isUniqKeyMergeOnWrite() || c.isKey();
+        OlapTable olapTable = (OlapTable) table;
+        olapTable.readLock();
+        try {
+            long targetIndexId = indexId == -1 ? olapTable.getBaseIndexId() : indexId;
+            MaterializedIndexMeta meta = olapTable.getIndexMetaByIndexId(targetIndexId);
+            if (meta == null) {
+                return false;
+            }
+            KeysType keysType = meta.getKeysType();
+            if (KeysType.AGG_KEYS.equals(keysType)
+                    || (KeysType.UNIQUE_KEYS.equals(keysType) && !olapTable.isUniqKeyMergeOnWrite())) {
+                return StatisticsUtil.enableFixedBlockStatsSampling()
+                        && FixedBlockSampleSpec.supportsKeyRange(olapTable, targetIndexId);
+            }
+            return true;
+        } finally {
+            olapTable.readUnlock();
+        }
     }
 
     public static String quote(String str) {

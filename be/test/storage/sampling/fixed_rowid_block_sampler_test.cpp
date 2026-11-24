@@ -240,6 +240,17 @@ TEST(FixedRowIdBlockSamplerTest, ProtocolValidation) {
     ASSERT_TRUE(check().ok());
     opts.fixed_rowid_block_params.__set_max_sample_units_per_tablet(-1);
     EXPECT_TRUE(check().is<ErrorCode::INVALID_ARGUMENT>());
+    opts.__set_algorithm(TTabletSamplingAlgorithm::KEY_RANGE_BLOCK);
+    EXPECT_TRUE(check().is<ErrorCode::INVALID_ARGUMENT>());
+    TKeyRangeBlockSampleParams keys;
+    keys.__set_sample_unit_rows(10);
+    keys.__set_max_sample_units_per_tablet(1);
+    opts.__set_key_range_block_params(keys);
+    EXPECT_TRUE(check().is<ErrorCode::INVALID_ARGUMENT>());
+    opts.__isset.fixed_rowid_block_params = false;
+    EXPECT_TRUE(check().ok());
+    opts.__set_algorithm(TTabletSamplingAlgorithm::FIXED_ROWID_BLOCK);
+    EXPECT_TRUE(check().is<ErrorCode::INVALID_ARGUMENT>());
 }
 
 } // namespace doris

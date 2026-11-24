@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
+import org.apache.doris.analysis.FixedBlockSampleSpec;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.NullLiteral;
@@ -772,7 +773,8 @@ public class OlapScanNode extends ScanNode {
                     continue;
                 }
                 if (!supportsTableSample(backend)) {
-                    errs.add("Backend " + backendId + " does not support FIXED_BLOCK sampling v1 for tablet "
+                    errs.add("Backend " + backendId + " does not support " + tableSample.getFixedBlockSpec().mode
+                            + " sampling v1 for tablet "
                             + tabletId);
                     continue;
                 }
@@ -856,7 +858,11 @@ public class OlapScanNode extends ScanNode {
     }
 
     private boolean supportsTableSample(Backend backend) {
-        return !hasFixedBlockSample() || backend.isSupportsFixedBlockSamplingV1();
+        if (!hasFixedBlockSample()) {
+            return true;
+        }
+        return hasKeyRangeSample()
+                ? backend.isSupportsKeyRangeBlockSamplingV1() : backend.isSupportsFixedBlockSamplingV1();
     }
 
     private boolean isEnableCooldownReplicaAffinity(ConnectContext connectContext) {
@@ -914,6 +920,11 @@ public class OlapScanNode extends ScanNode {
         if (LOG.isDebugEnabled()) {
             LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
         }
+    }
+
+    private boolean hasKeyRangeSample() {
+        return hasFixedBlockSample()
+                && tableSample.getFixedBlockSpec().mode == FixedBlockSampleSpec.Mode.KEY_RANGE_BLOCK;
     }
 
     public boolean hasFixedBlockSample() {
@@ -1531,7 +1542,7 @@ public class OlapScanNode extends ScanNode {
         if (olapTable.isMorTable() && ConnectContext.get() != null) {
             String dbName = olapTable.getQualifiedDbName();
             String tblName = olapTable.getName();
-            boolean enabled = ConnectContext.get().getSessionVariable()
+            boolean enabled = !hasKeyRangeSample() && ConnectContext.get().getSessionVariable()
                     .isMorValuePredicatePushdownEnabled(dbName, tblName);
             msg.olap_scan_node.setEnableMorValuePredicatePushdown(enabled);
             if (ConnectContext.get().getSessionVariable()

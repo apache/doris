@@ -457,6 +457,8 @@ public class HeartbeatMgr extends MasterDaemon {
                             && tBackendInfo.isSupportsPaimonRustReader());
                     response.setSupportsFixedBlockSamplingV1(tBackendInfo.isSetSupportsFixedBlockSamplingV1()
                             && tBackendInfo.isSupportsFixedBlockSamplingV1());
+                    response.setSupportsKeyRangeBlockSamplingV1(tBackendInfo.isSetSupportsKeyRangeBlockSamplingV1()
+                            && tBackendInfo.isSupportsKeyRangeBlockSamplingV1());
                     ok = true;
                     return response;
                 } else {

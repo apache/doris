@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <deque>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -50,9 +51,12 @@
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "storage/index/ann/ann_topn_runtime.h"
+#include "storage/iterators.h"
+#include "storage/rowset/beta_rowset.h"
 #include "storage/sampling/tablet_sample_plan.h"
 #include "storage/sampling/tablet_sampling_algorithm.h"
 #include "storage/sampling/tablet_sampling_algorithm_factory.h"
+#include "storage/segment/segment_key_seeker.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
@@ -730,16 +734,62 @@ Status OlapScanLocalState::_build_tablet_sample_plan(size_t idx, io::FileCacheSt
     std::unique_ptr<TabletSamplingAlgorithm> algorithm;
     RETURN_IF_ERROR(TabletSamplingAlgorithmFactory::create(range.sample_options, &algorithm));
     std::vector<SampleSegment> segments;
+    if (range.sample_options.algorithm == TTabletSamplingAlgorithm::FIXED_ROWID_BLOCK) {
+        for (const auto& split : source.rs_splits) {
+            auto rowset = split.rs_reader->rowset();
+            std::vector<uint32_t> rows;
+            RETURN_IF_ERROR(
+                    ParallelScannerBuilder::load_segment_rows(state(), rowset, stats, &rows));
+            DORIS_CHECK_EQ(rows.size(), rowset->num_segments());
+            for (auto ref : rowset->segments()) {
+                segments.push_back({rowset->rowset_id(), ref.id(), rows[ref.pos()]});
+            }
+        }
+        return algorithm->build(range.tablet_id, segments, plan);
+    }
+    const auto& tablet = _tablets[idx].tablet;
+    const auto& node = _parent->cast<OlapScanOperatorX>();
+    const auto model = tablet->keys_type();
+    if ((model != AGG_KEYS &&
+         (model != UNIQUE_KEYS || tablet->enable_unique_key_merge_on_write())) ||
+        _storage_no_merge() || node._olap_scan_node.enable_mor_value_predicate_pushdown ||
+        node._olap_scan_node.is_preaggregation || node._push_down_agg_type != TPushAggOp::NONE ||
+        state()->skip_storage_engine_merge() || state()->skip_delete_predicate()) {
+        return Status::InvalidArgument(
+                "KEY_RANGE_BLOCK requires a merged tablet scan, tablet_id={}", range.tablet_id);
+    }
+    OlapReaderStatistics preload;
+    StorageReadOptions options(preload);
+    options.io_ctx = ParallelScannerBuilder::create_preload_io_context(state(), &preload);
+    options.use_page_cache = state()->enable_page_cache();
+    std::deque<SegmentCacheHandle> handles;
+    std::vector<std::unique_ptr<SegmentKeySeeker>> seekers;
+    const auto& query = state()->query_options();
+    const auto target = tablet->tablet_schema();
     for (const auto& split : source.rs_splits) {
-        auto rowset = split.rs_reader->rowset();
-        std::vector<uint32_t> rows;
-        RETURN_IF_ERROR(ParallelScannerBuilder::load_segment_rows(state(), rowset, stats, &rows));
-        DORIS_CHECK_EQ(rows.size(), rowset->num_segments());
-        for (size_t pos = 0; pos < rows.size(); ++pos) {
-            segments.push_back({rowset->rowset_id(), rowset->segment(pos).id(), rows[pos]});
+        auto rowset = std::static_pointer_cast<BetaRowset>(split.rs_reader->rowset());
+        RETURN_IF_ERROR(rowset->load());
+        auto& handle = handles.emplace_back();
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+                rowset, &handle, !query.__isset.enable_segment_cache || query.enable_segment_cache,
+                false, &preload, &options.io_ctx));
+        for (auto ref : rowset->segments()) {
+            const auto& segment = handle.get_segments()[ref.pos()];
+            std::unique_ptr<SegmentKeySeeker> seeker;
+            if (segment->num_rows() > 0) {
+                const auto* bounds =
+                        ref.has_position_key_bounds() && !rowset->is_segments_key_bounds_truncated()
+                                ? &ref.key_bounds()
+                                : nullptr;
+                RETURN_IF_ERROR(SegmentKeySeeker::open(segment, *target, options, &seeker, bounds));
+            }
+            segments.push_back({rowset->rowset_id(), ref.id(), segment->num_rows(), seeker.get()});
+            seekers.push_back(std::move(seeker));
         }
     }
-    return algorithm->build(range.tablet_id, segments, plan);
+    auto status = algorithm->build(range.tablet_id, segments, plan);
+    stats->merge_from(preload.file_cache_stats);
+    return status;
 }
 
 static void olap_scan_apply_tablet_sample(TabletReadSource& source, TabletSamplePlan&& plan) {
@@ -1004,9 +1054,24 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                     std::max(1, (int)(_tablets[scan_range_idx].tablet->tablet_footprint() /
                                       (config::doris_scan_range_max_mb << 20)));
         }
-        int ranges_per_scanner =
+        int64_t ranges_per_scanner =
                 std::max(1, (int)ranges->size() /
                                     std::min(scanners_per_tablet, size_based_scanners_per_tablet));
+        const bool key_range = palo_scan_range.__isset.sample_options &&
+                               palo_scan_range.sample_options.algorithm ==
+                                       TTabletSamplingAlgorithm::KEY_RANGE_BLOCK;
+        if (key_range) {
+            // The reader has one pair of inclusion flags for all predicate ranges.
+            // Statistics SQL uses a single unrestricted range.
+            if (std::ranges::any_of(*ranges, [&](const auto* r) {
+                    return r->begin_include != ranges->front()->begin_include ||
+                           r->end_include != ranges->front()->end_include;
+                })) {
+                return Status::NotSupported(
+                        "KEY_RANGE_BLOCK cannot combine ranges with different inclusion flags");
+            }
+            ranges_per_scanner = ranges->size();
+        }
         int64_t num_ranges = ranges->size();
         for (int64_t i = 0; i < num_ranges;) {
             std::vector<doris::OlapScanRange*> scanner_ranges;
@@ -1046,6 +1111,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                           : std::nullopt,
                                   // Each scanner reads the tablet's entire read source.
                                   nullptr,
+                                  key_range,
                           });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));

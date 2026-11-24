@@ -165,6 +165,10 @@ public record IndexSamplingSnapshot(TabletSamplingScope scope, Set<Long> replica
     }
 
     public boolean allCandidatesSupportFixedBlock() {
+        return allCandidatesSupport(false);
+    }
+
+    public boolean allCandidatesSupport(boolean keyRange) {
         Collection<Backend> candidates;
         if (Config.isCloudMode()) {
             try (AutoCloseConnectContext context = StatisticsUtil.buildConnectContext(false)) {
@@ -180,7 +184,9 @@ public record IndexSamplingSnapshot(TabletSamplingScope scope, Set<Long> replica
         for (Backend backend : candidates) {
             if (backend.isQueryAvailable() && backend.isMixNode()) {
                 available = true;
-                if (!backend.isSupportsFixedBlockSamplingV1()) {
+                boolean supported = keyRange ? backend.isSupportsKeyRangeBlockSamplingV1()
+                        : backend.isSupportsFixedBlockSamplingV1();
+                if (!supported) {
                     return false;
                 }
             }

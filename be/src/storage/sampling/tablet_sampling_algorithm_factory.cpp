@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "storage/sampling/fixed_rowid_block_sampler.h"
+#include "storage/sampling/key_range_block_sampler.h"
 
 namespace doris {
 
@@ -41,26 +42,35 @@ Status TabletSamplingAlgorithmFactory::create(const TTabletSampleOptions& option
     // Thrift stores an arbitrary wire i32 in an unscoped C++ enum. Reading an unknown value as
     // that enum is undefined; compare its wire representation before interpreting it.
     const auto algorithm_id = std::bit_cast<int32_t>(options.algorithm);
-    if (algorithm_id != TTabletSamplingAlgorithm::FIXED_ROWID_BLOCK) {
+    const bool key_range = algorithm_id == TTabletSamplingAlgorithm::KEY_RANGE_BLOCK;
+    if (!key_range && algorithm_id != TTabletSamplingAlgorithm::FIXED_ROWID_BLOCK) {
         return Status::NotSupported("Unsupported tablet sample algorithm {}", algorithm_id);
     }
     auto valid_probability = [](double p) { return std::isfinite(p) && p > 0 && p <= 1; };
     if (!options.__isset.intra_tablet_unit_probability || !options.__isset.seed ||
         !options.__isset.tablet_inclusion_probability ||
-        !options.__isset.fixed_rowid_block_params ||
+        options.__isset.fixed_rowid_block_params == key_range ||
+        options.__isset.key_range_block_params != key_range ||
         !valid_probability(options.intra_tablet_unit_probability) ||
         !valid_probability(options.tablet_inclusion_probability)) {
         return Status::InvalidArgument("Invalid or missing fixed block sampling options");
     }
-    const auto& params = options.fixed_rowid_block_params;
-    if (!params.__isset.sample_unit_rows || !params.__isset.max_sample_units_per_tablet ||
-        params.sample_unit_rows <= 0 || params.max_sample_units_per_tablet < 0) {
-        return Status::InvalidArgument("Invalid fixed block sampling unit size or cap");
+    auto create_sampler = [&]<typename Sampler>(const auto& params) {
+        if (!params.__isset.sample_unit_rows || !params.__isset.max_sample_units_per_tablet ||
+            params.sample_unit_rows <= 0 || params.max_sample_units_per_tablet < 0) {
+            return Status::InvalidArgument("Invalid block sampling unit size or cap");
+        }
+        *algorithm = std::make_unique<Sampler>(options.intra_tablet_unit_probability, options.seed,
+                                               params.sample_unit_rows,
+                                               params.max_sample_units_per_tablet);
+        return Status::OK();
+    };
+    if (key_range) {
+        return create_sampler.template operator()<KeyRangeBlockSampler>(
+                options.key_range_block_params);
     }
-    *algorithm = std::make_unique<FixedRowIdBlockSampler>(options.intra_tablet_unit_probability,
-                                                          options.seed, params.sample_unit_rows,
-                                                          params.max_sample_units_per_tablet);
-    return Status::OK();
+    return create_sampler.template operator()<FixedRowIdBlockSampler>(
+            options.fixed_rowid_block_params);
 }
 
 } // namespace doris

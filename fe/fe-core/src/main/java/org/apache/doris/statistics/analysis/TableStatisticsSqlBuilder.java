@@ -29,14 +29,18 @@ final class TableStatisticsSqlBuilder {
     static final String HOT_ENTRY = "CONCAT(REPLACE(REPLACE(hot_top.column_key, \":\", \"\\\\:\"), \";\", \"\\\\;\"), "
             + "\" :\", ROUND(hot_top.freq / stats.sampled_non_null_rows, 2))";
 
-    private static final String HOT_PROJECTION =
-            "SELECT stats.id, stats.catalog_id, stats.db_id, stats.tbl_id, stats.idx_id, "
+    private static final String HOT_PROJECTION = hotProjection(false);
+
+    private static String hotProjection(boolean singletons) {
+        return "SELECT stats.id, stats.catalog_id, stats.db_id, stats.tbl_id, stats.idx_id, "
             + "stats.col_id, stats.part_id, stats.row_count, stats.ndv, stats.null_count, stats.min, stats.max, "
             + "stats.data_size, stats.update_time, "
             + "IFNULL(GROUP_CONCAT(" + HOT_ENTRY + ", \" ;\"), '') as `hot_value` "
+            + (singletons ? ", MAX(stats.singletons) AS singletons " : "")
             + "FROM stats LEFT JOIN hot_top ON TRUE GROUP BY "
             + "stats.id, stats.catalog_id, stats.db_id, stats.tbl_id, stats.idx_id, stats.col_id, stats.part_id, "
             + "stats.row_count, stats.ndv, stats.null_count, stats.min, stats.max, stats.data_size, stats.update_time";
+    }
 
     private static final String HOT_TOP = "hot_top AS (SELECT col_value AS column_key, `count` AS freq FROM cte1 "
             + "WHERE col_value IS NOT NULL ORDER BY freq DESC "
@@ -106,6 +110,10 @@ final class TableStatisticsSqlBuilder {
             + "/ (n - z - f1 + CAST(f1 AS DOUBLE) * (n - z) / ${rowCount})) AS LARGEINT))))";
 
     static String fixed(Map<String, String> params, boolean singleNonNullUnique) {
+        return sampleSql(params, singleNonNullUnique, false);
+    }
+
+    static String sampleSql(Map<String, String> params, boolean singleNonNullUnique, boolean raw) {
         String ndv = singleNonNullUnique ? "${rowCount}" : DUJ1_NDV;
         String moments = singleNonNullUnique
                 ? "WITH sample_rows AS (SELECT ${colName}${lengthAssert} FROM ${catalogName}.${dbName}.${tblName} "
@@ -116,17 +124,23 @@ final class TableStatisticsSqlBuilder {
                 + "IFNULL(SUM(IF(t1.col_value IS NULL, t1.count, 0)), 0) AS z, COUNT(t1.col_value) AS d, "
                 + "SUM(IF(t1.col_value IS NOT NULL AND t1.count = 1, 1, 0)) AS f1, "
                 + "IFNULL(${dataSizeFunction}, 0) AS bytes FROM cte1 t1), ";
+        String fields = raw
+                ? "n AS row_count, " + (singleNonNullUnique ? "n" : "d") + " AS ndv, z AS null_count, "
+                : "IF(n = 0, -1, ${rowCount}) AS row_count, " + ndv + " AS ndv, scaled_nulls AS null_count, ";
+        String size = raw ? "bytes" : "ROUND(CAST(bytes AS DOUBLE) * ${rowCount} / NULLIF(n, 0))";
+        String source = raw ? "moments" : "(SELECT moments.*, " + SCALED_NULLS + " AS scaled_nulls FROM moments) m";
+        String projection = singleNonNullUnique
+                ? " SELECT stats.* EXCEPT (sampled_non_null_rows" + (raw ? ", singletons" : "")
+                        + "), NULL AS hot_value" + (raw ? ", singletons" : "") + " FROM stats"
+                : ", " + HOT_TOP + hotProjection(raw);
         String sql = moments + "stats AS (SELECT CONCAT('${tblId}', '-', '${idxId}', '-', '${colId}') AS id, "
                 + "${catalogId} AS catalog_id, ${dbId} AS db_id, ${tblId} AS tbl_id, ${idxId} AS idx_id, "
-                + "'${colId}' AS col_id, NULL AS part_id, IF(n = 0, -1, ${rowCount}) AS row_count, "
-                + ndv + " AS ndv, scaled_nulls AS null_count, "
+                + "'${colId}' AS col_id, NULL AS part_id, " + fields
                 + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS min, "
                 + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS max, "
-                + "ROUND(CAST(bytes AS DOUBLE) * ${rowCount} / NULLIF(n, 0)) AS data_size, NOW() AS update_time, "
-                + "n - z AS sampled_non_null_rows FROM (SELECT moments.*, " + SCALED_NULLS
-                + " AS scaled_nulls FROM moments) m)"
-                + (singleNonNullUnique ? " SELECT stats.* EXCEPT (sampled_non_null_rows), NULL AS hot_value FROM stats"
-                        : ", " + HOT_TOP + HOT_PROJECTION);
+                + size + " AS data_size, NOW() AS update_time, n - z AS sampled_non_null_rows"
+                + (raw ? ", " + (singleNonNullUnique ? "n" : "IFNULL(f1, 0)") + " AS singletons" : "")
+                + " FROM " + source + ")" + projection;
         return new StringSubstitutor(params).replace(sql);
     }
 }

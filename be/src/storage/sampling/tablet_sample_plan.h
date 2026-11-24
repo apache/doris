@@ -26,11 +26,14 @@
 
 namespace doris {
 
+class SegmentKeySeeker;
+
 // Input and output use the same order as the captured TabletReadSource and its segment positions.
 struct SampleSegment {
     RowsetId rowset_id;
     int64_t physical_id;
     uint32_t rows;
+    SegmentKeySeeker* keys = nullptr; // Borrowed for the duration of build().
 };
 
 // Row ranges are fixed as a unit once the cap has been checked. The scanner may consume the

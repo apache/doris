@@ -2274,32 +2274,11 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
 
     const size_t num_key_cols = key.schema()->num_read_columns();
 
-    ssize_t start_block_id = 0;
-    auto start_iter = sk_index_decoder->lower_bound(index_key);
-    if (start_iter.valid()) {
-        // Because previous block may contain this key, so we should set rowid to
-        // last block's first row.
-        start_block_id = start_iter.ordinal();
-        if (start_block_id > 0) {
-            start_block_id--;
-        }
-    } else {
-        // When we don't find a valid index item, which means all short key is
-        // smaller than input key, this means that this key may exist in the last
-        // row block. so we set the rowid to first row of last row block.
-        start_block_id = sk_index_decoder->num_items() - 1;
-    }
-    rowid_t start = cast_set<rowid_t>(start_block_id) * sk_index_decoder->num_rows_per_block();
-
-    rowid_t end = upper_bound;
-    auto end_iter = sk_index_decoder->upper_bound(index_key);
-    if (end_iter.valid()) {
-        end = cast_set<rowid_t>(end_iter.ordinal()) * sk_index_decoder->num_rows_per_block();
-    }
+    auto [start, end] = sk_index_decoder->ordinal_window(index_key, upper_bound, false);
 
     // binary search to find the exact key
     while (start < end) {
-        rowid_t mid = (start + end) / 2;
+        rowid_t mid = start + (end - start) / 2;
         RETURN_IF_ERROR(_seek_and_peek(mid));
         int cmp = _compare_short_key_with_seek_block(key, num_key_cols);
         if (cmp > 0) {

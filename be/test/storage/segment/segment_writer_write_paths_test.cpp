@@ -50,6 +50,7 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/segment_key_seeker.h"
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/transform/block_transform.h"
@@ -530,6 +531,34 @@ protected:
 private:
     int32_t _saved_primary_key_data_page_size = 0;
 };
+
+TEST_F(VerticalSegmentWriterWritePathsTest, KeyRangeSeeksStoredKeys) {
+    const auto schema = create_schema(AGG_KEYS, false);
+    const Block block = create_block(schema, false);
+    WrittenSegment written;
+    ASSERT_NO_FATAL_FAILURE(write_whole_block(schema, block, false, "sample", &written));
+    RowsetId id;
+    id.init(102);
+    std::shared_ptr<Segment> segment;
+    ASSERT_TRUE(Segment::open(io::global_local_filesystem(), kSegmentDir + "/sample.dat", kTabletId,
+                              17, id, schema, io::FileReaderOptions {}, &segment)
+                        .ok());
+    OlapReaderStatistics stats;
+    std::unique_ptr<SegmentKeySeeker> seeker;
+    // Column iterators open on the first read, after the temporary options have been destroyed.
+    ASSERT_TRUE(SegmentKeySeeker::open(segment, *schema, StorageReadOptions(stats), &seeker).ok());
+    for (uint32_t row : {0U, 63U, 64U, 65U, 511U}) {
+        std::vector<Field> tuple;
+        size_t bytes;
+        ASSERT_TRUE(seeker->read_tuple(row, &tuple, &bytes).ok());
+        ASSERT_EQ(block.get_by_position(0).column->operator[](row), tuple.at(0));
+        std::string prefix;
+        ASSERT_TRUE(seeker->read_prefix(row, &prefix).ok());
+        uint32_t ordinal;
+        ASSERT_TRUE(seeker->lower_bound(prefix, tuple, segment->num_rows(), &ordinal).ok());
+        EXPECT_EQ(row, ordinal);
+    }
+}
 
 TEST_F(VerticalSegmentWriterWritePathsTest, DupKeysColumnGroupsMatchWholeSchema) {
     expect_both_shapes_agree(DUP_KEYS, /*mow=*/false, /*with_cluster_key=*/false, "dup");

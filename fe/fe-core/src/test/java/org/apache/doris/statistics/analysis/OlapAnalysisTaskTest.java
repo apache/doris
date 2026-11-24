@@ -20,12 +20,14 @@ package org.apache.doris.statistics.analysis;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
@@ -59,6 +61,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class OlapAnalysisTaskTest {
 
@@ -343,9 +346,13 @@ public class OlapAnalysisTaskTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"false,true,false", "false,false,false", "true,true,false", "true,false,false",
-            "true,true,true", "true,false,true"})
-    void doSampleRendersTheChosenTemplateAndRollup(boolean fixed, boolean unique, boolean census) {
+    @CsvSource({"false,unique,false,false", "false,value,false,false", "true,unique,false,false",
+            "true,value,false,false", "true,unique,true,false", "true,value,true,false", "true,unique,true,true",
+            "true,unique,false,true", "true,local,true,false", "true,local,false,false", "true,local,true,true",
+            "false,local,true,false"})
+    void doSampleRendersTheChosenTemplateAndRollup(boolean fixed, String key, boolean census, boolean keyRange) {
+        boolean unique = !key.equals("value");
+        boolean globallyUnique = key.equals("unique");
         long rows = census ? 10 : 100000;
         long rollup = 20L;
         var column = new Column("c", PrimitiveType.INT);
@@ -358,13 +365,40 @@ public class OlapAnalysisTaskTest {
         Mockito.when(meta.getKeysType()).thenReturn(keys);
         var table = Mockito.mock(OlapTable.class);
         Mockito.when(table.getKeysType()).thenReturn(keys);
-        Mockito.when(table.getEnableUniqueKeyMergeOnWrite()).thenReturn(true);
-        Mockito.when(table.getIndexMetaByIndexId(rollup)).thenReturn(meta);
+        var metadataLock = new ReentrantReadWriteLock();
+        Mockito.doAnswer(call -> {
+            metadataLock.readLock().lock();
+            return null;
+        }).when(table).readLock();
+        Mockito.doAnswer(call -> {
+            metadataLock.readLock().unlock();
+            return null;
+        }).when(table).readUnlock();
+        Mockito.when(table.getEnableUniqueKeyMergeOnWrite()).thenAnswer(call -> {
+            Assertions.assertTrue(metadataLock.getReadHoldCount() > 0);
+            return !keyRange;
+        });
+        Mockito.when(table.getIndexMetaByIndexId(rollup)).thenAnswer(call -> {
+            Assertions.assertTrue(metadataLock.getReadHoldCount() > 0);
+            return meta;
+        });
+        var partitionInfo = Mockito.mock(PartitionInfo.class);
+        Mockito.when(table.getPartitionInfo()).thenAnswer(call -> {
+            Assertions.assertTrue(metadataLock.getReadHoldCount() > 0);
+            return partitionInfo;
+        });
+        Mockito.when(partitionInfo.getPartitionColumns()).thenReturn(
+                List.of(globallyUnique ? column : new Column("p", Type.INT)));
         Mockito.when(table.getRowCountForIndex(rollup, false)).thenReturn(rows);
         Mockito.when(table.getBaseIndexId()).thenReturn(10L);
         Mockito.when(table.getIndexNameById(rollup)).thenReturn("r");
         Mockito.when(table.getName()).thenReturn("t");
         var part = Mockito.mock(Partition.class);
+        if (keyRange) {
+            var distribution = new HashDistributionInfo(1, List.of(column));
+            Mockito.when(table.getDefaultDistributionInfo()).thenReturn(distribution);
+            Mockito.when(part.getDistributionInfo()).thenReturn(distribution);
+        }
         var index = Mockito.mock(MaterializedIndex.class);
         var tablet = Mockito.mock(LocalTablet.class);
         Mockito.doReturn(List.of(part)).when(table).getPartitions();
@@ -389,6 +423,7 @@ public class OlapAnalysisTaskTest {
         Mockito.when(frame.scope()).thenReturn(TabletSamplingScope.table(List.of(
                 new PartitionSampleMeta(1, List.of(new TabletSampleMeta(7, rows, false))))));
         Mockito.when(frame.allCandidatesSupportFixedBlock()).thenReturn(true);
+        Mockito.when(frame.allCandidatesSupport(true)).thenReturn(true);
         Mockito.doReturn(frame).when(task.job).samplingFrame(table, rollup);
         Mockito.doReturn(new ResultRow(List.of("1", "9"))).when(task).getSampleMinMax();
         var query = ArgumentCaptor.forClass(String.class);
@@ -401,15 +436,57 @@ public class OlapAnalysisTaskTest {
         String sql = query.getValue().replace("`", "").toLowerCase(Locale.ROOT);
         Assertions.assertFalse(sql.contains("${"), sql);
         Assertions.assertTrue(sql.contains("index r"), sql);
+        if (keyRange) {
+            Assertions.assertFalse(sql.contains("preaggopen"), sql);
+        }
         if (census) {
             Mockito.verify(task, Mockito.never()).getSampleMinMax();
             Assertions.assertFalse(sql.contains("tablesample"), sql);
             Assertions.assertTrue(sql.contains("count(1) as row_count"), sql);
-            Assertions.assertTrue(sql.contains(unique ? "count(1) as ndv" : "least(count(c), ndv(c)) as ndv"), sql);
+            String ndv = fixed ? "least(count(c), ndv(c))" : "ndv(c)";
+            Assertions.assertTrue(sql.contains((globallyUnique ? "count(1)" : ndv) + " as ndv"), sql);
         } else {
-            Assertions.assertTrue(sql.contains(fixed ? "index r tablesample (fixed_block" : "index r tablet(7)"), sql);
-            Assertions.assertTrue(sql.contains(unique ? "null as hot_value" : "left join hot_top on true"), sql);
+            String method = keyRange ? "key_range_block" : "fixed_block";
+            Assertions.assertTrue(sql.contains(fixed ? "index r tablesample (" + method : "index r tablet(7)"), sql);
+            Assertions.assertTrue(sql.contains(globallyUnique ? "null as hot_value" : "left join hot_top on true"), sql);
         }
+    }
+
+    @Test
+    void rollupRemovedAfterSamplingAdmissionSkipsBeforeExecutingSql() {
+        long rollup = 20L;
+        var table = Mockito.mock(OlapTable.class);
+        var column = new Column("k", Type.INT, true, null, "0", "");
+        var meta = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.when(meta.getColumnByName("k")).thenReturn(column);
+        Mockito.when(meta.getSchema()).thenReturn(List.of(column));
+        Mockito.when(meta.getKeysType()).thenReturn(KeysType.UNIQUE_KEYS);
+        Mockito.when(table.getIndexMetaByIndexId(rollup)).thenReturn(meta);
+        Mockito.when(table.getIndexNameById(rollup)).thenReturn("r");
+        Mockito.when(table.getEnableUniqueKeyMergeOnWrite()).thenReturn(true);
+        Mockito.doReturn(Mockito.mock(PartitionInfo.class)).when(table).getPartitionInfo();
+        var task = Mockito.spy(new OlapAnalysisTask());
+        task.tbl = table;
+        task.catalog = Mockito.mock(CatalogIf.class);
+        task.db = Mockito.mock(DatabaseIf.class);
+        Mockito.when(task.catalog.getName()).thenReturn("internal");
+        Mockito.when(task.db.getFullName()).thenReturn("db");
+        task.info = new AnalysisInfoBuilder().setIndexId(rollup).setColName("k").setRowCount(1000).build();
+        task.tableSample = new TableSample(false, 10L);
+        task.job = Mockito.mock(AnalysisJob.class);
+        Mockito.when(task.job.reportedIndexRows(table, rollup)).thenReturn(1000L);
+        var frame = Mockito.mock(IndexSamplingSnapshot.class);
+        Mockito.when(frame.allCandidatesSupportFixedBlock()).thenReturn(true);
+        Mockito.when(task.job.samplingFrame(table, rollup)).thenAnswer(call -> {
+            Mockito.doReturn(null).when(table).getIndexMetaByIndexId(rollup);
+            Mockito.doReturn(null).when(table).getIndexNameById(rollup);
+            return frame;
+        });
+        try (var util = Mockito.mockStatic(StatisticsUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            util.when(StatisticsUtil::enableFixedBlockStatsSampling).thenReturn(true);
+            Assertions.assertThrows(AnalyzeSkipException.class, task::doSample);
+        }
+        Mockito.verify(task, Mockito.never()).runQuery(Mockito.anyString());
     }
 
     @Test

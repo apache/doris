@@ -176,6 +176,11 @@ public:
         return _footer.num_rows_per_block();
     }
 
+    // Block heads bracket the first matching row. For a prefix start the first equal
+    // block head already qualifies; a full tuple may fall anywhere in the equal-prefix run.
+    std::pair<uint32_t, uint32_t> ordinal_window(const Slice& prefix, uint32_t limit,
+                                                 bool prefix_start) const;
+
     Slice key(ssize_t ordinal) const {
         DCHECK(_parsed);
         DCHECK(ordinal >= 0 && ordinal < num_items());

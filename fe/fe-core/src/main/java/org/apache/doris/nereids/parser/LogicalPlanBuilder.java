@@ -5631,7 +5631,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 && !DebugPointUtil.isEnable("TableSample.allowInternalFixedBlock")) {
             throw new AnalysisException("FIXED_BLOCK sampling requires an internal session");
         }
-        if (!"FIXED_BLOCK".equalsIgnoreCase(fixed.method.getText())
+        boolean keyRange = "KEY_RANGE_BLOCK".equalsIgnoreCase(fixed.method.getText());
+        if ((!keyRange && !"FIXED_BLOCK".equalsIgnoreCase(fixed.method.getText()))
                 || !"unit_rows".equalsIgnoreCase(fixed.key.getText()) || ctx.seed == null) {
             throw new AnalysisException("Expected FIXED_BLOCK unit_rows and a nonnegative REPEATABLE seed");
         }
@@ -5662,7 +5663,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         Double.parseDouble(values.get("unit_rate")),
                         new BigDecimal(values.get("max_units")).longValueExact(), tablets));
             }
-            return new TableSample(new FixedBlockSampleSpec(new BigDecimal(fixed.unitRows.getText()).longValueExact(),
+            return new TableSample(new FixedBlockSampleSpec(
+                    keyRange ? FixedBlockSampleSpec.Mode.KEY_RANGE_BLOCK : FixedBlockSampleSpec.Mode.FIXED_BLOCK,
+                    new BigDecimal(fixed.unitRows.getText()).longValueExact(),
                     Long.parseLong(ctx.seed.getText()), groups));
         } catch (NumberFormatException | ArithmeticException e) {
             throw new AnalysisException("Invalid FIXED_BLOCK numeric value", e);
