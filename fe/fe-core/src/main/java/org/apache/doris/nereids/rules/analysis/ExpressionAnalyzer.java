@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
@@ -1012,8 +1014,24 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
 
         if (left.getDataType().isVariantType()) {
-            left = new Cast(left, right.getDataType());
+            if (Match.hasVariantValuesIndex(left)) {
+                if (!Config.enable_variant_v2) {
+                    throw new AnalysisException("VARIANT values index requires enable_variant_v2=true");
+                }
+                if (match.op() != MatchPredicate.Operator.MATCH_ANY
+                        && match.op() != MatchPredicate.Operator.MATCH_ALL) {
+                    throw new AnalysisException("VARIANT root column supports only MATCH, MATCH_ANY, and MATCH_ALL. "
+                            + "Please query a subcolumn for " + match);
+                }
+                if (!right.isConstant()) {
+                    throw new AnalysisException("VARIANT root MATCH requires a constant query expression: "
+                            + right.toSql());
+                }
+            } else {
+                left = new Cast(left, right.getDataType());
+            }
         }
+
         return match.withChildren(left, right);
     }
 

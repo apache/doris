@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.AnnIndexPropertiesChecker;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IndexDef.IndexType;
+import org.apache.doris.analysis.InvertedIndexProperties;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -159,8 +160,8 @@ public class IndexDefinition {
      * <p>This mirrors {@code field_is_numeric_type} on the BE side, which is what
      * {@code IndexColumnWriter::create} and {@code ColumnReader::_load_index} route on. A one-level
      * ARRAY of such a type is included: the BE adapter indexes each element as its own point under
-     * the row's id, so a row matches when any of its elements does. VARIANT is excluded for the
-     * reason it always was on SNII -- there is no writer for it.
+     * the row's id, so a row matches when any of its elements does. VARIANT subpaths and root
+     * values are handled by the VARIANT writer.
      */
     public static boolean isSupportSniiNumericIdxType(DataType columnType) {
         if (columnType.isArrayType()) {
@@ -221,60 +222,10 @@ public class IndexDefinition {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
             }
-            if (indexType == IndexType.INVERTED
-                    && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII) {
-                boolean isStringIndex = colType.isStringLikeType()
-                        || (colType.isArrayType()
-                            && ((ArrayType) colType).getItemType().isStringLikeType());
-                // VARIANT carries no postings itself; its extracted sub-columns are indexed
-                // under their own suffix paths and are type-checked at write time.
-                if (!isStringIndex && !colType.isVariantType()
-                        && !isSupportSniiNumericIdxType(colType)) {
-                    throw new AnalysisException(
-                            "SNII inverted index storage format does not support index on column: "
-                                    + indexColName);
-                }
-            }
+            checkIndexColumnCompatibility(indexColName, colType, column.isKey(), keysType,
+                    enableUniqueKeyMergeOnWrite, invertedIndexFileStorageFormat);
 
-            // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
-            // when the subcolumn type changes, it may result in missing files, causing link file failure.
-            // There are two cases in which the inverted index format v1 is not supported:
-            // 1. in cloud mode
-            // 2. enable_inverted_index_v1_for_variant = false
-            boolean notSupportInvertedIndexForVariant =
-                    (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
-                        || invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT)
-                            && (Config.isCloudMode() || !Config.enable_inverted_index_v1_for_variant);
-
-            if (colType.isVariantType() && notSupportInvertedIndexForVariant) {
-                throw new AnalysisException(colType + " is not supported in inverted index format V1,"
-                        + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
-                        + "or upgrade to a newer version");
-            }
-            if (!column.isKey()) {
-                if (keysType == KeysType.AGG_KEYS) {
-                    throw new AnalysisException("index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table"
-                        + " or key columns of AGG_KEYS table. invalid index: " + name);
-                } else if (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite
-                               && indexType == IndexType.INVERTED && properties != null
-                               && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
-                                   || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
-                                   || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY)
-                                   || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY))) {
-                    throw new AnalysisException("INVERTED index with parser can NOT be used in value columns of"
-                        + " UNIQUE_KEYS table with merge_on_write disable. invalid index: " + name);
-                }
-            }
-
-            if (indexType == IndexType.INVERTED) {
-                try {
-                    InvertedIndexUtil.checkInvertedIndexParser(indexColName,
-                            colType.toCatalogDataType().getPrimitiveType(), properties,
-                            invertedIndexFileStorageFormat);
-                } catch (Exception ex) {
-                    throw new AnalysisException("invalid INVERTED index:" + ex.getMessage(), ex);
-                }
-            } else if (indexType == IndexType.NGRAM_BF) {
+            if (indexType == IndexType.NGRAM_BF) {
                 if (!colType.isStringLikeType()) {
                     throw new AnalysisException(colType + " is not supported in ngram_bf index. "
                             + "invalid column: " + indexColName);
@@ -294,6 +245,51 @@ public class IndexDefinition {
             }
         } else {
             throw new AnalysisException("Unsupported index type: " + indexType);
+        }
+    }
+
+    private void checkIndexColumnCompatibility(String columnName, DataType columnType, boolean isKey,
+            KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
+            TInvertedIndexFileStorageFormat storageFormat) {
+        if (indexType == IndexType.INVERTED && storageFormat == TInvertedIndexFileStorageFormat.SNII) {
+            boolean isStringIndex = columnType.isStringLikeType()
+                    || (columnType.isArrayType() && ((ArrayType) columnType).getItemType().isStringLikeType());
+            if (!isStringIndex && !columnType.isVariantType() && !isSupportSniiNumericIdxType(columnType)) {
+                throw new AnalysisException(
+                        "SNII inverted index storage format does not support index on column: " + columnName);
+            }
+        }
+
+        // V1 writes a separate index file per VARIANT subcolumn. Type changes can leave files
+        // unavailable to a later hard-link operation.
+        if (columnType.isVariantType()
+                && (storageFormat == TInvertedIndexFileStorageFormat.V1
+                    || storageFormat == TInvertedIndexFileStorageFormat.DEFAULT)
+                && (Config.isCloudMode() || !Config.enable_inverted_index_v1_for_variant)) {
+            throw new AnalysisException(columnType + " is not supported in inverted index format V1,"
+                    + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
+                    + "or upgrade to a newer version");
+        }
+        if (!isKey && keysType == KeysType.AGG_KEYS) {
+            throw new AnalysisException("index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table"
+                    + " or key columns of AGG_KEYS table. invalid index: " + name);
+        }
+        if (indexType == IndexType.INVERTED) {
+            if (!isKey && keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite && properties != null
+                    && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                        || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
+                        || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY)
+                        || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY))) {
+                throw new AnalysisException("INVERTED index with parser can NOT be used in value columns of"
+                        + " UNIQUE_KEYS table with merge_on_write disable. invalid index: " + name);
+            }
+            try {
+                InvertedIndexUtil.validateVariantValuesIndex(columnType, properties, storageFormat);
+                InvertedIndexUtil.checkInvertedIndexParser(columnName,
+                        columnType.toCatalogDataType().getPrimitiveType(), properties, storageFormat);
+            } catch (Exception ex) {
+                throw new AnalysisException("invalid INVERTED index:" + ex.getMessage(), ex);
+            }
         }
     }
 
@@ -380,6 +376,9 @@ public class IndexDefinition {
     }
 
     public Index translateToCatalogStyle() {
+        if (isVariantValuesIndex()) {
+            properties.putIfAbsent(InvertedIndexUtil.INVERTED_INDEX_SUPPORT_PHRASE_KEY, "false");
+        }
         return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
                 comment);
     }
@@ -479,6 +478,10 @@ public class IndexDefinition {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public boolean isVariantValuesIndex() {
+        return indexType == IndexType.INVERTED && InvertedIndexProperties.isVariantValuesIndex(properties);
     }
 
     /**

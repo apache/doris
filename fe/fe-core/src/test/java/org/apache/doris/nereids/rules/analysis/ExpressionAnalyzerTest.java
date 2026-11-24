@@ -17,11 +17,18 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.IndexDef.IndexType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -30,16 +37,24 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsFalse;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.IsTrue;
+import org.apache.doris.nereids.trees.expressions.MatchAll;
+import org.apache.doris.nereids.trees.expressions.MatchAny;
+import org.apache.doris.nereids.trees.expressions.MatchPhrase;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -67,6 +82,55 @@ public class ExpressionAnalyzerTest {
                     Assertions.assertEquals(nullable, analyzed.nullable(), sql);
                 }
             }
+        }
+    }
+
+    @Test
+    void testVariantMatchInputBoundary() {
+        boolean previousVariantV2 = Config.enable_variant_v2;
+        Config.enable_variant_v2 = true;
+        try {
+            ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()),
+                    null, true, true);
+            Column column = new Column("v", Type.VARIANT);
+            OlapTable table = new OlapTable();
+            table.setIndexes(ImmutableList.of(new Index(1, "values_idx", ImmutableList.of("v"), IndexType.INVERTED,
+                    ImmutableMap.of("variant_index_scope", "values", "parser", "english", "support_phrase", "false"), "")));
+            SlotReference root = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(), table,
+                    column, ImmutableList.of());
+            SlotReference noValues = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(), new OlapTable(),
+                    column, ImmutableList.of());
+            SlotReference alias = (SlotReference) new Alias(root, "renamed").toSlot();
+            SlotReference queryColumn = new SlotReference("query_text", StringType.INSTANCE);
+            StringLiteral query = new StringLiteral("hello");
+            Expression constantQuery = new Cast(new TinyIntLiteral((byte) 42), StringType.INSTANCE, true);
+            for (SlotReference slot : ImmutableList.of(root, alias)) {
+                Assertions.assertSame(slot, analyzer.visitMatch(new MatchAny(slot, query), null).child(0));
+                Assertions.assertSame(slot, analyzer.visitMatch(new MatchAll(slot, query), null).child(0));
+                Assertions.assertEquals(constantQuery,
+                        analyzer.visitMatch(new MatchAny(slot, constantQuery), null).child(1));
+                AnalysisException nonConstant = Assertions.assertThrows(AnalysisException.class,
+                        () -> analyzer.visitMatch(new MatchAny(slot, queryColumn), null));
+                Assertions.assertTrue(nonConstant.getMessage().contains("constant query expression"));
+                AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                        () -> analyzer.visitMatch(new MatchPhrase(slot, query), null));
+                Assertions.assertTrue(error.getMessage().contains("supports only MATCH, MATCH_ANY, and MATCH_ALL"));
+            }
+            for (Expression input : ImmutableList.of(noValues, root.withSubPath(ImmutableList.of("obj")),
+                    new ElementAt(root, new StringLiteral("obj")),
+                    new Alias(new ElementAt(root, new StringLiteral("obj")), "o").toSlot(),
+                    new Alias(root.withSubPath(ImmutableList.of("obj")), "pruned_o").toSlot(),
+                    new SlotReference("union_output", VariantType.INSTANCE),
+                    new Cast(root, VariantType.INSTANCE, true))) {
+                Expression left = analyzer.visitMatch(new MatchAny(input, query), null).child(0);
+                Assertions.assertInstanceOf(Cast.class, left);
+                Assertions.assertTrue(left.getDataType().isStringType());
+                Assertions.assertEquals(input, left.child(0));
+            }
+            Cast explicit = new Cast(root, StringType.INSTANCE, true);
+            Assertions.assertEquals(explicit, analyzer.visitMatch(new MatchAny(explicit, query), null).child(0));
+        } finally {
+            Config.enable_variant_v2 = previousVariantV2;
         }
     }
 

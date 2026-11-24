@@ -238,6 +238,13 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         tablet_schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
+    // Root VARIANT has only values indexes. RESTORE or RECOVER can carry their metadata
+    // into a legacy partition, where only the ordinary subpath indexes are written.
+    if (column.is_variant_type() && !column.is_extracted_column() &&
+        !variant_util::supports_values_index_format(
+                tablet_schema->get_inverted_index_storage_format())) {
+        skip_inverted_index = true;
+    }
     // Let SNII select the direct-load PRX zstd level.
     opts.is_direct_load = _opts.write_type == DataWriteType::TYPE_DIRECT;
     if (!skip_inverted_index) {

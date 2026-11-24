@@ -1999,6 +1999,20 @@ public class SchemaChangeHandler extends AlterHandler {
             Map<Long, Set<String>> indexOnPartitions = new HashMap<>();
             boolean isDropIndex = false;
             Map<String, String> propertyMap = new HashMap<>();
+            boolean addsValuesIndex = alterClauses.stream().anyMatch(op -> op instanceof CreateIndexClause
+                    && ((CreateIndexClause) op).getIndexDef().isVariantValuesIndex());
+            if (addsValuesIndex) {
+                if (!Config.enable_light_index_change || !enableAddIndexForNewData) {
+                    throw new DdlException("ADD VARIANT values index requires enable_light_index_change=true"
+                            + " and enable_add_index_for_new_data=true");
+                }
+                // A heavy change rewrites historical data. Keep new-data-only ADD on the light index path,
+                // and reject before other clauses can mutate table metadata (for example bloom filter columns).
+                if (alterClauses.stream().anyMatch(op -> !(op instanceof CreateIndexClause))) {
+                    throw new DdlException("ADD VARIANT values index can not be combined with other schema changes");
+                }
+            }
+
             for (AlterClause alterClause : alterClauses) {
                 Map<String, String> properties = alterClause.getProperties();
                 // alter table properties
@@ -2148,8 +2162,15 @@ public class SchemaChangeHandler extends AlterHandler {
                         alterIndexes.add(index);
                         isDropIndex = false;
                         lightIndexChange = true;
+                    } else if (addsValuesIndex) {
+                        throw new DdlException(
+                                "ADD VARIANT values index supports only light index changes for new data");
                     }
                 } else if (alterClause instanceof BuildIndexClause) {
+                    // SNII BUILD can rebuild resident indexes from the same container.
+                    if (olapTable.getIndexes().stream().anyMatch(Index::isVariantValuesIndex)) {
+                        throw new DdlException("BUILD INDEX is not supported on a table with a VARIANT values index");
+                    }
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
                     Index index = buildIndexClause.getIndex();
@@ -2843,19 +2864,30 @@ public class SchemaChangeHandler extends AlterHandler {
             AnnIndexPropertiesChecker.checkProperties(indexDef.getProperties());
         }
 
+        TInvertedIndexFileStorageFormat indexStorageFormat = olapTable.getInvertedIndexFileStorageFormat();
         if (indexDef.getIndexType() == IndexType.INVERTED
-                && olapTable.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1) {
+                && indexStorageFormat == TInvertedIndexFileStorageFormat.V1) {
             throw new DdlException("Inverted index V1 is deprecated and no longer allowed for new index creation."
                     + " Upgrading inverted_index_storage_format via ALTER TABLE is not supported;"
                     + " recreate the table with inverted_index_storage_format = V2.");
+        }
+
+        if (indexDef.isVariantValuesIndex() && Config.isCloudMode()) {
+            // Match CREATE TABLE by validating the index against the effective partition format.
+            indexStorageFormat = olapTable.getPartitionInvertedIndexFileStorageFormat();
+            if (indexStorageFormat != TInvertedIndexFileStorageFormat.SNII
+                    || olapTable.getPartitions().stream().anyMatch(partition ->
+                            olapTable.getInvertedIndexFileStorageFormatForPartition(partition.getId())
+                                    != TInvertedIndexFileStorageFormat.SNII)) {
+                throw new DdlException("VARIANT values index requires SNII for all existing and future partitions");
+            }
         }
 
         for (String col : indexDef.getColumns()) {
             Column column = olapTable.getColumn(col);
             if (column != null) {
                 indexDef.checkColumn(column, olapTable.getKeysType(),
-                        olapTable.getEnableUniqueKeyMergeOnWrite(),
-                        olapTable.getInvertedIndexFileStorageFormat());
+                        olapTable.getEnableUniqueKeyMergeOnWrite(), indexStorageFormat);
                 if (!InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties()).isEmpty()) {
                     throw new DdlException("Can not create index with field pattern");
                 }
@@ -2889,7 +2921,12 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             Set<String> existedIdxColSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             existedIdxColSet.addAll(index.getColumns());
-            if (index.getIndexType() == indexDef.getIndexType() && newColset.equals(existedIdxColSet)) {
+            // Values indexes and path indexes have disjoint scopes.
+            if (index.getIndexType() == indexDef.getIndexType() && newColset.equals(existedIdxColSet)
+                    && index.isVariantValuesIndex() == indexDef.isVariantValuesIndex()) {
+                if (index.isVariantValuesIndex()) {
+                    throw new DdlException("VARIANT column supports only one values index");
+                }
                 if (newColset.size() == 1
                         && olapTable.getInvertedIndexFileStorageFormat()
                             .compareTo(TInvertedIndexFileStorageFormat.V2) >= 0) {

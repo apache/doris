@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.InvertedIndexProperties;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -199,6 +200,9 @@ public class Index implements Writable {
     // local mode supports light add for inverted index, ann index and ngram_bf index
     // the rest of the index types do not support light add
     public boolean isLightAddIndexSupported(boolean enableAddIndexForNewData) {
+        if (isVariantValuesIndex()) {
+            return enableAddIndexForNewData;
+        }
         if (Config.isCloudMode()) {
             if (indexType == IndexDef.IndexType.INVERTED) {
                 return isInvertedIndexParserNone() && enableAddIndexForNewData;
@@ -401,5 +405,11 @@ public class Index implements Writable {
             return "";
         }
         return InvertedIndexUtil.buildAnalyzerIdentity(properties);
+    }
+
+    /** A VARIANT values index: whole-column tokens from scalar leaves. */
+    public boolean isVariantValuesIndex() {
+        return indexType == IndexDef.IndexType.INVERTED
+                && InvertedIndexProperties.isVariantValuesIndex(properties);
     }
 }

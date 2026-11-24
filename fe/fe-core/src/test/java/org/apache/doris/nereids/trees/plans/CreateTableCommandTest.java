@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -260,6 +261,35 @@ public class CreateTableCommandTest extends TestWithFeService {
         } finally {
             Config.deploy_mode = originDeployMode;
             Config.cloud_unique_id = originCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void testValuesIndexUsesEffectivePartitionFormat() {
+        String previousDeployMode = Config.deploy_mode;
+        String previousCloudUniqueId = Config.cloud_unique_id;
+        boolean previousRollout = Config.enable_partition_inverted_index_storage_format_rollout;
+        try {
+            Config.deploy_mode = "cloud";
+            Config.cloud_unique_id = "values-format-test";
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+            for (String format : ImmutableList.of("V2", "V3")) {
+                CreateTableCommand command = (CreateTableCommand) new NereidsParser().parseSingle(
+                        "CREATE TABLE test.values_partition_format (id INT, v VARIANT, "
+                                + "INDEX values_idx(v) USING INVERTED PROPERTIES "
+                                + "('variant_index_scope'='values','parser'='english')) "
+                                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES "
+                                + "('replication_num'='1','inverted_index_storage_format'='SNII',"
+                                + "'partition.inverted_index_storage_format'='" + format + "')");
+                AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                        () -> command.getCreateTableInfo().validate(connectContext));
+                Assertions.assertTrue(error.getMessage().contains(
+                        "VARIANT values index requires inverted_index_storage_format=SNII"));
+            }
+        } finally {
+            Config.deploy_mode = previousDeployMode;
+            Config.cloud_unique_id = previousCloudUniqueId;
+            Config.enable_partition_inverted_index_storage_format_rollout = previousRollout;
         }
     }
 
