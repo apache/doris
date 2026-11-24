@@ -22,6 +22,7 @@
 #include <unicode/locid.h>
 #include <unicode/unistr.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <utility>
@@ -88,6 +89,8 @@ public:
         std::string locale_name;
         std::vector<std::string> day_name_storage {7};
         std::vector<std::string> month_name_storage {13};
+        size_t max_day_name_bytes = 0;
+        size_t max_month_name_bytes = 0;
         const char* day_names[7];
         const char* month_names[13];
     };
@@ -99,9 +102,6 @@ public:
 
         auto state = std::make_shared<LocaleDayMonthNameState>();
         state->locale_name = context->state()->lc_time_names();
-#ifdef BE_TEST
-        state->locale_name = "en_US";
-#endif
         UErrorCode status = U_ZERO_ERROR;
         icu::Locale locale(state->locale_name.c_str());
         icu::DateFormatSymbols symbols(locale, status);
@@ -120,6 +120,8 @@ public:
         }
         for (int i = 0; i < MONTH_NUM_IN_ICU; ++i) {
             months[i].toUTF8String(state->month_name_storage[i + 1]);
+            state->max_month_name_bytes =
+                    std::max(state->max_month_name_bytes, state->month_name_storage[i + 1].size());
             state->month_names[i + 1] = state->month_name_storage[i + 1].c_str();
         }
 
@@ -128,9 +130,13 @@ public:
         for (int i = 1; i < DAY_NUM_IN_ICU; ++i) {
             if (i == 1) {
                 days[i].toUTF8String(state->day_name_storage[6]);
+                state->max_day_name_bytes =
+                        std::max(state->max_day_name_bytes, state->day_name_storage[6].size());
                 state->day_names[6] = state->day_name_storage[6].c_str();
             } else {
                 days[i].toUTF8String(state->day_name_storage[i - 2]);
+                state->max_day_name_bytes =
+                        std::max(state->max_day_name_bytes, state->day_name_storage[i - 2].size());
                 state->day_names[i - 2] = state->day_name_storage[i - 2].c_str();
             }
         }
@@ -180,18 +186,24 @@ private:
                        ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
                        const NullMap* null_map = nullptr) {
         const auto len = ts.size();
-        res_data.resize(len * Transform::max_size);
         res_offsets.resize(len);
 
         size_t offset = 0;
         auto* state = reinterpret_cast<LocaleDayMonthNameState*>(
                 context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+        size_t max_bytes = Transform::max_size;
         const char* const* names_ptr = nullptr;
         if constexpr (std::is_same_v<Transform, DayNameImpl<Transform::OpArgType>>) {
             names_ptr = state->day_names;
+            max_bytes = state->max_day_name_bytes;
         } else if constexpr (std::is_same_v<Transform, MonthNameImpl<Transform::OpArgType>>) {
             names_ptr = state->month_names;
+            max_bytes = state->max_month_name_bytes;
         }
+
+        // Localized names can exceed the English byte bound (e.g. ru_RU Sunday is 22 bytes).
+        // Allocate the locale-specific UTF-8 bound before any transform writes into the buffer.
+        res_data.resize(len * max_bytes);
 
         for (size_t i = 0; i < len; ++i) {
             if (null_map && (*null_map)[i]) {
