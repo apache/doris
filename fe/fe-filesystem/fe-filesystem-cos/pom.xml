@@ -62,7 +62,6 @@ under the License.
         <dependency>
             <groupId>com.tencentcloudapi</groupId>
             <artifactId>tencentcloud-sdk-java-sts</artifactId>
-            <version>${tencentcloud-sdk-java-sts.version}</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

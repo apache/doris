@@ -20,8 +20,8 @@ package org.apache.doris.cloud.rpc;
 import org.apache.doris.common.Config;
 
 import io.grpc.ManagedChannel;
-import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
-import io.grpc.netty.shaded.io.netty.channel.ChannelOption;
+import io.grpc.netty.NettyChannelBuilder;
+import io.netty.channel.ChannelOption;
 
 public class OssMetaServiceClientChannelProvider implements MetaServiceClientChannelProvider {
     @Override
