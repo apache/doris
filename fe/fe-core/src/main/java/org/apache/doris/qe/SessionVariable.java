@@ -2244,7 +2244,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
     private int rewriteOrToInPredicateThreshold = 2;
 
-    @VarAttrDef.VarAttr(name = KEEP_IS_NOT_NULL_NUM_NULLS_THRESHOLD, fuzzy = true,
+    @VarAttrDef.VarAttr(name = KEEP_IS_NOT_NULL_NUM_NULLS_THRESHOLD, fuzzy = true, needForward = true,
             description = "The inferred `is not null` predicate above a scan is kept instead of being eliminated "
                     + "when the number of nulls of the column is greater than this threshold, so that the scan "
                     + "can skip the rows whose value is null. A negative value always eliminates the inferred "
