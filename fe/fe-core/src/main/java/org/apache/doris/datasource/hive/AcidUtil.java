@@ -243,6 +243,14 @@ public class AcidUtil {
             Map<String, String> txnValidIds, Map<StorageProperties.Type, StorageProperties> storagePropertiesMap,
                                               boolean isFullAcid) throws Exception {
 
+        return getAcidState(fileSystem, partition, txnValidIds, storagePropertiesMap, isFullAcid, () -> {});
+    }
+
+    public static FileCacheValue getAcidState(FileSystem fileSystem, HivePartition partition,
+            Map<String, String> txnValidIds, Map<StorageProperties.Type, StorageProperties> storagePropertiesMap,
+                                              boolean isFullAcid, Runnable checkCancelled) throws Exception {
+
+        checkCancelled.run();
         // Ref: https://issues.apache.org/jira/browse/HIVE-18192
         // Readers should use the combination of ValidTxnList and ValidWriteIdList(Table) for snapshot isolation.
         // ValidReadTxnList implements ValidTxnList
@@ -287,6 +295,7 @@ public class AcidUtil {
         List<ParsedDelta> workingDeltas = new ArrayList<>();
 
         for (RemoteFile remotePath : lsPartitionPath) {
+            checkCancelled.run();
             if (remotePath.isDirectory()) {
                 String dirName = remotePath.getName(); //dirName: base_xxx,delta_xxx,...
                 String dirPath = partitionPath + "/" + dirName;
@@ -409,10 +418,11 @@ public class AcidUtil {
 
         // delta directories
         for (ParsedDelta delta : deltas) {
+            checkCancelled.run();
             String location = delta.getPath();
 
             List<RemoteFile> remoteFiles = new ArrayList<>();
-            status = fileSystem.listFiles(location, false, remoteFiles);
+            status = fileSystem.listFiles(location, false, remoteFiles, checkCancelled);
             if (status.ok()) {
                 if (delta.isDeleteDelta()) {
                     List<String> deleteDeltaFileNames = remoteFiles.stream()
@@ -432,8 +442,9 @@ public class AcidUtil {
 
         // base
         if (bestBasePath != null) {
+            checkCancelled.run();
             List<RemoteFile> remoteFiles = new ArrayList<>();
-            status = fileSystem.listFiles(bestBasePath, false, remoteFiles);
+            status = fileSystem.listFiles(bestBasePath, false, remoteFiles, checkCancelled);
             if (status.ok()) {
                 remoteFiles.stream().filter(f -> fileFilter.accept(f.getName()))
                         .forEach(file -> {

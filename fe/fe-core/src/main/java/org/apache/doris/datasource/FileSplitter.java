@@ -101,6 +101,21 @@ public class FileSplitter {
                 List<String> partitionValues,
                 SplitCreator splitCreator)
                 throws IOException {
+        return splitFile(path, specifiedFileSplitSize, blockLocations, length, modificationTime,
+                splittable, partitionValues, splitCreator, () -> {});
+    }
+
+    public List<Split> splitFile(
+                LocationPath path,
+                long specifiedFileSplitSize,
+                BlockLocation[] blockLocations,
+                long length,
+                long modificationTime,
+                boolean splittable,
+                List<String> partitionValues,
+                SplitCreator splitCreator, Runnable checkCancelled)
+                throws IOException {
+        checkCancelled.run();
         if (length <= 0) {
             // Zero-length files contain no data; skip to avoid sending empty splits to BE.
             return Lists.newArrayList();
@@ -130,6 +145,7 @@ public class FileSplitter {
             long bytesRemaining;
             for (bytesRemaining = length; (double) bytesRemaining / (double) specifiedFileSplitSize > 1.1D;
                     bytesRemaining -= specifiedFileSplitSize) {
+                checkCancelled.run();
                 int location = getBlockIndex(blockLocations, length - bytesRemaining);
                 String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
                 result.add(splitCreator.create(path, length - bytesRemaining, specifiedFileSplitSize,
@@ -148,6 +164,7 @@ public class FileSplitter {
         long start = 0;
         ImmutableList.Builder<InternalBlock> blockBuilder = ImmutableList.builder();
         for (BlockLocation blockLocation : blockLocations) {
+            checkCancelled.run();
             // clamp the block range
             long blockStart = Math.max(start, blockLocation.getOffset());
             long blockEnd = Math.min(start + length, blockLocation.getOffset() + blockLocation.getLength());
@@ -174,6 +191,7 @@ public class FileSplitter {
         long splitStart = start;
         int currentBlockIdx = 0;
         while (splitStart < start + length) {
+            checkCancelled.run();
             updateCurrentMaxSplitSize();
             long splitBytes;
             long remainingBlockBytes = blocks.get(currentBlockIdx).getEnd() - splitStart;

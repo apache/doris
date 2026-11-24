@@ -232,7 +232,11 @@ Status SegmentFlusher::_flush_segment_writer(
     MonotonicStopWatch inverted_index_timer;
     inverted_index_timer.start();
     int64_t inverted_index_file_size = 0;
-    RETURN_IF_ERROR(writer->close_inverted_index(&inverted_index_file_size));
+    // A horizontal compaction can write a numeric index here and merge a string index later.
+    // Closing now would persist only the numeric index; defer both sealing and size accounting.
+    if (!_context.has_index_compaction()) {
+        RETURN_IF_ERROR(writer->close_inverted_index(&inverted_index_file_size));
+    }
     inverted_index_timer.stop();
 
     VLOG_DEBUG << "tablet_id:" << _context.tablet_id
@@ -313,7 +317,11 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     MonotonicStopWatch inverted_index_timer;
     inverted_index_timer.start();
     int64_t inverted_index_file_size = 0;
-    RETURN_IF_ERROR(writer->close_inverted_index(&inverted_index_file_size));
+    // A horizontal compaction can write a numeric index here and merge a string index later.
+    // Closing now would persist only the numeric index; defer both sealing and size accounting.
+    if (!_context.has_index_compaction()) {
+        RETURN_IF_ERROR(writer->close_inverted_index(&inverted_index_file_size));
+    }
     inverted_index_timer.stop();
 
     VLOG_DEBUG << "tablet_id:" << _context.tablet_id

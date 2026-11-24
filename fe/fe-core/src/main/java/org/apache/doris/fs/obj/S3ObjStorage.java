@@ -137,6 +137,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      * @return Status.OK if successful, or an appropriate error status
      */
     public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
+        return listFiles(remotePath, recursive, result, () -> {});
+    }
+
+    public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result, Runnable checkCancelled) {
+        checkCancelled.run();
         try {
             S3URI s3Uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             String bucket = s3Uri.getBucket();
@@ -149,6 +154,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             S3Client s3 = getClient();
             String continuationToken = null;
             do {
+                checkCancelled.run();
                 ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
                         .bucket(bucket)
                         .prefix(prefix);
@@ -162,6 +168,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 }
 
                 ListObjectsV2Response response = s3.listObjectsV2(requestBuilder.build());
+                checkCancelled.run();
                 // Files
                 for (S3Object s3Object : response.contents()) {
                     if (s3Object.key().equals(prefix)) {
@@ -197,6 +204,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
             } while (continuationToken != null);
 
+        } catch (java.util.concurrent.CancellationException e) {
+            throw e;
         } catch (NoSuchKeyException e) {
             return Status.OK;
         } catch (Exception e) {

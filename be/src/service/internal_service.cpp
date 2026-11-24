@@ -1014,11 +1014,11 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
 Status PInternalService::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
                                             PTabletKeyLookupResponse* response) {
     PointQueryExecutor executor;
-    RETURN_IF_ERROR(executor.init(request, response));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(executor.init(request, response));
     if (response->has_need_resend_query_context() && response->need_resend_query_context()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(executor.lookup_up());
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(executor.lookup_up());
     executor.print_profile();
     return Status::OK();
 }
@@ -2563,6 +2563,15 @@ void PInternalService::request_cdc_client(google::protobuf::RpcController* contr
         offer_failed(result, done, _heavy_work_pool);
         return;
     }
+}
+
+void PInternalService::sync_tablet_meta(google::protobuf::RpcController* controller,
+                                        const PSyncTabletMetaRequest* request,
+                                        PSyncTabletMetaResponse* response,
+                                        google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    Status::NotSupported("sync_tablet_meta only supports cloud mode")
+            .to_protobuf(response->mutable_status());
 }
 
 #include "common/compile_check_avoid_end.h"

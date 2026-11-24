@@ -818,6 +818,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         if (storageFormat == TStorageFormat.V2) {
             tbl.setStorageFormat(storageFormat);
         }
+        Env.getCurrentEnv().onTableChanged(tbl);
     }
 
     /*

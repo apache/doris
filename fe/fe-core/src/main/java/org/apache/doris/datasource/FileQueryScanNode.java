@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.BrokerUtil;
@@ -481,14 +482,24 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // Only provide the unique ID of split source to backend.
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
                     locationProperties, pathPartitionKeys, admissionResult);
-            splitAssignment.init();
+            SplitAssignment assignment = splitAssignment;
+            if (executor != null) {
+                executor.registerSplitAssignment(assignment, () -> unregisterSplitSources(assignment));
+            }
+            splitAssignment.init(Math.min(sessionVariable.getFirstSplitWaitTimeoutMs(),
+                    ConnectContext.get().getExecTimeoutS() * 1000L));
+            Status cancelReason = executor == null ? null : executor.getPendingCancelReason();
+            if (cancelReason != null) {
+                throw new UserException(cancelReason.getErrorMsg());
+            }
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
             }
-            if (splitAssignment.getSampleSplit() == null && !isFileStreamType()) {
+            FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
+            assignment.checkException();
+            if (fileSplit == null && !isFileStreamType()) {
                 return;
             }
-            FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
             TFileType locationType = fileSplit.getLocationType();
             selectedSplitNum = numApproximateSplits();
             if (selectedSplitNum < 0) {
@@ -520,6 +531,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 scanRangeLocations.add(curLocations);
                 setLocationPropertiesIfNecessary(backend, locationType, locationProperties);
                 scanBackendIds.add(backend.getId());
+            }
+            if (assignment.isStop()) {
+                unregisterSplitSources(assignment);
+                assignment.checkException();
+                Status reason = executor == null ? null : executor.getPendingCancelReason();
+                throw new UserException(reason == null ? "Split generation stopped" : reason.getErrorMsg());
             }
         } else {
             List<Split> inputSplits = getSplits(numBackends);
@@ -879,13 +896,28 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected abstract Map<String, String> getLocationProperties() throws UserException;
 
     @Override
-    public void stop() {
+    public void stopSplitGeneration() {
         if (splitAssignment != null) {
             splitAssignment.stop();
-            SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
-            for (Long sourceId : splitAssignment.getSources()) {
-                manager.removeSplitSource(sourceId);
-            }
+        }
+    }
+
+    @Override
+    public void stop() {
+        if (splitAssignment == null) {
+            return;
+        }
+        try {
+            splitAssignment.stop();
+        } finally {
+            unregisterSplitSources(splitAssignment);
+        }
+    }
+
+    private static void unregisterSplitSources(SplitAssignment assignment) {
+        SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
+        for (Long sourceId : assignment.getSources()) {
+            manager.removeSplitSource(sourceId);
         }
     }
 

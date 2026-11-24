@@ -30,6 +30,7 @@
 #include "benchmark_fastunion.hpp"
 #include "benchmark_fmod.hpp"
 #include "benchmark_hll_merge.hpp"
+#include "benchmark_variant_assembler.hpp"
 #include "benchmark_zone_map_index.hpp"
 #include "binary_cast_benchmark.hpp"
 #include "common/config.h"

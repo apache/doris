@@ -211,7 +211,7 @@ protected:
         std::lock_guard l(_segid_statistics_map_mutex);
         return std::accumulate(_segment_num_rows.begin(), _segment_num_rows.end(), uint64_t(0));
     }
-    // Only during vertical compaction is this method called
+    // Only during compaction is this method called
     // Some index files are written during normal compaction and some files are written during index compaction.
     // After all index writes are completed, call this method to write the final compound index file.
     Status _close_inverted_index_file_writers() {

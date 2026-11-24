@@ -230,21 +230,6 @@ Status VariantExternalMetaReader::has_prefix(const std::string& prefix, bool* ou
     return Status::OK();
 }
 
-Status VariantExternalMetaReader::load_all_once(SubcolumnColumnMetaInfo* out_meta_tree,
-                                                VariantStatistics* out_stats,
-                                                OlapReaderStatistics* stats,
-                                                const io::IOContext* source_io_ctx) {
-    DCHECK(available());
-    return _load_once_call.call([this, out_meta_tree, out_stats, stats, source_io_ctx]() -> Status {
-        if (_loaded) {
-            return Status::OK();
-        }
-        RETURN_IF_ERROR(load_all(out_meta_tree, out_stats, stats, source_io_ctx));
-        _loaded = true;
-        return Status::OK();
-    });
-}
-
 #include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

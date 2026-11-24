@@ -50,6 +50,7 @@
 namespace doris {
 
 namespace {
+#ifndef BE_TEST
 // Handle SIGCHLD signal to prevent zombie processes
 void handle_sigchld(int sig_no) {
     int status = 0;
@@ -59,7 +60,6 @@ void handle_sigchld(int sig_no) {
 }
 
 // Check CDC client health
-#ifndef BE_TEST
 Status check_cdc_client_health(int retry_times, int sleep_time, std::string& health_response) {
     const std::string cdc_health_url =
             "http://127.0.0.1:" + std::to_string(doris::config::cdc_client_port) +
@@ -234,16 +234,18 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
 
     const std::string cdc_out_file = std::string(log_dir) + "/cdc-client.out";
 
-    struct sigaction act;
-    act.sa_flags = 0;
-    act.sa_handler = handle_sigchld;
-    sigaction(SIGCHLD, &act, NULL);
     LOG(INFO) << "Start to fork cdc client process with " << path;
 #ifdef BE_TEST
     _child_pid.store(99999);
     st = Status::OK();
     return st;
 #else
+    // Only install the reaper when forking a real child. Mock starts must not
+    // reap subprocesses owned by other tests, such as popen()/pclose() callers.
+    struct sigaction act {};
+    sigemptyset(&act.sa_mask);
+    act.sa_handler = handle_sigchld;
+    sigaction(SIGCHLD, &act, nullptr);
     pid_t pid = fork();
     if (pid < 0) {
         st = Status::InternalError("Fork cdc client failed.");

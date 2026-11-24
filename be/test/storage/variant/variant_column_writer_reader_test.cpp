@@ -20,6 +20,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <ranges>
@@ -63,6 +64,7 @@
 #include "storage/segment/variant/nested_group_provider.h"
 #include "storage/segment/variant/nested_group_streaming_write_plan.h"
 #include "storage/segment/variant/sparse_column_merge_iterator.h"
+#include "storage/segment/variant/v2/variant_assembler.h"
 #include "storage/segment/variant/v2/variant_column_writer.h"
 #include "storage/segment/variant/v2/variant_path_builder.h"
 #include "storage/segment/variant/v2/variant_shredder.h"
@@ -280,6 +282,36 @@ TEST(VariantPathBuilderTest, PromotesValuesAndMaterializesMissingRows) {
         if (expected[row].has_value()) {
             EXPECT_DOUBLE_EQ(data[row], *expected[row]);
         }
+    }
+}
+
+TEST(VariantPathBuilderTest, MemoryFailureBypassesJsonbFallback) {
+    VariantBatchBuilder value_builder;
+    auto row = value_builder.begin_row();
+    row.add_int(42);
+    row.finish();
+    auto values = value_builder.finish_batch();
+    const auto value = values.value_at(0);
+
+    for (const auto point :
+         {"VariantPathBuilder.before_append_value", "VariantPathBuilder.before_append_null_map"}) {
+        SCOPED_TRACE(point);
+        segment_v2::VariantPathBuilder builder(PathInData("metric"));
+        ASSERT_TRUE(builder.append(value, 0).ok());
+        const bool old_enable_debug_points = config::enable_debug_points;
+        config::enable_debug_points = true;
+        DebugPoints::instance()->add_with_callback(
+                point, std::function<void()>([] {
+                    throw Exception(ErrorCode::MEM_ALLOC_FAILED, "Injected allocation failure");
+                }));
+        Defer cleanup {[&] {
+            DebugPoints::instance()->remove(point);
+            config::enable_debug_points = old_enable_debug_points;
+        }};
+        const Status status = builder.append(value, 1);
+        EXPECT_TRUE(status.is<ErrorCode::MEM_ALLOC_FAILED>()) << status;
+        EXPECT_EQ(builder.promotion_count(), 0);
+        EXPECT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_BIGINT);
     }
 }
 
@@ -919,6 +951,92 @@ TEST(VariantPathBuilderTest, ShredderReusesCanonicalPathsAcrossAppends) {
     ASSERT_EQ(selected.column->size(), 2);
     EXPECT_EQ(selected.type->to_string(*selected.column, 0), "1");
     EXPECT_EQ(selected.type->to_string(*selected.column, 1), "2");
+}
+
+TEST(VariantShredderTest, SparseRowsUseByteOrderWithoutChangingStatisticsSelection) {
+    ColumnPtr source;
+    DataTypePtr source_type;
+    ASSERT_TRUE(create_variant_writer_source(
+                        VariantWriterInput::V2,
+                        {R"({"z":1,"a-b":1,"a b":3,"a$b":4,"a%2Eb":5,"a":{"c":2}})", R"({"z":2})",
+                         R"({"z":3})"},
+                        1, false, {}, &source, &source_type)
+                        .ok());
+    const auto& values = assert_cast<const ColumnVariantV2&>(*source);
+    for (const auto layout : {segment_v2::VariantShredderPhysicalLayout::ORDINARY,
+                              segment_v2::VariantShredderPhysicalLayout::DOC}) {
+        for (const uint32_t buckets : {1, 3}) {
+            SCOPED_TRACE(testing::Message()
+                         << "layout=" << static_cast<int>(layout) << " buckets=" << buckets);
+            segment_v2::VariantShredderOptions options;
+            options.physical_layout = layout;
+            options.max_subcolumns_count = 1;
+            options.sparse_bucket_count = buckets;
+            options.max_sparse_column_statistics_size = 1;
+            options.doc_bucket_count = buckets;
+            options.doc_materialization_min_rows = 4;
+            segment_v2::VariantShredder shredder(options);
+            segment_v2::VariantShredder::TestAccess::set_binary_cells_per_chunk(shredder, 2);
+            ASSERT_TRUE(shredder.append(values.read_view(), 0, values.size()).ok());
+            segment_v2::VariantShreddedColumns output;
+            ASSERT_TRUE(shredder.finish(&output).ok());
+            ASSERT_EQ(output.binary_buckets.size(), buckets);
+            for (const auto& bucket : output.binary_buckets) {
+                const auto& map = assert_cast<const ColumnMap&>(*bucket.column);
+                const auto& keys = assert_cast<const ColumnString&>(map.get_keys());
+                for (size_t row = 0; row < map.size(); ++row) {
+                    std::vector<std::string> actual;
+                    for (size_t cell = map.offset_at(row);
+                         cell < map.offset_at(row) + map.size_at(row); ++cell) {
+                        actual.push_back(keys.get_data_at(cell).to_string());
+                    }
+                    auto expected = actual;
+                    std::ranges::sort(expected);
+                    EXPECT_EQ(actual, expected) << "row=" << row;
+                }
+            }
+            if (layout == segment_v2::VariantShredderPhysicalLayout::ORDINARY) {
+                ASSERT_EQ(output.materialized.size(), 1);
+                EXPECT_EQ(output.materialized.front().path.get_path(), "z");
+                const std::vector<std::pair<std::string, std::string>> cases {
+                        {"a.c", "2"}, {"a-b", "1"}, {"a b", "3"}, {"a$b", "4"}, {"a%2Eb", "5"}};
+                for (const auto& [path, expected] : cases) {
+                    SCOPED_TRACE(path);
+                    const uint32_t bucket = variant_util::variant_binary_shard_of(
+                            {path.data(), path.size()}, buckets);
+                    const auto& map =
+                            assert_cast<const ColumnMap&>(*output.binary_buckets[bucket].column);
+                    segment_v2::variant_v2::VariantAssemblerOptions read_options;
+                    read_options.requested_path = PathInData(path);
+                    read_options.storage_map_kind = segment_v2::variant_v2::StorageMapKind::SPARSE;
+                    auto assembler = segment_v2::variant_v2::VariantAssembler::create(
+                            std::move(read_options));
+                    ASSERT_TRUE(assembler.has_value()) << assembler.error();
+                    ColumnNullable::MutablePtr result;
+                    ASSERT_TRUE((*assembler)
+                                        ->assemble({.num_rows = values.size(),
+                                                    .materialized_columns = {},
+                                                    .storage_map = &map},
+                                                   &result)
+                                        .ok());
+                    const auto& read_values =
+                            assert_cast<const ColumnVariantV2&>(result->get_nested_column());
+                    EXPECT_EQ(variant_v2_json_at(read_values, 0), expected);
+                    EXPECT_FALSE(result->is_null_at(0));
+                    EXPECT_TRUE(result->is_null_at(1));
+                    EXPECT_TRUE(result->is_null_at(2));
+                }
+                if (buckets == 1) {
+                    // Component order encounters a.c first; physical byte order must not
+                    // change which path wins the one-entry statistics budget.
+                    EXPECT_EQ(output.statistics.sparse_column_non_null_size.size(), 1);
+                    EXPECT_EQ(output.statistics.sparse_column_non_null_size.at("a.c"), 1);
+                    EXPECT_EQ(output.binary_buckets.front().statistics.sparse_column_non_null_size,
+                              output.statistics.sparse_column_non_null_size);
+                }
+            }
+        }
+    }
 }
 
 TEST(VariantShredderTest, ReusesRootAndNestedPathsForSharedMetadata) {

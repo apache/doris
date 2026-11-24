@@ -23,7 +23,10 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.SplitAssignment;
+import org.apache.doris.datasource.SplitScanContext;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -35,6 +38,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFileFormatType;
@@ -42,12 +46,14 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.hadoop.fs.BlockLocation;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -55,6 +61,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ThreadPoolExecutor;
 
 public class HiveScanNodeTest {
@@ -200,10 +207,17 @@ public class HiveScanNodeTest {
             Mockito.when(catalog.bindBrokerName()).thenReturn("");
             HiveScanNode firstNode = createHiveScanNode(0, table);
             HiveScanNode secondNode = createHiveScanNode(1, table);
+            SplitScanContext scanContext = new SplitScanContext();
+            SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
+            Mockito.when(assignment.getScanContext()).thenReturn(scanContext);
+            Field assignmentField = ScanNode.class.getDeclaredField("splitAssignment");
+            assignmentField.setAccessible(true);
+            assignmentField.set(firstNode, assignment);
+            assignmentField.set(secondNode, assignment);
             HiveExternalMetaCache cache = Mockito.mock(HiveExternalMetaCache.class);
             Mockito.when(cache.getFilesByPartitions(
-                    Mockito.anyList(), Mockito.anyBoolean(), Mockito.anyBoolean(),
-                    Mockito.isNull(), Mockito.eq(table))).thenReturn(Collections.emptyList());
+                    Mockito.anyList(), Mockito.anyBoolean(), Mockito.isNull(),
+                    Mockito.eq(table), Mockito.same(scanContext))).thenReturn(Collections.emptyList());
             List<HivePartition> partitions = Collections.singletonList(new HivePartition(
                     null, false, "parquet", "hdfs://warehouse/t/p=1",
                     Collections.singletonList("1"), Collections.emptyMap()));
@@ -212,8 +226,8 @@ public class HiveScanNodeTest {
             invokeGetFileSplitByPartitions(secondNode, cache, partitions, true);
 
             Mockito.verify(cache, Mockito.times(2)).getFilesByPartitions(
-                    Mockito.same(partitions), Mockito.anyBoolean(), Mockito.eq(false),
-                    Mockito.isNull(), Mockito.eq(table));
+                    Mockito.same(partitions), Mockito.anyBoolean(), Mockito.isNull(),
+                    Mockito.eq(table), Mockito.same(scanContext));
         } finally {
             statementContext.close();
             ConnectContext.remove();
@@ -297,12 +311,12 @@ public class HiveScanNodeTest {
         cacheValue.setPartitionValues(Arrays.asList("2026", "08"));
         cacheValue.getFiles().add(cachedStatus);
 
-        Method method = HiveScanNode.class.getDeclaredMethod("selectFiles", List.class);
+        Method method = HiveScanNode.class.getDeclaredMethod("selectFiles", List.class, Runnable.class);
         method.setAccessible(true);
         @SuppressWarnings("unchecked")
         List<HiveExternalMetaCache.HiveFileStatus> sampled =
                 (List<HiveExternalMetaCache.HiveFileStatus>) method.invoke(
-                        node, Collections.singletonList(cacheValue));
+                        node, Collections.singletonList(cacheValue), (Runnable) () -> {});
 
         Assert.assertEquals(1, sampled.size());
         Assert.assertNotSame(cachedStatus, sampled.get(0));
@@ -326,12 +340,12 @@ public class HiveScanNodeTest {
             cacheValue.getFiles().add(cachedStatus);
         }
 
-        Method method = HiveScanNode.class.getDeclaredMethod("selectFiles", List.class);
+        Method method = HiveScanNode.class.getDeclaredMethod("selectFiles", List.class, Runnable.class);
         method.setAccessible(true);
         @SuppressWarnings("unchecked")
         List<HiveExternalMetaCache.HiveFileStatus> sampled =
                 (List<HiveExternalMetaCache.HiveFileStatus>) method.invoke(
-                        node, Collections.singletonList(cacheValue));
+                        node, Collections.singletonList(cacheValue), (Runnable) () -> {});
 
         Assert.assertEquals(10, sampled.size());
         Assert.assertEquals(ArrayList.class, sampled.getClass());
@@ -342,6 +356,50 @@ public class HiveScanNodeTest {
         for (HiveExternalMetaCache.HiveFileStatus cachedStatus : cacheValue.getFiles()) {
             Assert.assertFalse(cachedStatus.isSplittable());
         }
+    }
+
+    @Test
+    public void testBatchTableSampleStopsSplittingWithinOneFile() throws Exception {
+        HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        SessionVariable session = new SessionVariable();
+        session.setFileSplitSize(MB);
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        desc.setTable(table);
+        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, session, null, ScanContext.EMPTY);
+        node.setTableSample(new TableSample(true, 100L, 0L));
+        SplitAssignment assignment = new SplitAssignment(
+                null, null, null, Collections.emptyMap(), Collections.emptyList(), false);
+        Field assignmentField = ScanNode.class.getDeclaredField("splitAssignment");
+        assignmentField.setAccessible(true);
+        assignmentField.set(node, assignment);
+        Field splitterField = FileQueryScanNode.class.getDeclaredField("fileSplitter");
+        splitterField.setAccessible(true);
+        splitterField.set(node, new FileSplitter(MB, MB, 0));
+        HiveExternalMetaCache.FileCacheValue files = new HiveExternalMetaCache.FileCacheValue();
+        files.setSplittable(true);
+        HiveExternalMetaCache.HiveFileStatus file = new HiveExternalMetaCache.HiveFileStatus();
+        file.setLength(100 * MB);
+        file.setPath(org.apache.doris.common.util.LocationPath.of("hdfs://warehouse/t/large.parquet"));
+        BlockLocation block = Mockito.mock(BlockLocation.class);
+        Mockito.when(block.getLength()).thenReturn(100 * MB);
+        Mockito.when(block.getHosts()).thenAnswer(invocation -> {
+            assignment.getScanContext().cancel();
+            return new String[0];
+        });
+        file.setBlockLocations(new BlockLocation[] {block});
+        files.getFiles().add(file);
+        HiveExternalMetaCache cache = Mockito.mock(HiveExternalMetaCache.class);
+        Mockito.when(cache.getFilesByPartitions(Mockito.anyList(), Mockito.anyBoolean(), Mockito.isNull(),
+                Mockito.eq(table), Mockito.same(assignment.getScanContext())))
+                .thenReturn(Collections.singletonList(files));
+
+        InvocationTargetException failure = Assert.assertThrows(InvocationTargetException.class,
+                () -> invokeGetFileSplitByPartitions(node, cache, Collections.emptyList(), true));
+
+        Assert.assertTrue(failure.getCause() instanceof CancellationException);
+        Mockito.verify(block).getHosts();
     }
 
     @Test
@@ -369,14 +427,16 @@ public class HiveScanNodeTest {
 
             HiveExternalMetaCache cache = Mockito.mock(HiveExternalMetaCache.class);
             Mockito.when(cache.getFilesByTransaction(
-                    Collections.emptyList(), validWriteIds, true, null))
+                    Mockito.eq(Collections.emptyList()), Mockito.eq(validWriteIds), Mockito.eq(true),
+                    Mockito.isNull(), Mockito.any(Runnable.class)))
                     .thenReturn(Collections.emptyList());
 
             invokeGetFileSplitByPartitions(node, cache, Collections.emptyList());
             invokeGetFileSplitByPartitions(node, cache, Collections.emptyList());
 
             Mockito.verify(cache, Mockito.times(2)).getFilesByTransaction(
-                    Collections.emptyList(), validWriteIds, true, null);
+                    Mockito.eq(Collections.emptyList()), Mockito.eq(validWriteIds), Mockito.eq(true),
+                    Mockito.isNull(), Mockito.any(Runnable.class));
             Mockito.verifyNoMoreInteractions(cache);
         } finally {
             statementContext.close();

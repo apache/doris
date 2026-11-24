@@ -389,15 +389,50 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 .getPartitions();
     }
 
+    @Override
+    public Partition getPartition(String dbName, String tblName, List<String> values, Runnable checkCancelled) {
+        try (ThriftHMSClient client = getClient(checkCancelled)) {
+            checkCancelled.run();
+            Partition partition;
+            try {
+                partition = ugiDoAs(() -> client.client.getPartition(dbName, tblName, values));
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+            checkCancelled.run();
+            return partition;
+        } catch (java.util.concurrent.CancellationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new HMSClientException("Failed to get partition for %s.%s", e, dbName, tblName);
+        }
+    }
+
+    @Override
+    public List<Partition> getExistingPartitions(String dbName, String tblName, List<String> names,
+            Runnable checkCancelled) {
+        return new HmsPartitionBatchExecutor(partitionBatchSize,
+                (db, table, batch) -> fetchPartitionsByNames(db, table, batch, checkCancelled), checkCancelled)
+                .executeExistingWithStats(new HmsPartitionRequest(dbName, tblName, names)).getPartitions();
+    }
+
     private HmsPartitionBatchExecutor newPartitionBatchExecutor() {
         return new HmsPartitionBatchExecutor(partitionBatchSize, this::fetchPartitionsByNames);
     }
 
     private List<Partition> fetchPartitionsByNames(String dbName, String tblName, List<String> partitionNames) {
+        return fetchPartitionsByNames(dbName, tblName, partitionNames, () -> {});
+    }
+
+    private List<Partition> fetchPartitionsByNames(String dbName, String tblName, List<String> partitionNames,
+            Runnable checkCancelled) {
+        checkCancelled.run();
         if (isClosed) {
             throw new HMSClientException("HMS client is closed");
         }
-        try (ThriftHMSClient client = getClient()) {
+        try (ThriftHMSClient client = getClient(checkCancelled)) {
+            checkCancelled.run();
             try {
                 return ugiDoAs(() -> client.client.getPartitionsByNames(dbName, tblName, partitionNames));
             } catch (Exception e) {
@@ -826,6 +861,37 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             throw e;
         } catch (Exception e) {
             throw new HMSClientException("failed to borrow hms client from pool", e);
+        }
+    }
+
+    private ThriftHMSClient getClient(Runnable checkCancelled) {
+        checkCancelled.run();
+        long start = System.nanoTime();
+        while (true) {
+            checkCancelled.run();
+            Preconditions.checkState(!isClosed, "HMS client pool is closed");
+            try {
+                if (clientPool == null) {
+                    return createClient();
+                }
+                long remaining = CLIENT_POOL_BORROW_TIMEOUT_MS
+                        - java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+                if (remaining <= 0) {
+                    throw new HMSClientException("Timed out waiting for an HMS client after %s ms",
+                            CLIENT_POOL_BORROW_TIMEOUT_MS);
+                }
+                return clientPool.borrowObject(Math.min(100, remaining));
+            } catch (java.util.NoSuchElementException e) {
+                // Commons Pool 2.2 also uses this exception for construction/validation failures.
+                // Only its documented idle-object timeout is a retryable admission wait.
+                if (!"Timeout waiting for idle object".equals(e.getMessage())) {
+                    throw e;
+                }
+            } catch (RuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new HMSClientException("Failed to borrow HMS client from pool", e);
+            }
         }
     }
 

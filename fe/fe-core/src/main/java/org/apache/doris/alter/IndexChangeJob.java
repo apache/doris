@@ -173,13 +173,13 @@ public class IndexChangeJob implements Writable {
         this.alterInvertedIndexes = alterInvertedIndexes;
     }
 
-    public boolean hasSameAlterInvertedIndex(boolean isDropOp, List<Index> inputAlterInvertedIndexes) {
-        if (this.isDropOp == isDropOp) {
-            for (Index inputIndex : inputAlterInvertedIndexes) {
-                for (Index existIndex : this.alterInvertedIndexes) {
-                    if (inputIndex.getIndexId() == existIndex.getIndexId()) {
-                        return true;
-                    }
+    // Whether this job builds or drops any of the given indexes, in either direction: jobs of one index are
+    // not ordered, so a build running after a drop would add the dropped index back, and the other way round.
+    public boolean hasAlterInvertedIndex(List<Index> inputAlterInvertedIndexes) {
+        for (Index inputIndex : inputAlterInvertedIndexes) {
+            for (Index existIndex : this.alterInvertedIndexes) {
+                if (inputIndex.getIndexId() == existIndex.getIndexId()) {
+                    return true;
                 }
             }
         }

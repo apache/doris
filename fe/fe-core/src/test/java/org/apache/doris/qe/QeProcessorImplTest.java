@@ -89,6 +89,46 @@ public class QeProcessorImplTest {
                 MetricRepo.USER_COUNTER_QUERY_INSTANCE_BEGIN.getOrAdd(user).getValue());
     }
 
+    @Test
+    public void repeatedUnregisterWaitsForActualSplitTerminationBeforeCommittingHiveRead() throws Exception {
+        TUniqueId queryId = new TUniqueId(101, 202);
+        java.util.concurrent.CountDownLatch released = new java.util.concurrent.CountDownLatch(2);
+        org.apache.doris.datasource.hive.HiveTransactionMgr transactions =
+                new org.apache.doris.datasource.hive.HiveTransactionMgr() {
+                    @Override
+                    public void deregister(String id) {
+                        try {
+                            super.deregister(id);
+                        } finally {
+                            released.countDown();
+                        }
+                    }
+                };
+        new mockit.MockUp<Env>() {
+            @mockit.Mock
+            public org.apache.doris.datasource.hive.HiveTransactionMgr getCurrentHiveTransactionMgr() {
+                return transactions;
+            }
+        };
+        org.apache.doris.datasource.hive.HiveTransaction transaction =
+                Mockito.mock(org.apache.doris.datasource.hive.HiveTransaction.class);
+        Mockito.when(transaction.getQueryId()).thenReturn(org.apache.doris.common.util.DebugUtil.printId(queryId));
+        transactions.register(transaction);
+        java.util.concurrent.CompletableFuture<Void> termination = new java.util.concurrent.CompletableFuture<>();
+        try {
+            QE_PROCESSOR.registerSplitTermination(queryId, termination);
+            QE_PROCESSOR.unregisterQuery(queryId);
+            QE_PROCESSOR.unregisterQuery(queryId);
+            Mockito.verify(transaction, Mockito.never()).commit();
+            termination.complete(null);
+            Assert.assertTrue(released.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            Mockito.verify(transaction, Mockito.times(1)).commit();
+        } finally {
+            termination.complete(null);
+            Assert.assertTrue(released.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        }
+    }
+
     private void registerQuery(TUniqueId queryId, String user) throws Exception {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         Env env = Mockito.mock(Env.class);

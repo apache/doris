@@ -40,6 +40,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.SplitScanContext;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
@@ -355,7 +356,13 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private FileCacheValue loadFileCacheValue(FileCacheKey key) {
-        FileCacheValue value = loadFiles(key, new FileSystemDirectoryLister(), null);
+        return loadFileCacheValue(key, new SplitScanContext());
+    }
+
+    private FileCacheValue loadFileCacheValue(FileCacheKey key, SplitScanContext scanContext) {
+        // The statement lister is keyed only by location. Global cache loads must use the
+        // filesystem and listing policy of this catalog, even when another scan shares that path.
+        FileCacheValue value = loadFiles(key, new FileSystemDirectoryLister(), null, scanContext);
         AtomicLong generation = fileCacheValueGenerations.get(key.catalogId);
         if (generation == null && fileEntry.getIfInitialized(key.catalogId) != null) {
             generation = fileCacheValueGenerations.computeIfAbsent(
@@ -450,6 +457,12 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private Map<PartitionCacheKey, HivePartition> loadPartitions(Iterable<? extends PartitionCacheKey> keys) {
+        return loadPartitions(keys, new SplitScanContext());
+    }
+
+    private Map<PartitionCacheKey, HivePartition> loadPartitions(Iterable<? extends PartitionCacheKey> keys,
+            SplitScanContext scanContext) {
+        scanContext.checkCancelled();
         Map<PartitionCacheKey, HivePartition> result = new HashMap<>();
         if (keys == null) {
             return result;
@@ -486,7 +499,9 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         // simply absent from the result (the historical getPartitionsByNames behavior); the client batches
         // and validates the physical RPCs internally.
         List<Partition> partitions = catalog.getClient().getExistingPartitions(
-                nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(), partitionNames);
+                nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(), partitionNames,
+                scanContext::checkCancelled);
+        scanContext.checkCancelled();
         for (Partition partition : partitions) {
             StorageDescriptor sd = partition.getSd();
             result.put(new PartitionCacheKey(nameMapping, partition.getValues()),
@@ -502,7 +517,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             String inputFormat,
             List<String> partitionValues,
             DirectoryLister directoryLister,
-            TableIf table) throws UserException {
+            TableIf table, SplitScanContext scanContext) throws UserException {
+        scanContext.checkCancelled();
         FileCacheValue result = new FileCacheValue();
 
         FileSystemCache.FileSystemCacheKey fileSystemCacheKey = new FileSystemCache.FileSystemCacheKey(
@@ -515,8 +531,13 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 catalog.getProperties().getOrDefault("hive.recursive_directories", "true"));
         try {
             RemoteIterator<RemoteFile> iterator = directoryLister.listFiles(fs, isRecursiveDirectories,
-                    table, path.getNormalizedLocation());
-            while (iterator.hasNext()) {
+                    table, path.getNormalizedLocation(), scanContext::checkCancelled);
+            while (true) {
+                scanContext.checkCancelled();
+                if (!iterator.hasNext()) {
+                    break;
+                }
+                scanContext.checkCancelled();
                 RemoteFile remoteFile = iterator.next();
                 String srcPath = remoteFile.getPath().toString();
                 LocationPath locationPath = LocationPath.of(srcPath, path.getStorageProperties());
@@ -539,6 +560,12 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private FileCacheValue loadFiles(FileCacheKey key, DirectoryLister directoryLister, TableIf table) {
+        return loadFiles(key, directoryLister, table, new SplitScanContext());
+    }
+
+    private FileCacheValue loadFiles(FileCacheKey key, DirectoryLister directoryLister, TableIf table,
+            SplitScanContext scanContext) {
+        scanContext.checkCancelled();
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         HMSExternalCatalog catalog = hmsCatalog(key.catalogId);
         try {
@@ -547,7 +574,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                     key.getLocation(), catalog.getCatalogProperty().getStoragePropertiesMap());
             try {
                 FileCacheValue result = getFileCache(catalog, finalLocation, key.inputFormat,
-                        key.getPartitionValues(), directoryLister, table);
+                        key.getPartitionValues(), directoryLister, table, scanContext);
+                scanContext.checkCancelled();
                 // Replace default hive partition with null to distinguish it from a literal "\N".
                 for (int i = 0; i < result.getValuesSize(); i++) {
                     if (HIVE_DEFAULT_PARTITION.equals(result.getPartitionValues().get(i))) {
@@ -632,6 +660,33 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         return fileLists;
     }
 
+    public List<FileCacheValue> getFilesByPartitions(List<HivePartition> partitions, boolean withCache,
+            DirectoryLister directoryLister, TableIf table, SplitScanContext scanContext) {
+        List<FileCacheValue> results = new ArrayList<>(partitions.size());
+        for (HivePartition partition : partitions) {
+            scanContext.checkCancelled();
+            long catalogId = partition.getNameMapping().getCtlId();
+            long fileId = Util.genIdByName(partition.getNameMapping().getLocalDbName(),
+                    partition.getNameMapping().getLocalTblName());
+            FileCacheKey key = partition.isDummyPartition()
+                    ? FileCacheKey.createDummyCacheKey(catalogId, fileId, partition.getPath(),
+                            partition.getInputFormat())
+                    : new FileCacheKey(catalogId, fileId, partition.getPath(), partition.getInputFormat(),
+                            partition.getPartitionValues());
+            FileCacheValue value;
+            if (withCache) {
+                value = fileEntry.get(catalogId).getForLoadScope(key,
+                        k -> loadFileCacheValue(k, scanContext));
+            } else {
+                value = loadFiles(key, directoryLister, table, scanContext);
+            }
+            scanContext.checkCancelled();
+            results.add(value);
+            scanContext.filesEnumerated(value.getFiles() == null ? 0 : value.getFiles().size());
+        }
+        return results;
+    }
+
     public HivePartition getHivePartition(ExternalTable dorisTable, List<String> partitionValues) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         return partitionEntry.get(nameMapping.getCtlId()).get(new PartitionCacheKey(nameMapping, partitionValues));
@@ -640,6 +695,35 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     public List<HivePartition> getAllPartitionsWithCache(ExternalTable dorisTable,
             List<List<String>> partitionValuesList) {
         return getAllPartitions(dorisTable, partitionValuesList, true);
+    }
+
+    public List<HivePartition> getAllPartitionsWithCache(ExternalTable table,
+            List<List<String>> values, SplitScanContext scanContext) {
+        NameMapping mapping = table.getOrBuildNameMapping();
+        MetaCacheEntry<PartitionCacheKey, HivePartition> entry = partitionEntry.get(mapping.getCtlId());
+        List<PartitionCacheKey> keys = values.stream().map(v -> new PartitionCacheKey(mapping, v))
+                .collect(Collectors.toList());
+        Map<PartitionCacheKey, HivePartition> loaded = entry.getAllForLoadScope(keys,
+                misses -> loadPartitions(misses, scanContext));
+        List<HivePartition> result = new ArrayList<>(values.size());
+        for (PartitionCacheKey key : keys) {
+            scanContext.checkCancelled();
+            HivePartition partition = loaded.get(key);
+            if (partition == null) {
+                // Keep the existing strict not-found behavior for partitions dropped during the load.
+                partition = entry.getForLoadScope(key, k -> {
+                    HMSExternalCatalog catalog = hmsCatalog(mapping.getCtlId());
+                    Partition remote = catalog.getClient().getPartition(mapping.getRemoteDbName(),
+                            mapping.getRemoteTblName(), k.getValues(), scanContext::checkCancelled);
+                    scanContext.checkCancelled();
+                    StorageDescriptor sd = remote.getSd();
+                    return new HivePartition(mapping, false, sd.getInputFormat(), sd.getLocation(),
+                            remote.getValues(), remote.getParameters());
+                });
+            }
+            result.add(partition);
+        }
+        return result;
     }
 
     public List<HivePartition> getAllPartitionsWithoutCache(ExternalTable dorisTable,
@@ -991,12 +1075,20 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             Map<String, String> txnValidIds,
             boolean isFullAcid,
             String bindBrokerName) {
+        return getFilesByTransaction(partitions, txnValidIds, isFullAcid, bindBrokerName, () -> {});
+    }
+
+    public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions,
+            Map<String, String> txnValidIds,
+            boolean isFullAcid,
+            String bindBrokerName, Runnable checkCancelled) {
         List<FileCacheValue> fileCacheValues = Lists.newArrayList();
         try {
             if (partitions.isEmpty()) {
                 return fileCacheValues;
             }
             for (HivePartition partition : partitions) {
+                checkCancelled.run();
                 HMSExternalCatalog catalog = hmsCatalog(partition.getNameMapping().getCtlId());
                 LocationPath locationPath = LocationPath.of(partition.getPath(),
                         catalog.getCatalogProperty().getStoragePropertiesMap());
@@ -1015,7 +1107,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                                 partition,
                                 txnValidIds,
                                 catalog.getCatalogProperty().getStoragePropertiesMap(),
-                                isFullAcid)));
+                                isFullAcid, checkCancelled)));
             }
         } catch (Exception e) {
             throw new CacheException("Failed to get input splits %s", e, txnValidIds.toString());

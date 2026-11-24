@@ -31,8 +31,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -362,6 +365,85 @@ public class MetaCacheEntry<K, V> {
             return loadingData.get(key, typedKey -> loadAndTrack(typedKey, loadFunction));
         }
         return getWithManualLoad(key, loadFunction);
+    }
+
+    /** Query-owned miss loads share completed values, but never another query's cancellable loader. */
+    public V getForLoadScope(K key, Function<K, V> missLoader) {
+        if (!effectiveEnabled || closed.get()) {
+            return loadAndTrack(key, missLoader);
+        }
+        V value = data.getIfPresent(key);
+        if (value != null) {
+            maybeRefreshManagedValue(key, value);
+            return value;
+        }
+        // Do not wait on a load stripe held across another owner's remote IO.
+        KeyMutationToken mutation = beginKeyMutation(key);
+        try {
+            V loaded = loadAndTrack(key, missLoader);
+            if (loaded == null || closed.get() || !isKeyMutationCurrent(key, mutation)) {
+                return loaded;
+            }
+            if (weightBounded) {
+                admitWeightedValue(key, loaded, null, false, mutation, -1L, false);
+                return loaded;
+            }
+            synchronized (admissionLock) {
+                if (!closed.get() && isKeyMutationCurrent(key, mutation)) {
+                    putNonWeightedValue(key, loaded);
+                }
+            }
+            return loaded;
+        } finally {
+            endKeyMutation(key, mutation);
+        }
+    }
+
+    public Map<K, V> getAllForLoadScope(List<K> keys,
+            Function<List<K>, Map<K, V>> missLoader) {
+        if (!effectiveEnabled || closed.get()) {
+            return missLoader.apply(keys);
+        }
+        Map<K, V> result = new LinkedHashMap<>();
+        Map<K, KeyMutationToken> misses = new LinkedHashMap<>();
+        try {
+            for (K key : keys) {
+                V value = data.getIfPresent(key);
+                if (value != null) {
+                    maybeRefreshManagedValue(key, value);
+                    result.put(key, value);
+                    continue;
+                }
+                misses.computeIfAbsent(key, this::beginKeyMutation);
+            }
+            if (misses.isEmpty()) {
+                return result;
+            }
+            Map<K, V> loaded = missLoader.apply(new ArrayList<>(misses.keySet()));
+            for (Map.Entry<K, KeyMutationToken> miss : misses.entrySet()) {
+                K key = miss.getKey();
+                V value = loaded.get(key);
+                if (value == null) {
+                    continue;
+                }
+                result.put(key, value);
+                if (!effectiveEnabled || closed.get() || !isKeyMutationCurrent(key, miss.getValue())) {
+                    continue;
+                }
+                if (weightBounded) {
+                    admitWeightedValue(key, value, null, false, miss.getValue(), -1L, false);
+                    continue;
+                }
+                synchronized (admissionLock) {
+                    if (!closed.get() && isKeyMutationCurrent(key, miss.getValue())) {
+                        putNonWeightedValue(key, value);
+                    }
+                }
+            }
+            return result;
+        } finally {
+            misses.forEach(this::endKeyMutation);
+        }
     }
 
     public V getIfPresent(K key) {

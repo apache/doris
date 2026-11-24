@@ -27,8 +27,15 @@ import java.util.List;
 public class FileSystemDirectoryLister implements DirectoryLister {
     public RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive, TableIf table, String location)
             throws FileSystemIOException {
+        return listFiles(fs, recursive, table, location, () -> {});
+    }
+
+    @Override
+    public RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive, TableIf table, String location,
+            Runnable checkCancelled) throws FileSystemIOException {
+        checkCancelled.run();
         List<RemoteFile> result = new ArrayList<>();
-        Status status = fs.listFiles(location, recursive, result);
+        Status status = fs.listFiles(location, recursive, result, checkCancelled);
         if (!status.ok()) {
             throw new FileSystemIOException(status.getErrCode(), status.getErrMsg());
         }

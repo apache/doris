@@ -16,6 +16,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
+set -eo pipefail
+
 generate_bulk_request() {
     local index_name=$1
     local type_value=$2
@@ -234,3 +236,4 @@ generate_bulk_request "test_keyword_array" "" "item_" "$keyword_array_data_file"
 curl -X POST "http://${ES_8_HOST}:9200/_bulk" --data-binary "@$keyword_array_bulk_file" -H "Content-Type: application/json"
 
 touch /tmp/SUCCESS
+exec tail -f /dev/null

@@ -91,7 +91,7 @@ suite("test_group_concat", "query,p0,arrow_flight_sql") {
     // test SPLIT_MULTI_DISTINCT could work right with can not be banned aggregation
     qt_select_13 """
                 select
-                group_concat( distinct b1, cast(b2 as varchar)), group_concat( distinct b3, '?')
+                group_concat( distinct b1, ','), group_concat( distinct b3, '?')
                 from
                 table_group_concat
                 group by 

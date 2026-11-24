@@ -63,8 +63,12 @@ public class S3FileSystem extends ObjFileSystem {
 
     @Override
     public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
-        S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
-        return objStorage.listFiles(remotePath, recursive, result);
+        return listFiles(remotePath, recursive, result, () -> {});
+    }
+
+    @Override
+    public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result, Runnable checkCancelled) {
+        return ((S3ObjStorage) objStorage).listFiles(remotePath, recursive, result, checkCancelled);
     }
 
     // broker file pattern glob is too complex, so we use hadoop directly

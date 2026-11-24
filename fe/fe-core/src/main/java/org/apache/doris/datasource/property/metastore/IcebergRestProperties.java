@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.ReauthenticatingRestSessionCatalog;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
 import org.apache.doris.datasource.property.storage.OSSProperties;
@@ -31,6 +32,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.apache.logging.log4j.util.Strings;
 
@@ -204,8 +206,20 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         catalogProps.putAll(getIcebergRestCatalogProperties());
         Configuration configuration = new Configuration();
         toFileIOProperties(storagePropertiesList, catalogProps, configuration);
-        // 4. Build iceberg catalog
-        return buildIcebergCatalog(catalogName, catalogProps, configuration);
+        catalogProps.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
+        Map<String, String> frozenProps = Collections.unmodifiableMap(new HashMap<>(catalogProps));
+        RESTSessionCatalog sessionCatalog = buildRestSessionCatalog(catalogName, frozenProps, configuration);
+        // Keep the RESTCatalog table, view and close interfaces while recovering its underlying session.
+        return new ReauthenticatingRestSessionCatalog(sessionCatalog,
+                () -> buildRestSessionCatalog(catalogName, frozenProps, configuration)).asRestCatalog();
+    }
+
+    protected RESTSessionCatalog buildRestSessionCatalog(String catalogName, Map<String, String> catalogProps,
+            Configuration configuration) {
+        RESTSessionCatalog sessionCatalog = new RESTSessionCatalog();
+        sessionCatalog.setConf(configuration);
+        sessionCatalog.initialize(catalogName, catalogProps);
+        return sessionCatalog;
     }
 
     @Override

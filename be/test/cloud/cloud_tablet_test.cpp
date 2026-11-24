@@ -39,6 +39,8 @@
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/countdown_latch.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -336,6 +338,115 @@ TEST_F(CloudTabletDeleteBitmapTest, AggDeleteBitmapForCompactionReturnsPreRowset
     EXPECT_EQ(aggregated_without_stats->delete_bitmap, aggregated_delete_bitmap->delete_bitmap);
     EXPECT_EQ(rowset_versions_without_stats, pre_rowset_to_versions);
 }
+
+class CloudTabletDeleteBitmapCheckTest : public CloudTabletWarmUpStateTest,
+                                         public testing::WithParamInterface<bool> {
+public:
+    void SetUp() override {
+        CloudTabletWarmUpStateTest::SetUp();
+        TColumn key;
+        key.__set_column_name("k");
+        key.__set_is_key(true);
+        key.column_type.type = TPrimitiveType::BIGINT;
+        TColumn value;
+        value.__set_column_name(GetParam() ? SEQUENCE_COL : "v");
+        value.__set_is_key(false);
+        value.__set_aggregation_type(TAggregationType::REPLACE);
+        value.column_type.type = TPrimitiveType::BIGINT;
+        TTabletSchema schema;
+        schema.__set_short_key_column_count(1);
+        schema.__set_schema_hash(4);
+        schema.__set_keys_type(TKeysType::UNIQUE_KEYS);
+        schema.__set_columns({key, value});
+        schema.__set_sequence_col_idx(GetParam() ? 1 : -1);
+        _tablet_meta.reset(new TabletMeta(1, 2, 15673, 15674, 4, 5, schema, 2, {{0, 0}, {1, 1}},
+                                          UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                          TCompressionType::LZ4F, 0, true));
+        _tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    }
+};
+
+TEST_P(CloudTabletDeleteBitmapCheckTest, DoesNotAcquireHeaderLockDuringBitmapTraversal) {
+    auto rowset = create_rowset(Version(2, 4));
+    ASSERT_NE(rowset, nullptr);
+    _tablet->_rs_version_map.emplace(rowset->version(), rowset);
+    auto& delete_bitmap = _tablet->tablet_meta()->delete_bitmap();
+    roaring::Roaring bitmap;
+    bitmap.add(1);
+    // Version 3 is not a rowset end version, so both schema variants exercise the sequence check.
+    delete_bitmap.set({rowset->rowset_id(), 0, 3}, bitmap);
+
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    Defer cleanup([sp] {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    });
+    CountDownLatch snapshot_ready(1);
+    CountDownLatch resume_check(1);
+    sp->set_call_back(
+            "BaseTablet::check_agg_delete_bitmap_for_stale_rowsets:before_traverse_delete_bitmap",
+            [&](auto&&) {
+                snapshot_ready.count_down();
+                resume_check.wait();
+            });
+    sp->enable_processing();
+
+    int64_t useless_rowsets = 0;
+    int64_t useless_versions = 0;
+    auto check = std::async(std::launch::async, [&] {
+        _tablet->check_agg_delete_bitmap_for_stale_rowsets(useless_rowsets, useless_versions);
+    });
+    Defer unblock_check([&] { resume_check.count_down(); });
+    ASSERT_TRUE(snapshot_ready.wait_for(seconds(10)));
+
+    // Model compaction's exclusive header ownership after the check has captured its rowsets.
+    std::unique_lock header_lock(_tablet->get_header_lock());
+    resume_check.count_down();
+    const auto check_status = check.wait_for(seconds(10));
+    if (check_status == std::future_status::ready) {
+        // Even an empty compaction bitmap takes the DBM write lock while holding the header lock.
+        DeleteBitmap empty_bitmap(_tablet->tablet_id());
+        delete_bitmap.merge(empty_bitmap);
+    }
+    // Let the old callback finish after a timeout instead of leaving a deadlocked test thread.
+    header_lock.unlock();
+    check.get();
+    EXPECT_EQ(check_status, std::future_status::ready);
+    EXPECT_EQ(useless_rowsets, 0);
+    EXPECT_EQ(useless_versions, GetParam() ? 0 : 1);
+}
+
+TEST_P(CloudTabletDeleteBitmapCheckTest, PreservesActiveAndStaleRowsetVersionChecks) {
+    auto active = create_rowset(Version(2, 4));
+    auto stale = create_rowset(Version(5, 7));
+    auto orphan = create_rowset(Version(8, 8));
+    ASSERT_TRUE(active && stale && orphan);
+    _tablet->_rs_version_map.emplace(active->version(), active);
+    _tablet->_stale_rs_version_map.emplace(stale->version(), stale);
+    auto& delete_bitmap = _tablet->tablet_meta()->delete_bitmap();
+    roaring::Roaring bitmap;
+    bitmap.add(1);
+    delete_bitmap.set({active->rowset_id(), 0, 3}, bitmap);
+    delete_bitmap.set({active->rowset_id(), 0, 4}, bitmap);
+    delete_bitmap.set({stale->rowset_id(), 0, 6}, bitmap);
+    delete_bitmap.set({stale->rowset_id(), 0, 7}, bitmap);
+    delete_bitmap.set({orphan->rowset_id(), 0, 8}, bitmap);
+
+    int64_t useless_rowsets = 0;
+    int64_t useless_versions = 0;
+    _tablet->check_agg_delete_bitmap_for_stale_rowsets(useless_rowsets, useless_versions);
+    EXPECT_EQ(useless_rowsets, 1);
+    EXPECT_EQ(useless_versions, GetParam() ? 0 : 2);
+
+    // A version outside the rowset's range is still useless for a sequence table.
+    delete_bitmap.set({active->rowset_id(), 0, 1}, bitmap);
+    _tablet->check_agg_delete_bitmap_for_stale_rowsets(useless_rowsets, useless_versions);
+    EXPECT_EQ(useless_rowsets, 1);
+    EXPECT_EQ(useless_versions, GetParam() ? 1 : 2);
+}
+
+INSTANTIATE_TEST_SUITE_P(SequenceModes, CloudTabletDeleteBitmapCheckTest, testing::Bool());
 
 // Test get_rowset_warmup_state for non-existent rowset
 TEST_F(CloudTabletWarmUpStateTest, TestGetRowsetWarmupStateNonExistent) {
@@ -983,6 +1094,7 @@ protected:
                                              const std::string& compaction_policy = "size_based") {
         TTabletSchema new_schema;
         new_schema.__set_disable_auto_compaction(disable_auto_compaction);
+        new_schema.__set_is_in_memory(false);
         TColumn col;
         col.__set_column_name("test_col_" + std::to_string(_current_tablet_id));
         col.__set_column_type(TColumnType());
@@ -1140,8 +1252,8 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionUnchanged) {
     sp->clear_all_call_backs();
 }
 
-// Test sync_meta is skipped when enable_file_cache is false
-TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSkippedWhenFileCacheDisabled) {
+// sync_meta should keep refreshing tablet meta even when file cache is disabled.
+TEST_F(CloudTabletSyncMetaTest, TestSyncMetaWhenFileCacheDisabled) {
     // Disable file cache
     config::enable_file_cache = false;
 
@@ -1152,17 +1264,22 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSkippedWhenFileCacheDisabled) {
     sp->clear_all_call_backs();
     sp->enable_processing();
 
+    auto mock_tablet_meta = createMockTabletMeta(true, "time_series");
     bool callback_called = false;
     sp->set_call_back("CloudMetaMgr::get_tablet_meta",
-                      [&callback_called](auto&& args) { callback_called = true; });
+                      [mock_tablet_meta, &callback_called](auto&& args) {
+                          callback_called = true;
+                          auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+                          *tablet_meta_ptr = mock_tablet_meta;
+                          try_any_cast_ret<Status>(args)->second = true;
+                      });
 
-    // Call sync_meta - should return early without calling get_tablet_meta
     Status st = _tablet->sync_meta();
     EXPECT_TRUE(st.ok());
-    EXPECT_FALSE(callback_called);
+    EXPECT_TRUE(callback_called);
 
-    // Verify disable_auto_compaction is not changed
-    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
 
     sp->disable_processing();
     sp->clear_all_call_backs();
@@ -1181,6 +1298,12 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
 
     // Create mock tablet meta with updated properties
     auto mock_tablet_meta = createMockTabletMeta(true, "time_series");
+    mock_tablet_meta->set_time_series_compaction_goal_size_mbytes(1234);
+    mock_tablet_meta->set_time_series_compaction_file_count_threshold(17);
+    mock_tablet_meta->set_time_series_compaction_time_threshold_seconds(3601);
+    mock_tablet_meta->set_time_series_compaction_empty_rowsets_threshold(9);
+    mock_tablet_meta->set_time_series_compaction_level_threshold(7);
+    mock_tablet_meta->set_vertical_compaction_num_columns_per_group(13);
 
     // Mock get_tablet_meta to return tablet_meta with updated properties
     sp->set_call_back("CloudMetaMgr::get_tablet_meta", [mock_tablet_meta](auto&& args) {
@@ -1198,10 +1321,47 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     // Verify both properties are synced
     EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
     EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_goal_size_mbytes(), 1234);
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_file_count_threshold(), 17);
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_time_threshold_seconds(), 3601);
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold(), 9);
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_level_threshold(), 7);
+    EXPECT_EQ(_tablet->tablet_meta()->vertical_compaction_num_columns_per_group(), 13);
 
     sp->disable_processing();
     sp->clear_all_call_backs();
 }
+
+TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSyncsTtlWithoutChangingInMemory) {
+    EXPECT_EQ(0, _tablet->tablet_meta()->ttl_seconds());
+    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->is_in_memory());
+
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    auto mock_tablet_meta = createMockTabletMeta(true, "time_series");
+    mock_tablet_meta->set_ttl_seconds(3600);
+    mock_tablet_meta->mutable_tablet_schema()->set_is_in_memory(true);
+
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [mock_tablet_meta](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        *tablet_meta_ptr = mock_tablet_meta;
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+
+    Status st = _tablet->sync_meta();
+    EXPECT_TRUE(st.ok());
+
+    EXPECT_EQ(3600, _tablet->tablet_meta()->ttl_seconds());
+    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->is_in_memory());
+    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
 class CloudTabletApplyVisiblePendingTest : public testing::Test {
 public:
     CloudTabletApplyVisiblePendingTest() : _engine(CloudStorageEngine(EngineOptions {})) {}

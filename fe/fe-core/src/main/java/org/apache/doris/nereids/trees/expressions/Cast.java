@@ -34,7 +34,6 @@ import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
 
@@ -207,12 +206,8 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         } else if (childDataType.isJsonType() && !targetType.isJsonType()) {
             // Json to other type is always nullable
             return true;
-        } else if (childDataType instanceof VariantType
-                && ((VariantType) childDataType).isExecutionV2() && !targetType.isVariantType()) {
-            // Variant V2 values can have a shape that is incompatible with the target type.
-            return true;
-        } else if (childDataType.isVariantType() && targetType.isJsonType()) {
-            // Legacy Variant to Json is always nullable.
+        } else if (childDataType.isVariantType() && !targetType.isVariantType()) {
+            // Variant nulls and incompatible values can produce SQL NULL in both execution representations.
             return true;
         }
         return false;

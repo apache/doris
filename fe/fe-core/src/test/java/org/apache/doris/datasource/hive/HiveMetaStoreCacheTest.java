@@ -19,20 +19,32 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.backup.Status;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.SplitScanContext;
 import org.apache.doris.datasource.metacache.EstimatorCalibrationAssertions;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
+import org.apache.doris.fs.DirectoryLister;
+import org.apache.doris.fs.FileSystemDirectoryLister;
+import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
+import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.google.common.collect.HashBiMap;
+import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -47,6 +59,56 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class HiveMetaStoreCacheTest {
+
+    @Test
+    public void testBatchGlobalFileCacheDoesNotReuseAnotherCatalogListingPolicy() throws Exception {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(1, 1, "refresh", 1, false);
+        ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1, 1, "file", 1, false);
+        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+        CatalogMgr catalogs = env.getCatalogMgr();
+        RemoteFileSystem fs = Mockito.mock(RemoteFileSystem.class);
+        String location = "hdfs://warehouse/shared";
+        Mockito.when(env.getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(Mockito.any())).thenReturn(fs);
+        Mockito.when(fs.listFiles(Mockito.eq(location), Mockito.anyBoolean(), Mockito.anyList(),
+                Mockito.any(Runnable.class))).thenAnswer(invocation -> {
+                    boolean recursive = invocation.getArgument(1);
+                    List<RemoteFile> files = invocation.getArgument(2);
+                    files.add(new RemoteFile(new Path(location + (recursive ? "/recursive.parquet" : "/flat.parquet")),
+                            false, 100, 100, 0, null));
+                    return Status.OK;
+                });
+        try (MockedStatic<Env> current = Mockito.mockStatic(Env.class)) {
+            current.when(Env::getCurrentEnv).thenReturn(env);
+            HiveExternalMetaCache cache = new HiveExternalMetaCache(executor, listExecutor);
+            DirectoryLister shared = new TransactionScopeCachingDirectoryListerFactory(100)
+                    .get(new FileSystemDirectoryLister());
+            for (long id = 1; id <= 2; id++) {
+                HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+                Mockito.when(catalog.getName()).thenReturn("catalog" + id);
+                Mockito.when(catalog.getProperties()).thenReturn(Collections.singletonMap(
+                        "hive.recursive_directories", Boolean.toString(id == 1)));
+                CatalogProperty property = new CatalogProperty(null, Collections.emptyMap());
+                Mockito.when(catalog.getCatalogProperty()).thenReturn(property);
+                Mockito.doReturn(catalog).when(catalogs).getCatalog(id);
+                cache.initCatalog(id, new HashMap<>());
+                HivePartition partition = new HivePartition(NameMapping.createForTest(id, "db", "table"), false,
+                        "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat", location,
+                        Collections.singletonList("1"), Collections.emptyMap());
+                List<HiveExternalMetaCache.FileCacheValue> files = cache.getFilesByPartitions(
+                        Collections.singletonList(partition), true, shared, null, new SplitScanContext());
+                Assertions.assertEquals(1, files.get(0).getFiles().size());
+                Assertions.assertEquals(location + (id == 1 ? "/recursive.parquet" : "/flat.parquet"),
+                        files.get(0).getFiles().get(0).getPath().getNormalizedLocation());
+            }
+            Mockito.verify(fs).listFiles(Mockito.eq(location), Mockito.eq(true), Mockito.anyList(),
+                    Mockito.any(Runnable.class));
+            Mockito.verify(fs).listFiles(Mockito.eq(location), Mockito.eq(false), Mockito.anyList(),
+                    Mockito.any(Runnable.class));
+        } finally {
+            executor.shutdownNow();
+            listExecutor.shutdownNow();
+        }
+    }
 
     @Test
     public void testPartitionValueWeightScalesLinearlyToOneHundredThousandPartitions() {

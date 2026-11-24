@@ -19,6 +19,9 @@ package org.apache.iceberg;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.function.Function;
 
 /** Keeps partition pruning aligned with the schema selected by the Doris relation. */
 public class DorisDataTableScan extends DataTableScan {
@@ -32,6 +35,28 @@ public class DorisDataTableScan extends DataTableScan {
         }
         DataTableScan dataScan = (DataTableScan) scan;
         return new DorisDataTableScan(dataScan.table(), dataScan.tableSchema(), dataScan.context());
+    }
+
+    /**
+     * Rebinds native manifest planning to a query-local table, preserving the complete scan context.
+     * Custom tables/scans may implement different planning semantics and must keep their original behavior.
+     */
+    public static Optional<TableScan> withPlanningTable(TableScan scan, Function<Table, Optional<Table>> tableView,
+            ExecutorService executor) {
+        if (scan.getClass() != DataTableScan.class && scan.getClass() != DorisDataTableScan.class) {
+            return Optional.empty();
+        }
+        Optional<Table> view = tableView.apply(scan.table());
+        if (!view.isPresent()) {
+            return Optional.empty();
+        }
+        DataTableScan nativeScan = (DataTableScan) scan;
+        // schema() may be a projection excluding predicate columns. Keep the original binding schema too.
+        TableScan scoped = scan.getClass() == DorisDataTableScan.class
+                ? new DorisDataTableScan(view.get(), nativeScan.tableSchema(), nativeScan.context())
+                : new DataTableScan(view.get(), nativeScan.tableSchema(), nativeScan.context());
+        // An explicit planWith would override the SDK's plan-in-worker-pool=false setting.
+        return Optional.of(nativeScan.shouldPlanWithExecutor() ? scoped.planWith(executor) : scoped);
     }
 
     /** Rebinds snapshot specs by field ID to the full schema selected for the scan. */

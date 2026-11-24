@@ -40,8 +40,14 @@ final class HmsPartitionBatchExecutor {
 
     private final int maxBatchSize;
     private final HmsPartitionTransport transport;
+    private final Runnable checkCancelled;
 
     HmsPartitionBatchExecutor(int maxBatchSize, HmsPartitionTransport transport) {
+        this(maxBatchSize, transport, () -> {});
+    }
+
+    HmsPartitionBatchExecutor(int maxBatchSize, HmsPartitionTransport transport, Runnable checkCancelled) {
+        this.checkCancelled = checkCancelled;
         if (maxBatchSize <= 0) {
             throw new IllegalArgumentException("invalid HMS partition batch size");
         }
@@ -78,6 +84,7 @@ final class HmsPartitionBatchExecutor {
         int largestBatchSize = 0;
         int smallestBatchSize = Integer.MAX_VALUE;
         while (offset < partitions.size()) {
+            checkCancelled.run();
             int batchSize = Math.min(effectiveBatchSize, partitions.size() - offset);
             List<HmsPartitionIdentity.ParsedPartitionName> batch =
                     partitions.subList(offset, offset + batchSize);
@@ -94,6 +101,7 @@ final class HmsPartitionBatchExecutor {
             try {
                 List<Partition> returned = transport.getPartitionsByNames(
                         request.getDbName(), request.getTableName(), batchNames);
+                checkCancelled.run();
                 result.addAll(validateAndOrder(batch, returned, allowMissing));
                 offset += batchSize;
             } catch (RemoteCallException e) {

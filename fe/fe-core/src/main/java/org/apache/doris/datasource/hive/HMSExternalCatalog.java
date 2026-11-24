@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
@@ -40,6 +41,7 @@ import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractHiveProperties;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemProvider;
@@ -48,6 +50,8 @@ import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
+import com.google.common.net.HostAndPort;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
@@ -56,6 +60,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -82,6 +88,16 @@ public class HMSExternalCatalog extends ExternalCatalog {
     // But notice that if set to true, the default value of column will be ignored because we cannot get default value
     // from remoteTable object.
     public static final String GET_SCHEMA_FROM_TABLE = "get_schema_from_table";
+
+    /**
+     * Every catalog property the HMS client may take its thrift endpoint from: hive.metastore.uris, its
+     * documented alias uri, and Hive 3's metastore.thrift.uris, which the client's MetastoreConf reads before
+     * hive.metastore.uris. {@link HMSBaseProperties} copies only hive.-prefixed catalog properties into the
+     * client's HiveConf, so the last key does not reach the client today; it is gated anyway so the gate stays
+     * correct if that copy widens. The CREATE / ALTER CATALOG SSRF gate probes every endpoint under these keys.
+     */
+    private static final List<String> SSRF_ENDPOINT_KEYS = ImmutableList.of(
+            HMSBaseProperties.HIVE_METASTORE_URIS, "uri", "metastore.thrift.uris");
 
     private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
     private ThreadPoolExecutor fileSystemExecutor;
@@ -168,6 +184,16 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public void checkWhenCreating() throws DdlException {
+        // Reject an intranet endpoint before any real connect in super (test_connection), regardless of that
+        // flag (CREATE path; never reached on replay). On CREATE every property is newly supplied, so the
+        // full map is both the candidate and the touched set.
+        Map<String, String> properties = catalogProperty.getProperties();
+        checkEndpointsAgainstSsrf(properties, properties);
+        super.checkWhenCreating();
+    }
+
+    @Override
     public boolean validatePropertiesBeforeUpdate(
             Map<String, String> currentProperties, Map<String, String> updatedProperties) throws DdlException {
         Map<String, String> candidateProperties = currentProperties == null
@@ -175,6 +201,111 @@ public class HMSExternalCatalog extends ExternalCatalog {
         candidateProperties.putAll(updatedProperties);
         checkProperties(new CatalogProperty(null, candidateProperties));
         return true;
+    }
+
+    @Override
+    public void validatePropertiesBeforeUpdateUnlocked(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) throws DdlException {
+        Map<String, String> candidateProperties = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidateProperties.putAll(updatedProperties);
+        // The probe connects to the endpoint, so it runs here, before CatalogMgr takes its write lock, rather
+        // than in validatePropertiesBeforeUpdate.
+        checkEndpointsAgainstSsrf(candidateProperties, updatedProperties);
+    }
+
+    /**
+     * Applies the operator's SSRF policy (the third-party {@link SecurityChecker} SDK) to every metastore
+     * endpoint these properties would make the FE connect to, rejecting an intranet target. It runs on CREATE
+     * (through {@link #checkWhenCreating()}, before the catalog is registered) and on the interactive ALTER path
+     * (through {@link #validatePropertiesBeforeUpdateUnlocked}, before CatalogMgr takes its write lock) but never
+     * on replay, and it is a no-op unless the operator installed an SSRF checker
+     * ({@code security_checker_class_name}).
+     *
+     * <p>The judgment itself is delegated to the SDK — see {@link SecurityChecker#checkEndpointForSsrf}.
+     * This is a point-in-time check of the endpoint supplied at CREATE/ALTER; it does not guard a later
+     * runtime connection (DNS rebinding, lazy metadata access) — that is a deliberate scope limit.
+     *
+     * <p>An endpoint must be given literally. The HMS client reads it through Hadoop's {@code Configuration},
+     * which expands a {@code ${...}} placeholder (another property, {@code ${env.X}}, a JVM system property)
+     * before it parses the endpoint, so the probe would judge a different destination than the one the client
+     * connects to.
+     */
+    private void checkEndpointsAgainstSsrf(Map<String, String> candidate, Map<String, String> updatedProperties)
+            throws DdlException {
+        SecurityChecker checker = SecurityChecker.getInstance();
+        if (!checker.isEnabled()) {
+            return;
+        }
+        // Checked before the touched guard below: a placeholder value was never probed, and an ALTER that
+        // changes only the property it refers to repoints the catalog without touching an endpoint key.
+        for (String key : SSRF_ENDPOINT_KEYS) {
+            String rawValue = candidate.get(key);
+            if (rawValue != null && rawValue.contains("${")) {
+                throw new DdlException("Property '" + key + "' of catalog '" + name + "' must give its endpoint"
+                        + " literally while an SSRF checker is configured: a ${...} placeholder is expanded"
+                        + " after this check, so its destination cannot be validated");
+            }
+        }
+        // Only an ALTER that touches an endpoint key can repoint the catalog at a new host; a stored literal
+        // value was gated at its own CREATE/ALTER time. On CREATE the full property map is passed as both
+        // arguments, so every supplied endpoint counts as touched and is checked.
+        boolean touched = SSRF_ENDPOINT_KEYS.stream().anyMatch(updatedProperties::containsKey);
+        if (!touched) {
+            return;
+        }
+        for (String key : SSRF_ENDPOINT_KEYS) {
+            String rawValue = candidate.get(key);
+            if (rawValue == null || rawValue.trim().isEmpty()) {
+                continue;
+            }
+            // A value may list several comma-separated endpoints (e.g. HA hive.metastore.uris).
+            for (String endpoint : rawValue.split(",")) {
+                HostAndPort hostAndPort = parseEndpoint(endpoint.trim());
+                if (hostAndPort == null) {
+                    continue;
+                }
+                try {
+                    checker.checkEndpointForSsrf(hostAndPort.getHost(), hostAndPort.getPort());
+                } catch (Exception e) {
+                    throw new DdlException(e.getMessage(), e);
+                }
+            }
+        }
+    }
+
+    /**
+     * Parse one endpoint — {@code scheme://host:port} (e.g. {@code thrift://host:9083}) or a bare
+     * {@code host:port} — into host and port for the SSRF probe. Returns null when no concrete host:port
+     * can be extracted (nothing to probe); {@link HostAndPort} handles IPv6 literals in brackets natively.
+     */
+    static HostAndPort parseEndpoint(String value) {
+        if (value == null || value.isEmpty()) {
+            return null;
+        }
+        try {
+            if (value.contains("://")) {
+                // Match the HMS client's URI semantics: query, fragment and userinfo do not name
+                // the socket destination. HostAndPort.fromParts also strips IPv6 brackets.
+                URI uri = new URI(value);
+                if (uri.getHost() == null || uri.getPort() < 0) {
+                    return null;
+                }
+                return HostAndPort.fromParts(uri.getHost(), uri.getPort());
+            }
+            String authority = value;
+            int slashIdx = authority.indexOf('/');
+            if (slashIdx >= 0) {
+                authority = authority.substring(0, slashIdx);
+            }
+            HostAndPort hostAndPort = HostAndPort.fromString(authority);
+            if (!hostAndPort.hasPort() || hostAndPort.getHost().isEmpty()) {
+                return null;
+            }
+            return hostAndPort;
+        } catch (URISyntaxException | IllegalArgumentException e) {
+            return null;
+        }
     }
 
     @Override

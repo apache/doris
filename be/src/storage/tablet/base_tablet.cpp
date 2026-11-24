@@ -37,6 +37,7 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "cpp/sync_point.h"
 #include "load/memtable/memtable.h"
 #include "service/point_query_executor.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
@@ -2074,6 +2075,13 @@ void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rows
             },
             true);
 
+    // Compaction holds the header lock while merging the delete bitmap. Read the schema
+    // before taking the bitmap lock so the traversal cannot acquire these locks in reverse.
+    const bool has_sequence_col = tablet_schema()->has_sequence_col();
+    TEST_SYNC_POINT_CALLBACK(
+            "BaseTablet::check_agg_delete_bitmap_for_stale_rowsets:before_traverse_delete_bitmap",
+            this);
+
     std::set<RowsetId> useless_rowsets;
     std::map<RowsetId, std::vector<int64_t>> useless_rowset_versions;
     {
@@ -2090,7 +2098,7 @@ void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rows
                         return -1;
                     }
                     if (end_versions.find(version) == end_versions.end()) {
-                        if (tablet_schema()->has_sequence_col()) {
+                        if (has_sequence_col) {
                             auto rowset_version = rowset_it->second;
                             if (version >= rowset_version.first &&
                                 version <= rowset_version.second) {

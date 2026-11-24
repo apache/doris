@@ -67,7 +67,8 @@ public class SplitSource {
     /**
      * Get the next batch of file splits. If there's no more split, return empty list.
      */
-    public List<TScanRangeLocations> getNextBatch(int maxBatchSize) throws UserException {
+    public synchronized List<TScanRangeLocations> getNextBatch(int maxBatchSize) throws UserException {
+        splitAssignment.checkException();
         if (isLastBatch.get()) {
             return Collections.emptyList();
         }
@@ -79,13 +80,18 @@ public class SplitSource {
                 isLastBatch.set(true);
                 break;
             }
-            while (scanRanges.size() < maxBatchSize) {
+            while (scanRanges.size() < maxBatchSize && !splitAssignment.isStop()) {
                 try {
                     Collection<TScanRangeLocations> splitCollection = splits.poll(WAIT_TIME_OUT, TimeUnit.MILLISECONDS);
                     if (splitCollection != null) {
                         scanRanges.addAll(splitCollection);
                     }
                     if (!scanRanges.isEmpty() && System.currentTimeMillis() - startTime > maxWaitTime) {
+                        if (splitAssignment.isStop()) {
+                            splitAssignment.checkException();
+                            return Collections.emptyList();
+                        }
+                        splitAssignment.checkException();
                         return scanRanges;
                     }
                     if (splitCollection == null) {
@@ -97,6 +103,12 @@ public class SplitSource {
             }
         }
 
+        splitAssignment.checkException();
+        if (splitAssignment.isStop()) {
+            splitAssignment.checkException();
+            scanRanges.clear();
+            isLastBatch.set(true);
+        }
         if (scanRanges.isEmpty() && !isLastBatch.get()) {
             // This is timeout
             throw new UserException("Timeout. Max wait time(ms): " + maxWaitTime);
