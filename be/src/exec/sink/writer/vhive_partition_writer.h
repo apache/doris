@@ -24,6 +24,7 @@
 #include "core/column/column.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/transformer/vfile_format_transformer.h"
+#include "io/file_system_properties.h"
 #include "io/fs/file_writer.h"
 
 namespace doris {
@@ -45,8 +46,6 @@ public:
         std::string write_path;
         std::string original_write_path;
         std::string target_path;
-        TFileType::type file_type;
-        std::vector<TNetworkAddress> broker_addresses;
     };
 
     VHivePartitionWriter(const TDataSink& t_sink, std::string partition_name,
@@ -57,7 +56,7 @@ public:
                          TFileFormatType::type file_format_type,
                          TFileCompressType::type hive_compress_type,
                          const THiveSerDeProperties* hive_serde_properties,
-                         const std::map<std::string, std::string>& hadoop_conf);
+                         io::FSPropertiesRef fs_properties);
 
     Status init_properties(ObjectPool* pool) { return Status::OK(); }
 
@@ -102,7 +101,7 @@ private:
     TFileFormatType::type _file_format_type;
     TFileCompressType::type _hive_compress_type;
     const THiveSerDeProperties* _hive_serde_properties;
-    const std::map<std::string, std::string>& _hadoop_conf;
+    io::FSPropertiesRef _fs_properties;
     bool _supports_deferred_azure_multipart = false;
     std::optional<std::string> _hive_parquet_time_zone;
 

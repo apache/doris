@@ -58,8 +58,11 @@ public class AzureFileSystem extends ObjFileSystem {
 
     private static final String DIR_MARKER_SUFFIX = "/";
 
+    private final AzureUri.ServiceEndpoint serviceEndpoint;
+
     public AzureFileSystem(AzureObjStorage objStorage) {
         super(objStorage);
+        serviceEndpoint = objStorage.serviceEndpoint();
     }
 
     /**
@@ -159,7 +162,7 @@ public class AzureFileSystem extends ObjFileSystem {
      * considered a child.
      */
     private boolean hasChildUnder(String prefix) throws IOException {
-        String prefixKey = AzureUri.parse(prefix).key();
+        String prefixKey = AzureUri.parse(prefix, serviceEndpoint).key();
         RemoteObjects firstPage = objStorage.listObjects(prefix, null);
         for (RemoteObject obj : firstPage.getObjectList()) {
             if (obj.getKey().length() > prefixKey.length()) {
@@ -170,11 +173,12 @@ public class AzureFileSystem extends ObjFileSystem {
     }
 
     private void deleteRecursive(String prefix) throws IOException {
+        AzureUri directory = AzureUri.parse(prefix, serviceEndpoint);
         String continuationToken = null;
         do {
             RemoteObjects batch = objStorage.listObjects(prefix, continuationToken);
             for (RemoteObject obj : batch.getObjectList()) {
-                objStorage.deleteObject(rebuildUri(prefix, obj.getKey()));
+                objStorage.deleteObject(directory.appendListedKey(directory.containerUri(), obj.getKey()));
             }
             continuationToken = batch.isTruncated() ? batch.getContinuationToken() : null;
         } while (continuationToken != null);
@@ -317,7 +321,8 @@ public class AzureFileSystem extends ObjFileSystem {
         String parentPrefix = uri.substring(0, lastSlash + 1);
         String basenameGlob = uri.substring(lastSlash + 1);
         Pattern matcher = Pattern.compile(globToRegex(basenameGlob));
-        String parentKey = AzureUri.parse(parentPrefix).key();
+        AzureUri parent = AzureUri.parse(parentPrefix, serviceEndpoint);
+        String parentKey = parent.key();
 
         List<FileEntry> result = new ArrayList<>();
         String continuation = null;
@@ -339,7 +344,7 @@ public class AzureFileSystem extends ObjFileSystem {
                     continue;
                 }
                 result.add(new FileEntry(
-                        Location.of(parentPrefix + relative),
+                        Location.of(parent.appendListedKey(parentPrefix, relative)),
                         obj.getSize(), false, obj.getModificationTime(), List.of()));
             }
             continuation = page.isTruncated() ? page.getContinuationToken() : null;
@@ -371,37 +376,14 @@ public class AzureFileSystem extends ObjFileSystem {
         return new AzureOutputFile(location);
     }
 
-    private static String rebuildUri(String prefix, String key) {
-        // prefix is like "wasbs://container@account.blob.core.windows.net/path/",
-        // key is the full blob name; reconstruct the full URI for the key.
-        int schemeEnd = prefix.indexOf("://");
-        if (schemeEnd < 0) {
-            return prefix + key;
-        }
-        String scheme = prefix.substring(0, schemeEnd);
-        String withoutScheme = prefix.substring(schemeEnd + 3);
-        // For wasb/abfs: "container@account.host/path/"
-        int firstSlash = withoutScheme.indexOf('/');
-        if (firstSlash < 0) {
-            return prefix + key;
-        }
-        String authority = withoutScheme.substring(0, firstSlash);
-        return scheme + "://" + authority + "/" + key;
-    }
-
     @Override
     public GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
             long maxFiles) throws IOException {
         String uri = path.uri();
-        AzureUri parsed = AzureUri.parse(uri);
+        AzureUri parsed = AzureUri.parse(uri, serviceEndpoint);
         String container = parsed.container();
         String keyPattern = parsed.key();
-        // The parsed key is decoded, so its length cannot locate the key in the original URI.
-        int keySeparator = uri.indexOf('/', uri.indexOf("://") + 3);
-        if (parsed.scheme().equals("https") || parsed.scheme().equals("http")) {
-            keySeparator = uri.indexOf('/', keySeparator + 1);
-        }
-        String base = keySeparator < 0 ? uri + "/" : uri.substring(0, keySeparator + 1);
+        String base = parsed.containerUri();
 
         String expandedKeyPattern = ObjectStorageGlob.expandNumericRanges(keyPattern);
         Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
@@ -439,7 +421,7 @@ public class AzureFileSystem extends ObjFileSystem {
                         continue;
                     }
                     files.add(new FileEntry(
-                            Location.of(base + key),
+                            Location.of(parsed.appendListedKey(base, key)),
                             obj.getSize(),
                             false,
                             obj.getModificationTime(),
@@ -510,13 +492,15 @@ public class AzureFileSystem extends ObjFileSystem {
     /** Lazy-paginating FileIterator over Azure list results. */
     private class AzureFileIterator implements FileIterator {
         private final String prefix;
+        private final AzureUri directory;
         private String continuationToken;
         private List<FileEntry> buffer = new ArrayList<>();
         private int bufferIdx = 0;
         private boolean done = false;
 
-        AzureFileIterator(String prefix) {
+        AzureFileIterator(String prefix) throws IOException {
             this.prefix = prefix;
+            this.directory = AzureUri.parse(prefix, serviceEndpoint);
         }
 
         @Override
@@ -548,7 +532,7 @@ public class AzureFileSystem extends ObjFileSystem {
                 if (obj.getKey().endsWith(DIR_MARKER_SUFFIX)) {
                     continue;
                 }
-                Location loc = Location.of(rebuildUri(prefix, obj.getKey()));
+                Location loc = Location.of(directory.appendListedKey(directory.containerUri(), obj.getKey()));
                 buffer.add(new FileEntry(loc, obj.getSize(), false, obj.getModificationTime(), List.of()));
             }
             if (page.isTruncated()) {

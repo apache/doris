@@ -33,16 +33,13 @@
 
 namespace doris {
 
-VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string partition_name,
-                                           TUpdateMode::type update_mode,
-                                           const VExprContextSPtrs& write_output_expr_ctxs,
-                                           std::vector<std::string> write_column_names,
-                                           WriteInfo write_info, std::string file_name,
-                                           int file_name_index,
-                                           TFileFormatType::type file_format_type,
-                                           TFileCompressType::type hive_compress_type,
-                                           const THiveSerDeProperties* hive_serde_properties,
-                                           const std::map<std::string, std::string>& hadoop_conf)
+VHivePartitionWriter::VHivePartitionWriter(
+        const TDataSink& t_sink, std::string partition_name, TUpdateMode::type update_mode,
+        const VExprContextSPtrs& write_output_expr_ctxs,
+        std::vector<std::string> write_column_names, WriteInfo write_info, std::string file_name,
+        int file_name_index, TFileFormatType::type file_format_type,
+        TFileCompressType::type hive_compress_type,
+        const THiveSerDeProperties* hive_serde_properties, io::FSPropertiesRef fs_properties)
         : _partition_name(std::move(partition_name)),
           _update_mode(update_mode),
           _write_output_expr_ctxs(write_output_expr_ctxs),
@@ -53,7 +50,7 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
           _file_format_type(file_format_type),
           _hive_compress_type(hive_compress_type),
           _hive_serde_properties(hive_serde_properties),
-          _hadoop_conf(hadoop_conf),
+          _fs_properties(fs_properties),
           _supports_deferred_azure_multipart(
                   t_sink.hive_table_sink.__isset.supports_deferred_azure_multipart &&
                   t_sink.hive_table_sink.supports_deferred_azure_multipart) {
@@ -65,15 +62,10 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
 Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
     _state = state;
 
-    io::FSPropertiesRef fs_properties(_write_info.file_type);
-    fs_properties.properties = &_hadoop_conf;
-    if (!_write_info.broker_addresses.empty()) {
-        fs_properties.broker_addresses = &(_write_info.broker_addresses);
-    }
     io::FileDescription file_description = {
             .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
             .fs_name {}};
-    _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
+    _fs = DORIS_TRY(FileFactory::create_fs(_fs_properties, file_description));
     if (auto* obj_fs = dynamic_cast<io::ObjStorageFileSystem*>(_fs.get());
         obj_fs != nullptr &&
         !hive_multipart_protocol_supported(storage_provider(obj_fs->client_holder()->config()),
@@ -189,7 +181,7 @@ THivePartitionUpdate VHivePartitionWriter::_build_partition_update() {
 
 bool VHivePartitionWriter::_build_s3_mpu_pending_upload(TS3MPUPendingUpload* pending_upload) {
     DCHECK(pending_upload != nullptr);
-    if (_write_info.file_type != TFileType::FILE_S3 || _file_writer == nullptr) {
+    if (_fs_properties.type != TFileType::FILE_S3 || _file_writer == nullptr) {
         return false;
     }
 

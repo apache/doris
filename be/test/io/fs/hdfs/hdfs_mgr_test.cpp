@@ -21,13 +21,19 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <map>
+#include <string>
 #include <thread>
+#include <utility>
 
 #include "common/config.h"
 #include "common/kerberos/kerberos_ticket_cache.h"
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/status.h"
+#include "io/file_factory.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/hdfs.h"
+#include "runtime/exec_env.h"
 #include "util/defer_op.h"
 
 namespace doris::io {
@@ -157,6 +163,35 @@ TEST_F(HdfsMgrTest, GetOrCreateFsFailure) {
     ASSERT_FALSE(_hdfs_mgr->get_or_create_fs(params, "test_fs", &handler).ok());
     ASSERT_EQ(_hdfs_mgr->get_fs_handlers_size(), 0);
     ASSERT_TRUE(handler == nullptr);
+}
+
+TEST_F(HdfsMgrTest, FileWriterUsesPreparedHdfsParamsWhenAvailable) {
+    auto* env = ExecEnv::GetInstance();
+    auto* previous_hdfs_mgr = std::exchange(env->_hdfs_mgr, _hdfs_mgr.get());
+    Defer restore_hdfs_mgr {[&] { env->_hdfs_mgr = previous_hdfs_mgr; }};
+
+    const std::string fs_name = "hdfs://warehouse";
+    const std::map<std::string, std::string> properties {{"fs.defaultFS", fs_name}};
+    FSPropertiesRef request(TFileType::FILE_HDFS);
+    request.properties = &properties;
+    const auto prepared = request.to_owned();
+
+    // Stop at the connection boundary to test parameter selection without opening a file.
+    const auto connection_error = Status::InternalError("mock HDFS connection failure");
+    testing::InSequence sequence;
+    EXPECT_CALL(*_hdfs_mgr, _create_hdfs_fs_impl(testing::Ref(prepared.hdfs_params), fs_name, _))
+            .WillOnce(Return(connection_error));
+    EXPECT_CALL(*_hdfs_mgr, _create_hdfs_fs_impl(testing::Eq(prepared.hdfs_params), fs_name, _))
+            .WillOnce(Return(connection_error));
+
+    const std::string path = fs_name + "/result.parquet";
+    auto writer = FileFactory::create_file_writer(prepared, env, path, {});
+    ASSERT_FALSE(writer.has_value());
+    EXPECT_EQ(writer.error(), connection_error);
+
+    writer = FileFactory::create_file_writer(request, env, path, {});
+    ASSERT_FALSE(writer.has_value());
+    EXPECT_EQ(writer.error(), connection_error);
 }
 
 // The java-support gate sits in the real _create_hdfs_fs_impl, right before hdfsBuilderConnect():

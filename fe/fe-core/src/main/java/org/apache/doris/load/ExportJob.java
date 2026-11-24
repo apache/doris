@@ -39,6 +39,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -503,6 +504,13 @@ public class ExportJob implements Writable {
         if (brokerDesc.getStorageType() == StorageType.BROKER) {
             outfileProperties.put(BROKER_PROPERTY_PREFIXES + "name", brokerDesc.getName());
             brokerDesc.getProperties().forEach((k, v) -> outfileProperties.put(BROKER_PROPERTY_PREFIXES + k, v));
+        } else if (brokerDesc.getStorageAdapter() != null
+                && brokerDesc.getStorageAdapter().getType() == StorageTypeId.AZURE) {
+            // OUTFILE resolves its storage from these properties again. Azure's backend map cannot
+            // be resolved back: an OAuth2 map is Hadoop ABFS config plus AZURE_* keys, without the
+            // user's provider, account host or token endpoint, so it resolves to HDFS. Hand over the
+            // user's own properties, which OUTFILE resolves as in a direct SELECT INTO OUTFILE.
+            outfileProperties.putAll(brokerDesc.getProperties());
         } else {
             for (Entry<String, String> kv : brokerDesc.getBackendConfigProperties().entrySet()) {
                 outfileProperties.put(kv.getKey(), kv.getValue());

@@ -25,6 +25,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.datasource.storage.AzureThriftAdapter;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileEntry;
@@ -236,7 +237,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         Map<String, String> backendProps = storageAdapter.getBackendConfigProperties();
         String normalizedPath;
         try {
-            normalizedPath = storageAdapter.validateAndNormalizeUri(parsedPath);
+            normalizedPath = storageAdapter.validateAndNormalizeUriForNativeAccess(parsedPath);
         } catch (RuntimeException e) {
             // legacy wrapped checked UserException here; keep the classification and message
             throw new AnalysisException(
@@ -365,6 +366,10 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         parquetParams.setMode(mode);
         parquetParams.setFileType(fileType);
         parquetParams.setProperties(properties);
+        if (fileType == TFileType.FILE_S3) {
+            // Without typed access BE parses the S3-style keys, which can express only SharedKey.
+            AzureThriftAdapter.fromBackendProperties(properties).ifPresent(parquetParams::setAzureClientConfig);
+        }
         if (MODE_BLOOM_PROBE.equals(mode)) {
             parquetParams.setBloomColumn(bloomColumn);
             parquetParams.setBloomLiteral(bloomLiteral);

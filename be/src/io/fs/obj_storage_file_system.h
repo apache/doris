@@ -19,6 +19,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -27,6 +28,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
+#include "io/object_storage/azure_blob_location.h"
 #include "io/object_storage/obj_storage_client_holder.h"
 
 namespace doris::io {
@@ -36,7 +38,8 @@ namespace doris::io {
 class ObjStorageFileSystem final : public RemoteFileSystem {
 public:
     static Result<std::shared_ptr<ObjStorageFileSystem>> create(
-            ObjStorageResourceConfig storage_config, std::string id);
+            ObjStorageResourceConfig storage_config, std::string id,
+            std::optional<AzureBlobEndpoint> azure_endpoint = std::nullopt);
 
     ~ObjStorageFileSystem() override;
 
@@ -84,7 +87,10 @@ protected:
     }
 
 private:
-    ObjStorageFileSystem(ObjStorageResourceConfig storage_config, std::string id);
+    ObjStorageFileSystem(ObjStorageResourceConfig storage_config, std::string id,
+                         std::optional<AzureBlobEndpoint> azure_endpoint = std::nullopt);
+
+    Result<std::string> get_key(const Path& path) const;
 
     Status init();
 
@@ -95,6 +101,7 @@ private:
     std::string _prefix;
     bool _sse_enabled;
     bool _is_internal_bucket;
+    const std::optional<AzureBlobEndpoint> _azure_endpoint;
     std::shared_ptr<ObjStorageClientHolder> _client;
 };
 

@@ -20,6 +20,7 @@ namespace java org.apache.doris.thrift
 
 include "Exprs.thrift"
 include "Types.thrift"
+include "ObjectStorage.thrift"
 include "Opcodes.thrift"
 include "Partitions.thrift"
 include "Descriptors.thrift"
@@ -947,6 +948,7 @@ struct TFileScanRangeParams {
     // Reserved for the scan-level Paimon vector search request in #69493.
     // The per-split physical payload stays in TPaimonFileDesc.vector_payload.
     42: optional TExternalSearchRequest external_search_request
+    43: optional ObjectStorage.TAzureClientConfig azure_client_config
 }
 
 struct TFileRangeDesc {
@@ -1108,6 +1110,7 @@ struct TParquetMetadataParams {
   4: optional map<string, string> properties
   5: optional string bloom_column
   6: optional string bloom_literal
+  7: optional ObjectStorage.TAzureClientConfig azure_client_config
 }
 
 // Partition boundary descriptor for BE-side runtime filter partition pruning.

@@ -17,10 +17,15 @@
 
 package org.apache.doris.filesystem.azure;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
@@ -48,12 +53,14 @@ public final class AzureUri {
     private final String accountName;
     private final String container;
     private final String key;
+    private final String containerUri;
 
-    private AzureUri(String scheme, String accountName, String container, String key) {
+    private AzureUri(String scheme, String accountName, String container, String key, String containerUri) {
         this.scheme = scheme;
         this.accountName = accountName;
         this.container = container;
         this.key = key;
+        this.containerUri = containerUri;
     }
 
     /**
@@ -70,89 +77,144 @@ public final class AzureUri {
      * @throws IOException if the path cannot be parsed or the container name is invalid
      */
     public static AzureUri parse(String path) throws IOException {
+        return parse(path, null);
+    }
+
+    static AzureUri parse(String path, ServiceEndpoint endpoint) throws IOException {
         if (path == null || path.isEmpty()) {
             throw new IOException("Azure path must not be null or empty");
         }
-        int schemeEnd = path.indexOf("://");
+        // Strip a query or fragment before splitting the key or building locations for listed blobs.
+        String location = StringUtils.substringBefore(StringUtils.substringBefore(path, "?"), "#");
+        int schemeEnd = location.indexOf("://");
         if (schemeEnd < 0) {
-            throw new IOException("Cannot parse Azure URI without scheme: " + path);
+            throw new IOException("Cannot parse Azure URI without scheme");
         }
-        String scheme = path.substring(0, schemeEnd).toLowerCase();
-        String rest = path.substring(schemeEnd + 3);
-        // Strip query and fragment so they do not pollute the key segment.
-        int queryIdx = rest.indexOf('?');
-        if (queryIdx >= 0) {
-            rest = rest.substring(0, queryIdx);
-        }
-        int fragIdx = rest.indexOf('#');
-        if (fragIdx >= 0) {
-            rest = rest.substring(0, fragIdx);
-        }
-
-        AzureUri parsed;
-        if (scheme.equals("wasb") || scheme.equals("wasbs")
-                || scheme.equals("abfs") || scheme.equals("abfss")) {
-            parsed = parseWasbAbfs(scheme, rest, path);
-        } else if (scheme.equals("https") || scheme.equals("http")) {
-            parsed = parseHttps(scheme, rest);
-        } else if (scheme.equals("s3") || scheme.equals("s3a") || scheme.equals("s3n")) {
-            parsed = parseS3Compat(scheme, rest);
-        } else {
-            throw new IOException("Unsupported Azure URI scheme '" + scheme + "' in path: " + path);
-        }
-        if (!CONTAINER_NAME_PATTERN.matcher(parsed.container).matches()) {
-            throw new IOException("Invalid Azure container name: " + parsed.container);
-        }
-        return parsed;
-    }
-
-    private static AzureUri parseWasbAbfs(String scheme, String rest, String original) throws IOException {
-        // wasb://container@account.blob.core.windows.net/path
-        int atIdx = rest.indexOf('@');
-        if (atIdx < 0) {
-            throw new IOException("Invalid Azure URI format (missing '@'): " + original);
-        }
-        String container = rest.substring(0, atIdx);
-        String hostAndPath = rest.substring(atIdx + 1);
-        int slashIdx = hostAndPath.indexOf('/');
-        String host = slashIdx < 0 ? hostAndPath : hostAndPath.substring(0, slashIdx);
-        String key = slashIdx < 0 ? "" : hostAndPath.substring(slashIdx + 1);
-        String accountName = host.contains(".") ? host.substring(0, host.indexOf('.')) : host;
-        return new AzureUri(scheme, accountName, container, decodeKey(key));
-    }
-
-    private static AzureUri parseHttps(String scheme, String rest) {
-        // https://account.blob.core.windows.net/container/path
-        int slashIdx = rest.indexOf('/');
-        String host = slashIdx < 0 ? rest : rest.substring(0, slashIdx);
-        String pathAfterHost = slashIdx < 0 ? "" : rest.substring(slashIdx + 1);
-        String accountName = host.contains(".") ? host.substring(0, host.indexOf('.')) : host;
-        int containerEnd = pathAfterHost.indexOf('/');
+        String scheme = location.substring(0, schemeEnd).toLowerCase(Locale.ROOT);
+        int authorityStart = schemeEnd + 3;
+        int keySeparator = nextSlash(location, authorityStart);
+        String authority = location.substring(authorityStart, keySeparator);
         String container;
-        String key;
-        if (containerEnd < 0) {
-            container = pathAfterHost;
-            key = "";
-        } else {
-            container = pathAfterHost.substring(0, containerEnd);
-            key = pathAfterHost.substring(containerEnd + 1);
+        String host;
+        switch (scheme) {
+            case "wasb":
+            case "wasbs":
+            case "abfs":
+            case "abfss":
+                int at = authority.indexOf('@');
+                if (at < 0 || at + 1 == authority.length() || at != authority.lastIndexOf('@')) {
+                    throw new IOException("Invalid Azure URI: expected container@host");
+                }
+                container = authority.substring(0, at);
+                host = authority.substring(at + 1);
+                break;
+            case "https":
+            case "http":
+                host = authority;
+                String servicePath = endpoint == null ? "" : endpoint.path;
+                if (host.isEmpty() || host.indexOf('@') >= 0
+                        || !location.startsWith(servicePath + "/", keySeparator)) {
+                    throw new IOException("Azure location is outside the service endpoint");
+                }
+                int containerStart = keySeparator + servicePath.length() + 1;
+                keySeparator = nextSlash(location, containerStart);
+                container = location.substring(containerStart, keySeparator);
+                break;
+            case "s3":
+            case "s3a":
+            case "s3n":
+                host = "";
+                container = authority;
+                break;
+            default:
+                throw new IOException("Unsupported Azure URI scheme: " + scheme);
         }
-        return new AzureUri(scheme, accountName, container, decodeKey(key));
+        if (endpoint != null && !host.isEmpty() && !endpoint.matches(host)) {
+            throw new IOException("Azure file location does not match the service endpoint");
+        }
+        if (!CONTAINER_NAME_PATTERN.matcher(container).matches()) {
+            throw new IOException("Invalid Azure container name: " + container);
+        }
+        String rawKey = keySeparator == location.length() ? "" : location.substring(keySeparator + 1);
+        // URLDecoder is form-based. In an HTTP URL path '+' is a literal blob-name character.
+        String key = decodeKey(isHttp(scheme) ? rawKey.replace("+", "%2B") : rawKey);
+        return new AzureUri(scheme, StringUtils.substringBefore(host, "."), container, key,
+                location.substring(0, keySeparator) + "/");
     }
 
-    private static AzureUri parseS3Compat(String scheme, String rest) {
-        // s3://container/key — S3-compatibility mode; accountName from properties
-        int slashIdx = rest.indexOf('/');
-        String container;
-        String key;
-        if (slashIdx < 0) {
-            container = rest;
-            key = "";
-        } else {
-            container = rest.substring(0, slashIdx);
-            key = rest.substring(slashIdx + 1);
+    private static int nextSlash(String path, int start) {
+        int slash = path.indexOf('/', start);
+        return slash < 0 ? path.length() : slash;
+    }
+
+    /** Immutable binding shared by the filesystem and its Blob client for every parsed location. */
+    static final class ServiceEndpoint {
+        private final String path;
+        private final String authority;
+        private final String alias;
+        private final String defaultPort;
+
+        ServiceEndpoint(String endpoint) {
+            URI uri;
+            try {
+                uri = new URI(endpoint);
+            } catch (URISyntaxException e) {
+                throw new IllegalArgumentException("Invalid Azure storage endpoint");
+            }
+            if (uri.getRawAuthority() == null) {
+                throw new IllegalArgumentException("Azure storage endpoint requires a host");
+            }
+            path = StringUtils.stripEnd(uri.getRawPath(), "/");
+            defaultPort = "http".equalsIgnoreCase(uri.getScheme()) ? ":80" : ":443";
+            authority = StringUtils.removeEnd(uri.getRawAuthority(), defaultPort);
+            alias = path.isEmpty() ? blobDfsAlias(authority) : "";
         }
-        return new AzureUri(scheme, "", container, decodeKey(key));
+
+        private boolean matches(String host) {
+            String file = StringUtils.removeEnd(host, defaultPort);
+            return authority.equalsIgnoreCase(file) || (!alias.isEmpty() && alias.equalsIgnoreCase(file));
+        }
+
+        private static String blobDfsAlias(String authority) {
+            String[] labels = authority.split("\\.", 3);
+            if (labels.length != 3) {
+                return "";
+            }
+            String cloud = StringUtils.substringBefore(labels[2], ":").toLowerCase(Locale.ROOT);
+            if (!AzureFileSystemProperties.AZURE_BLOB_HOST_SUFFIXES.contains("blob." + cloud)
+                    && !"fabric.microsoft.com".equals(cloud)) {
+                return "";
+            }
+            if (labels[1].equalsIgnoreCase("blob")) {
+                return labels[0] + ".dfs." + labels[2];
+            }
+            if (labels[1].equalsIgnoreCase("dfs")) {
+                return labels[0] + ".blob." + labels[2];
+            }
+            return "";
+        }
+    }
+
+    /** Original URI through the container, including a path-style service's base path. */
+    String containerUri() {
+        return containerUri;
+    }
+
+    private static boolean isHttp(String scheme) {
+        return scheme.equals("https") || scheme.equals("http");
+    }
+
+    String appendListedKey(String prefix, String blobKey) throws IOException {
+        if (!isHttp(scheme)) {
+            return prefix + blobKey;
+        }
+        try {
+            // Escape the blob name as a path, preserving '/' and '+'. An explicit empty authority
+            // keeps leading slashes in the blob name in the path component.
+            return prefix + new URI(null, "", "/" + blobKey, null, null).getRawPath().substring(1);
+        } catch (URISyntaxException e) {
+            throw new IOException("Invalid Azure blob name", e);
+        }
     }
 
     private static String decodeKey(String raw) {

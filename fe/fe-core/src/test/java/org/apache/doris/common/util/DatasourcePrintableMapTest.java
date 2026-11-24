@@ -40,6 +40,17 @@ import java.util.Set;
 public class DatasourcePrintableMapTest {
 
     @Test
+    public void testAzureCredentialsAreMaskedWithoutLoadingPlugins() {
+        for (String key : Set.of("azure.sas_token", "AZURE_SAS_TOKEN", "AZURE_ACCOUNT_KEY", "AZURE_CLIENT_SECRET")) {
+            String rendered = new DatasourcePrintableMap<>(Map.of(key, "test-value", "AZURE_ENDPOINT", "endpoint"),
+                    "=", false, false, true).toString();
+            Assertions.assertTrue(rendered.contains(key + " = " + DatasourcePrintableMap.PASSWORD_MASK));
+            Assertions.assertFalse(rendered.contains("test-value"));
+            Assertions.assertTrue(rendered.contains("AZURE_ENDPOINT = endpoint"));
+        }
+    }
+
+    @Test
     public void testMetastoreDiagnosticAnnotationsPreserveValueAwareRestDisplay() {
         ConnectorPluginManager manager = new ConnectorPluginManager();
         manager.registerProvider(new IcebergConnectorProvider());

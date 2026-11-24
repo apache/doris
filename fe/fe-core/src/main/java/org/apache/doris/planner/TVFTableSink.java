@@ -24,6 +24,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
+import org.apache.doris.datasource.storage.AzureThriftAdapter;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TDataSink;
@@ -134,6 +135,10 @@ public class TVFTableSink extends DataSink {
 
         // Set normalized properties for BE
         tSink.setProperties(backendConnectProps);
+        if (fileType == TFileType.FILE_S3) {
+            // Without typed access BE parses the S3-style keys, which can express only SharedKey.
+            AzureThriftAdapter.fromBackendProperties(backendConnectProps).ifPresent(tSink::setAzureClientConfig);
+        }
 
         // Set columns
         List<TColumn> tColumns = new ArrayList<>();

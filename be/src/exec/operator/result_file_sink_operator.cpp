@@ -24,6 +24,7 @@
 #include "exec/operator/exchange_sink_buffer.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/result_sink_operator.h"
+#include "io/file_factory.h"
 #include "runtime/result_block_buffer.h"
 #include "runtime/result_buffer_mgr.h"
 
@@ -59,9 +60,10 @@ Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
     RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::init(tsink));
     const auto& sink = tsink.result_file_sink;
     CHECK(sink.__isset.file_options);
-    _file_opts = std::make_unique<ResultFileOptions>(sink.file_options);
     CHECK(sink.__isset.storage_backend_type);
     _storage_type = sink.storage_backend_type;
+    auto file_type = DORIS_TRY(FileFactory::convert_storage_type(_storage_type));
+    _file_opts = std::make_unique<ResultFileOptions>(sink.file_options, file_type);
 
     //for impl csv_with_name and csv_with_names_and_types
     _header_type = sink.header_type;

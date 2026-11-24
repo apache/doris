@@ -80,6 +80,16 @@ public class DefaultConnectorContextVendTest {
         Assertions.assertNull(be.get(FsCacheKeys.FS_CACHE_KEY_PROPERTY));
     }
 
+    @Test
+    public void invalidAzureSasDoesNotFallBackToStaticCredentials() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> context().vendStorageCredentials(Map.of(
+                "adls.sas-token.acct.dfs.core.windows.net", "token",
+                "adls.sas-token-expires-at-ms.acct.dfs.core.windows.net", "invalid")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> context().vendStorageCredentials(Map.of(
+                "adls.sas-token.one.dfs.core.windows.net", "first",
+                "adls.sas-token.two.dfs.core.windows.net", "second")));
+    }
+
     private static Map<String, String> ossToken(String accessKeyId) {
         Map<String, String> token = new HashMap<>();
         token.put("fs.oss.accessKeyId", accessKeyId);

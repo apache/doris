@@ -36,6 +36,7 @@
 #include "exprs/vexpr_context.h"
 #include "format/table/iceberg/schema.h"
 #include "format/table/iceberg/schema_parser.h"
+#include "io/file_system_properties.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
 
@@ -398,21 +399,13 @@ Status VIcebergMergeSink::_build_inner_sinks() {
     if (merge_sink.__isset.original_output_path) {
         table_sink.__set_original_output_path(merge_sink.original_output_path);
     }
-    if (merge_sink.__isset.hadoop_config) {
-        table_sink.__set_hadoop_config(merge_sink.hadoop_config);
-    }
-    if (merge_sink.__isset.file_type) {
-        table_sink.__set_file_type(merge_sink.file_type);
-    }
-    if (merge_sink.__isset.broker_addresses) {
-        table_sink.__set_broker_addresses(merge_sink.broker_addresses);
-    }
     if (merge_sink.__isset.collect_column_stats) {
         table_sink.__set_collect_column_stats(merge_sink.collect_column_stats);
     }
     if (merge_sink.__isset.nan_count_field_ids) {
         table_sink.__set_nan_count_field_ids(merge_sink.nan_count_field_ids);
     }
+    io::copy_table_sink_file_system_properties(merge_sink, table_sink);
     _table_sink.__set_type(TDataSinkType::ICEBERG_TABLE_SINK);
     _table_sink.__set_iceberg_table_sink(table_sink);
 
@@ -438,20 +431,11 @@ Status VIcebergMergeSink::_build_inner_sinks() {
     if (merge_sink.__isset.table_location) {
         delete_sink.__set_table_location(merge_sink.table_location);
     }
-    if (merge_sink.__isset.hadoop_config) {
-        delete_sink.__set_hadoop_config(merge_sink.hadoop_config);
-    }
-    if (merge_sink.__isset.file_type) {
-        delete_sink.__set_file_type(merge_sink.file_type);
-    }
     if (merge_sink.__isset.partition_spec_id_for_delete) {
         delete_sink.__set_partition_spec_id(merge_sink.partition_spec_id_for_delete);
     }
     if (merge_sink.__isset.partition_data_json_for_delete) {
         delete_sink.__set_partition_data_json(merge_sink.partition_data_json_for_delete);
-    }
-    if (merge_sink.__isset.broker_addresses) {
-        delete_sink.__set_broker_addresses(merge_sink.broker_addresses);
     }
     if (merge_sink.__isset.format_version) {
         delete_sink.__set_format_version(merge_sink.format_version);
@@ -459,6 +443,7 @@ Status VIcebergMergeSink::_build_inner_sinks() {
     if (merge_sink.__isset.rewritable_delete_file_sets) {
         delete_sink.__set_rewritable_delete_file_sets(merge_sink.rewritable_delete_file_sets);
     }
+    io::copy_table_sink_file_system_properties(merge_sink, delete_sink);
     _delete_sink.__set_type(TDataSinkType::ICEBERG_DELETE_SINK);
     _delete_sink.__set_iceberg_delete_sink(delete_sink);
 

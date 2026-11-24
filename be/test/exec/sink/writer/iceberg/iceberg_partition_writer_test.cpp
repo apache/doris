@@ -82,17 +82,13 @@ protected:
     static std::unique_ptr<VIcebergPartitionWriter> make_writer(
             const TDataSink& sink, const VExprContextSPtrs& output_exprs,
             const iceberg::Schema& schema, const std::string* schema_json,
-            const std::map<std::string, std::string>& hadoop_conf,
             TFileFormatType::type format = TFileFormatType::FORMAT_ORC,
             IcebergOutputLocation location = IcebergOutputLocation(
                     "/tmp/iceberg_partition_writer_test", "/tmp/iceberg_partition_writer_test")) {
-        IPartitionWriterBase::WriteInfo write_info {.location = std::move(location),
-                                                    .file_type = TFileType::FILE_LOCAL,
-                                                    .broker_addresses = {}};
         return std::make_unique<VIcebergPartitionWriter>(
                 sink, std::vector<std::string> {}, output_exprs, schema, schema_json,
-                std::vector<std::string> {}, std::move(write_info), "data", 0, format,
-                TFileCompressType::ZLIB, hadoop_conf);
+                std::vector<std::string> {}, std::move(location), "data", 0, format,
+                TFileCompressType::ZLIB, io::FSPropertiesRef(TFileType::FILE_LOCAL));
     }
 
     static void install_fake_transformer(VIcebergPartitionWriter* writer,
@@ -122,9 +118,7 @@ TEST_F(VIcebergPartitionWriterTest, OrcSkipsFooterCollectionWhenMetricsAreDisabl
     VExprContextSPtrs output_exprs;
     iceberg::Schema schema(std::vector<iceberg::NestedField> {});
     std::string schema_json;
-    std::map<std::string, std::string> hadoop_conf;
-    auto writer =
-            make_writer(make_table_sink(false), output_exprs, schema, &schema_json, hadoop_conf);
+    auto writer = make_writer(make_table_sink(false), output_exprs, schema, &schema_json);
     install_fake_transformer(writer.get(), output_exprs);
 
     TIcebergCommitData commit_data;
@@ -137,11 +131,9 @@ TEST_F(VIcebergPartitionWriterTest, CommitDataRecordsTheTableFormOfTheLocation) 
     VExprContextSPtrs output_exprs;
     iceberg::Schema schema(std::vector<iceberg::NestedField> {});
     std::string schema_json;
-    std::map<std::string, std::string> hadoop_conf;
-    auto writer =
-            make_writer(make_table_sink(false), output_exprs, schema, &schema_json, hadoop_conf,
-                        TFileFormatType::FORMAT_ORC,
-                        IcebergOutputLocation("s3://b/db/t/data/p=1", "oss://b/db/t/data/p=1"));
+    auto writer = make_writer(
+            make_table_sink(false), output_exprs, schema, &schema_json, TFileFormatType::FORMAT_ORC,
+            IcebergOutputLocation("s3://b/db/t/data/p=1", "oss://b/db/t/data/p=1"));
     install_fake_transformer(writer.get(), output_exprs);
 
     TIcebergCommitData commit_data;
@@ -184,7 +176,7 @@ TEST_F(VIcebergPartitionWriterTest, ParquetKeepsSplitOffsetsWhenColumnMetricsAre
     block.insert({std::move(column), type, "value"});
     ASSERT_TRUE(transformer->write(block).ok());
     ASSERT_TRUE(transformer->close().ok());
-    auto writer = make_writer(make_table_sink(false), output_exprs, *schema, &json, {},
+    auto writer = make_writer(make_table_sink(false), output_exprs, *schema, &json,
                               TFileFormatType::FORMAT_PARQUET);
     install_parquet_transformer(writer.get(), std::move(transformer));
     TIcebergCommitData commit;
@@ -199,9 +191,7 @@ TEST_F(VIcebergPartitionWriterTest, MissingPolicyKeepsCollectionEnabledForRollin
     VExprContextSPtrs output_exprs;
     iceberg::Schema schema(std::vector<iceberg::NestedField> {});
     std::string schema_json;
-    std::map<std::string, std::string> hadoop_conf;
-    auto writer = make_writer(make_table_sink(std::nullopt), output_exprs, schema, &schema_json,
-                              hadoop_conf);
+    auto writer = make_writer(make_table_sink(std::nullopt), output_exprs, schema, &schema_json);
 
     EXPECT_TRUE(collect_column_stats(*writer));
 }
@@ -210,15 +200,12 @@ TEST_F(VIcebergPartitionWriterTest, UnsupportedParquetCodecDoesNotCreateFile) {
     VExprContextSPtrs output_exprs;
     iceberg::Schema schema(std::vector<iceberg::NestedField> {});
     std::string schema_json;
-    std::map<std::string, std::string> hadoop_conf;
-    IPartitionWriterBase::WriteInfo write_info {.location = IcebergOutputLocation(".", "."),
-                                                .file_type = TFileType::FILE_LOCAL,
-                                                .broker_addresses = {}};
     auto writer = std::make_unique<VIcebergPartitionWriter>(
             make_table_sink(std::nullopt), std::vector<std::string> {}, output_exprs, schema,
-            &schema_json, std::vector<std::string> {}, std::move(write_info),
+            &schema_json, std::vector<std::string> {}, IcebergOutputLocation(".", "."),
             "unsupported_parquet_codec_" + UniqueId::gen_uid().to_string(), 0,
-            TFileFormatType::FORMAT_PARQUET, TFileCompressType::ZLIB, hadoop_conf);
+            TFileFormatType::FORMAT_PARQUET, TFileCompressType::ZLIB,
+            io::FSPropertiesRef(TFileType::FILE_LOCAL));
 
     auto* sync_point = SyncPoint::get_instance();
     const bool sync_point_was_enabled = sync_point->get_enable();
@@ -251,9 +238,8 @@ TEST_F(VIcebergPartitionWriterTest, SortWriterPropagatesUnderlyingCloseFailure) 
     VExprContextSPtrs output_exprs;
     iceberg::Schema schema(std::vector<iceberg::NestedField> {});
     std::string schema_json;
-    std::map<std::string, std::string> hadoop_conf;
     auto partition_writer = std::shared_ptr<VIcebergPartitionWriter>(
-            make_writer(make_table_sink(false), output_exprs, schema, &schema_json, hadoop_conf));
+            make_writer(make_table_sink(false), output_exprs, schema, &schema_json));
     install_fake_transformer(partition_writer.get(), output_exprs,
                              Status::IOError("injected close failure"));
     VIcebergSortWriter sort_writer(partition_writer, TSortInfo(), 1024);
@@ -270,9 +256,8 @@ TEST_F(VIcebergPartitionWriterTest, FailedCloseDefersFileCleanupToOuterCallback)
     VExprContextSPtrs output_exprs;
     iceberg::Schema schema(std::vector<iceberg::NestedField> {});
     std::string schema_json;
-    std::map<std::string, std::string> hadoop_conf;
     auto writer = std::shared_ptr<VIcebergPartitionWriter>(
-            make_writer(make_table_sink(false), output_exprs, schema, &schema_json, hadoop_conf));
+            make_writer(make_table_sink(false), output_exprs, schema, &schema_json));
     bool transformer_destroyed = false;
     install_fake_transformer(writer.get(), output_exprs, Status::OK(), &transformer_destroyed);
     writer->_fs = io::global_local_filesystem();
@@ -298,9 +283,8 @@ TEST_F(VIcebergPartitionWriterTest, RepeatedClosePreservesTerminalError) {
     VExprContextSPtrs output_exprs;
     iceberg::Schema schema(std::vector<iceberg::NestedField> {});
     std::string schema_json;
-    std::map<std::string, std::string> hadoop_conf;
     auto writer = std::shared_ptr<VIcebergPartitionWriter>(
-            make_writer(make_table_sink(false), output_exprs, schema, &schema_json, hadoop_conf));
+            make_writer(make_table_sink(false), output_exprs, schema, &schema_json));
     install_fake_transformer(writer.get(), output_exprs, Status::IOError("injected close failure"));
     writer->_fs = io::global_local_filesystem();
     writer->_path = "/tmp/doris-iceberg-close-failure.orc";
@@ -323,9 +307,8 @@ TEST_F(VIcebergPartitionWriterTest, EosReservationIncludesActualSpillFanIn) {
     VExprContextSPtrs output_exprs;
     iceberg::Schema schema(std::vector<iceberg::NestedField> {});
     std::string schema_json;
-    std::map<std::string, std::string> hadoop_conf;
     auto partition_writer = std::shared_ptr<VIcebergPartitionWriter>(
-            make_writer(make_table_sink(false), output_exprs, schema, &schema_json, hadoop_conf));
+            make_writer(make_table_sink(false), output_exprs, schema, &schema_json));
     VIcebergSortWriter sort_writer(partition_writer, TSortInfo(), 1024);
     MockRuntimeState state;
     ObjectPool pool;

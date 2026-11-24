@@ -25,6 +25,8 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/iceberg_sorter_reserve_memory.h"
+#include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
+#include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 #include "exec/sink/writer/iceberg/vpartition_writer_base.h"
 #include "runtime/runtime_state.h"
@@ -89,6 +91,36 @@ protected:
         writer->_publish_active_writers();
     }
 };
+
+TEST_F(VIcebergTableWriterLifecycleTest, SortedFilesBorrowStorageFromTheTable) {
+    auto sink = make_sink();
+    auto& thrift = sink.iceberg_table_sink;
+    thrift.__set_file_type(TFileType::FILE_S3);
+    thrift.__set_hadoop_config({{"provider", "azure"}});
+    thrift.__set_sort_info(TSortInfo {});
+    TAzureClientConfig azure;
+    azure.__set_endpoint("https://acct.blob.core.windows.net");
+    thrift.__set_azure_client_config(azure);
+    VExprContextSPtrs exprs;
+    VIcebergTableWriter table(sink, exprs);
+    table._output_location.emplace("s3://blue/data", "abfss://blue@acct.dfs.core.windows.net/data");
+    table._schema = std::make_shared<iceberg::Schema>(std::vector<iceberg::NestedField> {});
+    std::string name = "part";
+    auto sorted = std::dynamic_pointer_cast<VIcebergSortWriter>(
+            table._create_partition_writer(nullptr, -1, &name, 0));
+    ASSERT_NE(nullptr, sorted);
+    // This is the same factory the sorter calls after closing its first file.
+    auto next = sorted->_create_writer_lambda(&name, 1);
+    for (const auto& writer : {sorted->_iceberg_partition_writer, next}) {
+        EXPECT_EQ(&table._t_sink.iceberg_table_sink.hadoop_config,
+                  writer->_fs_properties.properties);
+        EXPECT_EQ(&table._t_sink.iceberg_table_sink.azure_client_config,
+                  writer->_fs_properties.azure_client_config);
+        EXPECT_EQ("s3://blue/data/f", writer->_location.write_path("f"));
+        EXPECT_EQ("abfss://blue@acct.dfs.core.windows.net/data/f",
+                  writer->_location.commit_path("f"));
+    }
+}
 
 TEST_F(VIcebergTableWriterLifecycleTest, RejectsCoordinatorWithoutExternalFileReportAck) {
     VIcebergTableWriter writer(make_sink(), {});

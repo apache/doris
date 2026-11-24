@@ -40,7 +40,6 @@
 #include "exec/scan/file_scan_io_context.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format_v2/table_reader.h"
-#include "io/hdfs_builder.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_points.h"
 #include "util/hash_util.hpp"
@@ -174,21 +173,6 @@ IcebergDeleteFileIOContext::IcebergDeleteFileIOContext(RuntimeState* state) {
     if (state != nullptr) {
         init_file_scan_io_context(state, &io_ctx);
     }
-}
-
-TFileScanRangeParams build_iceberg_delete_scan_range_params(
-        const std::map<std::string, std::string>& hadoop_conf, TFileType::type file_type,
-        const std::vector<TNetworkAddress>& broker_addresses) {
-    TFileScanRangeParams params;
-    params.__set_file_type(file_type);
-    params.__set_properties(hadoop_conf);
-    if (file_type == TFileType::FILE_HDFS) {
-        params.__set_hdfs_params(parse_properties(hadoop_conf));
-    }
-    if (!broker_addresses.empty()) {
-        params.__set_broker_addresses(broker_addresses);
-    }
-    return params;
 }
 
 TFileRangeDesc build_iceberg_delete_file_range(const std::string& path, int64_t file_size) {
