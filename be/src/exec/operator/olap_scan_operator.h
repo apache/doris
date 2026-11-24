@@ -135,6 +135,9 @@ private:
     std::set<int32_t> _output_column_ids;
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
+    RuntimeProfile::Counter* _bytes_scanned_from_cache = nullptr;
+    RuntimeProfile::Counter* _bytes_scanned_from_remote = nullptr;
+    RuntimeProfile::Counter* _bytes_write_into_cache = nullptr;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
     snii::SniiPrxRuntimeProfileCounters _snii_prx_profile_counters;
 
