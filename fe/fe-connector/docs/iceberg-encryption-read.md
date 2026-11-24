@@ -87,6 +87,8 @@ heartbeats revoke encryption support immediately while preserving the configured
 backend liveness tolerance on every FE. Admission requires every backend in the
 external scan scheduler's current candidate set to be capable, using the session's
 compute group and the scheduler's availability rules.
+Default scans and admission reuse the candidate subset selected once per statement
+and compute group; capability checks still read the current backend state.
 
 Initial fragments use `FORMAT_PARQUET_PME` (wire value 22), including shared scan
 parameters. Assigned targets are checked before serialization and again before

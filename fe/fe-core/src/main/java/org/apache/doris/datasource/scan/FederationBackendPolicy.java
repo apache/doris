@@ -27,7 +27,9 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ResettableRandomizedIterator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ConsistentHash;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.datasource.split.SplitWeight;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.spi.Split;
@@ -177,11 +179,25 @@ public class FederationBackendPolicy {
     }
 
     public void init(List<String> preLocations) throws UserException {
-        init(queryBackendPolicy(preLocations));
+        ComputeGroup computeGroup = queryComputeGroup();
+        init(computeGroup, preLocations.isEmpty() ? getQueryAvailableBackends(computeGroup)
+                : queryBackendPolicy(preLocations).getCandidateBackends(computeGroup.getBackendList()));
     }
 
     public static List<Backend> getQueryAvailableBackends() throws UserException {
-        return queryBackendPolicy(Collections.emptyList()).getCandidateBackends(queryComputeGroup().getBackendList());
+        return getQueryAvailableBackends(queryComputeGroup());
+    }
+
+    private static List<Backend> getQueryAvailableBackends(ComputeGroup computeGroup) {
+        ConnectContext context = ConnectContext.get();
+        StatementContext statement = context == null ? null : context.getStatementContext();
+        ConnectorStatementScope scope = statement == null ? ConnectorStatementScope.NONE
+                : statement.getOrCreateConnectorStatementScope();
+        String key = "engine:external-scan-backends:" + computeGroup.getClass().getName() + ":" + computeGroup.getId();
+        // Selection can randomly fill a compute-node deficit with mixed nodes. Admission and every default
+        // scan must reuse that result within the statement, while capability checks continue to read live state.
+        return scope.computeIfAbsentForPlanning(key, () -> List.copyOf(queryBackendPolicy(Collections.emptyList())
+                .getCandidateBackends(computeGroup.getBackendList())));
     }
 
     private static BeSelectionPolicy queryBackendPolicy(List<String> preLocations) {
@@ -197,7 +213,11 @@ public class FederationBackendPolicy {
 
     public void init(BeSelectionPolicy policy) throws UserException {
         ComputeGroup computeGroup = queryComputeGroup();
-        backends.addAll(policy.getCandidateBackends(computeGroup.getBackendList()));
+        init(computeGroup, policy.getCandidateBackends(computeGroup.getBackendList()));
+    }
+
+    private void init(ComputeGroup computeGroup, List<Backend> candidates) throws UserException {
+        backends.addAll(candidates);
         if (backends.isEmpty()) {
             if (Config.isCloudMode()) {
                 throw new UserException("No available backends, "
