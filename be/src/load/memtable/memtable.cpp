@@ -30,6 +30,7 @@
 #include "common/config.h"
 #include "core/column/column.h"
 #include "core/column/column_vector.h"
+#include "core/types.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "load/delta_writer/delta_writer_context.h"
@@ -807,7 +808,10 @@ bool MemTable::need_flush() const {
     if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         auto update_columns_size = _num_columns;
         auto min_buffer_size = config::min_write_buffer_size_for_partial_update;
-        max_size = max_size * update_columns_size / _tablet_schema->num_columns();
+        // Multiply before division in Int128. For example, 2^62 bytes times four columns
+        // wraps to zero in uint64. The updated columns are a subset, so the result fits int64.
+        max_size = static_cast<int64_t>(static_cast<Int128>(max_size) * update_columns_size /
+                                        _tablet_schema->num_columns());
         max_size = max_size > min_buffer_size ? max_size : min_buffer_size;
     }
 

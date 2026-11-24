@@ -52,10 +52,14 @@
     static Register reg_##FIELD_NAME(#FIELD_TYPE, #FIELD_NAME, &(FIELD_NAME), FIELD_DEFAULT, \
                                      VALMUTABLE);
 
-#define DEFINE_VALIDATOR(FIELD_NAME, VALIDATOR)              \
-    static auto validator_##FIELD_NAME = VALIDATOR;          \
-    static RegisterConfValidator reg_validator_##FIELD_NAME( \
-            #FIELD_NAME, []() -> bool { return validator_##FIELD_NAME(FIELD_NAME); });
+// NOLINTNEXTLINE(clang-diagnostic-unused-macros): Exported macro; validate before publishing.
+#define DEFINE_VALIDATOR(FIELD_NAME, VALIDATOR)                                \
+    static auto validator_##FIELD_NAME = VALIDATOR;                            \
+    static RegisterConfValidator reg_validator_##FIELD_NAME(                   \
+            #FIELD_NAME, [](const void* candidate) -> bool {                   \
+                return validator_##FIELD_NAME(                                 \
+                        *static_cast<const decltype(FIELD_NAME)*>(candidate)); \
+            });
 
 // DEFINE_ON_UPDATE macro is used to register a callback function that will be called
 // when the config field is updated at runtime.
@@ -2185,12 +2189,12 @@ public:
 class RegisterConfValidator {
 public:
     // Validator for each config name.
-    static std::map<std::string, std::function<bool()>>* _s_field_validator;
+    static std::map<std::string, std::function<bool(const void*)>>* _s_field_validator;
 
 public:
-    RegisterConfValidator(const char* fname, const std::function<bool()>& validator) {
+    RegisterConfValidator(const char* fname, const std::function<bool(const void*)>& validator) {
         if (_s_field_validator == nullptr) {
-            _s_field_validator = new std::map<std::string, std::function<bool()>>();
+            _s_field_validator = new std::map<std::string, std::function<bool(const void*)>>();
         }
         // register validator to _s_field_validator
         _s_field_validator->insert(std::make_pair(std::string(fname), validator));
