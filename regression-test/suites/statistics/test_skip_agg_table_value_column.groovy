@@ -204,6 +204,23 @@ suite("test_skip_agg_table_value_column") {
     wait_row_count_reported("test_skip_agg_table_value_column", "uni_mow", 1, 4, "5")
     wait_row_count_reported("test_skip_agg_table_value_column", "uni_mow", 2, 4, "5")
 
+    // Default enable_fixed_block_stats_sampling=true collects merged value columns on base tables and Sync MVs.
+    sql """analyze table dup with sync with sample rows 400000"""
+    def defaultStats = sql """show column stats dup"""
+    assertEquals(12, defaultStats.size())
+    sql """drop stats dup"""
+    sql """analyze table agg with sync with sample rows 400000"""
+    defaultStats = sql """show column stats agg"""
+    assertEquals(13, defaultStats.size())
+    sql """drop stats agg"""
+    sql """analyze table uni_mor with sync with sample rows 400000"""
+    defaultStats = sql """show column stats uni_mor"""
+    assertEquals(11, defaultStats.size())
+    sql """drop stats uni_mor"""
+
+    // Legacy sampling (enable_fixed_block_stats_sampling=false) still skips unmerged AGG/MOR value columns.
+    sql """set global enable_fixed_block_stats_sampling=false"""
+    try {
     sql """analyze table dup with sync"""
     def result = sql """show column stats dup"""
     assertEquals(12, result.size())
@@ -271,6 +288,9 @@ suite("test_skip_agg_table_value_column") {
     sql """drop stats uni_mow"""
     result = sql """show column stats uni_mow"""
     assertEquals(0, result.size())
+    } finally {
+        sql """set global enable_fixed_block_stats_sampling=true"""
+    }
 
     // Test PREAGGOPEN hint.
     explain {

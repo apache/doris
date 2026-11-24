@@ -22,9 +22,12 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -58,6 +61,10 @@ public class AnalyzeTest extends TestWithFeService {
                     + "DISTRIBUTED BY HASH(col3)\n" + "BUCKETS 1\n"
                     + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n"
                     + ");");
+            createTable("CREATE TABLE t_part (p int not null, v int not null)\n"
+                    + "PARTITION BY RANGE(p) (PARTITION p1 VALUES LESS THAN (10), PARTITION p2 VALUES LESS THAN (20))\n"
+                    + "DISTRIBUTED BY HASH(p) BUCKETS 1\n"
+                    + "PROPERTIES(\"replication_num\"=\"1\");");
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -131,6 +138,45 @@ public class AnalyzeTest extends TestWithFeService {
 
             Mockito.verify(task, Mockito.times(1)).runQuery(Mockito.anyString());
         }
+    }
+
+    @Test
+    public void testPartitionAnalyzeValidationAndExplicitPartitionRouting() throws Exception {
+        NereidsParser parser = new NereidsParser();
+        AnalyzeTableCommand invalidSubsetSample = (AnalyzeTableCommand) parser.parseSingle(
+                "ANALYZE TABLE t_part PARTITION(p1) WITH SAMPLE ROWS 100");
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> invalidSubsetSample.validate(connectContext));
+        Assertions.assertTrue(ex.getMessage().contains("Partition-scoped ANALYZE with sample is not supported"),
+                ex.getMessage());
+
+        AnalyzeTableCommand starSample = (AnalyzeTableCommand) parser.parseSingle(
+                "ANALYZE TABLE t_part PARTITION(*) WITH SAMPLE ROWS 100");
+        Assertions.assertDoesNotThrow(() -> starSample.validate(connectContext));
+
+        AnalyzeTableCommand explicitSubsetFull = (AnalyzeTableCommand) parser.parseSingle(
+                "ANALYZE TABLE t_part PARTITION(p1) WITH SYNC");
+        Assertions.assertDoesNotThrow(() -> explicitSubsetFull.validate(connectContext));
+        Assertions.assertDoesNotThrow(explicitSubsetFull::checkAndSetSample);
+        Assertions.assertEquals(AnalysisMethod.FULL, explicitSubsetFull.getAnalysisMethod());
+
+        // Explicit PARTITION(...) full analyze routes to doPartitionTable() even when enable_partition_analyze=false.
+        OlapTable mockedPartTable = Mockito.mock(OlapTable.class);
+        Mockito.when(mockedPartTable.isPartitionedTable()).thenReturn(true);
+        OlapAnalysisTask partTask = Mockito.spy(new OlapAnalysisTask());
+        partTask.tbl = mockedPartTable;
+        partTask.col = new Column("p", PrimitiveType.INT);
+        partTask.info = new AnalysisInfoBuilder()
+                .setPartitionOnly(true)
+                .setPartitionNames(Set.of("p1"))
+                .setAnalysisMethod(AnalysisMethod.FULL)
+                .build();
+        Mockito.doNothing().when(partTask).doPartitionTable();
+        try (MockedStatic<StatisticsUtil> mockedUtil = Mockito.mockStatic(StatisticsUtil.class)) {
+            mockedUtil.when(StatisticsUtil::enablePartitionAnalyze).thenReturn(false);
+            partTask.doFull();
+        }
+        Mockito.verify(partTask, Mockito.times(1)).doPartitionTable();
     }
 
 }

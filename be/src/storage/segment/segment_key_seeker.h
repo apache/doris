@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace doris {
@@ -30,6 +31,7 @@ class StorageReadOptions;
 class TabletSchema;
 struct RowSetSplits;
 struct SampleSegment;
+struct Slice;
 namespace segment_v2 {
 class Segment;
 }
@@ -47,6 +49,7 @@ public:
                                    std::vector<std::unique_ptr<SegmentKeySeeker>>* seekers,
                                    std::vector<SampleSegment>* segments);
     virtual const ShortKeyIndexDecoder& index() const = 0;
+    virtual Slice index_prefix(uint32_t block) const;
     virtual Status read_prefix(uint32_t row, std::string* prefix) = 0;
     virtual Status read_tuple(uint32_t row, std::vector<std::string>* tuple, size_t* bytes) = 0;
     virtual Status read_key(uint32_t row, std::string* prefix, std::vector<std::string>* tuple,
@@ -56,6 +59,8 @@ public:
                        uint32_t rows, uint32_t* ordinal, uint32_t min_ordinal = 0);
 
 private:
+    std::pair<uint32_t, uint32_t> _prefix_ordinal_window(const Slice& prefix, uint32_t limit,
+                                                         bool prefix_start) const;
     std::string _max_key;
 };
 } // namespace doris

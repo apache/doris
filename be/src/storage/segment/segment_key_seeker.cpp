@@ -20,6 +20,7 @@
 #include <algorithm>
 
 #include "common/check.h"
+#include "common/consts.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type_factory.hpp"
@@ -41,12 +42,48 @@ public:
                            const StorageReadOptions& options)
             : _segment(std::move(segment)),
               _options(options),
-              _encoder(*_segment->tablet_schema(), false) {}
+              _encoder(*_segment->tablet_schema(), false) {
+        const auto& schema = *_segment->tablet_schema();
+        _effective_short_key_columns = schema.num_short_key_columns();
+        for (size_t i = 0; i + 1 < schema.num_short_key_columns(); ++i) {
+            const auto& col = schema.column(i);
+            if (col.type() == FieldType::OLAP_FIELD_TYPE_CHAR &&
+                col.index_length() < col.length()) {
+                _effective_short_key_columns = i + 1;
+                break;
+            }
+        }
+        if (_effective_short_key_columns < schema.num_short_key_columns()) {
+            _prefix_field_widths.reserve(_effective_short_key_columns);
+            for (size_t i = 0; i < _effective_short_key_columns; ++i) {
+                _prefix_field_widths.push_back(
+                        static_cast<uint32_t>(schema.column(i).index_length()));
+            }
+        }
+    }
 
     const ShortKeyIndexDecoder& index() const override { return *_segment->get_short_key_index(); }
 
+    Slice index_prefix(uint32_t block) const override {
+        const Slice raw = index().key(block);
+        if (_prefix_field_widths.empty()) {
+            return raw;
+        }
+        size_t offset = 0;
+        for (uint32_t width : _prefix_field_widths) {
+            DORIS_CHECK(offset < raw.size);
+            const auto marker = static_cast<uint8_t>(raw.data[offset]);
+            ++offset;
+            if (marker != KeyConsts::KEY_NULL_FIRST_MARKER) {
+                DORIS_CHECK(offset + width <= raw.size);
+                offset += width;
+            }
+        }
+        return {raw.data, offset};
+    }
+
     Status read_prefix(uint32_t row, std::string* prefix) override {
-        const size_t count = _segment->tablet_schema()->num_short_key_columns();
+        const size_t count = _effective_short_key_columns;
         RETURN_IF_ERROR(read(row, count));
         std::vector<const IColumn*> columns;
         columns.reserve(count);
@@ -83,7 +120,7 @@ public:
             key_cols.push_back(_columns[i].get());
         }
         _encoder.encode_sort_key_fields(key_cols, 0, tuple);
-        key_cols.resize(schema.num_short_key_columns());
+        key_cols.resize(_effective_short_key_columns);
         *prefix = _encoder.encode_short_keys(key_cols, 0);
         *bytes = 0;
         for (const auto& field : *tuple) {
@@ -122,10 +159,16 @@ private:
     std::shared_ptr<segment_v2::Segment> _segment;
     StorageReadOptions _options;
     RowKeyEncoder _encoder;
+    size_t _effective_short_key_columns = 0;
+    std::vector<uint32_t> _prefix_field_widths;
     std::vector<std::unique_ptr<segment_v2::ColumnIterator>> _iterators;
     MutableColumns _columns;
 };
 } // namespace
+
+Slice SegmentKeySeeker::index_prefix(uint32_t block) const {
+    return index().key(block);
+}
 
 Status SegmentKeySeeker::validate_schema(const TabletSchema& target, const TabletSchema& stored) {
     if ((target.keys_type() != UNIQUE_KEYS && target.keys_type() != AGG_KEYS) ||
@@ -141,12 +184,16 @@ Status SegmentKeySeeker::validate_schema(const TabletSchema& target, const Table
     for (size_t i = 0; i < target.num_key_columns(); ++i) {
         const auto& a = target.column(i);
         const auto& b = stored.column(i);
-        // A truncated non-final field can reverse short-key order when the next field differs.
+        // Variable-length intermediate short-key fields lack a field terminator; truncated CHAR
+        // fields remain fixed-width and are handled by slicing at _effective_short_key_columns.
         if (i + 1 < stored.num_short_key_columns() &&
             (b.type() == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
-             b.type() == FieldType::OLAP_FIELD_TYPE_STRING ||
-             (b.type() == FieldType::OLAP_FIELD_TYPE_CHAR && b.index_length() != b.length()))) {
+             b.type() == FieldType::OLAP_FIELD_TYPE_STRING)) {
             return Status::NotSupported("Unordered intermediate short-key prefix at column {}", i);
+        }
+        if (b.type() == FieldType::OLAP_FIELD_TYPE_CHAR &&
+            (b.index_length() <= 0 || b.index_length() > b.length())) {
+            return Status::NotSupported("Invalid CHAR index_length at column {}", i);
         }
         if (a.unique_id() != b.unique_id() || (a.unique_id() < 0 && a.name() != b.name()) ||
             a.type() != b.type() || a.is_nullable() != b.is_nullable() || a.frac() != b.frac() ||
@@ -210,6 +257,40 @@ Status SegmentKeySeeker::read_key(uint32_t row, std::string* prefix,
     return read_tuple(row, tuple, bytes);
 }
 
+std::pair<uint32_t, uint32_t> SegmentKeySeeker::_prefix_ordinal_window(const Slice& prefix,
+                                                                       uint32_t limit,
+                                                                       bool prefix_start) const {
+    const uint32_t n = index().num_items();
+    uint32_t lo = 0;
+    uint32_t hi = n;
+    while (lo < hi) {
+        const uint32_t mid = lo + (hi - lo) / 2;
+        if (index_prefix(mid).compare(prefix) < 0) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    const uint32_t first = lo;
+    uint32_t past = first;
+    if (!prefix_start) {
+        lo = first;
+        hi = n;
+        while (lo < hi) {
+            const uint32_t mid = lo + (hi - lo) / 2;
+            if (prefix.compare(index_prefix(mid)) < 0) {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        past = lo;
+    }
+    const uint64_t stride = index().num_rows_per_block();
+    return {static_cast<uint32_t>(std::min<uint64_t>(limit, (first > 0 ? first - 1 : 0) * stride)),
+            static_cast<uint32_t>(std::min<uint64_t>(limit, past * stride))};
+}
+
 Status SegmentKeySeeker::lower_bound(const std::string& prefix,
                                      const std::vector<std::string>& tuple, uint32_t rows,
                                      uint32_t* ordinal, uint32_t min_ordinal) {
@@ -217,7 +298,7 @@ Status SegmentKeySeeker::lower_bound(const std::string& prefix,
         *ordinal = rows;
         return Status::OK();
     }
-    auto [lo, hi] = index().ordinal_window(prefix, rows, tuple.empty());
+    auto [lo, hi] = _prefix_ordinal_window(prefix, rows, tuple.empty());
     lo = std::min(rows, std::max(lo, min_ordinal));
     std::string encoded;
     std::vector<std::string> key;

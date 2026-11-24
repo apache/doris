@@ -230,7 +230,7 @@ std::string RowKeyEncoder::_full_encode(const std::vector<KeyColumnCoder>& key_c
 
 std::string RowKeyEncoder::encode_short_keys(const std::vector<const IColumn*>& key_columns,
                                              size_t pos) const {
-    assert(key_columns.size() == _num_short_key_columns);
+    assert(!key_columns.empty() && key_columns.size() <= _num_short_key_columns);
     assert(key_columns.size() <= _sort_key_coders.size());
     return encode_key_columns(
             key_columns, pos,

@@ -20,14 +20,15 @@ suite("test_fixed_block_analyze", "nonConcurrent") {
     def original = variables.collectEntries { name ->
         [(name): sql("SHOW GLOBAL VARIABLES LIKE '${name}'")[0][1]]
     }
-    def waitForRows = { name, reported = 8192 ->
+    def waitForRows = { name, reported = 8192, indexName = name ->
         def deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MINUTES.toNanos(10)
         while (true) {
             def data = sql_return_maparray("SHOW DATA FROM ${name}")
-            if (data.any { it.IndexName == name && it.RowCount.toString() == reported.toString() }) {
+            if (data.any { it.IndexName == indexName && (it.RowCount as long) >= (reported as long) }) {
                 break
             }
-            assertTrue(System.nanoTime() < deadline, "Index row count for ${name} was not reported: ${data}")
+            assertTrue(System.nanoTime() < deadline,
+                    "Index row count for ${name}.${indexName} was not reported: ${data}")
             sleep(1000)
         }
     }
@@ -204,6 +205,81 @@ suite("test_fixed_block_analyze", "nonConcurrent") {
                 assertTrue(hr[2].toString().contains("num_buckets"), hr.toString())
             }
         }
+
+        // Wide-table multi-column batched sampling + per-column oversized string skip isolation
+        sql "DROP TABLE IF EXISTS fixed_block_analyze_wide_batch"
+        sql """CREATE TABLE fixed_block_analyze_wide_batch (
+                   k BIGINT NOT NULL,
+                   v1 BIGINT SUM NOT NULL,
+                   v2 BIGINT MAX NOT NULL,
+                   v3 BIGINT MIN NOT NULL,
+                   v4 VARCHAR(64) REPLACE NOT NULL,
+                   v_huge STRING REPLACE NOT NULL
+               ) AGGREGATE KEY(k)
+               DISTRIBUTED BY HASH(k) BUCKETS 4
+               PROPERTIES ("replication_num"="1", "disable_auto_compaction"="true")"""
+        sql """INSERT INTO fixed_block_analyze_wide_batch
+               SELECT number, 10, number, number, CONCAT('s_', CAST(number % 100 AS STRING)), REPEAT('x', 2048)
+               FROM numbers("number"="8192")"""
+        sql """INSERT INTO fixed_block_analyze_wide_batch
+               SELECT number, 15, number, number, CONCAT('s_', CAST(number % 100 AS STRING)), REPEAT('x', 2048)
+               FROM numbers("number"="8192")"""
+        waitForRows("fixed_block_analyze_wide_batch", 16384)
+        sql "ANALYZE TABLE fixed_block_analyze_wide_batch WITH SAMPLE ROWS 1024 WITH SYNC"
+        def wideStats = sql "SHOW COLUMN STATS fixed_block_analyze_wide_batch"
+        def wideByName = wideStats.collectEntries { [(it[0]): it] }
+        // v_huge (>1024 bytes) skips cleanly while k, v1, v2, v3, v4 succeed in the shared batch scan
+        assertEquals(["k", "v1", "v2", "v3", "v4"] as Set, wideByName.keySet())
+        assertEquals("25", wideByName.v1[7].replace("'", ""))
+        assertEquals("25", wideByName.v1[8].replace("'", ""))
+
+        // Bucket-pruned AGG_KEYS Sync MV (key repeated across 8 buckets) and MOR Sync MV
+        createMV("CREATE MATERIALIZED VIEW mv_comp_agg_p AS SELECT p AS mv_p, SUM(v) AS mv_sum_v FROM fixed_block_analyze_comp_agg GROUP BY p")
+        createMV("CREATE MATERIALIZED VIEW mv_comp_mor AS SELECT p AS mor_p, k AS mor_k, v + 1 AS mor_v1 FROM fixed_block_analyze_comp_mor")
+        createMV("CREATE MATERIALIZED VIEW mv_rand_expr AS SELECT k % 32 AS rk, SUM(v) AS rsum FROM fixed_block_analyze_unpart_random_agg GROUP BY k % 32")
+        waitForRows("fixed_block_analyze_comp_agg", 1, "mv_comp_agg_p")
+        waitForRows("fixed_block_analyze_comp_mor", 1, "mv_comp_mor")
+        waitForRows("fixed_block_analyze_unpart_random_agg", 1, "mv_rand_expr")
+        sql "ANALYZE TABLE fixed_block_analyze_comp_agg WITH SAMPLE ROWS 1024 WITH SYNC"
+        def compAggMvStats = sql "SHOW COLUMN STATS fixed_block_analyze_comp_agg(mv_p)"
+        assertEquals(1, compAggMvStats.size())
+        // p has only 4 distinct values across 8 buckets (32 merged MV rows total); NDV must not assume singleUniqueKey=32
+        assertTrue((compAggMvStats[0][3] as double) <= 8.0d, "Bucket-pruned MV key NDV overestimated: ${compAggMvStats}")
+        sql "ANALYZE TABLE fixed_block_analyze_comp_mor WITH SAMPLE ROWS 1024 WITH SYNC"
+        def compMorMvStats = sql "SHOW COLUMN STATS fixed_block_analyze_comp_mor(mor_v1)"
+        assertEquals(1, compMorMvStats.size())
+        assertEquals("16", compMorMvStats[0][7].replace("'", ""))
+        assertEquals("16", compMorMvStats[0][8].replace("'", ""))
+        sql "ANALYZE TABLE fixed_block_analyze_unpart_random_agg WITH SAMPLE ROWS 1024 WITH SYNC"
+        def randMvStats = sql "SHOW COLUMN STATS fixed_block_analyze_unpart_random_agg(rsum)"
+        assertEquals(1, randMvStats.size())
+
+        // Composite short key with intermediate CHAR(30) and explicit short_key = 3
+        sql "DROP TABLE IF EXISTS fixed_block_analyze_char_short_key"
+        sql """CREATE TABLE fixed_block_analyze_char_short_key (
+                   k1 INT NOT NULL,
+                   k2 CHAR(30) NOT NULL,
+                   k3 INT NOT NULL,
+                   v BIGINT SUM NOT NULL
+               ) AGGREGATE KEY(k1, k2, k3)
+               DISTRIBUTED BY HASH(k1) BUCKETS 4
+               PROPERTIES ("replication_num"="1", "short_key"="3", "disable_auto_compaction"="true")"""
+        sql """INSERT INTO fixed_block_analyze_char_short_key
+               SELECT number % 8, CONCAT(REPEAT('a', 20), CAST(number % 9 AS STRING)), 10000 - number, 7
+               FROM numbers("number"="8192")"""
+        waitForRows("fixed_block_analyze_char_short_key", 8192)
+        sql "ANALYZE TABLE fixed_block_analyze_char_short_key WITH SAMPLE ROWS 1024 WITH SYNC"
+        assertEquals(4, (sql "SHOW COLUMN STATS fixed_block_analyze_char_short_key").size())
+
+        // Partition-subset WITH SAMPLE is rejected; explicit PARTITION(p1) full analyze collects partition stats
+        // even when enable_partition_analyze is false (default)
+        test {
+            sql "ANALYZE TABLE fixed_block_analyze_comp_agg PARTITION(p1) WITH SAMPLE ROWS 512 WITH SYNC"
+            exception "Partition-scoped ANALYZE with sample is not supported"
+        }
+        sql "ANALYZE TABLE fixed_block_analyze_comp_agg PARTITION(p1) WITH SYNC"
+        def p1PartStats = sql "SHOW COLUMN STATS fixed_block_analyze_comp_agg (p) PARTITION(p1)"
+        assertEquals(1, p1PartStats.size())
     } finally {
         sql "DROP TABLE IF EXISTS internal.__internal_schema.histogram_statistics"
         original.each { name, value -> sql "SET GLOBAL ${name} = ${value}" }

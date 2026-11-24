@@ -27,10 +27,13 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.proto.InternalService;
@@ -131,8 +134,11 @@ public final class FixedBlockSampleSpec {
                 throw staleTablet(table, selectedIndexId, tabletId);
             }
             if (mode == Mode.KEY_RANGE_BLOCK && table.isTemporaryPartition(meta.getPartitionId())) {
-                boolean validTemp = routesByKeys(table.getIndexMetaByIndexId(selectedIndexId),
-                        part.getDistributionInfo())
+                MaterializedIndexMeta indexMeta = table.getIndexMetaByIndexId(selectedIndexId);
+                boolean validTemp = routesByKeys(indexMeta, part.getDistributionInfo())
+                        || (supportsPerTabletAggMv(table, selectedIndexId, indexMeta)
+                                && (part.getDistributionInfo() instanceof HashDistributionInfo
+                                        || table.getKeysType() == KeysType.DUP_KEYS))
                         || (randomAggKeyRange && part.getDistributionInfo() instanceof RandomDistributionInfo);
                 if (!validTemp) {
                     throw new UserException("KEY_RANGE_BLOCK requires a compatible temporary partition distribution");
@@ -158,25 +164,31 @@ public final class FixedBlockSampleSpec {
         MaterializedIndexMeta meta = table.getIndexMetaByIndexId(indexId);
         if (meta == null || !(meta.getKeysType() == KeysType.AGG_KEYS
                 || meta.getKeysType() == KeysType.UNIQUE_KEYS && !table.getEnableUniqueKeyMergeOnWrite())
-                || table.isZOrderSort() || meta.getSchema().stream().anyMatch(Column::isClusterKey)) {
+                || table.isZOrderSort() || meta.getSchema().stream().anyMatch(Column::isClusterKey)
+                || !hasOrderedShortKeyPrefix(meta)) {
             return false;
         }
         if (indexId != table.getBaseIndexId()) {
             if (table.getBaseIndexId() < 0) {
                 return false;
             }
-            // Storage reads hidden columns and column-level sequence mappings by their physical names.
-            Set<String> sequenceColumns = table.getColumnSeqMapping().keySet();
-            for (Column source : table.getBaseSchema(true)) {
-                if ((!source.isVisible() || sequenceColumns.stream().anyMatch(source.getName()::equalsIgnoreCase))
-                        && meta.getSchema().stream().noneMatch(target -> target.getName().equalsIgnoreCase(
-                                source.getName()) && mapsTo(meta, target, source))) {
-                    return false;
+            if (meta.getKeysType() == KeysType.UNIQUE_KEYS) {
+                // Storage reads MOR merge hidden columns and column-level sequence mappings by physical name;
+                // __DORIS_VERSION_COL__ and __DORIS_ROW_STORE_COL__ are base-only and unused by MOR scans.
+                Set<String> sequenceColumns = table.getColumnSeqMapping().keySet();
+                for (Column source : table.getBaseSchema(true)) {
+                    boolean requiredMergeColumn = (!source.isVisible()
+                            && !source.isVersionColumn()
+                            && !source.isRowStoreColumn())
+                            || sequenceColumns.stream().anyMatch(source.getName()::equalsIgnoreCase);
+                    if (requiredMergeColumn && meta.getSchema().stream().noneMatch(target ->
+                            target.getName().equalsIgnoreCase(source.getName()) && mapsTo(meta, target, source))) {
+                        return false;
+                    }
                 }
             }
         }
-        return routesByKeys(meta, table.getDefaultDistributionInfo()) && table.getPartitions().stream()
-                .allMatch(part -> routesByKeys(meta, part.getDistributionInfo()));
+        return routesIndexByKeys(table, meta) || supportsPerTabletAggMv(table, indexId, meta);
     }
 
     public static boolean supportsRandomAgg(OlapTable table, long indexId) {
@@ -185,19 +197,15 @@ public final class FixedBlockSampleSpec {
                 || !(table.getDefaultDistributionInfo() instanceof RandomDistributionInfo)
                 || table.hasRowTtl() || table.isZOrderSort()
                 || meta.getSchema().stream().anyMatch(Column::isClusterKey)
-                || meta.getSchema().stream().noneMatch(Column::isKey)) {
+                || meta.getSchema().stream().noneMatch(Column::isKey)
+                || !hasOrderedShortKeyPrefix(meta)) {
             return false;
         }
         if (indexId != table.getBaseIndexId() && table.getBaseIndexId() < 0) {
             return false;
         }
-        List<Column> baseSchema = indexId == table.getBaseIndexId() ? List.of() : table.getBaseSchema(true);
         for (Column col : meta.getSchema()) {
             if (!col.isKey() && !supportsRandomPreAgg(col)) {
-                return false;
-            }
-            if (indexId != table.getBaseIndexId()
-                    && baseSchema.stream().noneMatch(base -> mapsTo(meta, col, base))) {
                 return false;
             }
         }
@@ -208,6 +216,50 @@ public final class FixedBlockSampleSpec {
 
     public static boolean supportsMergedSampling(OlapTable table, long indexId) {
         return supportsKeyRange(table, indexId) || supportsRandomAgg(table, indexId);
+    }
+
+    public static boolean hasOrderedShortKeyPrefix(MaterializedIndexMeta meta) {
+        if (meta == null) {
+            return false;
+        }
+        List<Column> schema = meta.getSchema();
+        int shortKeys = Math.min(meta.getShortKeyColumnCount(), schema.size());
+        for (int i = 0; i + 1 < shortKeys; i++) {
+            PrimitiveType type = schema.get(i).getDataType();
+            if (type == PrimitiveType.VARCHAR || type == PrimitiveType.STRING) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static boolean routesIndexByKeys(OlapTable table, MaterializedIndexMeta meta) {
+        return meta != null && routesByKeys(meta, table.getDefaultDistributionInfo())
+                && table.getPartitions().stream().allMatch(part -> routesByKeys(meta, part.getDistributionInfo()));
+    }
+
+    public static boolean guaranteesGlobalKeyUniqueness(OlapTable table, MaterializedIndexMeta meta, long indexId) {
+        if (meta == null || !retainsPartitionKeys(table, meta)) {
+            return false;
+        }
+        return meta.getKeysType() != KeysType.AGG_KEYS
+                || routesIndexByKeys(table, meta)
+                || supportsRandomAgg(table, indexId);
+    }
+
+    private static boolean supportsPerTabletAggMv(OlapTable table, long indexId, MaterializedIndexMeta meta) {
+        if (meta == null || indexId == table.getBaseIndexId() || meta.getKeysType() != KeysType.AGG_KEYS
+                || table.getKeysType() == null) {
+            return false;
+        }
+        if (table.getKeysType() == KeysType.AGG_KEYS
+                && table.getDefaultDistributionInfo() instanceof RandomDistributionInfo) {
+            return false;
+        }
+        return table.getPartitions().stream().allMatch(part ->
+                part.getDistributionInfo() instanceof HashDistributionInfo
+                        || (table.getKeysType() == KeysType.DUP_KEYS
+                                && part.getDistributionInfo() instanceof RandomDistributionInfo));
     }
 
     private static boolean supportsRandomPreAgg(Column column) {
@@ -236,16 +288,33 @@ public final class FixedBlockSampleSpec {
     }
 
     private static boolean mapsTo(MaterializedIndexMeta meta, Column target, Column base) {
-        if (!target.getType().equals(base.getType()) || target.isAllowNull() != base.isAllowNull()) {
+        if (!compatibleSlotType(target.getType(), base.getType()) || target.isAllowNull() != base.isAllowNull()) {
             return false;
         }
         if (target.getDefineExpr() instanceof SlotRef slot) {
             return base.getName().equalsIgnoreCase(slot.getColumnName());
         }
+        if (!base.isVisible() && !target.isVisible() && target.getDefineExpr() == null) {
+            return target.getName().equalsIgnoreCase(base.getName());
+        }
         // ADD ROLLUP copies base columns and may assign them new UIDs. An expression-defined MV
         // requires an explicit direct slot mapping before it can prove identical routing.
         return target == base || (meta.getDefineStmt() == null && target.getDefineExpr() == null
                 && target.getName().equalsIgnoreCase(base.getName()));
+    }
+
+    private static boolean compatibleSlotType(Type target, Type base) {
+        if (target.equals(base)) {
+            return true;
+        }
+        // Sync MVs normalize string SlotRef projections to setMaxLength() (len = -1) while keeping
+        // the same PrimitiveType, which is lossless whenever target length >= base length.
+        if (target instanceof ScalarType targetScalar && base instanceof ScalarType baseScalar
+                && targetScalar.getPrimitiveType() == baseScalar.getPrimitiveType()
+                && targetScalar.isStringType()) {
+            return targetScalar.getLength() >= baseScalar.getLength();
+        }
+        return false;
     }
 
     private static UserException staleTablet(OlapTable table, long indexId, long tabletId) {

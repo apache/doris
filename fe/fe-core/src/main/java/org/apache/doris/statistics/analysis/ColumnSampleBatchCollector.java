@@ -69,7 +69,7 @@ final class ColumnSampleBatchCollector {
     private static final Logger LOG = LogManager.getLogger(ColumnSampleBatchCollector.class);
 
     private enum State {
-        PENDING, RUNNING, SUCCEEDED, FALLBACK, CANCELLED
+        PENDING, RUNNING, SUCCEEDED, SKIPPED, FALLBACK, CANCELLED
     }
 
     private record Target(long jobId, long indexId, Set<String> partitions) {
@@ -133,6 +133,7 @@ final class ColumnSampleBatchCollector {
         // All mutable fields are guarded by the collector's monitor.
         private State state = State.PENDING;
         private Map<String, ColumnSampleOutcome> outcomes;
+        private String skipReason;
         private StmtExecutor activeExecutor;
 
         private Batch(Target target, List<String> columns, List<OlapAnalysisTask> memberTasks) {
@@ -148,6 +149,9 @@ final class ColumnSampleBatchCollector {
                     checkCaller(caller);
                     if (state == State.FALLBACK) {
                         return null;
+                    }
+                    if (state == State.SKIPPED) {
+                        throw new AnalyzeSkipException(skipReason);
                     }
                     if (state == State.SUCCEEDED) {
                         ColumnSampleOutcome outcome = outcomes.get(caller.info.colName);
@@ -192,11 +196,13 @@ final class ColumnSampleBatchCollector {
                 TabletSamplingMethod method, long rows, boolean logicalSample) throws InterruptedException {
             State next = State.PENDING;
             Map<String, ColumnSampleOutcome> computed = null;
+            String skipped = null;
             try {
                 computed = runBatchQuery(caller, table, resolvedIndexId, method, rows, logicalSample);
                 next = computed == null ? State.FALLBACK : State.SUCCEEDED;
             } catch (AnalyzeSkipException e) {
-                throw e;
+                skipped = e.getMessage();
+                next = State.SKIPPED;
             } catch (RuntimeException e) {
                 synchronized (ColumnSampleBatchCollector.this) {
                     checkCaller(caller);
@@ -204,7 +210,10 @@ final class ColumnSampleBatchCollector {
                 if (Throwables.getRootCause(e) instanceof InterruptedException interrupted) {
                     throw interrupted;
                 }
-                if (BaseAnalysisTask.containsSkipMarker(e)) {
+                if (BaseAnalysisTask.containsKeyRangeSchemaSkipMarker(e)) {
+                    skipped = "Deferring statistics sampling while key schema change segments compact";
+                    next = State.SKIPPED;
+                } else if (BaseAnalysisTask.containsSkipMarker(e)) {
                     next = State.FALLBACK;
                 } else {
                     LOG.warn("Batch sample scan failed for job {}, index {}, columns {}. Falling back to per-column.",
@@ -216,6 +225,7 @@ final class ColumnSampleBatchCollector {
                     activeExecutor = null;
                     if (state == State.RUNNING) {
                         outcomes = computed;
+                        skipReason = skipped;
                         state = next;
                     }
                     ColumnSampleBatchCollector.this.notifyAll();
@@ -228,7 +238,7 @@ final class ColumnSampleBatchCollector {
                 throws InterruptedException {
             List<PlannedColumn> planned = new ArrayList<>(columns.size());
             List<String> keyColumnNames;
-            boolean retainsPartitionKeys;
+            boolean uniqueAcrossTablets;
             boolean anyKey = false;
             boolean anyPartition = false;
             boolean anyDistribution = false;
@@ -238,8 +248,8 @@ final class ColumnSampleBatchCollector {
                 if (meta == null) {
                     return null;
                 }
-                retainsPartitionKeys = resolvedIndexId == table.getBaseIndexId()
-                        || FixedBlockSampleSpec.retainsPartitionKeys(table, meta);
+                uniqueAcrossTablets = resolvedIndexId == table.getBaseIndexId()
+                        || FixedBlockSampleSpec.guaranteesGlobalKeyUniqueness(table, meta, resolvedIndexId);
                 keyColumnNames = meta.getKeysType() == KeysType.AGG_KEYS
                         ? meta.getSchema().stream().filter(Column::isKey).map(Column::getName).toList()
                         : List.of();
@@ -260,7 +270,7 @@ final class ColumnSampleBatchCollector {
                         continue;
                     }
                     ColumnPhysicalLayout layout = OlapAnalysisTask.columnLayout(table, meta, col);
-                    boolean singleUnique = layout.singleUniqueKey() && retainsPartitionKeys;
+                    boolean singleUnique = layout.singleUniqueKey() && uniqueAcrossTablets;
                     boolean singleNonNullUnique = singleUnique && !col.isAllowNull();
                     boolean inSampleBounds = OlapAnalysisTask.prefersInSampleBounds(
                             table, meta, col, resolvedIndexId, caller.info);

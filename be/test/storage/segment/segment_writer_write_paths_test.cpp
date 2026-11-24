@@ -48,6 +48,8 @@
 #include "storage/merger.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/sampling/key_range_block_sampler.h"
+#include "storage/sampling/tablet_sample_plan.h"
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_key_seeker.h"
@@ -560,6 +562,84 @@ TEST_F(VerticalSegmentWriterWritePathsTest, KeyRangeSeeksStoredKeys) {
         ASSERT_TRUE(seeker->lower_bound(prefix, tuple, segment->num_rows(), &ordinal, row).ok());
         EXPECT_EQ(row, ordinal);
     }
+}
+
+namespace {
+std::pair<TabletSchemaSPtr, Block> build_truncated_char_short_key_data() {
+    TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
+    schema->_keys_type = AGG_KEYS;
+    schema->append_column(*create_int_key(0));
+    auto mid_char = std::make_shared<TabletColumn>();
+    mid_char->_unique_id = 1;
+    mid_char->_col_name = "1";
+    mid_char->_type = FieldType::OLAP_FIELD_TYPE_CHAR;
+    mid_char->_is_key = true;
+    mid_char->_is_nullable = true;
+    mid_char->_length = 30;
+    mid_char->_index_length = 20;
+    schema->append_column(*mid_char);
+    schema->append_column(*create_int_key(2));
+    schema->append_column(*create_int_value(3));
+    schema->_num_short_key_columns = 3;
+
+    MutableBlock mb(schema->create_storage_block());
+    for (uint32_t row = 0; row < 256; ++row) {
+        mb.mutable_columns()[0]->insert(Field::create_field<TYPE_INT>(1));
+        if (row < 32) {
+            mb.mutable_columns()[1]->insert_default();
+        } else {
+            std::string s(20, 'a');
+            s.push_back(row < 160 ? 'A' : 'Z');
+            s += fmt::format("{:09d}", row);
+            mb.mutable_columns()[1]->insert(Field::create_field<TYPE_CHAR>(s));
+        }
+        const int32_t k2_val =
+                row < 160 ? static_cast<int32_t>(900 + row) : static_cast<int32_t>(row);
+        mb.mutable_columns()[2]->insert(Field::create_field<TYPE_INT>(k2_val));
+        mb.mutable_columns()[3]->insert(Field::create_field<TYPE_INT>(static_cast<int32_t>(row)));
+    }
+    return {schema, mb.to_block()};
+}
+
+void verify_truncated_char_row_seeks(SegmentKeySeeker& seeker, uint32_t num_rows) {
+    for (uint32_t row : {0U, 31U, 32U, 63U, 64U, 128U, 159U, 160U, 192U, 255U}) {
+        std::string prefix;
+        std::vector<std::string> tuple;
+        size_t bytes = 0;
+        ASSERT_TRUE(seeker.read_key(row, &prefix, &tuple, &bytes).ok());
+        uint32_t ordinal = 0;
+        ASSERT_TRUE(seeker.lower_bound(prefix, tuple, num_rows, &ordinal).ok());
+        EXPECT_EQ(row, ordinal);
+    }
+}
+} // namespace
+
+TEST_F(VerticalSegmentWriterWritePathsTest, KeyRangeSeeksTruncatedIntermediateCharShortKey) {
+    auto [schema, block] = build_truncated_char_short_key_data();
+    WrittenSegment written;
+    ASSERT_NO_FATAL_FAILURE(write_whole_block(schema, block, false, "trunc_char_sample", &written));
+
+    RowsetId id;
+    id.init(103);
+    std::shared_ptr<Segment> segment;
+    ASSERT_TRUE(Segment::open(io::global_local_filesystem(), kSegmentDir + "/trunc_char_sample.dat",
+                              kTabletId, 18, id, schema, io::FileReaderOptions {}, &segment)
+                        .ok());
+    OlapReaderStatistics stats;
+    std::unique_ptr<SegmentKeySeeker> seeker;
+    ASSERT_TRUE(SegmentKeySeeker::open(segment, *schema, StorageReadOptions(stats), &seeker).ok());
+
+    EXPECT_GT(seeker->index().key(1).compare(seeker->index().key(3)), 0);
+    EXPECT_LE(seeker->index_prefix(1).compare(seeker->index_prefix(3)), 0);
+    ASSERT_NO_FATAL_FAILURE(verify_truncated_char_row_seeks(*seeker, segment->num_rows()));
+
+    SampleSegment sample_seg {
+            .rowset_id = id, .physical_id = 0, .rows = segment->num_rows(), .keys = seeker.get()};
+    std::vector<SampleSegment> sample_segs {sample_seg};
+    TabletSamplePlan plan;
+    ASSERT_TRUE(KeyRangeBlockSampler(0.5, 42, 32, 64).build(777, sample_segs, &plan).ok());
+    EXPECT_GE(plan.population_units(), 6U);
+    EXPECT_GT(plan.selected_rows(), 0U);
 }
 
 TEST_F(VerticalSegmentWriterWritePathsTest, DupKeysColumnGroupsMatchWholeSchema) {

@@ -209,6 +209,37 @@ TEST(SegmentKeySeekerTest, SchemaEncodingCompatibility) {
     old->_sort_type = SortType::LEXICAL;
     old->_cluster_key_uids = {1};
     EXPECT_FALSE(SegmentKeySeeker::validate_schema(*current, *old).ok());
+
+    auto composite_short_keys = [](FieldType mid_type, int length, int index_len) {
+        auto s = std::make_shared<TabletSchema>();
+        s->_keys_type = AGG_KEYS;
+        TabletColumn k0(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                        FieldType::OLAP_FIELD_TYPE_INT, false);
+        k0.set_unique_id(10);
+        k0.set_is_key(true);
+        k0.set_length(4);
+        k0.set_index_length(4);
+        TabletColumn k1(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, mid_type, true);
+        k1.set_unique_id(11);
+        k1.set_is_key(true);
+        k1.set_length(length);
+        k1.set_index_length(index_len);
+        TabletColumn k2(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                        FieldType::OLAP_FIELD_TYPE_INT, false);
+        k2.set_unique_id(12);
+        k2.set_is_key(true);
+        k2.set_length(4);
+        k2.set_index_length(4);
+        s->append_column(k0);
+        s->append_column(k1);
+        s->append_column(k2);
+        s->_num_short_key_columns = 3;
+        return s;
+    };
+    auto mid_varchar = composite_short_keys(FieldType::OLAP_FIELD_TYPE_VARCHAR, 30, 20);
+    EXPECT_FALSE(SegmentKeySeeker::validate_schema(*mid_varchar, *mid_varchar).ok());
+    auto mid_trunc_char = composite_short_keys(FieldType::OLAP_FIELD_TYPE_CHAR, 30, 20);
+    EXPECT_TRUE(SegmentKeySeeker::validate_schema(*mid_trunc_char, *mid_trunc_char).ok());
 }
 
 std::string format_key(const char* fmt, int k) {

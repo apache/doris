@@ -47,7 +47,8 @@ struct BlockHead {
 
     const ShortKeyIndexDecoder& index() const { return segment->keys->index(); }
     Slice prefix() const {
-        return custom_prefix.has_value() ? Slice(*custom_prefix) : index().key(block);
+        return custom_prefix.has_value() ? Slice(*custom_prefix)
+                                         : segment->keys->index_prefix(block);
     }
     uint32_t weight() const { return end - start; }
 };
@@ -359,7 +360,7 @@ Status KeyRangeBlockSampler::collect_weighted_cuts(std::span<const SampleSegment
     for (const auto& seg : segments) {
         if (seg.rows > 0) {
             rows += seg.rows;
-            const Slice p = seg.keys->index().key(0);
+            const Slice p = seg.keys->index_prefix(0);
             if (!min_prefix.has_value() || p.compare(*min_prefix) < 0) {
                 min_prefix = p;
             }
@@ -372,7 +373,7 @@ Status KeyRangeBlockSampler::collect_weighted_cuts(std::span<const SampleSegment
     std::optional<CutKey> first_key;
     size_t min_probes = 0;
     for (const auto& seg : segments) {
-        if (seg.rows > 0 && seg.keys->index().key(0).compare(*min_prefix) == 0) {
+        if (seg.rows > 0 && seg.keys->index_prefix(0).compare(*min_prefix) == 0) {
             std::string row_prefix;
             std::vector<std::string> tuple;
             size_t bytes = 0;
@@ -459,7 +460,7 @@ namespace {
 Status locate_segment_intervals(const SampleSegment& seg,
                                 std::span<const KeyRangeSampleInterval> intervals,
                                 segment_v2::RowRanges* out, uint64_t* selected_rows) {
-    const Slice seg_min_prefix = seg.keys->index().key(0);
+    const Slice seg_min_prefix = seg.keys->index_prefix(0);
     if (intervals.back().upper.has_value() &&
         Slice(intervals.back().upper->prefix).compare(seg_min_prefix) < 0) {
         return Status::OK();

@@ -45,8 +45,8 @@ public:
     std::string full_encode_primary_keys(const std::vector<const IColumn*>& key_columns,
                                          size_t pos) const;
 
-    // Encode the short key columns at `pos`, each column truncated to its
-    // index length.
+    // Encode a prefix of short key columns (`1 <= key_columns.size() <= num_short_key_columns`)
+    // at `pos`, each column truncated to its index length.
     std::string encode_short_keys(const std::vector<const IColumn*>& key_columns, size_t pos) const;
 
     // Encode each sort-key column at `pos` into its own order-preserving binary string

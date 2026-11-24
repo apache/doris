@@ -316,6 +316,11 @@ public abstract class BaseAnalysisTask {
                 handleSkip(new AnalyzeSkipException(buildSkipMessage(), e));
                 return;
             }
+            if (containsKeyRangeSchemaSkipMarker(e)) {
+                handleSkip(new AnalyzeSkipException(
+                        "Deferring statistics sampling while key schema change segments compact", e));
+                return;
+            }
             throw e;
         }
     }
@@ -331,6 +336,20 @@ public abstract class BaseAnalysisTask {
         while (cur != null) {
             String m = cur.getMessage();
             if (m != null && m.contains(ANALYZE_SKIP_LONG_STRING_COLUMN_MARKER)) {
+                return true;
+            }
+            cur = cur.getCause();
+        }
+        return false;
+    }
+
+    protected static boolean containsKeyRangeSchemaSkipMarker(Throwable e) {
+        Throwable cur = e;
+        while (cur != null) {
+            String m = cur.getMessage();
+            if (m != null && (m.contains("Incompatible KEY_RANGE_BLOCK sort key")
+                    || m.contains("KEY_RANGE_BLOCK requires compatible lexical MOR or AGG sort keys")
+                    || m.contains("Unordered intermediate short-key prefix"))) {
                 return true;
             }
             cur = cur.getCause();
@@ -700,6 +719,10 @@ public abstract class BaseAnalysisTask {
             LOG.warn("Failed to execute sql {}", sql);
             if (containsSkipMarker(e)) {
                 throw new AnalyzeSkipException(buildSkipMessage(), e);
+            }
+            if (containsKeyRangeSchemaSkipMarker(e)) {
+                throw new AnalyzeSkipException(
+                        "Deferring statistics sampling while key schema change segments compact", e);
             }
             throw e;
         } finally {

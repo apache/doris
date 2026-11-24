@@ -151,7 +151,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         KeysType keys;
         boolean mow;
         boolean hasRowTtl;
-        boolean retainsPartitionKeys;
+        boolean uniqueAcrossTablets;
         boolean legacyPreAgg;
         boolean rawInSampleBounds;
         ColumnPhysicalLayout layout;
@@ -167,8 +167,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             keys = meta.getKeysType();
             mow = table.getEnableUniqueKeyMergeOnWrite();
             hasRowTtl = table.hasRowTtl();
-            retainsPartitionKeys = indexId == table.getBaseIndexId() || FixedBlockSampleSpec.retainsPartitionKeys(
-                    table, meta);
+            uniqueAcrossTablets = indexId == table.getBaseIndexId()
+                    || FixedBlockSampleSpec.guaranteesGlobalKeyUniqueness(table, meta, indexId);
             legacyPreAgg = !hasRowTtl && (table.getKeysType() == KeysType.AGG_KEYS
                     || table.getKeysType() == KeysType.UNIQUE_KEYS && !mow);
             rawInSampleBounds = prefersInSampleBounds(table, meta, physical, indexId, info);
@@ -214,7 +214,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             }
         }
         boolean inSampleBounds = fixed && rawInSampleBounds;
-        boolean singleUniqueKey = layout.singleUniqueKey() && retainsPartitionKeys;
+        boolean singleUniqueKey = layout.singleUniqueKey() && uniqueAcrossTablets;
         boolean singleNonNullUnique = singleUniqueKey && !col.isAllowNull();
         Map<String, String> params = buildSqlParams();
         params.put("limit", "");
@@ -433,7 +433,15 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         }
         if ((keys == KeysType.AGG_KEYS || keys == KeysType.UNIQUE_KEYS && !mow)
                 && job.useKeyRange(targetIndexId(), () -> keyRangeEligible(table, rows))) {
-            return new HierarchicalFixedBudgetTabletSamplingMethod(Mode.KEY_RANGE_BLOCK);
+            boolean crossTabletDuplicates;
+            table.readLock();
+            try {
+                MaterializedIndexMeta meta = table.getIndexMetaByIndexId(targetIndexId());
+                crossTabletDuplicates = !FixedBlockSampleSpec.routesIndexByKeys(table, meta);
+            } finally {
+                table.readUnlock();
+            }
+            return new HierarchicalFixedBudgetTabletSamplingMethod(Mode.KEY_RANGE_BLOCK, crossTabletDuplicates);
         }
         if (keys == KeysType.AGG_KEYS
                 && job.useRandomAgg(targetIndexId(), () -> randomAggEligible(table, rows))) {
@@ -675,7 +683,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do full collection for column {}", col.getName());
         }
-        if (StatisticsUtil.enablePartitionAnalyze() && tbl.isPartitionedTable()) {
+        if ((StatisticsUtil.enablePartitionAnalyze() || info.partitionOnly) && tbl.isPartitionedTable()) {
             doPartitionTable();
         } else {
             Map<String, String> params = buildSqlParams();

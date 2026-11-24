@@ -530,7 +530,7 @@ suite("test_analyze_mv") {
     logger.info("Analyze job id is " + jobId)
 
     result_sample = sql """show column stats mvTestDup"""
-    assertEquals(9, result_sample.size())
+    assertEquals(12, result_sample.size())
 
     result_sample = sql """show column stats mvTestDup(key1)"""
     logger.info("result " + result_sample)
@@ -571,18 +571,18 @@ suite("test_analyze_mv") {
 
     result_sample = sql """show column stats mvTestDup(`a5`)"""
     logger.info("result " + result_sample)
-    assertEquals(0, result_sample.size())
+    assertEquals(1, result_sample.size())
 
     result_sample = sql """show column stats mvTestDup(a6)"""
     logger.info("result " + result_sample)
-    assertEquals(0, result_sample.size())
+    assertEquals(1, result_sample.size())
 
     result_sample = sql """show column stats mvTestDup(a7)"""
     logger.info("result " + result_sample)
-    assertEquals(0, result_sample.size())
+    assertEquals(1, result_sample.size())
 
     result_sample = sql """show analyze task status ${jobId}"""
-    assertEquals(9, result_sample.size())
+    assertEquals(12, result_sample.size())
     def verifyTaskStatus = { result, colName, indexName ->
         def found = false;
         for (int i = 0; i < result.size(); i++) {

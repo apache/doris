@@ -157,6 +157,20 @@ public class AnalyzeTableCommand extends AnalyzeCommand {
         if (analyzeProperties.isSample() && analyzeProperties.forceFull()) {
             throw new AnalysisException("Impossible to analyze with sample and full simultaneously");
         }
+        if (analyzeProperties.isSample() && table instanceof OlapTable && !getPartitionNames().isEmpty()) {
+            throw new AnalysisException(
+                    "Partition-scoped ANALYZE with sample is not supported on OLAP tables; "
+                            + "omit WITH SAMPLE to collect partition statistics or omit PARTITION(...) "
+                            + "to sample the table");
+        }
+    }
+
+    @Override
+    public void checkAndSetSample() throws AnalysisException {
+        if (table instanceof OlapTable && !getPartitionNames().isEmpty() && !analyzeProperties.forceFull()) {
+            return;
+        }
+        super.checkAndSetSample();
     }
 
     /**

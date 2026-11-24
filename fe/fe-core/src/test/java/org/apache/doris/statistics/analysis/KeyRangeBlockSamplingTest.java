@@ -28,9 +28,12 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.sampling.ColumnPhysicalLayout;
 import org.apache.doris.statistics.sampling.HierarchicalFixedBudgetTabletSamplingMethod;
@@ -38,7 +41,10 @@ import org.apache.doris.statistics.sampling.IndexSamplingSnapshot;
 import org.apache.doris.statistics.sampling.LegacyTabletSamplingMethod;
 import org.apache.doris.statistics.sampling.PartitionSampleMeta;
 import org.apache.doris.statistics.sampling.RandomAggTabletSamplingMethod;
+import org.apache.doris.statistics.sampling.SamplingBudget;
 import org.apache.doris.statistics.sampling.TabletSampleMeta;
+import org.apache.doris.statistics.sampling.TabletSampleSpec;
+import org.apache.doris.statistics.sampling.TabletSamplingRequest;
 import org.apache.doris.statistics.sampling.TabletSamplingScope;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TStorageType;
@@ -330,6 +336,143 @@ class KeyRangeBlockSamplingTest {
         Assertions.assertTrue(sharedSql.contains("TABLESAMPLE (KEY_RANGE_BLOCK"), sharedSql);
         Assertions.assertTrue(sharedSql.contains("TABLETS (11, 12)"), sharedSql);
         Assertions.assertFalse(sharedSql.contains("xxhash_64"), sharedSql);
+    }
+
+    @Test
+    void supportsMorSyncMvsBucketPrunedRollupsLargeRandomBucketsAndShortKeyChecks() throws Exception {
+        // 1. MOR CREATE MATERIALIZED VIEW copies hidden __DORIS_DELETE_SIGN__ / __DORIS_SEQUENCE_COL__
+        // with defineStmt != null and defineExpr == null, while base table also carries __DORIS_VERSION_COL__
+        // and VARCHAR keys widened by MVColumnItem.setMaxLength().
+        var morTable = Mockito.mock(OlapTable.class);
+        var k1 = new Column("k1", ScalarType.createVarchar(32), true, null, "0", "");
+        var v1 = new Column("v1", Type.BIGINT, false, AggregateType.REPLACE, "0", "");
+        var delSign = new Column(Column.DELETE_SIGN, Type.TINYINT, false, AggregateType.REPLACE, false, "", false);
+        var versionCol = new Column(Column.VERSION_COL, Type.BIGINT, false, AggregateType.REPLACE, false, "", false);
+        ScalarType widenedVarchar = new ScalarType(PrimitiveType.VARCHAR);
+        widenedVarchar.setMaxLength();
+        var mvK1 = new Column("mv_k1", widenedVarchar, true, null, "0", "");
+        mvK1.setDefineExpr(new org.apache.doris.analysis.SlotRef(null, "k1"));
+        var mvExpr = new Column("mv_v_plus_1", Type.BIGINT, false, AggregateType.REPLACE, "0", "");
+        var mvDelSign = new Column(delSign);
+        mvDelSign.setUniqueId(77);
+        var morMvMeta = new MaterializedIndexMeta(21L, List.of(mvK1, mvExpr, mvDelSign), 1, 1, (short) 1,
+                TStorageType.COLUMN, KeysType.UNIQUE_KEYS, new OriginStatement("CREATE MATERIALIZED VIEW mv1 ...", 0));
+        var morMissingDelMeta = new MaterializedIndexMeta(22L, List.of(mvK1, mvExpr), 1, 1, (short) 1,
+                TStorageType.COLUMN, KeysType.UNIQUE_KEYS, new OriginStatement("CREATE MATERIALIZED VIEW mv2 ...", 0));
+        var hashK1 = new HashDistributionInfo(4, List.of(k1));
+        var hashPart = Mockito.mock(Partition.class);
+        Mockito.when(hashPart.getDistributionInfo()).thenReturn(hashK1);
+        Mockito.when(morTable.getBaseIndexId()).thenReturn(10L);
+        Mockito.when(morTable.getKeysType()).thenReturn(KeysType.UNIQUE_KEYS);
+        Mockito.when(morTable.getEnableUniqueKeyMergeOnWrite()).thenReturn(false);
+        Mockito.when(morTable.getBaseSchema(true)).thenReturn(List.of(k1, v1, delSign, versionCol));
+        Mockito.when(morTable.getColumnSeqMapping()).thenReturn(Collections.emptyMap());
+        Mockito.when(morTable.getDefaultDistributionInfo()).thenReturn(hashK1);
+        Mockito.doReturn(List.of(hashPart)).when(morTable).getPartitions();
+        Mockito.when(morTable.getIndexMetaByIndexId(21L)).thenReturn(morMvMeta);
+        Mockito.when(morTable.getIndexMetaByIndexId(22L)).thenReturn(morMissingDelMeta);
+        Assertions.assertTrue(FixedBlockSampleSpec.supportsKeyRange(morTable, 21L));
+        Assertions.assertFalse(FixedBlockSampleSpec.supportsKeyRange(morTable, 22L));
+
+        // 2. Bucket-pruned AGG_KEYS rollup/MV (missing base hash distribution key k1) is admitted for
+        // per-tablet KEY_RANGE_BLOCK, disables singleUniqueKey, and visits multiple buckets.
+        var aggBase = Mockito.mock(OlapTable.class);
+        var k2 = new Column("k2", Type.BIGINT, true, null, "0", "");
+        var sumV = new Column("sum_v", Type.BIGINT, false, AggregateType.SUM, "0", "");
+        var prunedMvMeta = new MaterializedIndexMeta(31L, List.of(k2, sumV), 1, 1, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS, new OriginStatement("CREATE MATERIALIZED VIEW mv_k2 ...", 0));
+        var partInfo = Mockito.mock(PartitionInfo.class);
+        Mockito.when(partInfo.getPartitionColumns()).thenReturn(List.of());
+        Mockito.when(aggBase.getBaseIndexId()).thenReturn(10L);
+        Mockito.when(aggBase.getKeysType()).thenReturn(KeysType.AGG_KEYS);
+        Mockito.when(aggBase.getDefaultDistributionInfo()).thenReturn(hashK1);
+        Mockito.when(aggBase.getDistributionColumnNames()).thenReturn(Set.of("k1"));
+        Mockito.when(aggBase.getPartitionInfo()).thenReturn(partInfo);
+        Mockito.doReturn(List.of(hashPart)).when(aggBase).getPartitions();
+        Mockito.when(aggBase.getIndexMetaByIndexId(31L)).thenReturn(prunedMvMeta);
+        Mockito.when(aggBase.getIndexNameById(31L)).thenReturn("mv_k2");
+        Mockito.when(aggBase.getName()).thenReturn("agg_base");
+        Assertions.assertTrue(FixedBlockSampleSpec.supportsKeyRange(aggBase, 31L));
+        Assertions.assertFalse(FixedBlockSampleSpec.routesIndexByKeys(aggBase, prunedMvMeta));
+        Assertions.assertFalse(FixedBlockSampleSpec.guaranteesGlobalKeyUniqueness(aggBase, prunedMvMeta, 31L));
+
+        List<TabletSampleMeta> eightBuckets = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            eightBuckets.add(new TabletSampleMeta(500L + i, 50_000L, false));
+        }
+        var mvFrame = Mockito.mock(IndexSamplingSnapshot.class);
+        Mockito.when(mvFrame.scope()).thenReturn(
+                TabletSamplingScope.table(List.of(new PartitionSampleMeta(1L, eightBuckets))));
+        Mockito.when(mvFrame.allCandidatesSupport(true)).thenReturn(true);
+
+        var prunedKeyTask = Mockito.spy(new OlapAnalysisTask());
+        prunedKeyTask.tbl = aggBase;
+        prunedKeyTask.catalog = Mockito.mock(CatalogIf.class);
+        prunedKeyTask.db = Mockito.mock(DatabaseIf.class);
+        Mockito.when(prunedKeyTask.catalog.getName()).thenReturn("internal");
+        Mockito.when(prunedKeyTask.db.getFullName()).thenReturn("db");
+        prunedKeyTask.info = new AnalysisInfoBuilder().setIndexId(31L).setColName("k2").setRowCount(400_000L).build();
+        prunedKeyTask.tableSample = new TableSample(false, 1024L, 7L);
+        var prunedJob = Mockito.spy(new AnalysisJob(prunedKeyTask.info, List.of(prunedKeyTask)));
+        prunedKeyTask.job = prunedJob;
+        Mockito.doReturn(mvFrame).when(prunedJob).samplingFrame(aggBase, 31L);
+        Mockito.doReturn(400_000L).when(prunedJob).reportedIndexRows(aggBase, 31L);
+        Mockito.doReturn(new ResultRow(List.of("1", "100"))).when(prunedKeyTask).getSampleMinMax();
+        var prunedSql = org.mockito.ArgumentCaptor.forClass(String.class);
+        Mockito.doNothing().when(prunedKeyTask).runQuery(prunedSql.capture());
+        try (var util = Mockito.mockStatic(StatisticsUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            util.when(StatisticsUtil::enableFixedBlockStatsSampling).thenReturn(true);
+            util.when(StatisticsUtil::getStatisticsSampleUnitRows).thenReturn(1024);
+            util.when(StatisticsUtil::getStatisticsMaxSampleTablets).thenReturn(64);
+            prunedKeyTask.doSample();
+        }
+        Assertions.assertTrue(prunedSql.getValue().contains("GROUP BY `t0`.`hash_value`"), prunedSql.getValue());
+        for (long tid = 500L; tid < 508L; tid++) {
+            Assertions.assertTrue(prunedSql.getValue().contains(Long.toString(tid)), prunedSql.getValue());
+        }
+
+        // 3. Expression Sync MV on RANDOM AGG_KEYS and > 512 buckets in a single partition.
+        var randTable = Mockito.mock(OlapTable.class);
+        var exprDay = new Column("mv_day", Type.DATEV2, true, null, null, "");
+        var randMvMeta = new MaterializedIndexMeta(41L, List.of(exprDay, sumV), 1, 1, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS, new OriginStatement("CREATE MATERIALIZED VIEW mv_day ...", 0));
+        var randPart = Mockito.mock(Partition.class);
+        Mockito.when(randPart.getDistributionInfo()).thenReturn(new RandomDistributionInfo(1024));
+        Mockito.when(randTable.getBaseIndexId()).thenReturn(10L);
+        Mockito.when(randTable.getKeysType()).thenReturn(KeysType.AGG_KEYS);
+        Mockito.when(randTable.getDefaultDistributionInfo()).thenReturn(new RandomDistributionInfo(1024));
+        Mockito.doReturn(List.of(randPart)).when(randTable).getPartitions();
+        Mockito.when(randTable.getIndexMetaByIndexId(41L)).thenReturn(randMvMeta);
+        Assertions.assertTrue(FixedBlockSampleSpec.supportsRandomAgg(randTable, 41L));
+
+        List<TabletSampleMeta> thousandBuckets = new ArrayList<>(1024);
+        for (int i = 0; i < 1024; i++) {
+            thousandBuckets.add(new TabletSampleMeta(10_000L + i, 20_000L, false));
+        }
+        TabletSampleSpec largeRandSpec = new RandomAggTabletSamplingMethod(true, true).build(
+                new TabletSamplingRequest(
+                        TabletSamplingScope.table(List.of(new PartitionSampleMeta(1L, thousandBuckets))),
+                        new ColumnPhysicalLayout(false, false, false, false),
+                        new SamplingBudget(50_000L, 4096, 512, 4, 512 * 1024),
+                        20_480_000L, 42L));
+        Assertions.assertInstanceOf(TabletSampleSpec.FixedBlockScanClause.class, largeRandSpec.scanClause());
+        FixedBlockSampleSpec blocks = ((TabletSampleSpec.FixedBlockScanClause) largeRandSpec.scanClause()).blocks();
+        Assertions.assertEquals(FixedBlockSampleSpec.Mode.KEY_RANGE_BLOCK, blocks.mode);
+        Assertions.assertEquals(1024, blocks.tabletIds().size());
+
+        // 4. Short-key prefix check rejects intermediate VARCHAR/STRING and accepts intermediate CHAR.
+        var badMidVarchar = new MaterializedIndexMeta(51L,
+                List.of(k2, new Column("mid_v", ScalarType.createVarchar(32), true, null, "", ""), v1),
+                1, 1, (short) 3, TStorageType.COLUMN, KeysType.AGG_KEYS, null);
+        var okMidChar = new MaterializedIndexMeta(52L,
+                List.of(k2, new Column("mid_c", ScalarType.createCharType(30), true, null, "", ""), v1),
+                1, 1, (short) 3, TStorageType.COLUMN, KeysType.AGG_KEYS, null);
+        Assertions.assertFalse(FixedBlockSampleSpec.hasOrderedShortKeyPrefix(badMidVarchar));
+        Assertions.assertTrue(FixedBlockSampleSpec.hasOrderedShortKeyPrefix(okMidChar));
+
+        // 5. Transient BE key-schema change NotSupported markers convert cleanly to AnalyzeSkipException.
+        Assertions.assertTrue(BaseAnalysisTask.containsKeyRangeSchemaSkipMarker(
+                new RuntimeException("NotSupported: Incompatible KEY_RANGE_BLOCK sort key at column 0")));
     }
 
     private static OlapAnalysisTask analysisTask(OlapTable table, String name, TableSample sample) {

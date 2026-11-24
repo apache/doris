@@ -64,9 +64,11 @@ public final class RandomAggTabletSamplingMethod implements TabletSamplingMethod
         long seed = request.seed();
         int maxPartTablets = partitions.stream().mapToInt(p -> p.tablets().size()).max().orElse(0);
         int partitionCount = partitions.size();
-        int keyRangeCap = Math.min(budget.maxSelectedTablets(),
-                SampledScanSqlRenderer.tabletCapacity(budget.maxInternalSqlBytes(), 1,
-                        FixedBlockSampleSpec.Mode.KEY_RANGE_BLOCK));
+        int sqlKeyRangeCap = SampledScanSqlRenderer.tabletCapacity(budget.maxInternalSqlBytes(), 1,
+                FixedBlockSampleSpec.Mode.KEY_RANGE_BLOCK);
+        // Allow at least one whole partition up to internal SQL capacity so high-bucket RANDOM
+        // tables (> statistics_max_sample_tablets) still use shared KEY_RANGE_BLOCK instead of a full scan.
+        int keyRangeCap = Math.min(sqlKeyRangeCap, Math.max(budget.maxSelectedTablets(), maxPartTablets));
         if (backendSupportsSharedKeyRange && maxPartTablets > 0 && keyRangeCap >= maxPartTablets) {
             int maxPartitionsByCap = keyRangeCap / maxPartTablets;
             int targetPartitions = (int) Math.ceil(partitionCount * (budget.targetRows() / population.rows()));
@@ -118,9 +120,9 @@ public final class RandomAggTabletSamplingMethod implements TabletSamplingMethod
                     new EqualProbabilitySamplingSemantics(q, alpha, 1.0));
         }
 
-        int cap = Math.min(budget.maxSelectedTablets(),
-                SampledScanSqlRenderer.tabletCapacity(budget.maxInternalSqlBytes(), 1,
-                        FixedBlockSampleSpec.Mode.FIXED_BLOCK));
+        int sqlFixedCap = SampledScanSqlRenderer.tabletCapacity(budget.maxInternalSqlBytes(), 1,
+                FixedBlockSampleSpec.Mode.FIXED_BLOCK);
+        int cap = Math.min(sqlFixedCap, Math.max(budget.maxSelectedTablets(), maxPartTablets));
         double alpha = 1.0;
         Optional<FixedBlockSampleSpec> partitionBlocks = Optional.empty();
         if (backendSupportsFixedBlock && partitionCount > 1 && maxPartTablets > 0 && cap >= maxPartTablets) {

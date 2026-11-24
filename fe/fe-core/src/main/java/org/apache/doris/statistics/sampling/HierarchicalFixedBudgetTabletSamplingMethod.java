@@ -33,13 +33,20 @@ import java.util.Map;
 /** Three-stage sample with a common unconditional inclusion probability for every physical block. */
 public final class HierarchicalFixedBudgetTabletSamplingMethod implements TabletSamplingMethod {
     private final FixedBlockSampleSpec.Mode mode;
+    private final boolean crossTabletDuplicates;
 
     public HierarchicalFixedBudgetTabletSamplingMethod() {
-        this(FixedBlockSampleSpec.Mode.FIXED_BLOCK);
+        this(FixedBlockSampleSpec.Mode.FIXED_BLOCK, false);
     }
 
     public HierarchicalFixedBudgetTabletSamplingMethod(FixedBlockSampleSpec.Mode mode) {
+        this(mode, false);
+    }
+
+    public HierarchicalFixedBudgetTabletSamplingMethod(FixedBlockSampleSpec.Mode mode,
+            boolean crossTabletDuplicates) {
         this.mode = mode;
+        this.crossTabletDuplicates = crossTabletDuplicates;
     }
 
     private static final long PARTITION = 0x706172746974696fL;
@@ -90,14 +97,15 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
         if (cap < 1) {
             throw new AnalyzeSkipException("Fixed-block SQL budget cannot fit one tablet");
         }
+        long tabletCount = Arrays.stream(counts).asLongStream().sum();
         int divisor = request.layout().key() || request.layout().partition() || request.layout().distribution()
                 ? 16 : 32;
-        int seats = (int) Math.min(cap, Math.max(1, k / divisor));
+        long minSeats = crossTabletDuplicates ? Math.min(8L, tabletCount) : 1L;
+        int seats = (int) Math.min(cap, Math.max(minSeats, k / divisor));
         int m = Math.min(partitions.size(), seats);
         double alpha = (double) m / partitions.size();
         // Even if every selected tablet reads all its blocks, equal marginals need at least
         // q * tabletCount seats. Reduce q before water-filling if the nominal target is infeasible.
-        long tabletCount = Arrays.stream(counts).asLongStream().sum();
         double q = Math.min(Math.min(alpha, k / population.blocks()), (double) seats / tabletCount);
         double[] beta = allocate(counts, weights, seats / alpha, q / alpha);
 
