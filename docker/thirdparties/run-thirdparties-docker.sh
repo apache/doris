@@ -348,6 +348,22 @@ LOG_ROOT="${ROOT}/logs"
 
 mkdir -p "${LOG_ROOT}"
 
+record_start_failure() {
+    # CI retains reviewed event templates and source names, but withholds arbitrary command output.
+    # Keep the component/location and status in the filename without copying arguments or credentials.
+    printf 'Fixture exited before readiness:\n' >"${LOG_ROOT}/start_${1}_exit_${2}.log" || true
+}
+
+record_launcher_failure() {
+    local status="$1"
+    local location="$2"
+    if [[ "${BASHPID}" -eq "$$" && "${status}" -ne 0 ]]; then
+        record_start_failure "${location}" "${status}"
+    fi
+}
+trap 'record_launcher_failure "$?" "launcher_line_${LINENO}"' ERR
+trap 'record_launcher_failure "$?" launcher' EXIT
+
 JUICEFS_LOCAL_BIN="${JUICEFS_RUNTIME_ROOT}/bin/juicefs"
 
 find_juicefs_hadoop_jar() {
@@ -759,6 +775,7 @@ handle_start_failure() {
     local component="$1"
     local status="$2"
 
+    record_start_failure "${component}" "${status}"
     dump_start_failure "${component}" "${status}"
     kill_running_jobs
     wait_remaining_jobs_quietly

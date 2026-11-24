@@ -32,6 +32,53 @@ from snapshot_fixture import Fixture
 
 
 class FixtureNetworkTest(unittest.TestCase):
+    def test_failed_worker_records_only_its_component_and_exit_status(self):
+        launcher = Path(__file__).resolve().parents[2] / "run-thirdparties-docker.sh"
+        source = launcher.read_text()
+        functions = re.search(r"(?ms)^declare -A START_PIDS=.*?(?=^start_es\(\))", source).group(0)
+        marker = re.search(r"(?ms)^record_start_failure\(\) \{.*?^\}", source)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = "LOG_ROOT=" + shlex.quote(directory) + "\n" + """
+START_CLEANUP_ON_FAILURE=0
+START_PROGRESS_INTERVAL=60
+docker_cli() { :; }
+""" + (marker.group(0) if marker else "") + "\n" + functions + """
+worker() { printf 'private-worker-output\\n'; return 23; }
+launch_component fixture "$LOG_ROOT/start_fixture.log" worker
+wait_for_started_jobs
+"""
+            result = subprocess.run(["bash", "-ec", script], capture_output=True)
+            self.assertEqual(1, result.returncode)
+            evidence = root / "start_fixture_exit_23.log"
+            self.assertTrue(evidence.exists(), "The failed component/status must survive filtered CI diagnostics")
+            self.assertEqual("Fixture exited before readiness:\n", evidence.read_text())
+
+    def test_launcher_failure_keeps_its_line_and_original_exit_status(self):
+        launcher = Path(__file__).resolve().parents[2] / "run-thirdparties-docker.sh"
+        header = re.search(r"(?ms)^LOG_ROOT=.*?(?=^JUICEFS_LOCAL_BIN=)", launcher.read_text()).group(0)
+        for command, status, has_line in (("exit 0", 0, False), ("(exit 17) & wait $! || true", 0, False),
+                                          ("exit 17", 17, False),
+                                          ("(exit 17)", 17, True)):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                script = "ROOT=" + shlex.quote(directory) + "\n" + header
+                exit_line = len(script.splitlines()) + 1
+                script += command + "\n"
+                result = subprocess.run(["bash", "-ec", script], capture_output=True)
+                self.assertEqual(status, result.returncode)
+                evidence = list((root / "logs").glob("start_launcher_*.log"))
+                if status:
+                    self.assertEqual(2 if has_line else 1, len(evidence))
+                    self.assertIn("start_launcher_exit_17.log", [item.name for item in evidence])
+                    if has_line:
+                        self.assertIn("start_launcher_line_" + str(exit_line) + "_exit_17.log",
+                                      [item.name for item in evidence])
+                    for item in evidence:
+                        self.assertEqual("Fixture exited before readiness:\n", item.read_text())
+                else:
+                    self.assertEqual([], evidence)
+
     def test_launcher_shares_the_network_for_loopback_replica_members(self):
         launcher = Path(__file__).resolve().parents[2] / "run-thirdparties-docker.sh"
         function = re.search(r"(?ms)^start_mongodb\(\) \{.*?^\}", launcher.read_text()).group(0)
