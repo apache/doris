@@ -47,7 +47,7 @@ TARGETS=(
     "be/src/storage/index/inverted/query/spi/index_source.h"
     "be/src/storage/index/inverted/query/engine/intersection.cpp"
     "be/src/storage/index/inverted/common/query_info.h"
-    "be/src/storage/index/inverted/snii/snii_index_reader.cpp"
+    "build-support/check-header-deps.py"
     "be/src/storage/index/ann/ann_index_writer.h"
     "be/src/storage/index/ann/ann_index_storage.h"
 )
@@ -135,15 +135,20 @@ echo "${OUT}" | grep -q "query/engine/intersection.cpp includes <CLucene.h>" \
 cp "${BACKUP}/be/src/storage/index/inverted/query/engine/intersection.cpp" \
     "${ROOT}/be/src/storage/index/inverted/query/engine/intersection.cpp"
 
-# An exception that no longer breaks the rule fails the gate.
-sed -i '/#include <CLucene/d' "${ROOT}/be/src/storage/index/inverted/snii/snii_index_reader.cpp"
+# An exception that no longer breaks the rule fails the gate. The tables are empty, so the probe
+# lists a clean file under a root, query_info.h. Written into the existing file, which keeps its
+# mode: e.g. "CLUCENE_INCLUDING_FILES = set()" becomes a set holding that one entry.
+add_clucene_exception() {
+    awk -v table="$1 = set()" -v entry="$1 = {\"$2\"}" '{ print ($0 == table ? entry : $0) }' \
+        "${BACKUP}/build-support/check-header-deps.py" > "${GATE}"
+}
+add_clucene_exception CLUCENE_INCLUDING_FILES "storage/index/inverted/common/query_info.h"
 OUT="$(run_gate)"; EC=$?
 [ "${EC}" -eq 1 ] || fail "stale CLucene include exception expected exit 1, got ${EC}"
 echo "${OUT}" | grep -q \
-    "CLUCENE_INCLUDING_FILES lists storage/index/inverted/snii/snii_index_reader.cpp" \
+    "CLUCENE_INCLUDING_FILES lists storage/index/inverted/common/query_info.h" \
     || fail "stale CLucene include exception not reported"
-cp "${BACKUP}/be/src/storage/index/inverted/snii/snii_index_reader.cpp" \
-    "${ROOT}/be/src/storage/index/inverted/snii/snii_index_reader.cpp"
+cat "${BACKUP}/build-support/check-header-deps.py" > "${GATE}"
 
 # The ANN index is CLucene-free and has no exception: a CLucene include in one of its headers fails.
 printf '\n#include <CLucene.h>\n' >> "${ROOT}/be/src/storage/index/ann/ann_index_writer.h"
@@ -168,16 +173,14 @@ echo "${OUT}" | grep -q "common/query_info.h:[0-9]* names the CLucene symbol luc
 cp "${BACKUP}/be/src/storage/index/inverted/common/query_info.h" \
     "${ROOT}/be/src/storage/index/inverted/common/query_info.h"
 
-# A symbol exception that no longer breaks the rule fails the gate.
-sed -i 's/StringUtil/clucene_gate_probe_util/g' \
-    "${ROOT}/be/src/storage/index/inverted/snii/snii_index_reader.cpp"
+# A symbol exception that no longer breaks the rule fails the gate; the same made-up entry.
+add_clucene_exception CLUCENE_SYMBOL_FILES "storage/index/inverted/common/query_info.h"
 OUT="$(run_gate)"; EC=$?
 [ "${EC}" -eq 1 ] || fail "stale CLucene symbol exception expected exit 1, got ${EC}"
 echo "${OUT}" | grep -q \
-    "CLUCENE_SYMBOL_FILES lists storage/index/inverted/snii/snii_index_reader.cpp" \
+    "CLUCENE_SYMBOL_FILES lists storage/index/inverted/common/query_info.h" \
     || fail "stale CLucene symbol exception not reported"
-cp "${BACKUP}/be/src/storage/index/inverted/snii/snii_index_reader.cpp" \
-    "${ROOT}/be/src/storage/index/inverted/snii/snii_index_reader.cpp"
+cat "${BACKUP}/build-support/check-header-deps.py" > "${GATE}"
 
 # A CLucene symbol in ANN code fails the gate as well.
 printf '\ninline lucene::store::Directory* clucene_gate_ann_symbol = nullptr;\n' \

@@ -17,22 +17,11 @@
 
 #pragma once
 
-// CLucene is third-party code and is not clean under -Wconversion (which
-// -Wshorten-64-to-32 belongs to). Whether its first expansion lands inside
-// someone else's suppressed region depends on include order, so suppress it
-// deliberately here (same pattern as index_common_impl.h).
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wconversion"
-#endif
-#include <CLucene.h> // IWYU pragma: keep
-#include <CLucene/store/IndexInput.h>
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
 #include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -43,13 +32,18 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_common.h"
-#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_storage_format.h"
 #include "storage/index/inverted/analysis/gram/gram_scheme.h"
-#include "storage/index/inverted/clucene/inverted_index_searcher.h"
 #include "storage/index/inverted/snii/format/format_constants.h"
 #include "storage/index/inverted/snii/snii_doris_adapter.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
+
+// SNII and ANN include this header and use no CLucene, so the CLucene types of the V1 and V2
+// paths (lucene::store::Directory, DorisCompoundReader, IndexSearcherBuilder) are only declared
+// here: the header names them through pointers, and the .cpp includes their headers.
+namespace lucene::store {
+class Directory;
+} // namespace lucene::store
 
 namespace doris::snii::writer {
 class MemoryReporter;
@@ -62,7 +56,9 @@ class TabletIndex;
 
 namespace segment_v2 {
 class AnnIndexSink;
+class DorisCompoundReader;
 class DorisFSDirectory;
+class IndexSearcherBuilder;
 namespace snii_doris {
 class DorisSniiFileWriter;
 class SniiAnnStaging;
