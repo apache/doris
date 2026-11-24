@@ -21,6 +21,7 @@ import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
@@ -32,6 +33,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorFunctionCall;
 import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 
 import org.junit.jupiter.api.Assertions;
@@ -48,6 +50,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -456,6 +459,69 @@ public class HudiPartitionPruningTest {
                         nullPaths, Collections.singletonList("dt"),
                         Arrays.asList("dt=__HIVE_DEFAULT_PARTITION__", "dt=%5CN"),
                         true, Collections.emptySet()));
+    }
+
+    @Test
+    public void filterPartitionPathsResolvesHiveSyncSlashEncodedPartitionsViaHmsLocations() {
+        // SlashEncodedDayPartitionValueExtractor registers physical "2024/01/02" in HMS as "dt=2024-01-02"
+        // (no '%', so listPartitions emits "dt=2024-01-02" without calling HMS getPartitions).
+        List<String> hmsNames = Arrays.asList("dt=2024-01-02", "dt=2024-01-03");
+        FakeHmsClient hms = new FakeHmsClient(hmsNames);
+        hms.locations = Map.of(
+                "dt=2024-01-02", "s3a://b/t/2024/01/02",
+                "dt=2024-01-03", "s3a://b/t/2024/01/03");
+        HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
+                .partitionKeyNames(Collections.singletonList("dt"))
+                .build();
+        HudiConnectorMetadata metadata = metadata(
+                hms,
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
+                new HudiMetaClientExecutor() {
+                    @SuppressWarnings("unchecked")
+                    @Override
+                    public <T> T execute(Callable<T> action) {
+                        return (T) new HudiConnectorMetadata.PartitionState(7L, true);
+                    }
+                });
+        List<ConnectorPartitionInfo> listed = metadata.listPartitions(null, handle, Optional.empty());
+        Assertions.assertEquals(hmsNames, listed.stream()
+                .map(ConnectorPartitionInfo::getPartitionName)
+                .collect(Collectors.toList()));
+        Assertions.assertNull(hms.loadedNames, "plain HMS listing must not call getPartitions");
+
+        // On non-EQ/IN predicates (e.g. dt IS NOT NULL or dt > '2024-01-02'), applyFilter returns empty and
+        // scan planning enumerates physical paths ["2024/01/02", "2024/01/03"]. Pass 2 resolves unmatched HMS
+        // partition names via HMS locations back to physical storage paths (handling s3/s3a equivalence too).
+        HudiScanPlanProvider provider = new HudiScanPlanProvider(
+                Collections.emptyMap(), null, null, true, () -> hms);
+        List<String> physicalPaths = Arrays.asList("2024/01/02", "2024/01/03");
+
+        List<String> rangePruned = HudiScanPlanProvider.filterPartitionPathsByRequiredPartitions(
+                physicalPaths, Collections.singletonList("dt"),
+                Collections.singletonList("dt=2024-01-03"), true, Collections.emptySet(),
+                unmatched -> provider.resolveHmsPhysicalPartitionPaths(
+                        handle, unmatched, new ConnectorScanContext()));
+        Assertions.assertEquals(Collections.singletonList("2024/01/03"), rangePruned);
+        Assertions.assertEquals(Collections.singletonList("dt=2024-01-03"), hms.loadedNames);
+
+        List<String> isNotNull = HudiScanPlanProvider.filterPartitionPathsByRequiredPartitions(
+                physicalPaths, Collections.singletonList("dt"),
+                hmsNames, true, Collections.emptySet(),
+                unmatched -> provider.resolveHmsPhysicalPartitionPaths(handle, unmatched, null));
+        Assertions.assertEquals(physicalPaths, isNotNull);
+        Assertions.assertEquals(hmsNames, hms.loadedNames);
+
+        // Standard hive-style / positional paths match completely in Pass 1 with ZERO HMS location lookups.
+        AtomicInteger resolverCalls = new AtomicInteger();
+        List<String> directMatch = HudiScanPlanProvider.filterPartitionPathsByRequiredPartitions(
+                Arrays.asList("2023/12", "2024/01", "2024/02"), PART_KEYS,
+                Collections.singletonList("year=2024/month=02"), true, Collections.emptySet(),
+                unmatched -> {
+                    resolverCalls.incrementAndGet();
+                    return Collections.emptySet();
+                });
+        Assertions.assertEquals(Collections.singletonList("2024/02"), directMatch);
+        Assertions.assertEquals(0, resolverCalls.get());
     }
 
     @Test

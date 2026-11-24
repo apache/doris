@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.hms.HmsClient;
+import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
@@ -26,6 +28,7 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
@@ -69,6 +72,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -78,6 +82,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
@@ -125,13 +130,15 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     private final ConnectorContext context;
     // Every metaClient this provider builds is built inside this; see planScan.
     private final HudiMetaClientExecutor executor;
+    private final boolean useHiveSyncPartition;
+    private final Supplier<HmsClient> hmsClientSupplier;
 
     /**
      * A provider whose planning runs on the calling thread as it is: for tests of the pure helpers, and
      * for nothing that opens a filesystem.
      */
     HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context) {
-        this(properties, context, HudiMetaClientExecutor.inline());
+        this(properties, context, HudiMetaClientExecutor.inline(), false, null);
     }
 
     /**
@@ -145,9 +152,17 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      */
     HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context,
             HudiMetaClientExecutor executor) {
+        this(properties, context, executor, false, null);
+    }
+
+    HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context,
+            HudiMetaClientExecutor executor, boolean useHiveSyncPartition,
+            Supplier<HmsClient> hmsClientSupplier) {
         this.properties = properties;
         this.context = context;
         this.executor = executor;
+        this.useHiveSyncPartition = useHiveSyncPartition;
+        this.hmsClientSupplier = hmsClientSupplier;
     }
 
     /** What the planning runs inside; see the constructor. For tests. */
@@ -428,7 +443,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             boolean urlEncoded = urlEncodePartitioning(metaClient);
             // Resolve partitions (combining applyFilter EQ/IN paths with Nereids requiredPartitions)
             List<String> partitionPaths = resolvePartitions(
-                    session, hudiHandle, metaClient, request.getRequiredPartitions(), urlEncoded);
+                    session, hudiHandle, metaClient, request.getRequiredPartitions(), urlEncoded,
+                    request.getScanContext());
 
             List<ConnectorScanRange> ranges = new ArrayList<>();
             for (String partitionPath : partitionPaths) {
@@ -864,7 +880,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private List<String> resolvePartitions(
             ConnectorSession session, HudiTableHandle handle, HoodieTableMetaClient metaClient,
-            List<String> requiredPartitions, boolean urlEncoded) {
+            List<String> requiredPartitions, boolean urlEncoded, ConnectorScanContext scanContext) {
         List<String> partKeyNames = handle.getPartitionKeyNames();
         List<String> candidatePaths = handle.getPrunedPartitionPaths();
         if (candidatePaths == null) {
@@ -890,8 +906,28 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 candidatePaths = Collections.emptyList();
             }
         }
+        Function<List<String>, Set<String>> hmsPhysicalPathResolver =
+                useHiveSyncPartition && handle.getQueryInstant() == null && hmsClientSupplier != null
+                        ? unmatched -> resolveHmsPhysicalPartitionPaths(handle, unmatched, scanContext)
+                        : null;
         return filterPartitionPathsByRequiredPartitions(
-                candidatePaths, partKeyNames, requiredPartitions, urlEncoded, handle.getTimestampPartitionKeys());
+                candidatePaths, partKeyNames, requiredPartitions, urlEncoded,
+                handle.getTimestampPartitionKeys(), hmsPhysicalPathResolver);
+    }
+
+    Set<String> resolveHmsPhysicalPartitionPaths(
+            HudiTableHandle handle, List<String> unmatchedHmsNames, ConnectorScanContext scanContext) {
+        HmsClient client = hmsClientSupplier.get();
+        List<HmsPartitionInfo> hmsPartitions = scanContext != null
+                ? client.getExistingPartitionsWithStats(
+                        handle.getDbName(), handle.getTableName(), unmatchedHmsNames, scanContext).getPartitions()
+                : client.getExistingPartitions(handle.getDbName(), handle.getTableName(), unmatchedHmsNames);
+        Set<String> resolved = new HashSet<>(hmsPartitions.size());
+        for (HmsPartitionInfo partition : hmsPartitions) {
+            resolved.add(HudiConnectorMetadata.relativePartitionPath(
+                    handle.getBasePath(), partition.getLocation()));
+        }
+        return resolved;
     }
 
     /**
@@ -907,17 +943,56 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             List<String> requiredPartitions,
             boolean urlEncoded,
             Set<String> timestampPartitionKeys) {
+        return filterPartitionPathsByRequiredPartitions(
+                candidatePaths, partKeyNames, requiredPartitions, urlEncoded, timestampPartitionKeys, null);
+    }
+
+    /**
+     * Two-pass intersection supporting both direct rendered-name matching (zero HMS RPCs for standard
+     * hive-style, positional, and percent-encoded paths) and an optional HMS location fallback for
+     * value-transforming Hive-sync extractors (such as {@code SlashEncodedDayPartitionValueExtractor}, where
+     * HMS registers physical {@code "2024/01/02"} as {@code "dt=2024-01-02"}).
+     */
+    static List<String> filterPartitionPathsByRequiredPartitions(
+            List<String> candidatePaths,
+            List<String> partKeyNames,
+            List<String> requiredPartitions,
+            boolean urlEncoded,
+            Set<String> timestampPartitionKeys,
+            Function<List<String>, Set<String>> hmsPhysicalPathResolver) {
         if (candidatePaths.isEmpty() || requiredPartitions == null || requiredPartitions.isEmpty()
                 || partKeyNames == null || partKeyNames.isEmpty()) {
             return candidatePaths;
         }
-        Set<String> required = new HashSet<>(requiredPartitions);
+        Set<String> required = new LinkedHashSet<>(requiredPartitions);
+        Set<String> matchedRequiredNames = new HashSet<>();
         List<String> matched = new ArrayList<>(Math.min(candidatePaths.size(), required.size()));
         for (String path : candidatePaths) {
             Map<String, String> values = parsePartitionValues(
                     path, partKeyNames, urlEncoded, timestampPartitionKeys);
-            if (required.contains(renderHiveStylePartitionName(partKeyNames, values))) {
+            String rendered = renderHiveStylePartitionName(partKeyNames, values);
+            if (required.contains(rendered)) {
                 matched.add(path);
+                matchedRequiredNames.add(rendered);
+            }
+        }
+        if (matchedRequiredNames.size() < required.size() && hmsPhysicalPathResolver != null) {
+            List<String> unmatched = new ArrayList<>(required.size() - matchedRequiredNames.size());
+            for (String name : required) {
+                if (!matchedRequiredNames.contains(name)) {
+                    unmatched.add(name);
+                }
+            }
+            Set<String> resolvedPhysicalPaths = hmsPhysicalPathResolver.apply(unmatched);
+            if (resolvedPhysicalPaths != null && !resolvedPhysicalPaths.isEmpty()) {
+                Set<String> alreadyMatched = new HashSet<>(matched);
+                List<String> ordered = new ArrayList<>(matched.size() + resolvedPhysicalPaths.size());
+                for (String path : candidatePaths) {
+                    if (alreadyMatched.contains(path) || resolvedPhysicalPaths.contains(path)) {
+                        ordered.add(path);
+                    }
+                }
+                return ordered;
             }
         }
         return matched;

@@ -986,7 +986,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 .map(name -> paths.getOrDefault(name, name)).collect(Collectors.toList());
     }
 
-    private static String relativePartitionPath(String basePath, String location) {
+    static String relativePartitionPath(String basePath, String location) {
         if (location == null || location.isEmpty()) {
             throw new DorisConnectorException("Hudi HMS partition has no storage location");
         }
