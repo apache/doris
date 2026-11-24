@@ -15,66 +15,61 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.apache.doris.regression.suite.ClusterOptions
+suite("test_ivm_cloud_join_snapshot_version", "nonConcurrent") {
+    // Only Cloud refreshes read partition versions from Meta Service.
+    if (!isCloudMode()) {
+        return
+    }
 
-suite("test_ivm_cloud_join_snapshot_version", "docker") {
-    def options = new ClusterOptions(feNum: 1, beNum: 1, cloudMode: true)
-    options.feConfigs.add("enable_debug_points=true")
-    options.feConfigs.add("enable_feature_changelog=true")
-    options.feConfigs.add("enable_table_stream=true")
-    options.feConfigs.add("enable_cloud_snapshot_version=true")
+    sql "SET enable_materialized_view_rewrite = false"
+    sql "SET enable_dml_materialized_view_rewrite = false"
+
+    sql "DROP MATERIALIZED VIEW IF EXISTS ivm_cloud_join_snapshot_mv"
+    sql "DROP TABLE IF EXISTS ivm_cloud_join_snapshot_left"
+    sql "DROP TABLE IF EXISTS ivm_cloud_join_snapshot_right"
+
+    sql """
+        CREATE TABLE ivm_cloud_join_snapshot_left (k INT NOT NULL, v INT)
+        UNIQUE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
+        )
+    """
+    sql """
+        CREATE TABLE ivm_cloud_join_snapshot_right (k INT NOT NULL, v INT)
+        UNIQUE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
+        )
+    """
+    sql "INSERT INTO ivm_cloud_join_snapshot_left VALUES (1, 10)"
+    sql "INSERT INTO ivm_cloud_join_snapshot_right VALUES (1, 20)"
+
+    sql """
+        CREATE MATERIALIZED VIEW ivm_cloud_join_snapshot_mv
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+        AS
+        SELECT l.k AS k, COUNT(*) AS cnt, SUM(l.v + r.v) AS total
+        FROM ivm_cloud_join_snapshot_left l JOIN ivm_cloud_join_snapshot_right r ON l.k = r.k
+        WHERE l.v > 0
+        GROUP BY l.k
+    """
+    sql "REFRESH MATERIALIZED VIEW ivm_cloud_join_snapshot_mv COMPLETE"
+    waitingMTMVTaskFinishedByMvName("ivm_cloud_join_snapshot_mv")
+    order_qt_baseline "SELECT k, cnt, total FROM ivm_cloud_join_snapshot_mv"
+
     // Keep the left partition's FE cache stale until the incremental refresh reads it.
-    options.feConfigs.add("cloud_enable_version_syncer=false")
-    options.beConfigs.add("enable_feature_changelog=true")
-
-    docker(options) {
-        sql "SET enable_materialized_view_rewrite = false"
-        sql "SET enable_dml_materialized_view_rewrite = false"
-
-        sql "DROP MATERIALIZED VIEW IF EXISTS ivm_cloud_join_snapshot_mv"
-        sql "DROP TABLE IF EXISTS ivm_cloud_join_snapshot_left"
-        sql "DROP TABLE IF EXISTS ivm_cloud_join_snapshot_right"
-
-        sql """
-            CREATE TABLE ivm_cloud_join_snapshot_left (k INT NOT NULL, v INT)
-            UNIQUE KEY(k)
-            DISTRIBUTED BY HASH(k) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1",
-                "enable_unique_key_merge_on_write" = "true",
-                "changelog.enable" = "true",
-                "changelog.need_historical_value" = "true"
-            )
-        """
-        sql """
-            CREATE TABLE ivm_cloud_join_snapshot_right (k INT NOT NULL, v INT)
-            UNIQUE KEY(k)
-            DISTRIBUTED BY HASH(k) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1",
-                "enable_unique_key_merge_on_write" = "true",
-                "changelog.enable" = "true",
-                "changelog.need_historical_value" = "true"
-            )
-        """
-        sql "INSERT INTO ivm_cloud_join_snapshot_left VALUES (1, 10)"
-        sql "INSERT INTO ivm_cloud_join_snapshot_right VALUES (1, 20)"
-
-        sql """
-            CREATE MATERIALIZED VIEW ivm_cloud_join_snapshot_mv
-            BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 1
-            PROPERTIES ("replication_num" = "1")
-            AS
-            SELECT l.k AS k, COUNT(*) AS cnt, SUM(l.v + r.v) AS total
-            FROM ivm_cloud_join_snapshot_left l JOIN ivm_cloud_join_snapshot_right r ON l.k = r.k
-            WHERE l.v > 0
-            GROUP BY l.k
-        """
-        sql "REFRESH MATERIALIZED VIEW ivm_cloud_join_snapshot_mv COMPLETE"
-        waitingMTMVTaskFinishedByMvName("ivm_cloud_join_snapshot_mv")
-        order_qt_baseline "SELECT k, cnt, total FROM ivm_cloud_join_snapshot_mv"
-
+    setFeConfigTemporary([cloud_enable_version_syncer: false]) {
         def skipCacheUpdate = "FE.CloudGlobalTransactionMgr.updateVersion.disabled"
         sql "INSERT INTO ivm_cloud_join_snapshot_right VALUES (7, 200)"
         try {
@@ -95,11 +90,12 @@ suite("test_ivm_cloud_join_snapshot_version", "docker") {
         order_qt_second_refresh "SELECT k, cnt, total FROM ivm_cloud_join_snapshot_mv"
 
         // A right-only delta pairs with a filtered left post snapshot. CSE must see the source table's MOW metadata.
-        sql "SET GLOBAL experimental_enable_virtual_slot_for_cse = true"
-        sql "INSERT INTO ivm_cloud_join_snapshot_right VALUES (1, 21)"
-        sql "REFRESH MATERIALIZED VIEW ivm_cloud_join_snapshot_mv INCREMENTAL"
-        waitingMTMVTaskFinishedByMvName("ivm_cloud_join_snapshot_mv")
-        order_qt_right_only_refresh "SELECT k, cnt, total FROM ivm_cloud_join_snapshot_mv"
+        setGlobalVarTemporary([experimental_enable_virtual_slot_for_cse: true]) {
+            sql "INSERT INTO ivm_cloud_join_snapshot_right VALUES (1, 21)"
+            sql "REFRESH MATERIALIZED VIEW ivm_cloud_join_snapshot_mv INCREMENTAL"
+            waitingMTMVTaskFinishedByMvName("ivm_cloud_join_snapshot_mv")
+            order_qt_right_only_refresh "SELECT k, cnt, total FROM ivm_cloud_join_snapshot_mv"
+        }
 
         sql "SET cloud_partition_version_cache_ttl_ms = 0"
         order_qt_full_join """
