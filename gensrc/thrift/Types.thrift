@@ -115,6 +115,7 @@ enum TTypeNodeType {
     STRUCT = 3,
     VARIANT = 4,
     FILE = 5,
+    AGG_STATE = 6,
 }
 
 enum TStorageBackendType {
@@ -177,6 +178,7 @@ struct TTypeNode {
 
     // update for map/struct type
     5: optional list<bool> contains_nulls
+    6: optional TAggStateSignature &agg_state
 }
 
 // A flattened representation of a tree of column types obtained by depth-first
@@ -195,7 +197,14 @@ struct TTypeDesc {
     5: optional bool result_is_nullable
     6: optional string function_name
     7: optional i32 be_exec_version
-    8: optional TTypeDesc &agg_state_result_type
+}
+
+struct TAggStateSignature {
+    1: optional string function_name
+    2: optional list<TTypeDesc> sub_types
+    3: optional bool result_is_nullable
+    4: optional i32 be_exec_version
+    5: optional TTypeDesc result_type
 }
 
 enum TAggregationType {

@@ -144,7 +144,7 @@ class DecimalAggregateStateTest {
             Assertions.assertEquals(expected, state.getResultType());
             Assertions.assertEquals(state, DataType.fromCatalogType(state.toCatalogDataType()));
             Assertions.assertEquals(expected.toCatalogDataType().toThrift(),
-                    state.toCatalogDataType().toThrift().getAggStateResultType());
+                    state.toCatalogDataType().toThrift().getTypes().get(0).getAggState().getResultType());
             Column column = new Column("s", state.toCatalogDataType(), false, AggregateType.GENERIC,
                     false, null, "");
             Types.PTypeDesc pb = ColumnToProtobuf.toPb(column, ImmutableSet.of(), ImmutableList.of())
@@ -184,8 +184,8 @@ class DecimalAggregateStateTest {
                             GsonUtils.GSON.toJson(declaration.toCatalogDataType(), Type.class), Type.class);
                     AggStateType state = (AggStateType) DataType.fromCatalogType(catalog);
                     Type roundTripped = state.conversion().toCatalogDataType();
-                    Assertions.assertFalse(roundTripped.toThrift().isSetAggStateResultType());
-                    Assertions.assertFalse(catalog.toThrift().isSetAggStateResultType());
+                    Assertions.assertFalse(roundTripped.toThrift().getTypes().get(0).getAggState().isSetResultType());
+                    Assertions.assertFalse(catalog.toThrift().getTypes().get(0).getAggState().isSetResultType());
                     Column column = new Column("s", roundTripped, false, AggregateType.GENERIC, false, null, "");
                     Assertions.assertFalse(ColumnToThrift.toThrift(column).isSetAggStateResultType());
                     Assertions.assertFalse(ColumnToProtobuf.toPb(column, ImmutableSet.of(), ImmutableList.of())
@@ -294,7 +294,8 @@ class DecimalAggregateStateTest {
             Config.be_exec_version = Config.VARBINARY_SHUFFLE_HASH_MIN_BE_EXEC_VERSION;
             DataType countState = StateCombinator.create(
                     new Count(new SlotReference("v", IntegerType.INSTANCE, true))).getDataType();
-            Assertions.assertTrue(countState.toCatalogDataType().toThrift().isSetAggStateResultType());
+            Assertions.assertTrue(countState.toCatalogDataType().toThrift()
+                    .getTypes().get(0).getAggState().isSetResultType());
             for (boolean enabled : new boolean[] {false, true}) {
                 context.getSessionVariable().enableDecimal256 = enabled;
                 for (AggregateFunction nested : aggregates(18, 2)) {
@@ -303,7 +304,7 @@ class DecimalAggregateStateTest {
                     Assertions.assertEquals(nested.getDataType(), ((AggStateType) state).getResultType());
                     Assertions.assertEquals(state, combine);
                     Type catalog = state.toCatalogDataType();
-                    Assertions.assertTrue(catalog.toThrift().isSetAggStateResultType());
+                    Assertions.assertTrue(catalog.toThrift().getTypes().get(0).getAggState().isSetResultType());
                     Column column = new Column("s", catalog, false, AggregateType.GENERIC, false, null, "");
                     Assertions.assertTrue(ColumnToThrift.toThrift(column).isSetAggStateResultType());
                     Assertions.assertTrue(ColumnToProtobuf.toPb(column, ImmutableSet.of(), ImmutableList.of())

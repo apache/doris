@@ -437,9 +437,6 @@ protected:
             descriptor.__set_sub_types(arguments);
             descriptor.__set_function_name(state_type.get_function_name());
             descriptor.__set_result_is_nullable(false);
-            descriptor.__set_agg_state_result_type(std::make_shared<TTypeDesc>(
-                    remove_nullable(state_type.get_nested_function()->get_return_type())
-                            ->to_thrift()));
             descriptor.__set_be_exec_version(BeExecVersionManager::get_newest_version());
         }
         source_definition.__set_slotType(descriptor);

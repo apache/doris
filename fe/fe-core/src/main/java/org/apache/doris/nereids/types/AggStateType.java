@@ -121,13 +121,35 @@ public class AggStateType extends DataType {
         if (resultType != null) {
             return this;
         }
-        AggregateFunction nested = bindNestedAggregate();
+        List<DataType> inputs = subTypes.stream()
+                .map(AggStateType::resolveNestedDeclaration)
+                .collect(ImmutableList.toImmutableList());
+        AggregateFunction nested = bindNestedAggregate(inputs);
         // SQL declarations can require implicit casts before their signature is saved.
         nested = (AggregateFunction) TypeCoercionUtils.implicitCastInputTypes(nested, nested.expectedInputTypes());
         return new AggStateType(functionName,
                 nested.children().stream().map(Expression::getDataType).collect(Collectors.toList()),
                 nested.children().stream().map(Expression::nullable).collect(Collectors.toList()),
                 returnNullable, nested.getDataType());
+    }
+
+    private static DataType resolveNestedDeclaration(DataType type) {
+        if (type instanceof AggStateType) {
+            return ((AggStateType) type).resolveDeclaration();
+        }
+        if (type instanceof ArrayType) {
+            return ArrayType.of(resolveNestedDeclaration(((ArrayType) type).getItemType()));
+        }
+        if (type instanceof MapType) {
+            MapType map = (MapType) type;
+            return MapType.of(resolveNestedDeclaration(map.getKeyType()), resolveNestedDeclaration(map.getValueType()));
+        }
+        if (type instanceof StructType) {
+            return new StructType(((StructType) type).getFields().stream()
+                    .map(field -> field.withDataType(resolveNestedDeclaration(field.getDataType())))
+                    .collect(ImmutableList.toImmutableList()));
+        }
+        return type;
     }
 
     static AggStateType fromCatalogAggState(org.apache.doris.catalog.AggStateType catalogType) {
@@ -139,15 +161,15 @@ public class AggStateType extends DataType {
         }
         AggStateType legacy = new AggStateType(catalogType.getFunctionName(), inputs,
                 catalogType.getSubTypeNullables(), catalogType.getResultIsNullable());
-        DataType inferred = legacy.getResultType(legacy.bindNestedAggregate());
+        DataType inferred = legacy.getResultType(legacy.bindNestedAggregate(inputs));
         return new AggStateType(legacy.functionName, inputs, legacy.subTypeNullables, legacy.returnNullable,
                 inferred, true);
     }
 
-    private AggregateFunction bindNestedAggregate() {
+    private AggregateFunction bindNestedAggregate(List<DataType> argumentTypes) {
         ImmutableList.Builder<Expression> arguments = ImmutableList.builderWithExpectedSize(subTypes.size());
         for (int i = 0; i < subTypes.size(); i++) {
-            arguments.add(new SlotReference("input" + i, subTypes.get(i), subTypeNullables.get(i)));
+            arguments.add(new SlotReference("input" + i, argumentTypes.get(i), subTypeNullables.get(i)));
         }
         List<Expression> inputs = arguments.build();
         FunctionBuilder builder = Env.getCurrentEnv().getFunctionRegistry()

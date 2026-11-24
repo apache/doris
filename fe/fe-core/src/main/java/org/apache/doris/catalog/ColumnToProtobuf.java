@@ -22,11 +22,13 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.OlapFile.PatternTypePB;
 import org.apache.doris.proto.Types;
+import org.apache.doris.thrift.TAggStateSignature;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TStructField;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
+import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -189,16 +191,19 @@ public class ColumnToProtobuf {
             if (node.isSetContainsNulls()) {
                 output.addAllContainsNulls(node.contains_nulls);
             }
-            if (node.isSetScalarType() && type.isSetFunctionName()
-                    && node.scalar_type.type == TPrimitiveType.AGG_STATE) {
+            if (node.type == TTypeNodeType.AGG_STATE) {
+                TAggStateSignature signature = node.getAggState();
+                // Keep the protobuf node readable by older BEs during rolling upgrades.
+                output.setType(TTypeNodeType.SCALAR.getValue());
+                output.setScalarType(Types.PScalarType.newBuilder().setType(TPrimitiveType.AGG_STATE.getValue()));
                 Types.PAggStateSignature.Builder state = output.getAggStateBuilder()
-                        .setFunctionName(type.function_name).setBeExecVersion(type.be_exec_version)
-                        .setResultIsNullable(type.result_is_nullable);
-                for (TTypeDesc subType : type.sub_types) {
+                        .setFunctionName(signature.function_name).setBeExecVersion(signature.be_exec_version)
+                        .setResultIsNullable(signature.result_is_nullable);
+                for (TTypeDesc subType : signature.sub_types) {
                     state.addSubTypes(aggStateResultToPb(subType)).addSubTypeNullables(subType.is_nullable);
                 }
-                if (type.isSetAggStateResultType()) {
-                    state.setResultType(aggStateResultToPb(type.agg_state_result_type));
+                if (signature.isSetResultType()) {
+                    state.setResultType(aggStateResultToPb(signature.result_type));
                 }
             }
             result.addTypes(output);

@@ -104,7 +104,10 @@ public class ColumnTest {
     public void testNestedAggStateResult() throws Exception {
         AggStateType sum = new AggStateType("sum", true, List.of(Type.INT), List.of(false), Type.BIGINT);
         AggStateType outer = new AggStateType("any_value", true, List.of(sum), List.of(false), sum);
-        Assertions.assertEquals(sum.toThrift(), outer.toThrift().getAggStateResultType());
+        AggStateType avg = new AggStateType("avg", true, List.of(Type.INT), List.of(false), Type.DOUBLE);
+        StructType fields = new StructType(new StructField("s", sum), new StructField("a", avg));
+        Assertions.assertEquals(fields, Type.fromThrift(fields.toThrift()));
+        Assertions.assertEquals(sum.toThrift(), outer.toThrift().getTypes().get(0).getAggState().getResultType());
 
         Column column = new Column("s", outer, false, AggregateType.GENERIC, false, null, "");
         Types.PAggStateSignature result = ColumnToProtobuf.toPb(column, null, null)

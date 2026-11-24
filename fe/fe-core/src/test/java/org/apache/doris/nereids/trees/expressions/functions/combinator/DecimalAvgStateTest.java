@@ -70,7 +70,7 @@ class DecimalAvgStateTest {
         Assertions.assertTrue(ColumnToThrift.toThrift(column).isSetAggStateResultType());
         Assertions.assertTrue(ColumnToProtobuf.toPb(column, ImmutableSet.of(), ImmutableList.of())
                 .hasAggStateResultType());
-        Assertions.assertTrue(state.toCatalogDataType().toThrift().isSetAggStateResultType());
+        Assertions.assertTrue(state.toCatalogDataType().toThrift().getTypes().get(0).getAggState().isSetResultType());
 
         context.getSessionVariable().enableDecimal256 = false;
         SlotReference stateSlot = new SlotReference("s", state, false);

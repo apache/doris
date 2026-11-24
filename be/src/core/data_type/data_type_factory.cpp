@@ -564,6 +564,20 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
     DataTypePtr nested = nullptr;
     const TTypeNode& node = types[*idx];
     switch (node.type) {
+    case TTypeNodeType::AGG_STATE: {
+        DORIS_CHECK(node.agg_state != nullptr);
+        const auto& signature = *node.agg_state;
+        DataTypes args;
+        for (const auto& arg : signature.sub_types) {
+            args.push_back(create_data_type(arg, arg.is_nullable));
+        }
+        nested = std::make_shared<DataTypeAggState>(
+                args, signature.result_is_nullable, signature.function_name,
+                signature.be_exec_version,
+                signature.__isset.result_type ? create_data_type(signature.result_type, false)
+                                              : nullptr);
+        break;
+    }
     case TTypeNodeType::SCALAR: {
         DCHECK(node.__isset.scalar_type);
         const TScalarType& scalar_type = node.scalar_type;
@@ -817,10 +831,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TTypeDesc& t, bool is_nullab
         }
         DCHECK(t.__isset.result_is_nullable);
         DCHECK(t.__isset.function_name);
-        nested = std::make_shared<DataTypeAggState>(
-                subTypes, t.result_is_nullable, t.function_name, t.be_exec_version,
-                t.agg_state_result_type ? create_data_type(*t.agg_state_result_type, false)
-                                        : nullptr);
+        nested = std::make_shared<DataTypeAggState>(subTypes, t.result_is_nullable, t.function_name,
+                                                    t.be_exec_version, nullptr);
         return is_nullable ? make_nullable(nested) : nested;
     } else {
         int idx = 0;

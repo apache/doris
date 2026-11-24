@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.thrift.TAggStateSignature;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScalarType;
@@ -1031,6 +1032,19 @@ public abstract class Type {
         Type type = null;
         int tmpNodeIdx = nodeIdx;
         switch (node.getType()) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
+            case AGG_STATE: {
+                TAggStateSignature signature = node.getAggState();
+                List<Type> args = new ArrayList<>();
+                List<Boolean> nullables = new ArrayList<>();
+                for (TTypeDesc arg : signature.getSubTypes()) {
+                    args.add(fromThrift(arg));
+                    nullables.add(arg.isIsNullable());
+                }
+                type = new AggStateType(signature.function_name, signature.result_is_nullable, args, nullables,
+                        signature.isSetResultType() ? fromThrift(signature.result_type) : null);
+                ++tmpNodeIdx;
+                break;
+            }
             case SCALAR: {
                 Preconditions.checkState(node.isSetScalarType());
                 TScalarType scalarType = node.getScalarType();

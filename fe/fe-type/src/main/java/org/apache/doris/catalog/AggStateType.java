@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.thrift.TScalarType;
+import org.apache.doris.thrift.TAggStateSignature;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
@@ -121,11 +121,9 @@ public class AggStateType extends Type {
     public void toThrift(TTypeDesc container) {
         TTypeNode node = new TTypeNode();
         container.types.add(node);
-        // ATTN: use scalar only for compatibility.
-        node.setType(TTypeNodeType.SCALAR);
-        TScalarType scalarType = new TScalarType();
-        scalarType.setType(getPrimitiveType().toThrift());
-        node.setScalarType(scalarType);
+        node.setType(TTypeNodeType.AGG_STATE);
+        TAggStateSignature signature = new TAggStateSignature();
+        node.setAggState(signature);
         List<TTypeDesc> types = new ArrayList<>();
         for (int i = 0; i < subTypes.size(); i++) {
             TTypeDesc desc = new TTypeDesc();
@@ -134,13 +132,13 @@ public class AggStateType extends Type {
             desc.setIsNullable(subTypeNullables.get(i));
             types.add(desc);
         }
-        container.setSubTypes(types);
-        container.setResultIsNullable(resultIsNullable);
-        container.setFunctionName(functionName);
-        container.setBeExecVersion(Config.be_exec_version);
+        signature.setSubTypes(types);
+        signature.setResultIsNullable(resultIsNullable);
+        signature.setFunctionName(functionName);
+        signature.setBeExecVersion(Config.be_exec_version);
         // Old catalog images omit the signature; retain that marker for the BE legacy reader.
         if (resultType != null) {
-            container.setAggStateResultType(resultType.toThrift());
+            signature.setResultType(resultType.toThrift());
         }
     }
 
