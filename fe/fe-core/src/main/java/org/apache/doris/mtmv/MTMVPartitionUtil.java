@@ -589,8 +589,8 @@ public class MTMVPartitionUtil {
         // letting the ifNotExists add silently no-op, which would leave the base partition permanently
         // unrepresented in the MTMV.
         if (mtmv.getPartition(partitionName) != null) {
-            PartitionKeyDesc existingDesc = mtmv.getPartitionItemOrAnalysisException(partitionName)
-                    .toPartitionKeyDesc();
+            PartitionKeyDesc existingDesc = MTMV.toMvPartitionKeyDesc(
+                    mtmv.getPartitionItemOrAnalysisException(partitionName), mtmv.getPartitionColumns());
             if (!existingDesc.equals(oldPartitionKeyDesc)) {
                 throw new DdlException(String.format(
                         "MTMV partition name '%s' already exists with a different partition description "

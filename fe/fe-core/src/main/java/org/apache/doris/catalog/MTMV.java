@@ -1730,11 +1730,23 @@ public class MTMV extends OlapTable {
      */
     public Map<String, PartitionKeyDesc> generateMvPartitionDescs() {
         Map<String, PartitionItem> mtmvItems = getAndCopyPartitionItems();
+        List<Column> partitionColumns = getPartitionColumns();
         Map<String, PartitionKeyDesc> result = Maps.newHashMap();
         for (Entry<String, PartitionItem> entry : mtmvItems.entrySet()) {
-            result.put(entry.getKey(), entry.getValue().toPartitionKeyDesc());
+            result.put(entry.getKey(), toMvPartitionKeyDesc(entry.getValue(), partitionColumns));
         }
         return result;
+    }
+
+    /** Build the descriptor used to match the stored partition to a regenerated MTMV partition. */
+    public static PartitionKeyDesc toMvPartitionKeyDesc(PartitionItem item, List<Column> partitionColumns) {
+        // An older range partition can carry a TIMESTAMPTZ bound with a different scale from the
+        // column. Format the typed value at the column scale to match the regenerated descriptor.
+        if (item instanceof RangePartitionItem && partitionColumns.size() == 1
+                && partitionColumns.get(0).getType().isTimeStampTz()) {
+            return ((RangePartitionItem) item).toTimeStampTzPartitionKeyDesc(partitionColumns.get(0).getType());
+        }
+        return item.toPartitionKeyDesc();
     }
 
     /**
@@ -1797,12 +1809,14 @@ public class MTMV extends OlapTable {
                 = getEffectiveQueryUsedBaseTablePartitionMap(
                         queryUsedBaseTablePartitionMap, mvPartitionItems, pinnedSnapshots);
         Map<String, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
+        List<Column> partitionColumns = getPartitionColumns();
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> pctPartitionDescs = MTMVPartitionUtil
-                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns(),
+                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, partitionColumns,
                         effectiveFilter, pinnedSnapshots);
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
-                    pctPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Maps.newHashMap()));
+                    pctPartitionDescs.getOrDefault(toMvPartitionKeyDesc(entry.getValue(), partitionColumns),
+                            Maps.newHashMap()));
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("calculatePartitionMappings use [{}] mills, mvName is [{}]",

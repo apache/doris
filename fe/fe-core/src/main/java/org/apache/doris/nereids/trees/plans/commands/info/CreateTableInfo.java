@@ -1238,7 +1238,7 @@ public class CreateTableInfo {
                 Expr coercedExpr = new CastExpr(column.getType().toCatalogDataType(), e, true);
                 if (SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(coercedExpr)) {
                     throw new AnalysisException("Generated column '" + column.getName()
-                            + "' contains a time-zone sensitive expression on TIMESTAMPTZ, which is not "
+                            + "' contains a time-zone sensitive expression, which is not "
                             + "supported because it would be evaluated in the write session time zone");
                 }
                 info.get().setExpr(e);

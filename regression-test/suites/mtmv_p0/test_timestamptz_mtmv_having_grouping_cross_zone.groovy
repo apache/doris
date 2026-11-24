@@ -148,4 +148,29 @@ suite("test_timestamptz_mtmv_having_grouping_cross_zone","mtmv") {
     sql "SET enable_materialized_view_rewrite = true"
     def havingSameOn = sql "${havingQuery} ORDER BY 1"
     Assert.assertEquals("same-zone reads must agree as well", havingSameOff, havingSameOn)
+
+    // The same local midnight refers to different UTC instants in the two query sessions.
+    def localLiteralQuery = "SELECT COUNT(*) AS c FROM ${tableName} WHERE ts < '2024-01-01 00:00:00'"
+    def explicitOffsetQuery = "SELECT COUNT(*) AS c FROM ${tableName} WHERE ts < '2024-01-01 00:00:00+00:00'"
+    def literalViews = [timestamptz_mtmv_local_bound: localLiteralQuery,
+                        timestamptz_mtmv_offset_bound: explicitOffsetQuery]
+    literalViews.each { name, query ->
+        sql "DROP MATERIALIZED VIEW IF EXISTS ${name}"
+        sql """
+            CREATE MATERIALIZED VIEW ${name}
+            BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES('replication_num' = '1')
+            AS ${query}
+        """
+        waitingMTMVTaskFinishedByMvName(name, dbName)
+    }
+    mv_rewrite_success(localLiteralQuery, "timestamptz_mtmv_local_bound")
+    order_qt_local_bound_creation_zone "${localLiteralQuery}"
+
+    sql "SET time_zone = '${queryTz}'"
+    mv_rewrite_fail(localLiteralQuery, "timestamptz_mtmv_local_bound")
+    order_qt_local_bound_query_zone "${localLiteralQuery}"
+    mv_rewrite_success(explicitOffsetQuery, "timestamptz_mtmv_offset_bound")
+    order_qt_explicit_bound_query_zone "${explicitOffsetQuery}"
 }

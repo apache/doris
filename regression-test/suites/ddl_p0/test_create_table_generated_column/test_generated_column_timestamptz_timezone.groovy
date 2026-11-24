@@ -152,6 +152,30 @@ suite("test_generated_column_timestamptz_timezone","ddl") {
         exception "time-zone sensitive"
     }
 
+    // Both epoch conversions read the session's calendar even though their argument is a BIGINT.
+    sql "SET time_zone = '+00:00'"
+    order_qt_epoch_calendar_utc "SELECT from_unixtime(1704067200), hour_from_unixtime(1704067200)"
+    sql "SET time_zone = '+08:00'"
+    order_qt_epoch_calendar_utc_plus_eight "SELECT from_unixtime(1704067200), hour_from_unixtime(1704067200)"
+    sql "DROP TABLE IF EXISTS gencol_epoch_calendar"
+    for (def zone : ['+00:00', '+08:00']) {
+        sql "SET time_zone = '${zone}'"
+        for (def expression : ['from_unixtime(epoch)', 'hour_from_unixtime(epoch)']) {
+            test {
+                sql """
+                    CREATE TABLE gencol_epoch_calendar (
+                        epoch BIGINT,
+                        converted STRING GENERATED ALWAYS AS (${expression})
+                    )
+                    DUPLICATE KEY(epoch)
+                    DISTRIBUTED BY HASH(epoch) BUCKETS 1
+                    PROPERTIES('replication_num' = '1')
+                """
+                exception "time-zone sensitive"
+            }
+        }
+    }
+
     // A struct cast is compared leaf by leaf: keeping one TIMESTAMPTZ field while rendering another into a
     // zone-free representation still depends on the write session zone. Must be rejected.
     test {

@@ -25,6 +25,7 @@ import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -53,7 +54,9 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -67,6 +70,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.system.Frontend;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -76,6 +80,7 @@ import com.google.common.collect.Sets;
 import java.time.DateTimeException;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -106,6 +111,10 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
     private static final Set<String> SESSION_ZONE_CLOCK_FUNCTIONS = ImmutableSet.of(
             "current_date", "curdate", "current_time", "curtime", "now", "current_timestamp",
             "localtime", "localtimestamp", "sysdate");
+
+    // These functions convert epoch seconds to session-local calendar values.
+    private static final Set<String> SESSION_ZONE_EPOCH_FUNCTIONS = ImmutableSet.of(
+            "from_unixtime", "hour_from_unixtime");
 
     /** The leading {@code major.minor.revision} of a Doris version string. */
     private static final java.util.regex.Pattern DORIS_RELEASE_VERSION =
@@ -307,9 +316,17 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
          * instant), IS (NOT) NULL checks, and comparisons / boolean combinations of them (equality,
          * ordering, BETWEEN and IN over instants compare the UTC instants and do not depend on the session
          * zone; any zone-dependent operand, e.g. a cast of an offset-free string into TIMESTAMPTZ, is
-         * guarded on its own by the child visit).
+         * guarded on its own by the child visit). An already-coerced TIMESTAMPTZ literal can still
+         * depend on the session if the input omitted its zone.
          */
         private static boolean isTimeZoneSensitive(Expression expr) {
+            if (expr instanceof TimestampTzLiteral) {
+                return ((TimestampTzLiteral) expr).isFromSessionTimeZone();
+            }
+            if (expr instanceof ScalarFunction
+                    && SESSION_ZONE_EPOCH_FUNCTIONS.contains(((ScalarFunction) expr).getName())) {
+                return true;
+            }
             if (expr instanceof Slot || expr instanceof Literal || expr instanceof NamedExpression
                     || expr instanceof AggregateFunction || expr instanceof IsNull
                     || expr instanceof ComparisonPredicate || expr instanceof Between
@@ -601,9 +618,8 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
      * what it cannot classify. Heartbeat and replay do not check the capability either, so liveness is not a
      * usable proxy for "will never read this metadata".
      *
-     * <p>Development builds report {@code 0.0.0}, which carries no release ordering, so the check is a no-op
-     * there; an unparsable version string is also treated as "cannot prove it is older" instead of blocking
-     * DDL, because vendor version schemes are not comparable with this FE's release.
+     * <p>A peer must report a comparable release or the same development build. An unknown version can
+     * belong to an incompatible FE, including before the peer's first heartbeat.
      */
     public static void checkClusterSupportsPlanTimeZoneFence() throws AnalysisException {
         Env env = Env.getCurrentEnv();
@@ -611,25 +627,32 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             return;
         }
         List<Frontend> frontends = env.getFrontends(null);
-        String selfHost = env.getSelfNode() == null ? null : env.getSelfNode().getHost();
-        DigitalVersion selfVersion = null;
+        HostInfo self = env.getSelfNode();
+        Frontend selfFrontend = null;
+        String localBuild = Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
         for (Frontend frontend : frontends) {
-            if (selfHost != null && selfHost.equals(frontend.getHost())) {
-                selfVersion = parseReleaseVersion(frontend.getVersion());
+            if (self != null && self.getHost().equals(frontend.getHost())
+                    && self.getPort() == frontend.getEditLogPort()) {
+                selfFrontend = frontend;
+                if (frontend.getVersion() != null) {
+                    localBuild = frontend.getVersion();
+                }
+                break;
             }
         }
-        if (selfVersion == null) {
-            return;
-        }
+        DigitalVersion selfVersion = parseReleaseVersion(localBuild);
         for (Frontend frontend : frontends) {
-            DigitalVersion version = parseReleaseVersion(frontend.getVersion());
-            if (version != null && version.before(selfVersion)) {
-                throw new AnalysisException("frontend " + frontend.getHost() + " runs " + frontend.getVersion()
-                        + ", which predates this frontend's " + selfVersion.major + "." + selfVersion.minor
-                        + "." + selfVersion.revision + ". It is a registered frontend and may come back at any"
-                        + " time, and it cannot interpret the persisted plan variables of an object whose"
-                        + " semantics depend on the session time zone, so the object cannot be created safely"
-                        + " now. Upgrade all frontends first (or drop this one) and retry.");
+            if (frontend == selfFrontend) {
+                continue;
+            }
+            String peerBuild = frontend.getVersion();
+            DigitalVersion version = parseReleaseVersion(peerBuild);
+            if (version == null || selfVersion == null
+                    || (selfVersion.id == 0 ? !localBuild.equals(peerBuild) : version.before(selfVersion))) {
+                throw new AnalysisException("frontend " + frontend.getHost() + ":" + frontend.getEditLogPort()
+                        + " reports version " + peerBuild + ", which cannot be verified to support the session"
+                        + " time-zone semantics of this object (local version " + localBuild + ")."
+                        + " Upgrade all frontends first (or drop this one) and retry.");
             }
         }
     }
@@ -674,9 +697,7 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             return null;
         }
         try {
-            DigitalVersion parsed = DigitalVersion.fromString(matcher.group(0));
-            // 0.0.0 is the development build marker, which carries no release ordering.
-            return parsed.id == 0 ? null : parsed;
+            return DigitalVersion.fromString(matcher.group(0));
         } catch (IllegalArgumentException e) {
             return null;
         }
@@ -710,11 +731,7 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
             // instant, an offset-free string slot holds whatever the storage session wrote).
             return false;
         }
-        if (expr instanceof FunctionCallExpr && isSessionZoneClockFunction((FunctionCallExpr) expr)) {
-            // current_date / current_time / now and their aliases read the wall clock in the session time
-            // zone, and the legacy tree folds them as planning-time constants. A stored expression would
-            // therefore keep the write/load session's clock reading, which differs between zones and even
-            // between loads, so it can never be materialized reproducibly.
+        if (expr instanceof FunctionCallExpr && isSessionZoneFunction((FunctionCallExpr) expr)) {
             return true;
         }
         if (expr instanceof IsNullPredicate) {
@@ -756,12 +773,12 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
         return false;
     }
 
-    /** Whether the call is a session-zone dependent current-time function (see the name set above). */
-    private static boolean isSessionZoneClockFunction(FunctionCallExpr functionCall) {
+    private static boolean isSessionZoneFunction(FunctionCallExpr functionCall) {
         if (functionCall.getFnName() == null) {
             return false;
         }
-        return SESSION_ZONE_CLOCK_FUNCTIONS.contains(functionCall.getFnName().getFunction().toLowerCase());
+        String name = functionCall.getFnName().getFunction().toLowerCase(Locale.ROOT);
+        return SESSION_ZONE_CLOCK_FUNCTIONS.contains(name) || SESSION_ZONE_EPOCH_FUNCTIONS.contains(name);
     }
 
     /**

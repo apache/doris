@@ -577,7 +577,7 @@ public class MaterializedViewHandler extends AlterHandler {
         for (MVColumnItem mvColumnItem : mvColumnItemList) {
             if (SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(mvColumnItem.getDefineExpr())) {
                 throw new DdlException("The materialized view column '" + mvColumnItem.getName()
-                        + "' contains a time-zone sensitive expression on TIMESTAMPTZ, which is not supported "
+                        + "' contains a time-zone sensitive expression, which is not supported "
                         + "in a synchronous materialized view because it would be evaluated in the write/load "
                         + "session time zone. Use a time-zone independent expression or an asynchronous "
                         + "materialized view.");
@@ -587,7 +587,7 @@ public class MaterializedViewHandler extends AlterHandler {
         if (whereClauseItem != null
                 && SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(whereClauseItem.getDefineExpr())) {
             throw new DdlException("The materialized view WHERE clause contains a time-zone sensitive "
-                    + "expression on TIMESTAMPTZ, which is not supported in a synchronous materialized view "
+                    + "expression, which is not supported in a synchronous materialized view "
                     + "because it would be evaluated in the write/load session time zone. Use a time-zone "
                     + "independent expression or an asynchronous materialized view.");
         }

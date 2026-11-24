@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -821,6 +822,22 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
                 "a zone-dependent operand must stay guarded inside the comparison");
     }
 
+    @Test
+    public void testTimestampTzPredicateGuardsOnlySessionLocalLiteral() {
+        Map<String, String> creationVars = Map.of(SessionVariable.TIME_ZONE, "+08:00");
+        Map<String, String> queryVars = Map.of(SessionVariable.TIME_ZONE, "+00:00");
+        SessionVarGuardRewriter.AddSessionVarGuardRewriter rewriter =
+                new SessionVarGuardRewriter.AddSessionVarGuardRewriter(creationVars, queryVars);
+        TimeStampTzType type = TimeStampTzType.of(6);
+        SlotReference slot = new SlotReference("ts", type);
+        Expression offsetFree = new GreaterThan(slot,
+                TimestampTzLiteral.fromSessionTimeZone(type, "2024-01-01 00:00:00"));
+        Expression explicitOffset = new GreaterThan(slot,
+                TimestampTzLiteral.fromSessionTimeZone(type, "2024-01-01 00:00:00+00:00"));
+        Assertions.assertInstanceOf(SessionVarGuardExpr.class, offsetFree.accept(rewriter, false).child(1));
+        Assertions.assertSame(explicitOffset, explicitOffset.accept(rewriter, false));
+    }
+
     /**
      * Old-metadata compatibility fence: an object created before time_zone was persisted (empty map, or a
      * map that carries other plan variables but no time_zone key) has an unknown creation zone, so its
@@ -1130,8 +1147,27 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
                     SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
             Assertions.assertTrue(exception.getMessage().contains("Upgrade all frontends first"),
                     exception.getMessage());
-            // a development build (0.0.0) carries no release ordering, so there is nothing to compare
+            Frontend unreported = mockFrontend("fe-pending", null, false);
+            Frontend unparseable = mockFrontend("fe-vendor", "unknown-build", true);
+            Frontend sameHostUnreported = mockFrontend("fe-self", null, false);
+            Mockito.when(sameHostUnreported.getEditLogPort()).thenReturn(9031);
+            for (Frontend unknown : ImmutableList.of(unreported, unparseable, sameHostUnreported)) {
+                Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(self, unknown));
+                Assertions.assertThrows(AnalysisException.class,
+                        SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
+            }
+            // Development builds have no release ordering. Only peers on the same build are comparable.
             Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(selfDev, olderAlive));
+            Assertions.assertThrows(AnalysisException.class,
+                    SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
+            Frontend peerDev = mockFrontend("fe-dev", "doris-0.0.0-abcdef", true);
+            Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(selfDev, peerDev));
+            Assertions.assertDoesNotThrow(SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
+            Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(selfDev, unreported));
+            Assertions.assertThrows(AnalysisException.class,
+                    SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
+            Frontend selfWithoutHeartbeat = mockFrontend("fe-self", null, false);
+            Mockito.when(env.getFrontends(null)).thenReturn(ImmutableList.of(selfWithoutHeartbeat));
             Assertions.assertDoesNotThrow(SessionVarGuardRewriter::checkClusterSupportsPlanTimeZoneFence);
         }
     }
@@ -1139,6 +1175,7 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
     private static Frontend mockFrontend(String host, String version, boolean alive) {
         Frontend frontend = Mockito.mock(Frontend.class);
         Mockito.when(frontend.getHost()).thenReturn(host);
+        Mockito.when(frontend.getEditLogPort()).thenReturn(9030);
         Mockito.when(frontend.getVersion()).thenReturn(version);
         Mockito.when(frontend.isAlive()).thenReturn(alive);
         return frontend;

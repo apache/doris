@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -188,10 +189,11 @@ public class RefreshMTMVInfo {
             // deterministic may carry a historical time suffix, so regenerating names here could produce a
             // different string than the stored one and wrongly reject a valid refresh request.
             Set<String> existPartitionNames = mtmv.getPartitionNames();
+            List<Column> partitionColumns = mtmv.getPartitionColumns();
             // Secondly validate against the partition names that would be generated (and aligned) from the
             // related base table partition descs, so that refreshing a not-yet-created partition is allowed.
             Set<PartitionKeyDesc> relatedPartitionDescs = MTMVPartitionUtil.generateRelatedPartitionDescs(
-                    mtmv.getMvPartitionInfo(), mtmv.getMvProperties(), mtmv.getPartitionColumns(),
+                    mtmv.getMvPartitionInfo(), mtmv.getMvProperties(), partitionColumns,
                     Maps.newHashMap()).keySet();
             // Index every related partition desc by its generated (regenerated/alias) name so each requested
             // alias below is resolved in O(1). Rescanning relatedPartitionDescs for every alias would
@@ -215,10 +217,12 @@ public class RefreshMTMVInfo {
             // represented (and adds nothing) while calculateNeedRefreshPartitions drops the nonphysical
             // alias, and the manual refresh completes as NOT_REFRESH without refreshing anything.
             Map<PartitionKeyDesc, String> descToPhysicalName = Maps.newHashMap();
+            Map<String, PartitionKeyDesc> physicalNameToDesc = Maps.newHashMap();
             for (String partitionName : existPartitionNames) {
-                descToPhysicalName.putIfAbsent(
-                        mtmv.getPartitionItemOrAnalysisException(partitionName).toPartitionKeyDesc(),
-                        partitionName);
+                PartitionKeyDesc desc = MTMV.toMvPartitionKeyDesc(
+                        mtmv.getPartitionItemOrAnalysisException(partitionName), partitionColumns);
+                descToPhysicalName.putIfAbsent(desc, partitionName);
+                physicalNameToDesc.put(partitionName, desc);
             }
             // Resolve into an insertion-ordered set so several requested names that map to the same
             // physical partition (e.g. a legacy time-suffixed name and its regenerated SHA alias) collapse
@@ -249,8 +253,7 @@ public class RefreshMTMVInfo {
                 // its descriptor is still derivable from the current base table partitions. A stale name whose
                 // base partition was dropped / re-partitioned must be rejected so the async task does not
                 // later dereference a partition removed by alignMvPartition.
-                PartitionKeyDesc storedDesc = mtmv.getPartitionItemOrAnalysisException(partition)
-                        .toPartitionKeyDesc();
+                PartitionKeyDesc storedDesc = physicalNameToDesc.get(partition);
                 if (!relatedPartitionDescs.contains(storedDesc)) {
                     throw new org.apache.doris.common.AnalysisException("partition not exist: " + partition
                             + " (its base partition is no longer valid)");

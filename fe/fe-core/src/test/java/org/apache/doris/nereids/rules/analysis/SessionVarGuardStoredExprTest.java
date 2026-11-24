@@ -22,10 +22,14 @@ import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
@@ -210,6 +214,20 @@ public class SessionVarGuardStoredExprTest {
             Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(call),
                     function + "() must be classified as zone sensitive");
         }
+    }
+
+    @Test
+    public void testEpochToLocalCalendarFunctionsAreSensitive() {
+        IntLiteral epoch = new IntLiteral(1704067200L);
+        for (String name : Lists.newArrayList("from_unixtime", "HOUR_FROM_UNIXTIME")) {
+            FunctionCallExpr call = new FunctionCallExpr(name, Lists.newArrayList(epoch), false);
+            Assertions.assertTrue(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(call), name);
+        }
+        ScalarFunction secondFromUnixtime = ScalarFunction.createBuiltinOperator("second_from_unixtime",
+                Lists.newArrayList(Type.BIGINT), Type.TINYINT, NullableMode.DEPEND_ON_ARGUMENT);
+        FunctionCallExpr seconds = new FunctionCallExpr(secondFromUnixtime,
+                new FunctionParams(Lists.newArrayList(epoch)), false);
+        Assertions.assertFalse(SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(seconds));
     }
 
     /**

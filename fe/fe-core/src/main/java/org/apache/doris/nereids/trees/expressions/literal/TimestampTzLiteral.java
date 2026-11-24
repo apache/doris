@@ -52,6 +52,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
             = new TimestampTzLiteral(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
 
     private static final Logger LOG = LogManager.getLogger(TimestampTzLiteral.class);
+    private final boolean fromSessionTimeZone;
 
     public TimestampTzLiteral(String s) {
         this(TimeStampTzType.forTypeFromString(s), s);
@@ -59,22 +60,34 @@ public class TimestampTzLiteral extends DateTimeLiteral {
 
     public TimestampTzLiteral(TimeStampTzType dateType, String s) {
         super(dateType, s);
+        this.fromSessionTimeZone = false;
         roundMicroSecond(dateType.getScale());
     }
 
     public TimestampTzLiteral(long year, long month, long day, long hour, long minute, long second) {
-        super(TimeStampTzType.SYSTEM_DEFAULT, year, month, day, hour, minute, second, 0);
+        this(TimeStampTzType.SYSTEM_DEFAULT, year, month, day, hour, minute, second, 0);
     }
 
     public TimestampTzLiteral(long year, long month, long day, long hour, long minute, long second, long microSecond) {
-        super(TimeStampTzType.forTypeFromMicroSeconds(microSecond),
+        this(TimeStampTzType.forTypeFromMicroSeconds(microSecond),
                 year, month, day, hour, minute, second, microSecond);
     }
 
     public TimestampTzLiteral(TimeStampTzType dateType,
             long year, long month, long day, long hour, long minute, long second, long microSecond) {
+        this(dateType, year, month, day, hour, minute, second, microSecond, false);
+    }
+
+    private TimestampTzLiteral(TimeStampTzType dateType, long year, long month, long day, long hour,
+            long minute, long second, long microSecond, boolean fromSessionTimeZone) {
         super(dateType, year, month, day, hour, minute, second, microSecond);
+        this.fromSessionTimeZone = fromSessionTimeZone;
         roundMicroSecond(dateType.getScale());
+    }
+
+    /** Whether analysis used the session zone to interpret an offset-free value. */
+    public boolean isFromSessionTimeZone() {
+        return fromSessionTimeZone;
     }
 
     /**
@@ -83,14 +96,14 @@ public class TimestampTzLiteral extends DateTimeLiteral {
      * strings without one are interpreted in the current session timezone and converted to UTC.
      */
     public static TimestampTzLiteral fromSessionTimeZone(TimeStampTzType dateType, String s) {
-        return fromTimeZone(dateType, s, getSessionTimeZone());
+        return fromTimeZone(dateType, s, getSessionTimeZone(), true);
     }
 
     /**
      * fromSessionTimeZone
      */
     public static TimestampTzLiteral fromSessionTimeZone(TimeStampTzType dateType, DateTimeV2Literal literal) {
-        return fromTimeZone(dateType, literal, getSessionTimeZone());
+        return fromTimeZone(dateType, literal, getSessionTimeZone(), true);
     }
 
     /**
@@ -100,13 +113,18 @@ public class TimestampTzLiteral extends DateTimeLiteral {
      * @param timeZone Fallback timezone used only when the string has no explicit offset
      */
     public static TimestampTzLiteral fromTimeZone(TimeStampTzType dateType, String s, String timeZone) {
+        return fromTimeZone(dateType, s, timeZone, false);
+    }
+
+    private static TimestampTzLiteral fromTimeZone(TimeStampTzType dateType, String s, String timeZone,
+            boolean fromSessionTimeZone) {
         if (DateTimeChecker.hasTimeZone(s)) {
             return new TimestampTzLiteral(dateType, s);
         }
         // Parse at the target scale before applying the zone. An intermediate
         // DATETIMEV2(6) can round .4999996 to .500000 and cause a second carry.
         TimestampTzLiteral local = new TimestampTzLiteral(dateType, s);
-        return fromLocalDateTime(dateType, local.toJavaDateType(), timeZone);
+        return fromLocalDateTime(dateType, local.toJavaDateType(), timeZone, fromSessionTimeZone);
     }
 
     /**
@@ -114,21 +132,26 @@ public class TimestampTzLiteral extends DateTimeLiteral {
      */
     public static TimestampTzLiteral fromTimeZone(TimeStampTzType dateType, DateTimeV2Literal literal,
             String timeZone) {
+        return fromTimeZone(dateType, literal, timeZone, false);
+    }
+
+    private static TimestampTzLiteral fromTimeZone(TimeStampTzType dateType, DateTimeV2Literal literal,
+            String timeZone, boolean fromSessionTimeZone) {
         // Round before the zone lookup, as BE does. Rounding 02:59:59.9 to seconds
         // reaches 03:00 in New York, which is outside the gap on 2024-03-10.
         DateTimeV2Literal rounded = new DateTimeV2Literal(DateTimeV2Type.of(dateType.getScale()),
                 literal.year, literal.month, literal.day, literal.hour, literal.minute,
                 literal.second, literal.microSecond);
-        return fromLocalDateTime(dateType, rounded.toJavaDateType(), timeZone);
+        return fromLocalDateTime(dateType, rounded.toJavaDateType(), timeZone, fromSessionTimeZone);
     }
 
     private static TimestampTzLiteral fromLocalDateTime(TimeStampTzType dateType,
-            LocalDateTime local, String timeZone) {
+            LocalDateTime local, String timeZone, boolean fromSessionTimeZone) {
         LocalDateTime utc = toUtc(local,
                 TimeZoneParser.parse(timeZone, TimeZoneParser.Usage.SESSION));
         return new TimestampTzLiteral(dateType,
                 utc.getYear(), utc.getMonthValue(), utc.getDayOfMonth(),
-                utc.getHour(), utc.getMinute(), utc.getSecond(), utc.getNano() / 1000);
+                utc.getHour(), utc.getMinute(), utc.getSecond(), utc.getNano() / 1000, fromSessionTimeZone);
     }
 
     /**
@@ -185,7 +208,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         }
         if (targetType.isTimeStampTzType()) {
             return new TimestampTzLiteral((TimeStampTzType) targetType,
-                    year, month, day, hour, minute, second, microSecond);
+                    year, month, day, hour, minute, second, microSecond, fromSessionTimeZone);
         } else if (targetType instanceof TimeStampNsType) {
             DateTimeV2Literal dtV2Lit = new DateTimeV2Literal(DateTimeV2Type.MAX,
                     year, month, day, hour, minute, second, microSecond);
@@ -495,12 +518,13 @@ public class TimestampTzLiteral extends DateTimeLiteral {
             newYear = result.year;
         }
         return new TimestampTzLiteral(TimeStampTzType.of(newScale), newYear, newMonth, newDay,
-                newHour, newMinute, newSecond, newMicroSecond);
+                newHour, newMinute, newSecond, newMicroSecond, fromSessionTimeZone);
     }
 
     public TimestampTzLiteral roundFloor(int newScale) {
         return new TimestampTzLiteral(TimeStampTzType.of(newScale), year, month, day, hour, minute, second,
-                microSecond / (int) Math.pow(10, 6 - newScale) * (int) Math.pow(10, 6 - newScale));
+                microSecond / (int) Math.pow(10, 6 - newScale) * (int) Math.pow(10, 6 - newScale),
+                fromSessionTimeZone);
     }
 
     @Override

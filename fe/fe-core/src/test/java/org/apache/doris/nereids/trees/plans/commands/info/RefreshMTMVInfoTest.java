@@ -24,6 +24,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -37,11 +39,13 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -62,7 +66,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class RefreshMTMVInfoTest {
 
     @Test
-    public void testRemapsRegeneratedNameToLegacyPhysicalPartition() throws Exception {
+    public void testRefreshLegacyPhysicalPartitionWithOlderTimestampTzBounds() throws Exception {
         ConnectContext previousContext = ConnectContext.get();
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
                 MockedStatic<MTMVPartitionUtil> utilStatic = Mockito.mockStatic(MTMVPartitionUtil.class)) {
@@ -79,8 +83,16 @@ public class RefreshMTMVInfoTest {
             PartitionKeyDesc desc = PartitionKeyDesc.createFixed(
                     Lists.newArrayList(new PartitionValue("2024-01-01 00:00:00.000000+00:00")),
                     Lists.newArrayList(new PartitionValue("2024-01-02 00:00:00.000000+00:00")));
-            PartitionItem item = Mockito.mock(PartitionItem.class);
-            Mockito.when(item.toPartitionKeyDesc()).thenReturn(desc);
+            // Replay a range whose persisted literals have no fractional digits, as on the older FE.
+            List<Column> legacyColumns = List.of(new Column("day_ts", ScalarType.createTimeStampTzType(0)));
+            PartitionKey lower = PartitionKey.createPartitionKey(
+                    List.of(new PartitionValue("2024-01-01 00:00:00+00:00")), legacyColumns);
+            PartitionKey upper = PartitionKey.createPartitionKey(
+                    List.of(new PartitionValue("2024-01-02 00:00:00+00:00")), legacyColumns);
+            RangePartitionItem legacyItem = new RangePartitionItem(Range.closedOpen(lower, upper));
+            PartitionItem item = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(legacyItem, PartitionItem.class),
+                    PartitionItem.class);
+            Assertions.assertNotEquals(desc, item.toPartitionKeyDesc());
 
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             mockedEnv.when(Env::getCurrentInternalCatalog).thenReturn(internalCatalog);
@@ -91,7 +103,7 @@ public class RefreshMTMVInfoTest {
             Mockito.when(db.getTableOrMetaException(Mockito.eq("mv1"), Mockito.eq(TableType.MATERIALIZED_VIEW)))
                     .thenReturn(mtmv);
             Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mvPartitionInfo);
-            Mockito.when(mvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
+            Mockito.when(mvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.EXPR);
             Mockito.when(mvPartitionInfo.getPctTables()).thenReturn(Sets.newHashSet());
             Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet(legacyName));
             Mockito.when(mtmv.getPartitionItemOrAnalysisException(legacyName)).thenReturn(item);
@@ -109,6 +121,11 @@ public class RefreshMTMVInfoTest {
             ctx.setThreadLocalInfo();
 
             stubCompleteRefreshMethod(mtmv);
+            RefreshMTMVInfo physical = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
+                    Lists.newArrayList(legacyName), RefreshMode.COMPLETE);
+            physical.analyze(ctx);
+            Assertions.assertEquals(Lists.newArrayList(legacyName), physical.getPartitions());
+
             RefreshMTMVInfo info = new RefreshMTMVInfo(new TableNameInfo("db1", "mv1"),
                     Lists.newArrayList(shaName), RefreshMode.COMPLETE);
             info.analyze(ctx);

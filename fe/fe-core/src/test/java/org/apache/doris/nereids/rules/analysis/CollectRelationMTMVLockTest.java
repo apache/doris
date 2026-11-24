@@ -137,10 +137,13 @@ class CollectRelationMTMVLockTest {
             SqlCacheMetadataVersions.Snapshot snapshot = sqlCaches.newMetadataSnapshot();
             snapshot.addTable(3L, new FullTableName("lake", "source", "base"));
             MTMVCache cached = Mockito.mock(MTMVCache.class);
-            mvCaches.put(mv.getId(), true, cached);
-            mvCaches.put(mv.getId(), false, cached);
-            Assertions.assertSame(cached, mvCaches.getIfPresent(mv.getId(), true));
-            Assertions.assertSame(cached, mvCaches.getIfPresent(mv.getId(), false));
+            List<Integer> guardMasks = List.of(SessionVarGuardRewriter.GUARD_NONE,
+                    SessionVarGuardRewriter.GUARD_TIME_ZONE, SessionVarGuardRewriter.GUARD_OTHER,
+                    SessionVarGuardRewriter.GUARD_TIME_ZONE | SessionVarGuardRewriter.GUARD_OTHER);
+            for (int guardMask : guardMasks) {
+                mvCaches.put(mv.getId(), guardMask, cached);
+                Assertions.assertSame(cached, mvCaches.getIfPresent(mv.getId(), guardMask));
+            }
             Assertions.assertTrue(snapshot.isCurrent());
             long generation = Deencapsulation.getField(mv, "rewriteCacheGeneration");
             catalog.pauseLookup = true;
@@ -154,8 +157,9 @@ class CollectRelationMTMVLockTest {
             Assertions.assertNull(resetFailure.get());
             Assertions.assertFalse(catalog.retirementBlocked.get(), "MV read lock blocked catalog retirement");
             Assertions.assertSame(base, statement.getMtmvRelatedTables().get(qualifier));
-            Assertions.assertNull(mvCaches.getIfPresent(mv.getId(), true));
-            Assertions.assertNull(mvCaches.getIfPresent(mv.getId(), false));
+            for (int guardMask : guardMasks) {
+                Assertions.assertNull(mvCaches.getIfPresent(mv.getId(), guardMask));
+            }
             Assertions.assertEquals(generation + 1, (long) Deencapsulation.getField(mv, "rewriteCacheGeneration"));
             Assertions.assertFalse(snapshot.isCurrent(), "retirement must still fence old SQL dependencies");
         }

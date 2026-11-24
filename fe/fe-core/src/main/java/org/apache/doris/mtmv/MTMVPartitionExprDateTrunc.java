@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.PartitionExprUtil;
@@ -24,7 +25,6 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -339,22 +339,10 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                     literal.getYear(), literal.getMonth(), literal.getDay(),
                     literal.getHour(), literal.getMinute(), literal.getSecond());
         } else if (partitionColumnType.isTimeStampTz()) {
-            // The internal DateTimeV2Literal values are always in UTC after truncation.
-            // Emit an explicit +00:00 suffix so that downstream consumers
-            // (PartitionKey.createPartitionKey -> TimestampTzLiteral.fromSessionTimeZone)
-            // interpret the value as UTC rather than session-local time.
-            // The fractional-second digits must match DateLiteral#getStringValue() for TIMESTAMPTZ,
-            // otherwise the roll-up partition key desc is not string-equal to the desc of the
-            // actually-created MTMV partition and the partition-mapping lookup in
-            // MTMV#calculatePartitionMappings finds no mapping (MTMV becomes unusable for rewrite).
-            int scale = ((ScalarType) partitionColumnType).getScalarScale();
-            String timeStr = String.format(PartitionExprUtil.DATETIME_FORMATTER,
-                    literal.getYear(), literal.getMonth(), literal.getDay(),
-                    literal.getHour(), literal.getMinute(), literal.getSecond());
-            if (scale > 0) {
-                timeStr += String.format(".%0" + scale + "d", literal.getMicroSecond());
-            }
-            return timeStr + "+00:00";
+            // The truncated value is UTC. Use the same scale and explicit offset as stored ranges.
+            return new DateLiteral(literal.getYear(), literal.getMonth(), literal.getDay(),
+                    literal.getHour(), literal.getMinute(), literal.getSecond(), literal.getMicroSecond(),
+                    partitionColumnType).getStringValue();
         } else {
             throw new AnalysisException(
                     "MTMV not support partition with column type : " + partitionColumnType);
