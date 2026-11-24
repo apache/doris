@@ -119,6 +119,11 @@ public interface IcebergCatalogOps {
      */
     View loadView(String dbName, String viewName);
 
+    /** Maps a view's saved namespace to the namespace Doris exposes in this catalog. */
+    default Namespace visibleViewNamespace(Namespace namespace) {
+        return namespace;
+    }
+
     /** Drops the view {@code dbName.viewName}. Requires a (view-enabled) {@link ViewCatalog}; else fails loud. */
     void dropView(String dbName, String viewName);
 
@@ -430,6 +435,19 @@ public interface IcebergCatalogOps {
                 return false;
             }
             return probeViews(() -> resolveViewCatalog().viewExists(toTableIdentifier(dbName, viewName)), false);
+        }
+
+        @Override
+        public Namespace visibleViewNamespace(Namespace namespace) {
+            if (externalCatalogName.isPresent() && !(restFlavor && nestedNamespaceEnabled)
+                    && namespace.length() == 2 && namespace.level(0).equals(externalCatalogName.get())) {
+                String dbName = namespace.level(1);
+                // Flat listing exposes the child name. Only use it if lookup reaches the saved namespace.
+                if (toNamespace(dbName).equals(namespace)) {
+                    return Namespace.of(dbName);
+                }
+            }
+            return namespace;
         }
 
         @Override

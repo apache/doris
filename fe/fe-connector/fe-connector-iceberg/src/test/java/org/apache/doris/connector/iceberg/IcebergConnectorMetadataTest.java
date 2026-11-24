@@ -770,6 +770,39 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
+    public void getViewDefinitionProjectsOnlyNamespacesInTheOwningCatalog() {
+        FakeIcebergViewCatalog catalog = new FakeIcebergViewCatalog();
+        Namespace root = Namespace.of("cat");
+        Namespace child = Namespace.of("cat", "cat");
+        catalog.childNamespaces.put(root, Collections.singletonList(child));
+        TableIdentifier viewId = TableIdentifier.of(child, "v");
+        ViewVersion version = ImmutableViewVersion.builder()
+                .from(viewVersionWith("doris", "doris", "SELECT x FROM t"))
+                .defaultNamespace(child)
+                .build();
+        catalog.loadableViews.put(viewId, viewWithMetadata(version, idNameSchema()));
+        IcebergCatalogOps ops = new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(
+                catalog, true, false, true, Optional.of("cat"));
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops,
+                IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
+        List<String> visibleDb = Collections.singletonList("cat");
+        Assertions.assertEquals(visibleDb, metadata.listDatabaseNames(null));
+        Assertions.assertEquals(visibleDb, metadata.getViewDefinition(null, "cat", "v").getDefaultNamespace().get());
+
+        for (String savedCatalog : Arrays.asList("test", "foreign")) {
+            ViewVersion saved = ImmutableViewVersion.builder().from(version).defaultCatalog(savedCatalog).build();
+            catalog.loadableViews.put(viewId, viewWithMetadata(saved, idNameSchema()));
+            Assertions.assertEquals(savedCatalog.equals("test") ? visibleDb : Arrays.asList(child.levels()),
+                    metadata.getViewDefinition(null, "cat", "v").getDefaultNamespace().get());
+        }
+        Assertions.assertEquals(Namespace.of("other", "cat"), ops.visibleViewNamespace(Namespace.of("other", "cat")));
+        Assertions.assertEquals(Namespace.empty(), ops.visibleViewNamespace(Namespace.empty()));
+        IcebergCatalogOps nested = new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(
+                catalog, true, true, true, Optional.of("cat"));
+        Assertions.assertEquals(child, nested.visibleViewNamespace(child));
+    }
+
+    @Test
     public void getViewDefinitionReturnsSqlDialectAndColumns() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         Schema viewSchema = new Schema(

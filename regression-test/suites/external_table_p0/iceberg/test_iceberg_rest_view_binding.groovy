@@ -61,9 +61,9 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
     for (String namespace : [sourceDb, storeDb]) {
         request("POST", "/v1/namespaces", [namespace: [namespace], properties: [:]], [200, 409])
     }
-    def version = { String text, Map summary, String defaultCatalog, String namespace, List representations ->
+    def version = { String text, Map summary, String defaultCatalog, List namespace, List representations ->
         def result = ["version-id": 1, "timestamp-ms": System.currentTimeMillis(), "schema-id": 0,
-                      summary: summary, "default-namespace": namespace == null ? [] : [namespace],
+                      summary: summary, "default-namespace": namespace,
                       representations: representations ?: [[type: "sql", dialect: "doris", sql: text]]]
         if (defaultCatalog != null) {
             result["default-catalog"] = defaultCatalog
@@ -71,15 +71,17 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
         return result
     }
     def createView = { String name, String text, List<String> names, Map summary = [:],
-                       String defaultCatalog = catalog, String namespace = sourceDb, List representations = [] ->
-        String path = "/v1/namespaces/${storeDb}/views"
+                       String defaultCatalog = catalog, String namespace = sourceDb, List representations = [],
+                       List parent = [] ->
+        String path = "/v1/namespaces/${(parent + [storeDb]).join('%1F')}/views"
+        List savedNamespace = namespace == null ? [] : parent + [namespace]
         request("DELETE", "${path}/${name}", null, [200, 204, 404])
         def fields = names.withIndex().collect { String column, int index ->
             [id: index + 1, name: column, required: false, type: "int"]
         }
         def created = request("POST", path,
                 [name: name, schema: [type: "struct", "schema-id": 0, fields: fields],
-                 "view-version": version(text, summary, defaultCatalog, namespace, representations),
+                 "view-version": version(text, summary, defaultCatalog, savedNamespace, representations),
                  properties: [:]], [200]).metadata
         // CREATE may stamp a server-generated summary. Commit the required summary explicitly,
         // then load it back so engine-name cases exercise the metadata they claim to test.
@@ -97,7 +99,7 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
         assertEquals(summary, persisted.summary)
         assertEquals(names, loaded.schemas.find { it["schema-id"] == persisted["schema-id"] }.fields*.name)
         assertEquals(defaultCatalog, persisted["default-catalog"])
-        assertEquals(namespace == null ? [] : [namespace], persisted["default-namespace"])
+        assertEquals(savedNamespace, persisted["default-namespace"])
         def expectedSql = representations ?: [[type: "sql", dialect: "doris", sql: text]]
         assertEquals(new JsonSlurper().parseText(JsonOutput.toJson(expectedSql)), persisted.representations)
     }
@@ -105,7 +107,10 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
         [type: "sql", dialect: dialect, sql: "SELECT CAST(${value} AS INT) AS x"]
     }
 
+    request("POST", "/v1/namespaces", [namespace: [storeDb, storeDb], properties: [:]], [200, 409])
     spark_iceberg_multi """
+        DROP TABLE IF EXISTS demo.${storeDb}.${storeDb}.rooted_base;
+        CREATE TABLE demo.${storeDb}.${storeDb}.rooted_base (x INT) USING iceberg;
         CREATE NAMESPACE IF NOT EXISTS demo.${sourceDb};
         CREATE NAMESPACE IF NOT EXISTS demo.${storeDb};
         DROP TABLE IF EXISTS demo.${sourceDb}.t;
@@ -127,6 +132,7 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
         DROP VIEW IF EXISTS demo.${storeDb}.v_spark_created;
         CREATE VIEW demo.${storeDb}.v_spark_created (declared_name) AS SELECT x FROM t;
     """
+    createView("v_rooted", "SELECT x FROM rooted_base", ["x"], [:], null, storeDb, [], [storeDb])
     createView("v_engine_doris", "SELECT CAST(10 AS INT) AS x", ["x"], ["engine-name": "doris"])
     createView("v_engine_missing", "SELECT CAST(10 AS INT) AS x", ["x"])
     createView("v_engine_empty", "SELECT CAST(10 AS INT) AS x", ["x"], ["engine-name": ""])
@@ -188,12 +194,18 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
     createView("v_no_defaults_nested", "SELECT x FROM ${catalog}.${storeDb}.v_empty_namespace_qualified",
             ["x"], [:], null, null)
 
-    sql """DROP CATALOG IF EXISTS ${catalog}"""
-    sql """CREATE CATALOG ${catalog} PROPERTIES (
+    def catalogProperties = """
         'type' = 'iceberg', 'iceberg.catalog.type' = 'rest', 'uri' = '${rest}',
         's3.access_key' = '${accessKey}', 's3.secret_key' = '${secretKey}',
         's3.endpoint' = 'http://${host}:${config.get('iceberg_minio_port')}',
-        's3.region' = 'us-east-1', 'use_path_style' = 'true')"""
+        's3.region' = 'us-east-1', 'use_path_style' = 'true'"""
+    String rootedCatalog = "${catalog}_rooted"
+    sql """DROP CATALOG IF EXISTS ${rootedCatalog}"""
+    sql """CREATE CATALOG ${rootedCatalog} PROPERTIES (${catalogProperties}, 'external_catalog.name' = '${storeDb}')"""
+    // Binding the view must find its unqualified table in the one-level database exposed by this catalog.
+    sql """SELECT x FROM ${rootedCatalog}.${storeDb}.v_rooted LIMIT 0"""
+    sql """DROP CATALOG IF EXISTS ${catalog}"""
+    sql """CREATE CATALOG ${catalog} PROPERTIES (${catalogProperties})"""
     sql """USE ${catalog}.${storeDb}"""
 
     order_qt_table_control "SELECT x, y FROM ${catalog}.${sourceDb}.t"
