@@ -132,7 +132,7 @@ Status VRowDistribution::automatic_create_partition() {
             if (cluster_info == nullptr) {
                 return Status::InternalError("cluster_info is null");
             }
-            master_addr = std::make_shared<TNetworkAddress>(cluster_info->master_fe_addr);
+            master_addr = std::make_shared<TNetworkAddress>(cluster_info->master_fe_addr());
         } else {
             master_addr = _vpartition->get_master_address();
         }
@@ -237,7 +237,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
             if (cluster_info == nullptr) {
                 return Status::InternalError("cluster_info is null");
             }
-            master_addr = std::make_shared<TNetworkAddress>(cluster_info->master_fe_addr);
+            master_addr = std::make_shared<TNetworkAddress>(cluster_info->master_fe_addr());
         } else {
             master_addr = _vpartition->get_master_address();
         }

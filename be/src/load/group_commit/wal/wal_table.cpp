@@ -187,7 +187,7 @@ Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {
     request.__set_label(label);
     request.__set_reason("relay wal with label " + label);
     TLoadTxnRollbackResult result;
-    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr();
     auto st = ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
             [&request, &result](FrontendServiceConnection& client) {
@@ -330,7 +330,7 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id,
     request.__set_table_id(tb_id);
     TGetColumnInfoResult result;
     Status status;
-    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr();
     if (master_addr.hostname.empty() || master_addr.port == 0) {
         status = Status::InternalError<false>("Have not get FE Master heartbeat yet");
     } else {

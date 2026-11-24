@@ -111,10 +111,13 @@ Status check_segment_rows_consistency(const std::vector<uint32_t>& rows_from_met
 Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
                                         bool enable_segment_cache, OlapReaderStatistics* read_stats,
                                         const io::IOContext* io_ctx) {
-#ifndef BE_TEST
+#if !defined(BE_TEST) && !defined(NDEBUG)
     // `ROWSET_UNLOADING` is state for closed() called but owned by some readers.
     // So here `ROWSET_UNLOADING` is allowed.
-    DCHECK(_rowset_state_machine.rowset_state() != RowsetState::ROWSET_UNLOADED);
+    {
+        std::lock_guard state_lock(_lock);
+        DCHECK(_rowset_state_machine.rowset_state() != RowsetState::ROWSET_UNLOADED);
+    }
 #endif
     auto load_segment_rows = [this, enable_segment_cache, read_stats, io_ctx]() -> Status {
         // Start from scratch, a previous failed attempt may have left partial rows.

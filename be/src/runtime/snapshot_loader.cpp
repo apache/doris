@@ -1426,7 +1426,7 @@ Status BaseSnapshotLoader::_report_every(int report_threshold, int* counter, int
     LOG(INFO) << "report to frontend. job id: " << _job_id << ", task id: " << _task_id
               << ", finished num: " << finished_num << ", total num:" << total_num;
 
-    TNetworkAddress master_addr = _env->cluster_info()->master_fe_addr;
+    TNetworkAddress master_addr = _env->cluster_info()->master_fe_addr();
 
     TSnapshotLoaderReportRequest request;
     request.job_id = _job_id;

@@ -89,7 +89,7 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
     }
 
 #ifndef BE_TEST
-    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr();
     if (master_addr.hostname.empty() || master_addr.port == 0) {
         LOG(WARNING) << "Not found master fe, Can't auth API request: " << req->debug_string();
         HttpChannel::send_error(req, HttpStatus::SERVICE_UNAVAILABLE);

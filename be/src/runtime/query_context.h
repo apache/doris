@@ -111,6 +111,9 @@ public:
 
     void init_query_task_controller();
 
+    // Publish the resource context after the workload group has been initialized.
+    void register_runtime_query_statistics();
+
     ExecEnv* exec_env() const { return _exec_env; }
 
     bool is_timeout(timespec now) const {

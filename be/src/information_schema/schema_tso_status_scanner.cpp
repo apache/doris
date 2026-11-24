@@ -53,7 +53,7 @@ Status SchemaTsoStatusScanner::start(RuntimeState* state) {
 }
 
 Status SchemaTsoStatusScanner::_get_tso_status_block_from_fe() {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr();
 
     TSchemaTableRequestParams schema_table_request_params;
     std::vector<std::string> columns;

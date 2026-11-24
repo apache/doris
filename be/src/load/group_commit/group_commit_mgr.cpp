@@ -505,7 +505,7 @@ Status GroupCommitTable::_create_group_commit_load(
         } else {
             LOG(WARNING) << "_exec_env->cluster_info not set backend_id";
         }
-        TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
+        TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr();
         st = ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
                 [&result, &request](FrontendServiceConnection& client) {
@@ -626,7 +626,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
             request.__set_commitInfos(state->tablet_commit_infos());
         }
         TLoadTxnCommitResult result;
-        TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
+        TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr();
         int retry_times = 0;
         while (retry_times < config::mow_stream_load_commit_retry_times) {
             st = ThriftRpcHelper::rpc<FrontendServiceClient>(
@@ -668,7 +668,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         request.__set_txnId(txn_id);
         request.__set_reason(status.to_string());
         TLoadTxnRollbackResult result;
-        TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
+        TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr();
         st = ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
                 [&request, &result](FrontendServiceConnection& client) {

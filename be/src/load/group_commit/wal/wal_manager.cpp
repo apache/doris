@@ -399,7 +399,7 @@ Status WalManager::_replay_background() {
         }
         // port == 0 means not received heartbeat yet
         if (_exec_env->cluster_info() != nullptr &&
-            _exec_env->cluster_info()->master_fe_addr.port == 0) {
+            _exec_env->cluster_info()->master_fe_addr().port == 0) {
             continue;
         }
         // replay residual wal,only replay once

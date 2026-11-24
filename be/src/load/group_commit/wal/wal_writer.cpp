@@ -50,7 +50,7 @@ Status determine_wal_fs(int64_t db_id, int64_t tb_id, io::FileSystemSPtr& fs) {
     }
 
 #ifndef BE_TEST
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr();
     TGetTableTDEInfoRequest req;
     req.__set_db_id(db_id);
     req.__set_table_id(tb_id);

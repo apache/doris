@@ -557,6 +557,7 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                         }
 
                         RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
+                        query_ctx->register_runtime_query_statistics();
 
                         if (parent.__isset.runtime_filter_info) {
                             auto info = parent.runtime_filter_info;

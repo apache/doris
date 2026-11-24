@@ -63,16 +63,14 @@ Rowset::Rowset(const TabletSchemaSPtr& schema, RowsetMetaSharedPtr rowset_meta,
 }
 
 Status Rowset::load(bool use_cache) {
-    // if the state is ROWSET_UNLOADING it means close() is called
-    // and the rowset is already loaded, and the resource is not closed yet.
-    if (_rowset_state_machine.rowset_state() == RowsetState::ROWSET_LOADED) {
-        return Status::OK();
-    }
     {
-        // before lock, if rowset state is ROWSET_UNLOADING, maybe it is doing do_close in release
         std::lock_guard load_lock(_lock);
-        // after lock, if rowset state is ROWSET_UNLOADING, it is ok to return
-        if (_rowset_state_machine.rowset_state() == RowsetState::ROWSET_UNLOADED) {
+        const auto state = _rowset_state_machine.rowset_state();
+        if (state == RowsetState::ROWSET_LOADED) {
+            return Status::OK();
+        }
+        // Existing readers still hold the resources while the rowset is unloading.
+        if (state == RowsetState::ROWSET_UNLOADED) {
             RETURN_IF_ERROR(_rowset_state_machine.on_load());
         }
     }

@@ -77,13 +77,13 @@ MasterServerClient::MasterServerClient(const ClusterInfo* cluster_info)
 
 Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMasterResult* result) {
     Status client_status;
-    FrontendServiceConnection client(_client_cache.get(), _cluster_info->master_fe_addr,
+    const auto master_addr = _cluster_info->master_fe_addr();
+    FrontendServiceConnection client(_client_cache.get(), master_addr,
                                      config::thrift_rpc_timeout_ms, &client_status);
 
     if (!client_status.ok()) {
         LOG(WARNING) << "fail to get master client from cache. "
-                     << "host=" << _cluster_info->master_fe_addr.hostname
-                     << ", port=" << _cluster_info->master_fe_addr.port
+                     << "host=" << master_addr.hostname << ", port=" << master_addr.port
                      << ", code=" << client_status.code();
         return Status::InternalError("Failed to get master client");
     }
@@ -96,8 +96,7 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
             client_status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!client_status.ok()) {
                 LOG(WARNING) << "fail to get master client from cache. "
-                             << "host=" << _cluster_info->master_fe_addr.hostname
-                             << ", port=" << _cluster_info->master_fe_addr.port
+                             << "host=" << master_addr.hostname << ", port=" << master_addr.port
                              << ", code=" << client_status.code();
                 return Status::RpcError("Master client finish task failed");
             }
@@ -106,8 +105,8 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
     } catch (std::exception& e) {
         RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
         LOG(WARNING) << "fail to finish_task. "
-                     << "host=" << _cluster_info->master_fe_addr.hostname
-                     << ", port=" << _cluster_info->master_fe_addr.port << ", error=" << e.what();
+                     << "host=" << master_addr.hostname << ", port=" << master_addr.port
+                     << ", error=" << e.what();
         return Status::InternalError("Fail to finish task");
     }
 
@@ -116,13 +115,13 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
 
 Status MasterServerClient::report(const TReportRequest& request, TMasterResult* result) {
     Status client_status;
-    FrontendServiceConnection client(_client_cache.get(), _cluster_info->master_fe_addr,
+    const auto master_addr = _cluster_info->master_fe_addr();
+    FrontendServiceConnection client(_client_cache.get(), master_addr,
                                      config::thrift_rpc_timeout_ms, &client_status);
 
     if (!client_status.ok()) {
         LOG(WARNING) << "fail to get master client from cache. "
-                     << "host=" << _cluster_info->master_fe_addr.hostname
-                     << ", port=" << _cluster_info->master_fe_addr.port
+                     << "host=" << master_addr.hostname << ", port=" << master_addr.port
                      << ", code=" << client_status;
         return Status::InternalError("Fail to get master client from cache");
     }
@@ -139,8 +138,7 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
                 client_status = client.reopen(config::thrift_rpc_timeout_ms);
                 if (!client_status.ok()) {
                     LOG(WARNING) << "fail to get master client from cache. "
-                                 << "host=" << _cluster_info->master_fe_addr.hostname
-                                 << ", port=" << _cluster_info->master_fe_addr.port
+                                 << "host=" << master_addr.hostname << ", port=" << master_addr.port
                                  << ", code=" << client_status.code();
                     return Status::InternalError("Fail to get master client from cache");
                 }
@@ -156,8 +154,7 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
     } catch (std::exception& e) {
         RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
         LOG(WARNING) << "fail to report to master. "
-                     << "host=" << _cluster_info->master_fe_addr.hostname
-                     << ", port=" << _cluster_info->master_fe_addr.port
+                     << "host=" << master_addr.hostname << ", port=" << master_addr.port
                      << ", code=" << client_status.code() << ", reason=" << e.what();
         return Status::InternalError("Fail to report to master");
     }
@@ -168,14 +165,14 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
 Status MasterServerClient::confirm_unused_remote_files(
         const TConfirmUnusedRemoteFilesRequest& request, TConfirmUnusedRemoteFilesResult* result) {
     Status client_status;
-    FrontendServiceConnection client(_client_cache.get(), _cluster_info->master_fe_addr,
+    const auto master_addr = _cluster_info->master_fe_addr();
+    FrontendServiceConnection client(_client_cache.get(), master_addr,
                                      config::thrift_rpc_timeout_ms, &client_status);
 
     if (!client_status.ok()) {
         return Status::InternalError(
                 "fail to get master client from cache. host={}, port={}, code={}",
-                _cluster_info->master_fe_addr.hostname, _cluster_info->master_fe_addr.port,
-                client_status.code());
+                master_addr.hostname, master_addr.port, client_status.code());
     }
     try {
         try {
@@ -190,8 +187,7 @@ Status MasterServerClient::confirm_unused_remote_files(
                 if (!client_status.ok()) {
                     return Status::InternalError(
                             "fail to get master client from cache. host={}, port={}, code={}",
-                            _cluster_info->master_fe_addr.hostname,
-                            _cluster_info->master_fe_addr.port, client_status.code());
+                            master_addr.hostname, master_addr.port, client_status.code());
                 }
 
                 client->confirmUnusedRemoteFiles(*result, request);
@@ -200,16 +196,14 @@ Status MasterServerClient::confirm_unused_remote_files(
                 // actually we don't care what FE returns.
                 return Status::InternalError(
                         "fail to confirm unused remote files. host={}, port={}, code={}, reason={}",
-                        _cluster_info->master_fe_addr.hostname, _cluster_info->master_fe_addr.port,
-                        client_status.code(), e.what());
+                        master_addr.hostname, master_addr.port, client_status.code(), e.what());
             }
         }
     } catch (std::exception& e) {
         RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
         return Status::InternalError(
                 "fail to confirm unused remote files. host={}, port={}, code={}, reason={}",
-                _cluster_info->master_fe_addr.hostname, _cluster_info->master_fe_addr.port,
-                client_status.code(), e.what());
+                master_addr.hostname, master_addr.port, client_status.code(), e.what());
     }
 
     return Status::OK();

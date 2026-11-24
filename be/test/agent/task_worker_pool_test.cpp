@@ -204,7 +204,9 @@ TEST(TaskWorkerPoolTest, ReportWorkerPool) {
     worker.notify(); // Not received heartbeat yet, ignore
     std::this_thread::sleep_for(100ms);
 
-    cluster_info.master_fe_addr.__set_port(9030);
+    ClusterInfo::MasterFeEndpoint master_endpoint;
+    master_endpoint.rpc_addr.__set_port(9030);
+    cluster_info.set_master_fe_endpoint(master_endpoint);
     worker.notify();
     std::this_thread::sleep_for(100ms);
     EXPECT_EQ(count.load(), 1);

@@ -196,32 +196,16 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         }
     }
 
-    bool need_report = false;
-    if (_cluster_info->master_fe_addr.hostname != master_info.network_address.hostname ||
-        _cluster_info->master_fe_addr.port != master_info.network_address.port) {
-        if (master_info.epoch > _fe_epoch) {
-            _cluster_info->master_fe_addr.hostname = master_info.network_address.hostname;
-            _cluster_info->master_fe_addr.port = master_info.network_address.port;
-            _fe_epoch = master_info.epoch;
-            need_report = true;
-            LOG(INFO) << "master change. new master host: "
-                      << _cluster_info->master_fe_addr.hostname
-                      << ". port: " << _cluster_info->master_fe_addr.port
-                      << ". epoch: " << _fe_epoch;
-        } else {
-            return Status::InternalError(
-                    "epoch is not greater than local. ignore heartbeat. host: {}, port: {}, local "
-                    "epoch: {}, received epoch: {}",
-                    _cluster_info->master_fe_addr.hostname, _cluster_info->master_fe_addr.port,
-                    _fe_epoch, master_info.epoch);
-        }
-    } else {
-        // when Master FE restarted, host and port remains the same, but epoch will be increased.
-        if (master_info.epoch > _fe_epoch) {
-            _fe_epoch = master_info.epoch;
-            need_report = true;
-            LOG(INFO) << "master restarted. epoch: " << _fe_epoch;
-        }
+    auto master_endpoint = _cluster_info->master_fe_endpoint();
+    const auto& incoming_addr = master_info.network_address;
+    const bool master_changed = master_endpoint.rpc_addr.hostname != incoming_addr.hostname ||
+                                master_endpoint.rpc_addr.port != incoming_addr.port;
+    if (master_changed && master_info.epoch <= _fe_epoch) {
+        return Status::InternalError(
+                "epoch is not greater than local. ignore heartbeat. host: {}, port: {}, local "
+                "epoch: {}, received epoch: {}",
+                master_endpoint.rpc_addr.hostname, master_endpoint.rpc_addr.port, _fe_epoch,
+                master_info.epoch);
     }
 
     if (master_info.__isset.token) {
@@ -233,8 +217,26 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         }
     }
 
-    if (master_info.__isset.http_port) {
-        _cluster_info->master_fe_http_port = master_info.http_port;
+    if (master_changed ||
+        (master_info.__isset.http_port && master_endpoint.http_port != master_info.http_port)) {
+        if (master_changed) {
+            master_endpoint.rpc_addr = incoming_addr;
+        }
+        if (master_info.__isset.http_port) {
+            master_endpoint.http_port = master_info.http_port;
+        }
+        _cluster_info->set_master_fe_endpoint(master_endpoint);
+    }
+
+    const bool need_report = master_info.epoch > _fe_epoch;
+    if (need_report) {
+        _fe_epoch = master_info.epoch;
+        if (master_changed) {
+            LOG(INFO) << "master change. new master host: " << incoming_addr.hostname
+                      << ". port: " << incoming_addr.port << ". epoch: " << _fe_epoch;
+        } else {
+            LOG(INFO) << "master restarted. epoch: " << _fe_epoch;
+        }
     }
 
     if (master_info.__isset.heartbeat_flags) {

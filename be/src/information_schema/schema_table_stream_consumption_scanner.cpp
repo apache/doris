@@ -69,7 +69,7 @@ TFetchSchemaTableDataRequest SchemaTableStreamConsumptionScanner::_build_fetch_r
 }
 
 Status SchemaTableStreamConsumptionScanner::_get_table_stream_consumption_block_from_fe() {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr();
     TFetchSchemaTableDataRequest request = _build_fetch_request();
 
     TFetchSchemaTableDataResult result;
