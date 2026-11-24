@@ -66,7 +66,7 @@ public class RuntimeFilterContext {
 
     private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newLinkedHashMap();
 
-    private final Map<Plan, EffectiveSrcType> effectiveSrcNodes = Maps.newHashMap();
+    private final Map<Plan, EffectiveSrcType> effectiveSrcNodes = Maps.newIdentityHashMap();
 
     private final SessionVariable sessionVariable;
 

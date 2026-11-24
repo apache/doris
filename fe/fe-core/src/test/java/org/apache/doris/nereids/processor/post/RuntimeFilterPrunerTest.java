@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -240,6 +241,24 @@ class RuntimeFilterPrunerTest extends TestWithFeService {
 
         Assertions.assertTrue(context.getNereidsRuntimeFilter().isEmpty());
         Assertions.assertEquals(1, context.prunedRF.size());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testEqualLimitsDoNotShareChangelogSource(boolean streamFirst) {
+        String stream = "(SELECT agent_code FROM rf_prune_stream_base@incr('incrementType'='MIN_DELTA') LIMIT 10)";
+        String ordinary = "(SELECT f.agent_code FROM rf_prune_fact f JOIN [broadcast] ("
+                + "(SELECT agent_code FROM rf_prune_fact LIMIT 10) "
+                + "UNION ALL SELECT agent_code FROM rf_prune_agent) b ON f.agent_code = b.agent_code)";
+        String sql = streamFirst ? stream + " UNION ALL " + ordinary : ordinary + " UNION ALL " + stream;
+        RuntimeFilterContext context = getRuntimeFilterContext(sql, true);
+
+        Assertions.assertTrue(context.getNereidsRuntimeFilter().isEmpty());
+        Assertions.assertEquals(1, context.prunedRF.size());
+        PhysicalHashJoin<?, ?> join = (PhysicalHashJoin<?, ?>) context.prunedRF.get(0).getBuilderNode();
+        PhysicalUnion union = (PhysicalUnion) join.right().collect(PhysicalUnion.class::isInstance)
+                .iterator().next();
+        Assertions.assertNull(context.getEffectiveSrcType(union));
     }
 
     @ParameterizedTest
