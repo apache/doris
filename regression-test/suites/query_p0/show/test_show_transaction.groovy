@@ -41,6 +41,15 @@ suite("test_show_transaction", "p0") {
     if (!isCloudMode()) {
         def reslike = sql_return_maparray """ show transaction where label like 'label_test_show_transaction_${uuid}%'  """
         assertTrue(res.equals(reslike))
+
+        def expectedLabel = "label_test_show_transaction_${uuid}".toString()
+        def resStatus = sql_return_maparray """ show transaction where status = 'visible' """
+        assertTrue(resStatus.any { it.Label == expectedLabel })
+
+        test {
+            sql "show transaction where status = 'unknow'"
+            exception "status should be"
+        }
     }
 
 }
