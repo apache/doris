@@ -216,6 +216,57 @@ TEST_F(CacheTest, HitAndMiss) {
     EXPECT_EQ(101, _deleted_values[0]);
 }
 
+TEST_F(CacheTest, ReplacementAtCapacityPreservesOtherEntries) {
+    for (auto type : {LRUCacheType::NUMBER, LRUCacheType::SIZE}) {
+        for (bool pinned : {false, true}) {
+            for (bool check_timestamp : {false, true}) {
+                LRUCache cache(type);
+                cache.set_cache_value_time_extractor([](const void* value) {
+                    return int64_t {DecodeValue(static_cast<const CacheValue*>(value)->value)};
+                });
+                cache.set_cache_value_check_timestamp(check_timestamp);
+                const size_t charge = type == LRUCacheType::NUMBER ? 1 : 100;
+                const size_t entry_size =
+                        type == LRUCacheType::NUMBER ? charge : sizeof(LRUHandle) + charge;
+                cache.set_capacity(2 * entry_size);
+                // Also exercise the count limit, which must exclude a replaced entry.
+                cache.set_element_count_capacity(2);
+                cache.release(cache.insert("a", 1, new CacheValue(EncodeValue(1)), charge));
+                cache.release(cache.insert("b", 2, new CacheValue(EncodeValue(2)), charge));
+                auto* original = cache.insert("c", 3, new CacheValue(EncodeValue(3)), charge);
+                if (!pinned) {
+                    cache.release(original);
+                }
+                auto* replacement = cache.insert("c", 3, new CacheValue(EncodeValue(4)), charge);
+                cache.release(replacement);
+                EXPECT_EQ(cache.get_usage(), 2 * entry_size);
+                EXPECT_EQ(cache.get_element_count(), 2);
+                EXPECT_EQ(cache.lookup("a", 1), nullptr);
+                auto* b = cache.lookup("b", 2);
+                EXPECT_NE(b, nullptr);
+                if (b) {
+                    cache.release(b);
+                }
+                auto* c = cache.lookup("c", 3);
+                ASSERT_NE(c, nullptr);
+                EXPECT_EQ(
+                        DecodeValue(static_cast<CacheValue*>(reinterpret_cast<LRUHandle*>(c)->value)
+                                            ->value),
+                        4);
+                cache.release(c);
+                if (pinned) {
+                    EXPECT_EQ(DecodeValue(static_cast<CacheValue*>(
+                                                  reinterpret_cast<LRUHandle*>(original)->value)
+                                                  ->value),
+                              3);
+                    cache.release(original);
+                }
+                EXPECT_EQ(cache.get_stampede_count(), 1);
+            }
+        }
+    }
+}
+
 TEST_F(CacheTest, Erase) {
     init_size_cache();
     Erase(200);
@@ -917,37 +968,29 @@ TEST_F(CacheTest, SetCapacity) {
             // so the newly inserted entry will be freed, until cache usage is less than or equal to capacity.
             ASSERT_GE(cache()->get_usage(), cache()->get_capacity());
             EXPECT_EQ(-1, Lookup(i + kCacheSize));
-        } else if (i == kCacheSize / 2) {
-            // When cache usage is equal to cache capacity, Insert() will replace the old entry
-            // with the same key and will not free the entry after releasing the handle.
-            ASSERT_EQ(cache()->get_usage(), cache()->get_capacity());
-            EXPECT_EQ(2000 + i, Lookup(i + kCacheSize));
         } else {
-            // When inserting at `i == kCacheSize / 2 + 1`, the cache usage is equal to the cache capacity,
-            // so the entry in the LRU list will be evicted (usage - 1) and then inserted (usage + 1).
-            // because the entry inserted is an existing key, the old entry with the same key is evicted (usage - 1),
-            // so the final cache usage is equal to (capacity - 1).
-            ASSERT_EQ(cache()->get_usage(), cache()->get_capacity() - 1);
+            // Once usage reaches capacity, replacing each remaining pinned entry
+            // reuses its slot and must preserve the earlier retained replacements.
+            ASSERT_EQ(cache()->get_usage(), cache()->get_capacity());
             EXPECT_EQ(2000 + i, Lookup(i + kCacheSize));
         }
     }
     ASSERT_EQ(kCacheSize / 2, cache()->get_capacity());
-    // Here cache usage equals cache capacity - 1, because the entry inserted in the previous step
-    // at `i == kCacheSize / 2 + 1` was evicted, see the reason above.
+    // Replacing entries preserves the capacity-sized retained set.
     // Entries held by unreleased handles in `handles` will not be counted in cache usage,
     // but will still be counted in the memory tracker.
-    ASSERT_EQ(kCacheSize / 2 - 1, cache()->get_usage());
+    ASSERT_EQ(kCacheSize / 2, cache()->get_usage());
 
     cache()->adjust_capacity_weighted(2);
     ASSERT_EQ(kCacheSize * 2, cache()->get_capacity());
-    ASSERT_EQ(kCacheSize / 2 - 1, cache()->get_usage());
+    ASSERT_EQ(kCacheSize / 2, cache()->get_usage());
 
     for (int i = 0; i < kCacheSize; i++) {
         Insert(i, 3000 + i, 1);
         EXPECT_EQ(3000 + i, Lookup(i));
     }
     ASSERT_EQ(kCacheSize * 2, cache()->get_capacity());
-    ASSERT_EQ(kCacheSize * 1.5 - 1, cache()->get_usage());
+    ASSERT_EQ(kCacheSize + kCacheSize / 2, cache()->get_usage());
 
     cache()->adjust_capacity_weighted(0);
     ASSERT_EQ(0, cache()->get_capacity());

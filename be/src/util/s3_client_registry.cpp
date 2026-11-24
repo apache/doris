@@ -89,6 +89,7 @@ public:
             static_cast<Value*>(value(handle))
                     ->last_access_ms.store(now, std::memory_order_relaxed);
         } else {
+            TEST_SYNC_POINT("S3ClientRegistry::cache_miss");
             handle = insert(key, new Value(client, now), 1, sizeof(Value));
         }
         release(handle);
@@ -111,10 +112,7 @@ public:
                 },
                 false);
         COUNTER_SET(_freed_entrys_counter, info.pruned_count);
-        // SDK-owned allocations are not measured by this metadata accounting.
-        COUNTER_SET(_freed_memory_counter,
-                    static_cast<int64_t>(info.pruned_count *
-                                         (sizeof(LRUHandle) - 1 + sizeof(void*) + sizeof(Value))));
+        COUNTER_SET(_freed_memory_counter, freed_memory(info));
         COUNTER_UPDATE(_prune_stale_number_counter, 1);
     }
 
@@ -150,6 +148,12 @@ private:
         Client client;
         std::atomic<int64_t> last_access_ms;
     };
+
+    int64_t freed_memory(const PrunedInfo& info) const override {
+        // Match insert()'s tracked handle, pointer key and Value bytes in every
+        // pruning path. SDK-owned allocations are not measured here.
+        return info.pruned_count * (sizeof(LRUHandle) - 1 + sizeof(void*) + sizeof(Value));
+    }
 
     static int64_t now_millis() {
         int64_t now = MonotonicMillis();

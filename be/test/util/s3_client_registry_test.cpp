@@ -28,6 +28,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "common/config.h"
@@ -40,7 +41,9 @@
 #include "io/fs/s3_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_manager.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "runtime/thread_context.h"
+#include "testutil/http_utils.h"
 #include "util/defer_op.h"
 #include "util/s3_util.h"
 
@@ -516,16 +519,16 @@ TEST(S3ClientRegistryTest, ExternalOwnerCanOutliveRegistry) {
     EXPECT_TRUE(weak.expired());
 }
 
-// CacheManager intentionally leaves registrations in place in BE_TEST. Restore
-// the process cache's entry after each temporary policy used by these tests.
+// BE_TEST leaves cache registrations in place after policy destruction. Isolate
+// the registrations so named cleanup sees only this test's policies, and sweeps
+// never dereference policies destroyed by an earlier cache test.
 class S3ClientCacheTest : public testing::Test {
 protected:
     void SetUp() override {
-        auto* manager = CacheManager::instance();
-        std::lock_guard lock(manager->_caches_lock);
-        auto it = manager->_caches.find(CachePolicy::CacheType::S3_CLIENT_CACHE);
-        if (it != manager->_caches.end()) {
-            saved_policy = it->second;
+        {
+            auto* manager = CacheManager::instance();
+            std::lock_guard lock(manager->_caches_lock);
+            manager->_caches.swap(saved_policies);
         }
         auto* sync = SyncPoint::get_instance();
         sync->enable_processing();
@@ -540,10 +543,7 @@ protected:
         SyncPoint::get_instance()->disable_processing();
         auto* manager = CacheManager::instance();
         std::lock_guard lock(manager->_caches_lock);
-        manager->_caches.erase(CachePolicy::CacheType::S3_CLIENT_CACHE);
-        if (saved_policy) {
-            manager->_caches.emplace(CachePolicy::CacheType::S3_CLIENT_CACHE, saved_policy);
-        }
+        manager->_caches.swap(saved_policies);
     }
 
     void sweep() {
@@ -560,7 +560,7 @@ protected:
 
     std::atomic<int64_t> clock = 0;
     SyncPoint::CallbackGuard clock_guard;
-    CachePolicy* saved_policy = nullptr;
+    std::unordered_map<CachePolicy::CacheType, CachePolicy*> saved_policies;
 };
 
 TEST_F(S3ClientCacheTest, ReusesAcrossSequentialQueriesAndReclaimsOnGc) {
@@ -623,6 +623,44 @@ TEST_F(S3ClientCacheTest, EvictsLeastRecentlyUsedConfiguration) {
     EXPECT_TRUE(b.expired());
     EXPECT_FALSE(c.expired());
     EXPECT_EQ(registry.stats().cached, 2);
+}
+
+TEST_F(S3ClientCacheTest, ConcurrentRetentionDoesNotEvictAnotherClient) {
+    S3ClientRegistry registry;
+    registry.init_cache(2, 300);
+    std::weak_ptr<ObjStorageClient> a =
+            registry.get_or_create(client_conf("a"), fake_creator()).value();
+    std::weak_ptr<ObjStorageClient> b =
+            registry.get_or_create(client_conf("b"), fake_creator()).value();
+
+    std::atomic<int> misses = 0;
+    std::promise<void> resume;
+    auto gate = resume.get_future().share();
+    SyncPoint::CallbackGuard guard;
+    SyncPoint::get_instance()->set_call_back(
+            "S3ClientRegistry::cache_miss",
+            [&](auto&&) {
+                ++misses;
+                gate.wait();
+            },
+            &guard);
+    auto acquire = [&] {
+        SCOPED_INIT_THREAD_CONTEXT();
+        return registry.get_or_create(client_conf("c"), fake_creator()).value();
+    };
+    auto first = std::async(std::launch::async, acquire);
+    auto second = std::async(std::launch::async, acquire);
+    // Both callers must miss before either can insert the same selected client.
+    EXPECT_TRUE(await([&] { return misses == 2; }));
+    resume.set_value();
+    auto c = first.get();
+    EXPECT_EQ(second.get(), c);
+    EXPECT_TRUE(a.expired());
+    EXPECT_FALSE(b.expired());
+    EXPECT_EQ(registry.stats().cached, 2);
+    EXPECT_EQ(registry.stats().created, 3);
+    EXPECT_EQ(registry.get_or_create(client_conf("b"), fake_creator()).value(), b.lock());
+    EXPECT_EQ(registry.stats().created, 3);
 }
 
 TEST_F(S3ClientCacheTest, IdleExpiryRenewsOnHitAndNeedsNoNewAcquisition) {
@@ -797,6 +835,72 @@ TEST_F(S3ClientCacheTest, CapacityAdjustmentAndDisabledRetention) {
     EXPECT_TRUE(registry.get_or_create(client_conf(), fake_creator()).has_value());
     EXPECT_EQ(registry.stats().cached, 0);
     EXPECT_EQ(registry.stats().live, 0);
+}
+
+TEST_F(S3ClientCacheTest, NamedCleanupWithDisabledRetentionDoesNotRegisterPolicy) {
+    S3ClientRegistry registry;
+    registry.init_cache(0, 300);
+    auto* manager = CacheManager::instance();
+    // Follow the named cleanup endpoint's string-to-type dispatch even though
+    // disabling retention leaves this recognized cache type unregistered.
+    auto type = CachePolicy::string_to_type("S3ClientCache");
+    ASSERT_EQ(type, CachePolicy::CacheType::S3_CLIENT_CACHE);
+    EXPECT_EQ(manager->cache_prune_all(type, true), -1);
+    EXPECT_EQ(manager->cache_prune_all(type, false), -1);
+    EXPECT_EQ(manager->_caches.count(type), 0);
+    HttpClient client;
+    ASSERT_TRUE(client.init(global_test_http_host + "/api/clear_cache/S3ClientCache", false).ok());
+    client.set_timeout_ms(5000);
+    std::string response;
+    ASSERT_TRUE(client.execute(&response).ok());
+    EXPECT_EQ(client.get_http_status(), 500);
+    EXPECT_EQ(response, "ClearCacheAction cache:S3ClientCache is not allowed to be pruned");
+    // Repeated direct and HTTP cleanup must not poison later GC with a null policy.
+    EXPECT_EQ(manager->_caches.count(type), 0);
+    EXPECT_TRUE(registry.get_or_create(client_conf(), fake_creator()).has_value());
+    EXPECT_EQ(registry.stats().cached, 0);
+    EXPECT_EQ(registry.stats().live, 0);
+}
+
+TEST_F(S3ClientCacheTest, PruningReportsMetadataBytesConsistently) {
+    S3ClientRegistry registry;
+    registry.init_cache(4, 1);
+    auto* policy = static_cast<LRUCachePolicy*>(
+            CacheManager::instance()->_caches.at(CachePolicy::CacheType::S3_CLIENT_CACHE));
+    auto* freed_memory = policy->profile()->get_counter("FreedMemory");
+    auto* freed_entries = policy->profile()->get_counter("FreedEntrys");
+    auto populate = [&] {
+        for (int i = 0; i < 4; ++i) {
+            EXPECT_TRUE(registry.get_or_create(client_conf(std::to_string(i)), fake_creator())
+                                .has_value());
+        }
+        EXPECT_EQ(registry.stats().cached, 4);
+    };
+    populate();
+    const auto metadata_bytes = policy->mem_consumption();
+    ASSERT_GT(metadata_bytes, 4);
+    clock = 1000;
+    sweep();
+    EXPECT_EQ(freed_entries->value(), 4);
+    EXPECT_EQ(freed_memory->value(), metadata_bytes);
+    EXPECT_EQ(registry.stats().cached, 0);
+
+    populate();
+    EXPECT_EQ(CacheManager::instance()->cache_prune_all(policy->type(), true), metadata_bytes);
+    EXPECT_EQ(freed_entries->value(), 4);
+    EXPECT_EQ(freed_memory->value(), metadata_bytes);
+    EXPECT_EQ(registry.stats().cached, 0);
+    // Empty cleanup reports zero rather than retaining the previous byte count.
+    EXPECT_EQ(CacheManager::instance()->cache_prune_all(policy->type(), true), 0);
+    EXPECT_EQ(freed_entries->value(), 0);
+
+    populate();
+    EXPECT_EQ(policy->adjust_capacity_weighted(0.5), 2);
+    EXPECT_EQ(freed_entries->value(), 2);
+    EXPECT_EQ(freed_memory->value(), metadata_bytes / 2);
+    EXPECT_EQ(registry.stats().cached, 2);
+    EXPECT_EQ(policy->adjust_capacity_weighted(1), 0);
+    EXPECT_EQ(freed_memory->value(), 0);
 }
 
 TEST_F(S3ClientCacheTest, FactoryReusesRealSdkAcrossQueriesAndExpiresAfterReadersFinish) {

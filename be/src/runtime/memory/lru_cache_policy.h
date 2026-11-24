@@ -178,7 +178,7 @@ public:
                 // Prune cache in lazy mode to save cpu and minimize the time holding write lock
                 PrunedInfo pruned_info = _cache->prune_if(pred, true);
                 COUNTER_SET(_freed_entrys_counter, pruned_info.pruned_count);
-                COUNTER_SET(_freed_memory_counter, pruned_info.pruned_size);
+                COUNTER_SET(_freed_memory_counter, freed_memory(pruned_info));
             }
             COUNTER_UPDATE(_prune_stale_number_counter, 1);
             LOG(INFO) << fmt::format(
@@ -218,7 +218,7 @@ public:
                 SCOPED_TIMER(_cost_timer);
                 PrunedInfo pruned_info = _cache->prune();
                 COUNTER_SET(_freed_entrys_counter, pruned_info.pruned_count);
-                COUNTER_SET(_freed_memory_counter, pruned_info.pruned_size);
+                COUNTER_SET(_freed_memory_counter, freed_memory(pruned_info));
             }
             COUNTER_UPDATE(_prune_all_number_counter, 1);
             LOG(INFO) << fmt::format(
@@ -265,7 +265,7 @@ public:
             SCOPED_TIMER(_cost_timer);
             PrunedInfo pruned_info = _cache->set_capacity(capacity);
             COUNTER_SET(_freed_entrys_counter, pruned_info.pruned_count);
-            COUNTER_SET(_freed_memory_counter, pruned_info.pruned_size);
+            COUNTER_SET(_freed_memory_counter, freed_memory(pruned_info));
         }
         COUNTER_UPDATE(_adjust_capacity_weighted_number_counter, 1);
         LOG(INFO) << fmt::format(
@@ -299,6 +299,10 @@ public:
     };
 
 protected:
+    // Pruned size is a capacity charge, which can be a count for NUMBER caches.
+    // Policies with tracked object sizes can report bytes instead of that charge.
+    virtual int64_t freed_memory(const PrunedInfo& info) const { return info.pruned_size; }
+
     void _init_mem_tracker(const std::string& type_name) {
         if (std::find(CachePolicy::MetadataCache.begin(), CachePolicy::MetadataCache.end(),
                       _type) == CachePolicy::MetadataCache.end()) {
