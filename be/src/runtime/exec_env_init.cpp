@@ -648,19 +648,13 @@ Status ExecEnv::init_mem_env() {
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
 
-    // Init ANN index IVF list cache (dedicated cache for IVF on disk)
-    {
-        int64_t ann_cache_limit = ParseUtil::parse_mem_spec(config::ann_index_ivf_list_cache_limit,
-                                                            MemInfo::mem_limit(),
-                                                            MemInfo::physical_mem(), &is_percent);
-        while (!is_percent && ann_cache_limit > MemInfo::mem_limit() / 2) {
-            ann_cache_limit = ann_cache_limit / 2;
-        }
-        _ann_index_ivf_list_cache = AnnIndexIVFListCache::create_global_cache(ann_cache_limit);
-        LOG(INFO) << "ANN index IVF list cache memory limit: "
-                  << PrettyPrinter::print(ann_cache_limit, TUnit::BYTES)
-                  << ", origin config value: " << config::ann_index_ivf_list_cache_limit;
-    }
+    // Keep the legacy cache implementation available, but do not instantiate it:
+    // both disk-IVF index objects and list pages use the global DATA_PAGE pool.
+    LOG(INFO) << "IVF_ON_DISK lists and loaded indexes now share the DATA_PAGE cache. "
+                 "ann_index_ivf_list_cache_limit and "
+                 "ann_index_ivf_list_cache_stale_sweep_time_sec are deprecated and ignored. "
+                 "Use storage_page_cache_limit, index_page_cache_percentage and "
+                 "data_page_cache_stale_sweep_time_sec.";
 
     // Init row cache
     int64_t row_cache_mem_limit =

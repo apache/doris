@@ -103,17 +103,36 @@ public:
     // TODO(zc): Now we use file name(std::string) as a part of
     // key, which is not efficient. We should make it better later
     struct CacheKey {
-        CacheKey(std::string fname_, size_t fsize_, int64_t offset_)
-                : fname(std::move(fname_)), fsize(fsize_), offset(offset_) {}
+        enum class Kind : uint8_t { PAGE, ANN_IVF_LIST, ANN_INDEX };
+
+        CacheKey(std::string fname_, size_t fsize_, int64_t offset_, Kind kind_ = Kind::PAGE,
+                 size_t length_ = 0)
+                : fname(std::move(fname_)),
+                  fsize(fsize_),
+                  offset(offset_),
+                  kind(kind_),
+                  length(length_) {}
         std::string fname;
         size_t fsize;
         int64_t offset;
+        Kind kind;
+        size_t length;
 
         // Encode to a flat binary which can be used as LRUCache's key
         std::string encode() const {
-            std::string key_buf(fname);
+            std::string key_buf;
+            // File paths cannot start with NUL. Keep ordinary page keys unchanged,
+            // while separating ANN byte ranges and objects from ordinary pages.
+            if (kind != Kind::PAGE) {
+                key_buf.push_back('\0');
+                key_buf.push_back(static_cast<char>(kind));
+            }
+            key_buf.append(fname);
             key_buf.append((char*)&fsize, sizeof(fsize));
             key_buf.append((char*)&offset, sizeof(offset));
+            if (kind != Kind::PAGE) {
+                key_buf.append(reinterpret_cast<const char*>(&length), sizeof(length));
+            }
             return key_buf;
         }
     };
@@ -178,6 +197,12 @@ public:
     // The in_memory page will have higher priority.
     void insert(const CacheKey& key, DataPage* data, PageCacheHandle* handle,
                 segment_v2::PageTypePB page_type, bool in_memory = false);
+
+    // Cache an immutable object in DATA_PAGE until its last handle is released. charge controls
+    // eviction; tracking_bytes covers allocations not already tracked by Allocator.
+    // Access it only through the handle's borrowed value(), never shared ownership.
+    void insert_object(const CacheKey& key, std::unique_ptr<LRUCacheValueBase> value, size_t charge,
+                       size_t tracking_bytes, PageCacheHandle* handle);
 
     // Insert a std::share_ptr which points to a page into this cache.
     // size should be the size of the page instead of shared_ptr.
@@ -255,6 +280,10 @@ public:
     }
 
     LRUCachePolicy* cache() const { return _cache; }
+    // Borrowed pointer, valid only while this handle pins the entry.
+    LRUCacheValueBase* value() const {
+        return _handle ? static_cast<LRUCacheValueBase*>(_cache->value(_handle)) : nullptr;
+    }
     Slice data() const;
 
     template <typename T>

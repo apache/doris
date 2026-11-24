@@ -18,6 +18,7 @@
 #include <faiss/IndexFlat.h>
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexIVFFlat.h>
+#include <faiss/IndexIVFPQ.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <omp.h>
@@ -42,7 +43,7 @@
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/faiss_ann_index.h"
 // metrics.h not used directly here
-#include "storage/cache/ann_index_ivf_list_cache.h"
+#include "storage/cache/page_cache.h"
 #include "storage/index/ann/vector_search_utils.h"
 #include "util/cpu_info.h"
 #include "util/defer_op.h"
@@ -1620,9 +1621,45 @@ TEST_F(VectorSearchTest, InnerProductRangeSearchZeroAndNegativeRadius) {
     ASSERT_GE(res_gen.roaring->cardinality(), static_cast<size_t>(n * 0.9));
 }
 
+// Large owned capacities drive eviction; reserve slack must not disappear from
+// the estimate, and list data must not be counted again in the index object.
+TEST_F(VectorSearchTest, IVFOnDiskEstimatedMemoryIncludesCentersAndPQCodebook) {
+    for (auto kind : {FaissBuildParameter::Quantizer::FLAT, FaissBuildParameter::Quantizer::PQ}) {
+        FaissVectorIndex index;
+        FaissBuildParameter params;
+        params.dim = 32;
+        params.ivf_nlist = 4;
+        params.pq_m = 4;
+        params.pq_nbits = 4;
+        params.quantizer = kind;
+        params.index_type = FaissBuildParameter::IndexType::IVF_ON_DISK;
+        index.build(params);
+        auto* ivf = dynamic_cast<faiss::IndexIVF*>(index._index.get());
+        ASSERT_NE(ivf, nullptr);
+        auto* quantizer = dynamic_cast<faiss::IndexFlat*>(ivf->quantizer);
+        ASSERT_NE(quantizer, nullptr);
+        const size_t center_bytes = params.ivf_nlist * params.dim * sizeof(float);
+        quantizer->codes.owned_data.reserve(center_bytes + 128);
+        quantizer->codes.resize(center_bytes);
+        size_t expected = quantizer->codes.owned_data.capacity();
+        EXPECT_GT(expected, center_bytes);
+        if (kind == FaissBuildParameter::Quantizer::PQ) {
+            auto* pq = dynamic_cast<faiss::IndexIVFPQ*>(ivf);
+            ASSERT_NE(pq, nullptr);
+            const size_t codebook_floats = (1U << params.pq_nbits) * params.dim;
+            EXPECT_EQ(pq->pq.centroids.size(), codebook_floats);
+            pq->pq.centroids.reserve(codebook_floats + 128);
+            expected += pq->pq.centroids.capacity() * sizeof(float);
+        }
+        EXPECT_EQ(index.estimated_memory_usage(), expected);
+    }
+}
+
 TEST_F(VectorSearchTest, IVFOnDiskSaveLoadAndSearch) {
-    AnnIndexIVFListCache::create_global_cache(64 * 1024 * 1024);
-    Defer destroy_cache([] { AnnIndexIVFListCache::destroy_global_cache(); });
+    auto* previous_cache = StoragePageCache::instance();
+    StoragePageCache cache(64 * 1024 * 1024, 0, 0, 1);
+    ExecEnv::GetInstance()->set_storage_page_cache(&cache);
+    Defer restore_cache([&] { ExecEnv::GetInstance()->set_storage_page_cache(previous_cache); });
 
     auto index1 = std::make_unique<FaissVectorIndex>();
     FaissBuildParameter params;
@@ -1662,6 +1699,14 @@ TEST_F(VectorSearchTest, IVFOnDiskSaveLoadAndSearch) {
     ASSERT_TRUE(index2->ann_topn_search(query_vec.data(), 10, search_params, result).ok());
     EXPECT_GT(result.roaring->cardinality(), 0u);
     EXPECT_GT(result.ivf_on_disk_cache_miss_cnt, 0);
+    IndexSearchResult cached_result;
+    ASSERT_TRUE(index2->ann_topn_search(query_vec.data(), 10, search_params, cached_result).ok());
+    EXPECT_GT(cached_result.ivf_on_disk_cache_hit_cnt, 0);
+    EXPECT_EQ(cached_result.ivf_on_disk_cache_miss_cnt, 0);
+    EXPECT_EQ(*result.row_ids, *cached_result.row_ids);
+    for (size_t i = 0; i < result.row_ids->size(); ++i) {
+        EXPECT_FLOAT_EQ(result.distances[i], cached_result.distances[i]);
+    }
 }
 
 // Searching WITHOUT a list cache has to read, not recurse.
@@ -1669,7 +1714,7 @@ TEST_F(VectorSearchTest, IVFOnDiskSaveLoadAndSearch) {
 // faiss documents RandomAccessReader::borrow()'s default as "allocates a buffer
 // and calls read_at()", and CachedRandomAccessReader::read_at() is implemented by
 // calling borrow(). Falling back to the base borrow() when
-// AnnIndexIVFListCache::instance() is null is therefore unbounded mutual
+// StoragePageCache::instance() is null is therefore unbounded mutual
 // recursion. Every other IVF-on-disk test above installs the cache first, which
 // is exactly why nothing has ever hit it.
 //
@@ -1683,8 +1728,9 @@ TEST_F(VectorSearchTest, IVFOnDiskSaveLoadAndSearch) {
 // this one case. Everything the worker touches is shared-owned so a hung thread
 // cannot outlive its arguments.
 TEST_F(VectorSearchTest, IVFOnDiskSearchWithoutTheListCacheStillReads) {
-    ASSERT_EQ(AnnIndexIVFListCache::instance(), nullptr)
-            << "this case is about the no-cache path, but something installed a cache";
+    auto* previous_cache = StoragePageCache::instance();
+    ExecEnv::GetInstance()->set_storage_page_cache(nullptr);
+    Defer restore_cache([&] { ExecEnv::GetInstance()->set_storage_page_cache(previous_cache); });
 
     auto builder = std::make_unique<FaissVectorIndex>();
     FaissBuildParameter params;
@@ -1745,8 +1791,10 @@ TEST_F(VectorSearchTest, IVFOnDiskSearchWithoutTheListCacheStillReads) {
 // through loads from "disk" while the rest hit the double-check cache
 // lookup path (lines 372-375 in faiss_ann_index.cpp).
 TEST_F(VectorSearchTest, IVFOnDiskConcurrentSearchStampedeProtection) {
-    AnnIndexIVFListCache::create_global_cache(64 * 1024 * 1024);
-    Defer destroy_cache([] { AnnIndexIVFListCache::destroy_global_cache(); });
+    auto* previous_cache = StoragePageCache::instance();
+    StoragePageCache cache(64 * 1024 * 1024, 0, 0, 1);
+    ExecEnv::GetInstance()->set_storage_page_cache(&cache);
+    Defer restore_cache([&] { ExecEnv::GetInstance()->set_storage_page_cache(previous_cache); });
 
     auto index_builder = std::make_unique<FaissVectorIndex>();
     FaissBuildParameter params;

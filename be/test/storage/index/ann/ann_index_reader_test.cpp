@@ -27,8 +27,9 @@
 #include <string_view>
 #include <vector>
 
-#include "storage/cache/ann_index_ivf_list_cache.h"
+#include "storage/cache/page_cache.h"
 #include "storage/index/ann/ann_index.h"
+#include "storage/index/ann/ann_index_cache.h"
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_index_storage.h"
 #include "storage/index/ann/ann_search_params.h"
@@ -713,22 +714,13 @@ TEST_F(AnnIndexReaderTest, AnnIndexReaderIVFRangeSearch) {
     }
 }
 
-// An IVF_ON_DISK index keeps reading ann.ivfdata after the load: the CachedRandomAccessReader
-// inside _vector_index holds an input opened from _source and reads it on every search. So the
-// reader must destroy _vector_index before _source, which it does by declaring _source first. The
-// logging source and inputs above record the teardown, and an input destroyed after its source
-// writes into freed memory, which ASAN reports.
+// The cached disk IVF input must die before its source, even when the reader is
+// already gone. A tracked input writes to its source's memory during destruction.
 TEST_F(AnnIndexReaderTest, IvfOnDiskIndexIsDestroyedBeforeItsSource) {
-    // IVF_ON_DISK reads through the list cache in production (exec_env_init installs it).
-    const bool owns_cache = AnnIndexIVFListCache::instance() == nullptr;
-    if (owns_cache) {
-        AnnIndexIVFListCache::create_global_cache(64 * 1024 * 1024);
-    }
-    Defer destroy_cache([owns_cache] {
-        if (owns_cache) {
-            AnnIndexIVFListCache::destroy_global_cache();
-        }
-    });
+    auto* previous_cache = StoragePageCache::instance();
+    StoragePageCache cache(64 * 1024 * 1024, 0, 0, 1);
+    ExecEnv::GetInstance()->set_storage_page_cache(&cache);
+    Defer restore_cache([&] { ExecEnv::GetInstance()->set_storage_page_cache(previous_cache); });
 
     constexpr int kDim = 8;
     constexpr int kRows = 256;
@@ -765,10 +757,15 @@ TEST_F(AnnIndexReaderTest, IvfOnDiskIndexIsDestroyedBeforeItsSource) {
                         return std::make_unique<TrackedSource>(
                                 std::make_unique<segment_v2::LuceneAnnSource>(_ram_dir), &log);
                     }));
+    segment_v2::AnnIndexCacheHandle handle;
+    const StoragePageCache::CacheKey key(file_reader->get_index_file_cache_key(&index_meta), 0, 0,
+                                         StoragePageCache::CacheKey::Kind::ANN_INDEX);
+    // Also erase on an assertion failure, before the stack-owned teardown log dies.
+    Defer erase_index([&] { cache.erase(key, segment_v2::DATA_PAGE); });
     {
         auto reader = std::make_shared<segment_v2::AnnIndexReader>(&index_meta, file_reader);
         io::IOContext io_ctx;
-        ASSERT_TRUE(reader->load_index(&io_ctx).ok());
+        ASSERT_TRUE(reader->load_index(&io_ctx, &handle).ok());
 
         roaring::Roaring candidates;
         candidates.addRange(0, kRows);
@@ -780,12 +777,16 @@ TEST_F(AnnIndexReaderTest, IvfOnDiskIndexIsDestroyedBeforeItsSource) {
                                         .rows_of_segment = kRows,
                                         .enable_result_cache = false};
         segment_v2::AnnIndexStats stats;
-        ASSERT_TRUE(reader->query(&io_ctx, &param, &stats).ok());
+        ASSERT_TRUE(reader->query(&io_ctx, &param, &stats, &handle).ok());
         // The search went to ann.ivfdata, through the input the index still holds.
         EXPECT_GT(stats.ivf_on_disk_cache_miss_cnt.value(), 0);
         // ann.faiss was read and closed by the load; ann.ivfdata stays open in the index.
         EXPECT_EQ(log, TeardownLog({"input ann.faiss"}));
     }
+    EXPECT_EQ(log, TeardownLog({"input ann.faiss"}));
+    cache.erase(key, segment_v2::DATA_PAGE);
+    EXPECT_EQ(log, TeardownLog({"input ann.faiss"}));
+    handle = segment_v2::AnnIndexCacheHandle();
     EXPECT_EQ(log, TeardownLog({"input ann.faiss", "input ann.ivfdata", "source"}));
 }
 

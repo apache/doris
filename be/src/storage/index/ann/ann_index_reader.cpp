@@ -18,8 +18,11 @@
 #include "storage/index/ann/ann_index_reader.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <utility>
 
 #include "common/config.h"
@@ -28,6 +31,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_index.h"
+#include "storage/index/ann/ann_index_cache.h"
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_index_result_cache/ann_index_result_cache.h"
 #include "storage/index/ann/ann_index_result_cache/ann_index_result_cache_handle.h"
@@ -73,37 +77,78 @@ Status AnnIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
     return Status::OK();
 }
 
-Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
-    return _load_index_once.call([&]() {
-        DorisMetrics::instance()->ann_index_load_cnt->increment(1);
+Status AnnIndexReader::load_index(io::IOContext* io_ctx, AnnIndexCacheHandle* handle) {
+    if (_index_type != AnnIndexType::IVF_ON_DISK) {
+        // HNSW and in-memory IVF keep their existing reader-owned lifetime.
+        return _load_index_once.call([&]() {
+            AnnIndexCacheValue value;
+            RETURN_IF_ERROR(_load_index(io_ctx, &value));
+            _source = std::move(value.source);
+            _vector_index = std::move(value.index);
+            return Status::OK();
+        });
+    }
 
-        RETURN_IF_ERROR(_index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
-        auto source = _index_file_reader->open_ann_source(&_index_meta, io_ctx);
-        if (!source.has_value()) {
-            return Status::IOError("Failed to open index file: {}", source.error().to_string());
-        }
-        _vector_index = std::make_unique<FaissVectorIndex>();
-        _vector_index->set_metric(_metric_type);
-        _vector_index->set_type(_index_type);
-        // Provide a cache key prefix so IVF_ON_DISK can cache ivfdata
-        // blocks in StoragePageCache. Use cache_key (which includes
-        // index_id) rather than file_path, because the idx file is a
-        // compound file shared by multiple indexes.
-        static_cast<FaissVectorIndex*>(_vector_index.get())
-                ->set_ivfdata_cache_key_prefix(
-                        _index_file_reader->get_index_file_cache_key(&_index_meta));
-        RETURN_IF_ERROR(_vector_index->load(source->get(), io_ctx));
-        // Keep the source alive. For IVF_ON_DISK the CachedRandomAccessReader
-        // reads ann.ivfdata through an input opened from it on every search.
-        // For other types this is harmless (just holds a file handle).
-        _source = std::move(*source);
+    // Direct callers may only be checking load status. Searches without a supplied
+    // handle acquire their own pin; no disk IVF pointer is stored on the reader.
+    AnnIndexCacheHandle local_handle;
+    if (handle == nullptr) {
+        handle = &local_handle;
+    }
+    *handle = AnnIndexCacheHandle();
+    auto* cache = StoragePageCache::instance();
+    const StoragePageCache::CacheKey key(_index_file_reader->get_index_file_cache_key(&_index_meta),
+                                         0, 0, StoragePageCache::CacheKey::Kind::ANN_INDEX);
+    if (cache && cache->lookup(key, &handle->_handle, DATA_PAGE)) {
         return Status::OK();
-    });
+    }
+
+    // Readers of the same immutable segment/index share a lock. Unlike a reader
+    // member mutex, this also coalesces misses from different Segment instances
+    // when DATA_PAGE admits the loaded entry. LRU-K may bypass admission under
+    // pressure; that query then owns an uncached pin until its search completes.
+    // No page-cache lock is held during file I/O or FAISS deserialization.
+    static std::array<std::mutex, 128> load_mutexes;
+    std::lock_guard lock(
+            load_mutexes[std::hash<std::string>()(key.encode()) % load_mutexes.size()]);
+    if (cache && cache->lookup(key, &handle->_handle, DATA_PAGE)) {
+        return Status::OK();
+    }
+    auto value = std::make_unique<AnnIndexCacheValue>();
+    RETURN_IF_ERROR(_load_index(io_ctx, value.get()));
+    if (cache) {
+        const size_t bytes =
+                static_cast<FaissVectorIndex*>(value->index.get())->estimated_memory_usage();
+        // FAISS's std::vector allocation bypasses Doris Allocator. Track it once,
+        // until the cache entry's final pin is released, even after cache erase.
+        cache->insert_object(key, std::move(value), bytes, bytes, &handle->_handle);
+    } else {
+        // Standalone tests/tools can load indexes without an initialized page cache.
+        handle->_owned_value = std::move(value);
+    }
+    return Status::OK();
 }
 
-bool AnnIndexReader::try_load_index(io::IOContext* io_ctx) {
+Status AnnIndexReader::_load_index(io::IOContext* io_ctx, AnnIndexCacheValue* value) {
+    DorisMetrics::instance()->ann_index_load_cnt->increment(1);
+    RETURN_IF_ERROR(_index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
+    auto source = _index_file_reader->open_ann_source(&_index_meta, io_ctx);
+    if (!source.has_value()) {
+        return Status::IOError("Failed to open index file: {}", source.error().to_string());
+    }
+    value->source = std::move(*source);
+    auto index = std::make_unique<FaissVectorIndex>();
+    index->set_metric(_metric_type);
+    index->set_type(_index_type);
+    index->set_ivfdata_cache_key_prefix(_index_file_reader->get_index_file_cache_key(&_index_meta));
+    RETURN_IF_ERROR(index->load(value->source.get(), io_ctx));
+    value->index = std::move(index);
+    return Status::OK();
+}
+
+bool AnnIndexReader::try_load_index(io::IOContext* io_ctx, AnnIndexCacheHandle* handle) {
 #ifndef BE_TEST
-    Status st = load_index(io_ctx);
+    Status st = load_index(io_ctx, handle);
     if (!st.ok()) {
         LOG_WARNING("Failed to load ann index, will fallback to brute force search: {}",
                     st.to_string());
@@ -113,14 +158,22 @@ bool AnnIndexReader::try_load_index(io::IOContext* io_ctx) {
     return true;
 }
 
-Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnIndexStats* stats) {
+Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnIndexStats* stats,
+                             AnnIndexCacheHandle* handle) {
+    AnnIndexCacheHandle local_handle;
+    if (_index_type == AnnIndexType::IVF_ON_DISK && handle == nullptr) {
+        // Direct calls and repeated iterator searches acquire a query-scoped pin.
+        RETURN_IF_ERROR(load_index(io_ctx, &local_handle));
+        handle = &local_handle;
+    }
+    auto* index = _index_type == AnnIndexType::IVF_ON_DISK ? handle->index() : _vector_index.get();
     // Index should be loaded before calling query
-    DCHECK(_vector_index != nullptr);
+    DCHECK(index != nullptr);
 
     {
         DorisMetrics::instance()->ann_index_search_cnt->increment(1);
         SCOPED_TIMER(&(stats->search_costs_ns));
-        DCHECK(_vector_index != nullptr);
+        DCHECK(index != nullptr);
         const float* query_vec = param->query_value;
         const int limit = static_cast<int>(param->limit);
         IndexSearchResult index_search_result;
@@ -162,8 +215,8 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
                     hnsw_search_params.check_relative_distance =
                             param->_user_params.hnsw_check_relative_distance;
                     hnsw_search_params.bounded_queue = param->_user_params.hnsw_bounded_queue;
-                    RETURN_IF_ERROR(_vector_index->ann_topn_search(
-                            query_vec, limit, hnsw_search_params, index_search_result));
+                    RETURN_IF_ERROR(index->ann_topn_search(query_vec, limit, hnsw_search_params,
+                                                           index_search_result));
                     // Accumulate detailed engine timings
                     stats->engine_search_ns.update(index_search_result.engine_search_ns);
                     stats->engine_convert_ns.update(index_search_result.engine_convert_ns);
@@ -175,8 +228,8 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
                     ivf_search_params.rows_of_segment = param->rows_of_segment;
                     ivf_search_params.io_ctx = io_ctx;
                     ivf_search_params.nprobe = param->_user_params.ivf_nprobe;
-                    RETURN_IF_ERROR(_vector_index->ann_topn_search(
-                            query_vec, limit, ivf_search_params, index_search_result));
+                    RETURN_IF_ERROR(index->ann_topn_search(query_vec, limit, ivf_search_params,
+                                                           index_search_result));
                     // Accumulate detailed engine timings
                     stats->engine_search_ns.update(index_search_result.engine_search_ns);
                     stats->engine_convert_ns.update(index_search_result.engine_convert_ns);
@@ -233,15 +286,23 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
 Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
                                     const VectorSearchUserParams& custom_params,
                                     segment_v2::AnnRangeSearchResult* result,
-                                    segment_v2::AnnIndexStats* stats, io::IOContext* io_ctx) {
+                                    segment_v2::AnnIndexStats* stats, io::IOContext* io_ctx,
+                                    AnnIndexCacheHandle* handle) {
+    AnnIndexCacheHandle local_handle;
+    if (_index_type == AnnIndexType::IVF_ON_DISK && handle == nullptr) {
+        // Direct calls and repeated iterator searches acquire a query-scoped pin.
+        RETURN_IF_ERROR(load_index(io_ctx, &local_handle));
+        handle = &local_handle;
+    }
+    auto* index = _index_type == AnnIndexType::IVF_ON_DISK ? handle->index() : _vector_index.get();
     // Index should be loaded before calling range_search
-    DCHECK(_vector_index != nullptr);
+    DCHECK(index != nullptr);
 
     DCHECK(stats != nullptr);
     {
         DorisMetrics::instance()->ann_index_search_cnt->increment(1);
         SCOPED_TIMER(&(stats->search_costs_ns));
-        DCHECK(_vector_index != nullptr);
+        DCHECK(index != nullptr);
 
         {
             AnnIndexResultCache* result_cache =
@@ -287,8 +348,8 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
                 search_param->io_ctx = io_ctx;
                 DCHECK(search_param->roaring != nullptr);
 
-                RETURN_IF_ERROR(_vector_index->range_search(params.query_value, params.radius,
-                                                            *search_param, search_result));
+                RETURN_IF_ERROR(index->range_search(params.query_value, params.radius,
+                                                    *search_param, search_result));
                 stats->engine_prepare_ns.update(search_result.engine_prepare_ns);
                 stats->engine_search_ns.update(search_result.engine_search_ns);
                 stats->engine_convert_ns.update(search_result.engine_convert_ns);
