@@ -243,7 +243,7 @@ public class ColumnTest {
         Column oldDoc = new Column("v", new VariantType(new ArrayList<>(), 0, false, 0, 0, true, 10L, 8, false,
                 TVariantSerializeType.V1), false, null, true, null, "");
         oldDoc.checkSchemaChangeAllowed(new Column("v", new VariantType(new ArrayList<>(), 0, false, 0, 0, true, 2L,
-                8, false, TVariantSerializeType.V2), false, null, true, null, ""));
+                8, false, TVariantSerializeType.V1), false, null, true, null, ""));
         // the shard count is kept in the field of the mode and cannot change
         Assertions.assertThrows(DdlException.class, () -> oldDoc.checkSchemaChangeAllowed(new Column("v",
                 new VariantType(new ArrayList<>(), 0, false, 0, 0, true, 10L, 4, false, TVariantSerializeType.V2),

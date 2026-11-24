@@ -128,16 +128,16 @@ suite("test_variant_tuning_properties") {
     """
     qt_sparse_hash_shard_count "DESC test_variant_sparse_hash_shard_count"
 
-    // variant_enable_typed_paths_to_sparse is refused whatever its value
-    test {
-        sql """
-            CREATE TABLE test_variant_typed_paths_to_sparse (
-                k INT,
-                v VARIANT<PROPERTIES("variant_enable_typed_paths_to_sparse" = "false")>
-            )
-            DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
-            PROPERTIES ("replication_num" = "1")
-        """
-        exception "variant_enable_typed_paths_to_sparse is not supported"
-    }
+    // variant_enable_typed_paths_to_sparse is accepted and ignored for legacy DDL compatibility
+    sql "DROP TABLE IF EXISTS test_variant_typed_paths_to_sparse"
+    sql """
+        CREATE TABLE test_variant_typed_paths_to_sparse (
+            k INT,
+            v1 VARIANT<PROPERTIES("variant_enable_typed_paths_to_sparse" = "false")>,
+            v2 VARIANT<PROPERTIES("variant_enable_typed_paths_to_sparse" = "true")>
+        )
+        DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    qt_typed_paths_to_sparse "DESC test_variant_typed_paths_to_sparse"
 }

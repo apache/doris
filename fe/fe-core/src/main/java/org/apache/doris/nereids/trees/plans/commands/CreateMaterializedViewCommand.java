@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.parser.LogicalPlanBuilder;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -88,6 +90,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -517,9 +520,27 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                     }
                     meetNoneAggExpr = true;
                     try {
-                        context.selectItems
-                                .add(new MVColumnItem(colName,
-                                        translateToLegacyExpr(expr, context.planTranslatorContext)));
+                        MVColumnItem mvItem = new MVColumnItem(colName,
+                                translateToLegacyExpr(expr, context.planTranslatorContext));
+                        DataType rawType = expr.getDataType();
+                        if (rawType instanceof VariantType) {
+                            boolean managedTableColumn = expr instanceof SlotReference
+                                    && ((SlotReference) expr).getOriginalColumn().isPresent()
+                                    && ((SlotReference) expr).getSubPath().isEmpty()
+                                    && ((SlotReference) expr).getOriginalTable()
+                                            .filter(TableIf::isManagedTable).isPresent();
+                            if (!managedTableColumn) {
+                                int defaultMaxSubcolumnsCount = LogicalPlanBuilder
+                                        .getVariantDefaults(ConnectContext.get())
+                                        .getDefaultVariantMaxSubcolumnsCount();
+                                boolean isSubPath = expr instanceof SlotReference
+                                        && !((SlotReference) expr).getSubPath().isEmpty();
+                                mvItem.setType(((VariantType) rawType.conversion())
+                                        .forNewTableColumn(rawType, isSubPath, defaultMaxSubcolumnsCount)
+                                        .toCatalogDataType());
+                            }
+                        }
+                        context.selectItems.add(mvItem);
                     } catch (Exception ex) {
                         throw new AnalysisException(ex.getMessage());
                     }
@@ -639,7 +660,14 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 mvDataType = defineExpr.getDataType();
             }
             Expr expr = translateToLegacyExpr(defineExpr, ctx.planTranslatorContext);
-            return new MVColumnItem(name, mvDataType.toCatalogDataType(), mvAggType, expr);
+            DataType catalogType = mvDataType;
+            if (mvDataType instanceof VariantType) {
+                int defaultMaxSubcolumnsCount = LogicalPlanBuilder.getVariantDefaults(ConnectContext.get())
+                        .getDefaultVariantMaxSubcolumnsCount();
+                catalogType = ((VariantType) mvDataType.conversion())
+                        .forNewTableColumn(mvDataType, false, defaultMaxSubcolumnsCount);
+            }
+            return new MVColumnItem(name, catalogType.toCatalogDataType(), mvAggType, expr);
         }
 
         private Expr translateToLegacyExpr(Expression expression, PlanTranslatorContext context) {

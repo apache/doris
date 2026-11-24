@@ -185,6 +185,7 @@ public class ModifyColumnOp extends AlterTableOp {
         }
         column = columnDef.translateToCatalogStyleForSchemaChange();
         if (originalColumn != null) {
+            column.inheritImmutableVariantProperties(originalColumn);
             originalColumn.checkSchemaChangeAllowed(column);
         }
     }

@@ -82,7 +82,7 @@ public class VariantType extends ScalarType {
         this.variantSparseHashShardCount = 0;
         this.enableVariantDocMode = false;
         this.variantDocMaterializationMinRows = 0L;
-        this.variantDocShardCount = 64;
+        this.variantDocShardCount = 0;
         this.enableNestedGroup = false;
         this.variantSerializeType = TVariantSerializeType.V1;
     }
@@ -100,7 +100,7 @@ public class VariantType extends ScalarType {
         this.variantSparseHashShardCount = 0;
         this.enableVariantDocMode = false;
         this.variantDocMaterializationMinRows = 0L;
-        this.variantDocShardCount = 64;
+        this.variantDocShardCount = 0;
         this.enableNestedGroup = false;
         this.variantSerializeType = TVariantSerializeType.V1;
     }
@@ -115,7 +115,7 @@ public class VariantType extends ScalarType {
         this.variantSparseHashShardCount = 0;
         this.enableVariantDocMode = false;
         this.variantDocMaterializationMinRows = 0L;
-        this.variantDocShardCount = 64;
+        this.variantDocShardCount = 0;
         this.enableNestedGroup = false;
         this.variantSerializeType = TVariantSerializeType.V1;
     }
@@ -134,7 +134,7 @@ public class VariantType extends ScalarType {
         this.variantSparseHashShardCount = 0;
         this.enableVariantDocMode = false;
         this.variantDocMaterializationMinRows = 0L;
-        this.variantDocShardCount = 64;
+        this.variantDocShardCount = 0;
         this.enableNestedGroup = false;
         this.variantSerializeType = TVariantSerializeType.V1;
     }
@@ -175,6 +175,13 @@ public class VariantType extends ScalarType {
     /** This type with the given variant_enable_typed_paths_to_sparse, as a new instance. */
     public VariantType withEnableTypedPathsToSparse(boolean typedPathsToSparse) {
         return new VariantType(predefinedFields, variantMaxSubcolumnsCount, typedPathsToSparse,
+                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
+                variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, variantSerializeType);
+    }
+
+    /** This type with the given max subcolumns count, as a new instance. */
+    public VariantType withMaxSubcolumnsCount(int maxSubcolumnsCount) {
+        return new VariantType(predefinedFields, maxSubcolumnsCount, enableTypedPathsToSparse,
                 variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
                 variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, variantSerializeType);
     }
@@ -253,6 +260,9 @@ public class VariantType extends ScalarType {
 
     @Override
     public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
         if (!(other instanceof VariantType)) {
             return false;
         }
@@ -260,12 +270,25 @@ public class VariantType extends ScalarType {
         return Objects.equals(otherVariantType.getPredefinedFields(), predefinedFields)
                 && variantMaxSubcolumnsCount == otherVariantType.variantMaxSubcolumnsCount
                 && enableTypedPathsToSparse == otherVariantType.enableTypedPathsToSparse
+                && variantMaxSparseColumnStatisticsSize == otherVariantType.variantMaxSparseColumnStatisticsSize
+                && variantSparseHashShardCount == otherVariantType.variantSparseHashShardCount
                 && enableVariantDocMode == otherVariantType.enableVariantDocMode
                 && variantDocMaterializationMinRows == otherVariantType.variantDocMaterializationMinRows
+                && variantDocShardCount == otherVariantType.variantDocShardCount
                 && enableNestedGroup == otherVariantType.enableNestedGroup
                 // the serialize type only changes what a max subcolumns count of 0 means
                 && (variantMaxSubcolumnsCount != 0 || enableNestedGroup
                         || variantSerializeType == otherVariantType.variantSerializeType);
+    }
+
+    @Override
+    public int hashCode() {
+        TVariantSerializeType effectiveSerializeType =
+                (variantMaxSubcolumnsCount != 0 || enableNestedGroup) ? null : variantSerializeType;
+        return Objects.hash(super.hashCode(), predefinedFields, variantMaxSubcolumnsCount,
+                enableTypedPathsToSparse, variantMaxSparseColumnStatisticsSize,
+                variantSparseHashShardCount, enableVariantDocMode, variantDocMaterializationMinRows,
+                variantDocShardCount, enableNestedGroup, effectiveSerializeType);
     }
 
     @Override

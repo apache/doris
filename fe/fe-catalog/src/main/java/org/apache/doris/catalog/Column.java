@@ -817,6 +817,13 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantMaxSubcolumnsCount() != other.getVariantMaxSubcolumnsCount()) {
                 throw new DdlException("Can not change variant max subcolumns count");
             }
+            if (this.getVariantEnableTypedPathsToSparse() != other.getVariantEnableTypedPathsToSparse()) {
+                throw new DdlException("Can not change variant enable typed paths to sparse");
+            }
+            if (this.getVariantMaxSubcolumnsCount() == 0 && !this.getVariantEnableNestedGroup()
+                    && this.getVariantSerializeType() != other.getVariantSerializeType()) {
+                throw new DdlException("Can not change variant serialize type");
+            }
             if (this.getVariantMaxSparseColumnStatisticsSize() != other.getVariantMaxSparseColumnStatisticsSize()) {
                 throw new DdlException("Can not change variant max sparse column statistics size");
             }
@@ -1220,6 +1227,18 @@ public class Column implements GsonPostProcessable {
 
     public TVariantSerializeType getVariantSerializeType() {
         return type.isVariantType() ? ((ScalarType) type).getVariantSerializeType() : TVariantSerializeType.V1;
+    }
+
+    /**
+     * Preserves immutable internal VARIANT layout flags from the existing column on MODIFY COLUMN,
+     * since restated DDL always parses as V2 and cannot set variant_enable_typed_paths_to_sparse.
+     */
+    public void inheritImmutableVariantProperties(Column originalColumn) {
+        if (originalColumn != null && originalColumn.getType().isVariantType() && this.type.isVariantType()) {
+            this.type = ((VariantType) this.type)
+                    .withSerializeType(originalColumn.getVariantSerializeType())
+                    .withEnableTypedPathsToSparse(originalColumn.getVariantEnableTypedPathsToSparse());
+        }
     }
 
     public void setFieldPatternType(PatternType type) {

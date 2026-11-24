@@ -2393,13 +2393,17 @@ public class PropertyAnalyzer {
         return maxSubcoumnsCount;
     }
 
-    // variant_enable_typed_paths_to_sparse is internal now: a column of an older version keeps its value, and a new one
-    // takes it from the session variable debug_variant_enable_typed_paths_to_sparse, which only tests set. The
-    // property is refused whatever its value.
+    // variant_enable_typed_paths_to_sparse is internal now: accepted and ignored so that DDL printed by
+    // older versions (which emitted "variant_enable_typed_paths_to_sparse" = "false") and persisted SQL
+    // still parse, while new columns take the value from debug_variant_enable_typed_paths_to_sparse.
     public static boolean analyzeEnableTypedPathsToSparse(Map<String, String> properties,
                         boolean defaultValue) throws AnalysisException {
         if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
-            throw new AnalysisException("variant_enable_typed_paths_to_sparse is not supported");
+            String value = properties.get(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
+            if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
+                throw new AnalysisException("variant_enable_typed_paths_to_sparse must be  or ");
+            }
+            properties.remove(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
         }
         return defaultValue;
     }

@@ -75,7 +75,7 @@ public class VariantType extends PrimitiveType {
         this.variantSparseHashShardCount = 0;
         this.enableVariantDocMode = false;
         this.variantDocMaterializationMinRows = 0L;
-        this.variantDocShardCount = 64;
+        this.variantDocShardCount = 0;
         this.enableNestedGroup = false;
         this.variantSerializeType = TVariantSerializeType.V1;
     }
@@ -91,7 +91,7 @@ public class VariantType extends PrimitiveType {
         this.variantSparseHashShardCount = 0;
         this.enableVariantDocMode = false;
         this.variantDocMaterializationMinRows = 0L;
-        this.variantDocShardCount = 64;
+        this.variantDocShardCount = 0;
         this.enableNestedGroup = false;
         this.variantSerializeType = TVariantSerializeType.V1;
     }
@@ -144,6 +144,26 @@ public class VariantType extends PrimitiveType {
         return new VariantType(predefinedFields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                 variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
                 variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, serializeType);
+    }
+
+    /** This type with the given max subcolumns count, as a new instance. */
+    public VariantType withMaxSubcolumnsCount(int maxSubcolumnsCount) {
+        return new VariantType(predefinedFields, maxSubcolumnsCount, enableTypedPathsToSparse,
+                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
+                variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, variantSerializeType);
+    }
+
+    /**
+     * Resolves a VARIANT type for a newly created table/MV column. Unbound compute placeholders
+     * ({@link #INSTANCE} or {@link ConnectorComputeVariantType}) carry no storage limit, so they
+     * adopt the default subcolumn limit alongside V2; types with an explicit limit keep it.
+     */
+    public VariantType forNewTableColumn(DataType rawType, boolean isSubPath, int defaultMaxSubcolumnsCount) {
+        VariantType result = this.withSerializeType(TVariantSerializeType.V2);
+        if (isSubPath || rawType == INSTANCE || rawType instanceof ConnectorComputeVariantType) {
+            result = result.withMaxSubcolumnsCount(defaultMaxSubcolumnsCount);
+        }
+        return result;
     }
 
     /** CTAS infers values, not templates whose paths belong to the source table's storage namespace. */
@@ -233,8 +253,12 @@ public class VariantType extends PrimitiveType {
         VariantType other = (VariantType) o;
         return this.variantMaxSubcolumnsCount == other.variantMaxSubcolumnsCount
                     && this.enableTypedPathsToSparse == other.enableTypedPathsToSparse
+                    && this.variantMaxSparseColumnStatisticsSize == other.variantMaxSparseColumnStatisticsSize
+                    && this.variantSparseHashShardCount == other.variantSparseHashShardCount
                     && this.enableVariantDocMode == other.enableVariantDocMode
                     && this.variantDocMaterializationMinRows == other.variantDocMaterializationMinRows
+                    && this.variantDocShardCount == other.variantDocShardCount
+                    && this.enableNestedGroup == other.enableNestedGroup
                     && Objects.equals(predefinedFields, other.predefinedFields)
                     // the serialize type only changes what a max subcolumns count of 0 means
                     && (variantMaxSubcolumnsCount != 0 || enableNestedGroup
@@ -264,10 +288,12 @@ public class VariantType extends PrimitiveType {
 
     @Override
     public int hashCode() {
+        TVariantSerializeType effectiveSerializeType =
+                (variantMaxSubcolumnsCount != 0 || enableNestedGroup) ? null : variantSerializeType;
         return Objects.hash(super.hashCode(), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                             variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                             enableVariantDocMode, variantDocMaterializationMinRows, variantDocShardCount,
-                            predefinedFields);
+                            enableNestedGroup, predefinedFields, effectiveSerializeType);
     }
 
     @Override

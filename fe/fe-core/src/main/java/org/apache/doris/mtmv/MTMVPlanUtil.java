@@ -59,6 +59,7 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.LogicalPlanBuilder;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
@@ -520,13 +521,19 @@ public class MTMVPlanUtil {
      */
     public static DataType getDataType(Slot s, int i, ConnectContext ctx, String partitionCol,
             Set<String> distributionColumnNames) {
-        DataType dataType = s.getDataType().conversion();
-        boolean tableColumn = s instanceof SlotReference && ((SlotReference) s).getOriginalColumn().isPresent()
-                && ((SlotReference) s).getSubPath().isEmpty();
-        if (dataType instanceof VariantType && !tableColumn) {
-            // A VARIANT the query computes (parse_to_variant, a sub path, coalesce...) is a new value: store it as
-            // a new column, as CTAS does. A VARIANT column of a table keeps its type.
-            dataType = ((VariantType) dataType).withSerializeType(TVariantSerializeType.V2);
+        DataType rawType = s.getDataType();
+        DataType dataType = rawType.conversion();
+        boolean managedTableColumn = s instanceof SlotReference
+                && ((SlotReference) s).getOriginalColumn().isPresent()
+                && ((SlotReference) s).getSubPath().isEmpty()
+                && ((SlotReference) s).getOriginalTable().filter(TableIf::isManagedTable).isPresent();
+        if (dataType instanceof VariantType && !managedTableColumn) {
+            // A VARIANT the query computes (parse_to_variant, a sub path, coalesce...) or reads from an
+            // external table/TVF is a new column, as in CTAS. A managed table VARIANT column keeps its type.
+            int defaultMaxSubcolumnsCount = LogicalPlanBuilder.getVariantDefaults(ctx)
+                    .getDefaultVariantMaxSubcolumnsCount();
+            boolean isSubPath = s instanceof SlotReference && !((SlotReference) s).getSubPath().isEmpty();
+            dataType = ((VariantType) dataType).forNewTableColumn(rawType, isSubPath, defaultMaxSubcolumnsCount);
         }
         // first column can not be TEXT, should transfer to varchar
         if (i == 0 && dataType.isStringType()) {
@@ -1234,10 +1241,20 @@ public class MTMVPlanUtil {
             return typeOther.isStringType();
         } else if (type instanceof org.apache.doris.catalog.VariantType
                 && typeOther instanceof org.apache.doris.catalog.VariantType) {
-            // An MV that an older version created stores a VARIANT the query computes as V1, and this version
-            // analyses it as V2: the serialize type is not a change of the base tables
-            TVariantSerializeType stored = ((org.apache.doris.catalog.VariantType) type).getVariantSerializeType();
-            return type.equals(((org.apache.doris.catalog.VariantType) typeOther).withSerializeType(stored));
+            // An MV that an older version created stored a computed or external VARIANT as V1 (count=0),
+            // while this version analyses it as V2 (with the default subcolumn limit): that storage-layout
+            // promotion is not a schema change of the base tables.
+            org.apache.doris.catalog.VariantType storedVariant = (org.apache.doris.catalog.VariantType) type;
+            org.apache.doris.catalog.VariantType analyzedVariant = (org.apache.doris.catalog.VariantType) typeOther;
+            org.apache.doris.catalog.VariantType normalized =
+                    analyzedVariant.withSerializeType(storedVariant.getVariantSerializeType());
+            if (storedVariant.getVariantSerializeType() == TVariantSerializeType.V1
+                    && storedVariant.getVariantMaxSubcolumnsCount() == 0
+                    && !storedVariant.getEnableVariantDocMode()
+                    && analyzedVariant.getVariantSerializeType() == TVariantSerializeType.V2) {
+                normalized = normalized.withMaxSubcolumnsCount(0);
+            }
+            return storedVariant.equals(normalized);
         } else {
             return type.equals(typeOther);
         }

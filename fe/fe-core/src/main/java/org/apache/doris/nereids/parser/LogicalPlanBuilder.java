@@ -5448,10 +5448,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         // Elsewhere, and without a session, the properties a DDL leaves out take the built-in values, whatever the
         // session holds (a fuzzed session, or a global value set while debug points were enabled), so a DDL text,
         // such as the one CREATE TABLE LIKE prints and parses, creates the same column in every session.
-        SessionVariable variantDefaults = BUILT_IN_SESSION_VARIABLE;
-        if (Config.enable_debug_points && ConnectContext.get() != null) {
-            variantDefaults = ConnectContext.get().getSessionVariable();
-        }
+        SessionVariable variantDefaults = getVariantDefaults(ConnectContext.get());
         int variantMaxSubcolumnsCount = variantDefaults.getDefaultVariantMaxSubcolumnsCount();
         boolean enableTypedPathsToSparse = variantDefaults.getDefaultEnableTypedPathsToSparse();
         int variantMaxSparseColumnStatisticsSize = variantDefaults.getDefaultVariantMaxSparseColumnStatisticsSize();
@@ -5538,6 +5535,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     enableVariantDocMode ? variantDocHashShardCount : 0,
                     // internal, not a property: a declared column is always new, and only old metadata is V1
                     enableNestedGroup, TVariantSerializeType.V2);
+    }
+
+    public static SessionVariable getVariantDefaults(ConnectContext ctx) {
+        if (Config.enable_debug_points && ctx != null) {
+            return ctx.getSessionVariable();
+        }
+        return BUILT_IN_SESSION_VARIABLE;
     }
 
     private static boolean isSupportedVariantDocModeType(DataType type) {

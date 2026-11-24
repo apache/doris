@@ -1749,19 +1749,19 @@ public class NereidsParserTest extends ParserTestBase {
             }
             allowed.add(head + "\"variant_enable_nested_group\" = \"true\", "
                     + "\"variant_max_subcolumns_count\" = \"0\")>");
-            // the sparse shard count of older versions is accepted and ignored, with and without doc mode
+            // legacy properties of older versions are accepted and ignored, with and without doc mode
             allowed.add(head + "\"variant_enable_doc_mode\" = \"true\", \"variant_sparse_hash_shard_count\" = \"8\")>");
             allowed.add(head + "\"variant_sparse_hash_shard_count\" = \"8\")>");
+            allowed.add(head + "\"variant_enable_typed_paths_to_sparse\" = \"true\")>");
+            allowed.add(head + "\"variant_enable_typed_paths_to_sparse\" = \"false\")>");
+            allowed.add(head + "\"variant_enable_doc_mode\" = \"true\", \"variant_enable_typed_paths_to_sparse\" = \"false\")>");
         }
         for (String type : allowed) {
             Assertions.assertDoesNotThrow(() -> parser.parseDataType(type), type);
         }
         String doc = "\"variant_enable_doc_mode\" = \"true\"";
         String[] rejected = {
-                "variant<PROPERTIES(\"variant_enable_typed_paths_to_sparse\" = \"true\")>",
-                "variant<PROPERTIES(\"variant_enable_typed_paths_to_sparse\" = \"false\")>",
-                "variant<PROPERTIES(" + doc + ", \"variant_enable_typed_paths_to_sparse\" = \"true\")>",
-                "variant<PROPERTIES(" + doc + ", \"variant_enable_typed_paths_to_sparse\" = \"false\")>",
+                "variant<PROPERTIES(\"variant_enable_typed_paths_to_sparse\" = \"invalid\")>",
                 "variant<PROPERTIES(" + doc + ", \"variant_max_sparse_column_statistics_size\" = \"100\")>",
                 "variant<PROPERTIES(" + doc + ", \"variant_enable_nested_group\" = \"true\")>",
                 "variant<PROPERTIES(\"variant_enable_nested_group\" = \"true\", "
@@ -1825,12 +1825,17 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertTrue(documents.toSql().contains("\"variant_doc_materialization_min_rows\" = \"100\""),
                 documents.toSql());
 
-        // without doc mode it states variant_enable_typed_paths_to_sparse, which is refused
-        Assertions.assertThrows(Exception.class, () -> parser.parseDataType(
-                "variant<PROPERTIES (\"variant_max_subcolumns_count\" = \"2048\","
-                        + "\"variant_enable_typed_paths_to_sparse\" = \"false\","
-                        + "\"variant_max_sparse_column_statistics_size\" = \"10000\","
-                        + "\"variant_sparse_hash_shard_count\" = \"4\")>"));
+        // without doc mode older versions printed variant_enable_typed_paths_to_sparse and
+        // variant_sparse_hash_shard_count: both are accepted and ignored so legacy DDL still parses
+        org.apache.doris.nereids.types.VariantType legacy = (org.apache.doris.nereids.types.VariantType)
+                parser.parseDataType(
+                        "variant<PROPERTIES (\"variant_max_subcolumns_count\" = \"2048\","
+                                + "\"variant_enable_typed_paths_to_sparse\" = \"false\","
+                                + "\"variant_max_sparse_column_statistics_size\" = \"10000\","
+                                + "\"variant_sparse_hash_shard_count\" = \"4\")>");
+        Assertions.assertEquals(2048, legacy.getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(0, legacy.getVariantSparseHashShardCount());
+        Assertions.assertFalse(legacy.toSql().contains("variant_enable_typed_paths_to_sparse"), legacy.toSql());
     }
 
     @Test

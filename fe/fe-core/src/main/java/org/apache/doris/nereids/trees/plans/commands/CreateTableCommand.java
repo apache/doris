@@ -33,6 +33,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.lineage.LineageUtils;
+import org.apache.doris.nereids.parser.LogicalPlanBuilder;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -60,7 +61,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
@@ -183,11 +183,16 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         ImmutableList.Builder<ColumnDefinition> columnsOfQuery = ImmutableList.builder();
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
-            DataType dataType = s.getDataType().conversion();
+            DataType rawType = s.getDataType();
+            DataType dataType = rawType.conversion();
             if (dataType instanceof VariantType) {
-                // the created column is new, even when the query reads an old V1 or an external column
+                // The created column is new, even when the query reads an old V1 or an external column.
+                // Unbound compute placeholders adopt the default subcolumn limit instead of count=0.
+                int defaultMaxSubcolumnsCount = LogicalPlanBuilder.getVariantDefaults(ctx)
+                        .getDefaultVariantMaxSubcolumnsCount();
+                boolean isSubPath = s instanceof SlotReference && !((SlotReference) s).getSubPath().isEmpty();
                 dataType = ((VariantType) dataType).withoutPredefinedFields()
-                        .withSerializeType(TVariantSerializeType.V2);
+                        .forNewTableColumn(rawType, isSubPath, defaultMaxSubcolumnsCount);
             }
             if (dataType.isVarBinaryType()) {
                 throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");

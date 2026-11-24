@@ -135,13 +135,20 @@ public class VariantSerializeTypeDdlTest extends TestWithFeService {
     }
 
     @Test
-    public void testCtasOfVariantExpressionKeepsCountZero() {
-        // the type of a VARIANT expression has a count of 0 under V1, and the new column is V2 with that count
+    public void testCtasOfVariantExpressionUsesDefaultCount() {
+        // an unbound VARIANT compute expression adopts the default subcolumn limit alongside V2
         org.apache.doris.nereids.types.VariantType type = ctasVariantType(
                 "CREATE TABLE t_ctas_expr DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1') "
                         + "AS SELECT 1 AS k, parse_to_variant('{\"a\": 1}') AS v");
         Assertions.assertEquals(TVariantSerializeType.V2, type.getVariantSerializeType());
-        Assertions.assertEquals(0, type.getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(2048, type.getVariantMaxSubcolumnsCount());
+
+        // an explicit CAST to count=0 keeps count=0
+        org.apache.doris.nereids.types.VariantType explicitZero = ctasVariantType(
+                "CREATE TABLE t_ctas_expr_zero DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1') "
+                        + "AS SELECT 1 AS k, CAST('{\"a\": 1}' AS " + COUNT_ZERO + ") AS v");
+        Assertions.assertEquals(TVariantSerializeType.V2, explicitZero.getVariantSerializeType());
+        Assertions.assertEquals(0, explicitZero.getVariantMaxSubcolumnsCount());
     }
 
     @Test
@@ -170,20 +177,22 @@ public class VariantSerializeTypeDdlTest extends TestWithFeService {
         MTMV mv = createMvOfOldColumn("mv_columns");
         // a VARIANT column of a table keeps its type
         Assertions.assertEquals(TVariantSerializeType.V1, mv.getColumn("v").getVariantSerializeType());
-        // a VARIANT the query computes is a new column, as in CTAS, and its count of 0 extracts no dynamic path
-        for (String name : new String[] {"va", "pv"}) {
-            Assertions.assertEquals(TVariantSerializeType.V2, mv.getColumn(name).getVariantSerializeType());
-            Assertions.assertEquals(0, ((VariantType) mv.getColumn(name).getType()).getVariantMaxSubcolumnsCount());
-        }
+        // a subpath from v inherits v's count=0 as V2, while an unbound compute expression adopts default 2048
+        Assertions.assertEquals(TVariantSerializeType.V2, mv.getColumn("va").getVariantSerializeType());
+        Assertions.assertEquals(0, ((VariantType) mv.getColumn("va").getType()).getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(TVariantSerializeType.V2, mv.getColumn("pv").getVariantSerializeType());
+        Assertions.assertEquals(2048, ((VariantType) mv.getColumn("pv").getType()).getVariantMaxSubcolumnsCount());
     }
 
     @Test
     public void testRefreshAcceptsMvThatStoresComputedVariantAsV1() throws Exception {
         MTMV mv = createMvOfOldColumn("mv_refresh");
-        // an older version stored the VARIANT the query computes as V1, and this version analyses it as V2
+        // an older version stored the VARIANT the query computes as V1 (count=0), while 4.2 analyses it as V2 (2048)
         for (String name : new String[] {"va", "pv"}) {
             Column column = mv.getColumn(name);
-            column.setType(((VariantType) column.getType()).withSerializeType(TVariantSerializeType.V1));
+            column.setType(((VariantType) column.getType())
+                    .withSerializeType(TVariantSerializeType.V1)
+                    .withMaxSubcolumnsCount(0));
         }
         try {
             Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(mv,
@@ -192,5 +201,47 @@ public class VariantSerializeTypeDdlTest extends TestWithFeService {
             // the context of the MV replaced the one of this thread, which the other tests analyse with
             connectContext.setThreadLocalInfo();
         }
+    }
+
+    @Test
+    public void testVariantTypeEqualsAndHashCodeConsistency() {
+        org.apache.doris.nereids.types.VariantType ngV2 = new org.apache.doris.nereids.types.VariantType(
+                Lists.newArrayList(), 0, false, 0, 0, false, 0L, 0, true, TVariantSerializeType.V2);
+        org.apache.doris.nereids.types.VariantType plainV1 = new org.apache.doris.nereids.types.VariantType(
+                Lists.newArrayList(), 0, false, 0, 0, false, 0L, 0, false, TVariantSerializeType.V1);
+        org.apache.doris.nereids.types.VariantType plainV2 = new org.apache.doris.nereids.types.VariantType(
+                Lists.newArrayList(), 0, false, 0, 0, false, 0L, 0, false, TVariantSerializeType.V2);
+        Assertions.assertFalse(ngV2.equals(plainV1));
+        Assertions.assertFalse(plainV1.equals(ngV2));
+        Assertions.assertFalse(ngV2.equals(plainV2));
+        Assertions.assertFalse(plainV2.equals(ngV2));
+
+        org.apache.doris.nereids.types.VariantType n2048V1 = new org.apache.doris.nereids.types.VariantType(2048);
+        org.apache.doris.nereids.types.VariantType n2048V2 = n2048V1.withSerializeType(TVariantSerializeType.V2);
+        Assertions.assertEquals(n2048V1, n2048V2);
+        Assertions.assertEquals(n2048V1.hashCode(), n2048V2.hashCode());
+        Assertions.assertEquals(0, n2048V1.getVariantDocShardCount());
+
+        VariantType cBase = new VariantType();
+        Assertions.assertEquals(0, cBase.getVariantDocShardCount());
+        VariantType cDiffShard = new VariantType(Lists.newArrayList(), 0, false, 10000, 4, false, 0L, 0,
+                false, TVariantSerializeType.V1);
+        Assertions.assertNotEquals(cBase, cDiffShard);
+        VariantType c2048V1 = cBase.withMaxSubcolumnsCount(2048);
+        VariantType c2048V2 = c2048V1.withSerializeType(TVariantSerializeType.V2);
+        Assertions.assertEquals(c2048V1, c2048V2);
+        Assertions.assertEquals(c2048V1.hashCode(), c2048V2.hashCode());
+    }
+
+    @Test
+    public void testColumnCheckSchemaChangeRejectsSerializeTypeOrTypedPathsChange() {
+        Column v1 = new Column("v", new VariantType(), false, null, true, null, "");
+        Column v2 = new Column("v", ((VariantType) v1.getType()).withSerializeType(TVariantSerializeType.V2),
+                false, null, true, null, "");
+        Assertions.assertThrows(Exception.class, () -> v1.checkSchemaChangeAllowed(v2));
+
+        Column typedSparse = new Column("v",
+                ((VariantType) v1.getType()).withEnableTypedPathsToSparse(true), false, null, true, null, "");
+        Assertions.assertThrows(Exception.class, () -> v1.checkSchemaChangeAllowed(typedSparse));
     }
 }
