@@ -1166,6 +1166,44 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void planRewriteRejectsRecreatedFieldBetweenSourcePinAndSinkBinding() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("s3://bucket/old.parquet").withFileSizeInBytes(100).withRecordCount(1).build()).commit();
+        RecordingConnectorContext ctx = contextWithStorage();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = table;
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(
+                ops, IcebergCatalogProperties.of(NON_REST_PROPS), ctx);
+        IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "t2");
+        ConnectorMvccSnapshot pin = metadata.beginQuerySnapshot(null, tableHandle).orElseThrow(AssertionError::new);
+        IcebergTableHandle readHandle = (IcebergTableHandle) metadata.applySnapshot(null, tableHandle, pin);
+
+        table.updateSchema().deleteColumn("name").commit();
+        table.updateSchema().addColumn("name", Types.StringType.get()).commit();
+        Assertions.assertEquals(readHandle.getSnapshotId(), table.currentSnapshot().snapshotId());
+        ConnectorColumn source = metadata.getTableSchema(null, readHandle, pin).getColumns().get(1);
+        Assertions.assertEquals("name", source.getName());
+        Assertions.assertNotEquals(source.getUniqueId(), table.schema().findField("name").fieldId());
+
+        // The analyzer binds the current target columns and metadata, even though the source is pinned.
+        List<ConnectorColumn> boundColumns = boundDataColumns(table);
+        String boundIdentity = IcebergWritePlanProvider.writeMetadataIdentity(table);
+        WriteHandle handle = new WriteHandle(readHandle).writeOperation(WriteOperation.REWRITE)
+                .boundTargetColumns(boundColumns).boundWriteMetadataIdentity(boundIdentity);
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(table, ctx, handle));
+        Assertions.assertTrue(ex.getMessage().contains("rewrite source schema " + readHandle.getSchemaId()
+                + " differs from write schema " + table.schema().schemaId()));
+
+        TIcebergTableSink retry = planSink(table, ctx, new WriteHandle(pinnedTableHandle(table, "t2"))
+                .writeOperation(WriteOperation.REWRITE)
+                .boundTargetColumns(boundColumns).boundWriteMetadataIdentity(boundIdentity));
+        Assertions.assertEquals(table.schema().findField("name").fieldId(),
+                SchemaParser.fromJson(retry.getSchemaJson()).findField("name").fieldId());
+    }
+
+    @Test
     public void planWriteRewriteFv3AppendsRowLineageSchema() {
         Table table = formatVersionThreeTable(freshCatalog());
         TIcebergTableSink sink = planSink(table, contextWithStorage(),
