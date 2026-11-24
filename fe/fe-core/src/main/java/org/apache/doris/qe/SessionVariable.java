@@ -565,6 +565,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
     public static final String ENABLE_PARQUET_FILE_PAGE_CACHE = "enable_parquet_file_page_cache";
     public static final String ENABLE_PARQUET_WRITE_PAGE_INDEX = "enable_parquet_write_page_index";
+    public static final String ENABLE_PARQUET_WRITE_BLOOM_FILTER = "enable_parquet_write_bloom_filter";
     public static final String PARQUET_WRITE_DATA_PAGE_SIZE = "parquet_write_data_page_size";
 
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
@@ -2603,6 +2604,11 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_PARQUET_WRITE_PAGE_INDEX, needForward = true,
             description = "Write ColumnIndex and OffsetIndex metadata to new Parquet files. Default is true.")
     public boolean enableParquetWritePageIndex = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PARQUET_WRITE_BLOOM_FILTER, needForward = true,
+            description = "Write Bloom filters to new Parquet files, except BOOLEAN and INT96 columns. "
+                    + "Default is false.")
+    public boolean enableParquetWriteBloomFilter = false;
 
     @VarAttrDef.VarAttr(name = PARQUET_WRITE_DATA_PAGE_SIZE, needForward = true,
             checker = "checkParquetWriteDataPageSize",
@@ -5964,6 +5970,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParquetLazyMat(enableParquetLazyMat);
         // Query options carry the same write policy to OUTFILE and catalog sinks.
         tResult.setEnableParquetWritePageIndex(enableParquetWritePageIndex);
+        tResult.setEnableParquetWriteBloomFilter(enableParquetWriteBloomFilter);
         tResult.setParquetWriteDataPageSize(parquetWriteDataPageSize);
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
         tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
