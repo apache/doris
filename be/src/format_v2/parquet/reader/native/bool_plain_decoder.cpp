@@ -29,6 +29,7 @@
 namespace doris::format::parquet::native {
 Status BoolPlainDecoder::decode_fixed_values(size_t num_values,
                                              ParquetFixedValueConsumer& consumer) {
+#if defined(__AVX2__)
     std::array<uint8_t, UNPACKED_BUFFER_LEN> values;
     size_t decoded = 0;
     while (decoded < num_values) {
@@ -43,6 +44,26 @@ Status BoolPlainDecoder::decode_fixed_values(size_t num_values,
         RETURN_IF_ERROR(consumer.consume(values.data(), batch_size, sizeof(uint8_t)));
         decoded += batch_size;
     }
+#else
+    const size_t available = num_unpacked_values_ - unpacked_value_idx_ +
+                             static_cast<size_t>(bool_values_.bytes_left()) * 8;
+    if (UNLIKELY(num_values > available)) {
+        return Status::IOError("Can't read enough booleans in plain decoder");
+    }
+    while (num_values != 0) {
+        if (unpacked_value_idx_ == num_unpacked_values_) {
+            num_unpacked_values_ =
+                    bool_values_.UnpackBatch(1, UNPACKED_BUFFER_LEN, unpacked_values_);
+            unpacked_value_idx_ = 0;
+        }
+        const auto* values = unpacked_values_ + unpacked_value_idx_;
+        const size_t batch_size = std::min(
+                num_values, static_cast<size_t>(num_unpacked_values_ - unpacked_value_idx_));
+        unpacked_value_idx_ += batch_size;
+        RETURN_IF_ERROR(consumer.consume(values, batch_size, sizeof(uint8_t)));
+        num_values -= batch_size;
+    }
+#endif
     return Status::OK();
 }
 
