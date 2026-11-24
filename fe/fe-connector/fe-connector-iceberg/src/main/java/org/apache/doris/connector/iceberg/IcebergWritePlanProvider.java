@@ -36,6 +36,7 @@ import org.apache.doris.connector.spi.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.spi.write.ConnectorWriteSortColumn;
+import org.apache.doris.connector.spi.write.ConnectorWriteTarget;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -205,7 +206,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // isOverwrite() boolean, so an overwriting INSERT is promoted to the OVERWRITE operation the
         // transaction switches on at commit time (Append vs ReplacePartitions / OverwriteFiles).
         IcebergWriteSchemaContext schemaContext = handle.getWriteOperation() == WriteOperation.REWRITE
-                ? null : resolveWriteSchema(session, tableHandle, handle.getBranchName());
+                ? null : handle.getWriteTarget().isPresent()
+                        ? ((IcebergWriteTarget) handle.getWriteTarget().get()).getSchemaContext()
+                        : resolveWriteSchema(session, tableHandle, handle.getBranchName());
         if (schemaContext != null) {
             // REWRITE resolves its schema after beginWrite and checks it in buildRewriteSink.
             validateVariantWrite(handle, schemaContext);
@@ -481,6 +484,29 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     @Override
+    public Optional<ConnectorWriteTarget> resolveWriteTarget(ConnectorSession session,
+            ConnectorTableHandle tableHandle, WriteOperation operation, Optional<String> branchName) {
+        if (operation != WriteOperation.INSERT && operation != WriteOperation.OVERWRITE) {
+            return Optional.empty();
+        }
+        IcebergTableHandle handle = (IcebergTableHandle) tableHandle;
+        Table table = resolveTable(session, handle);
+        IcebergWriteSchemaContext schema = IcebergWriteSchemaContext.create(
+                table, handle.getTableName(), branchName,
+                mappingVarbinaryEnabled(), mappingTimestampTzEnabled());
+        return Optional.of(new IcebergWriteTarget(handle, schema, writeMetadataIdentity(table)));
+    }
+
+    @Override
+    public void validateStaticPartitions(ConnectorSession session, ConnectorWriteTarget target,
+            List<String> columnNames) {
+        IcebergWriteTarget iceberg = (IcebergWriteTarget) target;
+        IcebergConnectorMetadata.validateStaticPartitionColumns(
+                iceberg.getSchemaContext().getSchema(), iceberg.getSchemaContext().getPartitionSpec(),
+                columnNames, iceberg.getTableHandle().getTableName());
+    }
+
+    @Override
     public Optional<List<ConnectorColumn>> getWriteColumns(ConnectorSession session,
             ConnectorTableHandle tableHandle, Optional<String> branchName) {
         return Optional.of(resolveWriteSchema(
@@ -498,7 +524,14 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // Legacy IcebergTableSink also rendered the table's write sort order (getSortOrderSql) when sorted;
         // reuse the SHOW CREATE TABLE renderer so EXPLAIN INSERT surfaces the same "ORDER BY (...)" the BE
         // write applies (getWriteSortColumns), keeping EXPLAIN and SHOW CREATE TABLE consistent.
-        String sortClause = IcebergConnectorMetadata.buildShowSortClause(resolveTable(session, tableHandle));
+        String sortClause;
+        if (handle.getWriteTarget().isPresent()) {
+            IcebergWriteSchemaContext schema =
+                    ((IcebergWriteTarget) handle.getWriteTarget().get()).getSchemaContext();
+            sortClause = IcebergConnectorMetadata.buildShowSortClause(schema.getSchema(), schema.getSortOrder());
+        } else {
+            sortClause = IcebergConnectorMetadata.buildShowSortClause(resolveTable(session, tableHandle));
+        }
         if (!sortClause.isEmpty()) {
             output.append(prefix).append("  ").append(sortClause).append("\n");
         }
@@ -527,6 +560,19 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         Table table = active.isPresent() ? null : resolveTable(session, handle);
         SortOrder sortOrder = active.isPresent()
                 ? active.get().getSortOrder() : table.sortOrder();
+        Schema schema = active.isPresent() ? active.get().getSchema() : table.schema();
+        return writeSortColumns(schema, sortOrder, boundTargetColumns);
+    }
+
+    @Override
+    public List<ConnectorWriteSortColumn> getWriteSortColumns(ConnectorSession session,
+            ConnectorWriteTarget target, List<ConnectorColumn> boundTargetColumns) {
+        IcebergWriteSchemaContext schema = ((IcebergWriteTarget) target).getSchemaContext();
+        return writeSortColumns(schema.getSchema(), schema.getSortOrder(), boundTargetColumns);
+    }
+
+    private static List<ConnectorWriteSortColumn> writeSortColumns(Schema schema, SortOrder sortOrder,
+            List<ConnectorColumn> boundTargetColumns) {
         if (!sortOrder.isSorted()) {
             // null == "no write sort order" (legacy gates setSortInfo on isSorted()). A sorted table
             // returns a (possibly empty) list so the engine still emits a TSortInfo, matching legacy's
@@ -535,8 +581,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         }
         Map<Integer, Integer> positionsByFieldId = new HashMap<>();
         if (boundTargetColumns.isEmpty()) {
-            List<NestedField> currentColumns = active.isPresent()
-                    ? active.get().getSchema().columns() : table.schema().columns();
+            List<NestedField> currentColumns = schema.columns();
             for (int i = 0; i < currentColumns.size(); i++) {
                 positionsByFieldId.put(currentColumns.get(i).fieldId(), i);
             }
@@ -640,13 +685,22 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         Table table = active.isPresent() ? null : resolveTable(session, handle);
         PartitionSpec spec = active.isPresent()
                 ? active.get().getPartitionSpec() : table.spec();
+        Schema schema = active.isPresent() ? active.get().getSchema() : table.schema();
+        return writePartitioning(schema, spec);
+    }
+
+    @Override
+    public ConnectorWritePartitionSpec getWritePartitioning(ConnectorSession session, ConnectorWriteTarget target) {
+        IcebergWriteSchemaContext schema = ((IcebergWriteTarget) target).getSchemaContext();
+        return writePartitioning(schema.getSchema(), schema.getPartitionSpec());
+    }
+
+    private static ConnectorWritePartitionSpec writePartitioning(Schema schema, PartitionSpec spec) {
         if (spec == null || !spec.isPartitioned()) {
             // null == "unpartitioned" (legacy PhysicalExternalRowLevelMergeSink.buildInsertPartitionFields gates on
             // spec().isPartitioned()) -> the engine uses its non-partitioned merge distribution.
             return null;
         }
-        Schema schema = active.isPresent()
-                ? active.get().getSchema() : table.schema();
         List<ConnectorWritePartitionField> fields = new ArrayList<>();
         for (PartitionField field : spec.fields()) {
             if (field.transform().isVoid()) {
@@ -688,11 +742,24 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         Table table = active.isPresent() ? null : resolveTable(session, handle);
         PartitionSpec spec = active.isPresent()
                 ? active.get().getPartitionSpec() : table.spec();
+        Schema schema = active.isPresent() ? active.get().getSchema() : table.schema();
+        return writeDistribution(session, schema, spec);
+    }
+
+    @Override
+    public ConnectorWriteDistribution getWriteDistribution(ConnectorSession session, ConnectorWriteTarget target) {
+        IcebergWriteSchemaContext schema = ((IcebergWriteTarget) target).getSchemaContext();
+        return writeDistribution(session, schema.getSchema(), schema.getPartitionSpec());
+    }
+
+    private static ConnectorWriteDistribution writeDistribution(ConnectorSession session,
+            Schema schema, PartitionSpec spec) {
+        if (session.getBeExecVersion() < SUPPORT_TRANSFORM_ROUTING_EXEC_VERSION) {
+            return null;
+        }
         if (spec == null || !spec.isPartitioned()) {
             return null;
         }
-        Schema schema = active.isPresent()
-                ? active.get().getSchema() : table.schema();
         List<String> routeColumns = new ArrayList<>();
         List<String> transforms = new ArrayList<>();
         for (PartitionField field : spec.fields()) {

@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWriteTarget;
 
 import java.util.Optional;
 
@@ -37,6 +38,7 @@ public class ConnectorWritePlanContext {
     private final boolean requiresPartitionHashWrite;
     private final boolean requiresFullSchemaWriteOrder;
     private final int beExecVersion;
+    private final ConnectorWriteTarget writeTarget;
 
     /** Creates an immutable context from one connector-provider resolution. */
     public ConnectorWritePlanContext(ConnectorSession session, ConnectorMetadata metadata,
@@ -44,6 +46,17 @@ public class ConnectorWritePlanContext {
             ConnectorWriteDistribution distribution, boolean requiresParallelWrite,
             boolean requiresPartitionLocalSort, boolean requiresPartitionHashWrite,
             boolean requiresFullSchemaWriteOrder, int beExecVersion) {
+        this(session, metadata, tableHandle, provider, distribution, requiresParallelWrite,
+                requiresPartitionLocalSort, requiresPartitionHashWrite, requiresFullSchemaWriteOrder,
+                beExecVersion, null);
+    }
+
+    public ConnectorWritePlanContext(ConnectorSession session, ConnectorMetadata metadata,
+            ConnectorTableHandle tableHandle, ConnectorWritePlanProvider provider,
+            ConnectorWriteDistribution distribution, boolean requiresParallelWrite,
+            boolean requiresPartitionLocalSort, boolean requiresPartitionHashWrite,
+            boolean requiresFullSchemaWriteOrder, int beExecVersion, ConnectorWriteTarget writeTarget) {
+        this.writeTarget = writeTarget;
         this.session = session;
         this.metadata = metadata;
         this.tableHandle = tableHandle;
@@ -90,6 +103,10 @@ public class ConnectorWritePlanContext {
 
     public boolean requiresFullSchemaWriteOrder() {
         return requiresFullSchemaWriteOrder;
+    }
+
+    public Optional<ConnectorWriteTarget> getWriteTarget() {
+        return Optional.ofNullable(writeTarget);
     }
 
     public int getBeExecVersion() {

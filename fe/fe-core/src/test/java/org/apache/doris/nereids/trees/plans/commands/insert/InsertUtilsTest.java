@@ -23,6 +23,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorWriteTarget;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -42,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -311,10 +314,11 @@ public class InsertUtilsTest {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.getId()).thenReturn(17L);
         UnboundConnectorTableSink<?> sink = Mockito.mock(UnboundConnectorTableSink.class);
+        Mockito.when(sink.getDMLCommandType()).thenReturn(DMLCommandType.NONE);
         Column branchColumn = new Column("v", PrimitiveType.INT, true);
         branchColumn.setConnectorDefaultValueSql("35");
         Optional<String> branchName = Optional.of("old_defaults");
-        Mockito.when(table.resolveWriteColumns(branchName))
+        Mockito.when(table.resolveWriteColumns(branchName, WriteOperation.INSERT))
                 .thenReturn(Optional.of(ImmutableList.of(branchColumn)));
 
         InsertUtils.pinConnectorWriteSchema(statementContext, table, sink, branchName);
@@ -323,7 +327,17 @@ public class InsertUtilsTest {
         Assertions.assertSame(branchColumn,
                 statementContext.getConnectorWriteSchema(17L).orElseThrow().get(0));
         Assertions.assertEquals("35", InsertUtils.generateDefaultExpression(branchColumn).child(0).toSql());
-        Mockito.verify(table, Mockito.times(1)).resolveWriteColumns(branchName);
+        Mockito.verify(table, Mockito.times(1)).resolveWriteColumns(branchName, WriteOperation.INSERT);
+    }
+
+    @Test
+    public void preparedExecutionDropsThePreviousWriteTarget() {
+        StatementContext statement = new StatementContext();
+        ConnectorWriteTarget target = Mockito.mock(ConnectorWriteTarget.class);
+        statement.setConnectorWriteTarget(17L, target);
+        Assertions.assertSame(target, statement.getConnectorWriteTarget(17L).orElseThrow());
+        statement.resetConnectorStatementScope();
+        Assertions.assertFalse(statement.getConnectorWriteTarget(17L).isPresent());
     }
 
     @Test
@@ -335,7 +349,7 @@ public class InsertUtilsTest {
         PluginDrivenExternalTable table = overwriteTarget();
         Column a = writeColumn("a", 1, "1");
         Column b = writeColumn("b", 2, "2");
-        Mockito.when(table.resolveWriteColumns(Optional.empty()))
+        Mockito.when(table.resolveWriteColumns(Optional.empty(), WriteOperation.INSERT))
                 .thenReturn(Optional.of(ImmutableList.of(a, b)), Optional.of(ImmutableList.of(b, a)));
         PluginDrivenInsertCommandContext insertCtx = normalizeThenRepin(statementContext, table, "g1", "g1");
 
@@ -351,7 +365,7 @@ public class InsertUtilsTest {
         // ID, partition spec and sort order) moved on between the two pins.
         StatementContext statementContext = new StatementContext();
         PluginDrivenExternalTable table = overwriteTarget();
-        Mockito.when(table.resolveWriteColumns(Optional.empty()))
+        Mockito.when(table.resolveWriteColumns(Optional.empty(), WriteOperation.INSERT))
                 .thenReturn(Optional.of(ImmutableList.of(writeColumn("a", 1, "1"), writeColumn("b", 2, "2"))));
         PluginDrivenInsertCommandContext insertCtx = normalizeThenRepin(statementContext, table, "g1", "g2");
 
@@ -363,7 +377,7 @@ public class InsertUtilsTest {
     public void overwriteInnerInsertAcceptsTheGenerationItWasNormalizedAgainst() {
         StatementContext statementContext = new StatementContext();
         PluginDrivenExternalTable table = overwriteTarget();
-        Mockito.when(table.resolveWriteColumns(Optional.empty()))
+        Mockito.when(table.resolveWriteColumns(Optional.empty(), WriteOperation.INSERT))
                 .thenReturn(Optional.of(ImmutableList.of(writeColumn("a", 1, "1"), writeColumn("b", 2, "2"))),
                         Optional.of(ImmutableList.of(writeColumn("a", 1, "1"), writeColumn("b", 2, "2"))));
         PluginDrivenInsertCommandContext insertCtx = normalizeThenRepin(statementContext, table, "g1", "g1");
@@ -378,6 +392,7 @@ public class InsertUtilsTest {
     private static PluginDrivenInsertCommandContext normalizeThenRepin(StatementContext statementContext,
             PluginDrivenExternalTable table, String normalizedIdentity, String repinnedIdentity) {
         UnboundConnectorTableSink<?> sink = Mockito.mock(UnboundConnectorTableSink.class);
+        Mockito.when(sink.getDMLCommandType()).thenReturn(DMLCommandType.NONE);
         // The overwrite pins the writer schema, normalizes its plan against it and records that generation.
         InsertUtils.pinConnectorWriteSchema(statementContext, table, sink, Optional.empty());
         statementContext.setConnectorWriteMetadataIdentity(table.getId(), normalizedIdentity);

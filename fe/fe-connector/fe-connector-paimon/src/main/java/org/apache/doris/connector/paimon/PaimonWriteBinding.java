@@ -85,7 +85,8 @@ final class PaimonWriteBinding {
      */
     static PaimonWriteBinding create(PaimonTableHandle handle, FileStoreTable table,
             Map<String, String> hadoopConfig, ConnectorWriteHandle writeHandle, boolean charPadding) {
-        String tableName = handle.getDatabaseName() + "." + handle.getTableName();
+        String tableName = handle.getDatabaseName() + "." + handle.getTableName()
+                + (handle.getBranchName() == null ? "" : "@branch(" + handle.getBranchName() + ")");
         checkBinaryPartitionNames(tableName, table);
         boolean overwrite = writeHandle.isOverwrite();
         // Only a static overwrite reads the partition values. An INSERT writes each row to the partition its own

@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
@@ -55,6 +56,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -84,6 +86,14 @@ class PaimonRestSchemaTest {
                 Assertions.assertEquals("false", scan.options().get("file-index.read.enabled"));
                 Assertions.assertSame(restTable.fileIO(), scan.fileIO());
                 Assertions.assertSame(restTable.catalogEnvironment(), scan.catalogEnvironment());
+                PaimonWritePlanProvider writes = writeProvider(cached);
+                PaimonWriteTarget target = (PaimonWriteTarget) writes.resolveWriteTarget(null,
+                        new PaimonTableHandle("db", "events", Collections.emptyList(), Collections.emptyList()),
+                        WriteOperation.INSERT, Optional.empty()).orElseThrow(AssertionError::new);
+                Assertions.assertDoesNotThrow(target::validateCurrentSchema);
+                Assertions.assertEquals(physical.schema().timeMillis(), target.getTable().schema().timeMillis());
+                Assertions.assertSame(restTable.fileIO(), target.getTable().fileIO());
+                Assertions.assertSame(restTable.catalogEnvironment(), target.getTable().catalogEnvironment());
             }
         }
     }
@@ -105,9 +115,16 @@ class PaimonRestSchemaTest {
             Map<String, String> pin = pin(retained);
             Assertions.assertThrows(DorisConnectorException.class,
                     () -> PaimonScanParams.applyOptionsWithoutTimeTravel(retained, pin));
+            PaimonWritePlanProvider writes = writeProvider(cached);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "events", Collections.emptyList(), Collections.emptyList());
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> writes.resolveWriteTarget(null, handle, WriteOperation.INSERT, Optional.empty()));
             cached.invalidateTable(TABLE);
             FileStoreTable fresh = (FileStoreTable) cached.getTable(TABLE);
             Assertions.assertDoesNotThrow(() -> PaimonScanParams.applyOptionsWithoutTimeTravel(fresh, pin));
+            Assertions.assertDoesNotThrow(() -> writes.resolveWriteTarget(
+                    null, handle, WriteOperation.INSERT, Optional.empty()));
             Assertions.assertEquals(4, loads.get());
         }
     }
@@ -319,6 +336,11 @@ class PaimonRestSchemaTest {
                 PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), -1L), table.schema().id());
         options.putAll(PaimonSchemaPin.capture(table, table.schema().id(), -1L));
         return options;
+    }
+
+    private static PaimonWritePlanProvider writeProvider(Catalog catalog) {
+        return new PaimonWritePlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()),
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog), new RecordingConnectorContext());
     }
 
     private static Catalog cached(RESTCatalog rest, CatalogMetaCache owner, boolean enabled) {

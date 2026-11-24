@@ -434,7 +434,8 @@ public class PhysicalExternalRowLevelMergeSinkTest {
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(handlePresent ? Optional.of(handle) : Optional.empty());
-        Mockito.when(provider.getWritePartitioning(Mockito.any(), Mockito.any())).thenReturn(writeSpec);
+        Mockito.when(provider.getWritePartitioning(Mockito.any(), Mockito.<ConnectorTableHandle>any()))
+                .thenReturn(writeSpec);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);

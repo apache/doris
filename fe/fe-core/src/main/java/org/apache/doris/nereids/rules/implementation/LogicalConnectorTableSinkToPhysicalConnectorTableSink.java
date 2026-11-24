@@ -48,6 +48,7 @@ public class LogicalConnectorTableSinkToPhysicalConnectorTableSink extends OneIm
                     sink.isRewrite(),
                     sink.getDmlCommandType(),
                     sink.hasRowOperationColumn(),
+                    sink.getWriteTarget(),
                     sink.child());
         }).toRule(RuleType.LOGICAL_CONNECTOR_TABLE_SINK_TO_PHYSICAL_CONNECTOR_TABLE_SINK_RULE);
     }

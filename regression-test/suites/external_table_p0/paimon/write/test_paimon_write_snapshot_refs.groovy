@@ -122,8 +122,7 @@ suite("test_paimon_write_snapshot_refs", "p0,external,paimon") {
             SELECT id, payload FROM ${tableName} ORDER BY id
         """))
 
-        // Branches are valid sources even though Doris does not currently expose
-        // a Paimon branch sink.
+        // Reading a branch must not change the destination of an ordinary INSERT.
         sql """
             INSERT INTO ${tableName}
             SELECT id + 200, concat(payload, '-branch-copy'), amount + 2, event_time
@@ -135,34 +134,53 @@ suite("test_paimon_write_snapshot_refs", "p0,external,paimon") {
             SELECT id, payload FROM ${tableName} ORDER BY id
         """))
 
-        // Keep this unsupported boundary explicit. A rejected branch sink must
-        // not fall back to the main branch or mutate the referenced branch.
-        test {
+        def readRows = { target ->
             sql """
-                INSERT INTO ${tableName}@branch(audit_branch)
-                VALUES (9, 'branch-write', 9.00, '2026-07-09 00:00:00')
+                SELECT id, payload, CAST(amount AS STRING),
+                       DATE_FORMAT(event_time, '%Y-%m-%d %H:%i:%s.%f')
+                FROM ${target} ORDER BY id
             """
-            exception "Only support insert data into iceberg table's branch"
         }
-        test {
-            sql """
-                INSERT OVERWRITE TABLE ${tableName}@branch(audit_branch)
-                VALUES (9, 'branch-overwrite', 9.00, '2026-07-09 00:00:00')
+        def assertBranchMatchesSpark = { branchRows ->
+            spark_paimon """REFRESH TABLE paimon.${dbName}.`${tableName}\$branch_audit_branch`"""
+            def sparkBranchRows = spark_paimon """
+                SELECT id, payload, CAST(amount AS STRING),
+                       DATE_FORMAT(event_time, 'yyyy-MM-dd HH:mm:ss.SSSSSS')
+                FROM paimon.${dbName}.`${tableName}\$branch_audit_branch` ORDER BY id
             """
-            exception "Only support insert overwrite into iceberg table's branch"
+            assertSparkDorisResultEquals(sparkBranchRows, branchRows)
         }
+
+        // Branch writes must be visible to Spark and must not fall back to main.
+        def mainBeforeBranchWrites = readRows(tableName)
+        def branchBeforeAppend = readRows("${tableName}@branch(audit_branch)")
+        sql """
+            INSERT INTO ${tableName}@branch(audit_branch)
+            VALUES (9, 'branch-write', 9.00, '2026-07-09 00:00:00')
+        """
+        sql """refresh table ${tableName}"""
+        def branchAfterAppend = readRows("${tableName}@branch(audit_branch)")
+        assertEquals(branchBeforeAppend.size() + 1, branchAfterAppend.size())
+        assertTrue(branchAfterAppend.containsAll(branchBeforeAppend))
+        assertBranchMatchesSpark(branchAfterAppend)
+        assertEquals(mainBeforeBranchWrites, readRows(tableName))
+
+        sql """
+            INSERT OVERWRITE TABLE ${tableName}@branch(audit_branch)
+            VALUES (9, 'branch-overwrite', 9.00, '2026-07-09 00:00:00')
+        """
+        sql """refresh table ${tableName}"""
+        def branchAfterOverwrite = readRows("${tableName}@branch(audit_branch)")
+        assertTrue(!branchAfterOverwrite.isEmpty())
+        assertTrue(branchAfterOverwrite.every { !branchAfterAppend.contains(it) })
+        assertBranchMatchesSpark(branchAfterOverwrite)
+        assertEquals(mainBeforeBranchWrites, readRows(tableName))
 
         assertEquals(4L, (sql """SELECT COUNT(*) FROM ${tableName}""")[0][0] as long)
         assertEquals(baseline, sql("""
             SELECT id, payload, CAST(amount AS STRING),
                    DATE_FORMAT(event_time, '%Y-%m-%d %H:%i:%s.%f')
             FROM ${tableName}@tag(baseline_tag)
-            ORDER BY id
-        """))
-        assertEquals(baseline, sql("""
-            SELECT id, payload, CAST(amount AS STRING),
-                   DATE_FORMAT(event_time, '%Y-%m-%d %H:%i:%s.%f')
-            FROM ${tableName}@branch(audit_branch)
             ORDER BY id
         """))
         assertEquals(baseline, sql("""
