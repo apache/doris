@@ -42,6 +42,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.LongConsumer;
+import java.util.function.LongPredicate;
 
 class MongoRangePlannerTest {
     private static class Client extends MongoSnapshotPlanTest.Client {
@@ -61,13 +63,15 @@ class MongoRangePlannerTest {
 
         @Override
         public MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
-                TMongoSnapshot snapshot, int rows, long timeoutMs, Runnable checkCancelled) {
+                TMongoSnapshot snapshot, int rows, long timeoutMs,
+                LongPredicate shouldSample, LongConsumer accountBytes, Runnable checkCancelled) {
             probes++;
             sampledSnapshot = snapshot.deepCopy();
             checkCancelled.run();
             if (failure != null) {
                 throw failure;
             }
+            accountBytes.accept(sampleBytes);
             return new MongoSplitProbe(samples, logicalBytes, sampleBytes, indexed);
         }
     }
@@ -99,6 +103,77 @@ class MongoRangePlannerTest {
         var result = new TTableFormatFileDesc();
         range.populateRangeParams(result, new TFileRangeDesc());
         return result.getMongodbParams();
+    }
+
+    @Test
+    void scansReserveTheirMinimumBeforeOptionalRangesInEitherPlanningOrder() {
+        for (boolean largeFirst : List.of(false, true)) {
+            var properties = properties();
+            var large = new Client();
+            large.logicalBytes = 1024L * 1024;
+            large.samples.clear();
+            for (int i = 0; i < 4096; i++) {
+                large.samples.add(new BsonInt32(i));
+            }
+            var small = new Client();
+            small.logicalBytes = 512;
+            var left = new MongoScanPlanProvider(properties, () -> large);
+            var right = new MongoScanPlanProvider(properties, () -> small);
+            var policies = Map.of("mongodb_read_concern", "snapshot", "mongodb_split_strategy", "auto",
+                    "file_split_size", "1024", "max_file_split_num", "256");
+            var session = session(new MongoSnapshotPlanTest.Scope(), policies);
+            var table = table(properties, "collection");
+            // Engine initialization visits all nodes before finalizing their ranges.
+            left.getScanNodeProperties(session, table, List.of(), Optional.empty());
+            right.getScanNodeProperties(session, table, List.of(), Optional.empty());
+            var request = ConnectorScanRequest.builder(table, List.of()).build();
+            List<org.apache.doris.connector.spi.scan.ConnectorScanRange> largeRanges;
+            List<org.apache.doris.connector.spi.scan.ConnectorScanRange> smallRanges;
+            if (largeFirst) {
+                largeRanges = left.planScan(session, request);
+                smallRanges = right.planScan(session, request);
+            } else {
+                smallRanges = right.planScan(session, request);
+                largeRanges = left.planScan(session, request);
+            }
+            Assertions.assertEquals(255, largeRanges.size());
+            Assertions.assertEquals(1, smallRanges.size());
+            Assertions.assertEquals(descriptor(largeRanges.get(0)).getSnapshot(),
+                    descriptor(smallRanges.get(0)).getSnapshot());
+        }
+    }
+
+    @Test
+    void concurrentAdmissionsCannotSpendAnotherScansMinimum() throws Exception {
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            for (int iteration = 0; iteration < 16; iteration++) {
+                var budget = new MongoRangePlanner.Budget();
+                budget.register("left", "snapshot");
+                budget.register("right", "snapshot");
+                var ready = new CountDownLatch(2);
+                var start = new CountDownLatch(1);
+                var left = executor.submit(() -> {
+                    ready.countDown();
+                    Assertions.assertTrue(start.await(5, TimeUnit.SECONDS));
+                    return budget.admit("left", "source", 256, 1);
+                });
+                var right = executor.submit(() -> {
+                    ready.countDown();
+                    Assertions.assertTrue(start.await(5, TimeUnit.SECONDS));
+                    return budget.admit("right", "source", 256, 1);
+                });
+                Assertions.assertTrue(ready.await(5, TimeUnit.SECONDS));
+                start.countDown();
+                int leftCount = left.get(5, TimeUnit.SECONDS);
+                int rightCount = right.get(5, TimeUnit.SECONDS);
+                Assertions.assertTrue(leftCount >= 1 && rightCount >= 1);
+                Assertions.assertEquals(256, leftCount + rightCount);
+            }
+        } finally {
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
     }
 
     @Test
@@ -252,11 +327,70 @@ class MongoRangePlannerTest {
         Assertions.assertThrows(org.apache.doris.connector.spi.DorisConnectorException.class,
                 () -> budget.admit("source-next", 1, 1));
         budget.sampled(1024 * 1024);
-        Assertions.assertThrows(MongoRangePlanner.PlanningLimit.class, () -> budget.sampled(1024 * 1024 + 1));
         for (int i = 1; i < 16; i++) {
             budget.sampled(1024 * 1024);
         }
         Assertions.assertThrows(MongoRangePlanner.PlanningLimit.class, () -> budget.sampled(1));
+    }
+
+    @Test
+    void rejectedMetadataRepliesRemainChargedToStatementBudget() {
+        var budget = new MongoRangePlanner.Budget();
+        Assertions.assertThrows(MongoRangePlanner.PlanningLimit.class, () -> budget.sampled(1024 * 1024 + 1));
+        for (int i = 0; i < 14; i++) {
+            budget.sampled(1024 * 1024);
+        }
+        Assertions.assertThrows(MongoRangePlanner.PlanningLimit.class, () -> budget.sampled(1024 * 1024));
+        Assertions.assertThrows(MongoRangePlanner.PlanningLimit.class, () -> budget.sampled(Long.MAX_VALUE));
+    }
+
+    @Test
+    void queuedProbeCannotStartAfterStatementBudgetIsSpent() throws Exception {
+        var scope = new MongoSnapshotPlanTest.Scope();
+        var session = session(scope, options("auto"));
+        var properties = properties();
+        MongoSnapshot.prepare(session, new ConnectorScanContext(), properties, table(properties, "collection"),
+                Client::new, "snapshot", "primary", 30000);
+        var budget = new MongoRangePlanner.Budget();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        budget.acquireProbe(session, new ConnectorScanContext(), deadline);
+        budget.acquireProbe(session, new ConnectorScanContext(), deadline);
+        var field = MongoRangePlanner.Budget.class.getDeclaredField("probes");
+        field.setAccessible(true);
+        var semaphore = (java.util.concurrent.Semaphore) field.get(budget);
+        var entered = new CountDownLatch(1);
+        var waiter = new MongoScanPlanTest.Session(options("auto")) {
+            @Override
+            public ConnectorStatementScope getStatementScope() {
+                return scope;
+            }
+
+            @Override
+            public org.apache.doris.connector.spi.ConnectorTaskScheduler getTaskScheduler(
+                    org.apache.doris.connector.spi.ConnectorTaskScheduler.Stage stage) {
+                entered.countDown();
+                return org.apache.doris.connector.spi.ConnectorTaskScheduler.DIRECT;
+            }
+        };
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var pending = executor.submit(() -> {
+                budget.acquireProbe(waiter, new ConnectorScanContext(), deadline);
+                return null;
+            });
+            Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+            for (int i = 0; i < 16; i++) {
+                budget.sampled(1024 * 1024);
+            }
+            semaphore.release();
+            var failure = Assertions.assertThrows(ExecutionException.class, () -> pending.get(5, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(MongoRangePlanner.PlanningLimit.class, failure.getCause());
+            Assertions.assertEquals(1, semaphore.availablePermits());
+        } finally {
+            semaphore.release();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
     }
 
     @Test
@@ -337,7 +471,8 @@ class MongoRangePlannerTest {
         var blocked = new Client() {
             @Override
             public MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
-                    TMongoSnapshot snapshot, int rows, long timeoutMs, Runnable checkCancelled) {
+                    TMongoSnapshot snapshot, int rows, long timeoutMs,
+                    LongPredicate shouldSample, LongConsumer accountBytes, Runnable checkCancelled) {
                 entered.countDown();
                 try {
                     if (!release.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
@@ -347,7 +482,8 @@ class MongoRangePlannerTest {
                     Thread.currentThread().interrupt();
                     throw new CancellationException();
                 }
-                return super.probeSplits(table, field, preference, snapshot, rows, timeoutMs, checkCancelled);
+                return super.probeSplits(table, field, preference, snapshot, rows, timeoutMs,
+                        shouldSample, accountBytes, checkCancelled);
             }
         };
         var scope = new MongoSnapshotPlanTest.Scope();
@@ -802,7 +938,8 @@ class MongoRangePlannerTest {
         var client = new Client() {
             @Override
             public MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
-                    TMongoSnapshot snapshot, int rows, long timeoutMs, Runnable checkCancelled) {
+                    TMongoSnapshot snapshot, int rows, long timeoutMs,
+                    LongPredicate shouldSample, LongConsumer accountBytes, Runnable checkCancelled) {
                 loads.incrementAndGet();
                 entered.countDown();
                 try {

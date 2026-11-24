@@ -48,6 +48,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.function.LongConsumer;
+import java.util.function.LongPredicate;
 
 /** Catalog-owned thread-safe driver; every metadata cursor/session is local and deterministically closed. */
 final class MongoDriverCatalogClient implements MongoCatalogClient {
@@ -196,7 +198,8 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
 
     @Override
     public MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
-            TMongoSnapshot snapshot, int rows, long timeoutMs, Runnable checkCancelled) {
+            TMongoSnapshot snapshot, int rows, long timeoutMs,
+            LongPredicate shouldSample, LongConsumer accountBytes, Runnable checkCancelled) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         String index = null;
         long bytes = 0;
@@ -215,14 +218,25 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
                     if (!indexes.hasNext()) {
                         break;
                     }
+                    long batchBytes = 0;
+                    do {
+                        checkCancelled.run();
+                        Document value = indexes.next();
+                        batchBytes += MongoSplitPlan.encode(value.toBsonDocument()).length;
+                        count++;
+                        if (index == null && eligibleIndex(value, field)) {
+                            index = value.getString("name");
+                        }
+                        // The driver already received this batch. Finding a usable first index
+                        // cannot hide later large specs from either probe or statement accounting.
+                    } while (indexes.available() > 0);
+                    bytes += batchBytes;
+                    accountBytes.accept(batchBytes);
                     checkProbe(deadline, checkCancelled);
-                    Document value = indexes.next();
-                    bytes += MongoSplitPlan.encode(value.toBsonDocument()).length;
-                    if (++count > 128 || bytes > 65536) {
+                    if (count > 128 || bytes > 65536) {
                         throw new MongoRangePlanner.PlanningLimit();
                     }
-                    if (eligibleIndex(value, field)) {
-                        index = value.getString("name");
+                    if (index != null) {
                         break;
                     }
                 }
@@ -232,8 +246,23 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
             }
             Document stats = probeDatabase(table.getDatabase(), deadline, checkCancelled)
                     .runCommand(new Document("collStats", table.getName()).append("scale", 1));
+            checkCancelled.run();
+            // collStats includes index details and other metadata, not just its scalar size field.
+            // Charge consumed replies before a delayed planner observes its optional deadline.
+            long statsBytes = MongoSplitPlan.encode(stats.toBsonDocument()).length;
+            bytes += statsBytes;
+            accountBytes.accept(statsBytes);
+            checkProbe(deadline, checkCancelled);
+            if (bytes > 1024 * 1024) {
+                throw new MongoRangePlanner.PlanningLimit();
+            }
             Number size = stats.get("size", Number.class);
             long logicalBytes = size == null ? -1 : size.longValue();
+            // Auto can already choose a complete single cursor from these statistics. Avoid
+            // a random-sampling COLLSCAN that cannot change that decision, including unknown size.
+            if (!shouldSample.test(logicalBytes)) {
+                return new MongoSplitProbe(List.of(), logicalBytes, bytes, true);
+            }
             List<BsonValue> samples = new ArrayList<>();
             // Sampling an index prefix puts almost all increasing keys into the final range.
             // Keep $sample first so MongoDB can use its random cursor, then retain only bounded
@@ -259,8 +288,11 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
                                     (int) snapshot.getTimestampIncrement())));
             BsonDocument reply = probeDatabase(table.getDatabase(), deadline, checkCancelled)
                     .runCommand(command, properties.readPreferenceForSnapshot(preference), BsonDocument.class);
+            checkCancelled.run();
+            long replyBytes = MongoSplitPlan.encode(reply).length;
+            bytes += replyBytes;
+            accountBytes.accept(replyBytes);
             checkProbe(deadline, checkCancelled);
-            bytes += MongoSplitPlan.encode(reply).length;
             if (bytes > 1024 * 1024) {
                 throw new MongoRangePlanner.PlanningLimit();
             }

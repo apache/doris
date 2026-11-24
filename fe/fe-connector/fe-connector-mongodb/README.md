@@ -283,6 +283,13 @@ source work and byte admission happen in final planning with its complete predic
 projection and query cancellation signal. EXPLAIN properties read the resulting
 frozen plan without starting another probe.
 
+Index admission accounts for every specification in a fetched batch, even when its
+first index qualifies. The full `collStats` and sampling replies also consume the
+1 MiB probe and 16 MiB statement budgets; replies remain charged if planning falls
+back. Once the statement probe budget is spent, later scans do not start another
+optional probe. For `auto`, small or unknown collection sizes select a single cursor
+immediately after statistics, without issuing `$sample`.
+
 Range planning additionally requires `listIndexes` and `collStats` on the collection;
 a missing privilege fails explicitly. The planner admits a completed, visible,
 non-hidden, non-sparse, non-partial B-tree
@@ -321,7 +328,10 @@ including when predicate/projection pushdown switches are off or strict decoding
 
 A statement admits at most 4096 planned range partitions in total and 256 per pinned
 source, including complements; successful single fallbacks also consume these budgets,
-while the default `single` strategy remains exempt. Unused quantile slots are refunded. Conservative
+while the default `single` strategy remains exempt. Scan-count reservations keep one
+cursor for every participating scan before optional ranges are admitted. All scan nodes
+register during initialization; a large join input therefore cannot consume the final
+slot required by another input. Unused quantile slots are refunded. Conservative
 serialized descriptor budgets are 8 MiB per plan, 32 MiB per pinned source and 64 MiB
 per statement, including repeated schema/connection/filter payloads. Wide metadata
 therefore reduces admitted counts instead of multiplying into an oversized split RPC. These are planning

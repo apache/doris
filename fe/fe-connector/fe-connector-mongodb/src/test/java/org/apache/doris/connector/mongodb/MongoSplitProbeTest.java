@@ -42,6 +42,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
+import java.util.function.LongConsumer;
+import java.util.function.LongPredicate;
 
 class MongoSplitProbeTest {
     private static final class Driver {
@@ -53,12 +55,14 @@ class MongoSplitProbeTest {
         Document projection;
         Document aggregate;
         BsonTimestamp pin;
+        Document statistics = new Document("size", 4L * 1024 * 1024 * 1024);
         int limit;
         int batchSize;
         int indexBatchSize;
         int dataCommands;
         int indexesRead;
         int cursorsClosed;
+        long chargedBytes;
         int sessionsStarted;
         boolean cancelAfterFirst;
         boolean sourceFailure;
@@ -74,6 +78,7 @@ class MongoSplitProbeTest {
             MongoCursor<?> indexCursor = proxy(MongoCursor.class, (p, method, args) -> switch (method.getName()) {
                 case "hasNext" -> indexesRead < indexes.size();
                 case "next" -> indexes.get(indexesRead++);
+                case "available" -> indexes.size() - indexesRead;
                 case "close" -> {
                     cursorsClosed++;
                     yield null;
@@ -111,7 +116,7 @@ class MongoSplitProbeTest {
                     case "runCommand" -> {
                         var command = (Document) args[0];
                         if (command.containsKey("collStats")) {
-                            yield new Document("size", 4L * 1024 * 1024 * 1024);
+                            yield statistics;
                         }
                         aggregate = command;
                         dataCommands++;
@@ -171,7 +176,73 @@ class MongoSplitProbeTest {
                 }
             };
             return catalog.probeSplits(table, "sequence", "primary", snapshot, 16, 1000,
+                    size -> true, bytes -> driver.chargedBytes += bytes,
                     () -> MongoRangePlanner.checkCancelled(session, driver.context));
+        }
+    }
+
+    @Test
+    void qualifyingFirstIndexDoesNotHideOversizedMetadataInItsBatch() {
+        var driver = new Driver();
+        driver.indexes = List.of(new Document("name", "sequence_1").append("key", new Document("sequence", 1)),
+                new Document("name", "partial_other").append("key", new Document("other", 1))
+                        .append("partialFilterExpression", new Document("text", "x".repeat(75000))));
+        Assertions.assertThrows(MongoRangePlanner.PlanningLimit.class, () -> run(driver));
+        Assertions.assertEquals(2, driver.indexesRead);
+        Assertions.assertTrue(driver.chargedBytes > 75000);
+        Assertions.assertEquals(0, driver.dataCommands);
+        Assertions.assertEquals(1, driver.cursorsClosed);
+    }
+
+    @Test
+    void fullStatisticsReplyIsIncludedInProbeBytes() {
+        var driver = new Driver();
+        driver.statistics.append("indexDetails", new Document("metadata", "x".repeat(55000)));
+        var result = run(driver);
+        Assertions.assertTrue(result.sampleBytes() >= 55000);
+        Assertions.assertEquals(result.sampleBytes(), driver.chargedBytes);
+    }
+
+    @Test
+    void oversizedStatisticsAreChargedBeforeProbeFailure() {
+        var driver = new Driver();
+        driver.statistics.append("indexDetails", new Document("metadata", "x".repeat(1024 * 1024)));
+        Assertions.assertThrows(MongoRangePlanner.PlanningLimit.class, () -> run(driver));
+        Assertions.assertTrue(driver.chargedBytes > 1024 * 1024);
+        Assertions.assertEquals(0, driver.dataCommands);
+    }
+
+    @Test
+    void autoSmallCollectionDoesNotSendSamplingAggregate() {
+        var driver = new Driver();
+        driver.statistics = new Document("size", 10000);
+        var properties = MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017"));
+        var table = new MongoTableHandle("sample", new Document("name", "records").append("type", "collection")
+                .append("info", new Document("uuid", new org.bson.types.Binary((byte) 4, new byte[16]))), properties);
+        var scope = new MongoSnapshotPlanTest.Scope();
+        var session = new MongoScanPlanTest.Session(Map.of("mongodb_read_concern", "snapshot",
+                "mongodb_split_strategy", "auto", "mongodb_split_field", "sequence", "file_split_size", "33554432")) {
+            @Override
+            public org.apache.doris.connector.spi.ConnectorStatementScope getStatementScope() {
+                return scope;
+            }
+        };
+        try (var catalog = new MongoDriverCatalogClient(driver.client(), properties)) {
+            var client = new MongoSnapshotPlanTest.Client() {
+                @Override
+                public MongoSplitProbe probeSplits(MongoTableHandle handle, String field, String preference,
+                        TMongoSnapshot snapshot, int rows, long timeoutMs,
+                        LongPredicate shouldSample, LongConsumer accountBytes, Runnable checkCancelled) {
+                    return catalog.probeSplits(handle, field, preference, snapshot, rows, timeoutMs,
+                            shouldSample, accountBytes, checkCancelled);
+                }
+            };
+            var provider = new MongoScanPlanProvider(properties, () -> client);
+            var request = org.apache.doris.connector.spi.scan.ConnectorScanRequest.builder(table, List.of()).build();
+            Assertions.assertEquals(1, provider.planScan(session, request).size());
+            Assertions.assertEquals("small_collection", provider.getScanNodeProperties(session, table,
+                    List.of(), java.util.Optional.empty()).get("split_reason"));
+            Assertions.assertEquals(0, driver.dataCommands);
         }
     }
 
@@ -253,9 +324,10 @@ class MongoSplitProbeTest {
                 var client = new MongoSnapshotPlanTest.Client() {
                     @Override
                     public MongoSplitProbe probeSplits(MongoTableHandle handle, String field, String preference,
-                            TMongoSnapshot snapshot, int rows, long timeoutMs, Runnable checkCancelled) {
+                            TMongoSnapshot snapshot, int rows, long timeoutMs,
+                            LongPredicate shouldSample, LongConsumer accountBytes, Runnable checkCancelled) {
                         return catalog.probeSplits(handle, field, preference, snapshot, rows, timeoutMs,
-                                checkCancelled);
+                                shouldSample, accountBytes, checkCancelled);
                     }
                 };
                 var provider = new MongoScanPlanProvider(properties, () -> client);

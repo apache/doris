@@ -24,6 +24,8 @@ import org.bson.Document;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.LongConsumer;
+import java.util.function.LongPredicate;
 
 /** Metadata transport boundary, allowing tests to supply metadata without mocking driver internals. */
 interface MongoCatalogClient extends AutoCloseable {
@@ -45,7 +47,8 @@ interface MongoCatalogClient extends AutoCloseable {
     }
 
     default MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
-            TMongoSnapshot snapshot, int rows, long timeoutMs, Runnable checkCancelled) {
+            TMongoSnapshot snapshot, int rows, long timeoutMs,
+            LongPredicate shouldSample, LongConsumer accountBytes, Runnable checkCancelled) {
         throw new UnsupportedOperationException("MongoDB range planning is unavailable");
     }
 

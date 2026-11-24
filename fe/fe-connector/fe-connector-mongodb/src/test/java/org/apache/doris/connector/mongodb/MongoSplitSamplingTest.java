@@ -70,6 +70,7 @@ class MongoSplitSamplingTest {
             int[] offset = {0};
             return proxy(MongoCursor.class, (p, method, args) -> switch (method.getName()) {
                 case "hasNext" -> offset[0] < batch.size();
+                case "available" -> batch.size() - offset[0];
                 case "next" -> batch.get(offset[0]++);
                 case "close" -> null;
                 default -> throw new UnsupportedOperationException(method.getName());
@@ -139,7 +140,8 @@ class MongoSplitSamplingTest {
                 var table = new MongoTableHandle("sample", new Document("name", "records")
                         .append("type", "collection"), properties);
                 var snapshot = new TMongoSnapshot().setTimestampSeconds(42).setTimestampIncrement(3);
-                return client.probeSplits(table, "_id", preference, snapshot, 4096, 1000, cancelled);
+                return client.probeSplits(table, "_id", preference, snapshot, 4096, 1000,
+                        size -> true, bytes -> { }, cancelled);
             }
         }
     }

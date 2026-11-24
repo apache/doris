@@ -26,7 +26,8 @@ import java.util.List;
  *
  * @param samples projected fixed-width BSON scalars; unsupported/missing values are null hints
  * @param logicalBytes collStats.size, or -1 when unavailable; never compressed storageSize
- * @param sampleBytes counted metadata/projected sample bytes for the statement probe budget
+ * @param sampleBytes all fetched index specs, full statistics and projected sample reply bytes;
+ *                    each batch/reply is also charged immediately, including failed probes
  * @param indexed whether a complete simple B-tree prefix was admitted for the chosen field
  */
 record MongoSplitProbe(List<BsonValue> samples, long logicalBytes, long sampleBytes, boolean indexed) {

@@ -100,6 +100,7 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
         d.setReadPreference(properties.resolveReadPreference(
                 policies.getOrDefault("mongodb_read_preference", "inherit")));
         d.setReadConcern(properties.resolveReadConcern(policies.getOrDefault("mongodb_read_concern", "inherit")));
+        rangePlanner.registerScan(session, handle, d.getReadConcern());
         // Source batch size is a document count. timeoutMs is a scan budget in milliseconds;
         // snapshot selection below subtracts elapsed FE time before the range is published.
         d.setBatchSize(bounded(policies, "batch_size", 1024, 1, 65536));
@@ -255,6 +256,9 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> result = new LinkedHashMap<>();
         var policies = session.getSessionProperties();
         String concern = properties.resolveReadConcern(policies.getOrDefault("mongodb_read_concern", "inherit"));
+        // Initialization visits every scan before final range planning; reserve only its cursor
+        // count here. Final predicates and projections still determine descriptor-byte admission.
+        rangePlanner.registerScan(session, table, concern);
         var pushed = predicate(session, table, filter);
         var pruned = projection(session, table, columns);
         result.put("read_concern", concern);
