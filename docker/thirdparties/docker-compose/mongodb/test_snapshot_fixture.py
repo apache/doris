@@ -32,6 +32,36 @@ from snapshot_fixture import Fixture
 
 
 class FixtureNetworkTest(unittest.TestCase):
+    def test_launcher_shares_the_network_for_loopback_replica_members(self):
+        launcher = Path(__file__).resolve().parents[2] / "run-thirdparties-docker.sh"
+        function = re.search(r"(?ms)^start_mongodb\(\) \{.*?^\}", launcher.read_text()).group(0)
+        for host_os, advertised_host, expected_network in (
+                ("Linux", "127.0.0.1", "host"), ("Linux", "localhost", "host"),
+                ("Linux", "fixture.example", "bridge"), ("Darwin", "127.0.0.1", "host")):
+            with self.subTest(host_os=host_os, host=advertised_host), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                mongodb = root / "docker-compose/mongodb"
+                python = mongodb / ".ci-venv/bin/python"
+                python.parent.mkdir(parents=True)
+                python.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$MONGO_FIXTURE_TEST_TRACE\"\n")
+                python.chmod(0o700)
+                (mongodb / "mongodb.env.tpl").write_text("")
+                environment = os.environ.copy()
+                environment["MONGO_FIXTURE_TEST_TRACE"] = str(root / "called")
+                script = ("ROOT=" + shlex.quote(str(root)) + "\nHOST_OS=" + host_os
+                          + "\nIP_HOST=" + shlex.quote(advertised_host) + "\n") + """
+STOP=0
+envsubst() { cat; }
+start_rendered_compose_stack() { :; }
+require_rootless_host_network() { :; }
+""" + function + "\nstart_mongodb\n"
+                subprocess.run(["bash", "-ec", script], env=environment, check=True, capture_output=True)
+                arguments = (root / "called").read_text().splitlines()
+                self.assertEqual("ci_fixture.py", Path(arguments[0]).name)
+                self.assertEqual(advertised_host, arguments[arguments.index("--advertised-host") + 1])
+                self.assertEqual(expected_network, arguments[arguments.index("--network-mode") + 1],
+                                 "Replica peers must share the advertised loopback network")
+
     def test_bridge_publishes_the_advertised_port_and_uses_the_namespace_owner(self):
         with tempfile.TemporaryDirectory() as directory:
             args = argparse.Namespace(state_dir=directory, docker_command="docker", advertised_host="127.0.0.1",

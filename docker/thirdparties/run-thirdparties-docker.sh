@@ -984,8 +984,11 @@ start_mongodb() {
     fi
     "${fixture_python}" -m pip install --disable-pip-version-check -r "${mongodb_dir}/requirements-ci.txt"
     "${fixture_python}" -m unittest discover -s "${mongodb_dir}" -p test_snapshot_fixture.py
-    if [[ "${HOST_OS}" == "Darwin" ]]; then
+    # A bridge member resolves an advertised loopback peer inside its own container.
+    # CI's loopback topology therefore needs the shared rootless host network.
+    if [[ "${HOST_OS}" == "Darwin" || "${IP_HOST}" == 127.* || "${IP_HOST}" == "localhost" ]]; then
         fixture_network="host"
+        require_rootless_host_network
     fi
     # External's enabled split/parameter suites require real secondaries and mongos, not just
     # the standalone fixture above. Exec keeps the controller under the launcher's tracked PID.

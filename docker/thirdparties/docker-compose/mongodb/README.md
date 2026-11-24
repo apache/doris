@@ -79,9 +79,11 @@ External also enables `enableMongoSplitTest` and `enableMongoReadParameterTest` 
 The standard `run-thirdparties-docker.sh -c mongodb` startup now prepares both the standalone
 fixture and the authenticated snapshot topology used by these matrices. It needs Python 3
 with `venv` and installs the pinned `requirements-ci.txt` dependencies into the ignored
-`.ci-venv` directory. On Linux the advanced services publish their advertised ports through
-bridge networking, including under rootless Docker; `IP_HOST` must be reachable from
-containers and FE/BE. Startup fails if the topology or deterministic data cannot be prepared.
+`.ci-venv` directory. Linux uses bridge networking for a routable `IP_HOST`. A loopback
+`IP_HOST` uses the shared host network so replica members and routers resolve peer addresses
+in the same namespace; rootless Docker requires Engine 29.5 or newer for this mode.
+The advertised host must be reachable from the controller, containers and FE/BE.
+Startup fails if the topology or deterministic data cannot be prepared.
 
 The controller writes private, mode-0600 `regression.json` and `state.json` files under
 `.ci-state`. External reads the generated replica-set/mongos URIs from that file; credentials
