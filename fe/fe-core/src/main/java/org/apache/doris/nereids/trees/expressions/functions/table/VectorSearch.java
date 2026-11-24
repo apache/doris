@@ -26,7 +26,7 @@ import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 
 import java.util.Map;
 
-/** Lance vector_search relation TVF. */
+/** External vector_search relation TVF. */
 public class VectorSearch extends TableValuedFunction {
     private final boolean deferQueryVector;
 
@@ -48,7 +48,7 @@ public class VectorSearch extends TableValuedFunction {
     protected TableValuedFunctionIf toCatalogFunction() {
         try {
             Map<String, String> arguments = getTVFProperties().getMap();
-            return new VectorSearchTableValuedFunction(arguments, deferQueryVector);
+            return VectorSearchTableValuedFunction.create(arguments, deferQueryVector);
         } catch (Throwable t) {
             throw new AnalysisException("Can not build vector_search(): " + t.getMessage(), t);
         }

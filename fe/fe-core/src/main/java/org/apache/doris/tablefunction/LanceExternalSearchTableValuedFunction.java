@@ -51,11 +51,9 @@ import org.apache.doris.thrift.TSearchFilterFormat;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -65,7 +63,7 @@ import java.util.TreeSet;
 import java.util.regex.Pattern;
 
 /** Common immutable planning state and validation for Lance external-search relation TVFs. */
-abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctionIf {
+abstract class LanceExternalSearchTableValuedFunction extends ExternalSearchTableValuedFunction {
     protected static final String TABLE = "table";
     protected static final String COLUMN = "column";
     protected static final String TOP_K = "top_k";
@@ -142,33 +140,6 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
     public final ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
         return LanceScanNode.forExternalSearch(
                 id, desc, sourceTable, metadata, fieldId, searchRequest, sv);
-    }
-
-    protected static Map<String, String> normalizeProperties(Map<String, String> properties,
-            Set<String> allowedProperties, String functionName) throws AnalysisException {
-        Map<String, String> normalized = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            String key = entry.getKey().toLowerCase(Locale.ROOT);
-            if (!allowedProperties.contains(key)) {
-                throw new AnalysisException("'" + entry.getKey()
-                        + "' is an invalid property for " + functionName + "()");
-            }
-            if (normalized.put(key, entry.getValue()) != null) {
-                throw new AnalysisException(
-                        "Duplicate " + functionName + "() property '" + key + "'");
-            }
-        }
-        return normalized;
-    }
-
-    protected static String required(Map<String, String> params, String key, String functionName)
-            throws AnalysisException {
-        String value = params.get(key);
-        if (value == null || value.trim().isEmpty()) {
-            throw new AnalysisException(
-                    "Missing required " + functionName + "() property '" + key + "'");
-        }
-        return value.trim();
     }
 
     protected static CommonSearch prepareCommon(Map<String, String> params, String functionName,
@@ -394,41 +365,6 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("Table '" + tableName + "' is not a Lance table");
         }
         return (LanceExternalTable) table;
-    }
-
-    protected static byte[] validateAndEncodeSqlFilter(String filter) throws AnalysisException {
-        if (filter == null || filter.trim().isEmpty()) {
-            throw new AnalysisException("'filter' must not be empty");
-        }
-        if (filter.indexOf('\0') >= 0) {
-            throw new AnalysisException("'filter' must not contain an embedded NUL byte");
-        }
-        return filter.getBytes(StandardCharsets.UTF_8);
-    }
-
-    protected static long parseLong(String value, String property, long min, long max)
-            throws AnalysisException {
-        try {
-            long parsed = Long.parseLong(value);
-            if (parsed < min || parsed > max) {
-                throw new AnalysisException("'" + property + "' must be between "
-                        + min + " and " + max);
-            }
-            return parsed;
-        } catch (NumberFormatException e) {
-            throw new AnalysisException("'" + property + "' must be an integer", e);
-        }
-    }
-
-    protected static boolean parseBoolean(String value, String property)
-            throws AnalysisException {
-        if ("true".equalsIgnoreCase(value)) {
-            return true;
-        }
-        if ("false".equalsIgnoreCase(value)) {
-            return false;
-        }
-        throw new AnalysisException("'" + property + "' must be 'true' or 'false'");
     }
 
     protected static final class CommonSearch {

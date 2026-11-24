@@ -419,8 +419,10 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     protected Catalog createCatalog() {
         try {
             paimonProperties.setDisableSdkMetadataCacheByDefault(isMetaCacheWeightGoverned());
-            return paimonProperties.initializeCatalog(getName(), new ArrayList<>(catalogProperty
-                    .getOrderedStoragePropertiesList()));
+            return paimonProperties.getExecutionAuthenticator().execute(() ->
+                    PaimonCatalogCompatibility.requireSupportedPrivileges(
+                            paimonProperties.initializeCatalog(getName(), new ArrayList<>(catalogProperty
+                                    .getOrderedStoragePropertiesList()))));
         } catch (Exception e) {
             throw new RuntimeException("Failed to create catalog, catalog name: " + getName() + ", exception: "
                     + ExceptionUtils.getRootCauseMessage(e), e);

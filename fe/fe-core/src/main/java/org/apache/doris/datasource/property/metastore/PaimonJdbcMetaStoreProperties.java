@@ -122,6 +122,7 @@ public class PaimonJdbcMetaStoreProperties extends AbstractPaimonProperties {
             }
         }
         appendUserHadoopConfig(conf);
+        mirrorHadoopS3OptionsToCatalogOptions(conf);
         if (StringUtils.isNotBlank(driverUrl)) {
             registerJdbcDriver(driverUrl, driverClass);
             LOG.info("Using dynamic JDBC driver for Paimon JDBC catalog from: {}", driverUrl);

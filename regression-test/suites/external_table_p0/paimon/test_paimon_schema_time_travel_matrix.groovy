@@ -57,14 +57,19 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
     }
 
     def snapshotCommitTimeMillis = { String tableName, String snapshotId ->
-        List<List<Object>> rows = spark_paimon """
-            -- Paimon's TIMESTAMP_NTZ commit time is a UTC wall clock; convert it to the
-            -- Spark session zone before casting so unix_millis keeps the actual instant.
-            SELECT unix_millis(CAST(
-                convert_timezone('UTC', current_timezone(), commit_time) AS TIMESTAMP
-            ))
-            FROM paimon.${dbName}.`${tableName}\$snapshots`
-            WHERE snapshot_id = ${snapshotId}
+        // Read the commit time through Doris so the epoch reference matches the
+        // scan.creation-time-millis resolution (the earliest snapshot committed at
+        // or after the value) on the same clock: Doris' unix_timestamp keeps the
+        // fractional seconds, so * 1000 is the exact commit instant. The previous
+        // Spark-side convert_timezone + unix_millis conversion assumed the NTZ
+        // commit time is a UTC wall clock, which the 2.1 ThriftServer no longer
+        // holds — the value came out shifted by the session UTC offset (8h into
+        // the future) and every creation-time scan silently resolved to the latest
+        // snapshot.
+        List<List<Object>> rows = sql """
+            select cast(unix_timestamp(commit_time) * 1000 as bigint)
+            from ${catalogName}.${dbName}.${tableName}\$snapshots
+            where snapshot_id = ${snapshotId}
         """
         assertEquals(1, rows.size())
         return rows[0][0].toString()

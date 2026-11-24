@@ -289,14 +289,41 @@ suite("test_paimon_spark_doris_consistency_demo", "p0,external,paimon") {
     // Example 1: compare Doris Paimon query result with explicit expected values.
     assertEquals(expectedBasicRows, dorisBasicRows)
 
-    // Example 2: compare Doris and Spark query results.
+    // Encode only schema-declared binary leaves in SQL. A text-only comparator cannot
+    // distinguish a VARCHAR such as "0x41" from a nested binary rendering.
+    List<String> commonColumns = [
+            "id", "name", "score", "string_col", "varchar_col", "char_col", "bool_col",
+            "tinyint_col", "smallint_col", "int_col", "bigint_col", "float_col", "double_col",
+            "decimal_small_col", "decimal_col", "decimal_wide_col", "date_col", "timestamp_col",
+            "array_col", "array_tinyint_col", "array_smallint_col", "array_string_col", "array_bool_col",
+            "array_decimal_col", "array_date_col", "array_timestamp_col", "map_col", "map_int_string_col",
+            "map_bool_col", "map_decimal_col", "struct_col", "nested_col"]
+    List<String> structFields = ["string_field", "bool_field", "int_field", "bigint_field",
+            "float_field", "double_field", "binary_field", "decimal_field", "date_field", "timestamp_field"]
+    def comparableProjection = { boolean spark ->
+        def mapArray = { String array, String lambda ->
+            spark ? "transform(${array}, ${lambda})" : "array_map(${lambda}, ${array})"
+        }
+        String keys = "${spark ? 'sort_array' : 'array_sort'}(map_keys(map_binary_col))"
+        String fields = structFields.collect { String field ->
+            String value = "struct_all_col.${field}"
+            "'${field}', " + (field == "binary_field" ? "concat('hex:', hex(${value}))" : value)
+        }.join(", ")
+        return (commonColumns + [
+                "concat('hex:', hex(binary_col)) AS binary_col",
+                mapArray("array_binary_col", "x -> concat('hex:', hex(x))") + " AS array_binary_col",
+                keys + " AS binary_map_keys",
+                mapArray(keys, "k -> concat('hex:', hex(element_at(map_binary_col, k)))") + " AS binary_map_values",
+                "CASE WHEN struct_all_col IS NULL THEN NULL ELSE named_struct(${fields}) END AS struct_all_col"
+        ]).join(", ")
+    }
     def sparkRows = spark_paimon """
-        SELECT *
+        SELECT ${comparableProjection(true)}
         FROM paimon.${dbName}.spark_written_paimon_demo
         ORDER BY id
     """
     def dorisRows = sql """
-        SELECT *
+        SELECT ${comparableProjection(false)}
         FROM ${dbName}.spark_written_paimon_demo
         ORDER BY id
     """

@@ -35,8 +35,7 @@ import org.apache.paimon.disk.BufferFileWriter;
 import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
-import org.apache.paimon.privilege.PrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
+import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DelegatedFileStoreTable;
@@ -44,6 +43,7 @@ import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.system.SystemTableLoader;
+import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.After;
@@ -232,6 +232,63 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void testSerializedFileIndexesSourceKeepsSnapshotDuringJniRebuild() throws Exception {
+        org.apache.doris.common.jni.utils.OffHeap.setTesting();
+        try (org.apache.paimon.catalog.Catalog catalog = new org.apache.paimon.catalog.FileSystemCatalog(
+                LocalFileIO.create(), new org.apache.paimon.fs.Path(temporaryFolder.getRoot().toURI()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "indexed");
+            catalog.createTable(id, org.apache.paimon.schema.Schema.newBuilder().column("id", DataTypes.INT())
+                    .option("bucket", "-1").option("write-only", "true")
+                    .option("file-index.bitmap.columns", "id").build(), false);
+            FileStoreTable source = (FileStoreTable) catalog.getTable(id);
+            for (int value = 1; value <= 2; value++) {
+                org.apache.paimon.table.sink.BatchWriteBuilder builder = source.newBatchWriteBuilder();
+                try (org.apache.paimon.table.sink.BatchTableWrite write = builder.newWrite()) {
+                    write.write(org.apache.paimon.data.GenericRow.of(value));
+                    try (org.apache.paimon.table.sink.BatchTableCommit commit = builder.newCommit()) {
+                        commit.commit(write.prepareCommit());
+                    }
+                }
+            }
+            Table system = SystemTableLoader.load("file_indexes", source);
+            org.apache.paimon.table.source.Split split = system.newReadBuilder().newScan().plan().splits().get(0);
+            // The unpinned control proves two index files exist; only the transported source pins JNI.
+            for (boolean pinned : new boolean[] {false, true}) {
+                FileStoreTable transported = pinned ? source.copyWithoutTimeTravel(
+                        Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), "1")) : source;
+                Map<String, String> params = createBaseParams();
+                params.put("required_fields", "file_path");
+                params.put("columns_types", "string");
+                params.put("time_zone", "UTC");
+                params.put(SERIALIZED_TABLE_CACHE_KEY, "file-index-pin-" + pinned);
+                params.put(SERIALIZED_TABLE, encodePaimonObject(system));
+                params.put(SERIALIZED_SYSTEM_SOURCE, encodePaimonObject(transported));
+                params.put("paimon.doris.system-table-type", "file_indexes");
+                params.put("paimon." + PaimonJniScanner.DORIS_MANIFEST_PARALLELISM_CAP, "2");
+                params.put("paimon_split", encodePaimonObject(split));
+                params.put("paimon_predicate", encodePaimonObject(Collections.emptyList()));
+                PaimonJniScanner scanner = new PaimonJniScanner(16, params);
+                try {
+                    scanner.open();
+                    int rows = 0;
+                    while (scanner.getNextBatchMeta() != 0) {
+                        rows += scanner.getTable().getNumRows();
+                        scanner.releaseTable();
+                    }
+                    Assert.assertEquals(pinned ? 1 : 2, rows);
+                } finally {
+                    scanner.close();
+                }
+            }
+        }
+    }
+
+    private static String encodePaimonObject(Object value) throws Exception {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(InstantiationUtil.serializeObject(value));
+    }
+
+    @Test
     public void testBackendManifestCapReachesHiddenFallbackPlanner() {
         FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
         FileStoreTable fallback = serializableFileStoreTable(
@@ -341,21 +398,16 @@ public class PaimonJniScannerTest {
     }
 
     @Test
-    public void testBackendCapTraversesPrivilegeDelegate() {
+    public void testBackendCapTraversesPlainDelegate() {
         FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
         FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "128"));
-        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
-                PrivilegeChecker.class.getClassLoader(),
-                new Class<?>[] {PrivilegeChecker.class},
-                (proxy, method, args) -> null);
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                new FallbackReadFileStoreTable(main, fallback, true), checker,
-                Identifier.create("db", "table"));
+        FileStoreTable delegate = new PlainDelegateFileStoreTable(
+                new FallbackReadFileStoreTable(main, fallback, true));
 
         Table safe = PaimonJniScanner.applyBackendManifestParallelism(
-                privileged, null, 64);
+                delegate, null, 64);
         FileStoreTable planningTable = safe instanceof DelegatedFileStoreTable
                 && !(safe instanceof FallbackReadFileStoreTable)
                 ? ((DelegatedFileStoreTable) safe).wrapped() : (FileStoreTable) safe;
@@ -390,19 +442,14 @@ public class PaimonJniScannerTest {
     }
 
     @Test
-    public void testSystemWrapperExposesSafeFallbackBehindPrivilegeDelegate() throws Exception {
+    public void testSystemWrapperExposesSafeFallbackBehindPlainDelegate() throws Exception {
         FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
         FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "2"));
-        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
-                PrivilegeChecker.class.getClassLoader(),
-                new Class<?>[] {PrivilegeChecker.class},
-                (proxy, method, args) -> null);
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                new FallbackReadFileStoreTable(main, fallback, true), checker,
-                Identifier.create("db", "table"));
-        Table wrapper = SystemTableLoader.load("partitions", privileged);
+        FileStoreTable delegate = new PlainDelegateFileStoreTable(
+                new FallbackReadFileStoreTable(main, fallback, true));
+        Table wrapper = SystemTableLoader.load("partitions", delegate);
 
         Table safe = PaimonJniScanner.applyBackendManifestParallelism(
                 wrapper, null, 64);
@@ -958,6 +1005,10 @@ public class PaimonJniScannerTest {
             }
             if ("rowType".equals(method.getName())) {
                 return new RowType(Collections.emptyList());
+            }
+            if ("coreOptions".equals(method.getName())) {
+                // Paimon 2.1 system-table loading consults queryAuthEnabled() on the data table.
+                return new CoreOptions(options);
             }
             if ("schema".equals(method.getName())) {
                 return new TableSchema(0L, Collections.emptyList(), 0,
