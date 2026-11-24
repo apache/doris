@@ -39,8 +39,8 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * The table-access cache of {@link LanceNamespaceClient}: a described dataset URI and its storage options are
- * reused until the TTL counted from the describe runs out, never when they may carry credentials, and an
- * invalidation is never undone by a describe that was in flight.
+ * reused until the TTL counted from the describe runs out, never when they may carry credentials. A refresh
+ * retires the whole client with its generation; see {@link LanceCatalogClientTest}.
  */
 class LanceTableAccessCacheTest {
 
@@ -50,7 +50,7 @@ class LanceTableAccessCacheTest {
         LanceNamespaceClient client = client(namespace, false, 60, new AtomicLong(1_000_000));
         Assertions.assertEquals("file:///warehouse/items.lance",
                 client.resolveTableAccess("default", "items").getDatasetUri());
-        client.resolveTableAccess("default", "items");
+        Assertions.assertFalse(client.resolveTableAccess("default", "items").hasVendedOptions());
         Assertions.assertEquals(1, namespace.describes.size());
     }
 
@@ -60,7 +60,8 @@ class LanceTableAccessCacheTest {
                 new DescribeTableResponse().tableUri("s3://example-bucket/items.lance"));
         LanceNamespaceClient client = client(namespace, true, 60, new AtomicLong(1_000_000));
         client.resolveTableAccess("default", "items");
-        client.resolveTableAccess("default", "items");
+        // Asked for, but none vended: the access is cached and read with the catalog's Session.
+        Assertions.assertFalse(client.resolveTableAccess("default", "items").hasVendedOptions());
         Assertions.assertEquals(1, namespace.describes.size());
         Assertions.assertEquals(Boolean.TRUE, namespace.describes.get(0).getVendCredentials());
     }
@@ -113,6 +114,7 @@ class LanceTableAccessCacheTest {
                 .tableUri("s3://example-bucket/items.lance").storageOptions(vended));
         LanceNamespaceClient client = client(namespace, true, 60, millis);
         LanceTableAccess first = client.resolveTableAccess("default", "items");
+        Assertions.assertTrue(first.hasVendedOptions());
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> first.getStorageOptions().put("aws_session_token", "modified"));
         millis.addAndGet(9_000);
@@ -189,20 +191,6 @@ class LanceTableAccessCacheTest {
     }
 
     @Test
-    void invalidationMakesTheNextReadSeeAMovedTable() {
-        FakeLanceNamespace namespace = new FakeLanceNamespace();
-        LanceNamespaceClient client = client(namespace, false, 60, new AtomicLong(1_000_000));
-        Assertions.assertEquals("file:///warehouse/items.lance",
-                client.resolveTableAccess("default", "items").getDatasetUri());
-        namespace.describing(new DescribeTableResponse().tableUri("file:///warehouse/replacement.lance"));
-        Assertions.assertEquals("file:///warehouse/items.lance",
-                client.resolveTableAccess("default", "items").getDatasetUri());
-        client.invalidateTableAccessCache();
-        Assertions.assertEquals("file:///warehouse/replacement.lance",
-                client.resolveTableAccess("default", "items").getDatasetUri());
-    }
-
-    @Test
     void concurrentMissesShareOneDescribe() throws Exception {
         FakeLanceNamespace namespace = new FakeLanceNamespace();
         LanceNamespaceClient client = client(namespace, false, 60, new AtomicLong(1_000_000));
@@ -221,41 +209,6 @@ class LanceTableAccessCacheTest {
             release.countDown();
             Assertions.assertSame(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
             Assertions.assertEquals(1, namespace.describes.size());
-        } finally {
-            release.countDown();
-            shutdown(executor);
-        }
-    }
-
-    /**
-     * An invalidation neither waits for a describe in flight nor lets it repopulate the cache: the in-flight read
-     * gets its answer, and the next read describes again.
-     */
-    @Test
-    void invalidationDoesNotWaitForOrKeepADescribeInFlight() throws Exception {
-        FakeLanceNamespace namespace = new FakeLanceNamespace();
-        LanceNamespaceClient client = client(namespace, false, 60, new AtomicLong(1_000_000));
-        CountDownLatch entered = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        AtomicInteger attempts = new AtomicInteger();
-        namespace.describe = request -> {
-            if (attempts.getAndIncrement() == 0) {
-                entered.countDown();
-                await(release);
-                return new DescribeTableResponse().tableUri("file:///warehouse/original.lance");
-            }
-            return new DescribeTableResponse().tableUri("file:///warehouse/replacement.lance");
-        };
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        try {
-            Future<LanceTableAccess> first = executor.submit(() -> client.resolveTableAccess("default", "items"));
-            Assertions.assertTrue(entered.await(10, TimeUnit.SECONDS));
-            executor.submit(client::invalidateTableAccessCache).get(10, TimeUnit.SECONDS);
-            release.countDown();
-            Assertions.assertEquals("file:///warehouse/original.lance",
-                    first.get(10, TimeUnit.SECONDS).getDatasetUri());
-            Assertions.assertEquals("file:///warehouse/replacement.lance",
-                    client.resolveTableAccess("default", "items").getDatasetUri());
         } finally {
             release.countDown();
             shutdown(executor);

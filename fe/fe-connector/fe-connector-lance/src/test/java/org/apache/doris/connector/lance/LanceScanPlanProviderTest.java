@@ -51,6 +51,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 /**
  * Split planning and the scan-level parameters, from metadata a statement has already read. The catalog
@@ -67,6 +69,11 @@ class LanceScanPlanProviderTest {
     private final LanceTableHandle handle = new LanceTableHandle("default", "all_types").withVersion(3);
 
     private LanceScanPlanProvider provider(Map<String, String> backendStorageProperties) {
+        return provider(backendStorageProperties, LancePredicateConverter::new);
+    }
+
+    private LanceScanPlanProvider provider(Map<String, String> backendStorageProperties,
+            Function<Schema, LancePredicateConverter> converters) {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "lance");
         properties.put("warehouse", "s3://warehouse/lance");
@@ -77,7 +84,7 @@ class LanceScanPlanProviderTest {
                 () -> {
                     throw new AssertionError("the statement already read this version; nothing may read it again");
                 });
-        return new LanceScanPlanProvider(unopenable, "filesystem", () -> backendStorageProperties);
+        return new LanceScanPlanProvider(unopenable, "filesystem", () -> backendStorageProperties, converters);
     }
 
     private void readInThisStatement(LanceTableMetadata metadata) {
@@ -85,7 +92,8 @@ class LanceScanPlanProviderTest {
     }
 
     private static LanceTableMetadata metadata(Map<String, String> storageOptions, LanceFragmentInfo... fragments) {
-        return new LanceTableMetadata(new LanceTableAccess(URI, storageOptions), 3, SCHEMA, Arrays.asList(fragments));
+        return new LanceTableMetadata(new LanceTableAccess(URI, storageOptions, false), 3, SCHEMA,
+                Arrays.asList(fragments));
     }
 
     @Test
@@ -295,6 +303,32 @@ class LanceScanPlanProviderTest {
         Assertions.assertFalse(none.isSetLanceScanParams());
     }
 
+    /**
+     * Planning the ranges needs only which conjuncts are pushed, so it never serializes the Substrait filter; the
+     * scan properties, which carry it to BE, serialize it once.
+     */
+    @Test
+    void rangePlanningNeverSerializesTheFilter() {
+        readWithoutIndexes(metadata(Collections.emptyMap(), new LanceFragmentInfo(0, 1, 1)));
+        AtomicInteger serializations = new AtomicInteger();
+        LanceScanPlanProvider provider = provider(Collections.emptyMap(),
+                schema -> new LancePredicateConverter(schema, expression -> {
+                    serializations.incrementAndGet();
+                    return new LanceSubstraitSerializer(schema).serialize(expression);
+                }));
+        Assertions.assertEquals(1, plan(provider, request().filter(Optional.of(ID_IS_5)).limit(10)).size());
+        Assertions.assertEquals(0, serializations.get());
+
+        ScanNodePropertiesResult result = provider.getScanNodePropertiesResult(session, handle,
+                Collections.emptyList(), Optional.of(ID_IS_5));
+        Assertions.assertEquals(1, serializations.get());
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, result.getProperties());
+        Assertions.assertArrayEquals(new LancePredicateConverter(SCHEMA)
+                .convert(Collections.singletonList(ID_IS_5)).getSubstraitFilter(),
+                params.getLanceScanParams().getLanceSubstraitFilter());
+    }
+
     /** A range may stop at the LIMIT only when Doris filters nothing after it. */
     @Test
     void limitReachesEveryRangeOnlyWhenEveryConjunctIsPushed() {
@@ -365,6 +399,41 @@ class LanceScanPlanProviderTest {
         Assertions.assertEquals(1, emptyCount.size());
         Assertions.assertEquals(0, tableLevelRowCount(emptyCount.get(0)));
         Assertions.assertFalse(rangeParams(emptyCount.get(0)).isSetFragmentIds());
+    }
+
+    /**
+     * A uri names no endpoint: two file table functions of one statement can name one uri at one version on two
+     * object stores, as two {@code s3()} calls with the same uri and two {@code s3.endpoint}s do. Each resolved its
+     * handle by reading its own dataset, and each counts that dataset.
+     */
+    @Test
+    void fileTableFunctionsOfOneUriOnTwoEndpointsCountTheirOwnDatasets() {
+        LanceFileTableHandle oneRow = fileHandle("http://127.0.0.1:19001");
+        LanceFileTableHandle twoRows = fileHandle("http://127.0.0.1:19002");
+        // What resolving each handle remembers: the dataset it read with its own storage.
+        LanceStatementScope.sharedFileMetadata(session, oneRow,
+                () -> metadata(oneRow.getStorageOptions(), new LanceFragmentInfo(0, 1, 1)));
+        LanceStatementScope.sharedFileMetadata(session, twoRows,
+                () -> metadata(twoRows.getStorageOptions(), new LanceFragmentInfo(0, 2, 2)));
+        LanceScanPlanProvider provider = LanceScanPlanProvider.forFiles(new LanceFileFormatConnector(() -> {
+            throw new AssertionError("the statement already read both datasets; nothing may read them again");
+        }));
+        Assertions.assertEquals(1, fileCount(provider, oneRow));
+        Assertions.assertEquals(2, fileCount(provider, twoRows));
+    }
+
+    private static LanceFileTableHandle fileHandle(String endpoint) {
+        return new LanceFileTableHandle(URI, 3, Collections.singletonMap("aws_endpoint", endpoint),
+                Collections.singletonMap("AWS_ENDPOINT", endpoint));
+    }
+
+    private long fileCount(LanceScanPlanProvider provider, LanceFileTableHandle fileHandle) {
+        long rows = 0;
+        for (ConnectorScanRange range : provider.planScan(session,
+                ConnectorScanRequest.builder(fileHandle, Collections.emptyList()).countPushdown(true).build())) {
+            rows += tableLevelRowCount(range);
+        }
+        return rows;
     }
 
     /** lance_fragments_per_split groups fragments exactly, in manifest order, and never plans index segments. */

@@ -36,6 +36,8 @@ final class LanceStatementScope {
     static final String TABLE_METADATA_NAMESPACE = "lance.table_metadata";
     /** Namespace for the per-statement memo of index metadata, read only for scans that can use an index. */
     static final String INDEX_METADATA_NAMESPACE = "lance.index_metadata";
+    /** Namespace for the per-statement memo of the datasets file table functions name, one per resolved handle. */
+    static final String FILE_METADATA_NAMESPACE = "lance.file_metadata";
 
     private LanceStatementScope() {
     }
@@ -56,6 +58,20 @@ final class LanceStatementScope {
                     handle.getTableName() + "@" + metadata.getVersion(), () -> metadata);
         }
         return metadata;
+    }
+
+    /**
+     * The metadata of the dataset {@code handle} names, at its pinned version: read when the table function
+     * resolves the handle, and again by the scan only when the statement keeps no memo.
+     *
+     * <p>Kept per resolved handle, not per uri and version: a uri names no endpoint, so two table functions of a
+     * statement can read two datasets at one uri and version, each with its own storage. Each reads its dataset to
+     * resolve its handle, so a shared entry would spare no read.
+     */
+    static LanceTableMetadata sharedFileMetadata(ConnectorSession session, LanceFileTableHandle handle,
+            Supplier<LanceTableMetadata> loader) {
+        return ConnectorStatementScopes.resolveInStatement(session, FILE_METADATA_NAMESPACE, "",
+                handle.getUri() + "@" + handle.getVersion() + "#" + handle.getResolution(), loader);
     }
 
     /**

@@ -34,8 +34,10 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TLanceScanParams;
 
 import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.Base64;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -44,10 +46,12 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
- * Plans a Lance catalog scan of the statement's pinned version.
+ * Plans a Lance scan of the statement's pinned version: of a catalog table, or of the dataset a file table function
+ * names ({@link LanceFileFormatConnector}); only where the metadata comes from differs, see {@link ScanSource}.
  *
  * <p>BE reads the data through lance-c; FE lists the version's fragments, decides which ranges read which of
  * them, and hands BE the options it opens the dataset with. Those options and the pushed filter travel once per
@@ -85,20 +89,36 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
     static final String PROP_SUBSTRAIT_FILTER = "lance.substrait_filter";
     static final String PROP_PUSHDOWN_PREDICATE = "lance.pushdown_predicate";
 
-    private final LanceCatalogClient client;
-    private final String catalogType;
-    private final Supplier<Map<String, String>> backendStorageProperties;
+    private final ScanSource source;
+    private final Function<Schema, LancePredicateConverter> converters;
 
     /**
+     * Over a catalog's tables.
+     *
      * @param backendStorageProperties the catalog's storage keys in BE's spelling. lance-c ignores them -
      *         it opens the dataset with the Lance options - but BE's shared file-system layer and the file
      *         cache key read the scan's {@code properties} as they do for every file scan.
      */
     LanceScanPlanProvider(LanceCatalogClient client, String catalogType,
             Supplier<Map<String, String>> backendStorageProperties) {
-        this.client = client;
-        this.catalogType = catalogType;
-        this.backendStorageProperties = backendStorageProperties;
+        this(client, catalogType, backendStorageProperties, LancePredicateConverter::new);
+    }
+
+    /** With the predicate converters of the caller's, which tests count the serializations of. */
+    LanceScanPlanProvider(LanceCatalogClient client, String catalogType,
+            Supplier<Map<String, String>> backendStorageProperties,
+            Function<Schema, LancePredicateConverter> converters) {
+        this(new CatalogSource(client, catalogType, backendStorageProperties), converters);
+    }
+
+    private LanceScanPlanProvider(ScanSource source, Function<Schema, LancePredicateConverter> converters) {
+        this.source = source;
+        this.converters = converters;
+    }
+
+    /** Over the datasets file table functions name, which {@code connector} reads. */
+    static LanceScanPlanProvider forFiles(LanceFileFormatConnector connector) {
+        return new LanceScanPlanProvider(new FileSource(connector), LancePredicateConverter::new);
     }
 
     /**
@@ -107,17 +127,17 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
      */
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
-        LanceTableHandle handle = lanceHandle(request.getTableHandle());
-        LanceMetadataMetrics metrics = tableMetrics(session, handle);
+        ConnectorTableHandle handle = request.getTableHandle();
+        LanceMetadataMetrics metrics = source.metrics(session, handle);
         try {
-            LanceTableMetadata metadata = metadata(session, handle);
+            LanceTableMetadata metadata = source.metadata(session, handle, metrics);
             try (LanceMetadataMetrics.Timer timer = metrics.start(Operation.SPLIT_PLANNING)) {
-                List<ConnectorScanRange> ranges = planRanges(session, request, handle, metadata);
+                List<ConnectorScanRange> ranges = planRanges(session, request, handle, metadata, metrics);
                 timer.succeeded();
                 return ranges;
             }
         } finally {
-            LanceMetadataMetrics.publishScan(session, handle.getDbName(), handle.getTableName(), metrics);
+            source.publishScan(session, handle, metrics);
         }
     }
 
@@ -128,15 +148,16 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private List<ConnectorScanRange> planRanges(ConnectorSession session, ConnectorScanRequest request,
-            LanceTableHandle handle, LanceTableMetadata metadata) {
+            ConnectorTableHandle handle, LanceTableMetadata metadata, LanceMetadataMetrics metrics) {
         List<ConnectorExpression> conjuncts = LancePredicateConverter.conjuncts(request.getFilter());
         // Any filter, pushed or not, makes the version's row count larger than the result.
         if (request.isCountPushdown() && conjuncts.isEmpty()) {
             return LanceScanPlanner.countRanges(metadata);
         }
-        LancePredicateConverter converter = new LancePredicateConverter(metadata.getSchema());
+        LancePredicateConverter converter = converters.apply(metadata.getSchema());
+        // Only which conjuncts are pushed matters here; the Substrait filter is serialized for the scan properties.
         LancePredicateConverter.ConversionResult pushdown = converter.convert(conjuncts);
-        LanceScanPlan plan = plan(session, handle, metadata, converter, pushdown);
+        LanceScanPlan plan = plan(session, handle, metadata, metrics, converter, pushdown);
         // A range may stop at the LIMIT only when Doris filters nothing after it. The engine passes no limit when
         // it kept a conjunct out of the filter; OFFSET is already folded in: the scan's limit is limit + offset.
         return plan.ranges(request.getLimit() >= 0 && pushdown.allPushed() ? request.getLimit() : -1);
@@ -150,29 +171,30 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
     public ScanNodePropertiesResult getScanNodePropertiesResult(ConnectorSession session,
             ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
-        LanceTableHandle handle = lanceHandle(tableHandle);
-        LanceTableMetadata metadata = metadata(session, handle);
+        LanceMetadataMetrics metrics = source.metrics(session, tableHandle);
+        LanceTableMetadata metadata = source.metadata(session, tableHandle, metrics);
         Map<String, String> props = new LinkedHashMap<>();
         props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, FILE_FORMAT);
-        backendStorageProperties.get().forEach(
+        source.backendStorageProperties(tableHandle).forEach(
                 (key, value) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + key, value));
-        metadata.getLanceStorageOptions().forEach(
+        source.storageOptions(tableHandle, metadata).forEach(
                 (key, value) -> props.put(PROP_STORAGE_OPTION_PREFIX + key, value));
         if (projectsCurrentReaderType(metadata, columns)) {
             props.put(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS, ADDITIONAL_TYPES_SEMANTICS);
         }
-        props.put(PROP_CATALOG_TYPE, catalogType);
+        props.put(PROP_CATALOG_TYPE, source.catalogType());
         props.put(PROP_VERSION, String.valueOf(metadata.getVersion()));
         props.put(PROP_FRAGMENTS, String.valueOf(metadata.getFragments().size()));
 
-        LancePredicateConverter converter = new LancePredicateConverter(metadata.getSchema());
+        LancePredicateConverter converter = converters.apply(metadata.getSchema());
         LancePredicateConverter.ConversionResult pushdown =
                 converter.convert(LancePredicateConverter.conjuncts(filter));
-        if (pushdown.getSubstraitFilter().length > 0) {
-            props.put(PROP_SUBSTRAIT_FILTER, Base64.getEncoder().encodeToString(pushdown.getSubstraitFilter()));
+        byte[] substraitFilter = pushdown.getSubstraitFilter();
+        if (substraitFilter.length > 0) {
+            props.put(PROP_SUBSTRAIT_FILTER, Base64.getEncoder().encodeToString(substraitFilter));
             props.put(PROP_PUSHDOWN_PREDICATE, pushdown.getDebugPredicate());
         }
-        plan(session, handle, metadata, converter, pushdown).addExplainProperties(props);
+        plan(session, tableHandle, metadata, metrics, converter, pushdown).addExplainProperties(props);
         return ScanNodePropertiesResult.withPushdownTracking(props, pushdown.getNotPushedIndices());
     }
 
@@ -219,13 +241,11 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
         }
     }
 
-    private LanceScanPlan plan(ConnectorSession session, LanceTableHandle handle, LanceTableMetadata metadata,
-            LancePredicateConverter converter, LancePredicateConverter.ConversionResult pushdown) {
-        LanceMetadataMetrics metrics = tableMetrics(session, handle);
+    private LanceScanPlan plan(ConnectorSession session, ConnectorTableHandle handle, LanceTableMetadata metadata,
+            LanceMetadataMetrics metrics, LancePredicateConverter converter,
+            LancePredicateConverter.ConversionResult pushdown) {
         return LanceScanPlanner.plan(metadata, converter, pushdown.getPushedConjuncts(), fragmentsPerSplit(session),
-                () -> LanceStatementScope.sharedIndexMetadata(session, handle, metadata,
-                        () -> client.loadIndexMetadata(handle.getDbName(), handle.getTableName(),
-                                metadata.getVersion(), metrics)));
+                () -> source.indexMetadata(session, handle, metadata, metrics));
     }
 
     private static int fragmentsPerSplit(ConnectorSession session) {
@@ -253,27 +273,162 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
         return false;
     }
 
-    private LanceTableMetadata metadata(ConnectorSession session, LanceTableHandle handle) {
-        LanceMetadataMetrics metrics = tableMetrics(session, handle);
-        return LanceStatementScope.sharedMetadata(session, handle,
-                () -> client.loadTableMetadata(handle.getDbName(), handle.getTableName(), handle.getVersion(),
-                        metrics));
+    /** Where a scan's dataset and its metadata come from; the planning does not depend on it. */
+    interface ScanSource {
+        /**
+         * The metrics the scan's metadata reads and split planning are timed into. Looked up before a
+         * statement-scope loader runs, never inside one: a loader may not use the scope, whose ConcurrentHashMap
+         * throws "Recursive update" when the two keys share a bin.
+         */
+        LanceMetadataMetrics metrics(ConnectorSession session, ConnectorTableHandle handle);
+
+        /** The metadata of the version the scan reads, read once per statement. */
+        LanceTableMetadata metadata(ConnectorSession session, ConnectorTableHandle handle,
+                LanceMetadataMetrics metrics);
+
+        /** The index metadata of that version, read only for a scan with a pushed filter an index may serve. */
+        LanceIndexMetadata indexMetadata(ConnectorSession session, ConnectorTableHandle handle,
+                LanceTableMetadata metadata, LanceMetadataMetrics metrics);
+
+        /** The options the BE opens the dataset with. */
+        Map<String, String> storageOptions(ConnectorTableHandle handle, LanceTableMetadata metadata);
+
+        /** The storage keys in BE's spelling, which BE's shared file-system layer reads; see the constructor. */
+        Map<String, String> backendStorageProperties(ConnectorTableHandle handle);
+
+        /** What EXPLAIN shows as {@code lanceCatalogType}. */
+        String catalogType();
+
+        /** Queues the scan's metrics for {@link LanceScanPlanProvider#collectScanProfiles}. */
+        void publishScan(ConnectorSession session, ConnectorTableHandle handle, LanceMetadataMetrics metrics);
+    }
+
+    /** A table of a Lance catalog: read through the catalog client and its statement memos, profiled per table. */
+    private static final class CatalogSource implements ScanSource {
+        private final LanceCatalogClient client;
+        private final String catalogType;
+        private final Supplier<Map<String, String>> backendStorageProperties;
+
+        private CatalogSource(LanceCatalogClient client, String catalogType,
+                Supplier<Map<String, String>> backendStorageProperties) {
+            this.client = client;
+            this.catalogType = catalogType;
+            this.backendStorageProperties = backendStorageProperties;
+        }
+
+        @Override
+        public LanceMetadataMetrics metrics(ConnectorSession session, ConnectorTableHandle handle) {
+            LanceTableHandle table = lanceHandle(handle);
+            return LanceMetadataMetrics.forTable(session, table.getDbName(), table.getTableName());
+        }
+
+        @Override
+        public LanceTableMetadata metadata(ConnectorSession session, ConnectorTableHandle handle,
+                LanceMetadataMetrics metrics) {
+            LanceTableHandle table = lanceHandle(handle);
+            return LanceStatementScope.sharedMetadata(session, table,
+                    () -> client.loadTableMetadata(table.getDbName(), table.getTableName(), table.getVersion(),
+                            metrics));
+        }
+
+        @Override
+        public LanceIndexMetadata indexMetadata(ConnectorSession session, ConnectorTableHandle handle,
+                LanceTableMetadata metadata, LanceMetadataMetrics metrics) {
+            LanceTableHandle table = lanceHandle(handle);
+            return LanceStatementScope.sharedIndexMetadata(session, table, metadata,
+                    () -> client.loadIndexMetadata(table.getDbName(), table.getTableName(), metadata.getVersion(),
+                            metrics));
+        }
+
+        /** The options the namespace described the table with. */
+        @Override
+        public Map<String, String> storageOptions(ConnectorTableHandle handle, LanceTableMetadata metadata) {
+            return metadata.getLanceStorageOptions();
+        }
+
+        @Override
+        public Map<String, String> backendStorageProperties(ConnectorTableHandle handle) {
+            return backendStorageProperties.get();
+        }
+
+        @Override
+        public String catalogType() {
+            return catalogType;
+        }
+
+        @Override
+        public void publishScan(ConnectorSession session, ConnectorTableHandle handle, LanceMetadataMetrics metrics) {
+            LanceTableHandle table = lanceHandle(handle);
+            LanceMetadataMetrics.publishScan(session, table.getDbName(), table.getTableName(), metrics);
+        }
+
+        private static LanceTableHandle lanceHandle(ConnectorTableHandle handle) {
+            if (handle instanceof LanceTableHandle) {
+                return (LanceTableHandle) handle;
+            }
+            throw new DorisConnectorException("A lance catalog cannot scan through a "
+                    + handle.getClass().getSimpleName() + "; only its own tables are readable.");
+        }
     }
 
     /**
-     * The statement's metrics of the table. Look them up before a statement-scope loader runs, never inside one:
-     * a loader may not use the scope, whose ConcurrentHashMap throws "Recursive update" when the two keys share a
-     * bin.
+     * The dataset a file table function names: its metadata was read when the handle was resolved, and its storage
+     * is the table function's. No scalar-index segments are planned, as before for the table function, and no
+     * metadata metrics are reported: the profile groups them by catalog table.
      */
-    private static LanceMetadataMetrics tableMetrics(ConnectorSession session, LanceTableHandle handle) {
-        return LanceMetadataMetrics.forTable(session, handle.getDbName(), handle.getTableName());
-    }
+    private static final class FileSource implements ScanSource {
+        private static final LanceIndexMetadata NO_INDEXES =
+                new LanceIndexMetadata(Collections.emptyMap(), Collections.emptyList());
 
-    private static LanceTableHandle lanceHandle(ConnectorTableHandle handle) {
-        if (handle instanceof LanceTableHandle) {
-            return (LanceTableHandle) handle;
+        private final LanceFileFormatConnector connector;
+
+        private FileSource(LanceFileFormatConnector connector) {
+            this.connector = connector;
         }
-        throw new DorisConnectorException("A lance catalog cannot scan through a "
-                + handle.getClass().getSimpleName() + "; only its own tables are readable.");
+
+        @Override
+        public LanceMetadataMetrics metrics(ConnectorSession session, ConnectorTableHandle handle) {
+            return new LanceMetadataMetrics();
+        }
+
+        @Override
+        public LanceTableMetadata metadata(ConnectorSession session, ConnectorTableHandle handle,
+                LanceMetadataMetrics metrics) {
+            return LanceFileMetadata.metadata(session, fileHandle(handle), connector);
+        }
+
+        @Override
+        public LanceIndexMetadata indexMetadata(ConnectorSession session, ConnectorTableHandle handle,
+                LanceTableMetadata metadata, LanceMetadataMetrics metrics) {
+            return NO_INDEXES;
+        }
+
+        /** The table function's own options, which its metadata was read with. */
+        @Override
+        public Map<String, String> storageOptions(ConnectorTableHandle handle, LanceTableMetadata metadata) {
+            return fileHandle(handle).getStorageOptions();
+        }
+
+        @Override
+        public Map<String, String> backendStorageProperties(ConnectorTableHandle handle) {
+            return fileHandle(handle).getBackendStorageProperties();
+        }
+
+        @Override
+        public String catalogType() {
+            return "tvf";
+        }
+
+        @Override
+        public void publishScan(ConnectorSession session, ConnectorTableHandle handle, LanceMetadataMetrics metrics) {
+        }
+
+        private static LanceFileTableHandle fileHandle(ConnectorTableHandle handle) {
+            if (handle instanceof LanceFileTableHandle) {
+                return (LanceFileTableHandle) handle;
+            }
+            throw new DorisConnectorException("A lance file table function cannot scan through a "
+                    + handle.getClass().getSimpleName());
+        }
     }
 }
