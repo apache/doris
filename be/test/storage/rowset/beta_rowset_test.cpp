@@ -265,8 +265,7 @@ protected:
         auto read_schema = std::make_shared<ReadSchema>(tablet_schema.columns());
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(tablet_schema,
-                                                      /*merge_by_sequence_mapping=*/false,
-                                                      /*map_changelog_columns=*/false)
+                                                      /*merge_by_sequence_mapping=*/false)
                             .ok());
         RowsetReaderContext context;
         context.read_schema = read_schema;
