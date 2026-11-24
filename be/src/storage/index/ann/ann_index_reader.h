@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <string>
 
+#include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_storage.h"
@@ -47,6 +48,8 @@ public:
 
     // Only INVERTED_INDEX_FILE_NOT_FOUND permits the caller to fall back to a scan.
     Status load_index(io::IOContext* io_ctx);
+
+    Status healthy_status() const override;
 
     Status query(io::IOContext* io_ctx, AnnTopNParam* param, AnnIndexStats* stats);
 

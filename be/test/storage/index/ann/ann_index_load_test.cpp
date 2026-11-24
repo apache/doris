@@ -134,6 +134,14 @@ TEST_P(AnnIndexLoadTest, OpenStatusReachesIterator) {
     // A repeated load returns the stored failure instead of reporting success with a partial index.
     EXPECT_EQ(iterator.load_index().code(), expected_code());
     EXPECT_EQ(_reader->_vector_index, nullptr);
+    const int health_code = expected_code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
+                                    ? ErrorCode::OK
+                                    : expected_code();
+    EXPECT_EQ(_reader->healthy_status().code(), health_code);
+    ColumnReader owner;
+    owner._index_readers.emplace(_meta.index_id(), _reader);
+    EXPECT_EQ(owner.healthy_status().code(), health_code);
+    EXPECT_TRUE(owner._healthy_status.status().ok());
 }
 
 TEST_P(AnnIndexLoadTest, InitStatusIsPreserved) {
@@ -144,6 +152,8 @@ TEST_P(AnnIndexLoadTest, InitStatusIsPreserved) {
     auto status = iterator.load_index();
     EXPECT_EQ(status.code(), GetParam());
     EXPECT_EQ(status.msg(), "injected ANN init failure");
+    EXPECT_EQ(_reader->healthy_status().code(),
+              GetParam() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ? ErrorCode::OK : GetParam());
 }
 
 TEST_P(AnnIndexLoadTest, RangeFallsBackOnlyForMissingIndex) {
@@ -189,10 +199,12 @@ TEST_F(AnnIndexLoadTest, EmptyV2ContainerFallsBackToScan) {
             &_meta,
             std::make_shared<IndexFileReader>(fs, prefix, InvertedIndexStorageFormatPB::V2));
     check_range_load_status(ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
+    EXPECT_TRUE(_reader->healthy_status().ok());
     _reader = std::make_shared<AnnIndexReader>(
             &_meta,
             std::make_shared<IndexFileReader>(fs, prefix, InvertedIndexStorageFormatPB::V2));
     check_topn_load_status(ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
+    EXPECT_TRUE(_reader->healthy_status().ok());
     ASSERT_TRUE(fs->delete_directory(directory).ok());
 }
 
@@ -221,6 +233,7 @@ TEST_F(AnnIndexLoadTest, MissingInternalFaissFileIsNotMissingIndex) {
                 });
         auto status = reader->load_index(nullptr);
         EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>()) << status;
+        EXPECT_TRUE(reader->healthy_status().is<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>());
     }
 }
 
