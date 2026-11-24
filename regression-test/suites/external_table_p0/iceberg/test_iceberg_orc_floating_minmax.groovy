@@ -27,7 +27,8 @@ suite("test_iceberg_orc_floating_minmax", "p0,external,iceberg,external_docker,e
     def execute = { List<String> command ->
         StringBuilder stdout = new StringBuilder()
         StringBuilder stderr = new StringBuilder()
-        def process = new ProcessBuilder(command).start()
+        // List<String> can still contain GStrings; ProcessBuilder copies its elements into String[].
+        def process = new ProcessBuilder(command.collect { it.toString() }).start()
         Thread outputReader = process.consumeProcessOutputStream(stdout)
         Thread errorReader = process.consumeProcessErrorStream(stderr)
         process.waitForOrKill(300000)
