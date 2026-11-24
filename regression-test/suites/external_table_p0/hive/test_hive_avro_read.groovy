@@ -32,6 +32,8 @@ suite("test_hive_avro_read", "p0,external,hive,external_docker") {
         if (warehouse) {
             hive_docker "ALTER DATABASE doris_hive_avro_read SET LOCATION '${warehouse}'"
         }
+        // Hive 2 resolves partition ALTER calls in the session database even for qualified tables.
+        hive_docker "USE doris_hive_avro_read"
         hive_docker "DROP TABLE IF EXISTS doris_hive_avro_read.avro_evolved"
         hive_docker "DROP TABLE IF EXISTS doris_hive_avro_read.avro_values"
         hive_docker """CREATE TABLE doris_hive_avro_read.avro_values (
