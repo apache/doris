@@ -105,6 +105,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * declaration: map_filter returns its first argument's map type).
      */
     private static final Set<String> TYPE_PRESERVING_MAP_CALLS = Set.of("map_filter");
+    private static final int NO_MAP_KEY_DEPENDENCY = -1;
 
     /** Auto-increment placeholder id counter (starts at 1). */
     private long nextId = 1;
@@ -189,8 +190,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      */
     private int containerElementDepth;
 
-    /** Whether the current container dependency follows MAP_KEYS through its map input. */
-    private boolean mapKeyDependency;
+    /** Number of array items or map values before reaching the key selected by MAP_KEYS. */
+    private int mapKeyDepth = NO_MAP_KEY_DEPENDENCY;
 
     /**
      * Whether a GROUP BY ordinal references a parameterized SELECT item. Analysis can inline
@@ -967,7 +968,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 markerPayload(literal, parent, currentProjectItem() >= 0,
                         booleanConditionalDepth > 0 && isConditionalResultPosition(parent),
                         booleanConditionalDepth > 0 && (containerPosition || conditionalContainer),
-                        isContainerElementPosition(parent) && !containerPosition, mapKeyDependency));
+                        containerElementDepth > 0 && !containerPosition, mapKeyDepth));
         placeholderIndex.put(key, placeholder);
         return placeholder;
     }
@@ -1018,7 +1019,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      */
     private static Literal markerPayload(Literal literal, Expression parent,
             boolean projectionItem, boolean booleanConditionalResult,
-            boolean booleanElementContainer, boolean containerElement, boolean mapKeyDependency) {
+            boolean booleanElementContainer, boolean containerElement, int mapKeyDepth) {
         if (containerElement && literal.isNullLiteral()) {
             // array(NULL) builds its container from the ELEMENTS, so an all-NULL element list is
             // exactly what makes the constructor NullType. The NULL marker is a CHILD of the
@@ -1031,7 +1032,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return NullLiteral.BOOLEAN_INSTANCE;
         }
         if (booleanElementContainer) {
-            Literal payload = booleanContainerPayload(literal, parent, mapKeyDependency);
+            Literal payload = booleanContainerPayload(literal, parent, mapKeyDepth);
             if (payload != null) {
                 return payload;
             }
@@ -1039,7 +1040,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (projectionItem && (literal instanceof ArrayLiteral || literal instanceof MapLiteral)
                 && isAllNullContainer(literal)) {
             // A consumer can read the NULL-typed element or value through a derived-table slot.
-            Literal payload = booleanContainerPayload(literal, parent, false);
+            Literal payload = booleanContainerPayload(literal, parent, NO_MAP_KEY_DEPENDENCY);
             if (payload != null) {
                 return payload;
             }
@@ -1078,7 +1079,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return false;
         }
         if (isMapConstructor(parent)) {
-            return (currentChildIndex() % 2 == 0) == mapKeyDependency;
+            return (currentChildIndex() % 2 == 0) == (mapKeyDepth == 0);
         }
         if ((parent instanceof WhenClause || isIfConditional(parent) || isFirstArgumentTypedResult(parent))
                 && !isConditionalResultPosition(parent)) {
@@ -1097,59 +1098,70 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * Gives a whole-container marker a Boolean leaf type along the dependency followed by the consumer.
      * Retyping preserves the container's shape and all values, including the unrelated map component.
      */
-    private static Literal booleanContainerPayload(Literal literal, Expression parent, boolean mapKeyDependency) {
+    private static Literal booleanContainerPayload(Literal literal, Expression parent, int mapKeyDepth) {
         if (literal.isNullLiteral()) {
             if (containerIsArray(parent)) {
                 return new ArrayLiteral(List.of(NullLiteral.BOOLEAN_INSTANCE),
                         ArrayType.of(BooleanType.INSTANCE));
             }
             if (containerIsMap(parent)) {
-                DataType keyType = mapKeyDependency ? BooleanType.INSTANCE : mapKeyTypeOf(parent);
+                DataType keyType = mapKeyDepth == 0 ? BooleanType.INSTANCE : mapKeyTypeOf(parent);
                 return new NullLiteral(MapType.of(keyType, BooleanType.INSTANCE));
             }
             return null;
         }
-        DataType type = literal.getDataType();
-        DataType targetType;
-        if (literal instanceof MapLiteral) {
-            MapType mapType = (MapType) type;
-            DataType key = mapType.getKeyType();
-            DataType value = mapType.getValueType();
-            if (mapKeyDependency) {
-                targetType = MapType.of(booleanContainerLeafType(key), value);
-            } else {
-                DataType booleanValue = booleanContainerLeafType(value);
-                if (booleanValue.equals(value)) {
-                    return null;
-                }
-                // Keep a usable key type when the capture has no typed key.
-                targetType = MapType.of(key.isNullType() ? StringType.INSTANCE : key, booleanValue);
-            }
-        } else if (literal instanceof ArrayLiteral) {
-            targetType = booleanContainerLeafType(type);
-        } else {
+        if (!(literal instanceof ArrayLiteral) && !(literal instanceof MapLiteral)) {
             return null;
         }
+        DataType type = literal.getDataType();
+        DataType targetType = booleanContainerLeafType(type, mapKeyDepth);
         // The parser has already coerced the literal's elements to their common types.
         return targetType.equals(type) ? null : (Literal) literal.checkedCastWithStrictChecking(targetType, true);
     }
 
-    /** Types a NullType leaf through array elements and map values. */
-    private static DataType booleanContainerLeafType(DataType type) {
+    /** Types a NullType leaf through the selected array items, map values or map key. */
+    private static DataType booleanContainerLeafType(DataType type, int mapKeyDepth) {
         if (type.isNullType()) {
             return BooleanType.INSTANCE;
         }
+        int itemKeyDepth = Math.max(mapKeyDepth - 1, NO_MAP_KEY_DEPENDENCY);
         if (type instanceof ArrayType) {
             DataType item = ((ArrayType) type).getItemType();
-            DataType booleanItem = booleanContainerLeafType(item);
+            DataType booleanItem = booleanContainerLeafType(item, itemKeyDepth);
             return item.equals(booleanItem) ? type : ArrayType.of(booleanItem);
         }
         if (type instanceof MapType) {
             MapType map = (MapType) type;
-            DataType value = booleanContainerLeafType(map.getValueType());
-            return value.equals(map.getValueType()) ? type : MapType.of(map.getKeyType(), value);
+            DataType key = map.getKeyType();
+            DataType value = map.getValueType();
+            if (mapKeyDepth == 0) {
+                DataType booleanKey = booleanContainerLeafType(key, NO_MAP_KEY_DEPENDENCY);
+                return key.equals(booleanKey) ? type : MapType.of(booleanKey, value);
+            }
+            DataType booleanValue = booleanContainerLeafType(value, itemKeyDepth);
+            // Keep a usable key type when the selected value is retyped and the capture has no typed key.
+            return value.equals(booleanValue) ? type
+                    : MapType.of(key.isNullType() ? StringType.INSTANCE : key, booleanValue);
         }
         return type;
+    }
+
+    /** Translates the selected map key from the current result type to the selected input type. */
+    private int mapKeyDepthForInput(Expression expression) {
+        if (isMapKeysCall(expression)) {
+            return 0;
+        }
+        if (mapKeyDepth < 0) {
+            return NO_MAP_KEY_DEPENDENCY;
+        }
+        if (isElementAtCall(expression)) {
+            return mapKeyDepth + 1;
+        }
+        if (isMapConstructor(expression) || isArrayConstructor(expression) || isArrayMapCall(expression)
+                || elementTypeArgumentIndex(expression) >= 0) {
+            return Math.max(mapKeyDepth - 1, NO_MAP_KEY_DEPENDENCY);
+        }
+        return mapKeyDepth;
     }
 
     /**
@@ -1356,10 +1368,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (containerElementOperand) {
             containerElementDepth++;
         }
-        boolean savedMapKeyDependency = mapKeyDependency;
-        if (containerElementDepth > 0 && (isMapKeysCall(expr) || isMapValuesCall(expr))) {
-            mapKeyDependency = isMapKeysCall(expr);
-        }
+        int savedMapKeyDepth = mapKeyDepth;
+        int inputMapKeyDepth = containerElementDepth > 0 ? mapKeyDepthForInput(expr) : NO_MAP_KEY_DEPENDENCY;
         try {
             for (int i = 0; i < children.size(); i++) {
                 Expression child = children.get(i);
@@ -1375,12 +1385,16 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                     // and conditional predicates), rather than only a direct literal.
                     containerElementDepth = 0;
                     booleanConditionalDepth = 0;
+                    mapKeyDepth = NO_MAP_KEY_DEPENDENCY;
+                } else {
+                    mapKeyDepth = inputMapKeyDepth;
                 }
                 try {
                     newChild = child.accept(this, expr);
                 } finally {
                     containerElementDepth = savedContainerDepth;
                     booleanConditionalDepth = savedBooleanDepth;
+                    mapKeyDepth = savedMapKeyDepth;
                     childIndexStack.pop();
                 }
                 newChildren.add(newChild);
@@ -1389,7 +1403,6 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 }
             }
         } finally {
-            mapKeyDependency = savedMapKeyDependency;
             if (containerElementOperand) {
                 containerElementDepth--;
             }

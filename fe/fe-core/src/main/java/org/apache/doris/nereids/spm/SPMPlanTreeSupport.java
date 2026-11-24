@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Variable;
+import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForArrayItemAgg;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
@@ -97,6 +98,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -8973,7 +8975,8 @@ public final class SPMPlanTreeSupport {
 
     private static boolean isAnalyzedSessionSensitiveCall(Expression expression) {
         if (expression instanceof Function) {
-            return isZoneSensitiveCall(expression) || isLocaleSensitiveCall(expression);
+            return isZoneSensitiveCall(expression) || isLocaleSensitiveCall(expression)
+                    || isConcreteDecimalArrayFunction(expression, Expression::getDataType);
         }
         return isConcreteDecimalArithmetic(expression, Expression::getDataType)
                 || isFoldableSessionCast(expression)
@@ -8986,6 +8989,43 @@ public final class SPMPlanTreeSupport {
         return expression instanceof BinaryArithmetic && isLiteralOnly(expression)
                 && expression.children().stream().map(operandType)
                         .anyMatch(type -> type != null && type.isDecimalLikeType());
+    }
+
+    /** Decimal array functions can change their folded result type with enable_decimal256. */
+    private static boolean isConcreteDecimalArrayFunction(Expression expression,
+            java.util.function.Function<Expression, DataType> operandType) {
+        if (expression.arity() != 1) {
+            return false;
+        }
+        boolean precisionSensitive = switch (unqualifiedFunctionName(expression)) {
+            case "array_avg", "array_sum", "array_product", "array_cum_sum" -> true;
+            default -> expression instanceof ComputePrecisionForArrayItemAgg;
+        };
+        if (!precisionSensitive || !isLiteralOnly(expression)) {
+            return false;
+        }
+        DataType type = operandType.apply(expression.child(0));
+        return type == null || type instanceof ArrayType && ((ArrayType) type).getItemType().isDecimalLikeType();
+    }
+
+    /** Two- and three-argument calls take their mode from the session when the binder fills the fourth child. */
+    private static boolean usesImplicitEncryptionMode(Expression expression) {
+        if (expression.arity() != 2 && expression.arity() != 3) {
+            return false;
+        }
+        return switch (unqualifiedFunctionName(expression)) {
+            case "aes_encrypt", "aes_decrypt", "sm4_encrypt", "sm4_decrypt" -> true;
+            default -> false;
+        };
+    }
+
+    private static String unqualifiedFunctionName(Expression expression) {
+        if (!(expression instanceof UnboundFunction)) {
+            return "";
+        }
+        UnboundFunction function = (UnboundFunction) expression;
+        return (function.getDbName() == null || function.getDbName().isEmpty())
+                ? function.getName().toLowerCase(Locale.ROOT) : "";
     }
 
     private static DataType typeKnownBeforeAnalysis(Expression expression) {
@@ -9006,54 +9046,52 @@ public final class SPMPlanTreeSupport {
      *   concretely, see SPMAstCheckVisitor): SELECT * REPLACE(from_unixtime(0) AS a) FROM t
      *
      * A constant call in either position can fold using the creator's time zone, locale, cast mode or decimal settings.
-     * Keeping raw plan SQL allows replay through the parameterized tree to evaluate the
-     * call under the caller's settings. A call over a column is evaluated per row.
+     * An omitted encryption mode can become a bound argument anywhere, even when the input uses a column.
+     * Raw replay keeps these choices in the caller's session.
      *
      * Parameter plan: the parsed (unbound) tree
      * Returns: true when the freeze must be declined for such a payload
      */
-    public static boolean containsFoldedSessionSensitivePayload(LogicalPlan plan) {
+    public static boolean requiresSessionSensitiveReplay(LogicalPlan plan) {
         return containsFoldablePayload(plan, expression -> isZoneSensitiveCall(expression)
                 || isLocaleSensitiveCall(expression) || isStrictCastSensitiveCall(expression)
-                || isConcreteDecimalArithmetic(expression, SPMPlanTreeSupport::typeKnownBeforeAnalysis));
+                || isConcreteDecimalArithmetic(expression, SPMPlanTreeSupport::typeKnownBeforeAnalysis)
+                || isConcreteDecimalArrayFunction(expression, SPMPlanTreeSupport::typeKnownBeforeAnalysis)
+                || usesImplicitEncryptionMode(expression), true);
     }
 
     /** Detects casts that can already have been folded in older frozen baselines. */
     static boolean containsFoldedStrictCastPayload(LogicalPlan plan) {
-        return containsFoldablePayload(plan, SPMPlanTreeSupport::isStrictCastSensitiveCall);
+        return containsFoldablePayload(plan, SPMPlanTreeSupport::isStrictCastSensitiveCall, false);
     }
 
-    private static boolean containsFoldablePayload(LogicalPlan plan, Predicate<Expression> sensitive) {
-        if (plan == null) {
-            return false;
-        }
-        final boolean[] found = {false};
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
-            if (found[0]) {
-                return;
-            }
+    private static boolean containsFoldablePayload(LogicalPlan plan, Predicate<Expression> sensitive,
+            boolean checkImplicitEncryptionMode) {
+        return anyPlan(plan, node -> {
             if (node instanceof InlineTable) {
                 for (List<NamedExpression> row : ((InlineTable) node).getConstantExprsList()) {
                     for (NamedExpression cell : row) {
                         if (containsFoldableCall(cell, sensitive)) {
-                            found[0] = true;
-                            return;
+                            return true;
                         }
                     }
                 }
             }
             for (Expression expr : node.getExpressions()) {
-                if (containsFoldableStarPayload(expr, sensitive)) {
-                    found[0] = true;
-                    return;
+                if (containsSensitiveExpressionOrStarPayload(expr, sensitive, checkImplicitEncryptionMode)) {
+                    return true;
                 }
             }
+            return false;
         });
-        return found[0];
     }
 
-    /** Searches a star's concrete REPLACE expressions. */
-    private static boolean containsFoldableStarPayload(Expression expression, Predicate<Expression> sensitive) {
+    /** Searches concrete REPLACE expressions and, during capture, implicit modes in ordinary expressions. */
+    private static boolean containsSensitiveExpressionOrStarPayload(Expression expression,
+            Predicate<Expression> sensitive, boolean checkImplicitEncryptionMode) {
+        if (checkImplicitEncryptionMode && usesImplicitEncryptionMode(expression)) {
+            return true;
+        }
         if (expression instanceof UnboundStar) {
             for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
                 if (containsFoldableCall(replaced, sensitive)) {
@@ -9062,7 +9100,7 @@ public final class SPMPlanTreeSupport {
             }
         }
         for (Expression child : expression.children()) {
-            if (containsFoldableStarPayload(child, sensitive)) {
+            if (containsSensitiveExpressionOrStarPayload(child, sensitive, checkImplicitEncryptionMode)) {
                 return true;
             }
         }

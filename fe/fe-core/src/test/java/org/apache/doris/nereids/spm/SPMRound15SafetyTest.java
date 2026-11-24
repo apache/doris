@@ -104,20 +104,20 @@ public class SPMRound15SafetyTest {
      */
     @Test
     public void testFoldedZoneSensitivePayloadsDeclineTheFreeze() {
-        Assertions.assertTrue(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+        Assertions.assertTrue(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
                 parse("SELECT * FROM (VALUES (from_unixtime(0))) t")),
                 "an inline VALUES cell folding from_unixtime(0) must decline the freeze");
-        Assertions.assertTrue(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+        Assertions.assertTrue(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
                 parse("SELECT * REPLACE(from_unixtime(0) AS a) FROM t1")),
                 "a * REPLACE payload folding from_unixtime(0) must decline the freeze");
 
-        Assertions.assertFalse(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+        Assertions.assertFalse(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
                 parse("SELECT * FROM (VALUES (1)) t")),
                 "a literal VALUES cell has nothing to fold");
-        Assertions.assertFalse(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+        Assertions.assertFalse(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
                 parse("SELECT * REPLACE(a + 1 AS a) FROM t1")),
                 "a REPLACE payload over a column is evaluated per row, in the caller's zone");
-        Assertions.assertFalse(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+        Assertions.assertFalse(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
                 parse("SELECT from_unixtime(0) AS v FROM t1")),
                 "an ordinary projection is parameterized, which blocks the fold: it stays"
                         + " freezable");

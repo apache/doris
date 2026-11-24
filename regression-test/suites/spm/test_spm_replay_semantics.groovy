@@ -62,6 +62,14 @@ suite("test_spm_replay_semantics", "spm") {
         PROPERTIES("replication_num" = "1")"""
     sql "INSERT INTO spm_replay_ids VALUES (1, 2)"
 
+    sql "DROP TABLE IF EXISTS spm_replay_crypto"
+    sql """CREATE TABLE spm_replay_crypto (k INT, s STRING, aes_cipher STRING, sm4_cipher STRING)
+        DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num" = "1")"""
+    sql """INSERT INTO spm_replay_crypto SELECT 1, 'abc',
+        hex(aes_encrypt('abc', 'fixture-key', '', 'AES_256_ECB')),
+        hex(sm4_encrypt('abc', 'fixture-key', '0123456789abcdef', 'SM4_128_CBC'))"""
+
     sql "SET enable_spm_rewrite = true"
     sql "SET enable_spm_fallback = false"
     sql "SET enable_sql_cache = false"
@@ -207,6 +215,8 @@ suite("test_spm_replay_semantics", "spm") {
 
     def wholeContainers = [
         whole_map_key: "element_at(map_keys({NULL:1}), 1)",
+        array_of_map_keys: "element_at(map_keys(element_at([{NULL:1}], 1)), 1)",
+        nested_map_keys: "element_at(map_keys(element_at({'a':{NULL:1}}, 'a')), 1)",
         whole_nested_array: "element_at(element_at([[NULL]], 1), 1)",
         whole_nested_map: "element_at(element_at({'a':{'b':NULL}}, 'a'), 'b')",
         nested_map: "element_at(element_at(map('a', map('b', NULL)), 'a'), 'b')",
@@ -226,6 +236,31 @@ suite("test_spm_replay_semantics", "spm") {
         }
     }
 
+    def oldEncryptionMode = sql("SELECT @@block_encryption_mode")[0][0]
+    def verifyEncryptionMode = { String tag, String query, String creatorMode, String callerMode ->
+        sql "SET block_encryption_mode = '${creatorMode}'"
+        withBaseline(query) { long id ->
+            quickTest(tag + "_frozen", "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}")
+            sql "SET block_encryption_mode = '${callerMode}'"
+            sql "SET enable_spm_rewrite = false"
+            def ordinary = sql(query)
+            sql "SET enable_spm_rewrite = true"
+            quickTest(tag + "_rows", query, true)
+            quickTest(tag + "_hit", "SELECT ${sql(query) == ordinary}, ${explainHit(query, id)}")
+        }
+    }
+    try {
+        verifyEncryptionMode("aes_caller_mode", "SELECT hex(aes_encrypt(s, 'fixture-key')) AS cipher," +
+            " aes_decrypt(unhex(aes_cipher), 'fixture-key') AS plain FROM spm_replay_crypto",
+            "AES_128_ECB", "AES_256_ECB")
+        verifyEncryptionMode("sm4_caller_mode",
+            "SELECT hex(sm4_encrypt(s, 'fixture-key', '0123456789abcdef')) AS cipher," +
+            " sm4_decrypt(unhex(sm4_cipher), 'fixture-key', '0123456789abcdef') AS plain FROM spm_replay_crypto",
+            "SM4_128_ECB", "SM4_128_CBC")
+    } finally {
+        sql "SET block_encryption_mode = '${oldEncryptionMode}'"
+    }
+
     String decimalLiteral = "1.1234567890123456789012345678901234567"
     String decimal = "SELECT * REPLACE(${decimalLiteral} * ${decimalLiteral} AS k) FROM spm_replay_ids"
     def oldFold = sql("SELECT @@enable_fold_constant_by_be")[0][0]
@@ -239,6 +274,15 @@ suite("test_spm_replay_semantics", "spm") {
             def (rows, metadata) = JdbcUtils.executeToList(context.getConnection(), decimal)
             qt_decimal_settings_replayed """SELECT '${rows[0][0]}',
                 ${metadata.getPrecision(1)}, ${metadata.getScale(1)}, ${explainHit(decimal, id)}"""
+        }
+        String arrayAverage = "SELECT * REPLACE(array_avg([1.2]) AS k) FROM spm_replay_ids"
+        sql "SET enable_decimal256 = false"
+        withBaseline(arrayAverage) { long id ->
+            qt_array_avg_settings_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+            sql "SET enable_decimal256 = true"
+            def (rows, metadata) = JdbcUtils.executeToList(context.getConnection(), arrayAverage)
+            qt_array_avg_settings_replayed """SELECT '${rows[0][0]}',
+                ${metadata.getPrecision(1)}, ${metadata.getScale(1)}, ${explainHit(arrayAverage, id)}"""
         }
     } finally {
         sql "SET enable_decimal256 = ${oldDecimal256}"

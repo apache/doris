@@ -780,11 +780,11 @@ public class SPMPlanner {
         // retains view resolution and authorization.
         boolean referencesView = SPMPlanTreeSupport.referencesView(ctx, bindPlan)
                 || SPMPlanTreeSupport.referencesView(ctx, planPlan);
-        // VALUES cells and * REPLACE payloads keep concrete literals. Retain session-sensitive
-        // expressions in those positions so replay evaluates them under the caller's settings.
-        boolean foldedSessionSensitivePayload =
-                SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(bindPlan)
-                        || (!sameSql && SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(planPlan));
+        // Preserve omitted session-dependent arguments and keep concrete VALUES / REPLACE payloads
+        // that must be evaluated using the caller's settings.
+        boolean sessionSensitiveReplay =
+                SPMPlanTreeSupport.requiresSessionSensitiveReplay(bindPlan)
+                        || (!sameSql && SPMPlanTreeSupport.requiresSessionSensitiveReplay(planPlan));
         // An explicit FROM t INDEX mv pin is a SEMANTIC choice (on an aggregate-key
         // table a coarser rollup returns aggregated rows where the base table returns one
         // per record), and the decompiled text cannot carry it: the physical scan only
@@ -815,7 +815,7 @@ public class SPMPlanner {
             // for an ordinary query.
             optimizeResult = SPMOptimizer.optimize(ctx,
                     SPMPlanTreeSupport.stripCheckPolicy(parameterizedPlan), planSql);
-            frozen = decompileFrozenPlan(referencesView, foldedSessionSensitivePayload,
+            frozen = decompileFrozenPlan(referencesView, sessionSensitiveReplay,
                     pinsExplicitIndex,
                     parameterizeBuilder.hasParameterizedGroupByOrdinalTarget(),
                     optimizeResult, planSql);
@@ -1027,15 +1027,15 @@ public class SPMPlanner {
      * replayed ahead of authorization, and replaying a view's base-table expansion would
      * authorize those base tables instead of the view), when an inline VALUES cell /
      * REPLACE payload or analyzed concrete expression folds a value the caller's session must
-     * evaluate for itself (see
-     * SPMPlanTreeSupport.containsFoldedSessionSensitivePayload), or when the statement
+     * evaluate for itself, when binding inserts the session's encryption mode (see
+     * SPMPlanTreeSupport.requiresSessionSensitiveReplay), or when the statement
      * pins a materialized view / rollup with an explicit INDEX clause (the decompiled
      * text cannot carry the pin, and dropping it would read the base table instead of the
      * pinned - possibly coarser - index; see SPMPlanTreeSupport.pinsExplicitIndex). A GROUP BY ordinal
      * that references a parameterized SELECT item also keeps the original statement.
      */
     private static DecompiledPlan decompileFrozenPlan(boolean referencesView,
-            boolean foldedSessionSensitivePayload, boolean pinsExplicitIndex,
+            boolean sessionSensitiveReplay, boolean pinsExplicitIndex,
             boolean parameterizedGroupByOrdinal, SPMOptimizer.OptimizeResult optimizeResult,
             String planSql) {
         if (referencesView) {
@@ -1044,8 +1044,8 @@ public class SPMPlanner {
                     + " preserved)");
             return new DecompiledPlan(planSql, false);
         }
-        if (foldedSessionSensitivePayload || optimizeResult.hasConcreteSessionSensitiveExpression()) {
-            LOG.info("SPM freeze skipped: a concrete expression can fold a session-dependent"
+        if (sessionSensitiveReplay || optimizeResult.hasConcreteSessionSensitiveExpression()) {
+            LOG.info("SPM freeze skipped: binding or folding can capture a session-dependent"
                     + " value; keeping the user planSql so the"
                     + " rewrite replays the parameterized tree, where the caller's own"
                     + " session evaluates the expression");

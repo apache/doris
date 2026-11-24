@@ -105,7 +105,7 @@ public class SPMRound91GuardTest {
     public void testZoneSensitiveCastChainInValuesCellIsDetected() {
         String sql = "SELECT * REPLACE (CAST(CAST(CAST('2020-01-01 00:00:00+00:00'"
                 + " AS TIMESTAMPTZ) AS DATETIME(6)) AS STRING) AS a) FROM t";
-        Assertions.assertTrue(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(parse(sql)),
+        Assertions.assertTrue(SPMPlanTreeSupport.requiresSessionSensitiveReplay(parse(sql)),
                 "a TIMESTAMPTZ cast chain over literals freezes the creator's session zone");
     }
 
@@ -114,7 +114,7 @@ public class SPMRound91GuardTest {
     public void testZoneLessCastChainStaysFreezable() {
         String sql = "SELECT * REPLACE (CAST(CAST(1 AS BIGINT) AS STRING) AS a) FROM t";
         Assertions.assertFalse(
-                SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(parse(sql)),
+                SPMPlanTreeSupport.requiresSessionSensitiveReplay(parse(sql)),
                 "a zone-less cast chain is session independent");
     }
 
@@ -122,11 +122,11 @@ public class SPMRound91GuardTest {
     public void testConcreteCastPreflightOnUnanalyzedChildren() {
         for (String child : List.of("k", "abs(k)")) {
             LogicalPlan query = parse("SELECT * REPLACE(CAST(" + child + " AS BIGINT) AS k) FROM t");
-            Assertions.assertFalse(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(query));
+            Assertions.assertFalse(SPMPlanTreeSupport.requiresSessionSensitiveReplay(query));
         }
         for (String child : List.of("'abc'", "abs(1)")) {
             LogicalPlan query = parse("SELECT * REPLACE(CAST(" + child + " AS INT) AS k) FROM t");
-            Assertions.assertTrue(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(query));
+            Assertions.assertTrue(SPMPlanTreeSupport.requiresSessionSensitiveReplay(query));
             Assertions.assertTrue(SPMPlanTreeSupport.containsFoldedStrictCastPayload(query));
         }
     }
@@ -147,13 +147,40 @@ public class SPMRound91GuardTest {
         for (String value : List.of("from_second(0)", "from_millisecond(1)", "from_microsecond(1)",
                 "hour_from_unixtime(0)", "uuid_v7_to_datetime(" + uuid + ")", "UUIDv7ToDateTime(" + uuid + ")",
                 "monthname(DATE '2024-01-01')", "dayname(DATE '2024-01-01')")) {
-            Assertions.assertTrue(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+            Assertions.assertTrue(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
                     parse("SELECT * REPLACE(" + value + " AS k) FROM t")), value);
         }
-        Assertions.assertFalse(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+        Assertions.assertFalse(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
                 parse("SELECT * REPLACE(uuid_v7_to_datetime(" + uuid + ", 'UTC') AS k) FROM t")));
-        Assertions.assertFalse(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+        Assertions.assertFalse(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
                 parse("SELECT * REPLACE(monthname(k) AS k) FROM t")));
+    }
+
+    @Test
+    public void testImplicitEncryptionModeRequiresRawReplay() {
+        for (String function : List.of("aes_encrypt", "aes_decrypt", "sm4_encrypt", "sm4_decrypt")) {
+            Assertions.assertTrue(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
+                    parse("SELECT hex(" + function + "(s, 'fixture-key')) FROM t")), function);
+            Assertions.assertTrue(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
+                    parse("SELECT * REPLACE(" + function + "(s, 'fixture-key', 'fixture-iv') AS s) FROM t")),
+                    function);
+            Assertions.assertFalse(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
+                    parse("SELECT " + function + "(s, 'fixture-key', '', 'AES_128_ECB') FROM t")), function);
+        }
+        Assertions.assertFalse(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
+                parse("SELECT db1.aes_encrypt(s, 'fixture-key') FROM t")));
+    }
+
+    @Test
+    public void testConcreteDecimalArrayPayloadRequiresRawReplay() {
+        for (String function : List.of("array_avg", "array_sum", "array_product", "array_cum_sum")) {
+            Assertions.assertTrue(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
+                    parse("SELECT * REPLACE(" + function + "([1.2]) AS k) FROM t")), function);
+            Assertions.assertFalse(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
+                    parse("SELECT * REPLACE(" + function + "([1]) AS k) FROM t")), function);
+            Assertions.assertFalse(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
+                    parse("SELECT * REPLACE(" + function + "(a) AS k) FROM t")), function);
+        }
     }
 
     /** Every {@code SpmConstVar} marker the parameterization produced for one query. */

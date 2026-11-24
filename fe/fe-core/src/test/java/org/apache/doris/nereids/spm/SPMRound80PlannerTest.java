@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -197,6 +198,29 @@ public class SPMRound80PlannerTest {
                 Assertions.assertFalse(type.getItemType() instanceof BooleanType,
                         "only an all-NULL array is retyped, got: " + type);
             }
+        }
+    }
+
+    @Test
+    public void testMapKeysThroughNestedContainersKeepsTheContainerMarker() {
+        for (String input : List.of("element_at([{NULL:1}], 1)", "element_at({'key':{NULL:1}}, 'key')")) {
+            LogicalPlan query = parse("SELECT k, k > 0 OR element_at(map_keys(" + input + "), 1) FROM t");
+            TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
+            SPMPlanTreeSupport.transform(query, builder);
+
+            List<SpmConstVar> containers = builder.getPlaceholderExprs().stream()
+                    .map(PlaceholderSnapshot::placeholderExpr)
+                    .filter(SpmConstVar.class::isInstance)
+                    .map(SpmConstVar.class::cast)
+                    .filter(marker -> marker.getDataType() instanceof ArrayType || marker.getDataType() instanceof MapType)
+                    .toList();
+            Assertions.assertEquals(1, containers.size(), input);
+            SpmConstVar container = containers.get(0);
+            MapType nested = container.getDataType() instanceof ArrayType
+                    ? (MapType) ((ArrayType) container.getDataType()).getItemType()
+                    : (MapType) ((MapType) container.getDataType()).getValueType();
+            Assertions.assertEquals(BooleanType.INSTANCE, nested.getKeyType(), input);
+            Assertions.assertTrue(nested.getValueType().isIntegralType(), input);
         }
     }
 

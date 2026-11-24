@@ -132,6 +132,46 @@ true
 -- !whole_map_key_hit --
 true	true
 
+-- !array_of_map_keys_frozen --
+true
+
+-- !array_of_map_keys_bind_rows --
+-1	\N
+-1	\N
+-1	\N
+-1	\N
+1	true
+
+-- !array_of_map_keys_variant_rows --
+-1	true
+-1	true
+-1	true
+-1	true
+1	true
+
+-- !array_of_map_keys_hit --
+true	true
+
+-- !nested_map_keys_frozen --
+true
+
+-- !nested_map_keys_bind_rows --
+-1	\N
+-1	\N
+-1	\N
+-1	\N
+1	true
+
+-- !nested_map_keys_variant_rows --
+-1	true
+-1	true
+-1	true
+-1	true
+1	true
+
+-- !nested_map_keys_hit --
+true	true
+
 -- !whole_nested_array_frozen --
 true
 
@@ -206,11 +246,35 @@ true
 -- !any_value_hit --
 true	true
 
+-- !aes_caller_mode_frozen --
+false
+
+-- !aes_caller_mode_rows --
+437A11AB3855F7E8F667627B800BA1CA	abc
+
+-- !aes_caller_mode_hit --
+true	true
+
+-- !sm4_caller_mode_frozen --
+false
+
+-- !sm4_caller_mode_rows --
+7B26BA2E086234A7041CC6EE6527E2ED	abc
+
+-- !sm4_caller_mode_hit --
+true	true
+
 -- !decimal_settings_frozen --
 false
 
 -- !decimal_settings_replayed --
 1.26215515677793019455296448734281359532303002611342783114345526596755677489	76	74	true
+
+-- !array_avg_settings_frozen --
+false
+
+-- !array_avg_settings_replayed --
+1.2000	76	4	true
 
 -- !filtered_qualified_star_frozen --
 true
