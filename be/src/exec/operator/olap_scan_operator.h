@@ -19,6 +19,8 @@
 
 #include <stdint.h>
 
+#include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <unordered_set>
@@ -34,6 +36,10 @@
 #include "storage/tablet/tablet_reader.h"
 
 namespace doris {
+namespace io {
+class ReadAheadProfileReporter;
+struct ReadAheadStatistics;
+} // namespace io
 class OlapScanner;
 class QueryCacheRuntime;
 struct QueryCacheInstanceDecision;
@@ -47,7 +53,8 @@ public:
     using Parent = OlapScanOperatorX;
     using Base = ScanLocalState<OlapScanLocalState>;
     ENABLE_FACTORY_CREATOR(OlapScanLocalState);
-    OlapScanLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
+    OlapScanLocalState(RuntimeState* state, OperatorXBase* parent);
+    ~OlapScanLocalState() override;
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status prepare(RuntimeState* state) override;
     TOlapScanNode& olap_scan_node() const;
@@ -78,6 +85,7 @@ private:
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
+    void _report_read_ahead_profile(io::ReadAheadStatistics& statistics);
     Status _process_conjuncts(RuntimeState* state) override;
     Status _on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) override;
     bool _is_key_column(const std::string& col_name) override;
@@ -161,6 +169,8 @@ private:
     std::set<int32_t> _output_column_ids;
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
+    std::once_flag _read_ahead_profile_once;
+    std::unique_ptr<io::ReadAheadProfileReporter> _read_ahead_profile_reporter;
     RuntimeProfile::Counter* _bytes_scanned_from_cache = nullptr;
     RuntimeProfile::Counter* _bytes_scanned_from_remote = nullptr;
     RuntimeProfile::Counter* _bytes_write_into_cache = nullptr;

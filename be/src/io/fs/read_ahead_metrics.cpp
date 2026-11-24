@@ -17,79 +17,218 @@
 
 #include "io/fs/read_ahead_metrics.h"
 
+#include <array>
+#include <cstddef>
+
 namespace doris::io {
+
+namespace {
+
+struct MetricDefinition {
+    const char* name;
+    const char* parent;
+    RuntimeProfile::Counter ReadAheadStatistics::*source;
+};
+
+constexpr auto kMetrics = std::to_array<MetricDefinition>({
+        {.name = "ReadAheadPlanCalls",
+         .parent = "ReadAheadPlanning",
+         .source = &ReadAheadStatistics::plan_calls},
+        {.name = "ReadAheadPlanTime",
+         .parent = "ReadAheadPlanning",
+         .source = &ReadAheadStatistics::plan_time},
+        {.name = "ReadAheadColumnPlanTime",
+         .parent = "ReadAheadPlanning",
+         .source = &ReadAheadStatistics::column_plan_time},
+        {.name = "ReadAheadColumnInitTime",
+         .parent = "ReadAheadColumnPlanTime",
+         .source = &ReadAheadStatistics::column_init_time},
+        {.name = "ReadAheadPageAdvanceTime",
+         .parent = "ReadAheadColumnPlanTime",
+         .source = &ReadAheadStatistics::page_advance_time},
+        {.name = "ReadAheadWindowDiscardTime",
+         .parent = "ReadAheadColumnPlanTime",
+         .source = &ReadAheadStatistics::window_discard_time},
+        {.name = "ReadAheadCurrentBatchPlanTime",
+         .parent = "ReadAheadColumnPlanTime",
+         .source = &ReadAheadStatistics::current_batch_plan_time},
+        {.name = "ReadAheadWindowExtendTime",
+         .parent = "ReadAheadColumnPlanTime",
+         .source = &ReadAheadStatistics::window_extend_time},
+        {.name = "ReadAheadCandidatePages",
+         .parent = "ReadAheadPlanning",
+         .source = &ReadAheadStatistics::candidate_pages},
+        {.name = "ReadAheadCandidateBytes",
+         .parent = "ReadAheadPlanning",
+         .source = &ReadAheadStatistics::candidate_bytes},
+        {.name = "ReadAheadPageCacheHits",
+         .parent = "ReadAheadPlanning",
+         .source = &ReadAheadStatistics::page_cache_hits},
+        {.name = "ReadAheadPageCacheHitBytes",
+         .parent = "ReadAheadPlanning",
+         .source = &ReadAheadStatistics::page_cache_hit_bytes},
+        {.name = "ReadAheadInputPages",
+         .parent = "ReadAheadPlanning",
+         .source = &ReadAheadStatistics::input_pages},
+        {.name = "ReadAheadInputBytes",
+         .parent = "ReadAheadPlanning",
+         .source = &ReadAheadStatistics::input_bytes},
+        {.name = "ReadAheadCoalescedRanges",
+         .parent = "ReadAheadPlanning",
+         .source = &ReadAheadStatistics::coalesced_ranges},
+        {.name = "ReadAheadCoalescedBytes",
+         .parent = "ReadAheadPlanning",
+         .source = &ReadAheadStatistics::coalesced_bytes},
+        {.name = "ReadAheadBlockFillBytes",
+         .parent = "ReadAheadPlanning",
+         .source = &ReadAheadStatistics::block_fill_bytes},
+        {.name = "ReadAheadPlannedRanges",
+         .parent = "ReadAheadPlanning",
+         .source = &ReadAheadStatistics::planned_ranges},
+        {.name = "ReadAheadPlannedBytes",
+         .parent = "ReadAheadPlanning",
+         .source = &ReadAheadStatistics::planned_bytes},
+        {.name = "ReadAheadSubmittedRanges",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::submitted_ranges},
+        {.name = "ReadAheadSubmittedBytes",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::submitted_bytes},
+        {.name = "ReadAheadRejectedBatches",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::rejected_batches},
+        {.name = "ReadAheadQueryBudgetRejectedBatches",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::query_budget_rejected_batches},
+        {.name = "ReadAheadBEBudgetRejectedBatches",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::be_budget_rejected_batches},
+        {.name = "ReadAheadSubmitFailedRanges",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::submit_failed_ranges},
+        {.name = "ReadAheadCompletedRanges",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::completed_ranges},
+        {.name = "ReadAheadFailedRanges",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::failed_ranges},
+        {.name = "ReadAheadCancelledRanges",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::cancelled_ranges},
+        {.name = "ReadAheadQueueWaitTime",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::queue_wait_time},
+        {.name = "ReadAheadReadTime",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::read_time},
+        {.name = "ReadAheadSourceBytes",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::source_bytes},
+        {.name = "ReadAheadSuccessfulSourceBytes",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::successful_source_bytes},
+        {.name = "ReadAheadRemoteBytes",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::remote_bytes},
+        {.name = "ReadAheadLocalBytes",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::local_bytes},
+        {.name = "ReadAheadRemoteRequests",
+         .parent = "ReadAheadIO",
+         .source = &ReadAheadStatistics::remote_requests},
+        {.name = "ReadAheadReadyPageHits",
+         .parent = "ReadAheadConsume",
+         .source = &ReadAheadStatistics::ready_page_hits},
+        {.name = "ReadAheadWaitPageHits",
+         .parent = "ReadAheadConsume",
+         .source = &ReadAheadStatistics::wait_page_hits},
+        {.name = "ReadAheadWaitTime",
+         .parent = "ReadAheadConsume",
+         .source = &ReadAheadStatistics::wait_time},
+        {.name = "ReadAheadFallbackPages",
+         .parent = "ReadAheadConsume",
+         .source = &ReadAheadStatistics::fallback_pages},
+        {.name = "ReadAheadFallbackBytes",
+         .parent = "ReadAheadConsume",
+         .source = &ReadAheadStatistics::fallback_bytes},
+        {.name = "ReadAheadFallbackTime",
+         .parent = "ReadAheadConsume",
+         .source = &ReadAheadStatistics::fallback_time},
+        {.name = "ReadAheadConsumedPageBytes",
+         .parent = "ReadAheadConsume",
+         .source = &ReadAheadStatistics::consumed_page_bytes},
+        {.name = "ReadAheadConsumedRangeBytes",
+         .parent = "ReadAheadConsume",
+         .source = &ReadAheadStatistics::consumed_range_bytes},
+        {.name = "ReadAheadReleasedPages",
+         .parent = "ReadAheadConsume",
+         .source = &ReadAheadStatistics::released_pages},
+        {.name = "ReadAheadWritebackTime",
+         .parent = "ReadAheadWriteback",
+         .source = &ReadAheadStatistics::writeback_time},
+        {.name = "ReadAheadCompleteBlockSubmitTime",
+         .parent = "ReadAheadWritebackTime",
+         .source = &ReadAheadStatistics::complete_block_submit_time},
+        {.name = "ReadAheadPartialBlockSubmitTime",
+         .parent = "ReadAheadWritebackTime",
+         .source = &ReadAheadStatistics::partial_block_submit_time},
+        {.name = "ReadAheadCompleteBlocksSubmitted",
+         .parent = "ReadAheadWriteback",
+         .source = &ReadAheadStatistics::complete_blocks_submitted},
+        {.name = "ReadAheadCompleteBlockBytes",
+         .parent = "ReadAheadWriteback",
+         .source = &ReadAheadStatistics::complete_block_bytes},
+        {.name = "ReadAheadPartialBlocksQueued",
+         .parent = "ReadAheadWriteback",
+         .source = &ReadAheadStatistics::partial_blocks_queued},
+        {.name = "ReadAheadPartialBlocksMerged",
+         .parent = "ReadAheadWriteback",
+         .source = &ReadAheadStatistics::partial_blocks_merged},
+        {.name = "ReadAheadPartialFragmentBytes",
+         .parent = "ReadAheadWriteback",
+         .source = &ReadAheadStatistics::partial_fragment_bytes},
+        {.name = "ReadAheadWritebackDeduplicatedBlocks",
+         .parent = "ReadAheadWriteback",
+         .source = &ReadAheadStatistics::writeback_deduplicated_blocks},
+        {.name = "ReadAheadWritebackRejectedBlocks",
+         .parent = "ReadAheadWriteback",
+         .source = &ReadAheadStatistics::writeback_rejected_blocks},
+});
+
+} // namespace
+
+ReadAheadProfileReporter::ReadAheadProfileReporter(RuntimeProfile& profile,
+                                                   const ReadAheadStatistics& schema) {
+    static_assert(kMetrics.size() == kMetricCount);
+    ADD_LABEL_COUNTER(&profile, "PageReadAhead");
+    for (const char* group :
+         {"ReadAheadPlanning", "ReadAheadIO", "ReadAheadConsume", "ReadAheadWriteback"}) {
+        ADD_CHILD_COUNTER(&profile, group, TUnit::NONE, "PageReadAhead");
+    }
+    for (std::size_t i = 0; i < kMetrics.size(); ++i) {
+        const auto& metric = kMetrics[i];
+        _bindings[i] = {
+                .destination = ADD_CHILD_COUNTER(&profile, metric.name,
+                                                 (schema.*metric.source).type(), metric.parent),
+                .source = metric.source};
+    }
+}
+
+void ReadAheadProfileReporter::update(ReadAheadStatistics& statistics) const {
+    for (const auto& binding : _bindings) {
+        auto& source = statistics.*binding.source;
+        const int64_t delta = source.value();
+        COUNTER_UPDATE(binding.destination, delta);
+        // Subtract the snapshot, not the current value: an asynchronous increment of 3 after
+        // reading 5 must leave 3 for the next report rather than being reset to zero.
+        COUNTER_UPDATE(&source, -delta);
+    }
+}
 
 void ReadAheadStatistics::update_profile(RuntimeProfile* profile) {
     DORIS_CHECK(profile != nullptr);
-    ADD_LABEL_COUNTER(profile, "PageReadAhead");
-    for (const char* group :
-         {"ReadAheadPlanning", "ReadAheadIO", "ReadAheadConsume", "ReadAheadWriteback"}) {
-        ADD_CHILD_COUNTER(profile, group, TUnit::NONE, "PageReadAhead");
-    }
-    const auto update = [&](const char* name, const char* parent,
-                            RuntimeProfile::Counter& counter) {
-        const int64_t delta = counter.value();
-        COUNTER_UPDATE(ADD_CHILD_COUNTER(profile, name, counter.type(), parent), delta);
-        // Only the reporting thread drains counters. Subtract this snapshot so concurrent
-        // increments remain available for the next report.
-        COUNTER_UPDATE(&counter, -delta);
-    };
-    update("ReadAheadPlanCalls", "ReadAheadPlanning", plan_calls);
-    update("ReadAheadPlanTime", "ReadAheadPlanning", plan_time);
-    update("ReadAheadColumnPlanTime", "ReadAheadPlanning", column_plan_time);
-    update("ReadAheadColumnInitTime", "ReadAheadColumnPlanTime", column_init_time);
-    update("ReadAheadPageAdvanceTime", "ReadAheadColumnPlanTime", page_advance_time);
-    update("ReadAheadWindowDiscardTime", "ReadAheadColumnPlanTime", window_discard_time);
-    update("ReadAheadCurrentBatchPlanTime", "ReadAheadColumnPlanTime", current_batch_plan_time);
-    update("ReadAheadWindowExtendTime", "ReadAheadColumnPlanTime", window_extend_time);
-    update("ReadAheadCandidatePages", "ReadAheadPlanning", candidate_pages);
-    update("ReadAheadCandidateBytes", "ReadAheadPlanning", candidate_bytes);
-    update("ReadAheadPageCacheHits", "ReadAheadPlanning", page_cache_hits);
-    update("ReadAheadPageCacheHitBytes", "ReadAheadPlanning", page_cache_hit_bytes);
-    update("ReadAheadInputPages", "ReadAheadPlanning", input_pages);
-    update("ReadAheadInputBytes", "ReadAheadPlanning", input_bytes);
-    update("ReadAheadCoalescedRanges", "ReadAheadPlanning", coalesced_ranges);
-    update("ReadAheadCoalescedBytes", "ReadAheadPlanning", coalesced_bytes);
-    update("ReadAheadBlockFillBytes", "ReadAheadPlanning", block_fill_bytes);
-    update("ReadAheadPlannedRanges", "ReadAheadPlanning", planned_ranges);
-    update("ReadAheadPlannedBytes", "ReadAheadPlanning", planned_bytes);
-    update("ReadAheadSubmittedRanges", "ReadAheadIO", submitted_ranges);
-    update("ReadAheadSubmittedBytes", "ReadAheadIO", submitted_bytes);
-    update("ReadAheadRejectedBatches", "ReadAheadIO", rejected_batches);
-    update("ReadAheadQueryBudgetRejectedBatches", "ReadAheadIO", query_budget_rejected_batches);
-    update("ReadAheadBEBudgetRejectedBatches", "ReadAheadIO", be_budget_rejected_batches);
-    update("ReadAheadSubmitFailedRanges", "ReadAheadIO", submit_failed_ranges);
-    update("ReadAheadCompletedRanges", "ReadAheadIO", completed_ranges);
-    update("ReadAheadFailedRanges", "ReadAheadIO", failed_ranges);
-    update("ReadAheadCancelledRanges", "ReadAheadIO", cancelled_ranges);
-    update("ReadAheadQueueWaitTime", "ReadAheadIO", queue_wait_time);
-    update("ReadAheadReadTime", "ReadAheadIO", read_time);
-    update("ReadAheadSourceBytes", "ReadAheadIO", source_bytes);
-    update("ReadAheadSuccessfulSourceBytes", "ReadAheadIO", successful_source_bytes);
-    update("ReadAheadRemoteBytes", "ReadAheadIO", remote_bytes);
-    update("ReadAheadLocalBytes", "ReadAheadIO", local_bytes);
-    update("ReadAheadRemoteRequests", "ReadAheadIO", remote_requests);
-    update("ReadAheadReadyPageHits", "ReadAheadConsume", ready_page_hits);
-    update("ReadAheadWaitPageHits", "ReadAheadConsume", wait_page_hits);
-    update("ReadAheadWaitTime", "ReadAheadConsume", wait_time);
-    update("ReadAheadFallbackPages", "ReadAheadConsume", fallback_pages);
-    update("ReadAheadFallbackBytes", "ReadAheadConsume", fallback_bytes);
-    update("ReadAheadFallbackTime", "ReadAheadConsume", fallback_time);
-    update("ReadAheadConsumedPageBytes", "ReadAheadConsume", consumed_page_bytes);
-    update("ReadAheadConsumedRangeBytes", "ReadAheadConsume", consumed_range_bytes);
-    update("ReadAheadReleasedPages", "ReadAheadConsume", released_pages);
-    update("ReadAheadWritebackTime", "ReadAheadWriteback", writeback_time);
-    update("ReadAheadCompleteBlockSubmitTime", "ReadAheadWritebackTime",
-           complete_block_submit_time);
-    update("ReadAheadPartialBlockSubmitTime", "ReadAheadWritebackTime", partial_block_submit_time);
-    update("ReadAheadCompleteBlocksSubmitted", "ReadAheadWriteback", complete_blocks_submitted);
-    update("ReadAheadCompleteBlockBytes", "ReadAheadWriteback", complete_block_bytes);
-    update("ReadAheadPartialBlocksQueued", "ReadAheadWriteback", partial_blocks_queued);
-    update("ReadAheadPartialBlocksMerged", "ReadAheadWriteback", partial_blocks_merged);
-    update("ReadAheadPartialFragmentBytes", "ReadAheadWriteback", partial_fragment_bytes);
-    update("ReadAheadWritebackDeduplicatedBlocks", "ReadAheadWriteback",
-           writeback_deduplicated_blocks);
-    update("ReadAheadWritebackRejectedBlocks", "ReadAheadWriteback", writeback_rejected_blocks);
+    ReadAheadProfileReporter reporter(*profile, *this);
+    reporter.update(*this);
 }
 
 ReadAheadBvars& read_ahead_bvars() {
