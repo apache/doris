@@ -4169,12 +4169,15 @@ public final class SPMPlanTreeSupport {
 
     /**
      * The expansion of a QUALIFIED star: the relation its qualifier names, found by
-     * walking the JOIN sides of the relation the star projects from. Null when no side is
+     * walking through WHERE and policy filters to the JOIN sides. Null when no side is
      * addressed by the qualifier (the caller's own text may be invalid, or the relation
      * hides behind a shape this walk cannot address - the caller then declines).
      */
     private static StarLabels qualifiedStarExpansion(Plan relation, List<String> qualifier,
             CteScope scope) {
+        while (relation instanceof LogicalFilter || relation instanceof LogicalCheckPolicy) {
+            relation = relation.child(0);
+        }
         if (relation instanceof LogicalJoin || relation instanceof LogicalUsingJoin) {
             for (Plan child : relation.children()) {
                 StarLabels side = qualifiedStarExpansion(child, qualifier, scope);

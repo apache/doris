@@ -154,11 +154,6 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
     }
 
     @Override
-    public String getDbName() {
-        return dbName;
-    }
-
-    @Override
     public long getFunctionId() {
         return functionId;
     }

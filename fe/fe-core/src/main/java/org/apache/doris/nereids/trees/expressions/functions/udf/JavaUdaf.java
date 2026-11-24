@@ -143,11 +143,6 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     }
 
     @Override
-    public String getDbName() {
-        return dbName;
-    }
-
-    @Override
     public VolatileIdentity getVolatileIdentity() {
         return volatileIdentity;
     }

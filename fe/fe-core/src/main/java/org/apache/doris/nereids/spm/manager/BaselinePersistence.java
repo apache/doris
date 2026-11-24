@@ -202,11 +202,8 @@ public interface BaselinePersistence {
         return true;
     }
 
-    /**
-     * Whether no durable row carries (id, status, fingerprint) any more (the
-     * old-status-row-gone confirmation of a status flip).
-     */
-    default boolean isStatusRowGone(long id, String schemaFingerprint, BaselineStatus status) {
+    /** Whether the exact version targeted by the status cleanup delete is absent. */
+    default boolean isStatusRowGone(BaselinePlan plan, BaselineStatus status, long oldUpdateTimeMicros) {
         return true;
     }
 

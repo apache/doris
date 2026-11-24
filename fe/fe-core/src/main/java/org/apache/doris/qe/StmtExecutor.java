@@ -1721,7 +1721,7 @@ public class StmtExecutor {
     }
 
     private void forwardToMaster() throws Exception {
-        masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
+        masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isForwardableQuery());
         if (LOG.isDebugEnabled()) {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         }

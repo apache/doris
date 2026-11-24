@@ -160,7 +160,7 @@ public class StreamingInsertTaskAuditTest {
                 "`db`.`target table` PARTITION (p0) (c1)",
                 "target_table WITH LABEL old_label (c1)",
                 "target_table [shuffle]",
-                "target_table /* target comment */ (c1)"}) {
+                "target_table /* target comment 😀 */ (c1)"}) {
             AuditEvent event = runTask(null, S3_SQL.replace("target_table", target),
                     new S3SourceOffsetProvider(), new S3Offset(), true);
             Assertions.assertTrue(event.stmt.contains(target));

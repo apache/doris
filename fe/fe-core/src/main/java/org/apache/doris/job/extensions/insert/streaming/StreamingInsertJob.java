@@ -29,7 +29,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.InternalErrorCode;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.ExceptionDiagnosticUtils;
@@ -68,7 +67,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -109,7 +108,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -1434,10 +1432,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     private String generateEncryptedSql() {
         makeConnectContext();
-        TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
-        new NereidsParser().parseForEncryption(getExecuteSql(), indexInSqlToString);
-        BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());
-        String encryptSql = BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());
+        String encryptSql = NeedAuditEncryption.maskSql(getExecuteSql(), false);
         setEncryptedSql(encryptSql);
         return encryptSql;
     }

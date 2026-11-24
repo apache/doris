@@ -63,6 +63,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -175,9 +176,11 @@ public class BaselineManager {
      * dispatching the statement. Successful completion explicitly closes the writer's window.
      */
     private static final long MUTATION_WINDOW_MAX_AGE_SECONDS = 120L;
-    // Use the column's TIMESTAMPTZ type so the duplicate-key DELETE compares a bare column with a literal.
-    private static final String MUTATION_WINDOW_CUTOFF = "CAST(DATE_SUB(NOW(), INTERVAL "
-            + MUTATION_WINDOW_MAX_AGE_SECONDS + " SECOND) AS TIMESTAMPTZ(" + InternalSchema.SPM_TIMESTAMP_SCALE + "))";
+    // Compute elapsed time on the UTC timeline, including when the session zone changes clocks.
+    // The explicit offset makes the folded TIMESTAMPTZ literal suitable for the duplicate-key DELETE.
+    private static final String MUTATION_WINDOW_NOW_UTC = "UTC_TIMESTAMP(" + InternalSchema.SPM_TIMESTAMP_SCALE + ")";
+    private static final String MUTATION_WINDOW_CUTOFF = utcMutationTimestamp("DATE_SUB("
+            + MUTATION_WINDOW_NOW_UTC + ", INTERVAL " + MUTATION_WINDOW_MAX_AGE_SECONDS + " SECOND)");
 
     /**
      * Maximum allowed lead of a stored update timestamp over wall time, in microseconds. Status writers use this
@@ -235,7 +238,8 @@ public class BaselineManager {
     /** Append one high-water-mark / clock row (see SELECT_HWM_SQL, SELECT_CLOCK_SQL). */
     private static final String INSERT_HWM_SQL = "INSERT INTO " + SPM_BASELINES_HWM_TABLE
             + " (`watermark`, `update_time`, `tick`, `pending`, `window_owner`)"
-            + " VALUES (${lastId}, NOW(), ${tick}, ${pending}, '${owner}')";
+            + " VALUES (${lastId}, " + utcMutationTimestamp(MUTATION_WINDOW_NOW_UTC)
+            + ", ${tick}, ${pending}, '${owner}')";
 
     /**
      * Best-effort pruning of completed high-watermark rows superseded by the latest watermark or tick. Higher
@@ -857,29 +861,21 @@ public class BaselineManager {
         final BaselineStatus expectedStatus; // null = the row must become absent
         final long attemptedUpdateTimeMicros;
         final long sinceMillis;
-        /**
-         * When non-null, the window ALSO fences the version PRUNE the statement ran
-         * (persistNoOpStatusIntent): a pruned row a paginated reader still holds lets its
-         * stale page be accepted, so the window may only close once the reclaimed versions
-         * are provably gone as well.
-         */
-        final BaselinePlan pruneIdentity;
-        final long pruneKeepFromMicros;
+        // Extra visibility proof for a DELETE that can change the rows a snapshot paginates.
+        final Predicate<BaselinePersistence> cleanupVisible;
 
         UnresolvedMutationWindow(long id, BaselineStatus expectedStatus,
                 long attemptedUpdateTimeMicros, long sinceMillis) {
-            this(id, expectedStatus, attemptedUpdateTimeMicros, sinceMillis, null, 0L);
+            this(id, expectedStatus, attemptedUpdateTimeMicros, sinceMillis, null);
         }
 
         UnresolvedMutationWindow(long id, BaselineStatus expectedStatus,
-                long attemptedUpdateTimeMicros, long sinceMillis, BaselinePlan pruneIdentity,
-                long pruneKeepFromMicros) {
+                long attemptedUpdateTimeMicros, long sinceMillis, Predicate<BaselinePersistence> cleanupVisible) {
             this.id = id;
             this.expectedStatus = expectedStatus;
             this.attemptedUpdateTimeMicros = attemptedUpdateTimeMicros;
             this.sinceMillis = sinceMillis;
-            this.pruneIdentity = pruneIdentity;
-            this.pruneKeepFromMicros = pruneKeepFromMicros;
+            this.cleanupVisible = cleanupVisible;
         }
 
         /** Whether the snapshot shows the committed outcome (mirrors PendingMutationFence). */
@@ -901,30 +897,16 @@ public class BaselineManager {
             return row.getStatus() == expectedStatus;
         }
 
-        /**
-         * Whether the window's PRUNE half is settled: no version it reclaimed is readable
-         * any more (a store that models no versions answers 0 - nothing to prune).
-         *
-         * Parameter store: the persistence the probe reads
-         * Returns: whether the reclaimed versions are provably gone
-         */
-        boolean isPruneProbeSatisfied(BaselinePersistence store) {
-            if (pruneIdentity == null) {
-                return true;
+        /** Confirms the written row and any deleted versions before closing this window. */
+        boolean isSettled(BaselinePlan row, BaselinePersistence store) {
+            if (!isSatisfiedBy(row)) {
+                return false;
             }
             try {
-                return store.countVersionsBefore(pruneIdentity, pruneKeepFromMicros) == 0;
+                return cleanupVisible == null || cleanupVisible.test(store);
             } catch (RuntimeException e) {
                 return false; // the outcome cannot be read: the window stays held
             }
-        }
-
-        /**
-         * Both halves of the window: the committed row readable AND (when the statement
-         * pruned) the reclaimed versions provably gone.
-         */
-        boolean isSettled(BaselinePlan row, BaselinePersistence store) {
-            return isSatisfiedBy(row) && isPruneProbeSatisfied(store);
         }
     }
 
@@ -1400,14 +1382,14 @@ public class BaselineManager {
                     entries.remove(hash);
                 }
             }
-            rowIndex.remove(id);
+            rowIndex.remove(id, hash);
         }
 
         private void removeEntry(long hash) {
             LinkedHashMap<Long, BaselinePlan> rows = entries.remove(hash);
             if (rows != null) {
                 for (Long id : rows.keySet()) {
-                    rowIndex.remove(id);
+                    rowIndex.remove(id, hash);
                 }
             }
         }
@@ -1565,7 +1547,7 @@ public class BaselineManager {
                     it.hasNext();) {
                 Map.Entry<Long, BaselinePlan> row = it.next();
                 if (!seen.contains(row.getKey())) {
-                    rowIndex.remove(row.getKey());
+                    rowIndex.remove(row.getKey(), hash);
                     it.remove();
                     changed++;
                 }
@@ -1586,7 +1568,7 @@ public class BaselineManager {
                         entries.entrySet().iterator();
                 Map.Entry<Long, LinkedHashMap<Long, BaselinePlan>> eldest = it.next();
                 for (Long id : eldest.getValue().keySet()) {
-                    rowIndex.remove(id);
+                    rowIndex.remove(id, eldest.getKey());
                 }
                 it.remove();
             }
@@ -6234,7 +6216,8 @@ public class BaselineManager {
             return false; // no shared window exists (in-memory / scripted store)
         }
         unresolvedMutationWindows.put(tick, new UnresolvedMutationWindow(row.getId(),
-                row.getStatus(), row.getUpdateTime(), mutationWindowNow(), row, keepFromMicros));
+                row.getStatus(), row.getUpdateTime(), mutationWindowNow(),
+                store -> store.countVersionsBefore(row, keepFromMicros) == 0));
         LOG.warn("SPM keeps mutation window {} OPEN: the versions of baseline {} reclaimed by"
                 + " the no-op ALTER are not provably gone yet, so a paginated reader may still"
                 + " hold one of them; the window closes once a read proves the reclaim (or"
@@ -8825,31 +8808,19 @@ public class BaselineManager {
                 + " the row from the cache", p.getId(), BASELINE_VISIBILITY_ATTEMPTS);
     }
 
-    /**
-     * Polls whether the old status rows are gone after a successful delete. Probe failures are retried; exhaustion
-     * logs a warning and returns. Publishing the confirmed new row does not require every old version to have
-     * disappeared.
-     */
-    private void confirmStatusRowGone(BaselinePlan p, BaselineStatus status) {
-        if (!persistence.isDurable()) {
-            return;
-        }
-        long id = p.getId();
+    /** Waits until the old version targeted by the status cleanup is no longer readable. */
+    private boolean confirmStatusRowGone(BaselinePlan plan, BaselineStatus status, long oldUpdateTimeMicros) {
         for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
-            boolean gone;
             try {
-                gone = persistence.isStatusRowGone(id, p.getSchemaFingerprint(), status);
+                if (persistence.isStatusRowGone(plan, status, oldUpdateTimeMicros)) {
+                    return true;
+                }
             } catch (RuntimeException e) {
-                gone = false; // unconfirmable: retry, then treat the reported success as final
-            }
-            if (gone) {
-                return;
+                LOG.debug("SPM status cleanup visibility probe failed: {}", e.getMessage());
             }
             sleepBeforeVisibilityRetry();
         }
-        LOG.warn("SPM persist (delete by status) reported success and baseline {} still carries"
-                + " status {} after {} probes; the committed delete is the durable outcome",
-                id, status, BASELINE_VISIBILITY_ATTEMPTS);
+        return false;
     }
 
     private static void sleepBeforeVisibilityRetry() {
@@ -9162,42 +9133,43 @@ public class BaselineManager {
         // beginRowMutation): an overlapping snapshot read must retry over the flip's
         // DELETE half as well.
         long mutation = beginRowMutation();
+        boolean windowHeld = false;
         try {
-            // DISPATCH-time re-checks: everything above was verified BEFORE this point, and
-            // a paused caller can outlive its own fences. A demoted FE must not run the
-            // cleanup at all, and a window that aged past MUTATION_WINDOW_MAX_AGE_SECONDS
-            // is ignored by every successor - both would let this DELETE land on a state
-            // written after the window closed.
             assertLeaderForWrite();
             assertMutationWindowDispatchable(mutation);
             if (!persistence.isDurable()) {
                 return;
             }
-            long id = p.getId();
+            Exception deleteError = null;
             try {
                 persistence.deleteByIdAndStatus(p, status, oldUpdateTimeMicros);
             } catch (Exception e) {
-                // Ambiguous commit: only a READABLE zero row count proves the delete landed.
-                // An unconfirmable probe must surface as the original write failure.
-                try {
-                    if (durableRowCount(id, p.getSchemaFingerprint(), status) == 0) {
-                        LOG.warn("SPM persist (delete by status) reported {} but no row carries"
-                                + " ({}, {}); treating it as deleted", e.getMessage(), id, status);
-                        return;
-                    }
-                } catch (Throwable probeFailure) {
-                    throw new RuntimeException("SPM persist (delete by status) failed: "
-                            + e.getMessage() + " (the durable row could not be confirmed"
-                            + " deleted)", e);
-                }
-                throw new RuntimeException("SPM persist (delete by status) failed: "
-                        + e.getMessage(), e);
+                // A transport error can follow commit, before the deletion is readable.
+                deleteError = e;
             }
-            // Poll old-status visibility. A lagging or unanswerable probe does not undo the confirmed new row;
-            // exhaustion is logged and the caller publishes the new status with its fence.
-            confirmStatusRowGone(p, status);
+            if (confirmStatusRowGone(p, status, oldUpdateTimeMicros)) {
+                if (deleteError != null) {
+                    LOG.warn("SPM status cleanup of baseline {} reported an error but the deleted version"
+                            + " is no longer readable: {}", p.getId(), deleteError.getMessage());
+                }
+                return;
+            }
+            // Publishing the confirmed new status is safe locally. A remote reader may still
+            // hold an old page whose OFFSET will skip the new row after the DELETE publishes.
+            unresolvedMutationWindows.put(mutation, new UnresolvedMutationWindow(p.getId(),
+                    p.getStatus(), p.getUpdateTime(), mutationWindowNow(),
+                    store -> store.isStatusRowGone(p, status, oldUpdateTimeMicros)));
+            windowHeld = true;
+            LOG.warn("SPM keeps mutation window {} open until the status cleanup of baseline {} is readable",
+                    mutation, p.getId());
+            if (deleteError != null) {
+                throw new RuntimeException("SPM persist (delete by status) failed: "
+                        + deleteError.getMessage(), deleteError);
+            }
         } finally {
-            endRowMutation(mutation);
+            if (!windowHeld) {
+                endRowMutation(mutation);
+            }
         }
     }
 
@@ -9389,6 +9361,11 @@ public class BaselineManager {
                 + " CAST('1970-01-01 00:00:00+00:00' AS TIMESTAMPTZ), " + sqlExpression + ")";
     }
 
+    private static String utcMutationTimestamp(String utcDateTime) {
+        return "CAST(CONCAT(" + utcDateTime + ", '+00:00') AS TIMESTAMPTZ("
+                + InternalSchema.SPM_TIMESTAMP_SCALE + "))";
+    }
+
     /**
      * Epoch MICROSECONDS -> internal-table TIMESTAMPTZ literal WITH an explicit UTC offset,
      * rendered at the column's MICROSECOND precision
@@ -9517,8 +9494,10 @@ public class BaselineManager {
         }
 
         @Override
-        public boolean isStatusRowGone(long id, String schemaFingerprint, BaselineStatus status) {
-            return countByIdAndStatusFromTable(id, schemaFingerprint, status) == 0;
+        public boolean isStatusRowGone(BaselinePlan plan, BaselineStatus status, long oldUpdateTimeMicros) {
+            return owner.probeRowFromTable(plan.getId(), plan.getBindSqlDigest(), plan.getPlanSql(),
+                    status, normalizedFingerprint(plan), oldUpdateTimeMicros > 0 ? oldUpdateTimeMicros : null)
+                    == DurablePresence.ABSENT;
         }
 
         @Override

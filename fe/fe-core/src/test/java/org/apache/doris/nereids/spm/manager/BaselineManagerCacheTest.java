@@ -133,6 +133,24 @@ public class BaselineManagerCacheTest {
                 "re-reading 0xA1 evicted the least recently used entry (0xB2)");
     }
 
+    @Test
+    public void testDropFindsRowAfterSnapshotMovesItToAnotherCachedHash() {
+        BaselinePlan moved = row(301L, "moved", 2L, BaselineStatus.ENABLED);
+        BaselinePlan oldBucketPeer = row(302L, "old-peer", 2L, BaselineStatus.ENABLED);
+        BaselinePlan newBucketPeer = row(303L, "new-peer", 1L, BaselineStatus.ENABLED);
+        manager.applyRefreshedBaselines(Map.of(301L, moved, 302L, oldBucketPeer, 303L, newBucketPeer));
+
+        BaselinePlan replacement = row(301L, "moved", 1L, BaselineStatus.ENABLED);
+        manager.applyRefreshedBaselines(Map.of(301L, replacement, 302L, oldBucketPeer, 303L, newBucketPeer));
+        Assertions.assertEquals(List.of(replacement), manager.findCandidateBaselines("moved", 1L));
+        Assertions.assertTrue(manager.findCandidateBaselines("moved", 2L).isEmpty());
+
+        Assertions.assertTrue(manager.dropBaseline(301L));
+        Assertions.assertTrue(manager.findCandidateBaselines("moved", 1L).isEmpty());
+        Assertions.assertEquals(List.of(newBucketPeer), manager.findCandidateBaselines("new-peer", 1L));
+        Assertions.assertEquals(List.of(oldBucketPeer), manager.findCandidateBaselines("old-peer", 2L));
+    }
+
     /**
      * One hash entry carries EVERY row of that bind_sql (the reviewer requirement: the
      * cache of one bindSql must be complete): a second id of the same hash is served

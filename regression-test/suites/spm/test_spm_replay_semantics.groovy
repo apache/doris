@@ -245,6 +245,40 @@ suite("test_spm_replay_semantics", "spm") {
         sql "SET enable_fold_constant_by_be = ${oldFold}"
     }
 
+    String filteredJoin = "SELECT a.* FROM (SELECT k, k + 2 AS v FROM spm_replay_semantics_u) a" +
+            " JOIN spm_replay_semantics_u b ON a.k = b.k WHERE a.k > 0"
+    String filteredJoinVariant = filteredJoin.replace("a.k > 0", "a.k > 1")
+    withBaseline(filteredJoin) { long id ->
+        qt_filtered_qualified_star_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+        order_qt_filtered_qualified_star filteredJoin
+        order_qt_filtered_qualified_star_variant filteredJoinVariant
+        qt_filtered_qualified_star_hit "SELECT ${explainHit(filteredJoin, id)}, ${explainHit(filteredJoinVariant, id)}"
+    }
+
+    String savedClockZone = sql("SELECT @@time_zone")[0][0]
+    try {
+        sql "SET time_zone = 'UTC'"
+        String rawFilteredJoin = "SELECT a.* FROM (SELECT * REPLACE(from_second(0) AS v) FROM spm_replay_ids) a" +
+                " JOIN spm_replay_semantics_u b ON a.k = b.k WHERE a.k > 0"
+        withBaseline(rawFilteredJoin) { long id ->
+            qt_raw_filtered_qualified_star_frozen """SELECT plan_frozen FROM __internal_schema.spm_baselines
+                WHERE id = ${id}"""
+            order_qt_raw_filtered_qualified_star rawFilteredJoin
+            qt_raw_filtered_qualified_star_hit "SELECT ${explainHit(rawFilteredJoin, id)}"
+        }
+
+        sql "SET time_zone = 'America/Los_Angeles'"
+        // At 03:00:30 local time just after the spring jump, the marker is 60 seconds old.
+        qt_mutation_cutoff_dst """SELECT CAST('2024-03-10 09:59:30+00:00' AS TIMESTAMPTZ(6)) >
+            CAST(CONCAT(DATE_SUB(CAST('2024-03-10 10:00:30' AS DATETIMEV2(6)),
+                INTERVAL 120 SECOND), '+00:00') AS TIMESTAMPTZ(6)),
+            CAST('2024-03-10 09:58:30+00:00' AS TIMESTAMPTZ(6)) <=
+            CAST(CONCAT(DATE_SUB(CAST('2024-03-10 10:00:30' AS DATETIMEV2(6)),
+                INTERVAL 120 SECOND), '+00:00') AS TIMESTAMPTZ(6))"""
+    } finally {
+        sql "SET time_zone = '${savedClockZone}'"
+    }
+
     String starSubquery = "SELECT * REPLACE((SELECT max(k) + 1 FROM spm_replay_semantics_u) AS k)" +
             " FROM spm_replay_ids"
     long starId = create(starSubquery, starSubquery + " ")

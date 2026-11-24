@@ -150,11 +150,6 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
     }
 
     @Override
-    public String getDbName() {
-        return dbName;
-    }
-
-    @Override
     public VolatileIdentity getVolatileIdentity() {
         return volatileIdentity;
     }

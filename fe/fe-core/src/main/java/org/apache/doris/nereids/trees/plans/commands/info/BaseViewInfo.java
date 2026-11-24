@@ -125,7 +125,7 @@ public class BaseViewInfo {
     }
 
     /**
-     * Add the full path to the field
+     * Rewrite view SQL using inclusive ANTLR code-point positions.
      *
      * @param indexStringSqlMap key is the start and end position of the sql substring that needs to be replaced,
      *         and value is the new string used for replacement. The positions are the token positions the
@@ -150,6 +150,19 @@ public class BaseViewInfo {
         }
         builder.append(querySql, beg, querySql.length());
         return builder.toString();
+    }
+
+    /** Apply replacements whose inclusive ranges already use Java UTF-16 offsets. */
+    public static String rewriteSqlWithUtf16Offsets(TreeMap<Pair<Integer, Integer>, String> replacements,
+            String sql) {
+        StringBuilder builder = new StringBuilder();
+        int next = 0;
+        for (Map.Entry<Pair<Integer, Integer>, String> entry : replacements.entrySet()) {
+            Pair<Integer, Integer> range = entry.getKey();
+            builder.append(sql, next, range.first).append(entry.getValue());
+            next = range.second + 1;
+        }
+        return builder.append(sql, next, sql.length()).toString();
     }
 
     protected String rewriteProjectsToUserDefineAlias(String resSql) {

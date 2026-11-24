@@ -241,7 +241,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
                             + SqlLiteralUtils.quoteStringLiteral(entry.getValue()))
                     .collect(Collectors.joining(", "));
             replacements.replace(replacements.firstKey(), rendered);
-            return BaseViewInfo.rewriteSql(replacements, statement);
+            return BaseViewInfo.rewriteSqlWithUtf16Offsets(replacements, statement);
         } catch (RuntimeException e) {
             // Parser errors can echo properties; neither their text nor cause may enter an audit failure log.
             throw new IllegalStateException("Cannot safely render the S3 streaming audit statement");

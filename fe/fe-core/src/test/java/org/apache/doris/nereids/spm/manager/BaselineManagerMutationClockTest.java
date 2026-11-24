@@ -203,6 +203,9 @@ public class BaselineManagerMutationClockTest {
         /** Runs right AFTER a written conditional INSERT (e.g. to model a later flip). */
         private Runnable insertHook;
 
+        private boolean delayCleanup;
+        private Runnable publishCleanup;
+
         /** Seeds one durable status row with its stored version. */
         void seed(BaselineStatus status, long versionMillis) {
             rows.merge(status, 1, Integer::sum);
@@ -252,6 +255,10 @@ public class BaselineManagerMutationClockTest {
          */
         @Override
         public void deleteByIdAndStatus(long id, BaselineStatus status, long oldUpdateTimeMicros) {
+            if (delayCleanup) {
+                publishCleanup = () -> deleteByIdAndStatus(id, status, oldUpdateTimeMicros);
+                return;
+            }
             operations.add("delete:" + status + "@" + oldUpdateTimeMicros);
             if (oldUpdateTimeMicros <= 0) {
                 deleteByIdAndStatus(id, status);
@@ -273,6 +280,70 @@ public class BaselineManagerMutationClockTest {
         public long newestStoredUpdateMicros() {
             return versions.values().stream().flatMap(List::stream)
                     .mapToLong(Long::longValue).max().orElse(0L);
+        }
+    }
+
+    @Test
+    public void testClockWritesAndExpiryUseUtcInstants() {
+        String[] clockSql = BaselineManagerTestAccess.mutationWindowClockSql();
+        String cutoff = clockSql[0];
+        Assertions.assertTrue(cutoff.contains("DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 120 SECOND), '+00:00'"));
+        Assertions.assertTrue(clockSql[1].contains("`update_time` > " + cutoff));
+        Assertions.assertTrue(clockSql[2].contains("`update_time` <= " + cutoff));
+        Assertions.assertTrue(clockSql[3].contains("CONCAT(UTC_TIMESTAMP(6), '+00:00')"));
+    }
+
+    @Test
+    public void testDelayedStatusCleanupKeepsSnapshotFencedUntilOldVersionIsGone() {
+        manager = newManager();
+        BaselineManagerTestAccess.clear(manager);
+        MutationClockSimulator clock = new MutationClockSimulator();
+        StatusStoreSimulator store = new StatusStoreSimulator();
+        try {
+            BaselinePlan original = baseline("delayed-cleanup", "SELECT k FROM t1");
+            long id = manager.createBaseline(original);
+            long oldVersion = original.getUpdateTime();
+            store.seed(BaselineStatus.ENABLED, oldVersion);
+            store.delayCleanup = true;
+            doubles.statusProtocolStore = store;
+            doubles.mutationClockStore = clock;
+            doubles.visibilityProbe = new BaselineTestDoubles.DurableVisibilityProbe() {
+                @Override
+                public boolean isReadable(long rowId, BaselineStatus status) {
+                    return store.countByIdAndStatus(rowId, status) > 0;
+                }
+
+                @Override
+                public boolean isReadable(long rowId, BaselineStatus status, long updateTimeMicros) {
+                    return store.storedVersions(status).contains(updateTimeMicros);
+                }
+            };
+            doubles.seedDurableRow(original.copyPersistedScalars());
+
+            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.DISABLED));
+            Assertions.assertEquals(BaselineStatus.DISABLED, original.getStatus());
+            Assertions.assertNotNull(store.publishCleanup);
+            Assertions.assertTrue(BaselineManagerTestAccess.holdsUnresolvedMutationWindow());
+            Assertions.assertFalse(BaselineManagerTestAccess.snapshotFence(manager).quiet());
+
+            BaselinePlan disabled = original.copyPersistedScalars();
+            doubles.seedDurableRow(disabled);
+            BaselineManagerTestAccess.settleHeldMutationWindowsBeforeSnapshot(manager);
+            Assertions.assertFalse(BaselineManagerTestAccess.snapshotFence(manager).quiet(),
+                    "seeing the new status does not prove the old version has gone");
+
+            store.delayCleanup = false;
+            store.publishCleanup.run();
+            store.seed(BaselineStatus.ENABLED, oldVersion + 1);
+            BaselineManagerTestAccess.settleHeldMutationWindowsBeforeSnapshot(manager);
+            Assertions.assertFalse(BaselineManagerTestAccess.holdsUnresolvedMutationWindow());
+            Assertions.assertTrue(BaselineManagerTestAccess.snapshotFence(manager).quiet(),
+                    "an unrelated old-status version does not keep the targeted cleanup open");
+        } finally {
+            doubles.visibilityProbe = null;
+            doubles.mutationClockStore = null;
+            doubles.statusProtocolStore = null;
+            BaselineManagerTestAccess.clear(manager);
         }
     }
 

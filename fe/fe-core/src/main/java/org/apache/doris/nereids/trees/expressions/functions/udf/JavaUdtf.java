@@ -149,11 +149,6 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
     }
 
     @Override
-    public String getDbName() {
-        return dbName;
-    }
-
-    @Override
     public long getFunctionId() {
         return functionId;
     }

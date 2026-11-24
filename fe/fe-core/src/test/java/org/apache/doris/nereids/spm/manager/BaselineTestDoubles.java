@@ -376,8 +376,8 @@ public final class BaselineTestDoubles {
         }
 
         @Override
-        public boolean isStatusRowGone(long id, String schemaFingerprint, BaselineStatus status) {
-            return visibilityProbe == null || !visibilityProbe.isReadable(id, status);
+        public boolean isStatusRowGone(BaselinePlan plan, BaselineStatus status, long oldUpdateTimeMicros) {
+            return visibilityProbe == null || !visibilityProbe.isReadable(plan.getId(), status, oldUpdateTimeMicros);
         }
 
         @Override

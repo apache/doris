@@ -599,4 +599,12 @@ public final class BaselineManagerTestAccess {
     public static String pendingWindowReadSql() {
         return (String) staticValue("SELECT_PENDING_TICK_SQL");
     }
+
+    public static String[] mutationWindowClockSql() {
+        return new String[] {
+                (String) staticValue("MUTATION_WINDOW_CUTOFF"),
+                (String) staticValue("SELECT_CLOCK_SQL"),
+                (String) staticValue("EXPIRED_MUTATION_WINDOWS"),
+                (String) staticValue("INSERT_HWM_SQL")};
+    }
 }
