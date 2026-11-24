@@ -38,10 +38,13 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -67,6 +70,8 @@ public class RuntimeFilterContext {
     private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newLinkedHashMap();
 
     private final Map<Plan, EffectiveSrcType> effectiveSrcNodes = Maps.newIdentityHashMap();
+    // Keep row-level changelog influence even when none of the current output keys change.
+    private final Map<Plan, Set<Slot>> changelogSourceSlots = Maps.newIdentityHashMap();
 
     private final SessionVariable sessionVariable;
 
@@ -225,17 +230,34 @@ public class RuntimeFilterContext {
         REF, NATIVE, CHANGELOG
     }
 
+    /** Record an ordinary source or a changelog source that affects all output slots. */
     public void addEffectiveSrcNode(Plan node, EffectiveSrcType type) {
-        effectiveSrcNodes.merge(node, type,
-                (existing, incoming) -> existing.compareTo(incoming) >= 0 ? existing : incoming);
+        if (type == EffectiveSrcType.CHANGELOG) {
+            addChangelogSource(node, node.getOutputSet());
+        } else {
+            effectiveSrcNodes.merge(node, type,
+                    (existing, incoming) -> existing.compareTo(incoming) >= 0 ? existing : incoming);
+        }
     }
 
-    public boolean isEffectiveSrcNode(Plan node) {
-        return effectiveSrcNodes.keySet().contains(node);
+    void addChangelogSource(Plan node, Collection<Slot> slots) {
+        changelogSourceSlots.computeIfAbsent(node, ignored -> new HashSet<>()).addAll(slots);
+    }
+
+    boolean hasChangelogSource(Plan node) {
+        return changelogSourceSlots.containsKey(node);
+    }
+
+    Set<Slot> getChangelogSourceSlots(Plan node) {
+        return changelogSourceSlots.getOrDefault(node, Collections.emptySet());
+    }
+
+    EffectiveSrcType getOrdinaryEffectiveSrcType(Plan node) {
+        return effectiveSrcNodes.get(node);
     }
 
     public EffectiveSrcType getEffectiveSrcType(Plan plan) {
-        return effectiveSrcNodes.get(plan);
+        return hasChangelogSource(plan) ? EffectiveSrcType.CHANGELOG : getOrdinaryEffectiveSrcType(plan);
     }
 
     @VisibleForTesting

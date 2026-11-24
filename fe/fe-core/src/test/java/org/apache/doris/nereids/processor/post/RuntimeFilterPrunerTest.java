@@ -25,6 +25,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -210,6 +211,32 @@ class RuntimeFilterPrunerTest extends TestWithFeService {
 
         Assertions.assertTrue(context.getNereidsRuntimeFilter().isEmpty());
         Assertions.assertEquals(1, context.prunedRF.size());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true, true, MIN_DELTA", "true, false, MIN_DELTA",
+            "false, true, MIN_DELTA", "false, false, MIN_DELTA",
+            "true, true, APPEND_ONLY", "true, false, APPEND_ONLY"})
+    void testOuterJoinChangelogFollowsBuildKey(boolean hashJoin, boolean streamKey, String streamType) {
+        String condition = hashJoin ? "a.id = s.id" : "COALESCE(a.id, 0) < s.id";
+        String key = streamKey ? "stream_key" : "preserved_key";
+        RuntimeFilterContext context = getRuntimeFilterContext(
+                "SELECT f.id, b.preserved_key, b.stream_key FROM rf_prune_fact f JOIN [broadcast] ("
+                        + "SELECT a.agent_code AS preserved_key, COALESCE(s.agent_code, -1) AS stream_key "
+                        + "FROM rf_prune_fact a LEFT JOIN [broadcast] "
+                        + "rf_prune_stream_base@incr('incrementType'='" + streamType + "') s ON " + condition
+                        + ") b ON f.agent_code = b." + key, true);
+
+        List<RuntimeFilter> retained = context.getNereidsRuntimeFilter();
+        List<RuntimeFilter> pruned = context.prunedRF;
+        Assertions.assertEquals(streamKey ? 1 : 0, retained.size());
+        Assertions.assertEquals(streamKey ? 0 : 1, pruned.size());
+        PhysicalHashJoin<?, ?> builder = (PhysicalHashJoin<?, ?>) (streamKey ? retained : pruned)
+                .get(0).getBuilderNode();
+        Assertions.assertTrue(builder.right().anyMatch(plan ->
+                (hashJoin ? plan instanceof PhysicalHashJoin : plan instanceof PhysicalNestedLoopJoin)
+                        && ((AbstractPhysicalJoin<?, ?>) plan).getJoinType().isLeftOuterJoin()),
+                () -> builder.right().treeString());
     }
 
     @ParameterizedTest
