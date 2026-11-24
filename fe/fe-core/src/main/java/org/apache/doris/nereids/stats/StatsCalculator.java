@@ -40,7 +40,9 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -129,6 +131,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
@@ -1080,8 +1083,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics visitPhysicalStorageLayerAggregate(
             PhysicalStorageLayerAggregate storageLayerAggregate, Void context) {
         PhysicalRelation relation = storageLayerAggregate.getRelation();
-        return relation.accept(this, context);
-
+        Statistics scanStats = relation.accept(this, context);
+        if (storageLayerAggregate.getAggOp() == PushDownAggOp.MIN_MAX && relation instanceof PhysicalOlapScan) {
+            List<Slot> slots = ((PhysicalOlapScan) relation).getOperativeSlots();
+            if (slots.size() == 1 && slots.get(0).nullable()) {
+                // Use the same estimate of effective input rows as a scan with the redundant NOT NULL filter.
+                return new FilterEstimation().estimate(new Not(new IsNull(slots.get(0))), scanStats);
+            }
+        }
+        return scanStats;
     }
 
     @Override
