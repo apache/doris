@@ -47,6 +47,7 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.ManifestReader;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.FileIO;
@@ -57,6 +58,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -485,6 +487,34 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     public View getIcebergView(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         return viewEntry.get(nameMapping.getCtlId()).get(nameMapping);
+    }
+
+    public IcebergSchemaCacheValue getIcebergViewSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
+        try {
+            return dorisTable.getCatalog().getExecutionAuthenticator().execute(() -> {
+                View view = getIcebergView(dorisTable);
+                Schema viewSchema = schemaId == IcebergUtils.NEWEST_SCHEMA_ID
+                        ? view.schema() : view.schemas().get((int) schemaId);
+                Preconditions.checkNotNull(viewSchema,
+                        "Schema for view %s.%s is null", dorisTable.getDbName(), dorisTable.getName());
+                NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+                boolean enableMappingVarbinary = dorisTable.getCatalog().getEnableMappingVarbinary();
+                boolean enableMappingTimestampTz = dorisTable.getCatalog().getEnableMappingTimestampTz();
+                // View UUIDs isolate recreated views; mapping options identify the schema projection.
+                IcebergSchemaCacheKey key = new IcebergSchemaCacheKey(
+                        nameMapping, "view:" + view.uuid(), viewSchema.schemaId(),
+                        enableMappingVarbinary, enableMappingTimestampTz);
+                return (IcebergSchemaCacheValue) schemaEntry.get(nameMapping.getCtlId()).get(key, ignored -> {
+                    IcebergSchemaCacheValue value = new IcebergSchemaCacheValue(
+                            IcebergUtils.parseSchema(viewSchema, enableMappingVarbinary, enableMappingTimestampTz),
+                            Collections.emptyList());
+                    value.validateSchema();
+                    return value;
+                });
+            });
+        } catch (Exception e) {
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
     }
 
     public IcebergSchemaCacheValue getIcebergSchemaCacheValue(NameMapping nameMapping, long schemaId) {

@@ -116,6 +116,13 @@ public class Config extends ConfigBase {
     @ConfField(description = {"FE 审计日志文件的种类", "The type of FE audit log file"},
             options = {"slow_query", "query", "load", "stream_load"})
     public static String[] audit_log_modules = {"slow_query", "query", "load", "stream_load"};
+
+    @ConfField(mutable = true, callback = RegexConfHandler.class, description = "Case-insensitive regex searched in "
+            + "data source property names when masking output. Combined with built-in secret rules. "
+            + "Use (?!) to disable only this additional rule. Applies on each FE without changing connection values.")
+    public static volatile String datasource_sensitive_property_pattern =
+            "password|passwd|secret|token|credential|access[._-]?key|api[._-]?key";
+
     @ConfField(mutable = true, description = {"慢查询的阈值，单位为毫秒。如果一个查询的响应时间超过这个阈值，"
             + "则会被记录在 audit log 中。",
             "The threshold of slow query, in milliseconds. "
@@ -4058,7 +4065,7 @@ public class Config extends ConfigBase {
     public static long mow_get_ms_lock_retry_backoff_interval = 80;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_notify_be_after_load_txn_commit = false;
+    public static boolean enable_notify_be_after_load_txn_commit = true;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

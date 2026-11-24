@@ -1627,6 +1627,11 @@ DEFINE_mBool(enable_mow_compaction_correctness_check_core, "false");
 DEFINE_mBool(enable_mow_compaction_correctness_check_fail, "false");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
+DEFINE_mBool(enable_compressed_rowid_conversion, "true");
+// Compress only when physical input rows * 8 exceeds this many bytes (500 MiB).
+DEFINE_mInt64(compressed_rowid_conversion_threshold_bytes, "524288000");
+DEFINE_Validator(compressed_rowid_conversion_threshold_bytes,
+                 [](int64_t value) { return value >= 0; });
 // missing rows correctness check when compaction for mow table
 DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
@@ -2050,9 +2055,9 @@ DEFINE_mInt32(concurrency_stats_dump_interval_ms, "100");
 DEFINE_Validator(concurrency_stats_dump_interval_ms,
                  [](const int32_t config) -> bool { return config >= 10; });
 
-DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
+DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "false");
 
-DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "false");
+DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "true");
 DEFINE_mInt32(file_handles_deplenish_frequency_times, "3");
 
 // clang-format off

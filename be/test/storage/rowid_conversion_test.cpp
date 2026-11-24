@@ -34,6 +34,7 @@
 #include <string>
 #include <tuple>
 #include <unordered_map>
+#include <utility>
 
 #include "cloud/cloud_cumulative_compaction.h"
 #include "cloud/cloud_storage_engine.h"
@@ -314,7 +315,8 @@ protected:
     void check_rowid_conversion(KeysType keys_type, bool enable_unique_key_merge_on_write,
                                 uint32_t num_input_rowset, uint32_t num_segments,
                                 uint32_t rows_per_segment, const SegmentsOverlapPB& overlap,
-                                bool has_delete_handler, bool is_vertical_merger) {
+                                bool has_delete_handler, bool is_vertical_merger,
+                                RowIdConversion::Mode mode = RowIdConversion::Mode::DENSE) {
         // generate input data
         std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
         generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
@@ -373,7 +375,7 @@ protected:
         }
 
         Merger::Statistics stats;
-        RowIdConversion rowid_conversion;
+        RowIdConversion rowid_conversion(mode);
         stats.rowid_conversion = &rowid_conversion;
         Status s;
         if (is_vertical_merger) {
@@ -422,20 +424,25 @@ protected:
             }
         }
 
+        ASSERT_TRUE(rowid_conversion.finalize(segment_num_rows).ok());
+        CompressedRowIdMap::Cursor cursor;
+        CompressedRowIdMap::DecodeWorkspace workspace;
         // check rowid conversion
         uint64_t count = 0;
         for (auto rs_id = 0; rs_id < input_data.size(); rs_id++) {
             for (auto s_id = 0; s_id < input_data[rs_id].size(); s_id++) {
                 for (auto row_id = 0; row_id < input_data[rs_id][s_id].size(); row_id++) {
                     RowLocation src(input_rowsets[rs_id]->rowset_id(), s_id, row_id);
-                    RowLocation dst;
-                    int res = rowid_conversion.get(src, &dst);
-                    if (res < 0) {
+                    RowIdConversion::RowIdPair dst;
+                    ASSERT_TRUE(rowid_conversion.find_source(src.rowset_id, src.segment_id)
+                                        .get(src.row_id, cursor, workspace, &dst)
+                                        .ok());
+                    if (dst.first == UINT32_MAX) {
                         continue;
                     }
-                    size_t rowid_in_output_data = dst.row_id;
-                    EXPECT_GT(segment_num_rows[dst.segment_id], dst.row_id);
-                    for (auto n = 1; n <= dst.segment_id; n++) {
+                    size_t rowid_in_output_data = dst.second;
+                    EXPECT_GT(segment_num_rows[dst.first], dst.second);
+                    for (uint32_t n = 1; n <= dst.first; n++) {
                         rowid_in_output_data += segment_num_rows[n - 1];
                     }
                     EXPECT_EQ(std::get<0>(output_data[rowid_in_output_data]),
@@ -503,6 +510,122 @@ private:
     std::string absolute_dir;
 };
 
+TEST_F(TestRowIdConversion, CompressionSelectionUsesPhysicalInputBytes) {
+    const bool old_enabled = config::enable_compressed_rowid_conversion;
+    const int64_t old_threshold = config::compressed_rowid_conversion_threshold_bytes;
+    const bool old_debug = config::debug_inverted_index_compaction;
+    Defer restore {[&] {
+        config::enable_compressed_rowid_conversion = old_enabled;
+        config::compressed_rowid_conversion_threshold_bytes = old_threshold;
+        config::debug_inverted_index_compaction = old_debug;
+    }};
+    config::enable_compressed_rowid_conversion = true;
+    config::debug_inverted_index_compaction = false;
+    ASSERT_TRUE(config::set_config("compressed_rowid_conversion_threshold_bytes", "16").ok());
+    EXPECT_FALSE(config::set_config("compressed_rowid_conversion_threshold_bytes", "-1").ok());
+    EXPECT_EQ(config::compressed_rowid_conversion_threshold_bytes, 16);
+
+    auto schema = create_schema(UNIQUE_KEYS);
+    auto local_tablet = create_tablet(*schema, true);
+    CloudStorageEngine cloud_engine(EngineOptions {});
+    auto tablet = std::make_shared<CloudTablet>(
+            cloud_engine, std::make_shared<TabletMeta>(*local_tablet->tablet_meta()));
+    CloudCumulativeCompaction compaction(cloud_engine, tablet);
+    compaction._cur_tablet_schema = schema;
+    RowsetWriterContext ctx;
+    auto select = [&](std::initializer_list<int64_t> row_counts) {
+        compaction._input_rowsets.clear();
+        for (int64_t rows : row_counts) {
+            auto meta = std::make_shared<RowsetMeta>();
+            init_rs_meta(meta, 2, 2);
+            meta->set_num_rows(rows);
+            compaction._input_rowsets.push_back(std::make_shared<BetaRowset>(schema, meta, ""));
+        }
+        compaction._input_row_num = INT64_MAX;
+        compaction.prepare_rowid_conversion(ctx);
+        EXPECT_EQ(compaction._stats.rowid_conversion, compaction._rowid_conversion.get());
+        EXPECT_EQ(compaction._rowid_conversion->source_count(), 0);
+        return compaction._rowid_conversion->mode();
+    };
+    using Mode = RowIdConversion::Mode;
+    EXPECT_EQ(select({}), Mode::DENSE);
+    EXPECT_EQ(select({1}), Mode::DENSE);
+    EXPECT_EQ(select({1, 1}), Mode::DENSE);      // Exactly 16 bytes does not exceed the threshold.
+    EXPECT_EQ(select({1, 2}), Mode::COMPRESSED); // Sum all input rowsets before allocating.
+    config::compressed_rowid_conversion_threshold_bytes = -1;
+    EXPECT_EQ(select({1, 2}), Mode::DENSE); // A rejected live update can be visible briefly.
+    config::compressed_rowid_conversion_threshold_bytes = 23;
+    EXPECT_EQ(select({3}), Mode::COMPRESSED); // Threshold need not be divisible by eight.
+    config::compressed_rowid_conversion_threshold_bytes = 24;
+    EXPECT_EQ(select({3}), Mode::DENSE);
+    config::compressed_rowid_conversion_threshold_bytes = 0;
+    EXPECT_EQ(select({0}), Mode::DENSE);
+    EXPECT_EQ(select({1}), Mode::COMPRESSED);
+    config::compressed_rowid_conversion_threshold_bytes = INT64_MAX;
+    EXPECT_EQ(select({INT64_MAX}), Mode::COMPRESSED); // Do not multiply rows by eight.
+    config::enable_compressed_rowid_conversion = false;
+    EXPECT_EQ(select({INT64_MAX}), Mode::DENSE);
+}
+
+TEST_F(TestRowIdConversion, CompressionSelectionPreservesConsumerAndOrderingConstraints) {
+    const bool old_enabled = config::enable_compressed_rowid_conversion;
+    const int64_t old_threshold = config::compressed_rowid_conversion_threshold_bytes;
+    const bool old_debug = config::debug_inverted_index_compaction;
+    Defer restore {[&] {
+        config::enable_compressed_rowid_conversion = old_enabled;
+        config::compressed_rowid_conversion_threshold_bytes = old_threshold;
+        config::debug_inverted_index_compaction = old_debug;
+    }};
+    config::enable_compressed_rowid_conversion = true;
+    config::compressed_rowid_conversion_threshold_bytes = 0;
+    config::debug_inverted_index_compaction = false;
+    CloudStorageEngine cloud_engine(EngineOptions {});
+    for (auto keys : {DUP_KEYS, UNIQUE_KEYS}) {
+        auto schema = create_schema(keys);
+        auto local_tablet = create_tablet(*schema, keys == UNIQUE_KEYS);
+        auto tablet = std::make_shared<CloudTablet>(
+                cloud_engine, std::make_shared<TabletMeta>(*local_tablet->tablet_meta()));
+        auto meta = std::make_shared<RowsetMeta>();
+        init_rs_meta(meta, 2, 2);
+        meta->set_num_rows(100);
+        auto select = [&](const RowsetWriterContext& ctx, bool needs_mapping,
+                          RowIdConversion::Mode expected) {
+            CloudCumulativeCompaction compaction(cloud_engine, tablet);
+            compaction._cur_tablet_schema = schema;
+            compaction._input_rowsets = {std::make_shared<BetaRowset>(schema, meta, "")};
+            compaction.prepare_rowid_conversion(ctx);
+            EXPECT_EQ(compaction._stats.rowid_conversion != nullptr, needs_mapping);
+            EXPECT_EQ(compaction._rowid_conversion->mode(), expected);
+        };
+        using Mode = RowIdConversion::Mode;
+        RowsetWriterContext ctx;
+        select(ctx, keys == UNIQUE_KEYS, keys == UNIQUE_KEYS ? Mode::COMPRESSED : Mode::DENSE);
+        ctx.snii_indexes_to_do_compaction.emplace(2, 1);
+        select(ctx, true, Mode::COMPRESSED); // Duplicate Key postings also consume the mapping.
+        ctx.columns_to_do_index_compaction.insert(2);
+        select(ctx, true, Mode::DENSE); // Any CLucene consumer requires the entire dense matrix.
+        ctx.columns_to_do_index_compaction.clear();
+        config::debug_inverted_index_compaction = true;
+        select(ctx, true, Mode::DENSE);
+        config::debug_inverted_index_compaction = false;
+        schema->_cluster_key_uids = {1};
+        select(ctx, true, Mode::DENSE);
+    }
+}
+
+TEST_F(TestRowIdConversion, CompressedMappingFollowsDuplicateAndMowMergeReaders) {
+    for (auto keys : {DUP_KEYS, UNIQUE_KEYS}) {
+        for (bool vertical : {false, true}) {
+            for (auto overlap : {NONOVERLAPPING, OVERLAPPING, OVERLAP_UNKNOWN}) {
+                SCOPED_TRACE(testing::Message() << "keys=" << keys << " vertical=" << vertical
+                                                << " overlap=" << overlap);
+                check_rowid_conversion(keys, keys == UNIQUE_KEYS, 3, 2, 4567, overlap, true,
+                                       vertical, RowIdConversion::Mode::COMPRESSED);
+            }
+        }
+    }
+}
+
 TEST_F(TestRowIdConversion, Basic) {
     // rowset_id, segment_id, row_id
     int input_data[11][3] = {{0, 0, 0}, {0, 0, 1}, {0, 0, 2}, {0, 0, 3}, {0, 1, 0}, {0, 1, 1},
@@ -530,7 +653,7 @@ TEST_F(TestRowIdConversion, Basic) {
     rowid_conversion.set_dst_rowset_id(dst_rowset);
 
     std::vector<uint32_t> dst_segment_num_rows = {4, 3, 4};
-    rowid_conversion.add(rss_row_ids, dst_segment_num_rows);
+    ASSERT_TRUE(rowid_conversion.add(rss_row_ids, dst_segment_num_rows).ok());
 
     int res = 0;
     src_rowset.init(0);
@@ -576,6 +699,135 @@ TEST_F(TestRowIdConversion, Basic) {
     EXPECT_EQ(res, -1);
 }
 
+TEST_F(TestRowIdConversion, DeleteBitmapConversionPropagatesLookupErrors) {
+    auto tablet_schema = create_schema(UNIQUE_KEYS);
+    auto input_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(input_meta, 2, 2);
+    RowsetId input_id;
+    input_id.init(100);
+    input_meta->set_rowset_id(input_id);
+    input_meta->set_num_segments(2);
+    auto input = std::make_shared<BetaRowset>(tablet_schema, input_meta, absolute_dir);
+    RowsetId output_id;
+    output_id.init(200);
+    auto tablet = create_tablet(*tablet_schema, true);
+
+    for (auto mode : {RowIdConversion::Mode::DENSE, RowIdConversion::Mode::LAZY_CHUNKED,
+                      RowIdConversion::Mode::COMPRESSED}) {
+        RowIdConversion conversion(mode);
+        ASSERT_TRUE(conversion.init_segment_map(input_id, {2, 1}).ok());
+        conversion.set_dst_rowset_id(output_id);
+        ASSERT_TRUE(
+                conversion.add({RowLocation(input_id, 0, 0), RowLocation(input_id, 1, 0)}, {1, 1})
+                        .ok());
+
+        DeleteBitmap input_bitmap(1);
+        input_bitmap.add({input_id, 0, 5}, 0);
+        input_bitmap.add({input_id, 0, 5}, 1);
+        input_bitmap.add({input_id, 1, 7}, 0);
+        DeleteBitmap output_bitmap(1);
+        std::set<RowLocation> missed_rows;
+        if (mode == RowIdConversion::Mode::COMPRESSED) {
+            EXPECT_FALSE(tablet->calc_compaction_output_rowset_delete_bitmap(
+                                       {input}, conversion, 0, 10, &missed_rows, nullptr,
+                                       input_bitmap, &output_bitmap)
+                                 .ok());
+            EXPECT_TRUE(missed_rows.empty());
+            EXPECT_TRUE(output_bitmap.delete_bitmap.empty());
+        }
+        ASSERT_TRUE(conversion.finalize({1, 1}).ok());
+        std::map<RowsetSharedPtr, RowLocationPairList> location_map;
+        ASSERT_TRUE(tablet->calc_compaction_output_rowset_delete_bitmap(
+                                  {input}, conversion, 0, 10, &missed_rows, &location_map,
+                                  input_bitmap, &output_bitmap)
+                            .ok());
+
+        EXPECT_TRUE(output_bitmap.contains({output_id, 0, 5}, 0));
+        EXPECT_TRUE(output_bitmap.contains({output_id, 1, 7}, 0));
+        EXPECT_FALSE(output_bitmap.contains({output_id, 0, 5}, 1));
+        ASSERT_EQ(missed_rows.size(), 1);
+        EXPECT_EQ(*missed_rows.begin(), RowLocation(input_id, 0, 1));
+        ASSERT_EQ(location_map.size(), 1);
+        ASSERT_EQ(location_map.at(input).size(), 2);
+        const auto& [src, dst] = location_map.at(input).back();
+        EXPECT_EQ(src, RowLocation(input_id, 1, 0));
+        EXPECT_EQ(dst, RowLocation(output_id, 1, 0));
+    }
+}
+
+TEST_F(TestRowIdConversion, LazyChunkedOnlyAllocatesTouchedRows) {
+    constexpr uint32_t NUM_ROWS = 1'000'000;
+    RowsetId src_rowset;
+    src_rowset.init(1);
+    RowsetId dst_rowset;
+    dst_rowset.init(2);
+
+    RowIdConversion rowid_conversion(RowIdConversion::Mode::LAZY_CHUNKED);
+    ASSERT_TRUE(rowid_conversion.init_segment_map(src_rowset, {10}, {NUM_ROWS}).ok());
+    rowid_conversion.set_dst_rowset_id(dst_rowset);
+    ASSERT_TRUE(rowid_conversion
+                        .add({RowLocation(src_rowset, 10, 0),
+                              RowLocation(src_rowset, 10, NUM_ROWS - 1)},
+                             {1, 1})
+                        .ok());
+
+    RowLocation dst;
+    ASSERT_EQ(rowid_conversion.get(RowLocation(src_rowset, 10, 0), &dst), 0);
+    EXPECT_EQ(dst.segment_id, 0);
+    EXPECT_EQ(dst.row_id, 0);
+    ASSERT_EQ(rowid_conversion.get(RowLocation(src_rowset, 10, NUM_ROWS - 1), &dst), 0);
+    EXPECT_EQ(dst.segment_id, 1);
+    EXPECT_EQ(dst.row_id, 0);
+    EXPECT_EQ(rowid_conversion.get(RowLocation(src_rowset, 10, NUM_ROWS / 2), &dst), -1);
+    EXPECT_LT(rowid_conversion.memory_usage(), 1024 * 1024);
+}
+
+TEST_F(TestRowIdConversion, LazyChunkedHandlesMultipleSegmentsAndBoundaries) {
+    constexpr uint32_t CHUNK_SIZE = 4096;
+    RowsetId first_rowset;
+    first_rowset.init(1);
+    RowsetId second_rowset;
+    second_rowset.init(2);
+
+    RowIdConversion rowid_conversion(RowIdConversion::Mode::LAZY_CHUNKED);
+    ASSERT_TRUE(
+            rowid_conversion.init_segment_map(first_rowset, {10, 11}, {CHUNK_SIZE + 1, 2}).ok());
+    ASSERT_TRUE(rowid_conversion.init_segment_map(second_rowset, {10}, {CHUNK_SIZE * 2 + 1}).ok());
+    const size_t memory_usage = rowid_conversion.memory_usage();
+    ASSERT_TRUE(
+            rowid_conversion.init_segment_map(first_rowset, {10, 11}, {CHUNK_SIZE + 1, 2}).ok());
+    EXPECT_EQ(rowid_conversion.get_src_segment_to_id_map().size(), 3);
+    EXPECT_EQ(rowid_conversion.memory_usage(), memory_usage);
+
+    ASSERT_TRUE(rowid_conversion
+                        .add({RowLocation(first_rowset, 10, CHUNK_SIZE - 1),
+                              RowLocation(first_rowset, 10, CHUNK_SIZE),
+                              RowLocation(first_rowset, 11, 1),
+                              RowLocation(second_rowset, 10, CHUNK_SIZE * 2)},
+                             {2, 2})
+                        .ok());
+
+    auto expect_destination = [&](const RowsetId& rowset_id, uint32_t segment_id, uint32_t row_id,
+                                  uint32_t segment_pos, uint32_t destination_row_id) {
+        RowLocation destination;
+        ASSERT_EQ(rowid_conversion.get(RowLocation(rowset_id, segment_id, row_id), &destination),
+                  0);
+        EXPECT_EQ(destination.segment_id, segment_pos);
+        EXPECT_EQ(destination.row_id, destination_row_id);
+    };
+    expect_destination(first_rowset, 10, CHUNK_SIZE - 1, 0, 0);
+    expect_destination(first_rowset, 10, CHUNK_SIZE, 0, 1);
+    expect_destination(first_rowset, 11, 1, 1, 0);
+    expect_destination(second_rowset, 10, CHUNK_SIZE * 2, 1, 1);
+
+    RowLocation destination;
+    EXPECT_EQ(rowid_conversion.get(RowLocation(first_rowset, 10, 0), &destination), -1);
+    EXPECT_EQ(rowid_conversion.get(RowLocation(second_rowset, 10, CHUNK_SIZE), &destination), -1);
+    EXPECT_EQ(rowid_conversion.get(RowLocation(first_rowset, 10, CHUNK_SIZE + 1), &destination),
+              -1);
+    EXPECT_EQ(rowid_conversion.get(RowLocation(first_rowset, 12, 0), &destination), -1);
+}
+
 TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComplete) {
     constexpr int64_t num_segments = 5;
     constexpr int64_t rows_per_segment = 1500;
@@ -599,8 +851,12 @@ TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComple
     }
 
     CloudStorageEngine cloud_engine(EngineOptions {});
-    for (bool is_vertical : {false, true}) {
-        SCOPED_TRACE(is_vertical ? "vertical merge" : "horizontal merge");
+    using Mode = RowIdConversion::Mode;
+    for (auto [is_vertical, mode] :
+         {std::pair {false, Mode::DENSE}, std::pair {false, Mode::COMPRESSED},
+          std::pair {true, Mode::DENSE}, std::pair {true, Mode::COMPRESSED}}) {
+        SCOPED_TRACE(testing::Message()
+                     << "vertical=" << is_vertical << " compressed=" << (mode == Mode::COMPRESSED));
 
         TabletSchemaSPtr tablet_schema = create_schema(UNIQUE_KEYS, true);
         tablet_schema->set_schema_version(schema_version);
@@ -632,6 +888,7 @@ TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComple
         compaction._is_vertical = is_vertical;
         compaction._input_row_num = input_rowset->num_rows();
         compaction._input_rowsets_data_size = input_rowset->data_disk_size();
+        compaction._rowid_conversion->set_mode(mode);
         compaction._stats.rowid_conversion = compaction._rowid_conversion.get();
 
         auto* compaction_task_tracker = CompactionTaskTracker::instance();
@@ -647,6 +904,9 @@ TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComple
         merge_result.is_segment_grouped = true;
         merge_result.segment_group_size = segment_group_size;
         ASSERT_TRUE(compaction.do_merge_input_rowsets({}, &merge_result).ok());
+        std::vector<uint32_t> destination_rows;
+        ASSERT_TRUE(compaction._output_rs_writer->get_segment_num_rows(&destination_rows).ok());
+        ASSERT_TRUE(compaction._rowid_conversion->finalize(destination_rows).ok());
         const int64_t segment_group_count =
                 (num_segments + segment_group_size - 1) / segment_group_size;
         ASSERT_EQ(merge_result.output_segment_group_sizes.size(),
@@ -824,20 +1084,22 @@ TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComple
 
         RowIdConversion& rowid_conversion = *compaction._stats.rowid_conversion;
         EXPECT_EQ(rowid_conversion.get_src_segment_to_id_map().size(), num_segments);
-        EXPECT_EQ(rowid_conversion.get_rowid_conversion_map().size(), num_segments);
-        EXPECT_EQ(rowid_conversion.get_rowid_conversion_map().size(),
-                  rowid_conversion.get_src_segment_to_id_map().size());
+        EXPECT_EQ(rowid_conversion.source_count(), num_segments);
+        EXPECT_EQ(output_segment_num_rows, destination_rows);
+        CompressedRowIdMap::Cursor cursor;
+        CompressedRowIdMap::DecodeWorkspace workspace;
         for (int64_t segment_id = 0; segment_id < num_segments; ++segment_id) {
+            auto source = rowid_conversion.find_source(input_rowset->rowset_id(), segment_id);
+            ASSERT_EQ(source.size(), rows_per_segment);
             for (int64_t row_id = 0; row_id < rows_per_segment; ++row_id) {
-                RowLocation src(input_rowset->rowset_id(), segment_id, row_id);
-                RowLocation dst;
-                ASSERT_EQ(rowid_conversion.get(src, &dst), 0)
+                RowIdConversion::RowIdPair dst;
+                ASSERT_TRUE(source.get(row_id, cursor, workspace, &dst).ok())
                         << "segment_id=" << segment_id << ", row_id=" << row_id;
-                ASSERT_LT(dst.segment_id, output_segment_num_rows.size());
-                ASSERT_LT(dst.row_id, output_segment_num_rows[dst.segment_id]);
+                ASSERT_LT(dst.first, output_segment_num_rows.size());
+                ASSERT_LT(dst.second, output_segment_num_rows[dst.first]);
 
-                size_t output_row_id = dst.row_id;
-                for (uint32_t output_segment_id = 0; output_segment_id < dst.segment_id;
+                size_t output_row_id = dst.second;
+                for (uint32_t output_segment_id = 0; output_segment_id < dst.first;
                      ++output_segment_id) {
                     output_row_id += output_segment_num_rows[output_segment_id];
                 }

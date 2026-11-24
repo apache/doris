@@ -260,7 +260,7 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
-                const auto pattern_col = context->get_constant_col(1)->column_ptr;
+                const auto pattern_col = context->get_constant_col(1)->column_ptr();
                 const auto& pattern = pattern_col->get_data_at(0);
                 if (pattern.size == 0) {
                     return Status::OK();
@@ -339,7 +339,7 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
-                const auto pattern_col = context->get_constant_col(1)->column_ptr;
+                const auto pattern_col = context->get_constant_col(1)->column_ptr();
                 StringRef options_value;
                 if constexpr (std::is_same_v<FourParamTypes, ParamTypes>) {
                     DCHECK_EQ(context->get_num_args(), 4);
@@ -348,7 +348,7 @@ public:
                     if (!context->is_col_constant(3)) {
                         return Status::OK();
                     }
-                    const auto options_col = context->get_constant_col(3)->column_ptr;
+                    const auto options_col = context->get_constant_col(3)->column_ptr();
                     // A NULL options argument makes the result NULL before regexp compilation.
                     if (options_col->is_null_at(0)) {
                         return Status::OK();
@@ -780,7 +780,7 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
-                const auto pattern_col = context->get_constant_col(1)->column_ptr;
+                const auto pattern_col = context->get_constant_col(1)->column_ptr();
                 const auto& pattern = pattern_col->get_data_at(0);
                 if (pattern.size == 0) {
                     return Status::OK();

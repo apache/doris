@@ -18,7 +18,7 @@
 suite("dotted_key_escape_semantics", "p0,nonConcurrent") {
     setFeConfigTemporary([enable_variant_v2: true, enable_variant_escape_dots_in_keys: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
-    sql "set default_variant_enable_doc_mode = false"
+    sql "set debug_variant_enable_doc_mode = false"
     sql "set describe_extend_variant_column = true"
     sql "drop table if exists dotted_key_escape_gate"
     sql "drop table if exists dotted_key_escape_values"
@@ -71,9 +71,9 @@ suite("dotted_key_escape_semantics", "p0,nonConcurrent") {
     order_qt_search_percent "select id from dotted_key_escape_values where search('v.pct%25:percent')"
 
     // LIKE and SHOW CREATE carry the table policy; final NestedGroup must remain disabled.
-    def oldNestedGroup = sql("show variables like 'default_variant_enable_nested_group'")[0][1]
+    def oldNestedGroup = sql("select @@debug_variant_enable_nested_group")[0][0]
     try {
-        sql "set default_variant_enable_nested_group=false"
+        sql "set debug_variant_enable_nested_group=false"
         sql "drop table if exists dotted_key_escape_like"
         sql "drop table if exists dotted_key_escape_show_create"
         sql "create table dotted_key_escape_like like dotted_key_escape_values"
@@ -91,7 +91,7 @@ suite("dotted_key_escape_semantics", "p0,nonConcurrent") {
         order_qt_show_create_roundtrip """select id,v,v['a.b'],v['a']['b'],v['a%2Eb']
             from dotted_key_escape_show_create"""
     } finally {
-        sql "set default_variant_enable_nested_group=${oldNestedGroup}"
+        sql "set debug_variant_enable_nested_group=${oldNestedGroup}"
     }
 
     // Phase 1 forbids both directions; the remaining properties stay identical.

@@ -46,14 +46,14 @@ public class PaimonRestMetaStoreProperties extends AbstractPaimonProperties {
     protected String tokenProvider = "";
 
     // The following properties are specific to DLF rest catalog
-    @ConnectorProperty(
+    @ConnectorProperty(sensitive = true,
             names = {"paimon.rest.dlf.access-key-id"},
             required = false,
             description = "The access key ID for DLF, required when using DLF as token provider."
     )
     protected String paimonRestDlfAccessKey = "";
 
-    @ConnectorProperty(
+    @ConnectorProperty(sensitive = true,
             names = {"paimon.rest.dlf.access-key-secret"},
             required = false,
             description = "The secret key secret for DLF, required when using DLF as token provider."

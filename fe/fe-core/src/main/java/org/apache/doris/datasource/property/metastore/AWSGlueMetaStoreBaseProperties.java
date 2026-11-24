@@ -66,6 +66,7 @@ public class AWSGlueMetaStoreBaseProperties {
 
     @ConnectorProperty(names = {"glue.access_key",
             "aws.glue.access-key", "client.credentials-provider.glue.access_key"},
+            sensitive = true,
             description = "The access key of the AWS Glue.")
     protected String glueAccessKey = "";
 
@@ -76,6 +77,7 @@ public class AWSGlueMetaStoreBaseProperties {
     protected String glueSecretKey = "";
 
     @ConnectorProperty(names = {"aws.glue.session-token"},
+            sensitive = true,
             description = "The session token of the AWS Glue.")
     protected String glueSessionToken = "";
 

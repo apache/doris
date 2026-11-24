@@ -18,9 +18,9 @@
 suite("test_topn_lazy_materialize_sparse_variant", "p0") {
     def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
     def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
-    sql "set default_variant_enable_doc_mode = false"
-    sql "set default_variant_max_subcolumns_count = 1"
-    sql "set default_variant_sparse_hash_shard_count = 2"
+    sql "set debug_variant_enable_doc_mode = false"
+    sql "set debug_variant_max_subcolumns_count = 1"
+    sql "set debug_variant_sparse_hash_shard_count = 2"
     sql "set use_v3_storage_format = true"
     sql "set enable_file_cache = true"
     sql "set topn_lazy_materialization_threshold = 1024"

@@ -23,6 +23,7 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.ColumnPosition;
+import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.backup.CatalogMocker;
@@ -58,6 +59,10 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.AlterReplicaTask;
+import org.apache.doris.thrift.TAlterTabletReqV2;
+import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.FakeTransactionIDGenerator;
@@ -122,6 +127,49 @@ public class SchemaChangeJobV2Test {
 
         FeConstants.runningUnitTest = true;
         AgentTaskQueue.clearAllTasks();
+    }
+
+    @Test
+    public void testDatetimeScaleIncreaseCastNullable() throws Exception {
+        assertDatetimeScaleCastNullable(3, 6, false);
+    }
+
+    @Test
+    public void testDatetimeScaleDecreaseCastNullable() throws Exception {
+        assertDatetimeScaleCastNullable(6, 3, false);
+    }
+
+    @Test
+    public void testDatetimeScaleNullableInput() throws Exception {
+        assertDatetimeScaleCastNullable(3, 6, true);
+    }
+
+    private void assertDatetimeScaleCastNullable(int sourceScale, int targetScale, boolean sourceNullable)
+            throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        table.renameIndexForSchemaChange(CatalogTestUtil.testIndex2, table.getName());
+        Column source = table.getColumn("v1");
+        source.setType(ScalarType.createDatetimeV2Type(sourceScale));
+        source.setIsAllowNull(sourceNullable);
+        Column target = new Column(source);
+        target.setType(ScalarType.createDatetimeV2Type(targetScale));
+        ModifyColumnClause clause = new ModifyColumnClause("", target, null, null, null);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        handler.process(Lists.newArrayList(clause), db, table);
+        SchemaChangeJobV2 job = (SchemaChangeJobV2) handler.getAlterJobsV2().values().iterator().next();
+        handler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.WAITING_TXN, job.getJobState());
+        handler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.RUNNING, job.getJobState());
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assert.assertEquals(1, tasks.size());
+        TAlterTabletReqV2 request = ((AlterReplicaTask) tasks.get(0)).toThrift();
+        Assert.assertEquals(1, request.getMaterializedViewParamsSize());
+        TExprNode cast = request.getMaterializedViewParams().get(0).getMvExpr().getNodes().get(0);
+        Assert.assertEquals(TExprNodeType.CAST_EXPR, cast.getNodeType());
+        Assert.assertTrue(cast.isIsNullable());
     }
 
     @Test
