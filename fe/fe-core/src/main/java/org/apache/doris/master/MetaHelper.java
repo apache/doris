@@ -151,7 +151,11 @@ public class MetaHelper {
         Map<String, String> headers = HttpURLUtil.getNodeIdentHeaders();
         LOG.info("meta helper, url: {}, timeout: {}, header names: {}", url, timeout, headers.keySet());
         String response = HttpUtils.doGet(url, headers, timeout);
-        return parseResponse(response, clazz);
+        try {
+            return parseResponse(response, clazz);
+        } catch (Exception e) {
+            throw new IOException("Failed to parse response from " + url + ". Response: " + response, e);
+        }
     }
 
     // download file from remote node
