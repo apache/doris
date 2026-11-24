@@ -17,6 +17,11 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
@@ -319,6 +324,60 @@ class IcebergFormatV4ReadTest {
     }
 
     @ParameterizedTest
+    @CsvSource({"2,false,false,direct", "2,false,false,cache", "2,false,false,tracked",
+            "2,false,true,direct", "2,false,true,cache", "2,false,true,tracked",
+            "2,true,false,direct", "2,true,false,cache", "2,true,false,tracked",
+            "2,true,true,direct", "2,true,true,cache", "2,true,true,tracked",
+            "3,false,false,direct", "3,false,false,cache", "3,false,false,tracked",
+            "3,false,true,direct", "3,false,true,cache", "3,false,true,tracked",
+            "3,true,false,direct", "3,true,false,cache", "3,true,false,tracked",
+            "3,true,true,direct", "3,true,true,cache", "3,true,true,tracked"})
+    void sharedStatementReaderKeepsV4ProvenanceForEveryScan(int originalVersion, boolean authenticated,
+            boolean warmCache, String tableSource) throws Exception {
+        Table table = createTable(originalVersion);
+        table.updateLocation().setLocation("hdfs://namenode.example/warehouse/table").commit();
+        table.updateProperties().set(TableProperties.WRITE_METADATA_LOCATION,
+                "/metadata/" + tempDir.getFileName()).commit();
+        table.newFastAppend().appendFile(data(table, "/data/legacy.parquet")).commit();
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "4").commit();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = coldMetadata(table);
+        RecordingAuthenticator auth = new RecordingAuthenticator();
+        TcclPinningConnectorContext context = authenticated
+                ? new TcclPinningConnectorContext(new RecordingConnectorContext(), getClass().getClassLoader(), () -> auth)
+                : null;
+        IcebergTableCache tableCache = tableSource.equals("cache") ? new IcebergTableCache(60, 16) : null;
+        IcebergCatalogResourceTracker tracker = tableSource.equals("tracked") ? new IcebergCatalogResourceTracker() : null;
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(
+                Map.of("meta.cache.iceberg.manifest.enable", "true")), ignored -> ops, context,
+                new IcebergManifestCache(), tableCache, tracker);
+        if (warmCache) {
+            Assertions.assertEquals(1, provider.planScan(null, request()).size());
+        }
+        TestStatementScope scope = new TestStatementScope();
+        ConnectorSession session = new IcebergStatementScopeTest.ScopeSession(1, "v4-shared-reader", scope);
+        try {
+            for (int value : new int[] {1, 2, 1}) {
+                ConnectorScanRequest request = ConnectorScanRequest.builder(new IcebergTableHandle("db", "table"),
+                        Collections.emptyList()).filter(Optional.of(new ConnectorComparison(
+                                ConnectorComparison.Operator.EQ, new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                                ConnectorLiteral.ofInt(value)))).build();
+                List<ConnectorScanRange> ranges = provider.planScan(session, request);
+                Assertions.assertEquals(1, ranges.size());
+                Assertions.assertEquals("/data/legacy.parquet", ranges.get(0).getPath().orElseThrow());
+            }
+        } finally {
+            scope.closeAll();
+            if (tableCache != null) {
+                tableCache.close();
+            }
+            if (tracker != null) {
+                tracker.close(() -> { });
+            }
+        }
+    }
+
+    @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void metadataDeleteWithRelativeLocationsFallsBackWithoutCommitting(boolean withDeletes) throws Exception {
         Table table = createTable(4);
@@ -512,10 +571,13 @@ class IcebergFormatV4ReadTest {
             }
         };
         IcebergManifestCache cache = new IcebergManifestCache();
-        cache.getManifestCacheValue(descriptor, view);
+        ManifestCacheValue cachedValue = cache.getManifestCacheValue(descriptor, view);
         Table probeView = new BaseTable(new StaticTableOperations(((BaseTable) view).operations().current(),
                 ((IcebergV4FileIO) view.io()).withDelegate(noReads)), view.name());
-        Assertions.assertNull(cache.getCachedManifestValue(descriptor, probeView, null));
+        Assertions.assertSame(cachedValue, cache.getCachedManifestValue(descriptor, probeView, null));
+        Table detached = new BaseTable(new StaticTableOperations(((BaseTable) view).operations().current(),
+                new IcebergV4FileIO(noReads, view.location(), ((BaseTable) view).operations().current())), view.name());
+        Assertions.assertNull(cache.getCachedManifestValue(descriptor, detached, null));
         FileIO restored = SerializationUtil.deserializeFromBase64(SerializationUtil.serializeToBase64(view.io()));
         ManifestFile loaded = coldMetadata(cold).currentSnapshot().allManifests(restored).get(0);
         try (ManifestReader<DataFile> reader = ManifestFiles.read(loaded, restored, view.specs())) {

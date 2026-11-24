@@ -78,7 +78,10 @@ public final class IcebergV4FileIO implements FileIO {
     }
 
     public IcebergV4FileIO withDelegate(FileIO replacement) {
-        return new IcebergV4FileIO(replacement, tableLocation, metadata, taskLocations);
+        IcebergV4FileIO view = new IcebergV4FileIO(replacement, tableLocation, metadata, taskLocations);
+        // Per-consumer authentication changes the IO delegate, not this statement's frozen path provenance.
+        view.metadataLocations = locations();
+        return view;
     }
 
     /** Bind just this task's concrete reference; neither metadata JSON nor snapshot history crosses the wire. */
