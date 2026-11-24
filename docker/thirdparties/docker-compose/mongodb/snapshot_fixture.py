@@ -26,6 +26,7 @@ from pathlib import Path
 import shlex
 import socket
 import subprocess
+import sys
 import time
 from urllib.parse import quote
 import uuid
@@ -109,6 +110,10 @@ class Fixture:
             "127.0.0.1", self.args.advertised_host]))
         user = getattr(self.args, "container_user", None) or f"{os.getuid()}:{os.getgid()}"
         command = ["run", "-d", "--name", name, "--network", network, "--user", user]
+        if network == "host" and sys.platform == "linux":
+            # Rootless host networking hides sysfs; MongoDB 8's allocator aborts without the CPU mask.
+            # Mount sysfs itself because Docker's replacement mount also hides child-only bind mounts.
+            command += ["--mount", "type=bind,src=/sys,dst=/sys,readonly"]
         if network == "bridge":
             # Publish host listeners without relying on the daemon's network namespace.
             # Replica discovery and mongos must reach these same advertised ports.

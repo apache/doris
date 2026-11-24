@@ -84,6 +84,8 @@ needed. The pinned `requirements-ci.txt` dependencies support Python 3.10 and ar
 only in that venv. Linux uses bridge networking for a routable `IP_HOST`. A loopback
 `IP_HOST` uses the shared host network so replica members and routers resolve peer addresses
 in the same namespace; rootless Docker requires Engine 29.5 or newer for this mode.
+Linux host-network members mount `/sys` read-only because rootless host networking otherwise
+hides the CPU topology required by MongoDB 8's allocator. No privileged mode is needed.
 The advertised host must be reachable from the controller, containers and FE/BE.
 Startup fails if the topology or deterministic data cannot be prepared.
 

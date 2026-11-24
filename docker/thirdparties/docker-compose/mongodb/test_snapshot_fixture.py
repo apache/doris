@@ -156,6 +156,23 @@ require_rootless_host_network() { :; }
                 self.assertEqual(expected_network, arguments[arguments.index("--network-mode") + 1],
                                  "Replica peers must share the advertised loopback network")
 
+    def test_linux_host_members_have_read_only_sysfs_for_the_mongodb_allocator(self):
+        for platform, network, needs_sysfs in (("linux", "host", True), ("linux", "bridge", False),
+                                               ("darwin", "host", False)):
+            with self.subTest(platform=platform, network=network), tempfile.TemporaryDirectory() as directory:
+                args = argparse.Namespace(state_dir=directory, docker_command="docker", advertised_host="127.0.0.1",
+                                          image="mongo:8.0.20", network_mode=network, container_user="0:0")
+                fixture = Fixture(args)
+                fixture.state = {"prefix": "fixture", "containers": []}
+                commands = []
+                fixture.docker = lambda *arguments: commands.append(arguments)
+                fixture.save = lambda: None
+                with patch("sys.platform", platform):
+                    fixture.start("member", 28016, ["--replSet", "fixture_rs"])
+                mount = "type=bind,src=/sys,dst=/sys,readonly"
+                self.assertEqual(needs_sysfs, mount in commands[0])
+                self.assertNotIn("--privileged", commands[0])
+
     def test_bridge_publishes_the_advertised_port_and_uses_the_namespace_owner(self):
         with tempfile.TemporaryDirectory() as directory:
             args = argparse.Namespace(state_dir=directory, docker_command="docker", advertised_host="127.0.0.1",
