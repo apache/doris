@@ -626,7 +626,7 @@ TEST_F(ColumnArrayTest, CreateArrayTest) {
     // The constructor enforces this via check_const_only_in_top_level(), preventing COW-related issues:
     // - ColumnConst is immutable and meant for repeated values across rows
     // - ColumnArray requires mutable nested data for operations like insert/filter/clear
-    // - Wrapping shared ColumnConst in ColumnArray violates use_count() assumptions in clear_column_data()
+    // - Wrapping shared ColumnConst in ColumnArray violates exclusive ownership assumptions in clear_column_data()
     for (auto& array_column : array_columns) {
         const auto* column = check_and_get_column<ColumnArray>(
                 remove_nullable(array_column->assert_mutable()).get());

@@ -162,7 +162,7 @@ TEST_F(TabletColumnValidatorTest, UniqueScalarKeepsObjectBufferAndReferenceCount
     auto before = snapshot(*column);
     column = TEST_TRY(validate(column, std::make_shared<DataTypeInt32>()));
     expect_same_storage(before, *column);
-    EXPECT_EQ(column->use_count(), 1);
+    EXPECT_TRUE(column->is_exclusive());
 }
 
 TEST_F(TabletColumnValidatorTest, NullableArrayStructReusesLeafStorage) {
@@ -206,7 +206,7 @@ TEST_F(TabletColumnValidatorTest, StructReusesSharedReadOnlyFields) {
     EXPECT_EQ(&tuple.get_column(0), shared.get());
     EXPECT_EQ(assert_cast<const ColumnInt32&>(tuple.get_column(0)).get_data().data(), shared_data);
     EXPECT_EQ(assert_cast<const ColumnInt32&>(tuple.get_column(0)).get_data()[0], 7);
-    EXPECT_EQ(shared->use_count(), 2);
+    EXPECT_FALSE(shared->is_exclusive());
     expect_same_storage(second_before, tuple.get_column(1));
     expect_same_storage(third_before, tuple.get_column(2));
 }
@@ -467,7 +467,7 @@ TEST_F(TabletColumnValidatorTest, NestedReplacementBuildsShellsAndPreservesSourc
     EXPECT_EQ(array.get_offsets().data(), offsets_address);
     EXPECT_EQ(checked_nullable.get_null_map_data().data(), nulls_address);
     EXPECT_EQ(checked_nullable.get_nested_column().get_data_at(0).to_string(), "ab");
-    EXPECT_EQ(checked_nullable.get_nested_column().use_count(), 1);
+    EXPECT_TRUE(checked_nullable.get_nested_column().is_exclusive());
     expect_same_storage(sibling_before, checked_tuple.get_column(1));
     EXPECT_EQ(filter_map, (std::vector<char> {0}));
     EXPECT_EQ(nullable_before.get_nested_column().get_data_at(0).to_string(), "abcd");
@@ -480,7 +480,7 @@ TEST_F(TabletColumnValidatorTest, SharedReadOnlyLeavesKeepStorage) {
         auto result = TEST_TRY(validate(original, type));
         EXPECT_EQ(result.get(), original.get());
         expect_same_storage(before, *result);
-        EXPECT_EQ(original->use_count(), 2);
+        EXPECT_FALSE(original->is_exclusive());
     };
     check(ints({7, 8}), std::make_shared<DataTypeInt32>());
     check(strings({"valid"}), std::make_shared<DataTypeJsonb>());
