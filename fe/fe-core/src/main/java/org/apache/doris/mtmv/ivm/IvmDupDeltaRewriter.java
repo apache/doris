@@ -206,10 +206,10 @@ class IvmDupDeltaRewriter extends PlanVisitor<Optional<Plan>, Void> {
         slotMapping.putAll(helper.mapBusinessOutputs(join.left().getOutput(), leftPlan.getOutput()));
         slotMapping.putAll(helper.mapBusinessOutputs(join.right().getOutput(), rightPlan.getOutput()));
         helper.mapJoinConjunctInputs(join, leftPlan, rightPlan, slotMapping);
-        LogicalJoin<Plan, Plan> rewrittenJoin = new LogicalJoin<>(join.getJoinType(),
+        LogicalJoin<?, ?> rewrittenJoin = helper.withDeltaOnRight(new LogicalJoin<>(join.getJoinType(),
                 ExpressionUtils.replace(join.getHashJoinConjuncts(), slotMapping),
                 ExpressionUtils.replace(join.getOtherJoinConjuncts(), slotMapping), join.getDistributeHint(),
-                leftPlan, rightPlan, JoinReorderContext.EMPTY);
+                leftPlan, rightPlan, JoinReorderContext.EMPTY), deltaOnLeft);
         ImmutableList.Builder<NamedExpression> projects =
                 ImmutableList.builderWithExpectedSize(join.getOutput().size());
         for (Slot output : join.getOutput()) {

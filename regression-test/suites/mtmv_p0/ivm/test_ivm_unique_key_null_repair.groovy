@@ -177,7 +177,8 @@ suite("test_ivm_unique_key_null_repair") {
                 explain {
                     sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW ${mv} INCREMENTAL WITH ALL STREAMS"
                     contains "__DORIS_IVM_NULL_SIDE_NET_COUNT__"
-                    multiContains "type=LEFT_ANTI_JOIN,", mv == downstream[5] ? 2 : 0
+                    multiContains "type=RIGHT_ANTI_JOIN,", mv == downstream[5] ? 2 : 0
+                    notContains "type=LEFT_ANTI_JOIN,"
                 }
             }
         }
@@ -270,7 +271,8 @@ suite("test_ivm_unique_key_null_repair") {
         explain {
             sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW ${mv} INCREMENTAL WITH ALL STREAMS"
             multiContains "type=LEFT_SEMI_JOIN,", repairBranches
-            multiContains "type=LEFT_ANTI_JOIN,", repairBranches
+            multiContains "type=RIGHT_ANTI_JOIN,", repairBranches
+            notContains "type=LEFT_ANTI_JOIN,"
         }
     }
     def checkSignedZeroJoins = { String stage ->

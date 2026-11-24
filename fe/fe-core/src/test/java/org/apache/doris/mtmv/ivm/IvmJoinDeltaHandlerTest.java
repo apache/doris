@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -344,7 +345,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testRetainedSideDeltaUsesLeftOuterJoinUnderTopProject() {
+    void testRetainedSideDeltaUsesRightOuterJoinUnderTopProject() {
         LogicalOlapScan leftDelta = buildScanForTable(1, "t1");
         LogicalOlapScan rightSnapshot = buildSnapshotScanForTable(2, "t2");
         NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftDelta), rowIdProject(rightSnapshot));
@@ -358,6 +359,22 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
         Assertions.assertInstanceOf(LogicalProject.class, result.plan);
         LogicalProject<?> topProject = (LogicalProject<?>) result.plan;
+        List<LogicalJoin<?, ?>> rightOuterJoins = topProject.collectToList(node -> node instanceof LogicalJoin
+                && ((LogicalJoin<?, ?>) node).getJoinType().isRightOuterJoin());
+        Assertions.assertEquals(1, rightOuterJoins.size(), topProject::treeString);
+        LogicalJoin<?, ?> rewrittenJoin = rightOuterJoins.get(0);
+        Assertions.assertTrue(rewrittenJoin.right().anyMatch(node -> node instanceof LogicalOlapTableStreamScan
+                && ((LogicalOlapTableStreamScan) node).isIncremental()));
+        runWithIvmRewriteContext(ctx, () -> {
+            ConnectContext connectContext = ctx.getConnectContext();
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+            connectContext.getStatementContext().setIvmRewriteContext(
+                    Optional.of(IvmRewriteContext.incremental(ctx.getMtmv())));
+            Assertions.assertSame(rewrittenJoin, new SemiJoinCommute().build()
+                    .transform(rewrittenJoin, newJobContextForRoot(rewrittenJoin, connectContext).getCascadesContext())
+                    .get(0));
+            return null;
+        });
         assertSingleFinalRowId(topProject);
     }
 
@@ -483,7 +500,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
         Assertions.assertEquals(3, findOnlyUnion(result.plan).children().size());
         Assertions.assertEquals(2, result.plan.collectToList(node -> node instanceof LogicalJoin
-                && ((LogicalJoin<?, ?>) node).getJoinType().isLeftAntiJoin()).size());
+                && ((LogicalJoin<?, ?>) node).getJoinType().isRightAntiJoin()).size());
     }
 
     @Test
@@ -502,7 +519,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
         Assertions.assertEquals(3, findOnlyUnion(result.plan).children().size());
         Assertions.assertEquals(2, result.plan.collectToList(node -> node instanceof LogicalJoin
-                && ((LogicalJoin<?, ?>) node).getJoinType().isLeftAntiJoin()).size());
+                && ((LogicalJoin<?, ?>) node).getJoinType().isRightAntiJoin()).size());
     }
 
     @Test
@@ -570,7 +587,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
                 newRefreshContext(top, deterministicRewriteResult(top)));
         Assertions.assertEquals(3, findOnlyUnion(result.plan).arity());
         Assertions.assertEquals(2, result.plan.collectToList(node -> node instanceof LogicalJoin
-                && ((LogicalJoin<?, ?>) node).getJoinType().isLeftAntiJoin()).size());
+                && ((LogicalJoin<?, ?>) node).getJoinType().isRightAntiJoin()).size());
     }
 
     @Test
@@ -586,7 +603,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
                 newRefreshContext(top, deterministicRewriteResult(top)));
         Assertions.assertEquals(3, findOnlyUnion(result.plan).arity());
         Assertions.assertEquals(2, result.plan.collectToList(node -> node instanceof LogicalJoin
-                && ((LogicalJoin<?, ?>) node).getJoinType().isLeftAntiJoin()).size());
+                && ((LogicalJoin<?, ?>) node).getJoinType().isRightAntiJoin()).size());
     }
 
     private LogicalOlapScan buildUniqueScan(long tableId, String name, boolean compositeKey) {
@@ -614,7 +631,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertFalse(bundle.rewriteResult.isAggMv(),
                 "An internal repair aggregate must not turn the join MV into an aggregate MV");
         Assertions.assertTrue(result.plan.collectToList(node -> node instanceof LogicalJoin
-                && ((LogicalJoin<?, ?>) node).getJoinType().isLeftAntiJoin()).isEmpty());
+                && ((LogicalJoin<?, ?>) node).getJoinType().isAntiJoin()).isEmpty());
         List<LogicalAggregate> aggregates = union.collectToList(node -> node instanceof LogicalAggregate);
         Assertions.assertEquals(1, aggregates.size());
         LogicalAggregate<?> aggregate = aggregates.get(0);
@@ -659,7 +676,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testFullOuterJoinLeftDeltaUsesLeftOuterJoinAndRepairsRightDanglingRows() {
+    void testFullOuterJoinLeftDeltaUsesRightOuterJoinAndRepairsRightDanglingRows() {
         LogicalOlapScan leftDelta = buildScanForTable(1271, "full_left_delta");
         LogicalOlapScan rightSnapshot = buildSnapshotScanForTable(1272, "full_right_snapshot");
         NormalizedOuterJoinPlan bundle = normalizedFullOuterJoin(rowIdProject(leftDelta), rowIdProject(rightSnapshot));
@@ -672,7 +689,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalProject<?> joinOutputProject = (LogicalProject<?>) ((LogicalProject<?>) result.plan).child();
         Assertions.assertInstanceOf(LogicalUnion.class, joinOutputProject.child());
         LogicalUnion union = (LogicalUnion) joinOutputProject.child();
-        assertFullOuterDetailAndRepair(union, JoinType.LEFT_OUTER_JOIN, 2);
+        assertFullOuterDetailAndRepair(union, JoinType.RIGHT_OUTER_JOIN, 2);
         assertUnionChildrenAlign(union);
         assertNoDuplicateScanRelationIds(result.plan);
     }
@@ -706,7 +723,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
             IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler().exposeRewritePlan(bundle.topProject,
                     newRefreshContext(bundle.topProject, bundle.rewriteResult));
             LogicalUnion union = findOnlyUnion(result.plan);
-            assertFullOuterDetailAndRepair(union, leftDelta ? JoinType.LEFT_OUTER_JOIN : JoinType.RIGHT_OUTER_JOIN, 0);
+            assertFullOuterDetailAndRepair(union, JoinType.RIGHT_OUTER_JOIN, 0);
             Assertions.assertEquals(1, union.child(1).collectToList(node -> node instanceof LogicalAggregate).size());
             assertNoDuplicateScanRelationIds(result.plan);
         }
@@ -717,7 +734,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         assertProjectedJoinBranch(union.child(0), detailType);
         assertProjectedJoinBranch(union.child(1), JoinType.INNER_JOIN);
         Assertions.assertEquals(expectedAntiJoins, union.child(1).collectToList(node -> node instanceof LogicalJoin
-                && ((LogicalJoin<?, ?>) node).getJoinType().isLeftAntiJoin()).size());
+                && ((LogicalJoin<?, ?>) node).getJoinType().isRightAntiJoin()).size());
     }
 
     @Test
@@ -849,7 +866,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertNotNull(result.dmlFactorSlot);
         Assertions.assertEquals(2, result.plan.collectToList(node ->
                 node instanceof LogicalJoin
-                        && ((LogicalJoin<?, ?>) node).getJoinType() == JoinType.LEFT_OUTER_JOIN).size());
+                        && ((LogicalJoin<?, ?>) node).getJoinType().isOuterJoin()).size());
         Assertions.assertInstanceOf(LogicalProject.class, result.plan);
         assertSingleFinalRowId((LogicalProject<?>) result.plan);
     }
@@ -870,7 +887,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertNotNull(result.dmlFactorSlot);
         Assertions.assertEquals(2, result.plan.collectToList(node ->
                 node instanceof LogicalJoin
-                        && ((LogicalJoin<?, ?>) node).getJoinType() == JoinType.LEFT_OUTER_JOIN).size());
+                        && ((LogicalJoin<?, ?>) node).getJoinType().isOuterJoin()).size());
         List<LogicalUnion> unions = result.plan.collectToList(node -> node instanceof LogicalUnion);
         Assertions.assertTrue(unions.stream().anyMatch(union -> union.children().size() == 3),
                 "Expected at least one 3-way union in plan: " + result.plan);
@@ -882,12 +899,13 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalProject<?> project = (LogicalProject<?>) branch;
         Assertions.assertInstanceOf(LogicalJoin.class, project.child());
         LogicalJoin<?, ?> antiJoin = (LogicalJoin<?, ?>) project.child();
-        List<LogicalOlapScan> affectedKeyScans = antiJoin.left()
+        Assertions.assertEquals(JoinType.RIGHT_ANTI_JOIN, antiJoin.getJoinType());
+        List<LogicalOlapScan> affectedKeyScans = antiJoin.right()
                 .collectToList(node -> node instanceof LogicalOlapScan);
         Assertions.assertTrue(affectedKeyScans.stream().anyMatch(IvmDeltaRewriteHelper.INSTANCE::isIncrementalDeltaScan),
                 "Affected-key side should still read delta rows: " + affectedKeyScans);
 
-        List<LogicalOlapScan> scans = antiJoin.right().collectToList(node -> node instanceof LogicalOlapScan);
+        List<LogicalOlapScan> scans = antiJoin.left().collectToList(node -> node instanceof LogicalOlapScan);
         if (postSnapshot) {
             Assertions.assertTrue(scans.stream().noneMatch(scan -> scan instanceof LogicalOlapTableStreamScan),
                     "Post-snapshot side should not contain stream scans: " + scans);

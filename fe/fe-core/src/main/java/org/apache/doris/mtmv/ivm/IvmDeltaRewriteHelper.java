@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.SupportChangelog;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -371,6 +372,21 @@ public class IvmDeltaRewriteHelper {
                 slotMapping.put(input, rightSlot);
             }
         }
+    }
+
+    /** Prefer building on the delta even when statistics disable join reordering. */
+    LogicalJoin<?, ?> withDeltaOnRight(LogicalJoin<?, ?> join, boolean deltaOnLeft) {
+        if (!deltaOnLeft || join.hasDistributeHint()) {
+            return join;
+        }
+        // A right outer or anti nested-loop join would gather both inputs and execute serially.
+        // At this stage hash predicates may still be in the other conjuncts.
+        if (join.getJoinType().isLeftJoin() && join.getHashJoinConjuncts().isEmpty()
+                && JoinUtils.extractExpressionForHashTable(join.left().getOutput(), join.right().getOutput(),
+                        join.getOtherJoinConjuncts()).first.isEmpty()) {
+            return join;
+        }
+        return join.swap();
     }
 
     /**

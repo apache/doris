@@ -158,12 +158,12 @@ class IvmJoinDeltaHandler {
             return rewriteOuterContribution(join, deltaOnLeft, delta, leftInput, rightInput, rewriteState);
         } else if (deltaOnLeft) {
             Pair<Plan, Map<Slot, Slot>> rightPreSnapshot = helper.preSnapshot(join.right(), rewriteState);
-            return rewriteInnerJoinContribution(join, delta.plan,
+            return rewriteInnerJoinContribution(join, true, delta.plan,
                     helper.mapBusinessOutputs(join.left().getOutput(), delta.plan.getOutput()),
                     rightPreSnapshot.first, rightPreSnapshot.second, delta);
         } else {
             Pair<Plan, Map<Slot, Slot>> leftPostSnapshot = helper.postSnapshot(join.left(), rewriteState);
-            return rewriteInnerJoinContribution(join, leftPostSnapshot.first,
+            return rewriteInnerJoinContribution(join, false, leftPostSnapshot.first,
                     helper.mapBusinessOutputs(join.left().getOutput(), leftPostSnapshot.first.getOutput()), delta.plan,
                     helper.mapBusinessOutputs(join.right().getOutput(), delta.plan.getOutput()), delta);
         }
@@ -175,7 +175,7 @@ class IvmJoinDeltaHandler {
         boolean preservedSideDelta = (deltaOnLeft && join.getJoinType().isLeftOuterJoin())
                 || (!deltaOnLeft && join.getJoinType().isRightOuterJoin());
         if (preservedSideDelta) {
-            return rewritePreservedSideDelta(join, delta, leftInput, rightInput);
+            return rewritePreservedSideDelta(join, deltaOnLeft, delta, leftInput, rightInput);
         }
         Plan deltaSideChild = deltaOnLeft ? join.left() : join.right();
         return rewriteNullSideDelta(new NullSideDeltaContext(join, deltaOnLeft, delta, leftInput, rightInput,
@@ -183,15 +183,15 @@ class IvmJoinDeltaHandler {
     }
 
     private IvmDeltaRewriteResult rewriteInnerJoinContribution(LogicalJoin<? extends Plan, ? extends Plan> join,
-            Plan leftPlan, Map<Slot, Slot> leftMapping, Plan rightPlan, Map<Slot, Slot> rightMapping,
-            IvmDeltaRewriteResult delta) {
+            boolean deltaOnLeft, Plan leftPlan, Map<Slot, Slot> leftMapping,
+            Plan rightPlan, Map<Slot, Slot> rightMapping, IvmDeltaRewriteResult delta) {
         Map<Slot, Slot> slotMapping = new HashMap<>(leftMapping);
         slotMapping.putAll(rightMapping);
         helper.mapJoinConjunctInputs(join, leftPlan, rightPlan, slotMapping);
-        LogicalJoin<Plan, Plan> rewrittenJoin = new LogicalJoin<>(join.getJoinType(),
+        LogicalJoin<?, ?> rewrittenJoin = helper.withDeltaOnRight(new LogicalJoin<>(join.getJoinType(),
                 ExpressionUtils.replace(join.getHashJoinConjuncts(), slotMapping),
                 ExpressionUtils.replace(join.getOtherJoinConjuncts(), slotMapping), join.getDistributeHint(),
-                leftPlan, rightPlan, JoinReorderContext.EMPTY);
+                leftPlan, rightPlan, JoinReorderContext.EMPTY), deltaOnLeft);
         Slot dmlFactorSlot = helper.findSlotByName(rewrittenJoin.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot sequenceSlot = helper.findSlotByName(rewrittenJoin.getOutput(), Column.SEQUENCE_COL);
         IvmDeltaRewriteResult joinResult = new IvmDeltaRewriteResult(rewrittenJoin,
@@ -228,13 +228,13 @@ class IvmJoinDeltaHandler {
      * any non-deterministic MV row-id after all join contributions have been merged.
      */
     private IvmDeltaRewriteResult rewritePreservedSideDelta(LogicalJoin<? extends Plan, ? extends Plan> join,
-            IvmDeltaRewriteResult delta, SideInput leftInput, SideInput rightInput) {
+            boolean deltaOnLeft, IvmDeltaRewriteResult delta, SideInput leftInput, SideInput rightInput) {
         Map<Slot, Slot> slotMapping = new HashMap<>(leftInput.mapping);
         slotMapping.putAll(rightInput.mapping);
-        LogicalJoin<Plan, Plan> rewrittenJoin = new LogicalJoin<>(join.getJoinType(),
+        LogicalJoin<?, ?> rewrittenJoin = helper.withDeltaOnRight(new LogicalJoin<>(join.getJoinType(),
                 ExpressionUtils.replace(join.getHashJoinConjuncts(), slotMapping),
                 ExpressionUtils.replace(join.getOtherJoinConjuncts(), slotMapping), join.getDistributeHint(),
-                leftInput.plan, rightInput.plan, JoinReorderContext.EMPTY);
+                leftInput.plan, rightInput.plan, JoinReorderContext.EMPTY), deltaOnLeft);
         IvmDeltaRewriteResult joinResult = new IvmDeltaRewriteResult(rewrittenJoin,
                 helper.findSlotByName(rewrittenJoin.getOutput(), Column.IVM_DML_FACTOR_COL),
                 helper.findSlotByName(rewrittenJoin.getOutput(), Column.SEQUENCE_COL), delta.maxDeltaIndex);
@@ -295,10 +295,11 @@ class IvmJoinDeltaHandler {
                 : JoinType.INNER_JOIN;
         Map<Slot, Slot> slotMapping = new HashMap<>(deltaContext.leftInput.mapping);
         slotMapping.putAll(deltaContext.rightInput.mapping);
-        LogicalJoin<Plan, Plan> newJoin = new LogicalJoin<>(joinType,
+        LogicalJoin<?, ?> newJoin = helper.withDeltaOnRight(new LogicalJoin<>(joinType,
                 ExpressionUtils.replace(join.getHashJoinConjuncts(), slotMapping),
                 ExpressionUtils.replace(join.getOtherJoinConjuncts(), slotMapping), join.getDistributeHint(),
-                deltaContext.leftInput.plan, deltaContext.rightInput.plan, JoinReorderContext.EMPTY);
+                deltaContext.leftInput.plan, deltaContext.rightInput.plan, JoinReorderContext.EMPTY),
+                deltaContext.isDeltaOnLeft);
         // The joined-row branch changes the join type, so its output slots/schema are not the same as the
         // original outer join output. Project it back before unioning with the repair branches.
         return projectJoinContribution(join,
@@ -441,9 +442,8 @@ class IvmJoinDeltaHandler {
     }
 
     /**
-     * Build one NULL-row repair branch:
-     *   retained_snapshot LEFT SEMI JOIN null_side_delta
-     *     LEFT ANTI JOIN null_side_snapshot
+     * Build one NULL-row repair branch from retained rows affected by the delta
+     * and check those candidates for a match in the null-side snapshot.
      *
      * The semi join finds retained-side rows affected by the null-side delta. The anti join keeps only rows
      * whose match existence changed across the snapshot boundary.
@@ -473,10 +473,10 @@ class IvmJoinDeltaHandler {
                 .putAll(retainedSnapshot.second)
                 .putAll(nullSideSnapshot.second)
                 .buildKeepingLast();
-        LogicalJoin<Plan, Plan> antiJoin = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN,
+        LogicalJoin<?, ?> antiJoin = helper.withDeltaOnRight(new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN,
                 ExpressionUtils.replace(join.getHashJoinConjuncts(), antiJoinMapping),
                 ExpressionUtils.replace(join.getOtherJoinConjuncts(), antiJoinMapping), join.getDistributeHint(),
-                candidateJoin, nullSideSnapshot.first, JoinReorderContext.EMPTY);
+                candidateJoin, nullSideSnapshot.first, JoinReorderContext.EMPTY), true);
         return projectNullSideRepairOutputs(deltaContext, antiJoin, dmlFactor, retainedSnapshot.second);
     }
 
@@ -664,9 +664,9 @@ class IvmJoinDeltaHandler {
             antiConjuncts.add(new EqualTo(deltaKeys.keySlots.get(i),
                     ExpressionUtils.replace(nullSideKeyExpressions.get(i), nullSideSnapshot.second)));
         }
-        LogicalJoin<Plan, Plan> antiJoin = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN,
+        LogicalJoin<?, ?> antiJoin = helper.withDeltaOnRight(new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN,
                 antiConjuncts.build(), ImmutableList.of(), join.getDistributeHint(),
-                affectedKeys, nullSideSnapshot.first, JoinReorderContext.EMPTY);
+                affectedKeys, nullSideSnapshot.first, JoinReorderContext.EMPTY), true);
 
         return projectNullSideRepairEvent(deltaContext, antiJoin, deltaKeys.keySlots, dmlFactor);
     }

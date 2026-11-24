@@ -95,6 +95,10 @@ class IvmDupDeltaRewriterTest extends IvmDeltaTestBase {
         List<LogicalUnion> unions = collect(delta, LogicalUnion.class);
         Assertions.assertEquals(1, unions.size());
         Assertions.assertEquals(2, unions.get(0).children().size());
+        for (LogicalJoin<?, ?> join : collect(delta, LogicalJoin.class)) {
+            Assertions.assertTrue(incrementalScans(join.left()).isEmpty());
+            Assertions.assertEquals(1, incrementalScans(join.right()).size());
+        }
         assertNoDeltaMetadataSlots(delta);
         Assertions.assertEquals(mtmv.getInsertedColumnNames(), outputNames(delta));
     }
