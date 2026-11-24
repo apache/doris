@@ -92,6 +92,16 @@ ColumnVariantV2::MutablePtr typed_doubles(std::initializer_list<double> values) 
                                          std::make_shared<DataTypeFloat64>());
 }
 
+ColumnVariantV2::MutablePtr typed_floats(std::initializer_list<float> values) {
+    auto nested = ColumnFloat32::create();
+    for (float value : values) {
+        nested->insert_value(value);
+    }
+    const std::vector<uint8_t> nulls(values.size(), 0);
+    return ColumnVariantV2::create_typed(nullable(std::move(nested), nulls),
+                                         std::make_shared<DataTypeFloat32>());
+}
+
 ColumnPtr encoded_copy(const ColumnVariantV2& typed) {
     ColumnPtr copy = typed.clone();
     MutableColumnPtr mutable_copy = IColumn::mutate(std::move(copy));
@@ -396,6 +406,53 @@ TEST(DataTypeVariantV2SerdeOutputTest, SqlScalarsFollowLegacyOutputAndDataFormat
     const std::array<std::string_view, 5> double_expected {"1.25", "1e+100", R"("NaN")",
                                                            R"("Infinity")", R"("-Infinity")"};
     expect_text_surfaces(serde, *encoded_doubles, *doubles, double_expected, double_expected);
+}
+
+// A double is rendered with its shortest round-trip form, never a fixed digit count: 16
+// significant digits turned 0.30000000000000004 into 0.3 and 1997.6000000000001 into 1997.6,
+// two different doubles, for every reader of the document text.
+TEST(DataTypeVariantV2SerdeOutputTest, DoublesRenderWithTheirShortestRoundTripForm) {
+    DataTypeVariantV2SerDe serde;
+    // 8.12 is the other direction: 16 significant digits rendered it as 8.119999999999999, the
+    // shortest form is the text it was parsed from. The three limits pin the range: the old
+    // 1.797693134862316e+308 overflows to +inf on any correctly rounded reader.
+    auto doubles = typed_doubles({0.30000000000000004, 1997.6000000000001, 1997.6, 0.1, 1e16,
+                                  123456789012345680.0, -2.5e-7, 8.12,
+                                  std::numeric_limits<double>::max(),
+                                  std::numeric_limits<double>::min(),
+                                  std::numeric_limits<double>::denorm_min()});
+    ColumnPtr encoded_doubles = encoded_copy(*doubles);
+    const std::array<std::string_view, 11> expected {"0.30000000000000004",
+                                                     "1997.6000000000001",
+                                                     "1997.6",
+                                                     "0.1",
+                                                     "1e+16",
+                                                     "1.2345678901234568e+17",
+                                                     "-2.5e-07",
+                                                     "8.12",
+                                                     "1.7976931348623157e+308",
+                                                     "2.2250738585072014e-308",
+                                                     "5e-324"};
+    expect_text_surfaces(serde, *encoded_doubles, *doubles, expected, expected);
+
+    auto documents = encoded_json({R"({"s":0.30000000000000004,"q":1997.6000000000001})"});
+    EXPECT_EQ(cell_json(serde, *documents, 0),
+              R"({"q":1997.6000000000001,"s":0.30000000000000004})");
+}
+
+// A float renders with its shortest round-trip form too: 7 significant digits (digits10 + 1) is
+// up to two short of what a binary32 can need and moved the exponent threshold to 1e7, so
+// 3.1415927f rendered as 3.141593 and 12345678f as 1.234568e+07 -- not the text the element's
+// own cast produces, and not the stored float when parsed back.
+TEST(DataTypeVariantV2SerdeOutputTest, FloatsRenderWithTheirShortestRoundTripForm) {
+    DataTypeVariantV2SerDe serde;
+    auto floats = typed_floats({3.1415927f, 12345678.0f, 8.12f, 0.1f, 1e-7f,
+                                std::numeric_limits<float>::max(),
+                                std::numeric_limits<float>::denorm_min()});
+    ColumnPtr encoded_floats = encoded_copy(*floats);
+    const std::array<std::string_view, 7> expected {"3.1415927", "12345678", "8.12", "0.1", "1e-07",
+                                                    "3.4028235e+38", "1e-45"};
+    expect_text_surfaces(serde, *encoded_floats, *floats, expected, expected);
 }
 
 TEST(DataTypeVariantV2SerdeOutputTest, NestedValuesUseJsonOutput) {
