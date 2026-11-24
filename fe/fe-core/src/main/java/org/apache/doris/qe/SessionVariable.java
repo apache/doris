@@ -731,6 +731,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String STATISTICS_SAMPLE_UNIT_ROWS = "statistics_sample_unit_rows";
     public static final String STATISTICS_MAX_SAMPLE_TABLETS = "statistics_max_sample_tablets";
     public static final String STATISTICS_MINMAX_BATCH_COLUMNS = "statistics_minmax_batch_columns";
+    public static final String STATISTICS_SAMPLE_BATCH_COLUMNS = "statistics_sample_batch_columns";
 
     public static final String STATS_INSERT_MERGE_ITEM_COUNT = "stats_insert_merge_item_count";
 
@@ -3021,6 +3022,11 @@ public class SessionVariable implements Serializable, Writable {
             description = "Maximum columns per min/max query for sampled OLAP statistics. "
                     + "Values at or below one use individual column queries.")
     public volatile int statisticsMinMaxBatchColumns = 64;
+
+    @VarAttrDef.VarAttr(name = STATISTICS_SAMPLE_BATCH_COLUMNS, flag = VarAttrDef.GLOBAL,
+            description = "Maximum columns per sampled scan query for OLAP statistics. "
+                    + "Values at or below one use individual column queries.")
+    public volatile int statisticsSampleBatchColumns = 16;
 
     @VarAttrDef.VarAttr(name = STATS_INSERT_MERGE_ITEM_COUNT, flag = VarAttrDef.GLOBAL, description = "Controls the "
             + "batch size for stats INSERT merging."

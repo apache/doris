@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics.analysis;
 
-import org.apache.doris.analysis.FixedBlockSampleSpec;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -75,10 +74,8 @@ final class ColumnMinMaxBatchCollector {
             try {
                 MaterializedIndexMeta meta = table.getIndexMetaByIndexId(resolvedIndexId);
                 column = meta == null ? null : meta.getColumnByName(task.info.colName);
-                if (column != null && !column.isKey() && StatisticsUtil.enableFixedBlockStatsSampling()
-                        && FixedBlockSampleSpec.supportsMergedSampling(table, resolvedIndexId)) {
-                    inSampleBounds = true;
-                }
+                inSampleBounds = OlapAnalysisTask.prefersInSampleBounds(
+                        table, meta, column, resolvedIndexId, task.info);
             } finally {
                 table.readUnlock();
             }
@@ -158,6 +155,7 @@ final class ColumnMinMaxBatchCollector {
             State next = State.PENDING;
             ResultRow row = null;
             try (AutoCloseConnectContext ctx = StatisticsUtil.buildConnectContext(false)) {
+                BaseAnalysisTask.configureJobParallelism(ctx.connectContext.getSessionVariable(), caller.info);
                 String sql = OlapAnalysisTask.buildMinMaxSql(target.qualifiedTable, target.indexSql, columns);
                 StmtExecutor executor = new StmtExecutor(ctx.connectContext, sql);
                 synchronized (ColumnMinMaxBatchCollector.this) {

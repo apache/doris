@@ -106,7 +106,7 @@ public final class RandomAggTabletSamplingMethod implements TabletSamplingMethod
                     ? Math.min(1.0, Math.max(Double.MIN_NORMAL, budget.targetRows() / remainingRows))
                     : 1.0;
             long minUnitByCap = Math.max(1L, Math.round(
-                    (budget.targetRows() / (double) Math.max(1, m)) / 512.0));
+                    (budget.targetRows() / (double) Math.max(1, m)) / 32.0));
             long partitionUnitRows = Math.max(64L, Math.max(budget.unitRows(), minUnitByCap));
             long maxBlocks = 1L + (maxPartRows - 1L) / partitionUnitRows;
             long safetyCap = Math.max(128L, (long) Math.ceil(2.0 * gamma * maxBlocks + 128.0));

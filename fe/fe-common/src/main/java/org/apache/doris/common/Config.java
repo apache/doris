@@ -2706,6 +2706,10 @@ public class Config extends ConfigBase {
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
 
+    @ConfField(mutable = true, description = "Pipeline parallelism used by manual ANALYZE internal SQL queries. "
+            + "Automatic background statistics jobs continue to use statistics_sql_parallel_exec_instance_num.")
+    public static int manual_statistics_sql_parallel_exec_instance_num = 4;
+
     @ConfField(mutable = true)
     public static long statistics_sql_mem_limit_in_bytes = 2L * 1024 * 1024 * 1024;
 

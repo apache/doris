@@ -194,6 +194,45 @@ class TableStatisticsSqlBuilderTest {
                 Assertions.assertEquals(query.getValue(),
                         ((OlapScanNode) translated.getScanNodes().get(0)).hasFixedBlockSample());
             }
+
+            // Multi-column batched sample SQL must also compile to a single PhysicalOlapScan / OlapScanNode.
+            String sampleHints = SampledScanSqlRenderer.render(new FixedBlockScanClause(blocks), 4096);
+            String fullFrom = "internal.stats_test.events INDEX `rollup_events` " + sampleHints;
+            List<TableStatisticsSqlBuilder.BatchedColumnSpec> batchSpecs = List.of(
+                    new TableStatisticsSqlBuilder.BatchedColumnSpec(
+                            0, 0L, 10L, 100L, -1L, "id", "`id`", false, 8,
+                            true, true, logical, false, logical, 1.0, 12345L, -1L),
+                    new TableStatisticsSqlBuilder.BatchedColumnSpec(
+                            1, 0L, 10L, 100L, -1L, "name", "`name`", true, 16,
+                            false, false, logical, false, true, 0.5, 12345L, 64L));
+            for (boolean census : List.of(false, true)) {
+                List<TableStatisticsSqlBuilder.BatchedColumnSpec> specs = census
+                        ? List.of(
+                                new TableStatisticsSqlBuilder.BatchedColumnSpec(
+                                        0, 0L, 10L, 100L, -1L, "id", "`id`", false, 8,
+                                        true, true, false, true, true, 1.0, 12345L, -1L),
+                                new TableStatisticsSqlBuilder.BatchedColumnSpec(
+                                        1, 0L, 10L, 100L, -1L, "name", "`name`", true, 16,
+                                        false, false, false, true, true, 1.0, 12345L, 64L))
+                        : batchSpecs;
+                String batchedSql = TableStatisticsSqlBuilder.batchedSampleSql(
+                        census ? "internal.stats_test.events INDEX `rollup_events`" : fullFrom, specs, 10);
+                var statement = MemoTestUtils.createStatementContext(ctx, batchedSql);
+                statement.setTables(Map.of(List.of("internal", "stats_test", "events"), table));
+                var cascades = MemoTestUtils.createCascadesContext(statement, batchedSql);
+                var physical = PlanChecker.from(cascades).analyze().rewrite().optimize().getBestPlanTree();
+                List<PhysicalOlapScan> scans = physical.collectToList(PhysicalOlapScan.class::isInstance);
+                Assertions.assertEquals(1, scans.size(), physical.treeString());
+                Assertions.assertEquals(11, scans.get(0).getSelectedIndexId());
+                if (!census && logical) {
+                    Assertions.assertTrue(scans.get(0).getPreAggStatus().isOff());
+                }
+                PlanTranslatorContext translated = new PlanTranslatorContext();
+                physical.accept(new PhysicalPlanTranslator(translated), translated);
+                Assertions.assertEquals(1, translated.getScanNodes().size());
+                Assertions.assertEquals(!census,
+                        ((OlapScanNode) translated.getScanNodes().get(0)).hasFixedBlockSample());
+            }
         }
     }
 }

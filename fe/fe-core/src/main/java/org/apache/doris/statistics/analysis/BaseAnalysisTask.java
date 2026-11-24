@@ -361,7 +361,7 @@ public abstract class BaseAnalysisTask {
         job.taskDoneWithoutData(this);
     }
 
-    private String buildSkipMessage() {
+    String buildSkipMessage() {
         return String.format(
                 "Column [%s] has row(s) whose byte length exceeds %d (Config.statistics_max_string_column_length), "
                         + "skip collecting statistics for this column.",
@@ -675,6 +675,14 @@ public abstract class BaseAnalysisTask {
         variables.cteInlineMode = -1;
     }
 
+    static void configureJobParallelism(SessionVariable variables, AnalysisInfo info) {
+        if (variables != null && info != null && info.jobType == AnalysisInfo.JobType.MANUAL) {
+            int parallel = Math.max(1, org.apache.doris.common.Config.manual_statistics_sql_parallel_exec_instance_num);
+            variables.parallelExecInstanceNum = parallel;
+            variables.parallelPipelineTaskNum = parallel;
+        }
+    }
+
     protected void runQuery(String sql) {
         long startTime = System.currentTimeMillis();
         String queryId = "";
@@ -683,34 +691,11 @@ public abstract class BaseAnalysisTask {
             if (this instanceof OlapAnalysisTask) {
                 configureStatsCte(a.connectContext.getSessionVariable());
             }
+            configureJobParallelism(a.connectContext.getSessionVariable(), info);
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             ResultRow row = stmtExecutor.executeInternalQuery().get(0);
-            if (this instanceof OlapAnalysisTask olap) {
-                row = olap.freezeResultCount(row);
-            }
-            ColStatsData colStatsData = new ColStatsData(row);
-            if (!colStatsData.isValid()) {
-                if (MetricRepo.isInit) {
-                    MetricRepo.COUNTER_STATISTICS_INVALID_STATS.increase(1L);
-                }
-                // Don't throw: keep writing the row into the statistics table so that the
-                // whole job still finishes. toColumnStatistic() will defensively convert
-                // this pattern to ColumnStatistic.UNKNOWN at read time, so the optimizer
-                // never sees the bogus numbers. See issue #64122.
-                LOG.warn("ColStatsData is invalid, will write to table but be treated as UNKNOWN at read time. {}",
-                        colStatsData.toSQL(true));
-            }
-            // Update index row count after analyze.
-            if (this instanceof OlapAnalysisTask) {
-                AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(job.getJobInfo().jobId);
-                // For sync job, get jobInfo from job.jobInfo.
-                jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
-                long indexId = info.indexId == -1 ? ((OlapTable) tbl).getBaseIndexId() : info.indexId;
-                jobInfo.addIndexRowCount(indexId, colStatsData.count);
-            }
-            Env.getCurrentEnv().getStatisticsCache().syncColStats(colStatsData);
+            publishResultRow(row);
             queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());
-            job.appendBuf(this, Collections.singletonList(colStatsData));
         } catch (Exception e) {
             LOG.warn("Failed to execute sql {}", sql);
             if (containsSkipMarker(e)) {
@@ -727,8 +712,37 @@ public abstract class BaseAnalysisTask {
         }
     }
 
+    protected void publishResultRow(ResultRow row) {
+        if (this instanceof OlapAnalysisTask olap) {
+            row = olap.freezeResultCount(row);
+        }
+        ColStatsData colStatsData = new ColStatsData(row);
+        if (!colStatsData.isValid()) {
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_STATISTICS_INVALID_STATS.increase(1L);
+            }
+            // Don't throw: keep writing the row into the statistics table so that the
+            // whole job still finishes. toColumnStatistic() will defensively convert
+            // this pattern to ColumnStatistic.UNKNOWN at read time, so the optimizer
+            // never sees the bogus numbers. See issue #64122.
+            LOG.warn("ColStatsData is invalid, will write to table but be treated as UNKNOWN at read time. {}",
+                    colStatsData.toSQL(true));
+        }
+        // Update index row count after analyze.
+        if (this instanceof OlapAnalysisTask) {
+            AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(job.getJobInfo().jobId);
+            // For sync job, get jobInfo from job.jobInfo.
+            jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
+            long indexId = info.indexId == -1 ? ((OlapTable) tbl).getBaseIndexId() : info.indexId;
+            jobInfo.addIndexRowCount(indexId, colStatsData.count);
+        }
+        Env.getCurrentEnv().getStatisticsCache().syncColStats(colStatsData);
+        job.appendBuf(this, Collections.singletonList(colStatsData));
+    }
+
     protected void runInsert(String sql) throws Exception {
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+            configureJobParallelism(r.connectContext.getSessionVariable(), info);
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
             try {
                 stmtExecutor.execute();

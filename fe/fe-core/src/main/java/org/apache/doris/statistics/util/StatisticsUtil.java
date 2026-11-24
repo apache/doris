@@ -702,6 +702,10 @@ public class StatisticsUtil {
         return VariableMgr.getDefaultSessionVariable().statisticsMinMaxBatchColumns;
     }
 
+    public static int getSampleBatchColumns() {
+        return VariableMgr.getDefaultSessionVariable().statisticsSampleBatchColumns;
+    }
+
     public static int getInsertMergeCount() {
         try {
             return findConfigFromGlobalSessionVar(SessionVariable.STATS_INSERT_MERGE_ITEM_COUNT)

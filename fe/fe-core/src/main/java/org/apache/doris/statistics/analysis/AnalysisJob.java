@@ -105,6 +105,7 @@ public class AnalysisJob {
     }
 
     private final ColumnMinMaxBatchCollector minMaxCollector;
+    private final ColumnSampleBatchCollector sampleBatchCollector;
 
     protected Set<BaseAnalysisTask> queryingTask;
 
@@ -124,6 +125,7 @@ public class AnalysisJob {
 
     public AnalysisJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> queryingTask) {
         minMaxCollector = new ColumnMinMaxBatchCollector(queryingTask, StatisticsUtil.getMinMaxBatchColumns());
+        sampleBatchCollector = new ColumnSampleBatchCollector(queryingTask, StatisticsUtil.getSampleBatchColumns());
         for (BaseAnalysisTask task : queryingTask) {
             task.job = this;
             if (task instanceof OlapAnalysisTask && task.tableSample != null && task.info != null) {
@@ -269,6 +271,7 @@ public class AnalysisJob {
     void markKilled() {
         killed.set(true);
         minMaxCollector.cancelAll();
+        sampleBatchCollector.cancelAll();
     }
 
     public boolean isKilled() {

@@ -66,6 +66,7 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
         int[] counts = new int[tiers];
         double[] weights = new double[tiers];
         long[] largest = new long[tiers];
+        long[] largestRows = new long[tiers];
         List<Cell[]> cells = new ArrayList<>();
         for (PartitionSampleMeta part : partitions) {
             Cell[] strata = new Cell[tiers];
@@ -80,6 +81,7 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
                 counts[h]++;
                 weights[h] += b;
                 largest[h] = Math.max(largest[h], b);
+                largestRows[h] = Math.max(largestRows[h], t.estimatedRows());
             }
             cells.add(strata);
         }
@@ -117,7 +119,8 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
                 q = Math.min(q, alpha * beta[h]);
             }
         }
-        return draw(request, partitions, cells, m, alpha, beta, weights, rates, q, largest);
+        return draw(request, partitions, cells, m, alpha, beta, weights, rates, q, largest, largestRows,
+                population.rows());
     }
 
     public record Population(long min, long max, double rows, double blocks, boolean imputed) {
@@ -184,7 +187,7 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
 
     private TabletSampleSpec draw(TabletSamplingRequest request, List<PartitionSampleMeta> partitions,
             List<Cell[]> cells, int m, double alpha, double[] beta, double[] weights, BigInteger[] rates,
-            double q, long[] largest) {
+            double q, long[] largest, long[] largestRows, double populationRows) {
         long seed = request.seed();
         List<Integer> order = new ArrayList<>();
         for (int j = 0; j < partitions.size(); j++) {
@@ -208,13 +211,25 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
                 }
             }
         }
+        int selectedTablets = selected.stream().mapToInt(List::size).sum();
+        long effectiveUnitRows = request.budget().unitRows();
+        if (mode == FixedBlockSampleSpec.Mode.KEY_RANGE_BLOCK && selectedTablets > 0) {
+            // Coalesce narrow key units into at most ~32 stratified contiguous spans per selected
+            // tablet so overlapping segments do not decompress separate 64 KB pages for hundreds of cuts.
+            double expectedRowsPerTablet = (q * populationRows) / selectedTablets;
+            long minUnitByTarget = Math.max(1L, (long) Math.ceil(expectedRowsPerTablet / 32.0));
+            effectiveUnitRows = Math.max(effectiveUnitRows, minUnitByTarget);
+        }
         Map<GroupRates, List<Long>> combined = new LinkedHashMap<>();
         for (int h = 0; h < beta.length; h++) {
             if (!selected.get(h).isEmpty()) {
                 double pi = alpha * beta[h];
                 double p = q / pi;
+                long maxBlocks = effectiveUnitRows == request.budget().unitRows()
+                        ? largest[h]
+                        : (1L + (Math.max(1L, largestRows[h]) - 1L) / effectiveUnitRows);
                 // BE rounds per segment. Allow for segment tails and delayed tablet reports.
-                long safetyCap = (long) Math.ceil(2 * p * largest[h] + 64);
+                long safetyCap = (long) Math.ceil(2 * p * maxBlocks + 64);
                 combined.computeIfAbsent(new GroupRates(pi, p, safetyCap), ignored -> new ArrayList<>())
                         .addAll(selected.get(h));
             }
@@ -235,7 +250,7 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
             bucketRate = Math.max(Math.min(bucketRate, 1.0), q / Math.max(alpha, Double.MIN_NORMAL));
         }
         return new TabletSampleSpec(new FixedBlockScanClause(new FixedBlockSampleSpec(
-                mode, request.budget().unitRows(), seed, groups)),
+                mode, effectiveUnitRows, seed, groups)),
                 new EqualProbabilitySamplingSemantics(q, alpha, bucketRate));
     }
 
