@@ -362,4 +362,42 @@ TEST(FileAggregateTest, AnyValueCarriesFileAcrossEmptyNullAndPartialStates) {
     }
 }
 
+TEST(FileAggregateTest, MinMaxByPreservesFilePayloadAcrossPartialStates) {
+    const auto file_type = std::make_shared<DataTypeFile>();
+    const auto key_type = std::make_shared<DataTypeInt32>();
+    const int version = BeExecVersionManager::get_newest_version();
+    auto files = file_type->create_column();
+    auto keys = ColumnInt32::create();
+    for (const auto& [id, key] : {std::pair {3, 20}, std::pair {1, 30}, std::pair {2, 10}}) {
+        files->insert(file_aggregate_value(id));
+        keys->insert_value(key);
+    }
+    const IColumn* columns[] = {files.get(), keys.get()};
+    for (const auto& [name, expected_id] : {std::pair {"min_by", 2}, std::pair {"max_by", 1}}) {
+        SCOPED_TRACE(name);
+        auto function = AggregateFunctionSimpleFactory::instance().get(name, {file_type, key_type},
+                                                                       file_type, false, version);
+        ASSERT_NE(function, nullptr);
+        function->set_version(version);
+        Arena arena;
+        AggregateFunctionGuard partial(function.get());
+        function->add_batch_single_place(files->size(), partial.data(), columns, arena);
+
+        ColumnString buffer;
+        VectorBufferWriter writer(buffer);
+        function->serialize(partial.data(), writer);
+        writer.commit();
+        AggregateFunctionGuard restored(function.get());
+        VectorBufferReader reader(buffer.get_data_at(0));
+        function->deserialize(restored.data(), reader, arena);
+        EXPECT_FALSE(reader.has_remaining());
+        AggregateFunctionGuard global(function.get());
+        function->add(global.data(), columns, 0, arena);
+        function->merge(global.data(), restored.data(), arena);
+        auto result = file_type->create_column();
+        function->insert_result_into(global.data(), *result);
+        expect_file_payload((*result)[0], expected_id);
+    }
+}
+
 } // namespace doris
