@@ -24,6 +24,7 @@ import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.property.common.IcebergAwsAssumeRoleProperties;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.GCSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
@@ -38,6 +39,7 @@ import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.io.NativeGcsResolvingFileIO;
 
 import java.util.HashMap;
 import java.util.List;
@@ -233,6 +235,13 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
             if (!Strings.isNullOrEmpty(region)) {
                 fileIOProperties.put(AwsClientProperties.CLIENT_REGION, region);
             }
+        }
+        if (IcebergExternalCatalog.ICEBERG_REST.equals(getIcebergCatalogType())
+                && !Boolean.parseBoolean(origProps.get("iceberg.rest.vended-credentials-enabled"))
+                && (s3Target instanceof GCSProperties
+                        || origProps.keySet().stream().anyMatch(key -> key.startsWith("fs.gs.")))) {
+            // Adding iceberg-gcp must not route HMAC-backed gs:// files to GCSFileIO's ADC identity.
+            fileIOProperties.putIfAbsent(CatalogProperties.FILE_IO_IMPL, NativeGcsResolvingFileIO.class.getName());
         }
     }
 

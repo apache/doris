@@ -33,6 +33,7 @@ import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.rest.RESTSessionCatalog;
+import org.apache.iceberg.rest.auth.AuthProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.apache.logging.log4j.util.Strings;
 
@@ -67,8 +68,16 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     @ConnectorProperty(names = {"iceberg.rest.security.type"},
             required = false,
             description = "The security type of the iceberg rest catalog service,"
-                    + "optional: (none, oauth2), default: none.")
+                    + "optional: (none, oauth2, google), default: none.")
     private String icebergRestSecurityType = "none";
+
+    @ConnectorProperty(names = {"iceberg.rest.io-impl"}, required = false,
+            description = "The FileIO implementation for the iceberg rest catalog service.")
+    private String icebergRestIoImpl;
+
+    @ConnectorProperty(names = {"iceberg.rest.google.user-project"}, required = false,
+            description = "The Google project billed for using the iceberg rest catalog service.")
+    private String icebergRestGoogleUserProject;
 
     @ConnectorProperty(names = {"iceberg.rest.session"},
             required = false,
@@ -248,7 +257,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             Security.valueOf(icebergRestSecurityType.toUpperCase());
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Invalid security type: " + icebergRestSecurityType
-                    + ". Supported values are: none, oauth2");
+                    + ". Supported values are: none, oauth2, google");
         }
     }
 
@@ -323,6 +332,13 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     }
 
     private void addOptionalProperties() {
+        if (Strings.isNotBlank(icebergRestIoImpl)) {
+            icebergRestCatalogProperties.put(CatalogProperties.FILE_IO_IMPL, icebergRestIoImpl);
+        }
+        if (Strings.isNotBlank(icebergRestGoogleUserProject)) {
+            icebergRestCatalogProperties.put("header.x-goog-user-project", icebergRestGoogleUserProject);
+        }
+
         if (Strings.isNotBlank(icebergRestPrefix)) {
             icebergRestCatalogProperties.put(PREFIX_PROPERTY, icebergRestPrefix);
         }
@@ -347,6 +363,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         Security security = Security.valueOf(icebergRestSecurityType.toUpperCase());
         if (security == Security.OAUTH2) {
             addOAuth2Properties();
+        } else if (security == Security.GOOGLE) {
+            icebergRestCatalogProperties.put(AuthProperties.AUTH_TYPE, AuthProperties.AUTH_MANAGER_IMPL_GOOGLE);
         }
     }
 
@@ -421,5 +439,6 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     public enum Security {
         NONE,
         OAUTH2,
+        GOOGLE,
     }
 }
