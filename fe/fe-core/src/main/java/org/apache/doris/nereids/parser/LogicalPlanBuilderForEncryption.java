@@ -29,6 +29,7 @@ import org.apache.doris.nereids.DorisParser.InsertTableContext;
 import org.apache.doris.nereids.DorisParser.JobFromToClauseContext;
 import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.SqlModeHelper;
 
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.apache.commons.collections4.MapUtils;
@@ -61,11 +62,17 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         if (preserveFormatting && ctx != null) {
             for (DorisParser.PropertyItemContext property : ctx.properties) {
                 String key = parsePropertyKey(property.key);
-                if (DatasourcePrintableMap.isSensitiveKey(key) || DatasourcePrintableMap.HIDDEN_KEY.contains(key)) {
+                String value = properties.get(key);
+                // Ordinary keys such as driver_url can carry credentials inside their URL values.
+                String redacted = DatasourcePrintableMap.HIDDEN_KEY.contains(key)
+                        ? DatasourcePrintableMap.PASSWORD_MASK : DatasourcePrintableMap.redactProperty(key, value);
+                if (!redacted.equals(value)) {
                     // Keep whitespace, comments, key spelling and the surrounding SQL unchanged.
                     String quote = property.value.getText().startsWith("\"") ? "\"" : "'";
+                    String escaped = SqlModeHelper.hasNoBackSlashEscapes()
+                            ? redacted : redacted.replace("\\", "\\\\");
                     indexInSqlToString.put(Pair.of(property.value.start.getStartIndex(),
-                            property.value.stop.getStopIndex()), quote + DatasourcePrintableMap.PASSWORD_MASK + quote);
+                            property.value.stop.getStopIndex()), quote + escaped.replace(quote, quote + quote) + quote);
                 }
             }
         }
