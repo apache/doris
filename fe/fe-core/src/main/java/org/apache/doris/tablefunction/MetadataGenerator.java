@@ -987,7 +987,7 @@ public class MetadataGenerator {
 
     private static boolean shouldMaskAuthenticationProperty(String key) {
         String lowerCaseKey = key.toLowerCase(Locale.ROOT);
-        return PrintableMap.SENSITIVE_KEY.contains(key)
+        return PrintableMap.isSensitiveKey(key)
                 || lowerCaseKey.startsWith("secret.")
                 || lowerCaseKey.endsWith(".password")
                 || lowerCaseKey.endsWith("_password")

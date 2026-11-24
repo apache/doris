@@ -563,6 +563,10 @@ public class S3ObjStorageTest {
         // Verify that the prefix was adjusted correctly for the directory bucket.
         // "data/files*.csv" -> longest prefix is "data/files", adjusted to "data/"
         Assertions.assertEquals("data/", captor.getValue().prefix());
+        Assertions.assertFalse(storage.globListWithLimit(remotePath, new ArrayList<>(), "data/files1.csv", 0, 0)
+                .getStatus().ok());
+        Assertions.assertFalse(storage.globListWithLimit(remotePath, new ArrayList<>(), null, 0, 1)
+                .getStatus().ok());
     }
 
     @Test

@@ -21,8 +21,8 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_segment_limit_pushdown = true """
-    sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     // Exercise index evaluation instead of reusing cached query or condition results.
     sql "set enable_sql_cache = false"
     sql "set enable_query_cache = false"
@@ -91,7 +91,7 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
         INDEX idx_a_l (var) USING INVERTED PROPERTIES("field_pattern"="ipv6_*") COMMENT '',
         INDEX idx_a_m (var) USING INVERTED PROPERTIES("field_pattern"="largeint_*") COMMENT '',
         INDEX idx_a_n (var) USING INVERTED PROPERTIES("field_pattern"="char_*") COMMENT ''
-    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_escape_dots_in_keys" = "false")
 
     """
     sql """

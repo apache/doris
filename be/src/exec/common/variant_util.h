@@ -65,6 +65,9 @@ namespace doris::variant_util {
 using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;
 
+// Check the requested execution type before a read schema can promote its Variant columns.
+Status check_variant_execution(bool escape_dots_in_keys, const DataTypePtr& type);
+
 inline bool should_record_variant_path_stats(const TabletColumn& column) {
     return !column.variant_enable_nested_group();
 }
@@ -85,6 +88,7 @@ struct VariantExtendedInfo {
             nested_paths;               // nested paths in this variant column
     PathToDataTypes path_to_data_types; // key: path, value: data types
     bool has_nested_group = false;      // whether this variant column has nested group
+    bool has_legacy_path_encoding = false;
 };
 
 /// Returns number of dimensions in Array type. 0 if type is not array.
@@ -158,16 +162,18 @@ uint32_t variant_binary_shard_of(const StringRef& path, uint32_t bucket_num);
 
 void get_field_info(const Field& field, FieldInfo* info);
 
-// inherit index from parent column
+// inherit index from parent column. escape_dots is the owning tablet schema's
+// variant_escape_dots_in_keys; it also escapes '%' in the index suffix.
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
                    TabletIndexes& sub_column_indexes, FieldType column_type,
-                   const std::string& suffix_path, bool is_array_nested_type = false);
+                   const std::string& suffix_path, bool is_array_nested_type, bool escape_dots);
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
-                   TabletIndexes& sub_column_indexes, const TabletColumn& column);
+                   TabletIndexes& sub_column_indexes, const TabletColumn& column, bool escape_dots);
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
-                   TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb);
+                   TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb,
+                   bool escape_dots);
 
 Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
                                     TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
@@ -192,7 +198,8 @@ public:
     // collect path stats from the variant column
     static Status aggregate_path_to_stats(
             const RowsetSharedPtr& rs,
-            std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats);
+            std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats,
+            bool escaped_paths = false);
 
     // Build the temporary schema for compaction, this will reduce the memory usage of compacting variant columns
     static Status get_extended_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,

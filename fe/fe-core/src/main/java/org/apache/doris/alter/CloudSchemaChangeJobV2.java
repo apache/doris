@@ -268,7 +268,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                             invertedIndexFileStorageFormat,
                                             tbl.rowStorePageSize(),
-                                            tbl.variantEnableFlattenNested(), clusterKeyUids,
+                                            tbl.variantEnableFlattenNested(),
+                                            tbl.getVariantEscapeDotsInKeys(), clusterKeyUids,
                                             tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                                             tbl.storageDictPageSize(), true,
                                                     tbl.getVerticalCompactionNumColumnsPerGroup());

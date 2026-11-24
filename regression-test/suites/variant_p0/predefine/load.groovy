@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_predefine_schema", "p0,nonConcurrent"){
-    setFeConfigTemporary([enable_variant_v2: false]) {
+    setFeConfigTemporary([enable_variant_v2: false, enable_variant_escape_dots_in_keys: false]) {
     assertFalse(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = ""
     def deprecatedFlattenNested = "false"
@@ -24,13 +24,13 @@ suite("regression_test_variant_predefine_schema", "p0,nonConcurrent"){
         "regexp_replace(cast(${column} as string), " +
                 "'([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})[.]000000', '\\\\1')"
     }
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     sql """DROP TABLE IF EXISTS test_predefine"""
     def count = new Random().nextInt(10);
     if (new Random().nextInt(100) < 50) {
         count = "1000"
     }
-    sql """ set default_variant_max_subcolumns_count = ${count} """
+    sql """ set debug_variant_max_subcolumns_count = ${count} """
     sql """ set enable_variant_flatten_nested = true """
     sql """
         CREATE TABLE `test_predefine` (

@@ -16,12 +16,12 @@
 // under the License.
 
 suite("test_all_prdefine_type_to_sparse", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
+    setFeConfigTemporary([enable_variant_v2: false, enable_variant_escape_dots_in_keys: false]) {
     assertFalse(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = ""
 
     sql """ set describe_extend_variant_column = true """
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_doc_mode = false """
 
     def tableName = "test_all_prdefine_type_to_sparse"
     sql "set enable_decimal256 = true"

@@ -49,6 +49,7 @@
 #include "io/cache/block_file_cache_ttl_mgr.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
+#include "io/cache/file_cache_io_adaptor.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/cache/inflight_write_buffer_index.h"
 #include "io/cache/mem_file_cache_storage.h"
@@ -194,7 +195,8 @@ int64_t steady_clock_seconds() {
 
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
-        : _cache_base_path(cache_base_path),
+        : _io_adaptor(std::make_unique<FileCacheIOAdaptor>()),
+          _cache_base_path(cache_base_path),
           _capacity(cache_settings.capacity),
           _max_file_block_size(cache_settings.max_file_block_size) {
     _cur_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(_cache_base_path.c_str(),
@@ -709,12 +711,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
         if (_async_open_done) {
             return {};
         }
-        FileCacheKey key;
-        key.hash = hash;
-        key.meta.type = context.cache_type;
-        key.meta.expiration_time = context.expiration_time;
-        key.meta.tablet_id = context.tablet_id;
-        _storage->load_blocks_directly_unlocked(this, key, cache_lock);
+        _storage->load_file_blocks_directly_unlocked(this, hash, context.tablet_id, cache_lock);
 
         it = _files.find(hash);
         if (it == _files.end()) [[unlikely]] {
@@ -799,6 +796,22 @@ void BlockFileCache::add_need_update_lru_block(FileBlockSPtr block) {
     }
 }
 
+void BlockFileCache::record_query_cache_hit(const FileBlocks& blocks) {
+    // Adaptor hits skip get_or_set. Count only completed disk reads so remote bypasses and
+    // failed copies retried by the planner cannot inflate disk-cache hit ratios.
+    const size_t count = blocks.size();
+    size_t bytes = 0;
+    for (const auto& block : blocks) {
+        bytes += block->range().size();
+    }
+    *_num_read_blocks << count;
+    *_num_hit_blocks << count;
+    *_no_warmup_num_read_blocks << count;
+    *_no_warmup_num_hit_blocks << count;
+    *_total_read_size_metrics << bytes;
+    *_total_hit_size_metrics << bytes;
+}
+
 Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapper& hash,
                                                               size_t offset, size_t size,
                                                               const CacheContext& context,
@@ -828,12 +841,7 @@ Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapp
         if (_async_open_done) {
             return Status::OK();
         }
-        FileCacheKey key;
-        key.hash = hash;
-        key.meta.type = context.cache_type;
-        key.meta.expiration_time = context.expiration_time;
-        key.meta.tablet_id = context.tablet_id;
-        _storage->load_blocks_directly_unlocked(this, key, cache_lock);
+        _storage->load_file_blocks_directly_unlocked(this, hash, context.tablet_id, cache_lock);
 
         it = _files.find(hash);
         if (it == _files.end()) {
@@ -913,12 +921,7 @@ FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t o
 
     auto file_iterator = _files.find(hash);
     if (file_iterator == _files.end() && !_async_open_done) {
-        FileCacheKey key;
-        key.hash = hash;
-        key.meta.type = context.cache_type;
-        key.meta.expiration_time = context.expiration_time;
-        key.meta.tablet_id = context.tablet_id;
-        _storage->load_blocks_directly_unlocked(this, key, cache_lock);
+        _storage->load_file_blocks_directly_unlocked(this, hash, context.tablet_id, cache_lock);
         file_iterator = _files.find(hash);
     }
 

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mtmv.MTMVPropertyUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -52,6 +53,7 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
     }
 
     private void analyzeProperties() {
+        PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(properties);
         for (String key : properties.keySet()) {
             MTMVPropertyUtil.analyzeProperty(key, properties.get(key));
         }

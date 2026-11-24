@@ -862,6 +862,10 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
         _spilling = true;
         return false;
     }
+    // The query made progress: a later reservation that fails for process memory starts a new
+    // bounded wait instead of continuing the one that this reservation may have been retried
+    // from.
+    _state->get_query_ctx()->resource_ctx()->task_controller()->end_process_memory_wait();
     return true;
 }
 
@@ -952,8 +956,6 @@ std::string PipelineTask::debug_string() {
     fmt::memory_buffer debug_string_buffer;
 
     fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(_query_id));
-    fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
-                   print_id(_state->fragment_instance_id()));
 
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[id = {}, open = {}, eos = {}, state = {}, dry run = "
@@ -969,6 +971,9 @@ std::string PipelineTask::debug_string() {
         fmt::format_to(debug_string_buffer, " pipeline name = {}", _pipeline_name);
         return fmt::to_string(debug_string_buffer);
     }
+    // Access RuntimeState only while the fragment is kept alive.
+    fmt::format_to(debug_string_buffer, "\nInstanceId: {}\n",
+                   print_id(_state->fragment_instance_id()));
     auto elapsed = fragment->elapsed_time() / NANOS_PER_SEC;
     fmt::format_to(debug_string_buffer, " elapse time = {}s, block dependency = [{}]\n", elapsed,
                    cur_blocked_dep && !is_finalized() ? cur_blocked_dep->debug_string() : "NULL");

@@ -575,7 +575,6 @@ struct NativeType<Decimal256> {
     using Type = wide::Int256;
 };
 
-// NOLINTEND(readability-function-size)
 #include "common/compile_check_end.h"
 } // namespace doris
 

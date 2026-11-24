@@ -1342,6 +1342,29 @@ TEST_F(ColumnVariantTest, insert_from) {
     assert_insert_from_with_field_callback(column_variant->get_ptr());
 }
 
+// get() returns an empty Field for an empty object, and Field::destroy() leaves the destroyed
+// VariantField pointer in the union storage. Inserting such a Field (as aggregation readers and
+// insert_from() do) must not dereference that pointer.
+TEST_F(ColumnVariantTest, insert_null_field_as_default) {
+    auto source = column_variant->clone_empty();
+    source->insert_default();
+    Field field;
+    source->get(0, field);
+    ASSERT_TRUE(field.is_null());
+
+    auto target = column_variant->clone_empty();
+    target->insert(field);
+    ASSERT_EQ(target->size(), 1);
+    Field restored;
+    target->get(0, restored);
+    EXPECT_TRUE(restored.is_null());
+
+    target->insert_from(*source, 0);
+    ASSERT_EQ(target->size(), 2);
+    target->get(1, restored);
+    EXPECT_TRUE(restored.is_null());
+}
+
 TEST_F(ColumnVariantTest, insert_range_from) {
     // insert_range_from_ignore_overflow call insert_range_from
     assert_insert_range_from_with_field_callback(column_variant->get_ptr());

@@ -205,12 +205,11 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         DCHECK_EQ(out_block->columns(), key_size);
         if (_stop_emplace_flag && _distinct_row.empty()) {
             // If _stop_emplace_flag is true and _distinct_row is also empty, it means it is in streaming mode, outputting what is input
-            // swap the column directly, to solve Check failed: d.column->use_count() == 1 (2 vs. 1)
+            // Share the evaluated keys as immutable columns. A repeated input position may
+            // already have been replaced, but its column is retained by the earlier output key.
             for (int i = 0; i < key_size; ++i) {
                 auto output_column = out_block->get_by_position(i).column;
-                auto input_column = IColumn::mutate(
-                        std::move(in_block->get_by_position(result_idxs[i]).column));
-                out_block->replace_by_position(i, std::move(input_column));
+                out_block->replace_by_position(i, key_columns[i]->get_ptr());
                 in_block->replace_by_position(result_idxs[i], output_column);
             }
         } else {
@@ -243,11 +242,9 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         ColumnsWithTypeAndName columns_with_schema;
         for (int i = 0; i < key_size; ++i) {
             if (_stop_emplace_flag) {
-                columns_with_schema.emplace_back(
-                        IColumn::mutate(
-                                std::move(in_block->get_by_position(result_idxs[i]).column)),
-                        _probe_expr_ctxs[i]->root()->data_type(),
-                        _probe_expr_ctxs[i]->root()->expr_name());
+                columns_with_schema.emplace_back(key_columns[i]->get_ptr(),
+                                                 _probe_expr_ctxs[i]->root()->data_type(),
+                                                 _probe_expr_ctxs[i]->root()->expr_name());
             } else {
                 auto distinct_column = key_columns[i]->clone_empty();
                 key_columns[i]->append_data_by_selector(distinct_column, _distinct_row);

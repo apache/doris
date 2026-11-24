@@ -299,9 +299,6 @@ public:
     void get_iam(google::protobuf::RpcController* controller, const GetIamRequest* request,
                  GetIamResponse* response, ::google::protobuf::Closure* done) override;
 
-    void alter_iam(google::protobuf::RpcController* controller, const AlterIamRequest* request,
-                   AlterIamResponse* response, ::google::protobuf::Closure* done) override;
-
     void alter_ram_user(google::protobuf::RpcController* controller,
                         const AlterRamUserRequest* request, AlterRamUserResponse* response,
                         ::google::protobuf::Closure* done) override;
@@ -843,11 +840,6 @@ public:
     void get_iam(google::protobuf::RpcController* controller, const GetIamRequest* request,
                  GetIamResponse* response, ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_iam, controller, request, response, done);
-    }
-
-    void alter_iam(google::protobuf::RpcController* controller, const AlterIamRequest* request,
-                   AlterIamResponse* response, ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::alter_iam, controller, request, response, done);
     }
 
     void alter_ram_user(google::protobuf::RpcController* controller,

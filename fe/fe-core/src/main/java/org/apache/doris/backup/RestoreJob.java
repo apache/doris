@@ -54,6 +54,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -343,7 +344,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         return false;
     }
 
-
     public synchronized boolean finishTabletDownloadTask(DownloadTask task, TFinishTaskRequest request) {
         if (checkTaskStatus(task, task.getJobId(), request)) {
             return false;
@@ -597,6 +597,21 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
         Preconditions.checkNotNull(backupMeta);
+
+        // RESTORE imports persisted schemas and bypasses CREATE TABLE and the load sink.
+        // Reject unsupported storage before changing local table state or creating replicas.
+        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
+            Table table = backupMeta.getTable(tableName);
+            if (table instanceof OlapTable) {
+                try {
+                    PropertyAnalyzer.requireVariantEscapeStorageSupport(
+                            ((OlapTable) table).getVariantEscapeDotsInKeys());
+                } catch (AnalysisException e) {
+                    status = new Status(ErrCode.COMMON_ERROR, e.getMessage());
+                    return;
+                }
+            }
+        }
 
         // Check the olap table state.
         //
@@ -1474,7 +1489,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool,
                             localTbl.rowStorePageSize(),
-                            localTbl.variantEnableFlattenNested(),
+                            localTbl.variantEnableFlattenNested(), localTbl.getVariantEscapeDotsInKeys(),
                             localTbl.storagePageSize(), localTbl.getTDEAlgorithm(),
                             localTbl.storageDictPageSize(),
                             localTbl.getVerticalCompactionNumColumnsPerGroup());
@@ -1731,7 +1746,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 }
             }
         }
-
 
         // restored tables
         for (Table restoreTbl : restoredTbls) {

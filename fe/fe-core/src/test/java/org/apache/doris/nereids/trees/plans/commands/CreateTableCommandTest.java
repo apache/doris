@@ -18,22 +18,103 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 
 class CreateTableCommandTest {
+    private boolean previousVariantV2;
+    private boolean previousVariantEscape;
+
+    @org.junit.jupiter.api.BeforeEach
+    public void enableVariantV2() {
+        previousVariantV2 = org.apache.doris.common.Config.enable_variant_v2;
+        previousVariantEscape = org.apache.doris.common.Config.enable_variant_escape_dots_in_keys;
+        org.apache.doris.common.Config.enable_variant_escape_dots_in_keys = true;
+        org.apache.doris.common.Config.enable_variant_v2 = true;
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    public void restoreVariantV2() {
+        org.apache.doris.common.Config.enable_variant_v2 = previousVariantV2;
+        org.apache.doris.common.Config.enable_variant_escape_dots_in_keys = previousVariantEscape;
+    }
+
+    @Test
+    void ctasInheritsOnlyForResolvedInternalOlapTarget() throws Exception {
+        for (boolean external : new boolean[] {false, true}) {
+            LogicalPlan query = new NereidsParser().parseSingle("SELECT 1 AS k");
+            CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+            ConnectContext context = Mockito.mock(ConnectContext.class);
+            StatementContext statement = Mockito.mock(StatementContext.class);
+            OlapTable source = Mockito.mock(OlapTable.class);
+            Mockito.when(source.getVariantEscapeDotsInKeys()).thenReturn(true);
+            Mockito.when(statement.getTables()).thenReturn(
+                    ImmutableMap.of(ImmutableList.of("internal", "database", "source"), source));
+            Mockito.when(context.getStatementContext()).thenReturn(statement);
+            Mockito.when(context.getSessionVariable()).thenReturn(new SessionVariable());
+            Mockito.when(info.getTableNameParts()).thenReturn(ImmutableList.of("catalog", "database", "target"));
+            Mockito.when(info.getProperties()).thenReturn(new HashMap<>());
+            Mockito.when(info.getCtasColumns()).thenReturn(null);
+            // These values are resolved by CreateTableInfo.validateCreateTableAsSelect before inheritance.
+            Mockito.when(info.isExternal()).thenReturn(external);
+            Mockito.when(info.getEngineName()).thenReturn(external ? null : CreateTableInfo.ENGINE_OLAP);
+            Plan plan = Mockito.mock(Plan.class);
+            Mockito.when(plan.getOutput()).thenReturn(ImmutableList.of(new SlotReference("k", IntegerType.INSTANCE)));
+            try (MockedConstruction<NereidsPlanner> planners = Mockito.mockConstruction(NereidsPlanner.class,
+                    (planner, mockContext) -> Mockito.when(planner.planWithLock(
+                            Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(plan))) {
+                new CreateTableCommand(Optional.of(query), info).validateCreateTableAsSelect(context, query);
+                if (external) {
+                    Mockito.verify(info, Mockito.never()).setProperties(Mockito.anyMap());
+                    Assertions.assertFalse(info.getProperties().containsKey(
+                            PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS));
+                } else {
+                    Mockito.verify(info).setProperties(ImmutableMap.of(
+                            PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "true"));
+                }
+                Mockito.verify(info).validateCreateTableAsSelect(Mockito.anyList(), Mockito.anyList(),
+                        Mockito.same(context));
+            }
+        }
+    }
+
+    @Test
+    void externalTargetStillRejectsExplicitEscapeProperty() {
+        CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+        for (String value : new String[] {"true", "false"}) {
+            Mockito.when(info.getProperties()).thenReturn(ImmutableMap.of(
+                    PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, value));
+            org.apache.doris.common.AnalysisException error = Assertions.assertThrows(
+                    org.apache.doris.common.AnalysisException.class,
+                    () -> PropertyAnalyzer.rejectVariantEscapeDotsInKeysExternal(info.getProperties()));
+            Assertions.assertTrue(error.getMessage().contains("variant_escape_dots_in_keys"), error.getMessage());
+        }
+    }
 
     @Test
     void ctasIfNotExistsReturnsBeforeUnsupportedSinkValidation() throws Exception {

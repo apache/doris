@@ -17,7 +17,6 @@
 
 package org.apache.doris.master;
 
-
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
@@ -1097,6 +1096,7 @@ public class ReportHandler extends Daemon {
                                             objectPool,
                                             olapTable.rowStorePageSize(),
                                             olapTable.variantEnableFlattenNested(),
+                                            olapTable.getVariantEscapeDotsInKeys(),
                                             olapTable.storagePageSize(), olapTable.getTDEAlgorithm(),
                                             olapTable.storageDictPageSize(),
                                             olapTable.getVerticalCompactionNumColumnsPerGroup());

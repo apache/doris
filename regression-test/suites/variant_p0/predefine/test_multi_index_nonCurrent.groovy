@@ -20,8 +20,8 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_segment_limit_pushdown = true """
-    sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     // Exercise index evaluation instead of reusing cached query or condition results.
     sql "set enable_sql_cache = false"
     sql "set enable_query_cache = false"
@@ -46,7 +46,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
         `var` variant<properties ("variant_max_subcolumns_count" = "10")> NOT NULL,
         INDEX idx_a_d (var) USING INVERTED PROPERTIES("parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_a_d_2 (var) USING INVERTED
-    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_escape_dots_in_keys" = "false")"""
 
     sql """insert into ${tableName} values(1, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')), (2, ${variantV2Function}('{"string" : "world", "array_string" : ["world"]}')), (3, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')), (4, ${variantV2Function}('{"string" : "world", "array_string" : ["world"]}')), (5, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')) """
     // insert into test_variant_multi_index_nonCurrent  values(1, '{"string" : "hello", "array_string" : ["hello"]}'), (2, '{"string" : "world", "array_string" : ["world"]}'), (3, '{"string" : "hello", "array_string" : ["hello"]}'), (4, '{"string" : "world", "array_string" : ["world"]}'), (5, '{"string" : "hello", "array_string" : ["hello"]}')
@@ -119,7 +119,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
         INDEX idx_a_d_5 (var) USING INVERTED PROPERTIES("field_pattern" = "string2","parser"="unicode", "support_phrase" = "false") COMMENT '',
         INDEX idx_a_d_6 (var) USING INVERTED PROPERTIES("field_pattern" = "string2") COMMENT '',
         INDEX idx_a_d_7 (var) USING INVERTED PROPERTIES("field_pattern" = "array_string") COMMENT ''
-    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_escape_dots_in_keys" = "false")"""
 
     sql """insert into ${tableName} values(1, ${variantV2Function}('{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}')),
                                 (2, ${variantV2Function}('{"string1" : "world", "array_string" : ["world"], "string2" : "world"}')),
@@ -217,7 +217,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     tableName = "test_variant_predefine_types_with_multi_indexes"
     sql "DROP TABLE IF EXISTS ${tableName}"
     def max_subcolumns_count = new Random().nextInt(10)
-    sql "set default_variant_max_subcolumns_count = ${max_subcolumns_count}"
+    sql "set debug_variant_max_subcolumns_count = ${max_subcolumns_count}"
     sql """
         CREATE TABLE ${tableName} (
         `id` bigint NOT NULL AUTO_INCREMENT,
@@ -251,7 +251,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
         INDEX idx_a_m (var) USING INVERTED PROPERTIES("field_pattern"="largeint_*") COMMENT '',
         INDEX idx_a_n (var) USING INVERTED PROPERTIES("field_pattern"="char_*") COMMENT '',
         INDEX idx_a_o (var) USING INVERTED PROPERTIES("field_pattern"="char_*", "parser"="english", "support_phrase" = "false") COMMENT ''
-    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_escape_dots_in_keys" = "false")
 
     """
     sql """

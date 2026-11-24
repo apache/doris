@@ -44,7 +44,9 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -63,6 +65,21 @@ public class HdfsStorageVaultTest {
         command.setStorageVaultType(StorageVault.StorageVaultType.HDFS);
         StorageVault vault = StorageVault.fromCommand(command);
         return vault;
+    }
+
+    @Test
+    public void testGenerateHdfsParamPreservesKerberosAuthentication() {
+        String authKey = HdfsStorageVault.PropertyKey.HADOOP_SECURITY_AUTHENTICATION;
+        Cloud.HdfsBuildConf buildConf = HdfsStorageVault.generateHdfsParam(ImmutableMap.of(
+                authKey.toUpperCase(Locale.ROOT), "KERBEROS",
+                HdfsStorageVault.PropertyKey.HADOOP_KERBEROS_PRINCIPAL, "hdfs/localhost@EXAMPLE.COM",
+                HdfsStorageVault.PropertyKey.HADOOP_KERBEROS_KEYTAB, "/etc/krb5.keytab")).getBuildConf();
+
+        Assertions.assertEquals("hdfs/localhost@EXAMPLE.COM", buildConf.getHdfsKerberosPrincipal());
+        Assertions.assertEquals("/etc/krb5.keytab", buildConf.getHdfsKerberosKeytab());
+        Assertions.assertEquals(Collections.singletonList(Cloud.HdfsBuildConf.HdfsConfKVPair.newBuilder()
+                .setKey(authKey)
+                .setValue("kerberos").build()), buildConf.getHdfsConfsList());
     }
 
     @Test

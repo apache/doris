@@ -1346,9 +1346,9 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));
     Version version = max_version();
     std::size_t missed_rows_size = 0;
-    calc_compaction_output_rowset_delete_bitmap(
+    RETURN_IF_ERROR(calc_compaction_output_rowset_delete_bitmap(
             input_rowsets, rowid_conversion, 0, version.second + 1, missed_rows.get(),
-            location_map.get(), tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
+            location_map.get(), tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get()));
     // In cluster-key MOW compaction, rows are sorted by cluster key, so duplicate unique keys
     // may be non-adjacent in merge order. Scan the output primary key index to delete older
     // duplicate rows inside the output rowset.
@@ -1400,9 +1400,9 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));
     int64_t t3 = MonotonicMicros();
 
-    calc_compaction_output_rowset_delete_bitmap(
+    RETURN_IF_ERROR(calc_compaction_output_rowset_delete_bitmap(
             input_rowsets, rowid_conversion, version.second, UINT64_MAX, missed_rows.get(),
-            location_map.get(), tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
+            location_map.get(), tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get()));
     int64_t t4 = MonotonicMicros();
     if (location_map) {
         RETURN_IF_ERROR(check_rowid_conversion(output_rowset, *location_map));
