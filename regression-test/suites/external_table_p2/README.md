@@ -60,7 +60,8 @@ EMR migration suites use `emrCatalogCommonProp` for the HMS and Hadoop propertie
 `test_hive_migrate_paimon` also accepts `emrPaimonWarehouse`, preserving the original
 warehouse when unset. See the [initialization recipes](../../../tools/emr_storage_regression/p2_fixtures/README.md)
 for the four Iceberg and two Paimon tables, including the required migration and
-schema history. The special ORC stream case needs its original file separately.
+schema history. That directory also contains a deterministic generator for the
+ORC stream case and its Hive table registration SQL.
 
 See [DEPENDENCIES.md](DEPENDENCIES.md) for the remaining external services,
 preloaded fixtures, bootstrap sources and disabled suites.

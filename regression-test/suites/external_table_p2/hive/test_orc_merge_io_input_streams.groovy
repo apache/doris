@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.action.ProfileAction
+
 suite("test_orc_merge_io_input_streams", "p2,external") {
 
     String enabled = context.config.otherConfigs.get("enableExternalEmrTest")
-    //hudi hive use same catalog in p2.
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable test")
         return;
@@ -43,21 +44,36 @@ suite("test_orc_merge_io_input_streams", "p2,external") {
     sql """ use regression;"""
 
     sql """ set dry_run_query=true; """
+    sql """ set enable_profile=true; """
+    sql """ set profile_level=2; """
+    // Consecutive stripes must use the same row reader to expose a stale stream map.
+    sql """ set file_split_size=268435456; """
+    sql """ set enable_orc_filter_by_min_max=true; """
+    // Cached empty row groups would bypass the ORC stream lifecycle on repeated runs.
+    sql """ set enable_condition_cache=false; """
 
-    qt_1 """  SELECT trace_id as trace_id_sub,created_time FROM test_orc_merge_io_input_streams_table
+    String token = "orc_merge_filtered_" + UUID.randomUUID().toString()
+    qt_1 """  SELECT /* ${token} */ trace_id as trace_id_sub,created_time FROM test_orc_merge_io_input_streams_table
               where dt = replace(date_sub('2025-04-16', 1), '-', '') and trace_id='1210647803'; """
+
+    String profile = new ProfileAction(context).getProfileBySql(token,
+            ["EvaluatedRowGroupCount:", "SelectedRowGroupCount:", "OrcRowReadersCreated:",
+             "OrcRowReaderStripeVisits:", "OrcMergedIO:"])
+    // Merged and per-instance sections can repeat a counter; do not add duplicates.
+    def counterMax = { String name ->
+        (profile =~ /\b${name}:\s*(?:sum\s+)?(\d+)/).collect { it[1] as long }.max()
+    }
+    // Zero rows alone would also pass if file/stripe statistics skipped the whole fixture.
+    // Require row-group PPD in one reader so skipping a stripe must advance its stream map.
+    assertTrue(counterMax("EvaluatedRowGroupCount") >= 4, "Expected multiple stripes of row-group PPD")
+    assertTrue(counterMax("SelectedRowGroupCount") == 0, "Expected every evaluated row group to be rejected")
+    assertTrue(counterMax("OrcRowReadersCreated") == 1, "Expected one ORC reader across consecutive stripes")
+    assertTrue(counterMax("OrcRowReaderStripeVisits") >= 2, "Expected consecutive stripes in that reader")
+    assertTrue(counterMax("OrcMergedIO") >= 2, "Expected merged IO for consecutive stripes")
     qt_2 """ select * from test_orc_merge_io_input_streams_table ; """
 
     sql """drop catalog ${hms_catalog_name};"""
 }
 
-// create table test_orc_merge_io_input_streams_table (
-//     dt string, 
-//     type string,
-//     risk_flow_id string,
-//     trace_id string,
-//     created_time string,
-//     created_ts bigint,
-//     subflow_decision string
-// )stored as orc;
-// load data local inpath '004691_0' into table test_orc_merge_io_input_streams_table;
+// Reproduce the ZLIB fixture with GenerateOrcMergeFixture.java and register it with
+// tools/emr_storage_regression/p2_fixtures/04-orc-merge-table.sql. See that directory's README.

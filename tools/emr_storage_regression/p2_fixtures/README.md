@@ -96,5 +96,50 @@ the KDC, HMS, NameNode and DataNodes.
 ```
 
 Use the existing golden results. Do not regenerate expected results to accommodate
-fixture errors. The separate ORC stream regression needs its original `004691_0`
-file; these scripts do not reproduce that file or its physical layout.
+fixture errors.
+
+## ORC merged-stream fixture
+
+`GenerateOrcMergeFixture.java` constructs a deterministic replacement for the
+external file formerly called `004691_0` in `test_orc_merge_io_input_streams`.
+It uses the same seven-column schema and contains 60,000 rows in three ZLIB
+stripes, each with two 10,000-row groups. Within each stripe the first group has
+`trace_id='1210647802'` and the second has `trace_id='1210647804'`. The missing
+target `1210647803` is inside every stripe's min/max range but outside each
+row group's range. All rows have `dt='20250415'`.
+
+This forces the stream-lifecycle transition from [Doris #50185](https://github.com/apache/doris/pull/50185):
+stripe statistics pass, row-group statistics reject every group, and the reader
+advances to another stripe in the same call. The stream map must be cleared for
+each stripe. The suite disables condition cache, keeps the file in one split,
+and checks the query Profile for row-group rejection, one reader, multiple stripe
+visits and merged IO. An empty result caused by a cache or file-level filter
+therefore fails the test. Its existing golden results remain 0 and 60,000.
+
+The generator was exercised with the ORC Java 1.8.6 jars bundled with Spark
+3.4.2, including `hive-storage-api` 2.8.1. Set `SPARK_JARS` to the installation's
+`jars` directory. Use the same Kerberos ticket preparation described above.
+Run with `-ea` so the generator verifies stripe counts, row counts, compression,
+index stride and stripe-level trace bounds before registration.
+
+```bash
+FIXTURES=tools/emr_storage_regression/p2_fixtures
+mkdir -p /tmp/doris-orc-merge-fixture/classes
+javac -cp "$SPARK_JARS/*" -d /tmp/doris-orc-merge-fixture/classes \
+  "$FIXTURES/GenerateOrcMergeFixture.java"
+java -ea -cp "/tmp/doris-orc-merge-fixture/classes:$SPARK_JARS/*" \
+  GenerateOrcMergeFixture /tmp/doris-orc-merge-fixture/orc_merge_io_input_streams.orc
+
+ORC_MERGE_LOCATION=/user/hive/warehouse/regression.db/test_orc_merge_io_input_streams_table
+hdfs dfs -mkdir "$ORC_MERGE_LOCATION"
+hdfs dfs -put /tmp/doris-orc-merge-fixture/orc_merge_io_input_streams.orc "$ORC_MERGE_LOCATION/"
+hive --service cli -S --hivevar orc_merge_location="$ORC_MERGE_LOCATION" \
+  -f "$FIXTURES/04-orc-merge-table.sql"
+
+./run-regression-test.sh --run --conf /path/to/private-regression-conf.groovy \
+  -d external_table_p2/hive -s test_orc_merge_io_input_streams -parallel 1
+```
+
+Create a fresh output file, HDFS directory and table. The commands refuse existing
+targets. The Hive registration SQL uses an external table, leaving the generated
+file available for inspection and backup.

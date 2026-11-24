@@ -27,7 +27,7 @@ configuration. Check enable flags and unconditional skip guards before provision
 | Family | Required environment or preloaded data | Preparation |
 | --- | --- | --- |
 | EMR migration | Hive HMS/HDFS; four Iceberg and two Paimon tables | [Reproduce migration history](../../../tools/emr_storage_regression/p2_fixtures/README.md), including Hive source files and later appends |
-| ORC stream regression | `regression.test_orc_merge_io_input_streams_table`, original file `004691_0` | Obtain the original file; 60,000 replacement rows do not establish equivalent stream layout |
+| ORC stream regression | `regression.test_orc_merge_io_input_streams_table`, ZLIB file with consecutive stripes whose row groups all reject the target | Use `GenerateOrcMergeFixture.java` and `04-orc-merge-table.sql`; the suite checks the actual row-group and merged-IO path through its Profile |
 | MaxCompute | Read projects, schema project, write project and Storage API quota access | See [configuration](README.md); write suites create their own tables |
 | DLF | Legacy and REST metadata plus OSS warehouses | See [configuration](README.md); preserve Paimon snapshot 1 and Iceberg metadata |
 | Iceberg equality deletes | `flink_db.sample` with data, position-delete and equality-delete files | Preserve the complete Iceberg table, including manifests and delete files |
