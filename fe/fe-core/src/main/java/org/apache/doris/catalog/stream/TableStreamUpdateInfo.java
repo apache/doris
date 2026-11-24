@@ -25,6 +25,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
@@ -48,6 +49,10 @@ public class TableStreamUpdateInfo implements Writable, GsonPostProcessable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static TableStreamUpdateInfo read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), TableStreamUpdateInfo.class);
     }
 
     @Override

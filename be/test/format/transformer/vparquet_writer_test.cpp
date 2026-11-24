@@ -359,50 +359,63 @@ TEST_F(VParquetWriterTest, ParquetPageSizePreservesHadoopLz4Limit) {
     }
 }
 
-TEST_F(VParquetWriterTest, HiveAndIcebergParquetPageIndexOptions) {
+TEST_F(VParquetWriterTest, HiveAndIcebergParquetWriteOptions) {
     const std::string json =
             R"({"type":"struct","fields":[{"id":1,"name":"id","required":true,"type":"int"},{"id":2,"name":"value","required":false,"type":"int"},{"id":3,"name":"all_null","required":false,"type":"int"}]})";
     auto schema = iceberg::SchemaParser::from_json(json);
     const std::map<std::string, std::string> hadoop_conf;
     for (const bool iceberg_writer : {false, true}) {
         for (const bool enabled : {false, true}) {
-            TQueryOptions query_options;
-            query_options.__set_enable_parquet_write_page_index(enabled);
-            query_options.__set_parquet_write_data_page_size(1024);
-            RuntimeState state(query_options, TQueryGlobals());
-            state.set_timezone("UTC");
-            auto block = page_index_block();
-            auto exprs = MockSlotRef::create_mock_contexts(block.get_data_types());
-            const auto name = "page_index_" + UniqueId::gen_uid().to_string();
-            _file_path = "./" + name + "-0.parquet";
-            TDataSink sink;
-            if (iceberg_writer) {
-                VIcebergPartitionWriter writer(sink, {}, exprs, *schema, &json,
-                                               {"id", "value", "all_null"},
-                                               {.location = IcebergOutputLocation(".", "."),
-                                                .file_type = TFileType::FILE_LOCAL,
-                                                .broker_addresses = {}},
-                                               name, 0, TFileFormatType::FORMAT_PARQUET,
-                                               TFileCompressType::PLAIN, hadoop_conf);
-                ASSERT_TRUE(writer.open(&state, nullptr, nullptr).ok());
-                ASSERT_TRUE(writer.write(block).ok());
-                ASSERT_TRUE(writer.close(Status::OK()).ok());
-            } else {
-                VHivePartitionWriter writer(sink, "", TUpdateMode::APPEND, exprs,
-                                            {"id", "value", "all_null"},
-                                            {.write_path = ".",
-                                             .original_write_path = ".",
-                                             .target_path = ".",
-                                             .file_type = TFileType::FILE_LOCAL,
-                                             .broker_addresses = {}},
-                                            name, 0, TFileFormatType::FORMAT_PARQUET,
-                                            TFileCompressType::PLAIN, nullptr, hadoop_conf);
-                ASSERT_TRUE(writer.open(&state, nullptr).ok());
-                ASSERT_TRUE(writer.write(block).ok());
-                ASSERT_TRUE(writer.close(Status::OK()).ok());
+            for (const bool bloom : {false, true}) {
+                TQueryOptions query_options;
+                query_options.__set_enable_parquet_write_page_index(enabled);
+                query_options.__set_enable_parquet_write_bloom_filter(bloom);
+                query_options.__set_parquet_write_data_page_size(1024);
+                RuntimeState state(query_options, TQueryGlobals());
+                state.set_timezone("UTC");
+                auto block = page_index_block();
+                auto exprs = MockSlotRef::create_mock_contexts(block.get_data_types());
+                const auto name = "page_index_" + UniqueId::gen_uid().to_string();
+                _file_path = "./" + name + "-0.parquet";
+                TDataSink sink;
+                if (iceberg_writer) {
+                    VIcebergPartitionWriter writer(sink, {}, exprs, *schema, &json,
+                                                   {"id", "value", "all_null"},
+                                                   {.location = IcebergOutputLocation(".", "."),
+                                                    .file_type = TFileType::FILE_LOCAL,
+                                                    .broker_addresses = {}},
+                                                   name, 0, TFileFormatType::FORMAT_PARQUET,
+                                                   TFileCompressType::PLAIN, hadoop_conf);
+                    ASSERT_TRUE(writer.open(&state, nullptr, nullptr).ok());
+                    ASSERT_TRUE(writer.write(block).ok());
+                    ASSERT_TRUE(writer.close(Status::OK()).ok());
+                } else {
+                    VHivePartitionWriter writer(sink, "", TUpdateMode::APPEND, exprs,
+                                                {"id", "value", "all_null"},
+                                                {.write_path = ".",
+                                                 .original_write_path = ".",
+                                                 .target_path = ".",
+                                                 .file_type = TFileType::FILE_LOCAL,
+                                                 .broker_addresses = {}},
+                                                name, 0, TFileFormatType::FORMAT_PARQUET,
+                                                TFileCompressType::PLAIN, nullptr, hadoop_conf);
+                    ASSERT_TRUE(writer.open(&state, nullptr).ok());
+                    ASSERT_TRUE(writer.write(block).ok());
+                    ASSERT_TRUE(writer.close(Status::OK()).ok());
+                }
+                check_page_indexes(enabled);
+                auto reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+                for (int group = 0; group < reader->metadata()->num_row_groups(); ++group) {
+                    auto metadata = reader->metadata()->RowGroup(group);
+                    for (int column = 0; column < metadata->num_columns(); ++column) {
+                        EXPECT_EQ(bloom,
+                                  metadata->ColumnChunk(column)->bloom_filter_offset().has_value());
+                        EXPECT_EQ(bloom,
+                                  metadata->ColumnChunk(column)->bloom_filter_length().has_value());
+                    }
+                }
+                ASSERT_TRUE(_fs->delete_file(_file_path).ok());
             }
-            check_page_indexes(enabled);
-            ASSERT_TRUE(_fs->delete_file(_file_path).ok());
         }
     }
 }

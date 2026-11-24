@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.InternalCatalog;
@@ -67,6 +68,8 @@ import java.util.Set;
  * Column name constants are defined in {@link Column}.
  */
 public class IvmUtil {
+    public static final StreamScanType IVM_STREAM_SCAN_TYPE = StreamScanType.MIN_DELTA;
+
     // Exceptional hidden-column defaults. Numeric and string-like hidden columns use zero and
     // empty string by default; add an entry here only when a hidden column requires a different
     // value.
@@ -239,6 +242,38 @@ public class IvmUtil {
     public static String ivmAggHiddenColumnName(int ordinal, String stateType) {
         return Column.IVM_HIDDEN_COLUMN_PREFIX + "AGG_" + ordinal + "_" + stateType + "_COL__";
     }
+
+    /**
+     * Whether {@code columnName} is a hidden aggregate state column of the given {@code stateType},
+     * e.g. {@code __DORIS_IVM_AGG_1_MIN_TOPK_COL__}.
+     *
+     * <p>The state key is matched exactly: {@code MIN_TOPK} does not match
+     * {@code MIN_TOPK_BOUND}, {@code SUM}, or {@code COUNT}.
+     */
+    public static boolean isIvmAggStateColumn(String columnName, String stateType) {
+        return columnName != null
+                && columnName.startsWith(Column.IVM_HIDDEN_COLUMN_PREFIX + "AGG_")
+                && columnName.endsWith("_" + stateType + "_COL__");
+    }
+
+    /**
+     * Default MIN/MAX top-K capacity when the MV does not configure {@code ivm_minmax_top_k}.
+     *
+     * <p>8 absorbs the common case (a batch retracting a handful of the smallest values) while
+     * keeping the state column and the delta outputs small; users raise it per MV when their
+     * delete pattern exhausts the range more often.
+     */
+    public static final long DEFAULT_MINMAX_TOP_K = 8;
+
+    /**
+     * Upper bound of the {@code ivm_minmax_top_k} property.
+     *
+     * <p>This bound belongs to the IVM state, not to the {@code min_topk}/{@code max_topk}
+     * aggregate: the aggregate has no upper bound, because its list is bounded by the group's
+     * distinct values. Here the list is a persisted hidden state of every group row and is
+     * rewritten on each refresh, so an unbounded K is not acceptable.
+     */
+    public static final long MAX_IVM_MINMAX_TOP_K = 65536;
 
     /**
      * Creates a hidden ColumnDefinition for the IVM row-id column. */

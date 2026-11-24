@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 
 /** PhysicalStorageLayerAggregate */
 public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
@@ -83,22 +84,38 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
     }
 
     @Override
+    public AbstractPhysicalPlan copyForProfile(Function<Plan, Plan> copyPlan) {
+        PhysicalCatalogRelation copiedRelation = (PhysicalCatalogRelation) copyPlan.apply(relation);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalStorageLayerAggregate(
+                copiedRelation, aggOp, countArgumentExprIds,
+                Optional.empty(), copiedRelation.getLogicalProperties(), physicalProperties, null));
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitPhysicalStorageLayerAggregate(this, context);
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalStorageLayerAggregate[" + relationId.asInt() + "]" + getGroupIdWithPrefix(),
+        return Utils.toSqlString("PhysicalStorageLayerAggregate[" + relationId.asInt() + "]"
+                + getGroupIdWithPrefix(),
                 "pushDownAggOp", aggOp,
                 "relation", relation,
                 "stats", statistics
         );
     }
 
+    /**
+     * Replace the relation this aggregation reads. Only the relation changes: the node stays the plan node
+     * it was, so it keeps the group expression and the states it carries (see
+     * {@link AbstractPlan#rebuildKeepingStates}) - a rebuild which drops them makes the node
+     * unaddressable, and the annotation can only report that its group is unknown.
+     */
     public PhysicalStorageLayerAggregate withPhysicalOlapScan(PhysicalOlapScan physicalOlapScan) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalStorageLayerAggregate(
-                physicalOlapScan, aggOp, countArgumentExprIds));
+        return AbstractPlan.rebuildKeepingStates(this, AbstractPlan.copyWithSameId(this,
+                () -> new PhysicalStorageLayerAggregate(physicalOlapScan, aggOp, countArgumentExprIds,
+                        getGroupExpression(), getLogicalProperties(), physicalProperties, statistics)));
     }
 
     @Override

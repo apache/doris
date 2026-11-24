@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -59,6 +60,12 @@ public final class MonotonicityUtils {
             }
         }
         return true;
+    }
+
+    /** Calendar DAY arithmetic preserves UTC order only when the session offset cannot change. */
+    public static boolean isCalendarDayMonotonic(DataType inputType) {
+        // At a fall-back, 01:50-04 precedes 01:10-05, but adding one local day reverses their UTC order.
+        return !(inputType instanceof TimeStampTzType) || DateUtils.getTimeZone().getRules().isFixedOffset();
     }
 
     public static boolean hasOneVariableArgument(ExpressionTrait expression) {
@@ -269,7 +276,7 @@ public final class MonotonicityUtils {
         return isInstantToLocalMonotonic(zoneId, lowerInstant, upperInstant);
     }
 
-    /** Check local datetime casts for a clock gap in the conversion range. */
+    /** Check a local datetime cast after rounding to the TIMESTAMPTZ output scale. */
     public static boolean isLocalToTimeStampTzMonotonic(
             TimeStampTzType destinationType, Literal lower, Literal upper) {
         ZoneId zoneId;
@@ -281,22 +288,18 @@ public final class MonotonicityUtils {
         if (zoneId.getRules().isFixedOffset()) {
             return true;
         }
-        if (!(lower instanceof DateLiteral) || !(upper instanceof DateLiteral)) {
+        if (!(lower instanceof DateTimeV2Literal || lower instanceof TimeStampNsLiteral)
+                || !(upper instanceof DateTimeV2Literal || upper instanceof TimeStampNsLiteral)) {
             return false;
         }
-        LocalDateTime lowerDateTime;
-        LocalDateTime upperDateTime;
-        if (lower instanceof TimeStampNsLiteral) {
-            lowerDateTime = roundTimeStampNs((TimeStampNsLiteral) lower, destinationType.getScale());
-            upperDateTime = roundTimeStampNs((TimeStampNsLiteral) upper, destinationType.getScale());
-        } else {
-            lowerDateTime = ((DateLiteral) lower).toJavaDateType();
-            upperDateTime = ((DateLiteral) upper).toJavaDateType();
-        }
+        // A gap can break the order. In New York on 2024-03-10, 02:30 maps to
+        // 07:30 UTC, but 03:00 maps to 07:00 UTC. Keep such partition ranges.
+        LocalDateTime lowerDateTime = roundLocalDateTime((DateLiteral) lower, destinationType.getScale());
+        LocalDateTime upperDateTime = roundLocalDateTime((DateLiteral) upper, destinationType.getScale());
         return isLocalToInstantMonotonic(zoneId, lowerDateTime, upperDateTime);
     }
 
-    private static LocalDateTime roundTimeStampNs(TimeStampNsLiteral literal, int scale) {
+    private static LocalDateTime roundLocalDateTime(DateLiteral literal, int scale) {
         long factor = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - scale);
         LocalDateTime dateTime = literal.toJavaDateType().plusNanos(factor / 2);
         return dateTime.withNano((int) (dateTime.getNano() / factor * factor));

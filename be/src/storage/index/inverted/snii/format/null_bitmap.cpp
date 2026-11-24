@@ -298,4 +298,21 @@ void NullBitmapReader::append_docids(std::vector<uint32_t>& out) const {
     }
 }
 
+void NullBitmapReader::for_each_non_null_run(
+        const std::function<void(uint32_t, uint32_t)>& fn) const {
+    uint32_t begin = 0;
+    for (const uint32_t null_docid : *bitmap_) {
+        if (null_docid >= doc_count_) {
+            break;
+        }
+        if (begin < null_docid) {
+            fn(begin, null_docid);
+        }
+        begin = null_docid + 1;
+    }
+    if (begin < doc_count_) {
+        fn(begin, doc_count_);
+    }
+}
+
 } // namespace doris::snii::format

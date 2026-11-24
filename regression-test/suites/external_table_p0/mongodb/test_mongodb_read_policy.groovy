@@ -64,7 +64,7 @@ suite("test_mongodb_read_policy", "p0,external") {
                 exception "mongodb_read_preference"
             }
         }
-        for (String level : ["snapshot", "linearizable", "invalid", ""]) {
+        for (String level : ["linearizable", "invalid", ""]) {
             test {
                 sql "SET mongodb_read_concern = '${level}'"
                 exception "mongodb_read_concern"
@@ -72,8 +72,8 @@ suite("test_mongodb_read_policy", "p0,external") {
         }
         test {
             sql """SELECT /*+ SET_VAR(mongodb_read_concern='snapshot') */
-                count(*) FROM mongodb_read_policy.doris_mongodb_native.typed_records"""
-            exception "mongodb_read_concern"
+                count(*) FROM mongodb_read_policy.doris_mongodb_native.record_view"""
+            exception "snapshot"
         }
         qt_after_invalid "SELECT @@mongodb_read_preference, @@mongodb_read_concern"
         create("mongodb_read_policy_uri", "mongodb://${host}:${port}/?readPreference=secondaryPreferred"

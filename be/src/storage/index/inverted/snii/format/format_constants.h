@@ -59,6 +59,8 @@ enum class SectionType : uint8_t {
     // Core metadata so a corrupt section reference cannot reinterpret valid
     // collection statistics as document norms.
     kNormsPod = 14,
+    // BM25 norms of the non-NULL rows only, in docid order; the null bitmap tells which rows.
+    kNormsSparse = 15,
 };
 
 // ---- Logical index postings storage content configuration (fixed per logical

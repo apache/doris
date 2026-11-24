@@ -21,10 +21,12 @@
 #include <cstring>
 #include <limits>
 #include <numeric>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "common/exception.h"
+#include "core/assert_cast.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -716,6 +718,45 @@ DorisVector<MaterializedSlot> build_materialized_slots(const VariantAssemblerOpt
 }
 
 } // namespace
+
+void append_variant_binary_bucket_range(std::span<const ColumnMap* const> buckets, size_t begin,
+                                        size_t num_rows, ColumnMap& destination) {
+    if (buckets.size() == 1) {
+        destination.insert_range_from(*buckets.front(), begin, num_rows);
+        return;
+    }
+
+    auto& dst_paths = assert_cast<ColumnString&>(destination.get_keys());
+    auto& dst_values = assert_cast<ColumnString&>(destination.get_values());
+    auto& dst_offsets = destination.get_offsets();
+    std::vector<const ColumnString*> src_paths(buckets.size());
+    std::vector<const ColumnString*> src_values(buckets.size());
+    for (size_t i = 0; i < buckets.size(); ++i) {
+        src_paths[i] = assert_cast<const ColumnString*>(&buckets[i]->get_keys());
+        src_values[i] = assert_cast<const ColumnString*>(&buckets[i]->get_values());
+    }
+
+    std::vector<std::tuple<std::string_view, size_t, size_t>> paths;
+    for (size_t row = begin; row < begin + num_rows; ++row) {
+        // Keep the source bucket and entry so values follow their paths after sorting.
+        paths.clear();
+        for (size_t bucket = 0; bucket < buckets.size(); ++bucket) {
+            const size_t offset_begin = buckets[bucket]->offset_at(row);
+            const size_t offset_end = buckets[bucket]->offset_at(row + 1);
+            for (size_t offset = offset_begin; offset < offset_end; ++offset) {
+                auto path = src_paths[bucket]->get_data_at(offset).to_string_view();
+                paths.emplace_back(path, bucket, offset);
+            }
+        }
+
+        std::ranges::sort(paths);
+        for (const auto& [path, bucket, offset] : paths) {
+            dst_paths.insert_data(path.data(), path.size());
+            dst_values.insert_from(*src_values[bucket], offset);
+        }
+        dst_offsets.push_back(dst_paths.size());
+    }
+}
 
 Result<std::unique_ptr<VariantAssembler>> VariantAssembler::create(
         VariantAssemblerOptions options) {

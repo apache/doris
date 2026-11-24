@@ -19,9 +19,9 @@ suite("test_variant_predefine_doc_value", "nonConcurrent"){
     def variantV2Function = "parse_to_variant"
     def enableVariantV2 = true
     def deprecatedFlattenNested = enableVariantV2 ? "false" : "true"
-    sql """ set default_variant_enable_doc_mode = true """
-    sql """ set default_variant_doc_materialization_min_rows = 0 """
-    //sql """ set default_variant_doc_hash_shard_count = 0"""
+    sql """ set debug_variant_enable_doc_mode = true """
+    sql """ set debug_variant_doc_materialization_min_rows = 0 """
+    //sql """ set debug_variant_doc_hash_shard_count = 0"""
     sql """DROP TABLE IF EXISTS test_predefine"""
     sql """ set enable_variant_flatten_nested = true """
     sql """

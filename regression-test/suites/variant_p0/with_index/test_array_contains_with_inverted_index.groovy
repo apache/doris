@@ -28,7 +28,7 @@ suite("test_array_contains_with_inverted_index", "p0,nonConcurrent") {
         sql """ set enable_profile = true;"""
 
     sql "DROP TABLE IF EXISTS ${indexTblName}"
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     // create 1 replica table
     def storageFormat = "V2"
     sql """

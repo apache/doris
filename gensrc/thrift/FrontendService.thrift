@@ -2156,4 +2156,7 @@ service FrontendService {
     TRecordFinishedLoadJobResult recordFinishedLoadJobRequest(1: TRecordFinishedLoadJobRequest request)
 
     Status.TStatus syncCloudTabletStats(1: TSyncCloudTabletStatsRequest request)
+
+    // Result buffers can outlive their local fragments; abort through the owning FE's query-level route.
+    Status.TStatus cancelFlightQuery(1: Types.TUniqueId result_id)
 }

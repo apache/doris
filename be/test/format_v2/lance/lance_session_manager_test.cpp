@@ -28,6 +28,7 @@
 
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::format::lance {
 namespace {
@@ -37,12 +38,6 @@ using LanceDatasetPtr = std::unique_ptr<LanceDataset, decltype(&lance_dataset_cl
 std::filesystem::path lance_fixture_path() {
     // __FILE__ is relative under -ffile-prefix-map; UTs run from the repository root.
     return "./be/test/format_v2/table/lance/data/all_types.lance";
-}
-
-std::filesystem::path unique_cache_path() {
-    const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
-    return std::filesystem::temp_directory_path() /
-           ("doris_lance_foyer_cache_" + std::to_string(suffix));
 }
 
 TEST(LanceSessionManagerTest, SessionAndDataCacheConfigurationsAreIndependent) {
@@ -89,7 +84,8 @@ TEST(LanceSessionManagerTest, RejectsNegativeCacheSizesBeforeCreatingTheSession)
 
     // With the data cache enabled, its negative sizes are reported as such instead of as
     // whatever lance-c makes of the wrapped value.
-    const auto cache_path = unique_cache_path();
+    const doris::test::ScopedTempDirectory temp_dir("lance_session_cache");
+    const auto cache_path = temp_dir.path() / "cache";
     std::filesystem::create_directories(cache_path);
     for (const auto& [disk_capacity, block_size] :
          {std::pair<int64_t, int64_t> {-1, 64 * 1024},
@@ -147,7 +143,8 @@ TEST(LanceSessionManagerTest, PublishesSessionCacheMetrics) {
 }
 
 TEST(LanceSessionManagerTest, CreatesFoyerBackedSession) {
-    const auto cache_path = unique_cache_path();
+    const doris::test::ScopedTempDirectory temp_dir("lance_session_cache");
+    const auto cache_path = temp_dir.path() / "cache";
     std::filesystem::create_directories(cache_path);
     const auto cleanup = [&cache_path] {
         std::error_code error;

@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -897,7 +896,7 @@ public class DateTimeExtractAndTransform {
 
     private static String getTimestamp(LocalDateTime dateTime, int scale) {
         LocalDateTime specialLowerBound = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
-        Instant instant = DateTimeLiteral.convertLocalToInstantPreservingFraction(
+        Instant instant = DateUtils.convertLocalToInstant(
                 dateTime, DateUtils.getTimeZone());
         dateTime = LocalDateTime.ofInstant(instant, ZoneId.of("UTC+0"));
         if (dateTime.isBefore(specialLowerBound)) {

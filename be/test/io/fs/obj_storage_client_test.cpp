@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
 
 #include <gtest/gtest.h>
 

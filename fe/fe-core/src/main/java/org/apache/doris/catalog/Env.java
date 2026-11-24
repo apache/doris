@@ -291,6 +291,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskCleanupDaemon;
 import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
@@ -2136,6 +2137,10 @@ public class Env {
         workloadRuntimeStatusMgr.start();
         admissionControl.start();
         splitSourceManager.start();
+
+        // loads the pinned hbo statistics this FE persisted in the internal database (a no-op when
+        // the feature is off); it runs in the background so that no user query pays for the load
+        hboPlanStatisticsManager.startPinnedStatisticsLoader();
     }
 
     private boolean transferToNonMaster(FrontendNodeType newType) {
@@ -3924,7 +3929,8 @@ public class Env {
         try {
             boolean isIvm = mtmv.isIvm();
             StringBuilder sb = new StringBuilder("CREATE MATERIALIZED VIEW ");
-            sb.append(mtmv.getName());
+            // quote the name so that the DDL re-executes for names such as `select` or `mv-1`
+            sb.append(SqlUtils.getIdentSql(mtmv.getName()));
             addColNameAndComment(mtmv, sb, isIvm);
             sb.append("\n");
             sb.append(mtmv.getRefreshInfo());
@@ -7466,6 +7472,7 @@ public class Env {
     public void eraseDatabase(long dbId, boolean needEditLog) {
         // remove database transaction manager
         Env.getCurrentGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
+        AgentTaskQueue.removePublishVersionTasks(dbId);
 
         if (needEditLog) {
             Env.getCurrentEnv().getEditLog().logEraseDb(dbId);

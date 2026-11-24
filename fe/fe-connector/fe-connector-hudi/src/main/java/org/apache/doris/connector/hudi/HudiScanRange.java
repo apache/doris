@@ -164,6 +164,11 @@ public class HudiScanRange implements ConnectorScanRange {
     }
 
     @Override
+    public boolean supportsBeSplitRefinement() {
+        return deltaLogs.isEmpty() && !forceJni;
+    }
+
+    @Override
     public void populateRangeParams(TTableFormatFileDesc formatDesc,
             TFileRangeDesc rangeDesc) {
         Map<String, String> props = getProperties();

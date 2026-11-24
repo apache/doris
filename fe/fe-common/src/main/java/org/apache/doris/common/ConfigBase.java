@@ -82,6 +82,14 @@ public class ConfigBase {
         }
     }
 
+    public static class RegexConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            Pattern.compile(confVal.trim());
+            setConfigField(field, confVal);
+        }
+    }
+
     // The value must be one of the annotation's options; stored as the option's own spelling.
     public static class OptionsConfHandler implements ConfHandler {
         @Override
@@ -322,7 +330,12 @@ public class ConfigBase {
             }
 
             try {
-                // Runtime callbacks can have side effects; only options validation is safe here.
+                // Regex validation must run at startup too; a bad masking rule cannot reach query rendering.
+                if (anno.callback() == RegexConfHandler.class) {
+                    new RegexConfHandler().handle(f, confVal);
+                    continue;
+                }
+                // Other runtime callbacks can have side effects; only pure validators run at startup.
                 if (anno.callback() == OptionsConfHandler.class) {
                     confVal = OptionsConfHandler.checkedOption(f, confVal);
                 }

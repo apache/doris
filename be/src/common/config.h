@@ -1217,7 +1217,9 @@ DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
 
 // Thread pool for S3 reads in cross-CG peer winner race.
-// Max should match max_concurrent_peer_races so the pool never fills up under normal operation.
+// Effective max threads = max(max_peer_race_s3_thread_num, max_concurrent_peer_races) at startup,
+// so every race slot has a thread; setting it below max_concurrent_peer_races has no effect.
+// Changing max_concurrent_peer_races at runtime does not resize the pool.
 DECLARE_Int32(min_peer_race_s3_thread_num);
 DECLARE_Int32(max_peer_race_s3_thread_num);
 
@@ -1655,6 +1657,10 @@ DECLARE_mBool(enable_mow_compaction_correctness_check_core);
 DECLARE_mBool(enable_mow_compaction_correctness_check_fail);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
+// Enable compression for eligible compactions above the dense-memory threshold.
+DECLARE_mBool(enable_compressed_rowid_conversion);
+// Nonnegative byte threshold for physical input rows * 8; 0 compresses any nonempty mapping.
+DECLARE_mInt64(compressed_rowid_conversion_threshold_bytes);
 // missing rows correctness check when compaction for mow table
 DECLARE_mBool(enable_missing_rows_correctness_check);
 // When the number of missing versions is more than this value, do not directly

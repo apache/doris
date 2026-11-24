@@ -17,7 +17,7 @@
 
 suite("variant_predefine_with_mow_doc_value", "p0") {
     def variantV2Function = "parse_to_variant"
-    sql """ set default_variant_enable_doc_mode = true """
+    sql """ set debug_variant_enable_doc_mode = true """
     sql "DROP TABLE IF EXISTS var_mow"
     sql """
         CREATE TABLE `var_mow` (

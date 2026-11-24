@@ -115,42 +115,24 @@ inline bool mul_overflow(long long x, long long y, long long& res) {
     return __builtin_smulll_overflow(x, y, &res);
 }
 
-// from __muloXi4 in llvm's compiler-rt
 static inline __int128 int128_overflow_mul(__int128 a, __int128 b, int* overflow) {
-    const int N = (int)(sizeof(__int128) * CHAR_BIT);
-    const auto MIN = (__int128)((__uint128_t)1 << (N - 1));
-    const __int128 MAX = ~MIN;
-    *overflow = 0;
-    __int128 result = (__uint128_t)a * b;
-    if (a == MIN) {
-        if (b != 0 && b != 1) {
-            *overflow = 1;
-        }
-        return result;
-    }
-    if (b == MIN) {
-        if (a != 0 && a != 1) {
-            *overflow = 1;
-        }
-        return result;
-    }
-    __int128 sa = a >> (N - 1);
-    __int128 abs_a = (a ^ sa) - sa;
-    __int128 sb = b >> (N - 1);
-    __int128 abs_b = (b ^ sb) - sb;
+    const bool negative = (a < 0) != (b < 0);
+    // Unsigned multiplication avoids __muloti4 on ARM toolchains using libgcc.
+    // Taking the magnitudes in unsigned arithmetic also handles INT128_MIN safely.
+    const auto abs_a = a < 0 ? -static_cast<__uint128_t>(a) : static_cast<__uint128_t>(a);
+    const auto abs_b = b < 0 ? -static_cast<__uint128_t>(b) : static_cast<__uint128_t>(b);
+    __uint128_t magnitude;
+    bool unsigned_overflow = false;
+    // A zero/unit factor cannot overflow unsigned 128 bits; keep this common case cheap.
     if (abs_a < 2 || abs_b < 2) {
-        return result;
-    }
-    if (sa == sb) {
-        if (abs_a > MAX / abs_b) {
-            *overflow = 1;
-        }
+        magnitude = abs_a * abs_b;
     } else {
-        if (abs_a > MIN / -abs_b) {
-            *overflow = 1;
-        }
+        unsigned_overflow = __builtin_mul_overflow(abs_a, abs_b, &magnitude);
     }
-    return result;
+    // Negative products may have magnitude 2^127: (2^126) * (-2) is INT128_MIN.
+    const __uint128_t limit = (__uint128_t(1) << 127) - !negative;
+    *overflow = unsigned_overflow || magnitude > limit;
+    return static_cast<__int128>(negative ? -magnitude : magnitude);
 }
 
 template <>

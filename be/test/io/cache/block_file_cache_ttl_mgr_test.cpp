@@ -39,6 +39,7 @@
 #include "runtime/workload_group/workload_group_fwd.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/base_tablet.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/slice.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -184,6 +185,8 @@ bool wait_for_condition(Predicate&& predicate, std::chrono::milliseconds timeout
 
 class BlockFileCacheTtlMgrTest : public testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"block_file_cache_ttl_mgr_test"};
+
     void SetUp() override {
         _orig_ttl_update_interval = config::file_cache_background_ttl_info_update_interval_ms;
         _orig_ttl_gc_interval = config::file_cache_background_ttl_gc_interval_ms;
@@ -193,7 +196,7 @@ protected:
         config::file_cache_background_ttl_gc_interval_ms = 20;
         config::file_cache_background_tablet_id_flush_interval_ms = 5;
 
-        _test_root = fs::temp_directory_path() / "block_file_cache_ttl_mgr_test";
+        _test_root = scoped_temp_dir_.path() / "block_file_cache_ttl_mgr_test";
         if (fs::exists(_test_root)) {
             fs::remove_all(_test_root);
         }

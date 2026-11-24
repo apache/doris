@@ -440,10 +440,20 @@ def _verify_completion(context, run, remaining, *, submit=False, submission=None
         ))
     review = matching[0]
     expected_state = "CHANGES_REQUESTED" if payload["event"] == "REQUEST_CHANGES" else "COMMENTED"
+    # A maintainer can dismiss between submission and the runner's readback.
+    # Verify the original disposition. This still delivers a blocking result.
+    state = review.get("state")
+    if state == "DISMISSED" and expected_state == "CHANGES_REQUESTED":
+        timeline = api(f"repos/{run['repository']}/issues/{run['pr_number']}/timeline",
+                       remaining, paginated=True)
+        if any(e.get("event") == "review_dismissed"
+               and str(e["dismissed_review"]["review_id"]) == str(review["id"])
+               and e["dismissed_review"]["state"] == "changes_requested" for e in timeline):
+            state = expected_state
     if (review.get("user", {}).get("login") != "github-actions[bot]"
             or review.get("commit_id") != run["head_sha"]
             or (review.get("submitted_at") or "") < run["started_at"]
-            or review.get("state") != expected_state
+            or state != expected_state
             or review.get("body") != payload["body"]):
         raise ValueError("Final review author, head, timestamp, state or summary did not match")
     verify_inline_comments(root, review, payload, run, remaining)

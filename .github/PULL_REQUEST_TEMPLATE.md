@@ -1,3 +1,5 @@
+<!-- Recommended: develop the change with the develop-with-evidence skill and write this description with the doris-pr-description skill, both from https://github.com/apache/doris-skills (the doris-skills submodule of this repository). -->
+
 ### Background
 
 <!-- How the feature or module this PR touches works today, in two to four plain sentences, for a reviewer who doesn't know it. Link the user doc if there is one. Leave the problem and the fix to Problem Summary. -->

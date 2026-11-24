@@ -17,17 +17,124 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
+
 class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
+
+    @Test
+    void testTimestampTzCalendarDaysCannotRearrange() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
+        try {
+            SlotReference timestamp = new SlotReference("ts", TimeStampTzType.of(6));
+            TimestampTzLiteral bound = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "2024-11-04 01:30:00-05:00");
+            for (String zone : new String[] {"America/New_York", "UTC", "+08:00", "-08:00"}) {
+                connectContext.getSessionVariable().setTimeZone(zone);
+                for (int days : new int[] {-1, 0, 1}) {
+                    IntegerLiteral interval = new IntegerLiteral(days);
+                    for (Expression arithmetic : new Expression[] {new DaysAdd(timestamp, interval),
+                            new DaysSub(timestamp, interval)}) {
+                        ComparisonPredicate predicate = new LessThan(arithmetic, bound);
+                        Assertions.assertEquals(predicate, SimplifyArithmeticComparisonRule.simplify(predicate, context));
+                        // Range consumers still use monotonicity, independently of rearrangement eligibility.
+                        Assertions.assertEquals(!zone.equals("America/New_York"),
+                                ((DateAddSubMonotonic) arithmetic).inferRange(bound, bound, context).isPresent());
+                    }
+                }
+                ComparisonPredicate hours = new LessThan(new HoursAdd(timestamp, new IntegerLiteral(1)), bound);
+                Assertions.assertNotEquals(hours, SimplifyArithmeticComparisonRule.simplify(hours, context));
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    void testTimestampTzValidInverseDoesNotHideSourceRangeError() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
+        try {
+            SlotReference timestamp = new SlotReference("ts", TimeStampTzType.of(6));
+            IntegerLiteral one = new IntegerLiteral(1);
+            connectContext.getSessionVariable().setTimeZone("+08:00");
+            TimestampTzLiteral maximum = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "9999-12-31 23:00:00+00:00");
+            TimestampTzLiteral upperCutoff = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "9999-12-30 12:00:00+00:00");
+            Expression upperInverse = FoldConstantRuleOnFE.evaluate(new DaysAdd(upperCutoff, one), context);
+            Assertions.assertEquals(new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "9999-12-31 12:00:00+00:00"), upperInverse);
+            Assertions.assertThrows(AnalysisException.class, () -> DateTimeArithmetic.daysSub(maximum, one));
+            Assertions.assertEquals(BooleanLiteral.TRUE,
+                    FoldConstantRuleOnFE.evaluate(new GreaterThan(maximum, upperInverse), context));
+            ComparisonPredicate subtract = new GreaterThan(new DaysSub(timestamp, one), upperCutoff);
+            Assertions.assertEquals(subtract, SimplifyArithmeticComparisonRule.simplify(subtract, context));
+            for (String operator : ImmutableList.of("<", "<=", ">", ">=", "=", "<=>")) {
+                assertDateComparisonUnchanged("days_sub(AA, 1) " + operator
+                        + " '9999-12-30 12:00:00+00:00'", TimeStampTzType.of(6));
+                assertDateComparisonUnchanged("days_add(AA, -1) " + operator
+                        + " '9999-12-30 12:00:00+00:00'", TimeStampTzType.of(6));
+            }
+
+            // The symmetric case crosses the lower local-year boundary in a negative offset.
+            connectContext.getSessionVariable().setTimeZone("-08:00");
+            TimestampTzLiteral minimum = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "0000-01-01 01:00:00+00:00");
+            TimestampTzLiteral lowerCutoff = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "0000-01-02 12:00:00+00:00");
+            Expression lowerInverse = FoldConstantRuleOnFE.evaluate(new DaysSub(lowerCutoff, one), context);
+            Assertions.assertEquals(new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "0000-01-01 12:00:00+00:00"), lowerInverse);
+            Assertions.assertThrows(AnalysisException.class, () -> DateTimeArithmetic.daysAdd(minimum, one));
+            Assertions.assertEquals(BooleanLiteral.TRUE,
+                    FoldConstantRuleOnFE.evaluate(new LessThan(minimum, lowerInverse), context));
+            ComparisonPredicate add = new LessThan(new DaysAdd(timestamp, one), lowerCutoff);
+            Assertions.assertEquals(add, SimplifyArithmeticComparisonRule.simplify(add, context));
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
 
     @Test
     public void testNumeric() {
@@ -182,6 +289,77 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("minutes_sub(CA, 1) > '2021-01-01 00:00:00'", "(cast(CA as DATETIMEV2(0)) > '2021-01-01 00:01:00')");
         assertRewriteAfterTypeCoercion("seconds_add(CA, 1) > '2021-01-01 00:00:00'", "(cast(CA as DATETIMEV2(0)) > '2020-12-31 23:59:59')");
         assertRewriteAfterTypeCoercion("seconds_sub(CA, 1) > '2021-01-01 00:00:00'", "(cast(CA as DATETIMEV2(0)) > '2021-01-01 00:00:01')");
+    }
+
+    @Test
+    public void testDateComparisonBoundaries() {
+        // Use a fixed-offset session so the DAY inverse guard is exercised.
+        cascadesContext.getConnectContext().getSessionVariable().setTimeZone("UTC");
+        // Each expression needs one slot and one boundary. No table rows are needed.
+        // The inverse operation exceeds the type range at both ends of that range.
+        for (DataType type : ImmutableList.of(DateType.INSTANCE, DateTimeType.INSTANCE,
+                DateV2Type.INSTANCE, DateTimeV2Type.of(0),
+                DateTimeV2Type.of(6), TimeStampTzType.of(6), TimeStampNsType.INSTANCE)) {
+            String minimum = "0000-01-01 00:00:00";
+            String maximum = "9999-12-31 23:59:59.999999";
+            if (type.isDateType() || type.isDateV2Type()) {
+                minimum = "0000-01-01";
+                maximum = "9999-12-31";
+            } else if (type.isTimeStampNsType()) {
+                minimum = "1677-09-21 00:12:43.145224192";
+                maximum = "2262-04-11 23:47:16.854775807";
+            } else if (type.isTimeStampTzType()) {
+                minimum += "+00:00";
+                maximum += "+00:00";
+            } else if (type.isDateTimeType() || type.equals(DateTimeV2Type.of(0))) {
+                maximum = "9999-12-31 23:59:59";
+            }
+            for (String unit : ImmutableList.of("weeks", "days", "hours", "minutes", "seconds")) {
+                // Operations on hours, minutes, and seconds return DATETIME for DATE. Use its upper limit.
+                String upperBoundary = (type.isDateType() || type.isDateV2Type())
+                        && !unit.equals("weeks") && !unit.equals("days") ? "9999-12-31 23:59:59" : maximum;
+                for (String operator : ImmutableList.of("<", "<=", ">", ">=", "=", "<=>")) {
+                    assertDateComparisonUnchanged(unit + "_sub(AA, 1) " + operator + " '" + upperBoundary + "'", type);
+                    assertDateComparisonUnchanged(unit + "_add(AA, 1) " + operator + " '" + minimum + "'", type);
+                    // A negative interval changes which inverse operation exceeds the range.
+                    assertDateComparisonUnchanged(unit + "_add(AA, -1) " + operator + " '" + upperBoundary + "'", type);
+                    assertDateComparisonUnchanged(unit + "_sub(AA, -1) " + operator + " '" + minimum + "'", type);
+                }
+            }
+            // A column can contain a boundary value. Planning cannot prove that its inverse is valid.
+            assertDateComparisonUnchanged("days_sub(AA, 1) < AB", type);
+            // NULL is not a date boundary. Keep the original null-safe comparison.
+            assertDateComparisonUnchanged("days_sub(AA, 1) <=> NULL", type);
+        }
+    }
+
+    @Test
+    public void testTimestampComparisonWithinRange() {
+        // Elapsed-time arithmetic keeps the existing optimization and fractional precision.
+        cascadesContext.getConnectContext().getSessionVariable().setTimeZone("UTC");
+        // TIMESTAMPTZ DAY arithmetic is deliberately excluded even in a fixed-offset session.
+        for (DataType type : ImmutableList.of(TimeStampTzType.of(6), TimeStampNsType.INSTANCE)) {
+            String fraction = type.isTimeStampNsType() ? ".123456789" : ".123456+00:00";
+            Map<String, Slot> slots = Maps.newHashMap();
+            slots.put("AA", new SlotReference("AA", type));
+            ComparisonPredicate original = (ComparisonPredicate) typeCoercion(replaceUnboundSlot(
+                    PARSER.parseExpression((type.isTimeStampTzType() ? "hours_sub(AA, 24)" : "days_sub(AA, 1)")
+                            + " < '2026-11-13 15:03:12" + fraction + "'"), slots));
+            Expression expected = typeCoercion(replaceUnboundSlot(
+                    PARSER.parseExpression("AA < '2026-11-14 15:03:12" + fraction + "'"), slots));
+            Expression actual = SimplifyArithmeticComparisonRule.simplify(original, context);
+            Assertions.assertEquals(expected, FoldConstantRuleOnFE.evaluate(actual, context));
+        }
+    }
+
+    private void assertDateComparisonUnchanged(String sql, DataType type) {
+        Map<String, Slot> slots = Maps.newHashMap();
+        slots.put("AA", new SlotReference("AA", type));
+        slots.put("AB", new SlotReference("AB", type));
+        ComparisonPredicate original = (ComparisonPredicate) typeCoercion(
+                replaceUnboundSlot(PARSER.parseExpression(sql), slots));
+        Assertions.assertEquals(original, SimplifyArithmeticComparisonRule.simplify(original, context),
+                type + ": " + sql);
     }
 
     private void assertRewriteAfterSimplify(String expr, String expected) {

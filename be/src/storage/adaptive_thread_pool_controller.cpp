@@ -80,9 +80,9 @@ void AdaptiveThreadPoolController::_on_timer(void* raw) {
 }
 
 void AdaptiveThreadPoolController::init(SystemMetrics* system_metrics,
-                                        ThreadPool* s3_file_upload_pool) {
+                                        ThreadPool* obj_storage_upload_pool) {
     _system_metrics = system_metrics;
-    _s3_file_upload_pool = s3_file_upload_pool;
+    _obj_storage_upload_pool = obj_storage_upload_pool;
 }
 
 void AdaptiveThreadPoolController::stop() {
@@ -280,9 +280,9 @@ bool AdaptiveThreadPoolController::is_io_busy() {
     std::lock_guard<std::mutex> lk(_metrics_state_mutex);
 
     if (config::is_cloud_mode()) {
-        if (_s3_file_upload_pool == nullptr) return false;
-        int queue_size = _s3_file_upload_pool->get_queue_size();
-        return queue_size > kS3QueueBusyThreshold;
+        if (_obj_storage_upload_pool == nullptr) return false;
+        int queue_size = _obj_storage_upload_pool->get_queue_size();
+        return queue_size > kUploadQueueBusyThreshold;
     }
 
     if (_system_metrics == nullptr) return false;

@@ -20,6 +20,7 @@ package org.apache.doris.service;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.FlightSqlQueryCancellation;
 import org.apache.doris.auth.certificate.CertificateAuthDecision;
 import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
 import org.apache.doris.auth.certificate.CertificateRuntimeAuthService;
@@ -502,6 +503,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TGetDbsResult getDbNames(TGetDbsParams params) throws TException {
+        return getDbNames(params, true);
+    }
+
+    /** Lists authorized databases with either MySQL display names or raw schema names. */
+    public TGetDbsResult getDbNames(TGetDbsParams params, boolean useMysqlSchemaName) throws TException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get db request: {}", params);
         }
@@ -578,12 +584,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     return;
                 }
 
-                if (matcher != null && !matcher.match(getMysqlTableSchema(catalog.getName(), dbName))) {
+                String schemaName = useMysqlSchemaName ? getMysqlTableSchema(catalog.getName(), dbName) : dbName;
+                if (matcher != null && !matcher.match(schemaName)) {
                     return;
                 }
 
                 catalogNames.add(catalog.getName());
-                dbNames.add(getMysqlTableSchema(catalog.getName(), dbName));
+                dbNames.add(schemaName);
                 catalogIds.add(catalog.getId());
                 if (includeDbIds) {
                     dbIds.add(dbId);
@@ -681,6 +688,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TListTableStatusResult listTableStatus(TGetTablesParams params) throws TException {
+        return listTableStatus(params, true);
+    }
+
+    /** Reads table metadata with either MySQL display names or raw schema names. */
+    public TListTableStatusResult listTableStatus(TGetTablesParams params, boolean useMysqlSchemaName)
+            throws TException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get list table request: {}", params);
         }
@@ -718,7 +731,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetCatalog()) {
             catalogName = params.catalog;
         }
-        String dbName = getDbNameFromMysqlTableSchema(catalogName, params.db);
+        String dbName = useMysqlSchemaName
+                ? getDbNameFromMysqlTableSchema(catalogName, params.db) : params.db;
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (catalog != null) {
             DatabaseIf db = catalog.getDbNullable(dbName);
@@ -985,6 +999,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TDescribeTablesResult describeTables(TDescribeTablesParams params) throws TException {
+        return describeTables(params, true);
+    }
+
+    /** Reads table metadata with either MySQL display names or raw schema names. */
+    public TDescribeTablesResult describeTables(TDescribeTablesParams params, boolean useMysqlSchemaName)
+            throws TException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get desc tables request: {}", params);
         }
@@ -1002,7 +1022,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
-        String dbName = getDbNameFromMysqlTableSchema(params.catalog, params.db);
+        String dbName = useMysqlSchemaName
+                ? getDbNameFromMysqlTableSchema(params.catalog, params.db) : params.db;
         for (String tableName : tables) {
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(currentUser, params.catalog, dbName, tableName, PrivPredicate.SHOW)) {
@@ -1125,6 +1146,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) throws TException {
         return QeProcessorImpl.INSTANCE.reportExecStatus(params, getClientAddr());
+    }
+
+    @Override
+    public TStatus cancelFlightQuery(TUniqueId resultId) throws TException {
+        return FlightSqlQueryCancellation.INSTANCE.cancel(resultId);
     }
 
     @Override
@@ -5467,7 +5493,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             boolean enableAdaptiveRandomBucket, String resultName) throws UserException {
         long partitionId = partition.getId();
         PartitionItem partitionItem = partitionInfo.getItem(partitionId);
-        if (partitionItem == null) {
+        // Unpartitioned temporary partitions have no partition item or boundary keys.
+        if (partitionItem == null && partitionInfo.getType() != PartitionType.UNPARTITIONED) {
             throw new UserException(String.format(
                     "partition item of %s was dropped concurrently while building %s result, please retry",
                     partitionLabel, resultName));

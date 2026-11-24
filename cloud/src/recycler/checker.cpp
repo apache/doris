@@ -695,7 +695,7 @@ int InstanceChecker::init_obj_store_accessors(const InstanceInfoPB& instance) {
 #ifdef UNIT_TEST
         auto accessor = std::make_shared<MockAccessor>();
 #else
-        auto s3_conf = S3Conf::from_obj_store_info(obj_info);
+        auto s3_conf = parse_recycler_storage_config(obj_info);
         if (!s3_conf) {
             LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
             return -1;
@@ -754,7 +754,7 @@ int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance
 #ifdef UNIT_TEST
             auto accessor = std::make_shared<MockAccessor>();
 #else
-            auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
+            auto s3_conf = parse_recycler_storage_config(vault.obj_info());
             if (!s3_conf) {
                 LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
                 return -1;
@@ -1053,12 +1053,6 @@ int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
 }
 
 int InstanceChecker::do_inverted_check() {
-    if (accessor_map_.size() > 1) {
-        LOG(INFO) << "currently not support inverted check for multi accessor. instance_id="
-                  << instance_id_;
-        return 0;
-    }
-
     LOG(INFO) << "begin to inverted check objects instance_id=" << instance_id_;
     int check_ret = 0;
     long num_scanned = 0;
@@ -1076,15 +1070,23 @@ int InstanceChecker::do_inverted_check() {
 
     struct TabletRowsets {
         int64_t tablet_id {0};
-        std::unordered_set<std::string> rowset_ids;
+        std::unordered_map<std::string /* rowset_id */, std::string /* resource_id */> rowsets;
     };
     TabletRowsets tablet_rowsets_cache;
 
     RowsetIndexesFormatV1 rowset_index_cache_v1;
     RowsetIndexesFormatV2 rowset_index_cache_v2;
 
-    // Return 0 if check success, return 1 if file is garbage data, negative if error occurred
-    auto check_segment_file = [&](const std::string& obj_key) {
+    // A rowset only covers segments under the root of its own vault, a copy in another vault is a
+    // leak. A resource without accessor (an HDFS vault in a build without HDFS) is trusted.
+    auto stored_under = [&](const std::string& resource_id, const StorageRoot& root) {
+        auto it = accessor_map_.find(resource_id);
+        return it == accessor_map_.end() || it->second->root() == root;
+    };
+
+    // Return 0 if check success, return 1 if file is garbage data, negative if error occurred.
+    // `root` is the storage root the object was listed from.
+    auto check_segment_file = [&](const std::string& obj_key, const StorageRoot& root) {
         std::vector<std::string> str;
         butil::SplitString(obj_key, '/', &str);
         // data/{tablet_id}/{rowset_id}_{seg_num}.dat
@@ -1116,16 +1118,16 @@ int InstanceChecker::do_inverted_check() {
         }
 
         if (tablet_rowsets_cache.tablet_id == tablet_id) {
-            if (tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
+            auto it = tablet_rowsets_cache.rowsets.find(rowset_id);
+            if (it != tablet_rowsets_cache.rowsets.end() && stored_under(it->second, root)) {
                 return 0;
-            } else {
-                LOG(WARNING) << "rowset not exists, key=" << obj_key;
-                return -1;
             }
         }
-        // Get all rowset id of this tablet
-        tablet_rowsets_cache.tablet_id = tablet_id;
-        tablet_rowsets_cache.rowset_ids.clear();
+        // A cache miss is read again, a rowset may have committed after the cache was loaded. The
+        // cache claims the tablet only after a complete read, a failed read must not leave a
+        // partial rowset set that reports the next objects of the tablet as leaks.
+        tablet_rowsets_cache.tablet_id = 0;
+        tablet_rowsets_cache.rowsets.clear();
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1137,6 +1139,7 @@ int InstanceChecker::do_inverted_check() {
         auto end = meta_rowset_key({instance_id_, tablet_id, INT64_MAX});
         while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
             TxnErrorCode err = txn->get(begin, end, &it);
+            TEST_SYNC_POINT_CALLBACK("InstanceChecker::do_inverted_check.get_rowsets_err", &err);
             if (err != TxnErrorCode::TXN_OK) {
                 LOG(WARNING) << "failed to get rowset kv, err=" << err;
                 return -1;
@@ -1152,7 +1155,7 @@ int InstanceChecker::do_inverted_check() {
                     LOG(WARNING) << "malformed rowset meta value, key=" << hex(k);
                     return -1;
                 }
-                tablet_rowsets_cache.rowset_ids.insert(rowset.rowset_id_v2());
+                tablet_rowsets_cache.rowsets.emplace(rowset.rowset_id_v2(), rowset.resource_id());
                 if (!it->has_next()) {
                     begin = k;
                     begin.push_back('\x00'); // Update to next smallest key for iteration
@@ -1160,10 +1163,21 @@ int InstanceChecker::do_inverted_check() {
                 }
             }
         }
+        if (stopped()) {
+            // The loop above stops early when the checker is stopped, the rowsets are incomplete
+            return -1;
+        }
+        tablet_rowsets_cache.tablet_id = tablet_id;
 
-        if (!tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
+        auto owner = tablet_rowsets_cache.rowsets.find(rowset_id);
+        if (owner == tablet_rowsets_cache.rowsets.end()) {
             // Garbage data leak
             LOG(WARNING) << "rowset should be recycled, key=" << obj_key;
+            return 1;
+        }
+        if (!stored_under(owner->second, root)) {
+            LOG(WARNING) << "segment is not in the storage vault of its rowset, key=" << obj_key
+                         << " resource_id=" << owner->second;
             return 1;
         }
 
@@ -1218,20 +1232,38 @@ int InstanceChecker::do_inverted_check() {
     // so we choose to skip here.
     TEST_SYNC_POINT_RETURN_WITH_VALUE("InstanceChecker::do_inverted_check", (int)0);
 
-    for (auto& [_, accessor] : accessor_map_) {
+    // List each storage location once, resources sharing one would count its leaks repeatedly.
+    // Compare `location()`, not the normalized `uri()` ("a/b" and "a//b" hold different objects).
+    std::unordered_set<std::string> checked_locations;
+    for (auto& [resource_id, accessor] : accessor_map_) {
+        if (!checked_locations.insert(accessor->location()).second) {
+            LOG(INFO) << "skip inverted check of a storage location already checked, instance_id="
+                      << instance_id_ << " resource_id=" << resource_id
+                      << " uri=" << accessor->uri();
+            continue;
+        }
+        const StorageRoot& root = accessor->root();
         std::unique_ptr<ListIterator> list_iter;
+        // A vault that fails to list does not stop the check of the others
         int ret = accessor->list_directory("data", &list_iter);
         if (ret != 0) {
-            return -1;
+            LOG(WARNING) << "failed to list data directory. uri=" << accessor->uri();
+            check_ret = -1;
+            continue;
         }
 
         for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+            if (stopped()) {
+                // Otherwise each remaining object would start a rowset read cut short by the stop
+                LOG(INFO) << "inverted check stopped, instance_id=" << instance_id_;
+                return -1;
+            }
             const auto& path = file->path;
             if (path == "data/packed_file" || path.starts_with("data/packed_file/")) {
                 continue; // packed_file has dedicated check logic
             }
             ++num_scanned;
-            int ret = check_segment_file(path);
+            int ret = check_segment_file(path, root);
             if (ret != 0) {
                 LOG(WARNING) << "failed to check segment file, uri=" << accessor->uri()
                              << " path=" << path;
@@ -1255,7 +1287,7 @@ int InstanceChecker::do_inverted_check() {
 
         if (!list_iter->is_valid()) {
             LOG(WARNING) << "failed to list data directory. uri=" << accessor->uri();
-            return -1;
+            check_ret = -1;
         }
     }
     return num_file_leak > 0 ? 1 : check_ret;
@@ -1416,6 +1448,156 @@ int InstanceChecker::collect_tablet_rowsets(
             "tablet_id={}, rowsets_num={}",
             instance_id_, tablet_id, rowsets_num);
     return 0;
+}
+
+std::pair<MetaServiceCode, std::string> check_delete_bitmap_orphan(
+        const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id, int64_t tablet_id,
+        int64_t max_scan_keys, DeleteBitmapOrphanCheckResult* result,
+        const std::function<bool()>& should_cancel) {
+    *result = {};
+    auto check_cancelled = [&] {
+        result->cancelled = should_cancel();
+        return result->cancelled;
+    };
+    std::unique_ptr<Transaction> txn;
+    auto err = txn_kv->create_txn(&txn);
+    if (check_cancelled()) {
+        return {MetaServiceCode::OK, ""};
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        return {cast_as<ErrCategory::CREATE>(err), "failed to create check transaction"};
+    }
+    std::string instance_value;
+    err = txn->get(instance_key({instance_id}), &instance_value);
+    if (check_cancelled()) {
+        return {MetaServiceCode::OK, ""};
+    }
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return {MetaServiceCode::INVALID_ARGUMENT, "instance not found"};
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        return {cast_as<ErrCategory::READ>(err), "failed to read instance"};
+    }
+
+    auto begin = meta_delete_bitmap_key({instance_id, tablet_id, "", 0, 0});
+    auto end = meta_delete_bitmap_key(
+            {instance_id, tablet_id == 0 ? INT64_MAX : tablet_id + 1, "", 0, 0});
+    RangeGetOptions options;
+    options.reverse = true;
+    options.snapshot = true;
+    int64_t cached_tablet_id = -1;
+    std::unordered_set<std::string> rowsets;
+    while (true) {
+        if (max_scan_keys > 0 && result->scanned_kvs >= max_scan_keys) {
+            return {MetaServiceCode::OK, ""};
+        }
+        err = txn_kv->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            return {cast_as<ErrCategory::CREATE>(err), "failed to create check transaction"};
+        }
+        // Small pages bound bitmap value traffic before an early return. No next-page prefetch.
+        options.batch_limit = max_scan_keys > 0
+                                      ? std::min<int64_t>(128, max_scan_keys - result->scanned_kvs)
+                                      : 128;
+        std::unique_ptr<RangeGetIterator> it;
+        err = txn->get(begin, end, &it, options);
+        TEST_SYNC_POINT_CALLBACK("check_delete_bitmap_orphan::get_bitmap", &err);
+        if (check_cancelled()) {
+            return {MetaServiceCode::OK, ""};
+        }
+        if (err == TxnErrorCode::TXN_TOO_OLD) {
+            continue;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            return {cast_as<ErrCategory::READ>(err), "failed to scan v1 delete bitmaps"};
+        }
+        bool retry_current_bitmap = false;
+        while (!check_cancelled() && it->has_next()) {
+            auto [key, value] = it->next();
+            ++result->scanned_kvs;
+            auto encoded_key = key.substr(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> fields;
+            // Legacy keys have seven fields; blob keys have an additional encoded suffix.
+            if (decode_key(&encoded_key, &fields) != 0 ||
+                (fields.size() != 7 && fields.size() != 8)) {
+                return {MetaServiceCode::UNDEFINED_ERR,
+                        fmt::format("malformed delete bitmap key: {}", hex(key))};
+            }
+            const auto* current_tablet_id = std::get_if<int64_t>(&std::get<0>(fields[3]));
+            const auto* rowset_id = std::get_if<std::string>(&std::get<0>(fields[4]));
+            const auto* version = std::get_if<int64_t>(&std::get<0>(fields[5]));
+            const auto* segment_id = std::get_if<int64_t>(&std::get<0>(fields[6]));
+            if (current_tablet_id == nullptr || rowset_id == nullptr || version == nullptr ||
+                segment_id == nullptr) {
+                return {MetaServiceCode::UNDEFINED_ERR,
+                        fmt::format("invalid delete bitmap key fields: {}", hex(key))};
+            }
+
+            if (cached_tablet_id != *current_tablet_id) {
+                rowsets.clear();
+                FullRangeGetOptions rowset_options;
+                rowset_options.snapshot = true;
+                rowset_options.batch_limit = 128;
+                auto rowset_it = txn->full_range_get(
+                        meta_rowset_key({instance_id, *current_tablet_id, 0}),
+                        meta_rowset_key({instance_id, *current_tablet_id + 1, 0}), rowset_options);
+                while (true) {
+                    // next() may fetch another page; check cancellation after it returns,
+                    // before decoding any rowset metadata.
+                    auto kv = rowset_it->next();
+                    if (check_cancelled()) {
+                        return {MetaServiceCode::OK, ""};
+                    }
+                    if (!kv) {
+                        break;
+                    }
+                    RowsetMetaCloudPB rowset;
+                    if (!rowset.ParseFromArray(kv->second.data(), kv->second.size())) {
+                        return {MetaServiceCode::PROTOBUF_PARSE_ERR,
+                                fmt::format("malformed rowset meta: {}", hex(kv->first))};
+                    }
+                    rowsets.insert(rowset.rowset_id_v2());
+                }
+                err = rowset_it->error_code();
+                TEST_SYNC_POINT_CALLBACK("check_delete_bitmap_orphan::get_rowsets", &err, &key);
+                if (err == TxnErrorCode::TXN_TOO_OLD) {
+                    // Retry this key inclusively in a new transaction. Reread the bitmap and
+                    // rebuild the rowset cache at the new read version before reporting a leak.
+                    end = key;
+                    options.end_key_selector = RangeKeySelector::FIRST_GREATER_THAN;
+                    rowsets.clear();
+                    cached_tablet_id = -1;
+                    --result->scanned_kvs; // The unfinished key must not consume the budget twice.
+                    retry_current_bitmap = true;
+                    break;
+                }
+                if (err != TxnErrorCode::TXN_OK) {
+                    return {cast_as<ErrCategory::READ>(err), "failed to scan tablet rowsets"};
+                }
+                cached_tablet_id = *current_tablet_id;
+            }
+            if (!rowsets.contains(*rowset_id)) {
+                result->key = key;
+                result->tablet_id = *current_tablet_id;
+                result->rowset_id = *rowset_id;
+                result->version = *version;
+                result->segment_id = *segment_id;
+                return {MetaServiceCode::OK, ""};
+            }
+        }
+        if (result->cancelled) {
+            return {MetaServiceCode::OK, ""};
+        }
+        if (retry_current_bitmap) {
+            continue;
+        }
+        if (!it->more()) {
+            result->range_exhausted = true;
+            return {MetaServiceCode::OK, ""};
+        }
+        end = it->last_key();
+        options.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+    }
 }
 
 int InstanceChecker::do_delete_bitmap_inverted_check() {

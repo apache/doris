@@ -18,6 +18,7 @@
 package org.apache.doris.arrowflight;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendServiceImpl;
@@ -31,6 +32,7 @@ import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.thrift.TUserIdentity;
 
 import org.apache.arrow.flight.sql.FlightSqlProducer.Schemas;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetTables;
@@ -41,11 +43,14 @@ import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -61,6 +66,19 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class FlightSqlSchemaHelperTableTypesTest {
+    private boolean savedRunningUnitTest;
+
+    @BeforeEach
+    public void setUp() {
+        savedRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+    }
+
+    @AfterEach
+    public void tearDown() {
+        FeConstants.runningUnitTest = savedRunningUnitTest;
+    }
+
     private static Stream<Arguments> tableFilters() {
         return Stream.of(false, true).flatMap(includeSchema -> Stream.of(
                 Arguments.of(includeSchema, Collections.emptyList(), Arrays.asList("base", "system", "view")),
@@ -85,18 +103,28 @@ public class FlightSqlSchemaHelperTableTypesTest {
     @MethodSource("tableFilters")
     public void filtersAuthorizedTablesBeforeDescribing(boolean includeSchema, List<String> types,
             List<String> expectedNames) throws Exception {
-        checkTables("internal", includeSchema, types, expectedNames);
+        checkTables("internal", includeSchema, types, expectedNames, Collections.emptySet());
     }
 
     @Test
     public void retainsExternalCatalogForFilteredSchemas() throws Exception {
-        checkTables("external", true, Arrays.asList("VIEW", "BASE TABLE"), Arrays.asList("base", "view"));
+        checkTables("external", true, Arrays.asList("VIEW", "BASE TABLE"), Arrays.asList("base", "view"),
+                Collections.emptySet());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void forwardsSessionRolesWithFilteredTables(boolean includeSchema) throws Exception {
+        checkTables("internal", includeSchema, Arrays.asList("BASE TABLE", "VIEW"), Arrays.asList("base", "view"),
+                Set.of("mapped_role"));
     }
 
     private void checkTables(String catalog, boolean includeSchema, List<String> types,
-            List<String> expectedNames) throws Exception {
-        ConnectContext ctx = Mockito.mock(ConnectContext.class);
-        Mockito.when(ctx.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
+            List<String> expectedNames, Set<String> authenticatedRoles) throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+        ctx.setAuthenticatedRoles(authenticatedRoles);
+        TUserIdentity expectedIdentity = UserIdentity.ROOT.toThrift(authenticatedRoles);
         List<TTableStatus> authorizedTables = Arrays.asList(
                 new TTableStatus().setName("base").setType("BASE TABLE"),
                 new TTableStatus().setName("system").setType("SYSTEM VIEW"),
@@ -105,22 +133,23 @@ public class FlightSqlSchemaHelperTableTypesTest {
         try (MockedStatic<ExecuteEnv> executeEnv = Mockito.mockStatic(ExecuteEnv.class);
                 MockedConstruction<FrontendServiceImpl> services = Mockito.mockConstruction(
                         FrontendServiceImpl.class, (service, construction) -> {
-                            Mockito.when(service.getDbNames(Mockito.any(TGetDbsParams.class))).thenAnswer(invocation -> {
-                                TGetDbsParams params = invocation.getArgument(0);
-                                Assertions.assertEquals(catalog, params.getCatalog());
-                                Assertions.assertEquals("db%", params.getPattern());
-                                Assertions.assertEquals(UserIdentity.ROOT.toThrift(), params.getCurrentUserIdent());
-                                return new TGetDbsResult().setDbs(Arrays.asList("db"))
-                                        .setCatalogs(Arrays.asList(catalog));
-                            });
-                            Mockito.when(service.listTableStatus(Mockito.any(TGetTablesParams.class)))
+                            Mockito.when(service.getDbNames(Mockito.any(TGetDbsParams.class), Mockito.eq(false)))
+                                    .thenAnswer(invocation -> {
+                                        TGetDbsParams params = invocation.getArgument(0);
+                                        Assertions.assertEquals(catalog, params.getCatalog());
+                                        Assertions.assertEquals("db%", params.getPattern());
+                                        Assertions.assertEquals(expectedIdentity,
+                                                params.getCurrentUserIdent());
+                                        return new TGetDbsResult().setDbs(Arrays.asList("db"))
+                                                .setCatalogs(Arrays.asList(catalog));
+                                    });
+                            Mockito.when(service.listTableStatus(Mockito.any(TGetTablesParams.class), Mockito.eq(false)))
                                     .thenAnswer(invocation -> {
                                         TGetTablesParams params = invocation.getArgument(0);
                                         Assertions.assertEquals(catalog, params.getCatalog());
                                         Assertions.assertEquals("db", params.getDb());
                                         Assertions.assertEquals("%", params.getPattern());
-                                        Assertions.assertEquals(UserIdentity.ROOT.toThrift(),
-                                                params.getCurrentUserIdent());
+                                        Assertions.assertEquals(expectedIdentity, params.getCurrentUserIdent());
                                         // Names and types only: no table statistics, and no UPDATE_TIME, the one
                                         // column a cloud follower refreshes partition versions from the meta
                                         // service for.
@@ -132,13 +161,12 @@ public class FlightSqlSchemaHelperTableTypesTest {
                                                         || "VIEW".equals(table.getType()))
                                                 .collect(Collectors.toList()));
                                     });
-                            Mockito.when(service.describeTables(Mockito.any(TDescribeTablesParams.class)))
+                            Mockito.when(service.describeTables(Mockito.any(TDescribeTablesParams.class), Mockito.eq(false)))
                                     .thenAnswer(invocation -> {
                                         TDescribeTablesParams params = invocation.getArgument(0);
                                         describedNames.addAll(params.getTablesName());
                                         Assertions.assertEquals(catalog, params.getCatalog());
-                                        Assertions.assertEquals(UserIdentity.ROOT.toThrift(),
-                                                params.getCurrentUserIdent());
+                                        Assertions.assertEquals(expectedIdentity, params.getCurrentUserIdent());
                                         List<TColumnDef> columns = new ArrayList<>();
                                         List<Integer> offsets = new ArrayList<>();
                                         for (String name : params.getTablesName()) {
@@ -171,7 +199,7 @@ public class FlightSqlSchemaHelperTableTypesTest {
             }
             Assertions.assertEquals(expectedNames, actualNames);
             Assertions.assertEquals(includeSchema ? expectedNames : Collections.emptyList(), describedNames);
-            Mockito.verify(services.constructed().get(0)).listTableStatus(Mockito.any(TGetTablesParams.class));
+            Mockito.verify(services.constructed().get(0)).listTableStatus(Mockito.any(TGetTablesParams.class), Mockito.eq(false));
         }
     }
 }

@@ -21,6 +21,7 @@
 #include <arrow/table.h>
 #include <glog/logging.h>
 #include <parquet/api/reader.h>
+#include <parquet/arrow/schema.h>
 #include <parquet/column_writer.h>
 #include <parquet/platform.h>
 #include <parquet/schema.h>
@@ -34,6 +35,7 @@
 #include <string>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -248,6 +250,26 @@ Status VParquetWriter::_parse_properties() {
         }
         arrow_builder.store_schema();
         _arrow_properties = arrow_builder.build();
+
+        if (query_options.enable_parquet_write_bloom_filter) {
+            // Arrow's build() moves options out of its builder; copy the finalized properties.
+            ::parquet::WriterProperties::Builder bloom_builder(*_parquet_writer_properties);
+            std::shared_ptr<::parquet::SchemaDescriptor> schema;
+            RETURN_DORIS_STATUS_IF_ERROR(::parquet::arrow::ToParquetSchema(
+                    _arrow_block_convertor->arrow_schema().get(), *_parquet_writer_properties,
+                    *_arrow_properties, &schema));
+            for (int i = 0; i < schema->num_columns(); ++i) {
+                const auto* column = schema->Column(i);
+                // Use physical leaf paths: ARRAY<INT>, for example, writes items.list.element.
+                // Arrow rejects BOOLEAN Bloom filters; keep deprecated INT96 output unchanged.
+                if (column->physical_type() != ::parquet::Type::BOOLEAN &&
+                    column->physical_type() != ::parquet::Type::INT96) {
+                    bloom_builder.enable_bloom_filter(column->path(),
+                                                      ::parquet::BloomFilterOptions {});
+                }
+            }
+            _parquet_writer_properties = bloom_builder.build();
+        }
     } catch (const ::parquet::ParquetException& e) {
         return Status::InternalError("parquet writer parse properties error: {}", e.what());
     }
@@ -266,14 +288,17 @@ Status VParquetWriter::write(const Block& block) {
         return Status::OK();
     }
 
-    // serialize
-    std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(_arrow_block_convertor->convert_to_arrow(
-            block, ExecEnv::GetInstance()->arrow_memory_pool(), &result));
-    if (_write_size == 0) {
-        RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
-    }
-    RETURN_DORIS_STATUS_IF_ERROR(_writer->WriteRecordBatch(*result));
+    // Bloom bitsets use Doris's throwing query allocator, which Arrow does not catch.
+    // Async sinks need this scope both to enforce the query limit and return allocation failures.
+    RETURN_IF_CATCH_EXCEPTION({
+        std::shared_ptr<arrow::RecordBatch> result;
+        RETURN_IF_ERROR(_arrow_block_convertor->convert_to_arrow(
+                block, ExecEnv::GetInstance()->arrow_memory_pool(), &result));
+        if (_write_size == 0) {
+            RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
+        }
+        RETURN_DORIS_STATUS_IF_ERROR(_writer->WriteRecordBatch(*result));
+    });
     _write_size += block.bytes();
     if (_write_size >= doris::config::min_row_group_size) {
         _write_size = 0;
@@ -299,7 +324,6 @@ Status VParquetWriter::open() {
             return Status::InvalidArgument("Invalid Parquet INT96 writer timezone: {}", _timezone);
         }
     }
-    RETURN_IF_ERROR(_parse_properties());
     DataTypes types;
     types.reserve(_output_vexpr_ctxs.size());
     for (const auto& context : _output_vexpr_ctxs) {
@@ -317,6 +341,7 @@ Status VParquetWriter::open() {
             _create_arrow_block_convertor(std::move(types), std::move(names), _timezone,
                                           _timezone_obj, _parquet_options.enable_int96_timestamps);
     RETURN_IF_ERROR(_arrow_block_convertor->init());
+    RETURN_IF_ERROR(_parse_properties());
     try {
         RETURN_DORIS_STATUS_IF_ERROR(_open_file_writer());
     } catch (const ::parquet::ParquetStatusException& e) {

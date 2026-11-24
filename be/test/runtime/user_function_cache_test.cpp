@@ -27,11 +27,14 @@
 #include <vector>
 
 #include "common/status.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris {
 
 class UserFunctionCacheTest : public ::testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"user_function_cache_test"};
+
     UserFunctionCache ufc;
     std::string test_dir_;
 
@@ -40,8 +43,7 @@ protected:
         original_doris_home_ = getenv("DORIS_HOME");
 
         // Create a unique test directory
-        test_dir_ = std::filesystem::temp_directory_path().string() + "/ufc_test_" +
-                    std::to_string(getpid());
+        test_dir_ = (scoped_temp_dir_.path() / "cache").string();
         std::filesystem::create_directories(test_dir_);
     }
 

@@ -21,6 +21,8 @@
 
 #include <memory>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "storage/metadata_adder.h"
 
 namespace doris {
@@ -40,10 +42,38 @@ public:
     IndexReader() = default;
     ~IndexReader() override = default;
 
+    virtual Status healthy_status() const { return _healthy_status.status(); }
+
     virtual IndexType index_type() = 0;
     virtual uint64_t get_index_id() const = 0;
 
     virtual Status new_iterator(std::unique_ptr<IndexIterator>* iterator) = 0;
+
+protected:
+    // Only wrap initialization of cached state. Query-local failures must not
+    // poison this reader. Preserve exceptions after recording them.
+    template <typename Fn>
+    Status _load_with_health_check(Fn&& load) {
+        try {
+            auto status = load();
+            _healthy_status.update(status);
+            return status;
+        } catch (const doris::Exception& e) {
+            _healthy_status.update(e.to_status());
+            throw;
+        } catch (const std::exception& e) {
+            _healthy_status.update(Status::InternalError(
+                    "Exception while initializing cached index reader: {}", e.what()));
+            throw;
+        } catch (...) {
+            _healthy_status.update(Status::InternalError(
+                    "Unknown exception while initializing cached index reader"));
+            throw;
+        }
+    }
+
+private:
+    AtomicStatus _healthy_status;
 };
 using IndexReaderPtr = std::shared_ptr<IndexReader>;
 

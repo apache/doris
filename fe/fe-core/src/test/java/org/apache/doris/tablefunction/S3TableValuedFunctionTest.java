@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -28,6 +29,7 @@ import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
@@ -62,6 +64,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 public class S3TableValuedFunctionTest {
     private static final Map<String, String> PROPERTIES = Map.of(
@@ -167,6 +170,15 @@ public class S3TableValuedFunctionTest {
     }
 
     @Test
+    public void testColumnNamesThatDifferOnlyInCaseAreRefused() throws Exception {
+        // A file's columns are named in lower case, so two that differ only in case could not be told apart.
+        Assertions.assertEquals(Arrays.asList("id", "name"), columnNames(tvf(), schema("Id", "name")));
+        NotSupportedException e = Assertions.assertThrows(NotSupportedException.class,
+                () -> columnNames(tvf(), schema("Col1", "col1")));
+        Assertions.assertTrue(e.getMessage().contains("Repeated lowercase column names: col1"), e.getMessage());
+    }
+
+    @Test
     public void testExactFilesAreScopedToTvf() throws Exception {
         S3TableValuedFunction first = new S3TableValuedFunction(PROPERTIES,
                 Collections.singletonList(file("a.csv", 10)));
@@ -214,6 +226,30 @@ public class S3TableValuedFunctionTest {
         Mockito.when(backend.getBrpcPort()).thenReturn(8060);
         Mockito.doReturn(backend).when(tvf).getBackend();
         return tvf;
+    }
+
+    /** The columns a BE that reads the given schema from the first file makes the table function show. */
+    private static List<String> columnNames(S3TableValuedFunction tvf, PFetchTableSchemaResult schema)
+            throws Exception {
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        Mockito.when(proxy.fetchTableStructureAsync(Mockito.any(), Mockito.any()))
+                .thenReturn(CompletableFuture.completedFuture(schema));
+        try (MockedStatic<BackendServiceProxy> service = Mockito.mockStatic(BackendServiceProxy.class)) {
+            service.when(BackendServiceProxy::getInstance).thenReturn(proxy);
+            return tvf.getTableColumns().stream().map(Column::getName).collect(Collectors.toList());
+        }
+    }
+
+    private static PFetchTableSchemaResult schema(String... names) {
+        PFetchTableSchemaResult.Builder result = PFetchTableSchemaResult.newBuilder()
+                .setStatus(PStatus.newBuilder().setStatusCode(TStatusCode.OK.getValue()))
+                .setColumnNums(names.length);
+        for (String name : names) {
+            result.addColumnNames(name).addColumnTypes(PTypeDesc.newBuilder().addTypes(PTypeNode.newBuilder()
+                    .setType(TTypeNodeType.SCALAR.getValue())
+                    .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.INT.getValue()))));
+        }
+        return result.build();
     }
 
     private static TBrokerFileStatus file(String key, long size) {

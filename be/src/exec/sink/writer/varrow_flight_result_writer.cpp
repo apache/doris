@@ -82,6 +82,7 @@ Status GetArrowResultBatchCtx::on_data(const std::shared_ptr<Block>& block,
 }
 
 Status ArrowFlightResultBlockBuffer::get_schema(std::shared_ptr<arrow::Schema>* arrow_schema) {
+    std::lock_guard<std::mutex> lock(_lock);
     if (!_status.ok()) {
         return _status;
     }

@@ -21,6 +21,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include "common/metrics/doris_metrics.h"
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
@@ -30,6 +31,19 @@ public:
     BrpcClientCacheTest() {}
     virtual ~BrpcClientCacheTest() {}
 };
+
+TEST_F(BrpcClientCacheTest, MetricsCannotKeepADestroyedConnectionGroup) {
+    auto* entity = DorisMetrics::instance()->server_entity();
+    for (const auto& group : {std::string(), std::string("streaming")}) {
+        const std::string metric =
+                group.empty() ? "brpc_endpoint_stub_count" : "brpc_stream_endpoint_stub_count";
+        {
+            BrpcClientCache<PBackendService_Stub> cache("baidu_std", "", group);
+            EXPECT_EQ(1, entity->_hooks.count(metric));
+        }
+        EXPECT_EQ(0, entity->_hooks.count(metric));
+    }
+}
 
 TEST_F(BrpcClientCacheTest, normal) {
     BrpcClientCache<PBackendService_Stub> cache;

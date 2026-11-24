@@ -24,6 +24,8 @@
 #include "exec/runtime_filter/runtime_filter_producer.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
 #include "exprs/hybrid_set.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "testutil/column_helper.h"
 
 namespace doris {
@@ -162,10 +164,8 @@ TEST_F(RuntimeFilterMergerTest, merge_from_never_writes_producer_wrapper) {
               hashes);
 }
 
-// A caller who guarantees `other`'s wrapper has no other reader (e.g. an RPC-only filter built
-// solely for this merge, see `RuntimeFilterMergeControllerEntity::merge`) may let the merger take
-// it over directly instead of paying for a deep copy.
-TEST_F(RuntimeFilterMergerTest, merge_from_exclusively_owned_takes_ownership) {
+// A deserialized RPC input is short lived; the merger must keep a private copy after it dies.
+TEST_F(RuntimeFilterMergerTest, merge_from_rpc_input_uses_private_copy) {
     std::shared_ptr<RuntimeFilterMerger> merger;
     auto desc = TRuntimeFilterDescBuilder().build();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(_query_ctx.get(), &desc, &merger));
@@ -178,14 +178,26 @@ TEST_F(RuntimeFilterMergerTest, merge_from_exclusively_owned_takes_ownership) {
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             producer->insert(ColumnHelper::create_column<DataTypeInt32>({5}), 0));
     producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
-    auto wrapper = producer->wrapper();
+    PMergeFilterRequest request;
+    void* data = nullptr;
+    int len = 0;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->serialize(&request, &data, &len));
+    butil::IOBuf buf;
+    buf.append(data, len);
+    butil::IOBufAsZeroCopyInputStream stream(buf);
+    std::shared_ptr<RuntimeFilterProducer> rpc_input;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &rpc_input));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(rpc_input->assign(request, &stream));
+    auto wrapper = rpc_input->wrapper();
 
     bool ready = false;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            merger->merge_from(producer.get(), &ready, /*other_wrapper_exclusively_owned=*/true));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->merge_from(rpc_input.get(), &ready));
     ASSERT_FALSE(ready);
-    // No clone: the merger took over the exclusively owned wrapper directly.
-    ASSERT_EQ(merger->_wrapper, wrapper);
+    ASSERT_NE(merger->_wrapper, wrapper);
+    ASSERT_NE(merger->_wrapper->hybrid_set(), wrapper->hybrid_set());
+    auto merged_wrapper = merger->_wrapper;
+    rpc_input.reset();
 
     std::shared_ptr<RuntimeFilterProducer> producer2;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -194,10 +206,110 @@ TEST_F(RuntimeFilterMergerTest, merge_from_exclusively_owned_takes_ownership) {
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             producer2->insert(ColumnHelper::create_column<DataTypeInt32>({6}), 0));
     producer2->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    request.Clear();
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer2->serialize(&request, &data, &len));
+    butil::IOBuf buf2;
+    buf2.append(data, len);
+    butil::IOBufAsZeroCopyInputStream stream2(buf2);
+    std::shared_ptr<RuntimeFilterProducer> rpc_input2;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            merger->merge_from(producer2.get(), &ready, /*other_wrapper_exclusively_owned=*/true));
+            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &rpc_input2));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(rpc_input2->assign(request, &stream2));
+    auto wrapper2 = rpc_input2->wrapper();
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->merge_from(rpc_input2.get(), &ready));
     ASSERT_TRUE(ready);
+    ASSERT_EQ(merger->_wrapper, merged_wrapper);
     ASSERT_EQ(merger->_wrapper->hybrid_set()->size(), 2);
+    int32_t five = 5;
+    int32_t six = 6;
+    ASSERT_TRUE(merged_wrapper->hybrid_set()->find(&five));
+    ASSERT_TRUE(merged_wrapper->hybrid_set()->find(&six));
+    ASSERT_EQ(wrapper->hybrid_set()->size(), 1);
+    ASSERT_TRUE(wrapper->hybrid_set()->find(&five));
+    ASSERT_FALSE(wrapper->hybrid_set()->find(&six));
+    ASSERT_EQ(wrapper2->hybrid_set()->size(), 1);
+    ASSERT_FALSE(wrapper2->hybrid_set()->find(&five));
+}
+
+TEST_F(RuntimeFilterMergerTest, failed_rpc_clone_does_not_publish_partial_filter) {
+    auto options = _query_options;
+    options.__set_runtime_filter_max_in_num(1024);
+    options.__set_ignore_runtime_filter_error(true);
+    options.__set_enable_reserve_memory(false);
+    TNetworkAddress fe_address;
+    fe_address.hostname = LOCALHOST;
+    fe_address.port = DUMMY_PORT;
+    auto query_ctx = QueryContext::create(TUniqueId(), ExecEnv::GetInstance(), options, fe_address,
+                                          true, fe_address, QuerySource::INTERNAL_FRONTEND);
+    ASSERT_TRUE(query_ctx->ignore_runtime_filter_error());
+
+    auto desc = TRuntimeFilterDescBuilder()
+                        .set_type(TRuntimeFilterType::IN_OR_BLOOM)
+                        .set_build_bf_by_runtime_size(false)
+                        .set_bloom_filter_size_bytes(4096)
+                        .set_mode(false)
+                        .build();
+    std::shared_ptr<RuntimeFilterMerger> merger;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(query_ctx.get(), &desc, &merger));
+    merger->increase_expected_producer_num(2);
+
+    std::shared_ptr<RuntimeFilterProducer> bloom_source;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            RuntimeFilterProducer::create(query_ctx.get(), &desc, &bloom_source));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(bloom_source->init(2000));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            bloom_source->insert(ColumnHelper::create_column<DataTypeInt32>({5}), 0));
+    bloom_source->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    ASSERT_EQ(bloom_source->wrapper()->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
+
+    PMergeFilterRequest request;
+    void* data = nullptr;
+    int len = 0;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(bloom_source->serialize(&request, &data, &len));
+    butil::IOBuf buf;
+    buf.append(data, len);
+    butil::IOBufAsZeroCopyInputStream stream(buf);
+    std::shared_ptr<RuntimeFilterProducer> rpc_bloom;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            RuntimeFilterProducer::create(query_ctx.get(), &desc, &rpc_bloom));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(rpc_bloom->assign(request, &stream));
+    ASSERT_EQ(rpc_bloom->wrapper()->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
+
+    bool ready = false;
+    auto limited_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                            "FailedRuntimeFilterClone", 2048);
+    {
+        SwitchThreadMemTrackerLimiter switch_tracker(limited_tracker);
+        auto status = merger->merge_from(rpc_bloom.get(), &ready);
+        ASSERT_EQ(status.code(), ErrorCode::MEM_LIMIT_EXCEEDED) << status.to_string();
+    }
+    rpc_bloom.reset();
+    ASSERT_FALSE(ready);
+    ASSERT_FALSE(merger->ready());
+    ASSERT_EQ(merger->_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+
+    std::shared_ptr<RuntimeFilterProducer> in_source;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            RuntimeFilterProducer::create(query_ctx.get(), &desc, &in_source));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(in_source->init(1));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            in_source->insert(ColumnHelper::create_column<DataTypeInt32>({6}), 0));
+    in_source->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    request.Clear();
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(in_source->serialize(&request, &data, &len));
+    butil::IOBuf empty_buf;
+    butil::IOBufAsZeroCopyInputStream empty_stream(empty_buf);
+    std::shared_ptr<RuntimeFilterProducer> rpc_in;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            RuntimeFilterProducer::create(query_ctx.get(), &desc, &rpc_in));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(rpc_in->assign(request, &empty_stream));
+    ASSERT_EQ(rpc_in->wrapper()->get_real_type(), RuntimeFilterType::IN_FILTER);
+
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->merge_from(rpc_in.get(), &ready));
+    ASSERT_FALSE(ready);
+    ASSERT_FALSE(merger->ready());
+    ASSERT_EQ(merger->_wrapper->hybrid_set()->size(), 1);
+    ASSERT_NE(merger->debug_string().find("received_producer_num: 1"), std::string::npos);
 }
 
 TEST_F(RuntimeFilterMergerTest, basic) {
