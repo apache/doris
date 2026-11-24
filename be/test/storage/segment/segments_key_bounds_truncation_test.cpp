@@ -50,9 +50,11 @@ private:
     std::unique_ptr<DataDir> data_dir;
     int cur_version {2};
     bool _saved_aggregate_non_mow_key_bounds {false};
+    int32_t _saved_truncation_threshold {0};
 
 public:
     void SetUp() override {
+        _saved_truncation_threshold = config::segments_key_bounds_truncation_threshold;
         auto st = io::global_local_filesystem()->delete_directory(kSegmentDir);
         ASSERT_TRUE(st.ok()) << st;
         st = io::global_local_filesystem()->create_directory(kSegmentDir);
@@ -71,6 +73,7 @@ public:
     }
 
     void TearDown() override {
+        config::segments_key_bounds_truncation_threshold = _saved_truncation_threshold;
         config::enable_aggregate_non_mow_key_bounds = _saved_aggregate_non_mow_key_bounds;
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kSegmentDir).ok());
         engine_ref = nullptr;

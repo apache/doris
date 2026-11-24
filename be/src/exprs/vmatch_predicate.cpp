@@ -82,6 +82,12 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _analyzer_ctx->analyzer_name = resolved.provider_name;
     _analyzer_ctx->parser_type = resolved.parser_type;
 
+    if (_analyzer_ctx->analyzer_key.empty() && !_analyzer_ctx->requires_analysis()) {
+        // An empty key allows any reader. A keyword MATCH must bypass historical
+        // tokenized indexes and evaluate the same predicate on the stored values.
+        _analyzer_ctx->analyzer_key = INVERTED_INDEX_PARSER_NONE;
+    }
+
     if (_analyzer_ctx->requires_analysis()) {
         std::string bound_name;
         std::string legacy_name;

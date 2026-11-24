@@ -42,6 +42,9 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 public class ColumnTest {
 
@@ -347,4 +350,25 @@ public class ColumnTest {
         Assertions.assertTrue(exception.getMessage().contains(
                 "can't start with '" + Column.HIDDEN_COLUMN_PREFIX + "'"), exception.getMessage());
     }
+
+    @Test
+    public void testFieldPatternTypeCopyEqualityAndReplay() throws Exception {
+        Column glob = new Column("a", Type.INT);
+        glob.setFieldPatternType(PatternType.MATCH_NAME_GLOB);
+        Column copy = new Column(glob);
+        Assertions.assertEquals(glob, copy);
+        Assertions.assertEquals(glob.hashCode(), copy.hashCode());
+        copy.setFieldPatternType(PatternType.MATCH_NAME);
+        Assertions.assertNotEquals(glob, copy);
+        Assertions.assertNotEquals(glob.hashCode(), copy.hashCode());
+
+        VariantType type = new VariantType(new ArrayList<>(List.of(
+                new VariantField("a", Type.INT, "", null))), Map.of());
+        Column variant = new Column("v", type);
+        Assertions.assertEquals(PatternType.MATCH_NAME_GLOB, variant.getChildren().get(0).getFieldPatternType());
+        variant.getChildren().get(0).setFieldPatternType(null);
+        Column restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(variant), Column.class);
+        Assertions.assertEquals(PatternType.MATCH_NAME_GLOB, restored.getChildren().get(0).getFieldPatternType());
+    }
+
 }

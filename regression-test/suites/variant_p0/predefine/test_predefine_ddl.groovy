@@ -95,12 +95,12 @@ suite("test_predefine_ddl", "p0") {
 
     test {
          sql """ create index idx_ab on ${tableName} (var) using inverted properties("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") """
-        exception("Can not create index with field pattern")
+        exception("can not find field pattern: ab in column: var")
     }
 
     test {
          sql """ create index idx_ab on ${tableName} (var) using inverted properties("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") """
-        exception("Can not create index with field pattern")
+        exception("can not find field pattern: ab in column: var")
     }
     
     sql """ alter table ${tableName} add column var2 variant<'ab' : string, properties("variant_max_subcolumns_count" = "5")> NULL """
@@ -134,12 +134,13 @@ suite("test_predefine_ddl", "p0") {
 
     test {
         sql """ alter table ${tableName} modify column var variant NULL """
-        exception("Can not change variant")
+        exception("Can only append variant schema templates")
     }
 
-    test {
-        sql """ alter table ${tableName} drop index idx_ab """
-        exception("Can not drop index with field pattern")
+    sql """ alter table ${tableName} drop index idx_ab """
+    waitForSchemaChangeDone {
+        sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1"
+        time 30
     }
 
     sql """ alter table ${tableName} drop column var """
