@@ -80,6 +80,20 @@ Field DataTypeDateTimeV2::get_field(const TExprNode& node) const {
     }
 }
 
+Status DataTypeDateTimeV2::check_column_value(const IColumn& column, size_t row_num) const {
+    const auto* datetime_column = check_and_get_column_with_const<ColumnDateTimeV2>(column);
+    DCHECK(datetime_column != nullptr);
+    const size_t actual_row = is_column_const(column) ? 0 : row_num;
+    const auto& value = datetime_column->get_data()[actual_row];
+    const auto divisor = common::exp10_i32(6 - _scale);
+    if (value.microsecond() % divisor != 0) {
+        return Status::InternalError(
+                "Invalid {} value at row {}, microsecond {} does not match scale {}", get_name(),
+                row_num, value.microsecond(), _scale);
+    }
+    return Status::OK();
+}
+
 bool DataTypeDateV2::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }

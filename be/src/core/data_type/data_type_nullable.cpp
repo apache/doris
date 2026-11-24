@@ -148,6 +148,16 @@ Status DataTypeNullable::check_column(const IColumn& column) const {
     return nested_data_type->check_column(column_nullable->get_nested_column());
 }
 
+Status DataTypeNullable::check_column_value(const IColumn& column, size_t row_num) const {
+    const auto* column_nullable = check_and_get_column_with_const<ColumnNullable>(column);
+    DCHECK(column_nullable != nullptr);
+    const size_t actual_row = is_column_const(column) ? 0 : row_num;
+    if (column_nullable->is_null_at(actual_row)) {
+        return Status::OK();
+    }
+    return nested_data_type->check_column_value(column_nullable->get_nested_column(), actual_row);
+}
+
 bool DataTypeNullable::equals(const IDataType& rhs) const {
     return rhs.is_nullable() &&
            nested_data_type->equals(*static_cast<const DataTypeNullable&>(rhs).nested_data_type);
