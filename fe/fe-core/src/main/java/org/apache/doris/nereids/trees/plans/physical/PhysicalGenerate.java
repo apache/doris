@@ -29,15 +29,19 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * PhysicalGenerate
@@ -82,7 +86,21 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return generators;
+        if (conjuncts.isEmpty()) {
+            return generators;
+        }
+        return ImmutableList.<Expression>builderWithExpectedSize(generators.size() + conjuncts.size())
+                .addAll(generators)
+                .addAll(conjuncts)
+                .build();
+    }
+
+    @Override
+    public Set<Slot> getInputSlots() {
+        if (conjuncts.isEmpty()) {
+            return PlanUtils.fastGetInputSlots(generators);
+        }
+        return Sets.difference(PlanUtils.fastGetInputSlots(getExpressions()), ImmutableSet.copyOf(generatorOutput));
     }
 
     public List<Expression> getConjuncts() {
