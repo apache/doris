@@ -102,6 +102,9 @@ suite("test_metadata_order", "p0,nonConcurrent") {
                             ["table"], true, options)))
                     snapshot("empty", read(flight.getTables("internal", "flight_order_missing", "%",
                             null, true, options)))
+                    snapshot("empty_catalog_schemas", read(flight.getSchemas("", "flight_order_%_db", options)))
+                    snapshot("empty_catalog_tables", read(flight.getTables("", "flight_order_%_db", "%",
+                            null, true, options)))
                 } finally {
                     client.closeSession(new CloseSessionRequest(), token)
                 }

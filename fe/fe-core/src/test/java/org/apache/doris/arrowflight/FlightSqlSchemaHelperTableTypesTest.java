@@ -133,15 +133,17 @@ public class FlightSqlSchemaHelperTableTypesTest {
         try (MockedStatic<ExecuteEnv> executeEnv = Mockito.mockStatic(ExecuteEnv.class);
                 MockedConstruction<FrontendServiceImpl> services = Mockito.mockConstruction(
                         FrontendServiceImpl.class, (service, construction) -> {
-                            Mockito.when(service.getDbNames(Mockito.any(TGetDbsParams.class))).thenAnswer(invocation -> {
-                                TGetDbsParams params = invocation.getArgument(0);
-                                Assertions.assertEquals(catalog, params.getCatalog());
-                                Assertions.assertEquals("db%", params.getPattern());
-                                Assertions.assertEquals(expectedIdentity, params.getCurrentUserIdent());
-                                return new TGetDbsResult().setDbs(Arrays.asList("db"))
-                                        .setCatalogs(Arrays.asList(catalog));
-                            });
-                            Mockito.when(service.listTableStatus(Mockito.any(TGetTablesParams.class)))
+                            Mockito.when(service.getDbNames(Mockito.any(TGetDbsParams.class), Mockito.eq(false)))
+                                    .thenAnswer(invocation -> {
+                                        TGetDbsParams params = invocation.getArgument(0);
+                                        Assertions.assertEquals(catalog, params.getCatalog());
+                                        Assertions.assertEquals("db%", params.getPattern());
+                                        Assertions.assertEquals(expectedIdentity,
+                                                params.getCurrentUserIdent());
+                                        return new TGetDbsResult().setDbs(Arrays.asList("db"))
+                                                .setCatalogs(Arrays.asList(catalog));
+                                    });
+                            Mockito.when(service.listTableStatus(Mockito.any(TGetTablesParams.class), Mockito.eq(false)))
                                     .thenAnswer(invocation -> {
                                         TGetTablesParams params = invocation.getArgument(0);
                                         Assertions.assertEquals(catalog, params.getCatalog());
@@ -159,7 +161,7 @@ public class FlightSqlSchemaHelperTableTypesTest {
                                                         || "VIEW".equals(table.getType()))
                                                 .collect(Collectors.toList()));
                                     });
-                            Mockito.when(service.describeTables(Mockito.any(TDescribeTablesParams.class)))
+                            Mockito.when(service.describeTables(Mockito.any(TDescribeTablesParams.class), Mockito.eq(false)))
                                     .thenAnswer(invocation -> {
                                         TDescribeTablesParams params = invocation.getArgument(0);
                                         describedNames.addAll(params.getTablesName());
@@ -197,7 +199,7 @@ public class FlightSqlSchemaHelperTableTypesTest {
             }
             Assertions.assertEquals(expectedNames, actualNames);
             Assertions.assertEquals(includeSchema ? expectedNames : Collections.emptyList(), describedNames);
-            Mockito.verify(services.constructed().get(0)).listTableStatus(Mockito.any(TGetTablesParams.class));
+            Mockito.verify(services.constructed().get(0)).listTableStatus(Mockito.any(TGetTablesParams.class), Mockito.eq(false));
         }
     }
 }
