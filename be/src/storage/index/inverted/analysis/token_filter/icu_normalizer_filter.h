@@ -19,30 +19,36 @@
 
 #include <unicode/normalizer2.h>
 
+#include <cstddef>
 #include <memory>
 #include <string>
+#include <string_view>
 
-#include "storage/index/inverted/analysis/per_token_stream.h"
+#include "storage/index/inverted/analysis/text_token_stream.h"
+#include "storage/index/inverted/analysis/token_batch.h"
 
 namespace doris::segment_v2::inverted_index {
 
-// Normalizes every token with an ICU normalizer, NFKC_CF by default.
-class ICUNormalizerFilter final : public PerTokenFilter {
+// Normalizes every token with an ICU normalizer, NFKC_CF by default, where it stands in the batch,
+// one token for one. A term the normalizer's quick check passes keeps its view; any other is
+// normalized into the term storage of the batch.
+class ICUNormalizerFilter final : public TextTokenFilter {
 public:
     ICUNormalizerFilter(std::unique_ptr<TextTokenStream> in,
                         std::shared_ptr<const icu::Normalizer2> normalizer);
 
+    void reset(std::string_view text) override;
+    bool next_batch(TokenBatch& batch) override;
     // The scratch of one normalized token, and the input.
     size_t reserved_bytes() const override {
-        return PerTokenFilter::reserved_bytes() + _output_buffer.capacity();
+        return TextTokenFilter::reserved_bytes() + _output_buffer.capacity();
     }
 
-protected:
-    void on_reset() override;
-    bool next_token(TokenRef& token) override;
-
 private:
+    void normalize(TokenRef& token, TokenBatch& batch);
+
     std::shared_ptr<const icu::Normalizer2> _normalizer;
+    // The UTF-8 of the token last normalized, before it is copied into the batch.
     std::string _output_buffer;
 };
 

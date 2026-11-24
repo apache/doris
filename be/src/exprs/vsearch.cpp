@@ -35,6 +35,8 @@
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/variant/variant_column_reader.h"
+#include "util/hash_util.hpp"
+#include "util/thrift_util.h"
 
 namespace doris {
 using namespace segment_v2;
@@ -304,7 +306,25 @@ VSearchExpr::VSearchExpr(const TExprNode& node) : VExpr(node) {
     if (node.__isset.search_param) {
         _search_param = node.search_param;
         _original_dsl = _search_param.original_dsl;
+        ThriftSerializer serializer(false, 1024);
+        Status st = serializer.serialize(&_search_param, &_search_param_key);
+        if (!st.ok()) {
+            LOG(WARNING) << "VSearchExpr: cannot serialize search param, condition cache disabled: "
+                         << st.to_string();
+            _search_param_key.clear();
+        }
     }
+}
+
+uint64_t VSearchExpr::get_digest(uint64_t seed) const {
+    if (_search_param_key.empty()) {
+        return 0;
+    }
+    seed = VExpr::get_digest(seed);
+    if (seed == 0) {
+        return 0;
+    }
+    return HashUtil::hash64(_search_param_key.data(), _search_param_key.size(), seed);
 }
 
 Status VSearchExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc,

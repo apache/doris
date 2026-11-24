@@ -40,6 +40,7 @@
 #include "storage/index/inverted/snii/writer/posting_prx_encoder.h"
 #include "storage/index/inverted/snii/writer/spill_run_codec.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 
@@ -70,13 +71,8 @@ private:
 };
 
 struct EncodedTemporaryFile {
-    EncodedTemporaryFile() {
-        static uint32_t sequence = 0;
-        path = "/tmp/snii_bounded_codec_" + std::to_string(getpid()) + "_" +
-               std::to_string(sequence++) + ".run";
-    }
-    ~EncodedTemporaryFile() { std::remove(path.c_str()); }
-    std::string path;
+    doris::test::ScopedTempDirectory temp_dir {"snii_bounded_codec"};
+    std::string path = (temp_dir.path() / "encoded.run").string();
 };
 
 Status consume_encoded_file(const std::string& path) {

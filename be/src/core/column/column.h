@@ -176,10 +176,6 @@ public:
     *         for this column type
     * eg: erase(3, 2) means remove the idx 3 and 4 elements (0-based)
     */
-    virtual void erase(size_t start, size_t length) {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method erase is not supported for " + get_name());
-    }
 
     /// cut or expand inplace. `this` would be moved, only the return value is avaliable.
     virtual Ptr shrink(size_t length) const final {
@@ -635,7 +631,7 @@ public:
     // true if column has null element [begin, end)
     virtual bool has_null(size_t begin, size_t end) const { return false; }
 
-    virtual bool is_exclusive() const { return use_count() == 1; }
+    virtual bool is_exclusive() const { return is_exclusive_self(); }
 
     /// Clear data of column, just like vector clear
     virtual void clear() = 0;

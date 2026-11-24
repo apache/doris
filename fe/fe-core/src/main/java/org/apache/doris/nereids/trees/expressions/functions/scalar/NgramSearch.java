@@ -86,9 +86,12 @@ public class NgramSearch extends ScalarFunction
             throw new AnalysisException(
                     "ngram_search(text,pattern,gram_num): gram_num support const value only.");
         }
-        if (gramNum instanceof IntegerLikeLiteral && ((IntegerLikeLiteral) gramNum).getLongValue() <= 0) {
+        // Check the complete value before the INT signature can narrow a LARGEINT argument.
+        if (gramNum instanceof IntegerLikeLiteral
+                && !((IntegerLikeLiteral) gramNum).isValueInRange(1, Integer.MAX_VALUE)) {
             throw new AnalysisException(
-                    "ngram_search(text,pattern,gram_num): gram_num must be a positive constant.");
+                    "ngram_search(text,pattern,gram_num): gram_num must be a positive constant"
+                            + " no greater than 2147483647.");
         }
     }
 

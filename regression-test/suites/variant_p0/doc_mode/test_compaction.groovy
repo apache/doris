@@ -22,7 +22,7 @@ suite("compaction_variant_doc_value", "p0") {
     def enableVariantV2 = true
     def variantV2Function = "parse_to_variant"
     // ColumnVariantV2 intentionally does not support nested arrays yet.
-    sql """ set default_variant_enable_doc_mode = true; """
+    sql """ set debug_variant_enable_doc_mode = true; """
     try {
         String backend_id;
         def backendId_to_backendIP = [:]

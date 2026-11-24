@@ -31,8 +31,8 @@ suite("test_variant_v2_snii_index", "p0,nonConcurrent") {
         // parse_to_variant() yields a variant with no materialised sub-columns, so the session
         // default has to agree or the insert fails with
         // "Conversion from Variant(max subcolumns count = 0) to Variant(... = 2048)".
-        sql """ set default_variant_max_subcolumns_count = 0 """
-        sql """ set default_variant_enable_doc_mode = false """
+        sql """ set debug_variant_max_subcolumns_count = 0 """
+        sql """ set debug_variant_enable_doc_mode = false """
         sql """ set enable_segment_limit_pushdown = true """
 
         sql "DROP TABLE IF EXISTS ${tblName}"

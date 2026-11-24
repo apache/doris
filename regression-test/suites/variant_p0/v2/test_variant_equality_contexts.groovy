@@ -17,11 +17,11 @@
 
 suite("test_variant_equality_contexts", "p0,nonConcurrent") {
     def variantV2Function = "parse_to_variant"
-    sql "SET default_variant_enable_doc_mode = false"
-    sql "SET default_variant_max_subcolumns_count = 0"
-    sql "SET default_variant_enable_typed_paths_to_sparse = false"
-    sql "SET default_variant_max_sparse_column_statistics_size = 10000"
-    sql "SET default_variant_sparse_hash_shard_count = 1"
+    sql "SET debug_variant_enable_doc_mode = false"
+    sql "SET debug_variant_max_subcolumns_count = 0"
+    sql "SET debug_variant_enable_typed_paths_to_sparse = false"
+    sql "SET debug_variant_max_sparse_column_statistics_size = 10000"
+    sql "SET debug_variant_sparse_hash_shard_count = 1"
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
     sql "SET enable_decimal256 = true"

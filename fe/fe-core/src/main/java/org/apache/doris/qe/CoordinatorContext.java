@@ -44,6 +44,8 @@ import org.apache.doris.qe.runtime.LoadProcessor;
 import org.apache.doris.qe.runtime.QueryProcessor;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.BackendServiceProxy.BackendRpcTarget;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TBrokerScanRange;
@@ -76,6 +78,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -118,6 +121,13 @@ public class CoordinatorContext {
 
     // query or load processor
     private volatile JobProcessor jobProcessor;
+    private final Map<DistributedPlanWorker, BackendRpcTarget> rpcTargets = new ConcurrentHashMap<>();
+
+    public BackendRpcTarget getBackendRpcTarget(DistributedPlanWorker worker) {
+        // Execution and result fetching must share one policy and shard, including failure eviction.
+        return rpcTargets.computeIfAbsent(worker, target -> BackendServiceProxy.bindTarget(
+                new TNetworkAddress(target.host(), target.brpcPort()), target.getCatalogId()));
+    }
 
     // for sql execution
     private CoordinatorContext(

@@ -31,6 +31,7 @@
 
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
+#include "storage/index/index_common_impl.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"

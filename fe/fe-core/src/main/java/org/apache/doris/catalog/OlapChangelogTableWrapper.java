@@ -20,10 +20,8 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -34,27 +32,41 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * A lightweight wrapper base for read changelog of table
+ * A changelog scan wrapper. Stream reads provide partition estimates for their resolved offset
+ * ranges; other changelog reads delegate to the corresponding changelog index statistics.
+ * These are approximate scales and can lag writes or retention changes.
  */
 public class OlapChangelogTableWrapper extends OlapTableWrapper {
 
     private final MaterializedIndexMeta changelogIndexMeta;
+    private final boolean streamScan;
 
     public OlapChangelogTableWrapper(OlapTable originTable) {
-        this(originTable, Maps.newHashMap());
+        this(originTable, Collections.emptyMap());
     }
 
-    public OlapChangelogTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap) {
-        this(originTable, partitionOffsetMap, Collections.emptyMap());
+    public OlapChangelogTableWrapper(OlapTable originTable, Map<Long, PartitionScanState> partitionScanStates) {
+        this(originTable, partitionScanStates, false);
     }
 
-    public OlapChangelogTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap,
-            Map<Long, Long> partitionVisibleVersionMap) {
+    /** Build the changelog branch of a stream read or its snapshot reconstruction. */
+    public static OlapChangelogTableWrapper forStream(OlapTable originTable,
+            Map<Long, PartitionScanState> partitionScanStates) {
+        return new OlapChangelogTableWrapper(originTable, partitionScanStates, true);
+    }
+
+    private OlapChangelogTableWrapper(OlapTable originTable, Map<Long, PartitionScanState> partitionScanStates,
+            boolean streamScan) {
         super(originTable, originTable.getName(), originTable.getChangelogIndexMeta().getSchema(), KeysType.DUP_KEYS,
-                partitionOffsetMap, partitionVisibleVersionMap);
+                partitionScanStates);
         this.changelogIndexMeta = originTable.getChangelogIndexMeta();
+        this.streamScan = streamScan;
         Preconditions.checkNotNull(changelogIndexMeta, "changelog meta is null, table=%s", originTable.getName());
         this.setBaseIndexId(changelogIndexMeta.getIndexId());
+    }
+
+    public boolean isStreamScan() {
+        return streamScan;
     }
 
     @Override
@@ -108,11 +120,11 @@ public class OlapChangelogTableWrapper extends OlapTableWrapper {
             return false;
         }
         OlapChangelogTableWrapper other = (OlapChangelogTableWrapper) obj;
-        return changelogIndexMeta.equals(other.changelogIndexMeta);
+        return streamScan == other.streamScan && changelogIndexMeta.equals(other.changelogIndexMeta);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), changelogIndexMeta.getChangelogIndexId());
+        return Objects.hash(super.hashCode(), changelogIndexMeta.getChangelogIndexId(), streamScan);
     }
 }

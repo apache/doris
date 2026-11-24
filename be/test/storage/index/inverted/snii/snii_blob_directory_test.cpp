@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// SniiBlobDirectory: the read-only lucene::store::Directory shim that lets
-// CLucene/faiss readers consume opaque blob files straight out of an SNII
-// container. Contract pins (design 2026-07-28 §5.1):
+// SniiBlobDirectory: the read-only lucene::store::Directory test shell that lets
+// snii_blob_bkd_roundtrip_test's CLucene bkd_reader consume opaque blob files
+// straight out of an SNII container. Contract pins (design 2026-07-28 §5.1):
 //   * openInput on a 0-length entry returns a length()==0 input -- it must NOT
 //     throw CL_ERR_EmptyIndexSegment (the searcher would mistake an empty BKD
 //     index for a corrupt one);
@@ -44,6 +44,7 @@
 #include "io/fs/local_file_system.h"
 #include "storage/index/inverted/snii/format/metadata_directory.h"
 #include "storage/index/inverted/snii/snii_doris_adapter.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 
@@ -59,9 +60,10 @@ namespace {
 constexpr size_t kBigLen = 70000; // > BufferedIndexInput::BUFFER_SIZE
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("snii_blob_directory_test");
     static int counter = 0;
-    return "/tmp/snii_blob_dir_test_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
-           ".bin";
+    return (temp_dir.path() / "snii_blob_dir_test_").string() + std::to_string(getpid()) + "_" +
+           std::to_string(counter++) + ".bin";
 }
 
 std::vector<uint8_t> Pattern(size_t n, uint8_t seed) {

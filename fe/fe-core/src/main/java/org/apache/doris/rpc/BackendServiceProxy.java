@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.scan.FileScanEncryptionGuard;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
@@ -51,6 +52,7 @@ import org.apache.thrift.protocol.TCompactProtocol;
 import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -67,29 +69,83 @@ public class BackendServiceProxy {
             "grpc_thread_pool", true);
 
     private final Map<TNetworkAddress, BackendServiceClientExtIp> serviceMap;
+    private final boolean internalRpc;
 
     public BackendServiceProxy() {
+        this(true);
+    }
+
+    BackendServiceProxy(boolean internalRpc) {
+        this.internalRpc = internalRpc;
         serviceMap = Maps.newConcurrentMap();
     }
 
     private static class Holder {
         private static final int PROXY_NUM = Config.backend_proxy_num;
         private static BackendServiceProxy[] proxies = new BackendServiceProxy[PROXY_NUM];
+        private static BackendServiceProxy[] remoteProxies = new BackendServiceProxy[PROXY_NUM];
         private static AtomicInteger count = new AtomicInteger();
 
         static {
             for (int i = 0; i < proxies.length; i++) {
                 proxies[i] = new BackendServiceProxy();
+                remoteProxies[i] = new BackendServiceProxy(false);
             }
         }
 
-        static BackendServiceProxy get() {
-            return proxies[Math.abs(count.addAndGet(1) % PROXY_NUM)];
+        static BackendServiceProxy get(boolean internalRpc) {
+            // Independent clusters must not consume a cached private channel at the same address.
+            BackendServiceProxy[] selected = internalRpc ? proxies : remoteProxies;
+            return selected[Math.abs(count.addAndGet(1) % PROXY_NUM)];
         }
     }
 
     public static BackendServiceProxy getInstance() {
-        return Holder.get();
+        return Holder.get(true);
+    }
+
+    public static BackendServiceProxy getInstance(boolean internalRpc) {
+        return internalRpc ? getInstance() : Holder.get(false);
+    }
+
+    public static BackendRpcTarget bindTarget(TNetworkAddress address, long catalogId) {
+        return new BackendRpcTarget(address, catalogId == InternalCatalog.INTERNAL_CATALOG_ID
+                ? getInstance() : getInstance(false));
+    }
+
+    /** A query's worker identity and cache shard stay fixed while channels can reconnect or change IP. */
+    public static final class BackendRpcTarget {
+        private final TNetworkAddress address;
+        private final BackendServiceProxy proxy;
+
+        public BackendRpcTarget(TNetworkAddress address, BackendServiceProxy proxy) {
+            this.address = Objects.requireNonNull(address).deepCopy();
+            this.proxy = Objects.requireNonNull(proxy);
+        }
+
+        public Future<InternalService.PExecPlanFragmentResult> prepare(ByteString fragments, boolean twoPhase)
+                throws RpcException {
+            return proxy.execPlanFragmentsAsync(address, fragments, twoPhase);
+        }
+
+        public Future<InternalService.PExecPlanFragmentResult> start(
+                InternalService.PExecPlanFragmentStartRequest request) throws RpcException {
+            return proxy.execPlanFragmentStartAsync(address, request);
+        }
+
+        public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancel(TUniqueId queryId, Status reason)
+                throws RpcException {
+            return proxy.cancelPipelineXPlanFragmentAsync(address, queryId, reason);
+        }
+
+        public Future<InternalService.PFetchDataResult> fetch(InternalService.PFetchDataRequest request,
+                FutureCallback<InternalService.PFetchDataResult> callback) throws RpcException {
+            return proxy.fetchDataAsyncWithCallback(address, request, callback);
+        }
+
+        public void remove() {
+            proxy.removeProxy(address);
+        }
     }
 
     private class BackendServiceClientExtIp {
@@ -156,7 +212,7 @@ public class BackendServiceProxy {
             }
             if (serviceClientExtIp == null) {
                 // Pass resolved IP to BackendServiceClient to avoid DNS resolution at gRPC layer
-                BackendServiceClient client = new BackendServiceClient(address, realIp, grpcThreadPool);
+                BackendServiceClient client = new BackendServiceClient(address, realIp, grpcThreadPool, internalRpc);
                 serviceMap.put(address, new BackendServiceClientExtIp(realIp, client));
             }
             return serviceMap.get(address).client;
@@ -171,7 +227,7 @@ public class BackendServiceProxy {
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
             TPipelineFragmentParamsList params, boolean twoPhaseExecution) throws TException, RpcException {
         // This direct entry bypasses the pipeline task builder, but has the same transport restriction.
-        FileScanEncryptionGuard.checkFragments(params);
+        FileScanEncryptionGuard.checkFragments(params, internalRpc);
         InternalService.PExecPlanFragmentRequest.Builder builder =
                 InternalService.PExecPlanFragmentRequest.newBuilder();
         if (Config.use_compact_thrift_rpc) {

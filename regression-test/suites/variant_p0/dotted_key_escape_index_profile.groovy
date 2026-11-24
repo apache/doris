@@ -18,7 +18,7 @@
 import org.apache.doris.regression.action.ProfileAction
 
 suite("dotted_key_escape_index_profile", "p0") {
-    sql "set default_variant_enable_doc_mode=false"
+    sql "set debug_variant_enable_doc_mode=false"
     sql "drop table if exists dotted_key_escape_index_profile"
     sql """create table dotted_key_escape_index_profile(id int,v variant<properties(
         "variant_enable_nested_group"="false",

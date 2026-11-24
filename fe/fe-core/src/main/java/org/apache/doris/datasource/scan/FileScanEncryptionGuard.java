@@ -41,19 +41,27 @@ public final class FileScanEncryptionGuard {
     private FileScanEncryptionGuard() {
     }
 
-    private static void rejectEncryptedRead() {
+    private static void rejectEncryptedRead(boolean internalRpc) {
+        // An external plaintext channel cannot carry file keys, even if local private TLS is enabled.
+        if (!internalRpc) {
+            throw new IllegalStateException("File encryption [KEY_TRANSPORT_UNAVAILABLE]");
+        }
         // Native decryption and protected transport for file keys are not implemented yet.
         throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
     }
 
     public static void checkFragments(TPipelineFragmentParamsList fragments) {
+        checkFragments(fragments, true);
+    }
+
+    public static void checkFragments(TPipelineFragmentParamsList fragments, boolean internalRpc) {
         if (!fragments.isSetParamsList()) {
             return;
         }
         for (TPipelineFragmentParams fragment : fragments.getParamsList()) {
             if (fragment.isSetFileScanParams()) {
                 for (TFileScanRangeParams params : fragment.getFileScanParams().values()) {
-                    checkParams(params);
+                    checkParams(params, internalRpc);
                 }
             }
             if (fragment.isSetLocalParams()) {
@@ -61,7 +69,7 @@ public final class FileScanEncryptionGuard {
                     if (instance.isSetPerNodeScanRanges()) {
                         for (List<TScanRangeParams> ranges : instance.getPerNodeScanRanges().values()) {
                             for (TScanRangeParams range : ranges) {
-                                checkRange(range.getScanRange());
+                                checkRange(range.getScanRange(), internalRpc);
                             }
                         }
                     }
@@ -72,23 +80,23 @@ public final class FileScanEncryptionGuard {
 
     public static void checkBatch(List<TScanRangeLocations> ranges) {
         for (TScanRangeLocations range : ranges) {
-            checkRange(range.getScanRange());
+            checkRange(range.getScanRange(), true);
         }
     }
 
-    private static void checkParams(TFileScanRangeParams params) {
+    private static void checkParams(TFileScanRangeParams params, boolean internalRpc) {
         if (params.isSetTableFormatParams() && FileScanEncryption.validate(params.getTableFormatParams())) {
-            rejectEncryptedRead();
+            rejectEncryptedRead(internalRpc);
         }
     }
 
-    private static void checkRange(TScanRange range) {
+    private static void checkRange(TScanRange range, boolean internalRpc) {
         if (!range.isSetExtScanRange() || !range.getExtScanRange().isSetFileScanRange()) {
             return;
         }
         TFileScanRange fileScan = range.getExtScanRange().getFileScanRange();
         if (fileScan.isSetParams()) {
-            checkParams(fileScan.getParams());
+            checkParams(fileScan.getParams(), internalRpc);
         }
         if (fileScan.isSetRanges()) {
             DebugPoint injection = DebugPointUtil.getDebugPoint("FileScanEncryptionGuard.inject");
@@ -100,7 +108,7 @@ public final class FileScanEncryptionGuard {
                     table = injectedDescriptor(injection);
                 }
                 if (table != null && FileScanEncryption.validate(table)) {
-                    rejectEncryptedRead();
+                    rejectEncryptedRead(internalRpc);
                 }
             }
         }

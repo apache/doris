@@ -1009,7 +1009,7 @@ jobs:
           # Execution succeeded even when verified findings block the PR check.
           # This result is written only after the runner's own API readback.
           jq -er 'select(.state == "success" or .state == "failure") |
-            "review_state=\(.state)\np0=\(.p0)\np1=\(.p1)\nconverged=\(.converged)\nrounds=\(.rounds)"' \
+            "review_state=\(.state)\np0=\(.p0)\np1=\(.p1)\nconverged=\(.converged)\nrounds=\(.rounds)\nreview_id=\(.review_id)"' \
             "$REVIEW_CONTEXT_DIR/review-result.json" >> "$GITHUB_OUTPUT"
 
       - name: Preserve failed final review diagnostics
@@ -1211,8 +1211,10 @@ jobs:
           REVIEW_P0: ${{ steps.review.outputs.p0 }}
           REVIEW_P1: ${{ steps.review.outputs.p1 }}
           REVIEW_CONVERGED: ${{ steps.review.outputs.converged }}
+          REVIEW_ID: ${{ steps.review.outputs.review_id }}
           REVIEW_ROUNDS: ${{ steps.review.outputs.rounds }}
         run: |
+          target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           state="pending"
           summary="Automated review did not pass for PR #${PR_NUMBER} at ${BASE_SHA:0:12}."
 
@@ -1225,6 +1227,9 @@ jobs:
                 summary="Review completed for PR #${PR_NUMBER}: P0=${REVIEW_P0}, P1=${REVIEW_P1}."
                 if [ "$REVIEW_CONVERGED" = "false" ]; then
                   summary="Review did not converge after ${REVIEW_ROUNDS} rounds for PR #${PR_NUMBER}: P0=${REVIEW_P0}, P1=${REVIEW_P1}."
+                elif [[ "$REVIEW_CONVERGED" == true && "$state" == failure && "$REVIEW_ID" =~ ^[1-9][0-9]*$ ]]; then
+                  # A converged review fails when it reports P0 or P1 findings.
+                  target_url="${{ github.server_url }}/${REPO}/pull/${PR_NUMBER}#pullrequestreview-${REVIEW_ID}"
                 fi
                 ;;
               *) echo "::error::Missing verified review verdict"; exit 1 ;;
@@ -1237,7 +1242,7 @@ jobs:
             -f state="${state}" \
             -f context="$source_context" \
             -f description="${summary}" \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            -f target_url="$target_url"
 
       - name: Record review I/O to Litefuse
         if: ${{ always() }}

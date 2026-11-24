@@ -22,21 +22,28 @@
 #include <functional>
 #include <latch>
 #include <list>
+#include <span>
 #include <thread>
 
 #include "common/object_pool.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
+#include "exec/operator/meta_scan_operator.h"
 #include "exec/operator/mock_scan_operator.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_consumer.h"
 #include "exec/runtime_filter/runtime_filter_consumer_helper.h"
 #include "exec/runtime_filter/runtime_filter_producer.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
+#include "exec/scan/mock_simplified_scan_scheduler.h"
 #include "exec/scan/parallel_scanner_builder.h"
+#include "exec/scan/scan_node.h"
 #include "exec/scan/scanner.h"
 #include "exec/scan/scanner_context.h"
 #include "exec/scan/scanner_scheduler.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "storage/iterator/block_reader.h"
@@ -225,6 +232,227 @@ public:
         ExecEnv::GetInstance()->_init_runtime_filter_timer_queue();
     }
 };
+
+namespace {
+
+class CountingScanConjunct final : public VExpr {
+public:
+    CountingScanConjunct(double cost, size_t& cost_calls)
+            : VExpr(std::make_shared<DataTypeBool>(), false),
+              _cost(cost),
+              _cost_calls(cost_calls) {}
+
+    const std::string& expr_name() const override {
+        static const std::string name = "counting_scan_conjunct";
+        return name;
+    }
+
+    bool is_constant() const override { return false; }
+
+    double execute_cost() const override {
+        ++_cost_calls;
+        return _cost;
+    }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
+                               ColumnPtr& result) const override {
+        result = ColumnUInt8::create(count, 1);
+        return Status::OK();
+    }
+
+private:
+    double _cost;
+    size_t& _cost_calls;
+};
+
+} // namespace
+
+class ScannerConjunctSortTest : public ScannerLateArrivalRfTest {
+protected:
+    void init_scan(bool enable_sort, int num_filters) {
+        DescriptorTblBuilder desc_builder(&_pool);
+        desc_builder.declare_tuple()
+                << TupleDescBuilder::SlotType {std::make_shared<DataTypeInt32>(), "key"};
+        auto* descs = desc_builder.build();
+        ASSERT_NE(descs, nullptr);
+
+        _state = _runtime_states[0].get();
+        _state->set_desc_tbl(descs);
+        auto options = _state->query_options();
+        options.__set_enable_adjust_conjunct_order_by_cost(enable_sort);
+        _state->set_query_options(options);
+        TMetaScanNode meta_node;
+        meta_node.__set_tuple_id(0);
+        TPlanNode plan;
+        plan.__set_node_id(0);
+        plan.__set_node_type(TPlanNodeType::META_SCAN_NODE);
+        plan.__set_limit(-1);
+        plan.__set_row_tuples({0});
+        plan.__set_meta_scan_node(meta_node);
+        std::vector<TRuntimeFilterDesc> filters;
+        for (int id = 0; id < num_filters; ++id) {
+            filters.push_back(TRuntimeFilterDescBuilder(id)
+                                      .add_planId_to_target_expr(0)
+                                      .set_type(TRuntimeFilterType::IN)
+                                      .build());
+        }
+        plan.__set_runtime_filters(filters);
+        _op = std::make_unique<MetaScanOperatorX>(&_pool, plan, 0, *descs);
+        ASSERT_TRUE(_op->init(plan, _state).ok());
+        ASSERT_TRUE(_op->prepare(_state).ok());
+        _scan = MetaScanLocalState::create_shared(_state, _op.get());
+        const std::vector<TScanRangeParams> scan_ranges(2);
+        LocalStateInfo info {.parent_profile = &_profile,
+                             .scan_ranges = scan_ranges,
+                             .shared_state = nullptr,
+                             .shared_state_map = {},
+                             .task_idx = 0};
+        ASSERT_TRUE(_scan->init(_state, info).ok());
+    }
+
+    void open_scan() {
+        // Let the real scan initialize its scanners without sending either one to a worker.
+        auto* previous_scheduler = _query_ctx->_scan_task_scheduler;
+        _query_ctx->_scan_task_scheduler = &_scheduler;
+        Defer restore_scheduler([&] { _query_ctx->_scan_task_scheduler = previous_scheduler; });
+        EXPECT_CALL(_scheduler, schedule_scan_task(testing::_, testing::_, testing::_))
+                .WillOnce(testing::Return(Status::OK()));
+        _state->set_task_execution_context(_task_context);
+        ASSERT_TRUE(_scan->open(_state).ok());
+        ASSERT_EQ(_scan->_scanners.size(), 2);
+    }
+
+    void add_conjuncts(std::span<const VExprSPtr> exprs) {
+        for (const auto& expr : exprs) {
+            auto ctx = VExprContext::create_shared(expr);
+            ASSERT_TRUE(ctx->prepare(_state, _op->operator_row_desc_before_projection()).ok());
+            ASSERT_TRUE(ctx->open(_state).ok());
+            _op->_conjuncts.push_back(std::move(ctx));
+        }
+    }
+
+    void publish_filter(int index, RuntimeFilterWrapper::State filter_state) {
+        const auto& desc = _op->runtime_filter_descs()[index];
+        std::shared_ptr<RuntimeFilterProducer> producer;
+        ASSERT_TRUE(RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer).ok());
+        ASSERT_TRUE(producer->init(1).ok());
+        auto keys = ColumnInt32::create();
+        keys->insert_value(7);
+        ASSERT_TRUE(producer->insert(std::move(keys), 0).ok());
+        producer->set_wrapper_state_and_ready_to_publish(filter_state);
+        _scan->_helper._consumers[index]->signal(producer.get());
+    }
+
+    ObjectPool _pool;
+    size_t _cost_calls = 0;
+    RuntimeState* _state = nullptr;
+    MockSimplifiedScanScheduler _scheduler {nullptr};
+    std::shared_ptr<TaskExecutionContext> _task_context = std::make_shared<TaskExecutionContext>();
+    std::unique_ptr<MetaScanOperatorX> _op;
+    std::shared_ptr<MetaScanLocalState> _scan;
+};
+
+TEST_F(ScannerConjunctSortTest, sorts_only_when_conjuncts_change) {
+    ASSERT_NO_FATAL_FAILURE(init_scan(true, 2));
+    const VExprSPtr expensive = std::make_shared<CountingScanConjunct>(3.0, _cost_calls);
+    const VExprSPtr cheap = std::make_shared<CountingScanConjunct>(1.0, _cost_calls);
+    const VExprSPtr equally_cheap = std::make_shared<CountingScanConjunct>(1.0, _cost_calls);
+    const VExprSPtr initial[] {expensive, cheap, equally_cheap};
+    ASSERT_NO_FATAL_FAILURE(add_conjuncts(initial));
+    ASSERT_NO_FATAL_FAILURE(open_scan());
+    EXPECT_GT(_cost_calls, 0);
+    const auto costs_after_open = _cost_calls;
+
+    auto& first = *_scan->_scanners.front()->_scanner;
+    auto& second = *_scan->_scanners.back()->_scanner;
+    for (auto* scanner : {&first, &second}) {
+        ASSERT_EQ(scanner->_conjuncts.size(), 3);
+        EXPECT_EQ(scanner->_conjuncts[0]->root(), cheap);
+        EXPECT_EQ(scanner->_conjuncts[1]->root(), equally_cheap);
+        EXPECT_EQ(scanner->_conjuncts[2]->root(), expensive);
+        const auto initial_contexts = scanner->_conjuncts;
+        for (int i = 0; i < 3; ++i) {
+            ASSERT_TRUE(scanner->try_append_late_arrival_runtime_filter().ok());
+        }
+        EXPECT_EQ(scanner->_conjuncts, initial_contexts);
+    }
+    EXPECT_EQ(_cost_calls, costs_after_open);
+
+    ASSERT_NO_FATAL_FAILURE(publish_filter(0, RuntimeFilterWrapper::State::DISABLED));
+    ASSERT_TRUE(first.try_append_late_arrival_runtime_filter().ok());
+    EXPECT_EQ(first._applied_rf_num, 1);
+    EXPECT_EQ(first._conjuncts.size(), 3);
+    EXPECT_EQ(_cost_calls, costs_after_open);
+
+    ASSERT_NO_FATAL_FAILURE(publish_filter(1, RuntimeFilterWrapper::State::READY));
+    ASSERT_TRUE(first.try_append_late_arrival_runtime_filter().ok());
+    EXPECT_GT(_cost_calls, costs_after_open);
+    const auto costs_after_arrival = _cost_calls;
+    ASSERT_TRUE(second.try_append_late_arrival_runtime_filter().ok());
+    for (auto* scanner : {&first, &second}) {
+        EXPECT_EQ(scanner->_applied_rf_num, 2);
+        ASSERT_EQ(scanner->_conjuncts.size(), 4);
+        EXPECT_EQ(scanner->_conjuncts[0]->root(), cheap);
+        EXPECT_EQ(scanner->_conjuncts[1]->root(), equally_cheap);
+        EXPECT_EQ(scanner->_conjuncts[2]->root(), _scan->_conjuncts[2]->root());
+        EXPECT_TRUE(scanner->_conjuncts[2]->root()->is_rf_wrapper());
+        EXPECT_EQ(scanner->_conjuncts[3]->root(), expensive);
+        auto block = ColumnHelper::create_block<DataTypeInt32>({5, 7, 9});
+        ASSERT_TRUE(VExprContext::filter_block(scanner->_conjuncts, &block, 1).ok());
+        ASSERT_EQ(block.rows(), 1);
+        EXPECT_EQ(block.get_by_position(0).column->get_int(0), 7);
+    }
+    EXPECT_NE(first._conjuncts[2], second._conjuncts[2]);
+    EXPECT_EQ(_cost_calls, costs_after_arrival);
+}
+
+TEST_F(ScannerConjunctSortTest, sorts_early_filter_before_scanner_init) {
+    ASSERT_NO_FATAL_FAILURE(init_scan(true, 1));
+    const VExprSPtr expensive = std::make_shared<CountingScanConjunct>(3.0, _cost_calls);
+    const VExprSPtr initial[] {expensive};
+    ASSERT_NO_FATAL_FAILURE(add_conjuncts(initial));
+    ASSERT_NO_FATAL_FAILURE(publish_filter(0, RuntimeFilterWrapper::State::READY));
+    ASSERT_NO_FATAL_FAILURE(open_scan());
+
+    const auto& scanner = *_scan->_scanners.front()->_scanner;
+    ASSERT_EQ(scanner._conjuncts.size(), 2);
+    EXPECT_TRUE(scanner._conjuncts[0]->root()->is_rf_wrapper());
+    EXPECT_EQ(scanner._conjuncts[1]->root(), expensive);
+}
+
+TEST_F(ScannerConjunctSortTest, skips_sort_when_disabled) {
+    ASSERT_NO_FATAL_FAILURE(init_scan(false, 1));
+    const VExprSPtr expensive = std::make_shared<CountingScanConjunct>(3.0, _cost_calls);
+    const VExprSPtr cheap = std::make_shared<CountingScanConjunct>(1.0, _cost_calls);
+    const VExprSPtr initial[] {expensive, cheap};
+    ASSERT_NO_FATAL_FAILURE(add_conjuncts(initial));
+    ASSERT_NO_FATAL_FAILURE(open_scan());
+
+    auto& scanner = *_scan->_scanners.front()->_scanner;
+    ASSERT_NO_FATAL_FAILURE(publish_filter(0, RuntimeFilterWrapper::State::READY));
+    ASSERT_TRUE(scanner.try_append_late_arrival_runtime_filter().ok());
+    ASSERT_EQ(scanner._conjuncts.size(), 3);
+    EXPECT_EQ(scanner._conjuncts[0]->root(), expensive);
+    EXPECT_EQ(scanner._conjuncts[1]->root(), cheap);
+    EXPECT_TRUE(scanner._conjuncts[2]->root()->is_rf_wrapper());
+    EXPECT_EQ(_cost_calls, 0);
+}
+
+TEST_F(ScannerConjunctSortTest, skips_initial_sort_without_runtime_filters) {
+    ASSERT_NO_FATAL_FAILURE(init_scan(true, 0));
+    const VExprSPtr expensive = std::make_shared<CountingScanConjunct>(3.0, _cost_calls);
+    const VExprSPtr cheap = std::make_shared<CountingScanConjunct>(1.0, _cost_calls);
+    const VExprSPtr initial[] {expensive, cheap};
+    ASSERT_NO_FATAL_FAILURE(add_conjuncts(initial));
+    ASSERT_NO_FATAL_FAILURE(open_scan());
+
+    auto& scanner = *_scan->_scanners.front()->_scanner;
+    ASSERT_TRUE(scanner.try_append_late_arrival_runtime_filter().ok());
+    ASSERT_EQ(scanner._conjuncts.size(), 2);
+    EXPECT_EQ(scanner._conjuncts[0]->root(), expensive);
+    EXPECT_EQ(scanner._conjuncts[1]->root(), cheap);
+    EXPECT_EQ(_cost_calls, 0);
+}
 
 // Regression: PR #59786 accidentally removed `_applied_rf_num = arrived_rf_num`
 // from `Scanner::try_append_late_arrival_runtime_filter`, leaving the counter

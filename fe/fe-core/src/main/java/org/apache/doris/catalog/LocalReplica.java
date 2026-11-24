@@ -107,8 +107,6 @@ public class LocalReplica extends Replica {
 
     private long scaleInDropTime = -1;
 
-    private long lastReportVersion = 0;
-
     private TUniqueId cooldownMetaId;
     private long cooldownTerm = -1;
 
@@ -613,15 +611,5 @@ public class LocalReplica extends Replica {
             this.scaleInDropTime = -1;
         }
         return false;
-    }
-
-    @Override
-    public void setLastReportVersion(long version) {
-        this.lastReportVersion = version;
-    }
-
-    @Override
-    public long getLastReportVersion() {
-        return lastReportVersion;
     }
 }
