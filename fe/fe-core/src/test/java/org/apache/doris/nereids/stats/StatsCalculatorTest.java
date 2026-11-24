@@ -365,7 +365,6 @@ public class StatsCalculatorTest {
 
         Mockito.when(env.getAnalysisManager()).thenReturn(analysisManager);
         Mockito.when(env.getStatisticsCache()).thenReturn(statisticsCache);
-        Mockito.when(statisticsCache.getOlapTableStats(scan)).thenReturn(olapTableStatistics);
         Mockito.when(olapTableStatistics.getColumnStatistics("val", connectContext)).thenReturn(tableStatistic);
         if (partitionStatistic != null) {
             Mockito.when(olapTableStatistics.getPartitionColumnStatistics("p1", "val", connectContext))
@@ -380,7 +379,12 @@ public class StatsCalculatorTest {
         Mockito.when(table.getRowCountForIndex(baseIndexId, true)).thenReturn(12L);
         Mockito.when(table.getRowCountForPartitionIndex(selectedPartitionId, baseIndexId, true)).thenReturn(4L);
         if (explicitScanEstimate) {
+            OlapTable origin = Mockito.mock(OlapTable.class);
+            Mockito.when(((OlapTableWrapper) table).getOriginTable()).thenReturn(origin);
             Mockito.when(((OlapTableWrapper) table).hasRowCountEstimates(baseIndexId)).thenReturn(true);
+            Mockito.when(statisticsCache.getOlapTableStats(origin, baseIndexId)).thenReturn(olapTableStatistics);
+        } else {
+            Mockito.when(statisticsCache.getOlapTableStats(scan)).thenReturn(olapTableStatistics);
         }
         if (userInjected) {
             TableStatsMeta tableStats = Mockito.mock(TableStatsMeta.class);
