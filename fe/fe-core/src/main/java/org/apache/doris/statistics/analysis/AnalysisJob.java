@@ -58,6 +58,7 @@ public class AnalysisJob {
     private final long samplingSeed = ThreadLocalRandom.current().nextLong() & Long.MAX_VALUE;
     private final Map<Long, Long> reportedRows = new ConcurrentHashMap<>();
     private final Map<Long, Supplier<Boolean>> keyRangeDecisions = new ConcurrentHashMap<>();
+    private final Map<Long, Supplier<Boolean>> randomAggDecisions = new ConcurrentHashMap<>();
     private final Map<Long, List<String>> sampleColumns = new HashMap<>();
     private final Map<Long, Long> indexRows = new ConcurrentHashMap<>();
     private final Map<Long, ReportState> reportStates = new ConcurrentHashMap<>();
@@ -76,6 +77,10 @@ public class AnalysisJob {
 
     boolean useKeyRange(long indexId, Supplier<Boolean> eligible) {
         return keyRangeDecisions.computeIfAbsent(indexId, ignored -> Suppliers.memoize(eligible::get)).get();
+    }
+
+    boolean useRandomAgg(long indexId, Supplier<Boolean> eligible) {
+        return randomAggDecisions.computeIfAbsent(indexId, ignored -> Suppliers.memoize(eligible::get)).get();
     }
 
     List<String> sampleColumns(long indexId, long baseIndexId) {

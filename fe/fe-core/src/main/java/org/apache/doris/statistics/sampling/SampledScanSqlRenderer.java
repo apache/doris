@@ -18,8 +18,10 @@
 package org.apache.doris.statistics.sampling;
 
 import org.apache.doris.analysis.FixedBlockSampleSpec;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.statistics.analysis.AnalyzeSkipException;
 import org.apache.doris.statistics.sampling.TabletSampleSpec.FixedBlockScanClause;
+import org.apache.doris.statistics.sampling.TabletSampleSpec.KeyHashScanClause;
 import org.apache.doris.statistics.sampling.TabletSampleSpec.LegacyTabletScanClause;
 import org.apache.doris.statistics.sampling.TabletSampleSpec.SampledScanClause;
 
@@ -34,16 +36,36 @@ public final class SampledScanSqlRenderer {
     public static String render(SampledScanClause clause, int maxBytes) {
         String suffix = "";
         if (clause instanceof FixedBlockScanClause fixed) {
-            FixedBlockSampleSpec spec = fixed.blocks();
-            suffix = "TABLESAMPLE (" + spec.mode + " unit_rows = " + spec.unitRows + ", "
-                    + spec.groups.stream().map(g -> "GROUP (tablet_rate = " + g.tabletRate + ", unit_rate = "
-                            + g.unitRate + ", max_units = " + g.maxUnits + ", TABLETS (" + ids(g.tablets) + "))")
-                            .collect(Collectors.joining(", "))
-                    + ") REPEATABLE " + spec.seed;
+            suffix = renderFixedBlock(fixed.blocks());
+        } else if (clause instanceof KeyHashScanClause keyHash && keyHash.partitionBlocks().isPresent()) {
+            suffix = renderFixedBlock(keyHash.partitionBlocks().get());
         } else if (clause instanceof LegacyTabletScanClause legacy) {
             suffix = "TABLET(" + ids(legacy.tablets()) + ")";
         }
         return checked(suffix, maxBytes);
+    }
+
+    public static String renderKeyHashWhere(SampledScanClause clause, List<String> keyColumnNames) {
+        if (!(clause instanceof KeyHashScanClause keyHash)
+                || keyHash.hashCutoff() >= KeyHashScanClause.HASH_MODULUS
+                || keyColumnNames.isEmpty()) {
+            return "";
+        }
+        String args = keyColumnNames.stream().map(SqlUtils::getIdentSql).map(ident -> {
+            String str = "SUBSTRING(CAST(" + ident + " AS STRING), 1, 1024)";
+            return "IF(" + ident + " IS NULL, '0', CONCAT('1:', LENGTH(" + str + "), ':', " + str + "))";
+        }).collect(Collectors.joining(", "));
+        long mask = KeyHashScanClause.HASH_MODULUS - 1;
+        return " WHERE (xxhash_64('" + keyHash.seed() + "', " + args + ") & " + mask + ") < "
+                + keyHash.hashCutoff();
+    }
+
+    private static String renderFixedBlock(FixedBlockSampleSpec spec) {
+        return "TABLESAMPLE (" + spec.mode + " unit_rows = " + spec.unitRows + ", "
+                + spec.groups.stream().map(g -> "GROUP (tablet_rate = " + g.tabletRate + ", unit_rate = "
+                        + g.unitRate + ", max_units = " + g.maxUnits + ", TABLETS (" + ids(g.tablets) + "))")
+                        .collect(Collectors.joining(", "))
+                + ") REPEATABLE " + spec.seed;
     }
 
     public static String checked(String sql, int maxBytes) {

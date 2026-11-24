@@ -578,7 +578,7 @@ public class StatisticsUtil {
             if (KeysType.AGG_KEYS.equals(keysType)
                     || (KeysType.UNIQUE_KEYS.equals(keysType) && !olapTable.isUniqKeyMergeOnWrite())) {
                 return StatisticsUtil.enableFixedBlockStatsSampling()
-                        && FixedBlockSampleSpec.supportsKeyRange(olapTable, targetIndexId);
+                        && FixedBlockSampleSpec.supportsMergedSampling(olapTable, targetIndexId);
             }
             return true;
         } finally {

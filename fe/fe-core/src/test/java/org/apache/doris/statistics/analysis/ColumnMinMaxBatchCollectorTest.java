@@ -22,6 +22,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -746,6 +747,30 @@ class ColumnMinMaxBatchCollectorTest {
         } finally {
             release.countDown();
             workers.shutdownNow();
+        }
+    }
+
+    @Test
+    void skipsFullScanBatchingForMergedSampledValueColumnsWhileBatchingKeys() {
+        Column keyCol = new Column("k", Type.INT, true, null, "0", "");
+        Column valCol = new Column("v", Type.BIGINT, false, AggregateType.SUM, "0", "");
+        Mockito.when(base.getKeysType()).thenReturn(KeysType.AGG_KEYS);
+        Mockito.when(base.getSchema()).thenReturn(List.of(keyCol, valCol));
+        Mockito.when(base.getColumnByName("k")).thenReturn(keyCol);
+        Mockito.when(base.getColumnByName("v")).thenReturn(valCol);
+        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(new HashDistributionInfo(1, List.of(keyCol)));
+        Mockito.doReturn(List.of()).when(table).getPartitions();
+        OlapAnalysisTask k1 = task("k", -1);
+        OlapAnalysisTask k2 = task("k", -1);
+        OlapAnalysisTask v = task("v", -1);
+        boolean prev = VariableMgr.getDefaultSessionVariable().enableFixedBlockStatsSampling;
+        try {
+            VariableMgr.getDefaultSessionVariable().enableFixedBlockStatsSampling = true;
+            new ColumnMinMaxBatchCollector(List.of(k1, k2, v), 64);
+            Assertions.assertNotNull(k1.minMaxBatch);
+            Assertions.assertNull(v.minMaxBatch);
+        } finally {
+            VariableMgr.getDefaultSessionVariable().enableFixedBlockStatsSampling = prev;
         }
     }
 

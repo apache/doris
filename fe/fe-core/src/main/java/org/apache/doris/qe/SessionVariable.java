@@ -3001,7 +3001,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_FIXED_BLOCK_STATS_SAMPLING, flag = VarAttrDef.GLOBAL,
             description = "Enable fixed-block sampling for internal OLAP statistics.")
-    public volatile boolean enableFixedBlockStatsSampling = false;
+    public volatile boolean enableFixedBlockStatsSampling = true;
 
     @VarAttrDef.VarAttr(name = STATISTICS_SAMPLE_UNIT_ROWS, flag = VarAttrDef.GLOBAL,
             description = "Number of physical rows per sampling block.", checker = "checkPositiveSamplingValue")

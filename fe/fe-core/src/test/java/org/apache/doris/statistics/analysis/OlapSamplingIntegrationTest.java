@@ -79,8 +79,9 @@ class OlapSamplingIntegrationTest {
             Assertions.assertInstanceOf(HierarchicalFixedBudgetTabletSamplingMethod.class,
                     task.chooseTabletSamplingMethod(table, KeysType.UNIQUE_KEYS, true,
                             new ColumnPhysicalLayout(true, false, true, true), 123));
-            Assertions.assertInstanceOf(LegacyTabletSamplingMethod.class, task.chooseTabletSamplingMethod(
-                    table, KeysType.DUP_KEYS, false, new ColumnPhysicalLayout(true, false, false, true), 123));
+            Assertions.assertInstanceOf(HierarchicalFixedBudgetTabletSamplingMethod.class,
+                    task.chooseTabletSamplingMethod(
+                            table, KeysType.DUP_KEYS, false, new ColumnPhysicalLayout(true, false, false, true), 123));
             Assertions.assertInstanceOf(LegacyTabletSamplingMethod.class,
                     task.chooseTabletSamplingMethod(table, KeysType.DUP_KEYS, false, regular, 0));
             Mockito.when(frame.allCandidatesSupportFixedBlock()).thenReturn(false);

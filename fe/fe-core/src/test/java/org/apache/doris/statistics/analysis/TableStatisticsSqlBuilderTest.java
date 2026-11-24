@@ -41,6 +41,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.sampling.SampledScanSqlRenderer;
 import org.apache.doris.statistics.sampling.TabletSampleSpec.FixedBlockScanClause;
+import org.apache.doris.statistics.sampling.TabletSampleSpec.KeyHashScanClause;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -154,6 +155,16 @@ class TableStatisticsSqlBuilderTest {
             for (int topK : List.of(10, 0, -1)) {
                 params.put("hotValueCollectCount", Integer.toString(Math.max(0, topK)));
                 queries.put(TableStatisticsSqlBuilder.sampleSql(params, topK < 0, logical), true);
+                if (logical && topK >= 0) {
+                    queries.put(TableStatisticsSqlBuilder.sampleSql(params, false, true, true), true);
+                }
+            }
+            if (logical) {
+                var keyHash = new KeyHashScanClause(java.util.Optional.of(blocks), 123, 52428);
+                params.put("sampleWhere", SampledScanSqlRenderer.renderKeyHashWhere(keyHash, List.of("id")));
+                params.put("hotValueCollectCount", "10");
+                queries.put(TableStatisticsSqlBuilder.sampleSql(params, false, true, true), true);
+                params.remove("sampleWhere");
             }
             params.put("sampleHints", "");
             params.put("dataSizeFunction", "SUM(LENGTH(`name`))");

@@ -17,19 +17,31 @@
 
 package org.apache.doris.statistics.analysis;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.analysis.AnalysisInfo.JobType;
+import org.apache.doris.statistics.sampling.IndexSamplingSnapshot;
+import org.apache.doris.statistics.sampling.PartitionSampleMeta;
+import org.apache.doris.statistics.sampling.TabletSampleMeta;
+import org.apache.doris.statistics.sampling.TabletSamplingScope;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -91,6 +103,7 @@ public class HistogramTaskTest extends TestWithFeService {
 
             for (Entry<Long, BaseAnalysisTask> infoEntry : taskInfo.entrySet()) {
                 BaseAnalysisTask task = infoEntry.getValue();
+                Assertions.assertInstanceOf(HistogramTask.class, task);
                 Assertions.assertEquals("col1", task.info.colName);
             }
         }
@@ -136,6 +149,59 @@ public class HistogramTaskTest extends TestWithFeService {
             } finally {
                 amField.set(Env.getCurrentEnv(), realManager);
             }
+        }
+    }
+
+    @Test
+    public void test3SampleHistogramUsesBlockAndKeyHashSampling() {
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Database database = Mockito.mock(Database.class);
+        Mockito.when(database.getFullName()).thenReturn("db1");
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getName()).thenReturn("tbl1");
+        Mockito.when(table.getBaseIndexId()).thenReturn(10L);
+        Column k = new Column("k", Type.INT, true, null, "0", "");
+        Column v = new Column("v", Type.BIGINT, false, AggregateType.SUM, "0", "");
+        Mockito.when(table.getColumn("v")).thenReturn(v);
+        MaterializedIndexMeta aggMeta = new MaterializedIndexMeta(10L, java.util.List.of(k, v), 1, 1, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS, null);
+        Mockito.when(table.getIndexMetaByIndexId(10L)).thenReturn(aggMeta);
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.AGG_KEYS);
+        Partition part = Mockito.mock(Partition.class);
+        Mockito.doReturn(java.util.List.of(part)).when(table).getPartitions();
+        Mockito.when(part.getDistributionInfo()).thenReturn(new HashDistributionInfo(1, java.util.List.of(k)));
+        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(new HashDistributionInfo(1, java.util.List.of(k)));
+
+        IndexSamplingSnapshot frame = Mockito.mock(IndexSamplingSnapshot.class);
+        Mockito.when(frame.scope()).thenReturn(TabletSamplingScope.table(java.util.List.of(
+                new PartitionSampleMeta(1, java.util.List.of(new TabletSampleMeta(7, 100000, false))))));
+        Mockito.when(frame.allCandidatesSupport(true)).thenReturn(true);
+        Mockito.when(frame.allCandidatesSupportFixedBlock()).thenReturn(true);
+
+        try (MockedStatic<StatisticsUtil> mockedUtil = Mockito.mockStatic(StatisticsUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            mockedUtil.when(() -> StatisticsUtil.convertIdToObjects(0, 0, 0))
+                    .thenReturn(new DBObjects(catalog, database, table));
+            mockedUtil.when(StatisticsUtil::enableFixedBlockStatsSampling).thenReturn(true);
+            AnalysisInfo sampleInfo = new AnalysisInfoBuilder()
+                    .setJobId(1).setTaskId(1).setCatalogId(0).setDBId(0).setTblId(0)
+                    .setIndexId(-1L).setColName("v").setJobType(JobType.MANUAL)
+                    .setAnalysisMethod(AnalysisMethod.SAMPLE).setSampleRows(1000)
+                    .setAnalysisType(AnalysisType.HISTOGRAM).setMaxBucketNum(64).build();
+            HistogramTask task = new HistogramTask(sampleInfo);
+            AnalysisJob job = Mockito.spy(new AnalysisJob(sampleInfo, java.util.List.of(task)));
+            task.job = job;
+            Mockito.doReturn(100000L).when(job).reportedIndexRows(table, 10L);
+            Mockito.doReturn(frame).when(job).samplingFrame(table, 10L);
+
+            String keyRangeSql = task.buildHistogramSql();
+            Assertions.assertTrue(keyRangeSql.contains("TABLESAMPLE (KEY_RANGE_BLOCK"), keyRangeSql);
+
+            Mockito.when(part.getDistributionInfo()).thenReturn(new RandomDistributionInfo(1));
+            Mockito.when(table.getDefaultDistributionInfo()).thenReturn(new RandomDistributionInfo(1));
+            String randomAggSql = task.buildHistogramSql();
+            Assertions.assertTrue(randomAggSql.contains("WHERE (xxhash_64("), randomAggSql);
         }
     }
 }

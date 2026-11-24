@@ -46,16 +46,22 @@ final class TableStatisticsSqlBuilder {
             + "WHERE col_value IS NOT NULL ORDER BY freq DESC "
             + "LIMIT ${hotValueCollectCount}) ";
 
-    private static final String GROUPED_SAMPLE = "WITH cte1 AS ("
-            + "SELECT MAX(t0.`col_value`) as `col_value`, ${sampleFrequency:-COUNT(1)} as `count`, "
-            + "SUM(`len`) as `column_length` "
-            + "FROM "
-            +     "(SELECT "
-            +     "${subStringColName} AS `hash_value`, "
-            +     "${colName} AS `col_value`, "
-            +     "LENGTH(${colName}) as `len`${lengthAssert} "
-            +     "FROM ${catalogName}.${dbName}.${tblName} ${index} ${sampleHints} ${limit}) as `t0` "
-            +     "${preAggHint} GROUP BY `t0`.`hash_value`), ";
+    private static final String GROUPED_SAMPLE = groupedSample(false);
+
+    private static String groupedSample(boolean inSampleBounds) {
+        return "WITH cte1 AS ("
+                + "SELECT MAX(t0.`col_value`) as `col_value`, "
+                + (inSampleBounds ? "MIN(t0.`col_value`) as `min_value`, " : "")
+                + "${sampleFrequency:-COUNT(1)} as `count`, "
+                + "SUM(`len`) as `column_length` "
+                + "FROM "
+                +     "(SELECT "
+                +     "${subStringColName} AS `hash_value`, "
+                +     "${colName} AS `col_value`, "
+                +     "LENGTH(${colName}) as `len`${lengthAssert} "
+                +     "FROM ${catalogName}.${dbName}.${tblName} ${index} ${sampleHints}${sampleWhere:-} ${limit}) "
+                +     "as `t0` ${preAggHint} GROUP BY `t0`.`hash_value`), ";
+    }
 
     static final String FULL_ANALYZE_TEMPLATE = "WITH cte1 AS ("
             +     "SELECT ${colName}${lengthAssert} "
@@ -105,25 +111,43 @@ final class TableStatisticsSqlBuilder {
             + "${rowCount} * CAST(z AS DOUBLE) / NULLIF(n, 0)) AS LARGEINT)))";
 
     // A NULL is not a distinct value or a singleton. All three sample moments use non-NULL rows.
+    // When hash buckets are subsampled for a distribution column, domainRate < 1 scales intra-bucket DUJ1
+    // across unvisited buckets while clamping to [d, ${rowCount} - scaled_nulls].
     private static final String DUJ1_NDV = "LEAST(${rowCount} - scaled_nulls, GREATEST(0, IF(d = 0, 0, "
-            + "CAST(ROUND(CAST(n - z AS DOUBLE) * d "
-            + "/ (n - z - f1 + CAST(f1 AS DOUBLE) * (n - z) / ${rowCount})) AS LARGEINT))))";
+            + "GREATEST(d, CAST(ROUND((1.0 / (${domainRate:-1.0})) * CAST(n - z AS DOUBLE) * d "
+            + "/ NULLIF(n - z - f1 + CAST(f1 AS DOUBLE) * (n - z) "
+            + "/ NULLIF(GREATEST(CAST(n - z AS DOUBLE), ${rowCount} * (${domainRate:-1.0})), 0), 0)) "
+            + "AS LARGEINT)))))";
 
     static String fixed(Map<String, String> params, boolean singleNonNullUnique) {
-        return sampleSql(params, singleNonNullUnique, false);
+        return sampleSql(params, singleNonNullUnique, false, false);
     }
 
     static String sampleSql(Map<String, String> params, boolean singleNonNullUnique, boolean raw) {
+        return sampleSql(params, singleNonNullUnique, raw, false);
+    }
+
+    static String sampleSql(Map<String, String> params, boolean singleNonNullUnique, boolean raw,
+            boolean inSampleBounds) {
         String ndv = singleNonNullUnique ? "${rowCount}" : DUJ1_NDV;
         String moments = singleNonNullUnique
                 ? "WITH sample_rows AS (SELECT ${colName}${lengthAssert} FROM ${catalogName}.${dbName}.${tblName} "
-                        + "${index} ${sampleHints}), moments AS (SELECT COUNT(1) AS n, 0 AS z, "
-                        + "IFNULL(${rawDataSizeFunction}, 0) "
-                        + "AS bytes FROM sample_rows${lengthFilter:-}), "
-                : GROUPED_SAMPLE + "moments AS (SELECT IFNULL(SUM(t1.count), 0) AS n, "
+                        + "${index} ${sampleHints}${sampleWhere:-}), moments AS (SELECT COUNT(1) AS n, 0 AS z, "
+                        + "IFNULL(${rawDataSizeFunction}, 0) AS bytes"
+                        + (inSampleBounds
+                                ? ", SUBSTRING(CAST(MIN(${colName}) AS STRING), 1, 1024) AS sample_min"
+                                + ", SUBSTRING(CAST(MAX(${colName}) AS STRING), 1, 1024) AS sample_max"
+                                : "")
+                        + " FROM sample_rows${lengthFilter:-}), "
+                : groupedSample(inSampleBounds) + "moments AS (SELECT IFNULL(SUM(t1.count), 0) AS n, "
                 + "IFNULL(SUM(IF(t1.col_value IS NULL, t1.count, 0)), 0) AS z, COUNT(t1.col_value) AS d, "
                 + "SUM(IF(t1.col_value IS NOT NULL AND t1.count = 1, 1, 0)) AS f1, "
-                + "IFNULL(${dataSizeFunction}, 0) AS bytes FROM cte1 t1), ";
+                + "IFNULL(${dataSizeFunction}, 0) AS bytes"
+                + (inSampleBounds
+                        ? ", SUBSTRING(CAST(MIN(t1.min_value) AS STRING), 1, 1024) AS sample_min"
+                        + ", SUBSTRING(CAST(MAX(t1.col_value) AS STRING), 1, 1024) AS sample_max"
+                        : "")
+                + " FROM cte1 t1), ";
         String fields = raw
                 ? "n AS row_count, " + (singleNonNullUnique ? "n" : "d") + " AS ndv, z AS null_count, "
                 : "IF(n = 0, -1, ${rowCount}) AS row_count, " + ndv + " AS ndv, scaled_nulls AS null_count, ";
@@ -133,11 +157,13 @@ final class TableStatisticsSqlBuilder {
                 ? " SELECT stats.* EXCEPT (sampled_non_null_rows" + (raw ? ", singletons" : "")
                         + "), NULL AS hot_value" + (raw ? ", singletons" : "") + " FROM stats"
                 : ", " + HOT_TOP + hotProjection(raw);
+        String minExpr = inSampleBounds ? "sample_min" : "SUBSTRING(CAST(${min} AS STRING), 1, 1024)";
+        String maxExpr = inSampleBounds ? "sample_max" : "SUBSTRING(CAST(${max} AS STRING), 1, 1024)";
         String sql = moments + "stats AS (SELECT CONCAT('${tblId}', '-', '${idxId}', '-', '${colId}') AS id, "
                 + "${catalogId} AS catalog_id, ${dbId} AS db_id, ${tblId} AS tbl_id, ${idxId} AS idx_id, "
                 + "'${colId}' AS col_id, NULL AS part_id, " + fields
-                + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS min, "
-                + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS max, "
+                + minExpr + " AS min, "
+                + maxExpr + " AS max, "
                 + size + " AS data_size, NOW() AS update_time, n - z AS sampled_non_null_rows"
                 + (raw ? ", " + (singleNonNullUnique ? "n" : "IFNULL(f1, 0)") + " AS singletons" : "")
                 + " FROM " + source + ")" + projection;

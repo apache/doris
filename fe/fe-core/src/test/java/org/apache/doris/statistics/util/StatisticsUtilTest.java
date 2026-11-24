@@ -19,6 +19,7 @@ package org.apache.doris.statistics.util;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.TimeStampNsLiteral;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -27,6 +28,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -446,9 +448,24 @@ class StatisticsUtilTest {
             Mockito.doReturn(morMeta).when(table).getIndexMetaByIndexId(1L);
             Mockito.doReturn(false).when(table).getEnableUniqueKeyMergeOnWrite();
             Assertions.assertTrue(StatisticsUtil.canCollectColumn(valueCol, table, true, 1));
+
+            // RANDOM-distributed AGG_KEYS supports pre-aggregatable value columns (SUM) but not REPLACE
+            Column sumCol = new Column("sumColumn", Type.BIGINT, false, AggregateType.SUM, "0", "");
+            MaterializedIndexMeta randomSumMeta = new MaterializedIndexMeta(1L, List.of(keyCol, sumCol), 1, 1,
+                    (short) 1, TStorageType.COLUMN, KeysType.AGG_KEYS, null);
+            Mockito.doReturn(randomSumMeta).when(table).getIndexMetaByIndexId(1L);
+            Mockito.doReturn(new RandomDistributionInfo(1)).when(table).getDefaultDistributionInfo();
+            Assertions.assertTrue(StatisticsUtil.canCollectColumn(sumCol, table, true, 1));
+
+            Column replaceCol = new Column("repColumn", Type.BIGINT, false, AggregateType.REPLACE, "0", "");
+            MaterializedIndexMeta randomReplaceMeta = new MaterializedIndexMeta(1L, List.of(keyCol, replaceCol), 1, 1,
+                    (short) 1, TStorageType.COLUMN, KeysType.AGG_KEYS, null);
+            Mockito.doReturn(randomReplaceMeta).when(table).getIndexMetaByIndexId(1L);
+            Assertions.assertFalse(StatisticsUtil.canCollectColumn(replaceCol, table, true, 1));
         } finally {
             VariableMgr.getDefaultSessionVariable().enableFixedBlockStatsSampling = prev;
         }
+        Assertions.assertTrue(new SessionVariable().enableFixedBlockStatsSampling);
     }
 
     @Test

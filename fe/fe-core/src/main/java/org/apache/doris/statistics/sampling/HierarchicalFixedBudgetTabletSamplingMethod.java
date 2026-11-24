@@ -88,7 +88,8 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
         if (cap < 1) {
             throw new AnalyzeSkipException("Fixed-block SQL budget cannot fit one tablet");
         }
-        int divisor = request.layout().key() || request.layout().partition() ? 16 : 32;
+        int divisor = request.layout().key() || request.layout().partition() || request.layout().distribution()
+                ? 16 : 32;
         int seats = (int) Math.min(cap, Math.max(1, k / divisor));
         int m = Math.min(partitions.size(), seats);
         double alpha = (double) m / partitions.size();
@@ -116,7 +117,7 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
                 q = Math.min(q, alpha * beta[h]);
             }
         }
-        return draw(request, partitions, cells, m, alpha, beta, rates, q, largest);
+        return draw(request, partitions, cells, m, alpha, beta, weights, rates, q, largest);
     }
 
     public record Population(long min, long max, double rows, double blocks, boolean imputed) {
@@ -182,7 +183,8 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
     }
 
     private TabletSampleSpec draw(TabletSamplingRequest request, List<PartitionSampleMeta> partitions,
-            List<Cell[]> cells, int m, double alpha, double[] beta, BigInteger[] rates, double q, long[] largest) {
+            List<Cell[]> cells, int m, double alpha, double[] beta, double[] weights, BigInteger[] rates,
+            double q, long[] largest) {
         long seed = request.seed();
         List<Integer> order = new ArrayList<>();
         for (int j = 0; j < partitions.size(); j++) {
@@ -223,8 +225,18 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
         }
         List<FixedBlockSampleSpec.Group> groups = combined.entrySet().stream().map(e -> new FixedBlockSampleSpec.Group(
                 e.getKey().tabletRate(), e.getKey().unitRate(), e.getKey().maxUnits(), e.getValue())).toList();
+        double totalWeight = Arrays.stream(weights).sum();
+        double bucketRate = 1.0;
+        if (totalWeight > 0) {
+            bucketRate = 0.0;
+            for (int h = 0; h < beta.length; h++) {
+                bucketRate += (weights[h] / totalWeight) * beta[h];
+            }
+            bucketRate = Math.max(Math.min(bucketRate, 1.0), q / Math.max(alpha, Double.MIN_NORMAL));
+        }
         return new TabletSampleSpec(new FixedBlockScanClause(new FixedBlockSampleSpec(
-                mode, request.budget().unitRows(), seed, groups)), new EqualProbabilitySamplingSemantics(q));
+                mode, request.budget().unitRows(), seed, groups)),
+                new EqualProbabilitySamplingSemantics(q, alpha, bucketRate));
     }
 
     /** Every nonnegative binary64 probability is an integer multiple of 2^-1074. */
@@ -269,6 +281,10 @@ public final class HierarchicalFixedBudgetTabletSamplingMethod implements Tablet
 
     private static final class Cell {
         private final List<Long> ids = new ArrayList<>();
+    }
+
+    static long hashPartition(long seed, long partitionId) {
+        return hash(seed, PARTITION, partitionId);
     }
 
     private static long hash(long seed, long domain, long id) {

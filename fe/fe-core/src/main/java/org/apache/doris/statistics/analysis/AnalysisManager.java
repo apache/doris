@@ -466,7 +466,9 @@ public class AnalysisManager implements Writable {
         TableIf table = jobInfo.getTable();
         for (Pair<String, String> pair : jobColumns) {
             AnalysisInfoBuilder colTaskInfoBuilder = new AnalysisInfoBuilder(jobInfo);
-            colTaskInfoBuilder.setAnalysisType(AnalysisType.FUNDAMENTALS);
+            if (jobInfo.analysisType != AnalysisType.HISTOGRAM) {
+                colTaskInfoBuilder.setAnalysisType(AnalysisType.FUNDAMENTALS);
+            }
             long taskId = Env.getCurrentEnv().getNextId();
             long indexId = -1;
             if (table instanceof OlapTable) {
@@ -595,6 +597,9 @@ public class AnalysisManager implements Writable {
         // Clear the shared maps even when the stats update fails, so the job and all its
         // task records release their memory once the job reaches a terminal state.
         try {
+            if (jobInfo.analysisType == AnalysisType.HISTOGRAM) {
+                return;
+            }
             TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
             TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
             if (tableStats == null) {

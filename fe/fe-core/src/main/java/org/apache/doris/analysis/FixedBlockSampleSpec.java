@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
@@ -26,6 +27,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.UserException;
@@ -130,6 +132,9 @@ public final class FixedBlockSampleSpec {
             return false;
         }
         if (indexId != table.getBaseIndexId()) {
+            if (table.getBaseIndexId() < 0) {
+                return false;
+            }
             // Storage reads hidden columns and column-level sequence mappings by their physical names.
             Set<String> sequenceColumns = table.getColumnSeqMapping().keySet();
             for (Column source : table.getBaseSchema(true)) {
@@ -142,6 +147,48 @@ public final class FixedBlockSampleSpec {
         }
         return routesByKeys(meta, table.getDefaultDistributionInfo()) && table.getPartitions().stream()
                 .allMatch(part -> routesByKeys(meta, part.getDistributionInfo()));
+    }
+
+    public static boolean supportsRandomAgg(OlapTable table, long indexId) {
+        MaterializedIndexMeta meta = table.getIndexMetaByIndexId(indexId);
+        if (meta == null || meta.getKeysType() != KeysType.AGG_KEYS || table.getKeysType() != KeysType.AGG_KEYS
+                || !(table.getDefaultDistributionInfo() instanceof RandomDistributionInfo)
+                || table.isZOrderSort() || meta.getSchema().stream().anyMatch(Column::isClusterKey)
+                || meta.getSchema().stream().noneMatch(Column::isKey)) {
+            return false;
+        }
+        if (indexId != table.getBaseIndexId() && table.getBaseIndexId() < 0) {
+            return false;
+        }
+        List<Column> baseSchema = indexId == table.getBaseIndexId() ? List.of() : table.getBaseSchema(true);
+        for (Column col : meta.getSchema()) {
+            if (!col.isKey() && !supportsRandomPreAgg(col)) {
+                return false;
+            }
+            if (indexId != table.getBaseIndexId()
+                    && baseSchema.stream().noneMatch(base -> mapsTo(meta, col, base))) {
+                return false;
+            }
+        }
+        return table.getPartitions().stream().allMatch(part ->
+                part.getDistributionInfo() instanceof RandomDistributionInfo
+                        || routesByKeys(meta, part.getDistributionInfo()));
+    }
+
+    public static boolean supportsMergedSampling(OlapTable table, long indexId) {
+        return supportsKeyRange(table, indexId) || supportsRandomAgg(table, indexId);
+    }
+
+    private static boolean supportsRandomPreAgg(Column column) {
+        AggregateType agg = column.getAggregationType();
+        if (agg == null) {
+            return false;
+        }
+        return switch (agg) {
+            case SUM, MAX, MIN, HLL_UNION, BITMAP_UNION, QUANTILE_UNION -> true;
+            case GENERIC -> column.getType().isAggStateType();
+            default -> false;
+        };
     }
 
     public static boolean retainsPartitionKeys(OlapTable table, MaterializedIndexMeta meta) {

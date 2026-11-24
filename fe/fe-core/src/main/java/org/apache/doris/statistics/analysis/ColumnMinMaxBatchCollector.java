@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics.analysis;
 
+import org.apache.doris.analysis.FixedBlockSampleSpec;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -67,11 +68,23 @@ final class ColumnMinMaxBatchCollector {
             }
             OlapTable table = (OlapTable) task.tbl;
             long indexId = task.info.indexId;
-            MaterializedIndexMeta meta = table.getIndexMetaByIndexId(indexId == -1 ? table.getBaseIndexId() : indexId);
-            Column column = meta == null ? null : meta.getColumnByName(task.info.colName);
+            long resolvedIndexId = indexId == -1 ? table.getBaseIndexId() : indexId;
+            Column column;
+            boolean inSampleBounds = false;
+            table.readLock();
+            try {
+                MaterializedIndexMeta meta = table.getIndexMetaByIndexId(resolvedIndexId);
+                column = meta == null ? null : meta.getColumnByName(task.info.colName);
+                if (column != null && !column.isKey() && StatisticsUtil.enableFixedBlockStatsSampling()
+                        && FixedBlockSampleSpec.supportsMergedSampling(table, resolvedIndexId)) {
+                    inSampleBounds = true;
+                }
+            } finally {
+                table.readUnlock();
+            }
             // DDL can remove a column, and getColumnByName also strips embedded backticks.
             // Only batch a physical column that matches the SQL identifier the task would query.
-            if (column != null && column.getName().equalsIgnoreCase(task.info.colName)) {
+            if (!inSampleBounds && column != null && column.getName().equalsIgnoreCase(task.info.colName)) {
                 Target target = new Target(task.info.jobId, indexId, olapTask.qualifiedTableName(),
                         olapTask.getIndex(), column.isAggregated());
                 groups.computeIfAbsent(target, key -> new TreeMap<>(String.CASE_INSENSITIVE_ORDER))

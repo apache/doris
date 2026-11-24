@@ -19,20 +19,25 @@ package org.apache.doris.statistics.analysis;
 
 import org.apache.doris.analysis.FixedBlockSampleSpec;
 import org.apache.doris.analysis.TableSample;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.sampling.ColumnPhysicalLayout;
 import org.apache.doris.statistics.sampling.HierarchicalFixedBudgetTabletSamplingMethod;
 import org.apache.doris.statistics.sampling.IndexSamplingSnapshot;
 import org.apache.doris.statistics.sampling.LegacyTabletSamplingMethod;
 import org.apache.doris.statistics.sampling.PartitionSampleMeta;
+import org.apache.doris.statistics.sampling.RandomAggTabletSamplingMethod;
 import org.apache.doris.statistics.sampling.TabletSampleMeta;
 import org.apache.doris.statistics.sampling.TabletSamplingScope;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -171,6 +176,11 @@ class KeyRangeBlockSamplingTest {
                     value.chooseTabletSamplingMethod(table, meta.getKeysType(), false, layout, 20000));
             value.job = Mockito.spy(new AnalysisJob(value.info, List.of(key, value)));
             Mockito.doReturn(frame).when(value.job).samplingFrame(table, 17);
+            Assertions.assertInstanceOf(HierarchicalFixedBudgetTabletSamplingMethod.class,
+                    value.chooseTabletSamplingMethod(table, meta.getKeysType(), false, layout, 20000));
+            Mockito.when(frame.allCandidatesSupport(true)).thenReturn(false);
+            value.job = Mockito.spy(new AnalysisJob(value.info, List.of(key, value)));
+            Mockito.doReturn(frame).when(value.job).samplingFrame(table, 17);
             Assertions.assertInstanceOf(LegacyTabletSamplingMethod.class,
                     value.chooseTabletSamplingMethod(table, meta.getKeysType(), false, layout, 20000));
         }
@@ -212,13 +222,87 @@ class KeyRangeBlockSamplingTest {
             Assertions.assertEquals(sampleBucketColumn, job.sampleColumns(17, 17).contains(bucket.getName()));
             var method = survivor.chooseTabletSamplingMethod(table, KeysType.AGG_KEYS, false,
                     new ColumnPhysicalLayout(false, false, false, false), 20000);
-            if (sampleBucketColumn) {
-                Assertions.assertInstanceOf(LegacyTabletSamplingMethod.class, method);
-                Assertions.assertThrows(AnalyzeSkipException.class, survivor::doSample);
-            } else {
-                Assertions.assertInstanceOf(HierarchicalFixedBudgetTabletSamplingMethod.class, method);
-            }
+            Assertions.assertInstanceOf(HierarchicalFixedBudgetTabletSamplingMethod.class, method);
         }
+    }
+
+    @Test
+    void domainRateScalesBucketSubsampleMomentsAndRandomAggUsesKeyHashAndInSampleBounds() {
+        AnalysisJob job = new AnalysisJob(new AnalysisInfoBuilder().build(), List.of());
+        // Unique keys (f1 == m): domainRate cancels out, yielding exact frozen row count.
+        ResultRow uniqueBuckets = OlapAnalysisTask.freezeLogicalSample(sample(100, 0, 100, 100, 400),
+                job, 101, 0.1, false, 0.25);
+        Assertions.assertEquals("1000", uniqueBuckets.get(7));
+        Assertions.assertEquals("1000", uniqueBuckets.get(8));
+        // Heavy duplicates per bucket (f1 == 0, d == 10 in 25% of buckets): recovers 10 / 0.25 = 40.
+        ResultRow repeatedBuckets = OlapAnalysisTask.freezeLogicalSample(sample(100, 0, 10, 0, 400),
+                job, 102, 0.1, false, 0.25);
+        Assertions.assertEquals("1000", repeatedBuckets.get(7));
+        Assertions.assertEquals("40", repeatedBuckets.get(8));
+        var sem = new org.apache.doris.statistics.sampling.TabletSampleSpec.EqualProbabilitySamplingSemantics(
+                0.05, 0.25, 0.5);
+        Assertions.assertEquals(0.25, OlapAnalysisTask.subdomainRate(
+                new ColumnPhysicalLayout(true, true, false, false), false, sem));
+        Assertions.assertEquals(0.5, OlapAnalysisTask.subdomainRate(
+                new ColumnPhysicalLayout(true, false, false, true), false, sem));
+        Assertions.assertEquals(0.125, OlapAnalysisTask.subdomainRate(
+                new ColumnPhysicalLayout(true, true, false, true), false, sem));
+
+        var table = Mockito.mock(OlapTable.class);
+        var k1 = new Column("k1", Type.INT, true, null, "0", "");
+        var v = new Column("v", Type.BIGINT, false, AggregateType.SUM, "0", "");
+        var meta = new MaterializedIndexMeta(17, List.of(k1, v), 1, 1, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS, null);
+        var part1 = Mockito.mock(Partition.class);
+        var part2 = Mockito.mock(Partition.class);
+        Mockito.when(part1.getDistributionInfo()).thenReturn(new RandomDistributionInfo(2));
+        Mockito.when(part2.getDistributionInfo()).thenReturn(new RandomDistributionInfo(2));
+        Mockito.when(table.getBaseIndexId()).thenReturn(17L);
+        Mockito.when(table.getIndexNameById(17L)).thenReturn("tbl");
+        Mockito.when(table.getName()).thenReturn("tbl");
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.AGG_KEYS);
+        Mockito.when(table.getIndexMetaByIndexId(17L)).thenReturn(meta);
+        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(new RandomDistributionInfo(2));
+        Mockito.doReturn(List.of(part1, part2)).when(table).getPartitions();
+        Mockito.when(table.getPartitionInfo()).thenReturn(Mockito.mock(PartitionInfo.class));
+        Assertions.assertTrue(FixedBlockSampleSpec.supportsRandomAgg(table, 17));
+        Assertions.assertTrue(FixedBlockSampleSpec.supportsMergedSampling(table, 17));
+
+        var frame = Mockito.mock(IndexSamplingSnapshot.class);
+        Mockito.when(frame.scope()).thenReturn(TabletSamplingScope.table(List.of(
+                new PartitionSampleMeta(1, List.of(new TabletSampleMeta(11, 50000, false),
+                        new TabletSampleMeta(12, 50000, false))),
+                new PartitionSampleMeta(2, List.of(new TabletSampleMeta(21, 50000, false),
+                        new TabletSampleMeta(22, 50000, false))))));
+        Mockito.when(frame.allCandidatesSupportFixedBlock()).thenReturn(true);
+
+        var task = Mockito.spy(analysisTask(table, "v", new TableSample(false, 1000L)));
+        task.catalog = Mockito.mock(CatalogIf.class);
+        task.db = Mockito.mock(DatabaseIf.class);
+        Mockito.when(task.catalog.getName()).thenReturn("internal");
+        Mockito.when(task.db.getFullName()).thenReturn("db");
+        var randomJob = Mockito.spy(new AnalysisJob(task.info, List.of(task)));
+        task.job = randomJob;
+        Mockito.doReturn(frame).when(randomJob).samplingFrame(table, 17);
+        Mockito.doReturn(200000L).when(randomJob).reportedIndexRows(table, 17);
+        var captured = org.mockito.ArgumentCaptor.forClass(String.class);
+        Mockito.doNothing().when(task).runQuery(captured.capture());
+        try (var util = Mockito.mockStatic(StatisticsUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            util.when(StatisticsUtil::enableFixedBlockStatsSampling).thenReturn(true);
+            util.when(StatisticsUtil::getStatisticsSampleUnitRows).thenReturn(1024);
+            util.when(StatisticsUtil::getStatisticsMaxSampleTablets).thenReturn(64);
+            Assertions.assertInstanceOf(RandomAggTabletSamplingMethod.class,
+                    task.chooseTabletSamplingMethod(table, KeysType.AGG_KEYS, false,
+                            new ColumnPhysicalLayout(false, false, false, false), 200000));
+            task.doSample();
+        }
+        // Value column on AGG_KEYS computes MIN/MAX inside the sample scan without calling getSampleMinMax().
+        Mockito.verify(task, Mockito.never()).getSampleMinMax();
+        String sql = captured.getValue();
+        Assertions.assertTrue(sql.contains("TABLESAMPLE (FIXED_BLOCK"), sql);
+        Assertions.assertTrue(sql.contains("unit_rate = 1.0"), sql);
+        Assertions.assertTrue(sql.contains("WHERE (xxhash_64("), sql);
+        Assertions.assertTrue(sql.contains("sample_min AS min, sample_max AS max"), sql);
     }
 
     private static OlapAnalysisTask analysisTask(OlapTable table, String name, TableSample sample) {

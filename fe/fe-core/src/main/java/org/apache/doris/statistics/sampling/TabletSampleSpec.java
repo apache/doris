@@ -20,9 +20,11 @@ package org.apache.doris.statistics.sampling;
 import org.apache.doris.analysis.FixedBlockSampleSpec;
 
 import java.util.List;
+import java.util.Optional;
 
 public record TabletSampleSpec(SampledScanClause scanClause, SamplingSemantics semantics) {
-    public sealed interface SampledScanClause permits FullScanClause, LegacyTabletScanClause, FixedBlockScanClause {
+    public sealed interface SampledScanClause permits FullScanClause, LegacyTabletScanClause, FixedBlockScanClause,
+            KeyHashScanClause {
     }
 
     public record FullScanClause() implements SampledScanClause {
@@ -37,6 +39,11 @@ public record TabletSampleSpec(SampledScanClause scanClause, SamplingSemantics s
     public record FixedBlockScanClause(FixedBlockSampleSpec blocks) implements SampledScanClause {
     }
 
+    public record KeyHashScanClause(Optional<FixedBlockSampleSpec> partitionBlocks, long seed, long hashCutoff)
+            implements SampledScanClause {
+        public static final long HASH_MODULUS = 1L << 20;
+    }
+
     public sealed interface SamplingSemantics permits FullScanSemantics, LegacySamplingSemantics,
             EqualProbabilitySamplingSemantics {
     }
@@ -47,7 +54,11 @@ public record TabletSampleSpec(SampledScanClause scanClause, SamplingSemantics s
     public record LegacySamplingSemantics(boolean linear, double scaleFactor, long limit) implements SamplingSemantics {
     }
 
-    public record EqualProbabilitySamplingSemantics(double probability) implements SamplingSemantics {
+    public record EqualProbabilitySamplingSemantics(double probability, double partitionRate, double bucketRate)
+            implements SamplingSemantics {
+        public EqualProbabilitySamplingSemantics(double probability) {
+            this(probability, 1.0, 1.0);
+        }
     }
 
     public static TabletSampleSpec fullScan() {

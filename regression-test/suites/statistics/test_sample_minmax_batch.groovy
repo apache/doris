@@ -48,7 +48,6 @@ suite("test_sample_minmax_batch", "nonConcurrent") {
                 bounds(sql("SHOW COLUMN STATS minmax_batch_agg"))]
     }
     // With these rows the visible bounds also give an independent check of the single-column baseline.
-    // Manual sampling selects only the key columns of the AGG table.
     def expected = { row, names ->
         names.withIndex().collectEntries { name, i -> [(name): row[2 * i..2 * i + 1].collect { it.toString() }] }
     }
@@ -57,7 +56,8 @@ suite("test_sample_minmax_batch", "nonConcurrent") {
                     ["k", "a", "b"]),
             expected(sql("SELECT MIN(k), MAX(k), MIN(a), MAX(a), MIN(b), MAX(b) FROM minmax_batch_unique")[0],
                     ["k", "a", "b"]),
-            expected(sql("SELECT MIN(k), MAX(k), MIN(k2), MAX(k2) FROM minmax_batch_agg")[0], ["k", "k2"])
+            expected(sql("SELECT MIN(k), MAX(k), MIN(k2), MAX(k2), MIN(v), MAX(v) FROM minmax_batch_agg")[0],
+                    ["k", "k2", "v"])
     ]
     def saved = sql("SHOW GLOBAL VARIABLES LIKE 'statistics_minmax_batch_columns'")[0][1]
     try {

@@ -43,11 +43,13 @@ import org.apache.doris.statistics.sampling.ColumnPhysicalLayout;
 import org.apache.doris.statistics.sampling.HierarchicalFixedBudgetTabletSamplingMethod;
 import org.apache.doris.statistics.sampling.IndexSamplingSnapshot;
 import org.apache.doris.statistics.sampling.LegacyTabletSamplingMethod;
+import org.apache.doris.statistics.sampling.RandomAggTabletSamplingMethod;
 import org.apache.doris.statistics.sampling.SampledScanSqlRenderer;
 import org.apache.doris.statistics.sampling.SamplingBudget;
 import org.apache.doris.statistics.sampling.TabletSampleSpec;
 import org.apache.doris.statistics.sampling.TabletSampleSpec.EqualProbabilitySamplingSemantics;
 import org.apache.doris.statistics.sampling.TabletSampleSpec.FullScanClause;
+import org.apache.doris.statistics.sampling.TabletSampleSpec.KeyHashScanClause;
 import org.apache.doris.statistics.sampling.TabletSampleSpec.LegacySamplingSemantics;
 import org.apache.doris.statistics.sampling.TabletSamplingMethod;
 import org.apache.doris.statistics.sampling.TabletSamplingRequest;
@@ -69,6 +71,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.stream.Collectors;
@@ -78,15 +81,16 @@ import java.util.stream.Collectors;
  */
 public class OlapAnalysisTask extends BaseAnalysisTask {
 
-    private static final int MAX_INTERNAL_SQL_BYTES = 1024 * 1024;
+    static final int MAX_INTERNAL_SQL_BYTES = 1024 * 1024;
 
     // Assigned only to table-sample tasks when the job is constructed.
     ColumnMinMaxBatchCollector.Batch minMaxBatch;
 
     private boolean fullScanOfNonNullUniqueKey;
-    // Set only for a key-range sample returning raw moments. A census follows freezeResultCount's census path.
+    // Set only for a logical sample returning raw moments. A census follows freezeResultCount's census path.
     private double logicalSampleProbability;
     private boolean logicalSampleUnique;
+    private double logicalSampleDomainRate = 1.0;
 
     @VisibleForTesting
     public OlapAnalysisTask() {
@@ -130,6 +134,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     @Override
     protected void doSample() {
         logicalSampleProbability = 0;
+        logicalSampleDomainRate = 1.0;
         fullScanOfNonNullUniqueKey = false;
         OlapTable table = (OlapTable) tbl;
         long indexId = targetIndexId();
@@ -142,9 +147,11 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         }
         KeysType keys;
         boolean mow;
+        boolean hasRowTtl;
         boolean retainsPartitionKeys;
         boolean legacyPreAgg;
         ColumnPhysicalLayout layout;
+        List<String> keyColumnNames;
         table.readLock();
         try {
             MaterializedIndexMeta meta = table.getIndexMetaByIndexId(indexId);
@@ -155,16 +162,21 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             col = physical;
             keys = meta.getKeysType();
             mow = table.getEnableUniqueKeyMergeOnWrite();
+            hasRowTtl = table.hasRowTtl();
             retainsPartitionKeys = indexId == table.getBaseIndexId() || FixedBlockSampleSpec.retainsPartitionKeys(
                     table, meta);
-            legacyPreAgg = !table.hasRowTtl() && (table.getKeysType() == KeysType.AGG_KEYS
+            legacyPreAgg = !hasRowTtl && (table.getKeysType() == KeysType.AGG_KEYS
                     || table.getKeysType() == KeysType.UNIQUE_KEYS && !mow);
             layout = columnLayout(table, meta, physical);
+            keyColumnNames = keys == KeysType.AGG_KEYS
+                    ? meta.getSchema().stream().filter(Column::isKey).map(Column::getName).toList()
+                    : List.of();
         } finally {
             table.readUnlock();
         }
         TabletSamplingMethod method = chooseTabletSamplingMethod(table, keys, mow, layout, rows);
-        boolean fixed = method instanceof HierarchicalFixedBudgetTabletSamplingMethod;
+        boolean fixed = method instanceof HierarchicalFixedBudgetTabletSamplingMethod
+                || method instanceof RandomAggTabletSamplingMethod;
         if (!fixed && !col.isKey() && (keys == KeysType.AGG_KEYS || keys == KeysType.UNIQUE_KEYS && !mow)) {
             throw new AnalyzeSkipException("Legacy sample cannot collect unmerged value column: " + info.colName);
         }
@@ -172,15 +184,18 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 && IndexSamplingSnapshot.reportedIndexRows(table, indexId, true) == TableIf.UNKNOWN_ROW_COUNT) {
             throw new AnalyzeSkipException("Legacy automatic sampling needs a complete index row count report");
         }
-        boolean keyRange = fixed && (keys == KeysType.AGG_KEYS || keys == KeysType.UNIQUE_KEYS && !mow);
+        boolean logicalSample = fixed && (keys == KeysType.AGG_KEYS || keys == KeysType.UNIQUE_KEYS || hasRowTtl);
+        boolean inSampleBounds = fixed && !col.isKey()
+                && (keys == KeysType.AGG_KEYS || keys == KeysType.UNIQUE_KEYS && !mow);
         boolean singleUniqueKey = layout.singleUniqueKey() && retainsPartitionKeys;
         boolean singleNonNullUnique = singleUniqueKey && !col.isAllowNull();
         Map<String, String> params = buildSqlParams();
         params.put("limit", "");
         params.put("sampleHints", "");
+        params.put("sampleWhere", "");
         params.put("rowCount", Long.toString(rows));
         TabletSampleSpec spec = buildSampleSpec(method, table, indexId, layout, rows, params,
-                singleNonNullUnique, keyRange);
+                singleNonNullUnique, logicalSample, inSampleBounds, keyColumnNames);
         if (!fixed && legacyPreAgg) {
             params.put("preAggHint", "/*+PREAGGOPEN*/");
         }
@@ -197,15 +212,20 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                     MAX_INTERNAL_SQL_BYTES));
             return;
         }
-        ResultRow bounds = getSampleMinMax();
-        params.put("min", boundLiteral(bounds.get(0), fixed));
-        params.put("max", boundLiteral(bounds.get(1), fixed));
+        if (!inSampleBounds) {
+            ResultRow bounds = getSampleMinMax();
+            params.put("min", boundLiteral(bounds.get(0), fixed));
+            params.put("max", boundLiteral(bounds.get(1), fixed));
+        }
         params.put("sampleHints", SampledScanSqlRenderer.render(spec.scanClause(), MAX_INTERNAL_SQL_BYTES));
-        if (keyRange) {
-            logicalSampleProbability = ((EqualProbabilitySamplingSemantics) spec.semantics()).probability();
+        params.put("sampleWhere", SampledScanSqlRenderer.renderKeyHashWhere(spec.scanClause(), keyColumnNames));
+        if (logicalSample) {
+            EqualProbabilitySamplingSemantics sem = (EqualProbabilitySamplingSemantics) spec.semantics();
+            logicalSampleProbability = sem.probability();
             logicalSampleUnique = singleNonNullUnique;
+            logicalSampleDomainRate = subdomainRate(layout, singleUniqueKey, sem);
             runQuery(SampledScanSqlRenderer.checked(TableStatisticsSqlBuilder.sampleSql(params, singleNonNullUnique,
-                    true), MAX_INTERNAL_SQL_BYTES));
+                    true, inSampleBounds), MAX_INTERNAL_SQL_BYTES));
             return;
         }
         long population = job.freezeIndexRows(indexId, () -> rows);
@@ -228,6 +248,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                     : TableStatisticsSqlBuilder.DUJ1_ANALYZE_TEMPLATE;
             sql = new StringSubstitutor(params).replace(template);
         } else {
+            EqualProbabilitySamplingSemantics sem = (EqualProbabilitySamplingSemantics) spec.semantics();
+            params.put("domainRate", Double.toString(subdomainRate(layout, singleUniqueKey, sem)));
             sql = TableStatisticsSqlBuilder.fixed(params, singleNonNullUnique);
         }
         runQuery(SampledScanSqlRenderer.checked(sql, MAX_INTERNAL_SQL_BYTES));
@@ -235,8 +257,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     private TabletSampleSpec buildSampleSpec(TabletSamplingMethod method, OlapTable table, long indexId,
             ColumnPhysicalLayout layout, long rows, Map<String, String> params, boolean singleNonNullUnique,
-            boolean keyRange) {
-        boolean fixed = method instanceof HierarchicalFixedBudgetTabletSamplingMethod;
+            boolean logicalSample, boolean inSampleBounds, List<String> keyColumnNames) {
+        boolean fixed = method instanceof HierarchicalFixedBudgetTabletSamplingMethod
+                || method instanceof RandomAggTabletSamplingMethod;
         int clauseBytes = MAX_INTERNAL_SQL_BYTES;
         if (fixed) {
             params.put("rawDataSizeFunction", params.get("dataSizeFunction"));
@@ -245,8 +268,16 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             // character (also covers doubled quotes/backslashes) and the enclosing SQL quotes.
             params.put("min", "NULL");
             params.put("max", "NULL");
-            clauseBytes -= TableStatisticsSqlBuilder.sampleSql(params, singleNonNullUnique, keyRange)
-                    .getBytes(StandardCharsets.UTF_8).length + 2 * (4096 + 2);
+            params.put("domainRate", "0.00000000000000001");
+            int whereReserve = method instanceof RandomAggTabletSamplingMethod
+                    ? SampledScanSqlRenderer.renderKeyHashWhere(
+                            new KeyHashScanClause(Optional.empty(), Long.MAX_VALUE, 1), keyColumnNames)
+                            .getBytes(StandardCharsets.UTF_8).length
+                    : 0;
+            int boundsReserve = inSampleBounds ? 0 : 2 * (4096 + 2);
+            clauseBytes -= TableStatisticsSqlBuilder.sampleSql(params, singleNonNullUnique, logicalSample,
+                    inSampleBounds).getBytes(StandardCharsets.UTF_8).length + boundsReserve + whereReserve;
+            params.remove("domainRate");
         }
         SamplingBudget budget = new SamplingBudget(targetSampleRows(rows, fixed),
                 StatisticsUtil.getStatisticsSampleUnitRows(),
@@ -258,6 +289,21 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         return method.build(request);
     }
 
+    static double subdomainRate(ColumnPhysicalLayout layout, boolean singleUniqueKey,
+            EqualProbabilitySamplingSemantics sem) {
+        if (singleUniqueKey) {
+            return 1.0;
+        }
+        double rate = 1.0;
+        if (layout.partition()) {
+            rate *= sem.partitionRate();
+        }
+        if (layout.distribution()) {
+            rate *= sem.bucketRate();
+        }
+        return rate > 0 && rate < 1.0 ? rate : 1.0;
+    }
+
     private long targetSampleRows(long rows, boolean fixed) {
         return fixed && tableSample.isPercent() ? Math.max(1, (long) (rows * (tableSample.getSampleValue() / 100.0)))
                 : getSampleRows();
@@ -267,7 +313,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         return fixed && value == null ? "NULL" : StatisticsUtil.quote(StatisticsUtil.escapeSQL(value));
     }
 
-    private static Column resolveColumn(MaterializedIndexMeta meta, String colName) {
+    static Column resolveColumn(MaterializedIndexMeta meta, String colName) {
         Column column = meta.getColumnByName(colName);
         if (column == null || column.getName().equalsIgnoreCase(colName)) {
             return column;
@@ -276,7 +322,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         return meta.getSchema().stream().filter(c -> c.getName().equalsIgnoreCase(colName)).findFirst().orElse(null);
     }
 
-    private ColumnPhysicalLayout columnLayout(OlapTable table, MaterializedIndexMeta meta, Column column) {
+    static ColumnPhysicalLayout columnLayout(OlapTable table, MaterializedIndexMeta meta, Column column) {
         Set<String> distribution = table.getDistributionColumnNames();
         boolean singleUniqueKey = column.isKey()
                 && (meta.getKeysType() == KeysType.UNIQUE_KEYS || meta.getKeysType() == KeysType.AGG_KEYS)
@@ -301,13 +347,17 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             ColumnPhysicalLayout layout, long rows) {
         if (StatisticsUtil.enableFixedBlockStatsSampling() && rows > 0
                 && (keys == KeysType.DUP_KEYS || keys == KeysType.UNIQUE_KEYS && mow)
-                && (!layout.distribution() || layout.singleUniqueKey())
                 && job.samplingFrame(table, targetIndexId()).allCandidatesSupportFixedBlock()) {
             return new HierarchicalFixedBudgetTabletSamplingMethod();
         }
         if ((keys == KeysType.AGG_KEYS || keys == KeysType.UNIQUE_KEYS && !mow)
                 && job.useKeyRange(targetIndexId(), () -> keyRangeEligible(table, rows))) {
             return new HierarchicalFixedBudgetTabletSamplingMethod(Mode.KEY_RANGE_BLOCK);
+        }
+        if (keys == KeysType.AGG_KEYS
+                && job.useRandomAgg(targetIndexId(), () -> randomAggEligible(table, rows))) {
+            return new RandomAggTabletSamplingMethod(
+                    job.samplingFrame(table, targetIndexId()).allCandidatesSupportFixedBlock());
         }
         return new LegacyTabletSamplingMethod(table, info.indexId, tableSample.getSeek());
     }
@@ -317,43 +367,34 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (!StatisticsUtil.enableFixedBlockStatsSampling() || rows <= 0) {
             return false;
         }
-        boolean bucketColumnRequiresCensus = false;
         table.readLock();
         try {
             if (!FixedBlockSampleSpec.supportsKeyRange(table, id)) {
                 return false;
             }
-            MaterializedIndexMeta meta = table.getIndexMetaByIndexId(id);
-            for (String name : job.sampleColumns(id, table.getBaseIndexId())) {
-                Column target = resolveColumn(meta, name);
-                if (target == null) {
-                    // DDL removed this target. Its own task will skip it in doSample().
-                    continue;
-                }
-                ColumnPhysicalLayout layout = columnLayout(table, meta, target);
-                if (layout.distribution() && !layout.singleUniqueKey()) {
-                    bucketColumnRequiresCensus = true;
-                    break;
-                }
-            }
         } finally {
             table.readUnlock();
         }
-        IndexSamplingSnapshot frame = job.samplingFrame(table, id);
-        if (bucketColumnRequiresCensus) {
-            long unitRows = StatisticsUtil.getStatisticsSampleUnitRows();
-            var population = HierarchicalFixedBudgetTabletSamplingMethod.Population.of(frame.scope().partitions(),
-                    unitRows);
-            if (!population.isCensus(targetSampleRows(rows, true), unitRows)) {
-                return false;
-            }
+        return job.samplingFrame(table, id).allCandidatesSupport(true);
+    }
+
+    private boolean randomAggEligible(OlapTable table, long rows) {
+        long id = targetIndexId();
+        if (!StatisticsUtil.enableFixedBlockStatsSampling() || rows <= 0) {
+            return false;
         }
-        return frame.allCandidatesSupport(true);
+        table.readLock();
+        try {
+            return FixedBlockSampleSpec.supportsRandomAgg(table, id);
+        } finally {
+            table.readUnlock();
+        }
     }
 
     ResultRow freezeResultCount(ResultRow row) {
         if (logicalSampleProbability > 0) {
-            return freezeLogicalSample(row, job, targetIndexId(), logicalSampleProbability, logicalSampleUnique);
+            return freezeLogicalSample(row, job, targetIndexId(), logicalSampleProbability, logicalSampleUnique,
+                    logicalSampleDomainRate);
         }
         String count = row.getWithDefault(7, "0");
         long measured = roundedCount(count);
@@ -386,9 +427,14 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     static ResultRow freezeLogicalSample(ResultRow row, AnalysisJob job, long indexId, double q, boolean unique) {
+        return freezeLogicalSample(row, job, indexId, q, unique, 1.0);
+    }
+
+    static ResultRow freezeLogicalSample(ResultRow row, AnalysisJob job, long indexId, double q, boolean unique,
+            double domainRate) {
         long n = Long.parseLong(row.get(7));
         if (n == 0) {
-            throw new AnalyzeSkipException("KEY_RANGE_BLOCK sample has zero visible rows; preserving statistics");
+            throw new AnalyzeSkipException("Logical sample has zero visible rows; preserving statistics");
         }
         long z = Long.parseLong(row.get(9));
         long d = Long.parseLong(row.get(8));
@@ -411,10 +457,20 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             ndv = frozen;
         } else if (d > 0) {
             BigDecimal nonNull = BigDecimal.valueOf(m);
-            BigDecimal divisor = BigDecimal.valueOf(m - singletons).multiply(f)
-                    .add(BigDecimal.valueOf(singletons).multiply(nonNull));
-            ndv = nonNull.multiply(BigDecimal.valueOf(d)).multiply(f).divide(divisor, 0, RoundingMode.HALF_UP)
-                    .min(BigDecimal.valueOf(frozen - nulls)).longValueExact();
+            if (domainRate > 0 && domainRate < 1.0) {
+                BigDecimal rate = BigDecimal.valueOf(domainRate);
+                BigDecimal visited = nonNull.max(f.multiply(rate));
+                BigDecimal denom = BigDecimal.valueOf(m - singletons).multiply(visited)
+                        .add(BigDecimal.valueOf(singletons).multiply(nonNull));
+                BigDecimal scaled = nonNull.multiply(BigDecimal.valueOf(d)).multiply(visited)
+                        .divide(denom.multiply(rate), 0, RoundingMode.HALF_UP);
+                ndv = scaled.max(BigDecimal.valueOf(d)).min(BigDecimal.valueOf(frozen - nulls)).longValueExact();
+            } else {
+                BigDecimal divisor = BigDecimal.valueOf(m - singletons).multiply(f)
+                        .add(BigDecimal.valueOf(singletons).multiply(nonNull));
+                ndv = nonNull.multiply(BigDecimal.valueOf(d)).multiply(f).divide(divisor, 0, RoundingMode.HALF_UP)
+                        .min(BigDecimal.valueOf(frozen - nulls)).longValueExact();
+            }
         }
         List<String> values = new ArrayList<>(row.getValues().subList(0, 15));
         values.set(7, Long.toString(frozen));
@@ -527,6 +583,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     protected void doFull() throws Exception {
+        logicalSampleProbability = 0;
+        logicalSampleDomainRate = 1.0;
         fullScanOfNonNullUniqueKey = false;
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do full collection for column {}", col.getName());
