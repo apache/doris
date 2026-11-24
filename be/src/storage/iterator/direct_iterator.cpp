@@ -19,7 +19,6 @@
 
 #include <utility>
 
-#include "common/logging.h"
 #include "core/block/block.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
@@ -74,10 +73,7 @@ Status DirectIterator::next_block(Block* block, bool* eof) {
             _cur_segment.reset();
             continue;
         }
-        if (!st.ok()) [[unlikely]] {
-            LOG(WARNING) << "failed to read next block: " << st;
-            return st;
-        }
+        RETURN_IF_ERROR(st);
         if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
             return runtime_state->cancel_reason();
         }

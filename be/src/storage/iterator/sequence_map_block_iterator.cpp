@@ -55,19 +55,19 @@ size_t SequenceMapBlockIterator::_compute_batch_row_limit() const {
 void SequenceMapBlockIterator::_mark_same_keys(const Block& source) {
     const size_t rows = source.rows();
     _same_key.assign(rows, 1);
-    for (size_t ordinal : std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
-        source.get_by_position(ordinal).column->update_equal_flags(_same_key);
+    for (size_t col_idx : std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
+        source.get_by_position(col_idx).column->update_equal_flags(_same_key);
         if (!simd::contain_one(_same_key.data() + 1, rows - 1)) {
             break;
         }
     }
     bool same_first = _batch_rows > 0;
-    for (size_t ordinal : std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
+    for (size_t col_idx : std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
         if (!same_first) {
             break;
         }
-        const IColumn& batch = *_batch_columns[ordinal];
-        same_first = batch.compare_at(batch.size() - 1, 0, *source.get_by_position(ordinal).column,
+        const IColumn& batch = *_batch_columns[col_idx];
+        same_first = batch.compare_at(batch.size() - 1, 0, *source.get_by_position(col_idx).column,
                                       -1) == 0;
     }
     _same_key[0] = same_first;
@@ -75,17 +75,17 @@ void SequenceMapBlockIterator::_mark_same_keys(const Block& source) {
 
 void SequenceMapBlockIterator::_replace_by_sequence(const Block& source, size_t src_pos) {
     const size_t dst_pos = _batch_rows - 1;
-    for (const auto& [seq_ordinal, value_ordinals] : _read_schema->sequence_map()) {
-        auto* dst_seq_col = _batch_columns[seq_ordinal].get();
-        const auto& src_seq_col = source.get_by_position(seq_ordinal).column;
+    for (const auto& [seq_col_idx, val_col_idxs] : _read_schema->sequence_map()) {
+        auto* dst_seq_col = _batch_columns[seq_col_idx].get();
+        const auto& src_seq_col = source.get_by_position(seq_col_idx).column;
         // The existing row comes from a newer rowset/segment, so it wins ties (>= 0).
         if (dst_seq_col->compare_at(dst_pos, src_pos, *src_seq_col, -1) >= 0) {
             continue;
         }
-        for (auto value_ordinal : value_ordinals) {
-            auto* dst_val_col = _batch_columns[value_ordinal].get();
+        for (auto val_col_idx : val_col_idxs) {
+            auto* dst_val_col = _batch_columns[val_col_idx].get();
             dst_val_col->pop_back(1);
-            dst_val_col->insert_from(*source.get_by_position(value_ordinal).column, src_pos);
+            dst_val_col->insert_from(*source.get_by_position(val_col_idx).column, src_pos);
         }
         dst_seq_col->pop_back(1);
         dst_seq_col->insert_from(*src_seq_col, src_pos);
@@ -98,8 +98,8 @@ void SequenceMapBlockIterator::_fold_block(const Block& source) {
     _mark_same_keys(source);
     const size_t num_columns = _batch_columns.size();
     if (!simd::contain_one(_same_key.data(), rows)) {
-        for (size_t ordinal = 0; ordinal < num_columns; ++ordinal) {
-            _batch_columns[ordinal]->insert_range_from(*source.get_by_position(ordinal).column, 0,
+        for (size_t col_idx = 0; col_idx < num_columns; ++col_idx) {
+            _batch_columns[col_idx]->insert_range_from(*source.get_by_position(col_idx).column, 0,
                                                        rows);
         }
         _batch_rows += rows;
@@ -107,8 +107,8 @@ void SequenceMapBlockIterator::_fold_block(const Block& source) {
     }
     for (size_t pos = 0; pos < rows; ++pos) {
         if (!_same_key[pos]) {
-            for (size_t ordinal = 0; ordinal < num_columns; ++ordinal) {
-                _batch_columns[ordinal]->insert_from(*source.get_by_position(ordinal).column, pos);
+            for (size_t col_idx = 0; col_idx < num_columns; ++col_idx) {
+                _batch_columns[col_idx]->insert_from(*source.get_by_position(col_idx).column, pos);
             }
             ++_batch_rows;
         } else {
@@ -124,10 +124,10 @@ void SequenceMapBlockIterator::_output_finished_keys(Block* block) {
     auto columns_guard = block->mutate_columns_scoped();
     auto& columns = columns_guard.mutable_columns();
     const size_t last_key = _batch_rows - 1;
-    for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
-        std::swap(columns[ordinal], _batch_columns[ordinal]);
-        _batch_columns[ordinal]->insert_from(*columns[ordinal], last_key);
-        columns[ordinal]->pop_back(1);
+    for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx) {
+        std::swap(columns[col_idx], _batch_columns[col_idx]);
+        _batch_columns[col_idx]->insert_from(*columns[col_idx], last_key);
+        columns[col_idx]->pop_back(1);
     }
     _batch_rows = 1;
 }
@@ -137,8 +137,8 @@ void SequenceMapBlockIterator::_output_all_keys(Block* block) {
     DCHECK_GT(_batch_rows, 0);
     auto columns_guard = block->mutate_columns_scoped();
     auto& columns = columns_guard.mutable_columns();
-    for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
-        std::swap(columns[ordinal], _batch_columns[ordinal]);
+    for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx) {
+        std::swap(columns[col_idx], _batch_columns[col_idx]);
     }
     _batch_rows = 0;
 }

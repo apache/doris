@@ -34,6 +34,34 @@
 namespace doris {
 using namespace ErrorCode;
 
+HeapMergeOrder HeapMergeOrder::by_all_keys(HeapSortOrder child_iterator_order) {
+    HeapMergeOrder order;
+    order._child_iterator_order = child_iterator_order;
+    return order;
+}
+
+HeapMergeOrder HeapMergeOrder::by_all_keys_and_same_key_col(int32_t same_key_sort_col_idx,
+                                                            HeapSortOrder same_key_sort_order,
+                                                            HeapSortOrder child_iterator_order) {
+    DORIS_CHECK_GE(same_key_sort_col_idx, 0);
+    HeapMergeOrder order;
+    order._same_key_sort_col_idx = same_key_sort_col_idx;
+    order._same_key_sort_order = same_key_sort_order;
+    order._child_iterator_order = child_iterator_order;
+    return order;
+}
+
+HeapMergeOrder HeapMergeOrder::by_sort_cols(std::vector<uint32_t> sort_col_idxs,
+                                            HeapSortOrder sort_order,
+                                            HeapSortOrder child_iterator_order) {
+    DORIS_CHECK(!sort_col_idxs.empty());
+    HeapMergeOrder order;
+    order._sort_col_idxs = std::move(sort_col_idxs);
+    order._key_sort_order = sort_order;
+    order._child_iterator_order = child_iterator_order;
+    return order;
+}
+
 VHeapMergeIterator::VHeapMergeIterator(std::vector<RowwiseIteratorUPtr> children,
                                        ReadSchemaSPtr read_schema, HeapMergeOrder order)
         : _read_schema(std::move(read_schema)),
@@ -103,33 +131,34 @@ Status VHeapMergeIterator::_read_next_block(Child& child, bool* eof) {
 bool VHeapMergeIterator::_less_than_current_row(uint32_t child, size_t row, uint32_t other) const {
     const Block& block = _children[child].block;
     const Child& other_child = _children[other];
-    if (!_order.sort_columns.empty()) {
-        for (uint32_t ordinal : _order.sort_columns) {
-            const int r = block.get_by_position(ordinal).column->compare_at(
-                    row, other_child.pos, *other_child.block.get_by_position(ordinal).column, -1);
+    const bool key_desc = _order.key_sort_order() == HeapSortOrder::DESC;
+    if (!_order.sort_col_idxs().empty()) {
+        for (uint32_t col_idx : _order.sort_col_idxs()) {
+            const int r = block.get_by_position(col_idx).column->compare_at(
+                    row, other_child.pos, *other_child.block.get_by_position(col_idx).column, -1);
             if (r != 0) {
-                return _order.descending ? r > 0 : r < 0;
+                return key_desc ? r > 0 : r < 0;
             }
         }
     } else {
-        for (size_t ordinal = 0; ordinal < _num_key_columns; ++ordinal) {
+        for (size_t col_idx = 0; col_idx < _num_key_columns; ++col_idx) {
             // NULLs are smallest (-1).
-            const int r = block.get_by_position(ordinal).column->compare_at(
-                    row, other_child.pos, *other_child.block.get_by_position(ordinal).column, -1);
+            const int r = block.get_by_position(col_idx).column->compare_at(
+                    row, other_child.pos, *other_child.block.get_by_position(col_idx).column, -1);
             if (r != 0) {
-                return _order.descending ? r > 0 : r < 0;
+                return key_desc ? r > 0 : r < 0;
             }
         }
     }
-    if (_order.tie_breaker_ordinal >= 0) {
-        const auto pos = static_cast<size_t>(_order.tie_breaker_ordinal);
-        const int r = block.get_by_position(pos).column->compare_at(
-                row, other_child.pos, *other_child.block.get_by_position(pos).column, -1);
+    if (_order.same_key_sort_col_idx() >= 0) {
+        const auto col_idx = static_cast<size_t>(_order.same_key_sort_col_idx());
+        const int r = block.get_by_position(col_idx).column->compare_at(
+                row, other_child.pos, *other_child.block.get_by_position(col_idx).column, -1);
         if (r != 0) {
-            return _order.tie_breaker_ascending ? r < 0 : r > 0;
+            return _order.same_key_sort_order() == HeapSortOrder::ASC ? r < 0 : r > 0;
         }
     }
-    return _order.older_child_first ? child < other : child > other;
+    return _order.child_iterator_order() == HeapSortOrder::ASC ? child < other : child > other;
 }
 
 size_t VHeapMergeIterator::_rows_before_next_child(uint32_t child, size_t limit) const {
@@ -161,22 +190,22 @@ size_t VHeapMergeIterator::_output_row_limit() const {
 }
 
 void VHeapMergeIterator::_copy_rows(MutableColumns& columns, const Child& child, size_t rows) {
-    for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
-        const IColumn& source = *child.block.get_by_position(ordinal).column;
+    for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx) {
+        const IColumn& source = *child.block.get_by_position(col_idx).column;
         if (rows == 1) {
-            columns[ordinal]->insert_from(source, child.pos);
+            columns[col_idx]->insert_from(source, child.pos);
         } else {
-            columns[ordinal]->insert_range_from(source, child.pos, rows);
+            columns[col_idx]->insert_range_from(source, child.pos, rows);
         }
     }
 }
 
 void VHeapMergeIterator::_move_block_to_output(MutableColumns& columns, Child& child) {
-    for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
-        ColumnPtr& child_column = child.block.get_by_position(ordinal).column;
+    for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx) {
+        ColumnPtr& child_column = child.block.get_by_position(col_idx).column;
         MutableColumnPtr rows = IColumn::mutate(std::move(child_column));
-        child_column = std::move(columns[ordinal]);
-        columns[ordinal] = std::move(rows);
+        child_column = std::move(columns[col_idx]);
+        columns[col_idx] = std::move(rows);
     }
 }
 

@@ -40,19 +40,19 @@ UniqueKeyBlockIterator::UniqueKeyBlockIterator(RowwiseIteratorUPtr input,
 void UniqueKeyBlockIterator::_mark_same_keys(const Block& block) {
     const size_t rows = block.rows();
     _same_key.assign(rows, 1);
-    for (size_t ordinal : std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
-        block.get_by_position(ordinal).column->update_equal_flags(_same_key);
+    for (size_t col_idx : std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
+        block.get_by_position(col_idx).column->update_equal_flags(_same_key);
         if (!simd::contain_one(_same_key.data() + 1, rows - 1)) {
             break;
         }
     }
     bool same_first = _has_last_key;
-    for (size_t ordinal : std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
+    for (size_t col_idx : std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
         if (!same_first) {
             break;
         }
-        same_first = _last_key_columns[ordinal]->compare_at(
-                             0, 0, *block.get_by_position(ordinal).column, -1) == 0;
+        same_first = _last_key_columns[col_idx]->compare_at(
+                             0, 0, *block.get_by_position(col_idx).column, -1) == 0;
     }
     _same_key[0] = same_first;
 }
@@ -61,8 +61,8 @@ void UniqueKeyBlockIterator::_save_last_key(const Block& block) {
     const size_t last_row = block.rows() - 1;
     if (!_has_last_key) {
         _last_key_columns.reserve(_num_key_columns);
-        for (size_t ordinal = 0; ordinal < _num_key_columns; ++ordinal) {
-            _last_key_columns.push_back(block.get_by_position(ordinal).column->clone_empty());
+        for (size_t col_idx = 0; col_idx < _num_key_columns; ++col_idx) {
+            _last_key_columns.push_back(block.get_by_position(col_idx).column->clone_empty());
         }
         _has_last_key = true;
     } else {
@@ -70,8 +70,8 @@ void UniqueKeyBlockIterator::_save_last_key(const Block& block) {
             col->clear();
         }
     }
-    for (size_t ordinal = 0; ordinal < _num_key_columns; ++ordinal) {
-        _last_key_columns[ordinal]->insert_from(*block.get_by_position(ordinal).column, last_row);
+    for (size_t col_idx = 0; col_idx < _num_key_columns; ++col_idx) {
+        _last_key_columns[col_idx]->insert_from(*block.get_by_position(col_idx).column, last_row);
     }
 }
 
@@ -90,10 +90,9 @@ Status UniqueKeyBlockIterator::next_block(Block* block, bool* eof) {
         DCHECK_GT(rows, 0);
 
         _mark_same_keys(*block);
-        size_t dropped = 0;
-        for (size_t i = 0; i < rows; ++i) {
-            dropped += _same_key[i];
-        }
+        const size_t kept =
+                simd::count_zero_num(reinterpret_cast<const int8_t*>(_same_key.data()), rows);
+        const size_t dropped = rows - kept;
         if (dropped == rows) {
             // Every row repeated `_last_key_columns`; read on until a new key or EOF.
             *_merged_rows += rows;

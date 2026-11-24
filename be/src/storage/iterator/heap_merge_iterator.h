@@ -32,20 +32,41 @@ namespace doris {
 class RuntimeProfile;
 class RuntimeState;
 
-// Sort order of VHeapMergeIterator. By default, compares the leading key columns of the read
-// schema ascending (NULLs first), with newer children (higher index) first on ties.
-struct HeapMergeOrder {
-    // Optional column position compared when the sort columns are equal, or -1 if none.
-    int32_t tie_breaker_ordinal = -1;
-    // True when smaller values of `tie_breaker_ordinal` sort first (e.g. changelog TSO);
-    // false when larger values sort first (e.g. UNIQUE_KEYS sequence column).
-    bool tie_breaker_ascending = false;
-    // True when an older child (smaller index) sorts first on ties; false when a newer child
-    // sorts first.
-    bool older_child_first = false;
-    // Explicit column positions to compare; when empty, compares `0..num_key_columns - 1`.
-    std::vector<uint32_t> sort_columns;
-    bool descending = false;
+enum class HeapSortOrder : uint8_t {
+    ASC,  // small to large (0 -> N)
+    DESC, // large to small (N -> 0)
+};
+
+// Sort order of VHeapMergeIterator. Full-key merges (with an optional secondary column when keys
+// are equal) and explicit sort-column merges are mutually exclusive, enforced by the factory
+// methods below.
+class HeapMergeOrder {
+public:
+    // Default: compare all leading key columns ascending, newer child (larger index) first.
+    HeapMergeOrder() = default;
+
+    static HeapMergeOrder by_all_keys(HeapSortOrder child_iterator_order = HeapSortOrder::DESC);
+
+    static HeapMergeOrder by_all_keys_and_same_key_col(
+            int32_t same_key_sort_col_idx, HeapSortOrder same_key_sort_order,
+            HeapSortOrder child_iterator_order = HeapSortOrder::DESC);
+
+    static HeapMergeOrder by_sort_cols(std::vector<uint32_t> sort_col_idxs,
+                                       HeapSortOrder sort_order,
+                                       HeapSortOrder child_iterator_order = HeapSortOrder::DESC);
+
+    int32_t same_key_sort_col_idx() const { return _same_key_sort_col_idx; }
+    HeapSortOrder same_key_sort_order() const { return _same_key_sort_order; }
+    HeapSortOrder child_iterator_order() const { return _child_iterator_order; }
+    const std::vector<uint32_t>& sort_col_idxs() const { return _sort_col_idxs; }
+    HeapSortOrder key_sort_order() const { return _key_sort_order; }
+
+private:
+    int32_t _same_key_sort_col_idx = -1;
+    HeapSortOrder _same_key_sort_order = HeapSortOrder::DESC;
+    HeapSortOrder _child_iterator_order = HeapSortOrder::DESC;
+    std::vector<uint32_t> _sort_col_idxs;
+    HeapSortOrder _key_sort_order = HeapSortOrder::ASC;
 };
 
 // Merges key-ordered children into one ordered stream. An output Block may end inside the rows of

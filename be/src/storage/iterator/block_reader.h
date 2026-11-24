@@ -39,7 +39,7 @@
 
 namespace doris {
 class BlockIterator;
-struct HeapMergeOrder;
+class HeapMergeOrder;
 class ColumnPredicate;
 class RuntimeProfile;
 class RuntimeState;
@@ -114,16 +114,16 @@ private:
     BlockIterMode _block_iter_mode(const ReaderParams& read_params,
                                    bool merge_by_sequence_mapping) const;
     Status _init_block_iter(const ReaderParams& read_params, BlockIterMode mode);
-    Status _validate_merge_schema(int32_t tie_breaker_ordinal) const;
-    Status _collect_key_ordered_children(const ReaderParams& read_params,
-                                         std::vector<RowwiseIteratorUPtr>* children);
-    Status _init_changelog_iter(const ReaderParams& read_params, bool is_min_delta);
+    Status _validate_merge_schema(const HeapMergeOrder& order) const;
+    Status _build_heap_merge_iter(const ReaderParams& read_params, HeapMergeOrder order,
+                                  RowwiseIteratorUPtr* merge_iter);
+    Status _init_ordered_block_iter(const ReaderParams& read_params, HeapMergeOrder order,
+                                    std::unique_ptr<BlockIterator>* out_iter);
+    Status _init_changelog_input_iter(const ReaderParams& read_params,
+                                      std::unique_ptr<BlockIterator>* out_iter);
     Status _init_direct_iter(const ReaderParams& read_params,
                              std::unique_ptr<BlockIterator>* out_iter);
-    Status _init_key_ordered_iter(const ReaderParams& read_params,
-                                  std::unique_ptr<BlockIterator>* out_iter);
-    Status _init_heap_merge(std::vector<RowwiseIteratorUPtr> children, HeapMergeOrder order,
-                            RuntimeState* runtime_state, RowwiseIteratorUPtr* merge_iter);
+    Status _init_key_ordered_iter(const ReaderParams& read_params);
     Status _init_unique_key_iter(const ReaderParams& read_params);
     Status _init_sequence_map_iter(const ReaderParams& read_params);
     // Set up `_block_iter` for AGG_FOLD reads.
@@ -171,9 +171,6 @@ private:
     std::vector<int> _agg_data_counters;
     int _last_agg_data_counter = 0;
 
-    // Held for the whole read when `_block_iter` merges segment iterators across rowsets: a rowset
-    // reader keeps its rowset in use until it is destroyed.
-    std::vector<RowsetReaderSharedPtr> _rs_readers;
     std::unique_ptr<BlockIterator> _block_iter;
 
     // Buffer of consecutive rows that share the same primary key, used by

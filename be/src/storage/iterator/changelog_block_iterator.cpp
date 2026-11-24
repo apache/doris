@@ -19,6 +19,7 @@
 
 #include <glog/logging.h>
 
+#include <ranges>
 #include <utility>
 
 #include "common/exception.h"
@@ -26,6 +27,7 @@
 #include "core/column/column_vector.h"
 #include "storage/changelog.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
+#include "util/simd/bits.h"
 
 namespace doris {
 
@@ -103,10 +105,15 @@ Status ChangelogInputCursor::ensure_started() {
 }
 
 Status ChangelogInputCursor::advance() {
+    return advance_to(_pos + 1);
+}
+
+Status ChangelogInputCursor::advance_to(size_t pos) {
     if (_eof) {
         return Status::OK();
     }
-    if (++_pos < _block.rows()) {
+    if (pos < _block.rows()) {
+        _pos = pos;
         return Status::OK();
     }
     return _refill();
@@ -124,6 +131,7 @@ Status ChangelogInputCursor::_refill() {
         }
         if (_block.rows() > 0) {
             _pos = 0;
+            ++_block_id;
             return Status::OK();
         }
     }
@@ -136,34 +144,76 @@ ChangelogMinDeltaBlockIterator::ChangelogMinDeltaBlockIterator(std::unique_ptr<B
           _block_row_max(block_row_max),
           _read_schema(std::move(read_schema)),
           _num_key_columns(_read_schema->num_key_columns()),
-          _op_ordinal(_read_schema->op_ordinal()),
-          _tso_ordinal(_read_schema->tso_ordinal()),
-          _lsn_ordinal(_read_schema->lsn_ordinal()) {
+          _op_col_idx(_read_schema->op_ordinal()),
+          _tso_col_idx(_read_schema->tso_ordinal()),
+          _lsn_col_idx(_read_schema->lsn_ordinal()) {
     DORIS_CHECK_GT(_block_row_max, 0);
-    DORIS_CHECK_GE(_op_ordinal, 0);
+    DORIS_CHECK_GE(_op_col_idx, 0);
 }
 
-void ChangelogMinDeltaBlockIterator::_append_row_to_group() {
+void ChangelogMinDeltaBlockIterator::_mark_block_same_keys() {
     const Block& block = _cursor.block();
-    const size_t pos = _cursor.row_pos();
-    const bool replace_most_recent = _group_columns[0]->size() > 1;
-    for (size_t i = 0; i < _group_columns.size(); ++i) {
-        if (replace_most_recent) {
-            _group_columns[i]->pop_back(1);
+    const size_t rows = block.rows();
+    _same_key.assign(rows, 1);
+    _same_key[0] = 0;
+    if (rows > 1) {
+        for (size_t col_idx :
+             std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
+            block.get_by_position(col_idx).column->update_equal_flags(_same_key);
+            if (!simd::contain_one(_same_key.data() + 1, rows - 1)) {
+                break;
+            }
         }
-        _group_columns[i]->insert_from(*block.get_by_position(i).column, pos);
+    }
+    _same_key_block_id = _cursor.block_id();
+}
+
+void ChangelogMinDeltaBlockIterator::_set_group_row(size_t row_pos, bool replace_last) {
+    const Block& block = _cursor.block();
+    for (size_t col_idx = 0; col_idx < _group_columns.size(); ++col_idx) {
+        if (replace_last) {
+            _group_columns[col_idx]->pop_back(1);
+        }
+        _group_columns[col_idx]->insert_from(*block.get_by_position(col_idx).column, row_pos);
     }
 }
 
-bool ChangelogMinDeltaBlockIterator::_row_belongs_to_group() const {
+bool ChangelogMinDeltaBlockIterator::_first_row_matches_group() const {
     const Block& block = _cursor.block();
-    const size_t pos = _cursor.row_pos();
-    for (size_t k = 0; k < _num_key_columns; ++k) {
-        if (_group_columns[k]->compare_at(0, pos, *block.get_by_position(k).column, -1) != 0) {
+    for (size_t col_idx = 0; col_idx < _num_key_columns; ++col_idx) {
+        if (_group_columns[col_idx]->compare_at(0, 0, *block.get_by_position(col_idx).column, -1) !=
+            0) {
             return false;
         }
     }
     return true;
+}
+
+Status ChangelogMinDeltaBlockIterator::_collect_group() {
+    if (_same_key_block_id != _cursor.block_id()) {
+        _mark_block_same_keys();
+    }
+    size_t pos = _cursor.row_pos();
+    _set_group_row(pos, /*replace_last=*/false);
+    bool first_block_of_group = true;
+    while (true) {
+        const size_t block_rows = _cursor.block().rows();
+        const size_t next_diff = simd::find_zero(_same_key, pos + 1);
+        const size_t run_last = next_diff - 1;
+        if (!first_block_of_group || run_last > pos) {
+            _set_group_row(run_last, /*replace_last=*/_group_columns[0]->size() > 1);
+        }
+        RETURN_IF_ERROR(_cursor.advance_to(next_diff));
+        if (next_diff < block_rows || _cursor.eof()) {
+            return Status::OK();
+        }
+        _mark_block_same_keys();
+        if (!_first_row_matches_group()) {
+            return Status::OK();
+        }
+        pos = 0;
+        first_block_of_group = false;
+    }
 }
 
 bool ChangelogMinDeltaBlockIterator::_group_values_unchanged() {
@@ -174,15 +224,15 @@ bool ChangelogMinDeltaBlockIterator::_group_values_unchanged() {
     }
     const size_t last_row = _last_group_row();
     bool before_image_available = false;
-    for (const auto& [after_idx, before_idx] : value_column_pairs) {
-        const auto* before_column = _group_columns[before_idx].get();
+    for (const auto& [after_col_idx, before_col_idx] : value_column_pairs) {
+        const auto* before_column = _group_columns[before_col_idx].get();
         if (const auto* nullable = check_and_get_column<ColumnNullable>(*before_column)) {
             before_image_available |= !nullable->is_null_at(0);
         } else {
             before_image_available = true;
         }
         try {
-            if (before_column->compare_at(0, last_row, *_group_columns[after_idx], -1) != 0) {
+            if (before_column->compare_at(0, last_row, *_group_columns[after_col_idx], -1) != 0) {
                 return false;
             }
         } catch (const Exception& e) {
@@ -200,12 +250,12 @@ bool ChangelogMinDeltaBlockIterator::_group_values_unchanged() {
 
 Status ChangelogMinDeltaBlockIterator::_append_insert_row(MutableColumns& columns) const {
     const size_t last_row = _last_group_row();
-    for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
-        if (std::cmp_equal(ordinal, _op_ordinal)) {
+    for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx) {
+        if (std::cmp_equal(col_idx, _op_col_idx)) {
             RETURN_IF_ERROR(
-                    write_changelog_op(*columns[ordinal], changelog::StreamChangeOp::INSERT));
+                    write_changelog_op(*columns[col_idx], changelog::StreamChangeOp::INSERT));
         } else {
-            columns[ordinal]->insert_from(*_group_columns[ordinal], last_row);
+            columns[col_idx]->insert_from(*_group_columns[col_idx], last_row);
         }
     }
     return Status::OK();
@@ -213,30 +263,30 @@ Status ChangelogMinDeltaBlockIterator::_append_insert_row(MutableColumns& column
 
 Status ChangelogMinDeltaBlockIterator::_append_delete_row(MutableColumns& columns) const {
     const size_t last_row = _last_group_row();
-    for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
-        if (std::cmp_equal(ordinal, _op_ordinal)) {
+    for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx) {
+        if (std::cmp_equal(col_idx, _op_col_idx)) {
             RETURN_IF_ERROR(
-                    write_changelog_op(*columns[ordinal], changelog::StreamChangeOp::DELETE));
-        } else if (std::cmp_equal(ordinal, _lsn_ordinal) || std::cmp_equal(ordinal, _tso_ordinal)) {
-            columns[ordinal]->insert_from(*_group_columns[ordinal], last_row);
+                    write_changelog_op(*columns[col_idx], changelog::StreamChangeOp::DELETE));
+        } else if (std::cmp_equal(col_idx, _lsn_col_idx) || std::cmp_equal(col_idx, _tso_col_idx)) {
+            columns[col_idx]->insert_from(*_group_columns[col_idx], last_row);
         } else {
-            const uint32_t before_ordinal =
-                    _read_schema->before_column_ordinal(static_cast<uint32_t>(ordinal));
-            columns[ordinal]->insert_from(*_group_columns[before_ordinal], 0);
+            const uint32_t before_col_idx =
+                    _read_schema->before_column_ordinal(static_cast<uint32_t>(col_idx));
+            columns[col_idx]->insert_from(*_group_columns[before_col_idx], 0);
         }
     }
     return Status::OK();
 }
 
 Status ChangelogMinDeltaBlockIterator::_append_update_before_row(MutableColumns& columns) const {
-    for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
-        if (std::cmp_equal(ordinal, _op_ordinal)) {
-            RETURN_IF_ERROR(write_changelog_op(*columns[ordinal],
+    for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx) {
+        if (std::cmp_equal(col_idx, _op_col_idx)) {
+            RETURN_IF_ERROR(write_changelog_op(*columns[col_idx],
                                                changelog::StreamChangeOp::UPDATE_BEFORE));
         } else {
-            const uint32_t before_ordinal =
-                    _read_schema->before_column_ordinal(static_cast<uint32_t>(ordinal));
-            columns[ordinal]->insert_from(*_group_columns[before_ordinal], 0);
+            const uint32_t before_col_idx =
+                    _read_schema->before_column_ordinal(static_cast<uint32_t>(col_idx));
+            columns[col_idx]->insert_from(*_group_columns[before_col_idx], 0);
         }
     }
     return Status::OK();
@@ -244,12 +294,12 @@ Status ChangelogMinDeltaBlockIterator::_append_update_before_row(MutableColumns&
 
 Status ChangelogMinDeltaBlockIterator::_append_update_after_row(MutableColumns& columns) const {
     const size_t last_row = _last_group_row();
-    for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
-        if (std::cmp_equal(ordinal, _op_ordinal)) {
+    for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx) {
+        if (std::cmp_equal(col_idx, _op_col_idx)) {
             RETURN_IF_ERROR(
-                    write_changelog_op(*columns[ordinal], changelog::StreamChangeOp::UPDATE_AFTER));
+                    write_changelog_op(*columns[col_idx], changelog::StreamChangeOp::UPDATE_AFTER));
         } else {
-            columns[ordinal]->insert_from(*_group_columns[ordinal], last_row);
+            columns[col_idx]->insert_from(*_group_columns[col_idx], last_row);
         }
     }
     return Status::OK();
@@ -269,7 +319,7 @@ Status ChangelogMinDeltaBlockIterator::_emit_update_pair(MutableColumns& target_
 
 Status ChangelogMinDeltaBlockIterator::_emit_group(MutableColumns& target_columns,
                                                    size_t* output_rows) {
-    const auto& op_column = *_group_columns[static_cast<size_t>(_op_ordinal)];
+    const auto& op_column = *_group_columns[static_cast<size_t>(_op_col_idx)];
     const ChangelogOp first_op = read_changelog_op(op_column, 0);
     const ChangelogOp last_op = read_changelog_op(op_column, _last_group_row());
 
@@ -323,13 +373,7 @@ Status ChangelogMinDeltaBlockIterator::_fill_block(MutableColumns& target_column
         if (_cursor.eof()) {
             break;
         }
-        _append_row_to_group();
-        RETURN_IF_ERROR(_cursor.advance());
-
-        if (!_cursor.eof() && _row_belongs_to_group()) {
-            continue;
-        }
-
+        RETURN_IF_ERROR(_collect_group());
         RETURN_IF_ERROR(_emit_group(target_columns, output_rows));
         for (auto& column : _group_columns) {
             column->clear();
@@ -344,9 +388,9 @@ ChangelogDetailBlockIterator::ChangelogDetailBlockIterator(std::unique_ptr<Block
         : _cursor(std::move(input), read_schema),
           _block_row_max(block_row_max),
           _read_schema(std::move(read_schema)),
-          _op_ordinal(_read_schema->op_ordinal()) {
+          _op_col_idx(_read_schema->op_ordinal()) {
     DORIS_CHECK_GT(_block_row_max, 0);
-    DORIS_CHECK_GE(_op_ordinal, 0);
+    DORIS_CHECK_GE(_op_col_idx, 0);
 }
 
 Status ChangelogDetailBlockIterator::_append_change_row(MutableColumns& target_columns,
@@ -354,16 +398,15 @@ Status ChangelogDetailBlockIterator::_append_change_row(MutableColumns& target_c
                                                         bool use_before) const {
     const Block& src_block = _cursor.block();
     const size_t pos = _cursor.row_pos();
-    for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
-        if (std::cmp_equal(ordinal, _op_ordinal)) {
-            RETURN_IF_ERROR(write_changelog_op(*target_columns[ordinal], output_op));
+    for (size_t col_idx = 0; col_idx < target_columns.size(); ++col_idx) {
+        if (std::cmp_equal(col_idx, _op_col_idx)) {
+            RETURN_IF_ERROR(write_changelog_op(*target_columns[col_idx], output_op));
             continue;
         }
-        const uint32_t source_ordinal =
-                use_before ? _read_schema->before_column_ordinal(static_cast<uint32_t>(ordinal))
-                           : static_cast<uint32_t>(ordinal);
-        target_columns[ordinal]->insert_from(*src_block.get_by_position(source_ordinal).column,
-                                             pos);
+        const uint32_t src_col_idx =
+                use_before ? _read_schema->before_column_ordinal(static_cast<uint32_t>(col_idx))
+                           : static_cast<uint32_t>(col_idx);
+        target_columns[col_idx]->insert_from(*src_block.get_by_position(src_col_idx).column, pos);
     }
     return Status::OK();
 }
@@ -414,7 +457,7 @@ Status ChangelogDetailBlockIterator::next_block(Block* block, bool* eof) {
                 break;
             }
             const ChangelogOp op = read_changelog_op(
-                    *_cursor.block().get_by_position(static_cast<size_t>(_op_ordinal)).column,
+                    *_cursor.block().get_by_position(static_cast<size_t>(_op_col_idx)).column,
                     _cursor.row_pos());
             RETURN_IF_ERROR(_emit_change(op, target_columns, &output_rows));
             RETURN_IF_ERROR(_cursor.advance());

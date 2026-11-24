@@ -421,4 +421,80 @@ TEST_F(BlockReaderUniqueKeyIterTest, KeepsWinningRowBySequenceAndSegmentOrderAnd
     }
 }
 
+namespace {
+
+std::vector<std::weak_ptr<RowsetReader>> attach_rowsets_with_weak_refs(
+        const std::vector<RowsetSharedPtr>& rowsets, TabletReader::ReaderParams* params) {
+    TabletReadSource read_source;
+    std::vector<std::weak_ptr<RowsetReader>> weak_readers;
+    for (const auto& rs : rowsets) {
+        RowsetReaderSharedPtr rs_reader;
+        DORIS_CHECK(rs->create_reader(&rs_reader).ok());
+        weak_readers.push_back(rs_reader);
+        read_source.rs_splits.emplace_back(std::move(rs_reader));
+    }
+    read_source.fill_delete_predicates();
+    params->set_read_source(std::move(read_source));
+    return weak_readers;
+}
+
+std::vector<Row> next_block_rows(BlockReader* reader, const ReadSchema& read_schema, bool* eof) {
+    Block block = read_schema.create_read_block();
+    DORIS_CHECK(reader->next_block_with_aggregation(&block, eof).ok());
+    return rows_of(block);
+}
+
+std::vector<Row> drain_remaining_rows(BlockReader* reader, const ReadSchema& read_schema,
+                                      bool* eof) {
+    std::vector<Row> out;
+    while (!*eof) {
+        auto part = next_block_rows(reader, read_schema, eof);
+        out.insert(out.end(), part.begin(), part.end());
+    }
+    return out;
+}
+
+} // namespace
+
+TEST_F(BlockReaderUniqueKeyIterTest, ReleasesMergedRowsetReadersAsSegmentsReachEof) {
+    config::enable_new_block_iterator = true;
+    auto schema = make_unique_schema(/*with_seq=*/false, /*with_delete_sign=*/false);
+    auto tablet = create_tablet(*schema);
+    // Overlapping key ranges force VHeapMergeIterator: rs0 has keys {1, 2}, rs1 has keys {1, 3, 4, 5}.
+    std::vector<RowsetSharedPtr> rowsets = {
+            write_rowset(schema, {{{1, 10}, {2, 20}}}, /*version=*/2),
+            write_rowset(schema, {{{1, 11}, {3, 30}, {4, 40}, {5, 50}}}, /*version=*/3),
+    };
+
+    TabletReader::ReaderParams params;
+    params.tablet = tablet;
+    params.tablet_schema = schema;
+    params.reader_type = ReaderType::READER_QUERY;
+    params.version = Version(0, 3);
+    params.read_schema = std::make_shared<ReadSchema>(schema->columns());
+    auto weak_readers = attach_rowsets_with_weak_refs(rowsets, &params);
+    auto expired_state = [&]() {
+        return std::pair<bool, bool> {weak_readers[0].expired(), weak_readers[1].expired()};
+    };
+
+    BlockReader reader;
+    reader.set_batch_size(2);
+    ASSERT_TRUE(reader.init(params).ok());
+    params.rs_splits.clear();
+    EXPECT_EQ(expired_state(), (std::pair<bool, bool> {false, false}));
+
+    bool eof = false;
+    // Batch 1 emits {1,11} from rs1 and stops before rs0's whole block so batch 2 can move it.
+    EXPECT_EQ(next_block_rows(&reader, *params.read_schema, &eof), (std::vector<Row> {{1, 11}}));
+    EXPECT_EQ(expired_state(), (std::pair<bool, bool> {false, false}));
+
+    // Batch 2 moves rs0's {1,10},{2,20}, drops duplicate key 1, and hits EOF on rs0 immediately.
+    EXPECT_EQ(next_block_rows(&reader, *params.read_schema, &eof), (std::vector<Row> {{2, 20}}));
+    EXPECT_EQ(expired_state(), (std::pair<bool, bool> {true, false}));
+
+    EXPECT_EQ(drain_remaining_rows(&reader, *params.read_schema, &eof),
+              (std::vector<Row> {{3, 30}, {4, 40}, {5, 50}}));
+    EXPECT_EQ(expired_state(), (std::pair<bool, bool> {true, true}));
+}
+
 } // namespace doris

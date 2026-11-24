@@ -44,17 +44,19 @@ private:
     bool _has_row = false;
 };
 
-// Steps row by row over a BlockIterator, reading its first Block lazily on first use.
+// Steps over a BlockIterator, reading its first Block lazily on first use.
 class ChangelogInputCursor {
 public:
     ChangelogInputCursor(std::unique_ptr<BlockIterator> input, ReadSchemaSPtr read_schema);
 
     Status ensure_started();
     Status advance();
+    Status advance_to(size_t pos);
 
     bool eof() const { return _eof; }
     const Block& block() const { return _block; }
     size_t row_pos() const { return _pos; }
+    uint64_t block_id() const { return _block_id; }
 
     void update_profile(RuntimeProfile* profile) { _input->update_profile(profile); }
 
@@ -65,12 +67,15 @@ private:
     const ReadSchemaSPtr _read_schema;
     Block _block;
     size_t _pos = 0;
+    uint64_t _block_id = 0;
     bool _started = false;
     bool _eof = false;
 };
 
 // Folds consecutive (key, TSO)-ordered changelog rows of each primary key into its minimum net
-// change (SKIP, INSERT, DELETE, or UPDATE_BEFORE + UPDATE_AFTER) for MIN_DELTA scans.
+// change (SKIP, INSERT, DELETE, or UPDATE_BEFORE + UPDATE_AFTER) for MIN_DELTA scans. Only the
+// first and last row of each key group are copied into `_group_columns`; intermediate rows are
+// skipped via block-level `update_equal_flags`.
 class ChangelogMinDeltaBlockIterator final : public BlockIterator {
 public:
     ChangelogMinDeltaBlockIterator(std::unique_ptr<BlockIterator> input, size_t block_row_max,
@@ -82,8 +87,10 @@ public:
 
 private:
     Status _fill_block(MutableColumns& target_columns, size_t* output_rows);
-    void _append_row_to_group();
-    bool _row_belongs_to_group() const;
+    Status _collect_group();
+    void _mark_block_same_keys();
+    void _set_group_row(size_t row_pos, bool replace_last);
+    bool _first_row_matches_group() const;
     bool _group_values_unchanged();
     Status _emit_group(MutableColumns& target_columns, size_t* output_rows);
     Status _emit_update_pair(MutableColumns& target_columns, size_t* output_rows);
@@ -97,11 +104,13 @@ private:
     const size_t _block_row_max;
     const ReadSchemaSPtr _read_schema;
     const size_t _num_key_columns;
-    const int32_t _op_ordinal;
-    const int32_t _tso_ordinal;
-    const int32_t _lsn_ordinal;
+    const int32_t _op_col_idx;
+    const int32_t _tso_col_idx;
+    const int32_t _lsn_col_idx;
 
     MutableColumns _group_columns;
+    EqualFlags _same_key;
+    uint64_t _same_key_block_id = 0;
     ChangelogPendingRow _pending_row;
     bool _value_compare_unsupported = false;
 };
@@ -125,7 +134,7 @@ private:
     ChangelogInputCursor _cursor;
     const size_t _block_row_max;
     const ReadSchemaSPtr _read_schema;
-    const int32_t _op_ordinal;
+    const int32_t _op_col_idx;
     ChangelogPendingRow _pending_row;
 };
 

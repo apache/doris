@@ -426,4 +426,34 @@ TEST_F(BlockReaderChangelogIterTest, MergesByKeyAndTsoOldestFirstForMinDeltaAndD
     }
 }
 
+// Multiple consecutive intermediate UPDATEs for one key (both inside a single Block and spanning
+// across Block boundaries) skip copying middle rows while preserving first-before and last-after.
+TEST(ChangelogBlockIteratorUnitTest, MinDeltaSkipsIntermediateUpdatesWithinAndAcrossBlocks) {
+    auto tablet_schema = make_changelog_schema();
+    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns());
+    ASSERT_TRUE(read_schema->init_from_tablet_schema(*tablet_schema, false, true).ok());
+
+    const auto U = static_cast<int64_t>(ChangelogOp::UPDATE);
+    auto input = std::make_unique<FakeBlockInput>(
+            read_schema, std::vector<std::vector<Row>> {
+                                 {{1, 20, 10, 1, 1, U}, {1, 30, 20, 2, 2, U}, {1, 40, 30, 3, 3, U}},
+                                 {{1, 50, 40, 4, 4, U}},
+                                 {{1, 60, 50, 5, 5, U}, {2, 200, 100, 6, 6, U}},
+                         });
+    ChangelogMinDeltaBlockIterator iter(std::move(input), /*block_row_max=*/16, read_schema);
+
+    Block block = read_schema->create_read_block();
+    bool eof = false;
+    ASSERT_TRUE(iter.next_block(&block, &eof).ok());
+    EXPECT_FALSE(eof);
+    const auto UB = static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE);
+    const auto UA = static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER);
+    auto out = rows_of(block);
+    ASSERT_EQ(out.size(), 4U);
+    EXPECT_EQ((Row {out[0][0], out[0][1], out[0][5]}), (Row {1, 10, UB}));
+    EXPECT_EQ((Row {out[1][0], out[1][1], out[1][5]}), (Row {1, 60, UA}));
+    EXPECT_EQ((Row {out[2][0], out[2][1], out[2][5]}), (Row {2, 100, UB}));
+    EXPECT_EQ((Row {out[3][0], out[3][1], out[3][5]}), (Row {2, 200, UA}));
+}
+
 } // namespace doris
