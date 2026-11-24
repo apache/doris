@@ -30,7 +30,7 @@ import java.util.Objects;
 /**
  * Represents the command for ALTER CATALOG ... SET PROPERTIES.
  */
-public class AlterCatalogPropertiesCommand extends AlterCatalogCommand {
+public class AlterCatalogPropertiesCommand extends AlterCatalogCommand implements NeedAuditEncryption {
     private final Map<String, String> newProperties;
 
     public AlterCatalogPropertiesCommand(String catalogName, Map<String, String> properties) {
@@ -44,6 +44,12 @@ public class AlterCatalogPropertiesCommand extends AlterCatalogCommand {
         PropertyAnalyzer.checkCatalogProperties(newProperties, true);
 
         Env.getCurrentEnv().getCatalogMgr().alterCatalogProps(catalogName, newProperties);
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        // ALTER carries the same raw connection properties as CREATE in audit SQL.
+        return true;
     }
 
     @Override

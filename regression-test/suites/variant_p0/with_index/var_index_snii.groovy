@@ -19,8 +19,8 @@ suite("regression_test_variant_var_index_snii", "p0, nonConcurrent"){
     // V2 execution keeps a JSON string as a string Variant value; V1 parsed it on insert.
     def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql "SET enable_segment_limit_pushdown=true"
-    sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
+    sql """ set debug_variant_enable_doc_mode = false """
 
     // enable_match_without_inverted_index only gates MATCH_PRED's residual row-level fallback
     // (see match.cpp / olap_scan_operator.cpp); it has no effect on a plain `>` predicate, so a

@@ -18,7 +18,7 @@
 suite("dotted_key_escape_rewrite", "p0,nonConcurrent") {
     setFeConfigTemporary([enable_variant_v2: true, enable_variant_escape_dots_in_keys: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
-    sql "set default_variant_enable_doc_mode=false"
+    sql "set debug_variant_enable_doc_mode=false"
     sql "set describe_extend_variant_column=true"
     // The model and column-group width are the variables under test.
     ["dup", "mow"].each { model ->

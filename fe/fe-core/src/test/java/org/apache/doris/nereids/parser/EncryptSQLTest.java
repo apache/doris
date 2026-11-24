@@ -210,7 +210,7 @@ public class EncryptSQLTest extends ParserTestBase {
 
         sql = "INSERT INTO test_s3load "
                 + "SELECT * FROM s3_tbl("
-                + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
+                + " \"uri\" = \"s3://example-bucket/s3load_example.csv\","
                 + " \"format\" = \"csv\","
                 + " \"provider\" = \"OSS\","
                 + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
@@ -223,7 +223,7 @@ public class EncryptSQLTest extends ParserTestBase {
 
         res = "INSERT INTO test_s3load "
                 + "SELECT * FROM s3_tbl("
-                + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
+                + " \"uri\" = \"s3://example-bucket/s3load_example.csv\","
                 + " \"format\" = \"csv\","
                 + " \"provider\" = \"OSS\","
                 + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
@@ -236,7 +236,7 @@ public class EncryptSQLTest extends ParserTestBase {
         parseAndCheck(sql, res);
 
         sql = "SELECT * FROM s3_tbl("
-                + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
+                + " \"uri\" = \"s3://example-bucket/s3load_example.csv\","
                 + " \"format\" = \"csv\","
                 + " \"provider\" = \"OSS\","
                 + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
@@ -248,7 +248,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 + ")";
 
         res = "SELECT * FROM s3_tbl("
-                + " \"uri\" = \"s3://your_bucket_name/s3load_example.csv\","
+                + " \"uri\" = \"s3://example-bucket/s3load_example.csv\","
                 + " \"format\" = \"csv\","
                 + " \"provider\" = \"OSS\","
                 + " \"s3.endpoint\" = \"oss-cn-hangzhou.aliyuncs.com\","
@@ -349,7 +349,7 @@ public class EncryptSQLTest extends ParserTestBase {
         res = "CREATE JOB my_mysql_job "
                 + "ON STREAMING "
                 + "FROM MYSQL ( "
-                + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
+                + "\"jdbc_url\" = \"*XXX\", "
                 + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
                 + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
                 + "\"user\" = \"root\", "
@@ -379,7 +379,7 @@ public class EncryptSQLTest extends ParserTestBase {
 
         res = "ALTER JOB my_mysql_job "
                 + "FROM MYSQL ( "
-                + "\"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306\", "
+                + "\"jdbc_url\" = \"*XXX\", "
                 + "\"driver_url\" = \"mysql-connector-j-8.4.0.jar\", "
                 + "\"driver_class\" = \"com.mysql.cj.jdbc.Driver\", "
                 + "\"user\" = \"mysql_job_priv\", "

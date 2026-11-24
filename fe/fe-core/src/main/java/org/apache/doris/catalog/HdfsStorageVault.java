@@ -39,6 +39,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -189,6 +190,9 @@ public class HdfsStorageVault extends StorageVault {
                         "%s is required for kerberos", PropertyKey.HADOOP_KERBEROS_PRINCIPAL);
                 Preconditions.checkArgument(lowerCaseKeys.contains(PropertyKey.HADOOP_KERBEROS_KEYTAB),
                         "%s is required for kerberos", PropertyKey.HADOOP_KERBEROS_KEYTAB);
+                hdfsConfBuilder.addHdfsConfs(Cloud.HdfsBuildConf.HdfsConfKVPair.newBuilder()
+                        .setKey(PropertyKey.HADOOP_SECURITY_AUTHENTICATION)
+                        .setValue(property.getValue().toLowerCase(Locale.ROOT)));
             } else if (property.getKey().equalsIgnoreCase(PropertyKey.HADOOP_KERBEROS_PRINCIPAL)) {
                 Preconditions.checkArgument(!Strings.isNullOrEmpty(property.getValue()),
                         "%s is null or empty", property.getKey());

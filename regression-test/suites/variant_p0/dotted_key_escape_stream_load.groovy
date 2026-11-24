@@ -18,7 +18,7 @@
 suite("dotted_key_escape_stream_load", "p0,nonConcurrent") {
     setFeConfigTemporary([enable_variant_v2: true, enable_variant_escape_dots_in_keys: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
-    sql "set default_variant_enable_doc_mode=false"
+    sql "set debug_variant_enable_doc_mode=false"
     sql "drop table if exists dotted_key_escape_stream_load"
     sql """create table dotted_key_escape_stream_load(id int,v variant<properties(
         "variant_enable_nested_group"="false",

@@ -2266,6 +2266,16 @@ public class IcebergUtils {
 
     // read schema from iceberg.schema entry
     public static IcebergSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
+        if (dorisTable instanceof IcebergExternalTable && dorisTable.isView()) {
+            // Per-user view metadata must not be read through the shared catalog cache.
+            if (useSessionCatalog(dorisTable)) {
+                IcebergSchemaCacheValue value =
+                        (IcebergSchemaCacheValue) loadViewSchemaCacheValue(dorisTable, schemaId).get();
+                value.validateSchema();
+                return value;
+            }
+            return icebergExternalMetaCache(dorisTable).getIcebergViewSchemaCacheValue(dorisTable, schemaId);
+        }
         if (useSessionCatalog(dorisTable)) {
             return buildTableSchemaCacheValue(dorisTable, schemaId, loadIcebergTableWithSession(dorisTable));
         }
@@ -2748,6 +2758,9 @@ public class IcebergUtils {
     }
 
     public static List<Column> getIcebergSchema(ExternalTable dorisTable, Optional<MvccSnapshot> snapshot) {
+        if (dorisTable instanceof IcebergExternalTable && dorisTable.isView()) {
+            return getSchemaCacheValue(dorisTable, NEWEST_SCHEMA_ID).getSchema();
+        }
         if (useSessionCatalog(dorisTable) && dorisTable.isView()) {
             return loadViewSchemaCacheValue(dorisTable, NEWEST_SCHEMA_ID).get().getSchema();
         }

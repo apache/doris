@@ -57,19 +57,16 @@ public class IcebergWriteKnownBugsTest {
     private static final String DELETED = "s3://bucket/events/deleted.parquet";
 
     @Test
-    @Disabled("Known issue: DELETE ignores the standard snapshot isolation property.")
     public void deleteHonorsStandardSnapshotIsolationProperty() throws Exception {
         assertStandardSnapshotIsolation(Operation.DELETE, "write.delete.isolation-level");
     }
 
     @Test
-    @Disabled("Known issue: UPDATE ignores the standard snapshot isolation property.")
     public void updateHonorsStandardSnapshotIsolationProperty() throws Exception {
         assertStandardSnapshotIsolation(Operation.UPDATE, "write.update.isolation-level");
     }
 
     @Test
-    @Disabled("Known issue: MERGE ignores the standard snapshot isolation property.")
     public void mergeHonorsStandardSnapshotIsolationProperty() throws Exception {
         assertStandardSnapshotIsolation(Operation.MERGE, "write.merge.isolation-level");
     }

@@ -90,7 +90,7 @@ public class StmtExecutorTest extends TestWithFeService {
     private static final String MASKED_STMT_FALLBACK = "/* masked statement unavailable */";
 
     @Test
-    public void testCancelBeforeCoordinatorRetainsFirstReasonWithoutGlobalReplay() {
+    public void testLateCoordinatorReceivesFirstCancelReason() {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         Status first = new Status(TStatusCode.CANCELLED, "first cancellation");
         Status second = new Status(TStatusCode.CANCELLED, "second cancellation");
@@ -101,11 +101,12 @@ public class StmtExecutorTest extends TestWithFeService {
         Assertions.assertSame(first, stmtExecutor.getPendingCancelReason());
         Coordinator coordinator = Mockito.mock(Coordinator.class);
         stmtExecutor.setCoord(coordinator);
-        Mockito.verifyNoInteractions(coordinator);
+        Mockito.verify(coordinator).cancel(first);
+        Mockito.verifyNoMoreInteractions(coordinator);
     }
 
     @Test
-    public void testExistingCoordinatorReceivesEachOriginalCancelReason() {
+    public void testPublishedCoordinatorRetainsFirstCancelReason() {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         Coordinator coordinator = Mockito.mock(Coordinator.class);
         stmtExecutor.setCoord(coordinator);
@@ -116,10 +117,8 @@ public class StmtExecutorTest extends TestWithFeService {
         stmtExecutor.cancel(second, false);
 
         Assertions.assertSame(first, stmtExecutor.getPendingCancelReason());
-        org.mockito.InOrder delivery = Mockito.inOrder(coordinator);
-        delivery.verify(coordinator).cancel(first);
-        delivery.verify(coordinator).cancel(second);
-        delivery.verifyNoMoreInteractions();
+        Mockito.verify(coordinator, Mockito.times(2)).cancel(first);
+        Mockito.verifyNoMoreInteractions(coordinator);
     }
 
     @Test

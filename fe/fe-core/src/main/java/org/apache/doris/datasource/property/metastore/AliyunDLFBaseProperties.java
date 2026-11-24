@@ -30,6 +30,7 @@ import java.util.Map;
 
 public class AliyunDLFBaseProperties {
     @ConnectorProperty(names = {"dlf.access_key", "dlf.catalog.accessKeyId"},
+            sensitive = true,
             description = "The access key of the Aliyun DLF.")
     protected String dlfAccessKey = "";
 

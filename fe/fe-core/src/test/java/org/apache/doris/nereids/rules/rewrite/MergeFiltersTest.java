@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -52,5 +54,22 @@ class MergeFiltersTest implements MemoPatternMatchSupported {
                 .matches(
                         logicalFilter().when(filter -> filter.getConjuncts()
                                 .equals(ImmutableSet.of(expression1, expression2, expression3))));
+    }
+
+    @Test
+    void testMergeConsecutiveFiltersInOneCall() {
+        Expression expression1 = new IntegerLiteral(1);
+        Expression expression2 = new IntegerLiteral(2);
+        Expression expression3 = new IntegerLiteral(3);
+        LogicalFilter<?> filter = (LogicalFilter<?>) new LogicalPlanBuilder(scan)
+                .filter(ImmutableSet.of(expression1, expression2))
+                .filter(ImmutableSet.of(expression2))
+                .filter(ImmutableSet.of(expression3))
+                .build();
+
+        LogicalFilter<?> merged = MergeFilters.mergeFilters(filter);
+        Assertions.assertSame(scan, merged.child());
+        Assertions.assertEquals(ImmutableSet.of(expression1, expression2, expression3), merged.getConjuncts());
+        Assertions.assertSame(merged, MergeFilters.mergeFilters(merged));
     }
 }

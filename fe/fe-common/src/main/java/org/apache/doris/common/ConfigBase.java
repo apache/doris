@@ -85,6 +85,14 @@ public class ConfigBase {
         }
     }
 
+    public static class RegexConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            Pattern.compile(confVal.trim());
+            setConfigField(field, confVal);
+        }
+    }
+
     // The value must be one of the annotation's options; stored as the option's own spelling.
     public static class OptionsConfHandler implements ConfHandler {
         @Override
@@ -311,6 +319,11 @@ public class ConfigBase {
             }
 
             try {
+                // Validate masking rules before publication, including startup and custom configuration.
+                if (anno.callback() == RegexConfHandler.class) {
+                    new RegexConfHandler().handle(f, confVal);
+                    continue;
+                }
                 // Runtime callbacks can have side effects; only pure value validators run here.
                 if (anno.callback() == OptionsConfHandler.class) {
                     confVal = OptionsConfHandler.checkedOption(f, confVal);
