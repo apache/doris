@@ -231,9 +231,6 @@ extMinioSk = "minioadmin"
 extMinioRegion = "us-east-1"
 extMinioBucket = "test-bucket"
 
-enableExternalHudiTest = false
-hudiEmrCatalog = "***********"
-
 enableObjStorageTest=false
 enableMaxComputeTest=false
 aliYunAk="***********"
@@ -319,9 +316,6 @@ enableExternalIcebergTest = false
 // The properties string of iceberg catalog
 icebergS3TablesCatalog = ""
 
-enableExternalHudiTest = false
-// The properties string of hudi catalog
-hudiEmrCatalog = ""
 icebergS3TablesCatalog=""
 icebergS3TablesCatalogGlueRest=""
 
