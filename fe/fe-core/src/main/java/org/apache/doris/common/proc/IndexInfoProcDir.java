@@ -130,7 +130,7 @@ public class IndexInfoProcDir implements ProcDirInterface {
                 bfColumns = olapTable.getCopiedBfColumns();
                 if (olapTable.hasVariantColumns()
                                     && SessionVariable.enableDescribeExtendVariantColumn()) {
-                    return new RemoteIndexSchemaProcDir(table, schema, bfColumns);
+                    return new RemoteIndexSchemaProcDir(olapTable, idxId);
                 }
             } else {
                 schema = table.getBaseSchema();
@@ -140,4 +140,5 @@ public class IndexInfoProcDir implements ProcDirInterface {
             table.readUnlock();
         }
     }
+
 }
