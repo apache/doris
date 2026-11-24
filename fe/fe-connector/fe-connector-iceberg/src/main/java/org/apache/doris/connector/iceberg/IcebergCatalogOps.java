@@ -354,9 +354,9 @@ public interface IcebergCatalogOps {
                 return nsCatalog.listNamespaces(parentNs).stream()
                         .flatMap(childNs -> {
                             try {
-                                String dbName = toDatabaseName(childNs);
+                                // A dropped child can have a name Doris cannot represent. Check it still exists first.
                                 List<String> descendants = listNestedNamespaces(childNs);
-                                return Stream.concat(Stream.of(dbName), descendants.stream());
+                                return Stream.concat(Stream.of(toDatabaseName(childNs)), descendants.stream());
                             } catch (NoSuchNamespaceException e) {
                                 // A child can be dropped after its parent was listed. Skip that branch,
                                 // including the stale child name, without hiding failures to list the root.

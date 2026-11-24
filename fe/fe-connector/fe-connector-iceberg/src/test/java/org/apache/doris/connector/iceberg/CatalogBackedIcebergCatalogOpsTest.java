@@ -109,6 +109,20 @@ public class CatalogBackedIcebergCatalogOpsTest {
     }
 
     @Test
+    public void listDatabaseNamesSkipsDeletedDottedChildUnderConfiguredRoot() {
+        FailingNamespaceCatalog catalog = new FailingNamespaceCatalog();
+        Namespace root = Namespace.of("root");
+        Namespace deleted = Namespace.of("root", "a.b");
+        Namespace sibling = Namespace.of("root", "live");
+        catalog.childNamespaces.put(root, Arrays.asList(deleted, sibling));
+        catalog.failures.put(deleted, new NoSuchNamespaceException("Namespace does not exist: %s", deleted));
+
+        List<String> result = ops(catalog, true, true, true, Optional.of("root")).listDatabaseNames();
+
+        Assertions.assertEquals(Collections.singletonList("root.live"), result);
+    }
+
+    @Test
     public void listDatabaseNamesPropagatesMissingRootNamespace() {
         for (Optional<String> externalCatalogName : Arrays.asList(Optional.<String>empty(), Optional.of("cat"))) {
             FailingNamespaceCatalog catalog = new FailingNamespaceCatalog();
