@@ -28,8 +28,12 @@ suite("test_iceberg_orc_floating_minmax", "p0,external,iceberg,external_docker,e
         StringBuilder stdout = new StringBuilder()
         StringBuilder stderr = new StringBuilder()
         def process = new ProcessBuilder(command).start()
-        process.consumeProcessOutput(stdout, stderr)
+        Thread outputReader = process.consumeProcessOutputStream(stdout)
+        Thread errorReader = process.consumeProcessErrorStream(stderr)
         process.waitForOrKill(300000)
+        // Process exit can precede output-consumer completion; read every SDK marker before checking.
+        outputReader.join()
+        errorReader.join()
         assertEquals(0, process.exitValue(), "SDK command failed: ${stderr}\n${stdout}")
         return stdout.toString()
     }
