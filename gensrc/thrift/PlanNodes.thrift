@@ -100,9 +100,22 @@ struct TFixedRowIdBlockSampleParams {
   2: optional i64 max_sample_units_per_tablet
 }
 
+struct TKeyRangeBound {
+  1: optional binary prefix
+  2: optional list<binary> tuple
+}
+
+struct TKeyRangeInterval {
+  1: optional TKeyRangeBound lower
+  2: optional TKeyRangeBound upper
+}
+
 struct TKeyRangeBlockSampleParams {
   1: optional i64 sample_unit_rows
   2: optional i64 max_sample_units_per_tablet
+  3: optional list<TKeyRangeInterval> shared_intervals
+  4: optional i64 shared_population_units
+  5: optional i64 shared_selected_units
 }
 
 struct TTabletSampleOptions {

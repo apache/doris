@@ -552,6 +552,17 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PSampleTabletKeyRangesResponse> sampleTabletKeyRanges(TNetworkAddress address,
+            InternalService.PSampleTabletKeyRangesRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.sampleTabletKeyRanges(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to sample tablet key ranges from address={}:{}", address.getHostname(), address.getPort());
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public Future<InternalService.PGlobResponse> glob(TNetworkAddress address,
             InternalService.PGlobRequest request) throws RpcException {
         try {

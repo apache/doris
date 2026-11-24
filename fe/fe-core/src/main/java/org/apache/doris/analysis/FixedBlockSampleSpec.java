@@ -28,24 +28,35 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.thrift.TFixedRowIdBlockSampleParams;
 import org.apache.doris.thrift.TKeyRangeBlockSampleParams;
+import org.apache.doris.thrift.TKeyRangeBound;
+import org.apache.doris.thrift.TKeyRangeInterval;
 import org.apache.doris.thrift.TTabletSampleOptions;
 import org.apache.doris.thrift.TTabletSamplingAlgorithm;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.protobuf.ByteString;
 
+import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SplittableRandom;
 
 /** A repeatable sample of physical row blocks in explicitly chosen tablets. */
 public final class FixedBlockSampleSpec {
@@ -91,11 +102,16 @@ public final class FixedBlockSampleSpec {
     /** Validate the bound index before pruning and recheck tablet ownership when building scan ranges. */
     public void validateTablets(OlapTable table, long selectedIndexId, Optional<Boolean> expectTempPartition)
             throws UserException {
-        if (mode == Mode.KEY_RANGE_BLOCK && !supportsKeyRange(table, selectedIndexId)) {
-            throw new UserException("KEY_RANGE_BLOCK requires a hash-routed MOR or AGG index with its storage keys");
+        boolean hashKeyRange = mode == Mode.KEY_RANGE_BLOCK && supportsKeyRange(table, selectedIndexId);
+        boolean randomAggKeyRange = mode == Mode.KEY_RANGE_BLOCK && !hashKeyRange
+                && supportsRandomAgg(table, selectedIndexId);
+        if (mode == Mode.KEY_RANGE_BLOCK && !hashKeyRange && !randomAggKeyRange) {
+            throw new UserException(
+                    "KEY_RANGE_BLOCK requires a hash-routed MOR/AGG index or pre-aggregatable RANDOM AGG index");
         }
         List<Long> ids = ImmutableList.copyOf(tabletIds());
         List<TabletMeta> metas = Env.getCurrentInvertedIndex().getTabletMetaList(ids);
+        Set<Long> checkedRandomPartitions = new HashSet<>();
         for (int pos = 0; pos < ids.size(); pos++) {
             long tabletId = ids.get(pos);
             TabletMeta meta = metas.get(pos);
@@ -114,9 +130,23 @@ public final class FixedBlockSampleSpec {
             if (index == null || index.getTablet(tabletId) == null) {
                 throw staleTablet(table, selectedIndexId, tabletId);
             }
-            if (mode == Mode.KEY_RANGE_BLOCK && table.isTemporaryPartition(meta.getPartitionId())
-                    && !routesByKeys(table.getIndexMetaByIndexId(selectedIndexId), part.getDistributionInfo())) {
-                throw new UserException("KEY_RANGE_BLOCK requires a hash-routed temporary partition");
+            if (mode == Mode.KEY_RANGE_BLOCK && table.isTemporaryPartition(meta.getPartitionId())) {
+                boolean validTemp = routesByKeys(table.getIndexMetaByIndexId(selectedIndexId),
+                        part.getDistributionInfo())
+                        || (randomAggKeyRange && part.getDistributionInfo() instanceof RandomDistributionInfo);
+                if (!validTemp) {
+                    throw new UserException("KEY_RANGE_BLOCK requires a compatible temporary partition distribution");
+                }
+            }
+            if (mode == Mode.KEY_RANGE_BLOCK && part.getDistributionInfo() instanceof RandomDistributionInfo
+                    && checkedRandomPartitions.add(part.getId())) {
+                Group expectedGroup = groupFor(tabletId);
+                for (Tablet partTablet : index.getTablets()) {
+                    if (groupFor(partTablet.getId()) != expectedGroup) {
+                        throw new UserException("KEY_RANGE_BLOCK on RANDOM partition " + part.getName()
+                                + " requires all partition tablets in the same sample group");
+                    }
+                }
             }
             if (index.isChangelog()) {
                 throw new UserException("FIXED_BLOCK cannot read a changelog index");
@@ -153,7 +183,8 @@ public final class FixedBlockSampleSpec {
         MaterializedIndexMeta meta = table.getIndexMetaByIndexId(indexId);
         if (meta == null || meta.getKeysType() != KeysType.AGG_KEYS || table.getKeysType() != KeysType.AGG_KEYS
                 || !(table.getDefaultDistributionInfo() instanceof RandomDistributionInfo)
-                || table.isZOrderSort() || meta.getSchema().stream().anyMatch(Column::isClusterKey)
+                || table.hasRowTtl() || table.isZOrderSort()
+                || meta.getSchema().stream().anyMatch(Column::isClusterKey)
                 || meta.getSchema().stream().noneMatch(Column::isKey)) {
             return false;
         }
@@ -251,6 +282,168 @@ public final class FixedBlockSampleSpec {
         options.setSeed(seed);
         options.setTabletInclusionProbability(group.tabletRate);
         return options;
+    }
+
+    public static void applyEmptySharedIntervals(TTabletSampleOptions options) {
+        TKeyRangeBlockSampleParams params = Objects.requireNonNull(options.getKeyRangeBlockParams());
+        params.setSharedIntervals(List.of());
+        params.setSharedPopulationUnits(0L);
+        params.setSharedSelectedUnits(0L);
+    }
+
+    public static void applySharedIntervals(TTabletSampleOptions options,
+            InternalService.PSampleTabletKeyRangesResponse response) {
+        TKeyRangeBlockSampleParams params = Objects.requireNonNull(options.getKeyRangeBlockParams());
+        List<TKeyRangeInterval> intervals = new ArrayList<>(response.getIntervalsCount());
+        for (InternalService.PKeyRangeInterval src : response.getIntervalsList()) {
+            TKeyRangeInterval dst = new TKeyRangeInterval();
+            if (src.hasLower()) {
+                dst.setLower(toThriftBound(src.getLower()));
+            }
+            if (src.hasUpper()) {
+                dst.setUpper(toThriftBound(src.getUpper()));
+            }
+            intervals.add(dst);
+        }
+        params.setSharedIntervals(intervals);
+        params.setSharedPopulationUnits(response.getPopulationUnits());
+        params.setSharedSelectedUnits(response.getSelectedUnits());
+    }
+
+    /**
+     * Merges weighted start-bound chunks across backends of a RANDOM partition into equal-mass
+     * partition-wide key intervals and draws a repeatable SRSWOR subset at {@code probability}.
+     */
+    public static InternalService.PSampleTabletKeyRangesResponse mergeAndSampleSharedKeyRanges(
+            List<InternalService.PSampleTabletKeyRangesResponse> slices, long domainId, long unitRows,
+            double probability, long maxUnits, long seed) throws UserException {
+        record WeightedCut(InternalService.PKeyRangeBound bound, long weight) {
+        }
+
+        long totalRows = 0L;
+        List<WeightedCut> raw = new ArrayList<>();
+        for (InternalService.PSampleTabletKeyRangesResponse slice : slices) {
+            totalRows += slice.getTotalRows();
+            for (InternalService.PKeyRangeWeightedCut wc : slice.getBoundaryCutsList()) {
+                if (wc.getWeight() > 0 && wc.hasBound()) {
+                    raw.add(new WeightedCut(wc.getBound(), wc.getWeight()));
+                }
+            }
+        }
+        List<InternalService.PKeyRangeBound> cuts = new ArrayList<>();
+        if (totalRows > unitRows && !raw.isEmpty()) {
+            raw.sort((a, b) -> compareBounds(a.bound(), b.bound()));
+            List<WeightedCut> coalesced = new ArrayList<>(raw.size());
+            for (WeightedCut cur : raw) {
+                if (!coalesced.isEmpty()
+                        && compareBounds(coalesced.get(coalesced.size() - 1).bound(), cur.bound()) == 0) {
+                    WeightedCut prev = coalesced.get(coalesced.size() - 1);
+                    coalesced.set(coalesced.size() - 1, new WeightedCut(prev.bound(), prev.weight() + cur.weight()));
+                } else {
+                    coalesced.add(cur);
+                }
+            }
+            long effectiveUnit = Math.max(unitRows, (totalRows + 4095L) / 4096L);
+            long accumulated = 0L;
+            for (WeightedCut wc : coalesced) {
+                if (accumulated >= effectiveUnit) {
+                    cuts.add(wc.bound());
+                    accumulated = accumulated < 2L * effectiveUnit ? accumulated - effectiveUnit : 0L;
+                }
+                accumulated += wc.weight();
+            }
+        }
+        int population = 1 + cuts.size();
+        int selected = roundCumulative(probability, seed, domainId, population);
+        if (selected > maxUnits) {
+            throw new UserException("tablet_id=" + domainId + " population_units=" + population
+                    + " selected_units=" + selected + " exceed cap=" + maxUnits);
+        }
+        SplittableRandom rng = new SplittableRandom(mix64(mix64(seed ^ 0x4b52425f4d455247L) + domainId));
+        List<int[]> runs = new ArrayList<>();
+        int seats = selected;
+        for (int i = 0; seats > 0 && i < population; i++) {
+            if (seats == population - i || rng.nextInt(population - i) < seats) {
+                if (!runs.isEmpty() && runs.get(runs.size() - 1)[1] == i) {
+                    runs.get(runs.size() - 1)[1]++;
+                } else {
+                    runs.add(new int[] {i, i + 1});
+                }
+                seats--;
+            }
+        }
+        InternalService.PSampleTabletKeyRangesResponse.Builder out =
+                InternalService.PSampleTabletKeyRangesResponse.newBuilder()
+                        .setPopulationUnits(population)
+                        .setSelectedUnits(selected);
+        for (int[] run : runs) {
+            InternalService.PKeyRangeInterval.Builder iv = InternalService.PKeyRangeInterval.newBuilder();
+            if (run[0] > 0) {
+                iv.setLower(cuts.get(run[0] - 1));
+            }
+            if (run[1] < population) {
+                iv.setUpper(cuts.get(run[1] - 1));
+            }
+            out.addIntervals(iv);
+        }
+        return out.build();
+    }
+
+    private static int compareBounds(InternalService.PKeyRangeBound a, InternalService.PKeyRangeBound b) {
+        Comparator<ByteString> unsigned = ByteString.unsignedLexicographicalComparator();
+        int cmp = unsigned.compare(a.getPrefix(), b.getPrefix());
+        if (cmp != 0) {
+            return cmp;
+        }
+        int common = Math.min(a.getTupleCount(), b.getTupleCount());
+        for (int i = 0; i < common; i++) {
+            cmp = unsigned.compare(a.getTuple(i), b.getTuple(i));
+            if (cmp != 0) {
+                return cmp;
+            }
+        }
+        return Integer.compare(a.getTupleCount(), b.getTupleCount());
+    }
+
+    private static int roundCumulative(double probability, long seed, long domainId, int population) {
+        if (population <= 0 || probability <= 0.0) {
+            return 0;
+        }
+        if (probability >= 1.0) {
+            return population;
+        }
+        int fractionBits = 1074;
+        long bits = Double.doubleToRawLongBits(probability);
+        int exponent = (int) (bits >>> 52);
+        long mantissa = bits & ((1L << 52) - 1L);
+        BigInteger rate = exponent == 0 ? BigInteger.valueOf(mantissa)
+                : BigInteger.valueOf(mantissa | (1L << 52)).shiftLeft(exponent - 1);
+        long uBits = mix64(mix64(seed ^ 0x4445505f524e4431L) + domainId);
+        BigInteger remainder = BigInteger.valueOf(uBits >>> 1).shiftLeft(1)
+                .add(BigInteger.valueOf(uBits & 1L))
+                .shiftLeft(fractionBits - Long.SIZE);
+        return remainder.add(rate.multiply(BigInteger.valueOf(population)))
+                .shiftRight(fractionBits)
+                .intValueExact();
+    }
+
+    private static long mix64(long z) {
+        z = (z ^ (z >>> 30)) * 0xbf58476d1ce4e5b9L;
+        z = (z ^ (z >>> 27)) * 0x94d049bb133111ebL;
+        return z ^ (z >>> 31);
+    }
+
+    private static TKeyRangeBound toThriftBound(InternalService.PKeyRangeBound src) {
+        TKeyRangeBound bound = new TKeyRangeBound();
+        bound.setPrefix(src.getPrefix().asReadOnlyByteBuffer());
+        if (src.getTupleCount() > 0) {
+            List<ByteBuffer> tuple = new ArrayList<>(src.getTupleCount());
+            for (ByteString field : src.getTupleList()) {
+                tuple.add(field.asReadOnlyByteBuffer());
+            }
+            bound.setTuple(tuple);
+        }
+        return bound;
     }
 
     @Override

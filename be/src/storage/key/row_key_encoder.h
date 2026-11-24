@@ -49,6 +49,13 @@ public:
     // index length.
     std::string encode_short_keys(const std::vector<const IColumn*>& key_columns, size_t pos) const;
 
+    // Encode each sort-key column at `pos` into its own order-preserving binary string
+    // (KEY_NULL_FIRST_MARKER for NULL, KEY_NORMAL_MARKER + KeyCoder ascending bytes otherwise).
+    // Comparing the resulting vector lexicographically matches segment sort order even when
+    // variable-length VARCHAR/STRING columns precede subsequent sort-key columns.
+    void encode_sort_key_fields(const std::vector<const IColumn*>& key_columns, size_t pos,
+                                std::vector<std::string>* out) const;
+
     // Append the encoded sequence column at `pos` to `encoded_keys`. A null
     // sequence value is encoded as the minimal value of the column length so
     // that it sorts first in the primary key index.

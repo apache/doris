@@ -356,8 +356,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         }
         if (keys == KeysType.AGG_KEYS
                 && job.useRandomAgg(targetIndexId(), () -> randomAggEligible(table, rows))) {
-            return new RandomAggTabletSamplingMethod(
-                    job.samplingFrame(table, targetIndexId()).allCandidatesSupportFixedBlock());
+            var frame = job.samplingFrame(table, targetIndexId());
+            return new RandomAggTabletSamplingMethod(frame.allCandidatesSupportFixedBlock(),
+                    frame.allCandidatesSupport(true) && frame.allCandidatesSupportSharedKeyRange());
         }
         return new LegacyTabletSamplingMethod(table, info.indexId, tableSample.getSeek());
     }

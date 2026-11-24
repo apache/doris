@@ -66,8 +66,55 @@ Status TabletSamplingAlgorithmFactory::create(const TTabletSampleOptions& option
         return Status::OK();
     };
     if (key_range) {
-        return create_sampler.template operator()<KeyRangeBlockSampler>(
-                options.key_range_block_params);
+        const auto& params = options.key_range_block_params;
+        if (!params.__isset.sample_unit_rows || !params.__isset.max_sample_units_per_tablet ||
+            params.sample_unit_rows <= 0 || params.max_sample_units_per_tablet < 0) {
+            return Status::InvalidArgument("Invalid block sampling unit size or cap");
+        }
+        std::optional<KeyRangeSamplePlanSpec> shared_spec;
+        if (params.__isset.shared_intervals || params.__isset.shared_population_units ||
+            params.__isset.shared_selected_units) {
+            if (!params.__isset.shared_intervals || !params.__isset.shared_population_units ||
+                !params.__isset.shared_selected_units || params.shared_population_units < 0 ||
+                params.shared_selected_units < 0 ||
+                params.shared_selected_units > params.shared_population_units ||
+                params.shared_intervals.size() >
+                        static_cast<size_t>(params.shared_selected_units)) {
+                return Status::InvalidArgument("Invalid shared key-range block sampling intervals");
+            }
+            KeyRangeSamplePlanSpec spec;
+            spec.population_units = static_cast<uint64_t>(params.shared_population_units);
+            spec.selected_units = static_cast<uint64_t>(params.shared_selected_units);
+            spec.intervals.reserve(params.shared_intervals.size());
+            auto parse_bound = [](const TKeyRangeBound& raw,
+                                  std::optional<KeyRangeBound>* out) -> Status {
+                if (!raw.__isset.prefix || raw.prefix.empty()) {
+                    return Status::InvalidArgument("Empty shared key-range bound prefix");
+                }
+                KeyRangeBound bound;
+                bound.prefix = raw.prefix;
+                if (raw.__isset.tuple) {
+                    bound.tuple = raw.tuple;
+                }
+                *out = std::move(bound);
+                return Status::OK();
+            };
+            for (const auto& item : params.shared_intervals) {
+                KeyRangeSampleInterval interval;
+                if (item.__isset.lower) {
+                    RETURN_IF_ERROR(parse_bound(item.lower, &interval.lower));
+                }
+                if (item.__isset.upper) {
+                    RETURN_IF_ERROR(parse_bound(item.upper, &interval.upper));
+                }
+                spec.intervals.push_back(std::move(interval));
+            }
+            shared_spec = std::move(spec);
+        }
+        *algorithm = std::make_unique<KeyRangeBlockSampler>(
+                options.intra_tablet_unit_probability, options.seed, params.sample_unit_rows,
+                params.max_sample_units_per_tablet, std::move(shared_spec));
+        return Status::OK();
     }
     return create_sampler.template operator()<FixedRowIdBlockSampler>(
             options.fixed_rowid_block_params);

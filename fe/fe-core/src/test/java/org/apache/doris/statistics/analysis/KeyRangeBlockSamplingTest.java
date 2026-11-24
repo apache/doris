@@ -303,6 +303,33 @@ class KeyRangeBlockSamplingTest {
         Assertions.assertTrue(sql.contains("unit_rate = 1.0"), sql);
         Assertions.assertTrue(sql.contains("WHERE (xxhash_64("), sql);
         Assertions.assertTrue(sql.contains("sample_min AS min, sample_max AS max"), sql);
+
+        // Once candidate BEs advertise shared key-range sampling, RANDOM AGG switches to pure
+        // KEY_RANGE_BLOCK (including single-partition huge tables) without an xxhash_64 scan.
+        Mockito.when(frame.allCandidatesSupport(true)).thenReturn(true);
+        Mockito.when(frame.allCandidatesSupportSharedKeyRange()).thenReturn(true);
+        Mockito.when(frame.scope()).thenReturn(TabletSamplingScope.table(List.of(
+                new PartitionSampleMeta(1, List.of(new TabletSampleMeta(11, 5_000_000, false),
+                        new TabletSampleMeta(12, 5_000_000, false))))));
+        var sharedTask = Mockito.spy(analysisTask(table, "v", new TableSample(false, 50_000L)));
+        sharedTask.catalog = task.catalog;
+        sharedTask.db = task.db;
+        var sharedJob = Mockito.spy(new AnalysisJob(sharedTask.info, List.of(sharedTask)));
+        sharedTask.job = sharedJob;
+        Mockito.doReturn(frame).when(sharedJob).samplingFrame(table, 17);
+        Mockito.doReturn(10_000_000L).when(sharedJob).reportedIndexRows(table, 17);
+        var sharedCaptured = org.mockito.ArgumentCaptor.forClass(String.class);
+        Mockito.doNothing().when(sharedTask).runQuery(sharedCaptured.capture());
+        try (var util = Mockito.mockStatic(StatisticsUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            util.when(StatisticsUtil::enableFixedBlockStatsSampling).thenReturn(true);
+            util.when(StatisticsUtil::getStatisticsSampleUnitRows).thenReturn(4096);
+            util.when(StatisticsUtil::getStatisticsMaxSampleTablets).thenReturn(64);
+            sharedTask.doSample();
+        }
+        String sharedSql = sharedCaptured.getValue();
+        Assertions.assertTrue(sharedSql.contains("TABLESAMPLE (KEY_RANGE_BLOCK"), sharedSql);
+        Assertions.assertTrue(sharedSql.contains("TABLETS (11, 12)"), sharedSql);
+        Assertions.assertFalse(sharedSql.contains("xxhash_64"), sharedSql);
     }
 
     private static OlapAnalysisTask analysisTask(OlapTable table, String name, TableSample sample) {

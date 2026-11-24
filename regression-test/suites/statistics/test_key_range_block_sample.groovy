@@ -46,6 +46,16 @@ suite("test_key_range_block_sample", "nonConcurrent") {
     sql """INSERT INTO key_range_sample_ttl(k,v,__DORIS_TTL_COL__)
            SELECT number, 2, IF(number % 7 = 0, 0, NULL) FROM numbers("number"="16384")"""
 
+    sql "DROP TABLE IF EXISTS key_range_sample_random_agg"
+    sql """CREATE TABLE key_range_sample_random_agg (k1 VARCHAR(32) NOT NULL, k2 INT NOT NULL, v BIGINT SUM NOT NULL)
+           AGGREGATE KEY(k1, k2) DISTRIBUTED BY RANDOM BUCKETS 4
+           PROPERTIES ("replication_num"="1", "disable_auto_compaction"="true")"""
+    for (int batch = 0; batch < 6; batch++) {
+        sql """INSERT INTO key_range_sample_random_agg
+               SELECT CONCAT('k_', LPAD(CAST(number % 512 AS STRING), 4, '0')), number, ${batch + 1}
+               FROM numbers("number"="8192")"""
+    }
+
     def gate = "TableSample.allowInternalFixedBlock"
     GetDebugPoint().enableDebugPointForAllFEs(gate)
     try {
@@ -73,6 +83,31 @@ suite("test_key_range_block_sample", "nonConcurrent") {
                 sql "SELECT v FROM ${name} ${partial} /*+PREAGGOPEN*/ ORDER BY v"
                 exception "PREAGGOPEN cannot read a KEY_RANGE_BLOCK sample"
             }
+        }
+
+        def randTablets = sql_return_maparray("SHOW TABLETS FROM key_range_sample_random_agg").collect { it.TabletId }
+        assertEquals(4, randTablets.size())
+        def randAllIds = randTablets.join(",")
+        def randClause = { rate, cap, ids = randAllIds ->
+            "TABLESAMPLE (KEY_RANGE_BLOCK unit_rows=256, GROUP (" +
+                    "tablet_rate=1, unit_rate=${rate}, max_units=${cap}, TABLETS (${ids}))) REPEATABLE 8101"
+        }
+        def randRef = sql "SELECT k1, k2, v FROM key_range_sample_random_agg ORDER BY k1, k2"
+        assertEquals(randRef,
+                sql("SELECT k1, k2, v FROM key_range_sample_random_agg ${randClause(1, 256)} ORDER BY k1, k2"))
+        def randPartial = randClause(0.35, 256)
+        def randKeys = sql("SELECT k1, k2 FROM key_range_sample_random_agg ${randPartial} ORDER BY k1, k2")
+                .collect { [it[0], it[1]] } as Set
+        assertFalse(randKeys.isEmpty())
+        assertTrue(randKeys.size() < randRef.size())
+        def randExpected = randRef.findAll { randKeys.contains([it[0], it[1]]) }
+        assertEquals(randExpected,
+                sql("SELECT k1, k2, v FROM key_range_sample_random_agg ${randPartial} ORDER BY k1, k2"))
+        assertEquals(randExpected.collect { [it[2]] }.sort { it[0] },
+                sql("SELECT v FROM key_range_sample_random_agg ${randPartial} ORDER BY v"))
+        test {
+            sql "SELECT k1 FROM key_range_sample_random_agg ${randClause(0.35, 256, randTablets[0].toString())} ORDER BY k1"
+            exception "requires all partition tablets"
         }
     } finally {
         GetDebugPoint().disableDebugPointForAllFEs(gate)

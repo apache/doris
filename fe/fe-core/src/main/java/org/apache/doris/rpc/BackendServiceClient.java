@@ -162,6 +162,11 @@ public class BackendServiceClient {
         return stub.getColumnIdsByTabletIds(request);
     }
 
+    public Future<InternalService.PSampleTabletKeyRangesResponse> sampleTabletKeyRanges(
+            InternalService.PSampleTabletKeyRangesRequest request) {
+        return stub.sampleTabletKeyRanges(request);
+    }
+
     public Future<InternalService.PReportStreamLoadStatusResponse> reportStreamLoadStatus(
                             InternalService.PReportStreamLoadStatusRequest request) {
         return stub.reportStreamLoadStatus(request);

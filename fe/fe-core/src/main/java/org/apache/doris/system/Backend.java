@@ -157,6 +157,8 @@ public class Backend implements Writable {
     private volatile boolean supportsFixedBlockSamplingV1;
     @SerializedName("supportsKeyRangeBlockSamplingV1")
     private volatile boolean supportsKeyRangeBlockSamplingV1;
+    @SerializedName("supportsSharedKeyRangeBlockSamplingV1")
+    private volatile boolean supportsSharedKeyRangeBlockSamplingV1;
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
@@ -279,6 +281,10 @@ public class Backend implements Writable {
 
     public boolean isSupportsKeyRangeBlockSamplingV1() {
         return supportsKeyRangeBlockSamplingV1;
+    }
+
+    public boolean isSupportsSharedKeyRangeBlockSamplingV1() {
+        return supportsSharedKeyRangeBlockSamplingV1;
     }
 
     /** Connector-facing capabilities reported by this backend. */
@@ -913,6 +919,10 @@ public class Backend implements Writable {
             if (supportsKeyRangeBlockSamplingV1 != hbResponse.isSupportsKeyRangeBlockSamplingV1()) {
                 isChanged = true;
                 supportsKeyRangeBlockSamplingV1 = hbResponse.isSupportsKeyRangeBlockSamplingV1();
+            }
+            if (supportsSharedKeyRangeBlockSamplingV1 != hbResponse.isSupportsSharedKeyRangeBlockSamplingV1()) {
+                isChanged = true;
+                supportsSharedKeyRangeBlockSamplingV1 = hbResponse.isSupportsSharedKeyRangeBlockSamplingV1();
             }
             if (!this.version.equals(hbResponse.getVersion())) {
                 isChanged = true;

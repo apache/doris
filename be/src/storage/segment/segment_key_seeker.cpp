@@ -17,16 +17,21 @@
 
 #include "storage/segment/segment_key_seeker.h"
 
+#include <algorithm>
+
 #include "common/check.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type_factory.hpp"
-#include "core/field.h"
 #include "storage/index/short_key_index.h"
 #include "storage/iterators.h"
 #include "storage/key/row_key_encoder.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/sampling/tablet_sample_plan.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/segment_loader.h"
+#include "storage/tablet/tablet_reader.h"
 
 namespace doris {
 namespace {
@@ -44,6 +49,7 @@ public:
         const size_t count = _segment->tablet_schema()->num_short_key_columns();
         RETURN_IF_ERROR(read(row, count));
         std::vector<const IColumn*> columns;
+        columns.reserve(count);
         for (size_t i = 0; i < count; ++i) {
             columns.push_back(_columns[i].get());
         }
@@ -51,32 +57,37 @@ public:
         return Status::OK();
     }
 
-    Status read_tuple(uint32_t row, std::vector<Field>* tuple, size_t* bytes) override {
-        RETURN_IF_ERROR(read(row, _segment->tablet_schema()->num_key_columns()));
-        tuple->clear();
+    Status read_tuple(uint32_t row, std::vector<std::string>* tuple, size_t* bytes) override {
+        const size_t count = _segment->tablet_schema()->num_key_columns();
+        RETURN_IF_ERROR(read(row, count));
+        std::vector<const IColumn*> key_cols;
+        key_cols.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            key_cols.push_back(_columns[i].get());
+        }
+        _encoder.encode_sort_key_fields(key_cols, 0, tuple);
         *bytes = 0;
-        for (const auto& column : _columns) {
-            tuple->push_back((*column)[0]);
-            *bytes += sizeof(Field) + column->byte_size();
+        for (const auto& field : *tuple) {
+            *bytes += sizeof(std::string) + field.size();
         }
         return Status::OK();
     }
 
-    Status read_key(uint32_t row, std::string* prefix, std::vector<Field>* tuple,
+    Status read_key(uint32_t row, std::string* prefix, std::vector<std::string>* tuple,
                     size_t* bytes) override {
         const auto& schema = *_segment->tablet_schema();
         RETURN_IF_ERROR(read(row, schema.num_key_columns()));
-        std::vector<const IColumn*> short_cols;
-        short_cols.reserve(schema.num_short_key_columns());
-        for (size_t i = 0; i < schema.num_short_key_columns(); ++i) {
-            short_cols.push_back(_columns[i].get());
+        std::vector<const IColumn*> key_cols;
+        key_cols.reserve(schema.num_key_columns());
+        for (size_t i = 0; i < schema.num_key_columns(); ++i) {
+            key_cols.push_back(_columns[i].get());
         }
-        *prefix = _encoder.encode_short_keys(short_cols, 0);
-        tuple->clear();
+        _encoder.encode_sort_key_fields(key_cols, 0, tuple);
+        key_cols.resize(schema.num_short_key_columns());
+        *prefix = _encoder.encode_short_keys(key_cols, 0);
         *bytes = 0;
-        for (const auto& column : _columns) {
-            tuple->push_back((*column)[0]);
-            *bytes += sizeof(Field) + column->byte_size();
+        for (const auto& field : *tuple) {
+            *bytes += sizeof(std::string) + field.size();
         }
         return Status::OK();
     }
@@ -133,6 +144,7 @@ Status SegmentKeySeeker::validate_schema(const TabletSchema& target, const Table
         // A truncated non-final field can reverse short-key order when the next field differs.
         if (i + 1 < stored.num_short_key_columns() &&
             (b.type() == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+             b.type() == FieldType::OLAP_FIELD_TYPE_STRING ||
              (b.type() == FieldType::OLAP_FIELD_TYPE_CHAR && b.index_length() != b.length()))) {
             return Status::NotSupported("Unordered intermediate short-key prefix at column {}", i);
         }
@@ -153,41 +165,95 @@ Status SegmentKeySeeker::open(std::shared_ptr<segment_v2::Segment> segment,
     RETURN_IF_ERROR(validate_schema(target, *segment->tablet_schema()));
     RETURN_IF_ERROR(segment->load_index(options.stats, &options.io_ctx));
     auto seeker = std::make_unique<StoredSegmentKeySeeker>(std::move(segment), options);
-    // With a single sort key the short key is a prefix of the full encoding.
-    // A full maximum below the requested prefix therefore excludes even the last partial block.
-    if (bounds && target.num_key_columns() == 1) {
+    // validate_schema requires all non-final short-key columns to be fixed-width and untruncated,
+    // so encode_short_keys(last_row) is always a byte prefix of full_encode(last_row) (max_key).
+    // For example, ("abc", 42) with 1 short key encodes prefix "\x02abc" <= max_key "\x02abc\x02...".
+    // Therefore max_key < prefix implies last_row_short_key < prefix even on composite sort keys.
+    if (bounds) {
         seeker->_max_key = bounds->max_key();
     }
     *out = std::move(seeker);
     return Status::OK();
 }
 
-Status SegmentKeySeeker::read_key(uint32_t row, std::string* prefix, std::vector<Field>* tuple,
-                                  size_t* bytes) {
+Status SegmentKeySeeker::open_read_source(const std::vector<RowSetSplits>& rs_splits,
+                                          const TabletSchema& target, StorageReadOptions& options,
+                                          bool use_segment_cache,
+                                          std::vector<std::unique_ptr<SegmentKeySeeker>>* seekers,
+                                          std::vector<SampleSegment>* segments) {
+    for (const auto& split : rs_splits) {
+        auto rowset = std::static_pointer_cast<BetaRowset>(split.rs_reader->rowset());
+        RETURN_IF_ERROR(rowset->load());
+        SegmentCacheHandle handle;
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+                rowset, &handle, use_segment_cache, false, options.stats, &options.io_ctx));
+        for (auto ref : rowset->segments()) {
+            const auto& segment = handle.get_segments()[ref.pos()];
+            std::unique_ptr<SegmentKeySeeker> seeker;
+            if (segment->num_rows() > 0) {
+                const auto* bounds =
+                        ref.has_position_key_bounds() && !rowset->is_segments_key_bounds_truncated()
+                                ? &ref.key_bounds()
+                                : nullptr;
+                RETURN_IF_ERROR(open(segment, target, options, &seeker, bounds));
+            }
+            segments->push_back({rowset->rowset_id(), ref.id(), segment->num_rows(), seeker.get()});
+            seekers->push_back(std::move(seeker));
+        }
+    }
+    return Status::OK();
+}
+
+Status SegmentKeySeeker::read_key(uint32_t row, std::string* prefix,
+                                  std::vector<std::string>* tuple, size_t* bytes) {
     RETURN_IF_ERROR(read_prefix(row, prefix));
     return read_tuple(row, tuple, bytes);
 }
 
-Status SegmentKeySeeker::lower_bound(const std::string& prefix, const std::vector<Field>& tuple,
-                                     uint32_t rows, uint32_t* ordinal) {
-    if (!_max_key.empty() && _max_key < prefix) {
+Status SegmentKeySeeker::lower_bound(const std::string& prefix,
+                                     const std::vector<std::string>& tuple, uint32_t rows,
+                                     uint32_t* ordinal, uint32_t min_ordinal) {
+    if (min_ordinal >= rows || (!_max_key.empty() && _max_key < prefix)) {
         *ordinal = rows;
         return Status::OK();
     }
     auto [lo, hi] = index().ordinal_window(prefix, rows, tuple.empty());
+    lo = std::min(rows, std::max(lo, min_ordinal));
     std::string encoded;
-    std::vector<Field> key;
+    std::vector<std::string> key;
+    auto is_before = [&](uint32_t pos, bool* out) -> Status {
+        if (tuple.empty()) {
+            RETURN_IF_ERROR(read_prefix(pos, &encoded));
+            *out = encoded < prefix;
+        } else {
+            size_t bytes = 0;
+            RETURN_IF_ERROR(read_tuple(pos, &key, &bytes));
+            *out = key < tuple;
+        }
+        return Status::OK();
+    };
+    // Gallop forward from `lo` before binary-searching so monotonic interval bounds stay inside
+    // FileColumnIterator's currently decompressed page instead of ping-ponging to `hi` when
+    // coarse short-key prefixes (e.g. low-cardinality VARCHAR) span multiple data pages.
+    if (hi - lo > 64) {
+        uint32_t step = 1;
+        while (lo < hi) {
+            const uint32_t span = hi - lo;
+            const uint32_t probe = step < span ? lo + step - 1 : hi - 1;
+            bool before = false;
+            RETURN_IF_ERROR(is_before(probe, &before));
+            if (!before) {
+                hi = probe;
+                break;
+            }
+            lo = probe + 1;
+            step = step <= (hi - lo) / 2 ? (step << 1) : (hi - lo);
+        }
+    }
     while (lo < hi) {
         const uint32_t mid = lo + (hi - lo) / 2;
-        bool before;
-        if (tuple.empty()) {
-            RETURN_IF_ERROR(read_prefix(mid, &encoded));
-            before = encoded < prefix;
-        } else {
-            size_t bytes;
-            RETURN_IF_ERROR(read_tuple(mid, &key, &bytes));
-            before = key < tuple;
-        }
+        bool before = false;
+        RETURN_IF_ERROR(is_before(mid, &before));
         if (before) {
             lo = mid + 1;
         } else {

@@ -169,6 +169,15 @@ public record IndexSamplingSnapshot(TabletSamplingScope scope, Set<Long> replica
     }
 
     public boolean allCandidatesSupport(boolean keyRange) {
+        return allCandidatesMatch(backend -> keyRange ? backend.isSupportsKeyRangeBlockSamplingV1()
+                : backend.isSupportsFixedBlockSamplingV1());
+    }
+
+    public boolean allCandidatesSupportSharedKeyRange() {
+        return allCandidatesMatch(Backend::isSupportsSharedKeyRangeBlockSamplingV1);
+    }
+
+    private boolean allCandidatesMatch(java.util.function.Predicate<Backend> predicate) {
         Collection<Backend> candidates;
         if (Config.isCloudMode()) {
             try (AutoCloseConnectContext context = StatisticsUtil.buildConnectContext(false)) {
@@ -184,9 +193,7 @@ public record IndexSamplingSnapshot(TabletSamplingScope scope, Set<Long> replica
         for (Backend backend : candidates) {
             if (backend.isQueryAvailable() && backend.isMixNode()) {
                 available = true;
-                boolean supported = keyRange ? backend.isSupportsKeyRangeBlockSamplingV1()
-                        : backend.isSupportsFixedBlockSamplingV1();
-                if (!supported) {
+                if (!predicate.test(backend)) {
                     return false;
                 }
             }

@@ -758,35 +758,27 @@ Status OlapScanLocalState::_build_tablet_sample_plan(size_t idx, io::FileCacheSt
         return Status::InvalidArgument(
                 "KEY_RANGE_BLOCK requires a merged tablet scan, tablet_id={}", range.tablet_id);
     }
+    const auto& kr_params = range.sample_options.key_range_block_params;
+    if (kr_params.__isset.shared_intervals && kr_params.shared_intervals.empty()) {
+        for (const auto& split : source.rs_splits) {
+            auto rowset = split.rs_reader->rowset();
+            for (auto ref : rowset->segments()) {
+                segments.push_back({rowset->rowset_id(), ref.id(), 0, nullptr});
+            }
+        }
+        return algorithm->build(range.tablet_id, segments, plan);
+    }
     OlapReaderStatistics preload;
     StorageReadOptions options(preload);
     options.io_ctx = ParallelScannerBuilder::create_preload_io_context(state(), &preload);
     options.use_page_cache = state()->enable_page_cache();
-    std::deque<SegmentCacheHandle> handles;
     std::vector<std::unique_ptr<SegmentKeySeeker>> seekers;
     const auto& query = state()->query_options();
-    const auto target = tablet->tablet_schema();
-    for (const auto& split : source.rs_splits) {
-        auto rowset = std::static_pointer_cast<BetaRowset>(split.rs_reader->rowset());
-        RETURN_IF_ERROR(rowset->load());
-        auto& handle = handles.emplace_back();
-        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                rowset, &handle, !query.__isset.enable_segment_cache || query.enable_segment_cache,
-                false, &preload, &options.io_ctx));
-        for (auto ref : rowset->segments()) {
-            const auto& segment = handle.get_segments()[ref.pos()];
-            std::unique_ptr<SegmentKeySeeker> seeker;
-            if (segment->num_rows() > 0) {
-                const auto* bounds =
-                        ref.has_position_key_bounds() && !rowset->is_segments_key_bounds_truncated()
-                                ? &ref.key_bounds()
-                                : nullptr;
-                RETURN_IF_ERROR(SegmentKeySeeker::open(segment, *target, options, &seeker, bounds));
-            }
-            segments.push_back({rowset->rowset_id(), ref.id(), segment->num_rows(), seeker.get()});
-            seekers.push_back(std::move(seeker));
-        }
-    }
+    const bool use_segment_cache =
+            !query.__isset.enable_segment_cache || query.enable_segment_cache;
+    RETURN_IF_ERROR(SegmentKeySeeker::open_read_source(source.rs_splits, *tablet->tablet_schema(),
+                                                       options, use_segment_cache, &seekers,
+                                                       &segments));
     auto status = algorithm->build(range.tablet_id, segments, plan);
     stats->merge_from(preload.file_cache_stats);
     return status;

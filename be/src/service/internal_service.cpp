@@ -51,6 +51,7 @@
 #include <vector>
 
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
@@ -106,7 +107,10 @@
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
+#include "storage/sampling/key_range_block_sampler.h"
+#include "storage/sampling/tablet_sample_plan.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/segment_key_seeker.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_manager.h"
@@ -2319,6 +2323,131 @@ void PInternalService::sync_tablet_meta(google::protobuf::RpcController* control
     brpc::ClosureGuard closure_guard(done);
     Status::NotSupported("sync_tablet_meta only supports cloud mode")
             .to_protobuf(response->mutable_status());
+}
+
+namespace {
+void fill_key_range_bound(const KeyRangeBound& src, PKeyRangeBound* dst) {
+    dst->set_prefix(src.prefix);
+    for (const auto& field : src.tuple) {
+        dst->add_tuple(field);
+    }
+}
+
+Status open_tablet_key_range_segments(const PSampleTabletKeyRangesRequest& request,
+                                      StorageReadOptions& options,
+                                      std::vector<TabletReadSource>* sources,
+                                      std::vector<std::unique_ptr<SegmentKeySeeker>>* seekers,
+                                      std::vector<SampleSegment>* segments) {
+    sources->reserve(request.tablet_ids_size());
+    TabletSchemaSPtr target_schema;
+    for (int64_t tablet_id : request.tablet_ids()) {
+        auto tablet = DORIS_TRY(ExecEnv::get_tablet(tablet_id));
+        if (config::is_cloud_mode()) {
+            SyncOptions sync_opts;
+            sync_opts.query_version = request.version();
+            sync_opts.merge_schema = true;
+            RETURN_IF_ERROR(std::static_pointer_cast<CloudTablet>(tablet)->sync_rowsets(sync_opts));
+        }
+        const auto model = tablet->keys_type();
+        if (model != AGG_KEYS &&
+            (model != UNIQUE_KEYS || tablet->enable_unique_key_merge_on_write())) {
+            return Status::InvalidArgument(
+                    "sample_tablet_key_ranges requires an AGG or MOR tablet, tablet_id={}",
+                    tablet_id);
+        }
+        if (target_schema == nullptr) {
+            target_schema = tablet->tablet_schema();
+        }
+        auto source = DORIS_TRY(tablet->capture_read_source(
+                {0, request.version()},
+                {.skip_missing_versions = false,
+                 .enable_fetch_rowsets_from_peers = config::enable_fetch_rowsets_from_peer_replicas,
+                 .enable_prefer_cached_rowset = false,
+                 .query_freshness_tolerance_ms = -1}));
+        sources->push_back(std::move(source));
+        RETURN_IF_ERROR(SegmentKeySeeker::open_read_source(
+                sources->back().rs_splits, *target_schema, options, true, seekers, segments));
+    }
+    return Status::OK();
+}
+
+Status execute_sample_tablet_key_ranges(const PSampleTabletKeyRangesRequest& request,
+                                        PSampleTabletKeyRangesResponse* response) {
+    if (request.tablet_ids_size() <= 0 || !request.has_version() || !request.has_domain_id() ||
+        !request.has_sample_unit_rows() || !request.has_intra_tablet_unit_probability() ||
+        !request.has_max_sample_units_per_tablet() || !request.has_seed()) {
+        return Status::InvalidArgument("Missing parameters in PSampleTabletKeyRangesRequest");
+    }
+    const double p = request.intra_tablet_unit_probability();
+    if (request.sample_unit_rows() <= 0 || request.max_sample_units_per_tablet() < 0 ||
+        !std::isfinite(p) || p <= 0 || p > 1) {
+        return Status::InvalidArgument(
+                "Invalid sampling parameters in PSampleTabletKeyRangesRequest");
+    }
+    OlapReaderStatistics stats;
+    StorageReadOptions options(stats);
+    options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    options.io_ctx.file_cache_stats = &stats.file_cache_stats;
+    options.use_page_cache = true;
+    std::vector<TabletReadSource> sources;
+    std::vector<std::unique_ptr<SegmentKeySeeker>> seekers;
+    std::vector<SampleSegment> segments;
+    RETURN_IF_ERROR(
+            open_tablet_key_range_segments(request, options, &sources, &seekers, &segments));
+    if (request.return_boundary_cuts()) {
+        constexpr uint64_t kMaxBoundaryCutsPerRpc = 4096;
+        std::vector<WeightedKeyRangeCut> weighted_cuts;
+        uint64_t total_rows = 0;
+        RETURN_IF_ERROR(KeyRangeBlockSampler::collect_weighted_cuts(
+                segments, static_cast<uint64_t>(request.sample_unit_rows()), kMaxBoundaryCutsPerRpc,
+                &weighted_cuts, &total_rows));
+        response->set_total_rows(total_rows);
+        for (const auto& wc : weighted_cuts) {
+            auto* out = response->add_boundary_cuts();
+            fill_key_range_bound(wc.bound, out->mutable_bound());
+            out->set_weight(wc.weight);
+        }
+        return Status::OK();
+    }
+    KeyRangeSamplePlanSpec spec;
+    KeyRangeBlockSampler sampler(p, request.seed(), request.sample_unit_rows(),
+                                 request.max_sample_units_per_tablet());
+    RETURN_IF_ERROR(sampler.sample_intervals(request.domain_id(), segments, true, &spec));
+    response->set_population_units(static_cast<int64_t>(spec.population_units));
+    response->set_selected_units(static_cast<int64_t>(spec.selected_units));
+    for (const auto& interval : spec.intervals) {
+        auto* out = response->add_intervals();
+        if (interval.lower.has_value()) {
+            fill_key_range_bound(*interval.lower, out->mutable_lower());
+        }
+        if (interval.upper.has_value()) {
+            fill_key_range_bound(*interval.upper, out->mutable_upper());
+        }
+    }
+    return Status::OK();
+}
+} // namespace
+
+void PInternalService::sample_tablet_key_ranges(google::protobuf::RpcController* controller,
+                                                const PSampleTabletKeyRangesRequest* request,
+                                                PSampleTabletKeyRangesResponse* response,
+                                                google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::OTHER,
+                fmt::format("InternalService::sample_tablet_key_ranges:{}", request->domain_id()));
+        SCOPED_ATTACH_TASK(mem_tracker);
+        Status st = [&]() -> Status {
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                    execute_sample_tablet_key_ranges(*request, response));
+            return Status::OK();
+        }();
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _heavy_work_pool);
+    }
 }
 
 #include "common/compile_check_avoid_end.h"

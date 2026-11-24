@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.FixedBlockSampleSpec;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
@@ -30,6 +31,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
@@ -56,19 +58,26 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BackendHbResponse;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletSampleOptions;
 import org.apache.doris.thrift.TTabletSamplingAlgorithm;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -82,6 +91,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 class FixedBlockTableSamplePlanTest {
     private static final String GROUP = "GROUP (tablet_rate=0.25, unit_rate=8e-2, max_units=2048, TABLETS (101))";
@@ -428,5 +438,216 @@ class FixedBlockTableSamplePlanTest {
             scan.createScanRangeLocations();
         }
         return scan;
+    }
+
+    @Test
+    void randomAggKeyRangeCoordinatesSharedIntervalsAndReplicaFailover() throws Exception {
+        Backend be1 = new Backend(11L, "127.0.0.1", 9050);
+        Backend be2 = new Backend(12L, "127.0.0.2", 9050);
+        BackendHbResponse hb1 = new BackendHbResponse(11, 9060, 8040, 8061, 1L, 1L, "v", "mix", 0, 0, false, 0);
+        hb1.setSupportsFixedBlockSamplingV1(true);
+        hb1.setSupportsKeyRangeBlockSamplingV1(true);
+        be1.handleHbResponse(hb1, false);
+        BackendHbResponse hb2 = new BackendHbResponse(12, 9060, 8040, 8062, 1L, 1L, "v", "mix", 0, 0, false, 0);
+        hb2.setSupportsFixedBlockSamplingV1(true);
+        hb2.setSupportsKeyRangeBlockSamplingV1(true);
+        be2.handleHbResponse(hb2, false);
+
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(77L);
+        Mockito.when(table.getName()).thenReturn("rand_agg");
+        Mockito.when(table.getBaseIndexId()).thenReturn(99L);
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.AGG_KEYS);
+        var key = new Column("k", Type.INT, true, null, "0", "");
+        var val = new Column("v", Type.BIGINT, false, AggregateType.SUM, "0", "");
+        var randomDist = new RandomDistributionInfo(2);
+        var metadata = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.when(metadata.getSchema()).thenReturn(List.of(key, val));
+        Mockito.when(metadata.getKeysType()).thenReturn(KeysType.AGG_KEYS);
+        Mockito.when(table.getIndexMetaByIndexId(99L)).thenReturn(metadata);
+        Mockito.when(table.getDefaultDistributionInfo()).thenReturn(randomDist);
+        Mockito.when(table.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of(11L, be1, 12L, be2));
+
+        Partition part = Mockito.mock(Partition.class);
+        Mockito.when(part.getId()).thenReturn(500L);
+        Mockito.when(part.getName()).thenReturn("p0");
+        Mockito.when(part.getVisibleVersion()).thenReturn(15L);
+        Mockito.when(part.getDistributionInfo()).thenReturn(randomDist);
+        Mockito.doReturn(List.of(part)).when(table).getPartitions();
+        Mockito.when(table.getAllPartitions()).thenReturn(List.of(part));
+        Mockito.when(table.getPartition(500L)).thenReturn(part);
+
+        LocalReplica r101a = new LocalReplica(1L, 11L, Replica.ReplicaState.NORMAL, 15L, 0);
+        r101a.setRowCount(100L);
+        LocalReplica r101b = new LocalReplica(4L, 12L, Replica.ReplicaState.NORMAL, 15L, 0);
+        r101b.setRowCount(100L);
+        LocalReplica r102a = new LocalReplica(2L, 11L, Replica.ReplicaState.NORMAL, 15L, 0);
+        r102a.setRowCount(800L);
+        LocalReplica r102b = new LocalReplica(3L, 12L, Replica.ReplicaState.NORMAL, 15L, 0);
+        r102b.setRowCount(800L);
+
+        Tablet t101 = Mockito.mock(Tablet.class);
+        Mockito.when(t101.getId()).thenReturn(101L);
+        Mockito.when(t101.getReplicas()).thenReturn(List.of(r101a, r101b));
+        Mockito.when(t101.getQueryableReplicas(Mockito.eq(15L), Mockito.anyMap(), Mockito.eq(false)))
+                .thenAnswer(call -> new ArrayList<>(List.of(r101a, r101b)));
+
+        Tablet t102 = Mockito.mock(Tablet.class);
+        Mockito.when(t102.getId()).thenReturn(102L);
+        Mockito.when(t102.getReplicas()).thenReturn(List.of(r102a, r102b));
+        Mockito.when(t102.getQueryableReplicas(Mockito.eq(15L), Mockito.anyMap(), Mockito.eq(false)))
+                .thenAnswer(call -> new ArrayList<>(List.of(r102a, r102b)));
+
+        MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
+        Mockito.when(index.getTablets()).thenReturn(List.of(t101, t102));
+        Mockito.when(index.getTablet(101L)).thenReturn(t101);
+        Mockito.when(index.getTablet(102L)).thenReturn(t102);
+        Mockito.when(table.getPartitionIndex(part, 99L)).thenReturn(index);
+
+        TabletInvertedIndex inverted = Mockito.mock(TabletInvertedIndex.class);
+        Mockito.when(inverted.getTabletMetaList(Mockito.anyList())).thenAnswer(call -> {
+            List<TabletMeta> metas = new ArrayList<>();
+            for (long id : call.<List<Long>>getArgument(0)) {
+                metas.add(id == 101L || id == 102L
+                        ? new TabletMeta(1, 77L, 500L, 99L, 0, TStorageMedium.HDD, false)
+                        : TabletInvertedIndex.NOT_EXIST_TABLET_META);
+            }
+            return metas;
+        });
+
+        TupleDescriptor desc = Mockito.mock(TupleDescriptor.class);
+        Mockito.when(desc.getId()).thenReturn(new TupleId(1));
+        Mockito.when(desc.getTable()).thenReturn(table);
+
+        // Incomplete RANDOM partition tablet list must be rejected.
+        var partialSample = parse("(KEY_RANGE_BLOCK unit_rows=256, GROUP (tablet_rate=1.0, unit_rate=0.1, "
+                + "max_units=64, TABLETS (101))) REPEATABLE 99").translateToLegacyTableSample();
+        OlapScanNode partialScan = new OlapScanNode(new PlanNodeId(1), desc, "s", ScanContext.EMPTY);
+        partialScan.setTableSample(partialSample);
+        partialScan.setSelectedIndexInfo(99L, false, "");
+        partialScan.setSelectedPartitionIds(List.of(500L));
+
+        var fullSample = parse("(KEY_RANGE_BLOCK unit_rows=256, GROUP (tablet_rate=1.0, unit_rate=0.1, "
+                + "max_units=64, TABLETS (101, 102))) REPEATABLE 99").translateToLegacyTableSample();
+
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<BackendServiceProxy> proxyStatic = Mockito.mockStatic(BackendServiceProxy.class)) {
+            env.when(Env::getCurrentInvertedIndex).thenReturn(inverted);
+            UserException partialErr = Assertions.assertThrows(UserException.class,
+                    partialScan::createScanRangeLocations);
+            Assertions.assertTrue(partialErr.getMessage().contains("requires all partition tablets"),
+                    partialErr::getMessage);
+
+            // Backends lacking supportsSharedKeyRangeBlockSamplingV1 must be rejected for RANDOM KEY_RANGE_BLOCK.
+            OlapScanNode unreadyScan = new OlapScanNode(new PlanNodeId(2), desc, "s", ScanContext.EMPTY);
+            unreadyScan.setTableSample(fullSample);
+            unreadyScan.setSelectedIndexInfo(99L, false, "");
+            unreadyScan.setSelectedPartitionIds(List.of(500L));
+            Assertions.assertThrows(UserException.class, unreadyScan::createScanRangeLocations);
+
+            hb1.setSupportsSharedKeyRangeBlockSamplingV1(true);
+            hb2.setSupportsSharedKeyRangeBlockSamplingV1(true);
+            be1.handleHbResponse(hb1, false);
+            be2.handleHbResponse(hb2, false);
+
+            // Default useFixReplica = -1 keeps both replicas [be1, be2] on tablet 102:
+            // be1 fails with RpcException, be2 succeeds and returns 1 shared interval.
+            BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+            proxyStatic.when(BackendServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.sampleTabletKeyRanges(
+                    Mockito.eq(new TNetworkAddress("127.0.0.1", 8061)), Mockito.any()))
+                    .thenThrow(new RpcException("127.0.0.1", "connection refused"));
+            var response = InternalService.PSampleTabletKeyRangesResponse.newBuilder()
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(TStatusCode.OK.getValue()))
+                    .setPopulationUnits(20L)
+                    .setSelectedUnits(2L)
+                    .addIntervals(InternalService.PKeyRangeInterval.newBuilder()
+                            .setLower(InternalService.PKeyRangeBound.newBuilder()
+                                    .setPrefix(ByteString.copyFromUtf8("k_010"))
+                                    .addTuple(ByteString.copyFromUtf8("\u0002k_010")))
+                            .setUpper(InternalService.PKeyRangeBound.newBuilder()
+                                    .setPrefix(ByteString.copyFromUtf8("k_030"))))
+                    .build();
+            var reqCaptor = org.mockito.ArgumentCaptor.forClass(InternalService.PSampleTabletKeyRangesRequest.class);
+            Mockito.when(proxy.sampleTabletKeyRanges(
+                    Mockito.eq(new TNetworkAddress("127.0.0.2", 8062)), reqCaptor.capture()))
+                    .thenReturn(CompletableFuture.completedFuture(response));
+
+            OlapScanNode okScan = new OlapScanNode(new PlanNodeId(3), desc, "s", ScanContext.EMPTY);
+            okScan.setTableSample(fullSample);
+            okScan.setSelectedIndexInfo(99L, false, "");
+            okScan.setSelectedPartitionIds(List.of(500L));
+            okScan.createScanRangeLocations();
+
+            // Single-BE coverage sends all partition tablets [101, 102] with domain_id = partitionId (500).
+            Assertions.assertEquals(List.of(101L, 102L), reqCaptor.getValue().getTabletIdsList());
+            Assertions.assertFalse(reqCaptor.getValue().getReturnBoundaryCuts());
+            Assertions.assertEquals(500L, reqCaptor.getValue().getDomainId());
+            Assertions.assertEquals(15L, reqCaptor.getValue().getVersion());
+            Assertions.assertEquals(2, okScan.getScanRangeLocations(0).size());
+            for (TScanRangeLocations loc : okScan.getScanRangeLocations(0)) {
+                var kr = loc.getScanRange().getPaloScanRange().getSampleOptions().getKeyRangeBlockParams();
+                Assertions.assertEquals(20L, kr.getSharedPopulationUnits());
+                Assertions.assertEquals(2L, kr.getSharedSelectedUnits());
+                Assertions.assertEquals(1, kr.getSharedIntervalsSize());
+                Assertions.assertEquals("k_010", ByteString.copyFrom(
+                        kr.getSharedIntervals().get(0).getLower().bufferForPrefix()).toStringUtf8());
+                Assertions.assertEquals("k_030", ByteString.copyFrom(
+                        kr.getSharedIntervals().get(0).getUpper().bufferForPrefix()).toStringUtf8());
+            }
+
+            // Multi-BE layout (t101 only on be1, t102 only on be2): merges weighted boundary cuts across BEs.
+            Mockito.when(t101.getReplicas()).thenReturn(List.of(r101a));
+            Mockito.when(t101.getQueryableReplicas(Mockito.eq(15L), Mockito.anyMap(), Mockito.eq(false)))
+                    .thenAnswer(call -> new ArrayList<>(List.of(r101a)));
+            Mockito.when(t102.getReplicas()).thenReturn(List.of(r102b));
+            Mockito.when(t102.getQueryableReplicas(Mockito.eq(15L), Mockito.anyMap(), Mockito.eq(false)))
+                    .thenAnswer(call -> new ArrayList<>(List.of(r102b)));
+            Mockito.reset(proxy);
+            var slice1 = InternalService.PSampleTabletKeyRangesResponse.newBuilder()
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(TStatusCode.OK.getValue()))
+                    .setTotalRows(512L)
+                    .addBoundaryCuts(InternalService.PKeyRangeWeightedCut.newBuilder()
+                            .setBound(InternalService.PKeyRangeBound.newBuilder()
+                                    .setPrefix(ByteString.copyFromUtf8("k_0000")))
+                            .setWeight(256L))
+                    .addBoundaryCuts(InternalService.PKeyRangeWeightedCut.newBuilder()
+                            .setBound(InternalService.PKeyRangeBound.newBuilder()
+                                    .setPrefix(ByteString.copyFromUtf8("k_0256")))
+                            .setWeight(256L))
+                    .build();
+            var slice2 = InternalService.PSampleTabletKeyRangesResponse.newBuilder()
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(TStatusCode.OK.getValue()))
+                    .setTotalRows(512L)
+                    .addBoundaryCuts(InternalService.PKeyRangeWeightedCut.newBuilder()
+                            .setBound(InternalService.PKeyRangeBound.newBuilder()
+                                    .setPrefix(ByteString.copyFromUtf8("k_0512")))
+                            .setWeight(256L))
+                    .addBoundaryCuts(InternalService.PKeyRangeWeightedCut.newBuilder()
+                            .setBound(InternalService.PKeyRangeBound.newBuilder()
+                                    .setPrefix(ByteString.copyFromUtf8("k_0768")))
+                            .setWeight(256L))
+                    .build();
+            Mockito.when(proxy.sampleTabletKeyRanges(
+                    Mockito.eq(new TNetworkAddress("127.0.0.1", 8061)), Mockito.any()))
+                    .thenReturn(CompletableFuture.completedFuture(slice1));
+            Mockito.when(proxy.sampleTabletKeyRanges(
+                    Mockito.eq(new TNetworkAddress("127.0.0.2", 8062)), Mockito.any()))
+                    .thenReturn(CompletableFuture.completedFuture(slice2));
+
+            var halfSample = parse("(KEY_RANGE_BLOCK unit_rows=256, GROUP (tablet_rate=1.0, unit_rate=0.5, "
+                    + "max_units=64, TABLETS (101, 102))) REPEATABLE 99").translateToLegacyTableSample();
+            OlapScanNode multiBeScan = new OlapScanNode(new PlanNodeId(4), desc, "s", ScanContext.EMPTY);
+            multiBeScan.setTableSample(halfSample);
+            multiBeScan.setSelectedIndexInfo(99L, false, "");
+            multiBeScan.setSelectedPartitionIds(List.of(500L));
+            multiBeScan.createScanRangeLocations();
+            for (TScanRangeLocations loc : multiBeScan.getScanRangeLocations(0)) {
+                var kr = loc.getScanRange().getPaloScanRange().getSampleOptions().getKeyRangeBlockParams();
+                Assertions.assertEquals(4L, kr.getSharedPopulationUnits());
+                Assertions.assertEquals(2L, kr.getSharedSelectedUnits());
+                Assertions.assertTrue(kr.getSharedIntervalsSize() >= 1);
+            }
+        }
     }
 }

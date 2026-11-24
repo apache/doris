@@ -107,6 +107,7 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_supports_paimon_rust_reader(true);
         heartbeat_result.backend_info.__set_supports_fixed_block_sampling_v1(true);
         heartbeat_result.backend_info.__set_supports_key_range_block_sampling_v1(true);
+        heartbeat_result.backend_info.__set_supports_shared_key_range_block_sampling_v1(true);
     }
     watch.stop();
     if (watch.elapsed_time() > 1000L * 1000L * 1000L) {

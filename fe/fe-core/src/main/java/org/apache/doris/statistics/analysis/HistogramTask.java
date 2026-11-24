@@ -161,7 +161,8 @@ public class HistogramTask extends BaseAnalysisTask {
                 && keyRangeSupported && frame.allCandidatesSupport(true)) {
             method = new HierarchicalFixedBudgetTabletSamplingMethod(Mode.KEY_RANGE_BLOCK);
         } else if (keys == KeysType.AGG_KEYS && randomAggSupported) {
-            method = new RandomAggTabletSamplingMethod(frame.allCandidatesSupportFixedBlock());
+            method = new RandomAggTabletSamplingMethod(frame.allCandidatesSupportFixedBlock(),
+                    frame.allCandidatesSupport(true) && frame.allCandidatesSupportSharedKeyRange());
         }
         if (method == null) {
             if (!layout.key() && (keys == KeysType.AGG_KEYS || keys == KeysType.UNIQUE_KEYS && !mow)) {

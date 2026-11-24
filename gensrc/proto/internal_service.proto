@@ -1231,6 +1231,41 @@ message PRequestCdcClientResult {
     optional string response = 2;
 }
 
+message PKeyRangeBound {
+    optional bytes prefix = 1;
+    repeated bytes tuple = 2;
+}
+
+message PKeyRangeInterval {
+    optional PKeyRangeBound lower = 1;
+    optional PKeyRangeBound upper = 2;
+}
+
+message PKeyRangeWeightedCut {
+    optional PKeyRangeBound bound = 1;
+    optional uint64 weight = 2;
+}
+
+message PSampleTabletKeyRangesRequest {
+    repeated int64 tablet_ids = 1;
+    optional int64 version = 2;
+    optional int64 domain_id = 3;
+    optional int64 sample_unit_rows = 4;
+    optional double intra_tablet_unit_probability = 5;
+    optional int64 max_sample_units_per_tablet = 6;
+    optional int64 seed = 7;
+    optional bool return_boundary_cuts = 8;
+}
+
+message PSampleTabletKeyRangesResponse {
+    optional PStatus status = 1;
+    repeated PKeyRangeInterval intervals = 2;
+    optional int64 population_units = 3;
+    optional int64 selected_units = 4;
+    repeated PKeyRangeWeightedCut boundary_cuts = 5;
+    optional uint64 total_rows = 6;
+}
+
 service PBackendService {
     // If #fragments of a query is < 3, use exec_plan_fragment directly.
     // If #fragments of a query is >=3, use exec_plan_fragment_prepare + exec_plan_fragment_start
@@ -1295,4 +1330,5 @@ service PBackendService {
     rpc get_tablet_rowsets(PGetTabletRowsetsRequest) returns (PGetTabletRowsetsResponse);
     rpc fetch_peer_data(PFetchPeerDataRequest) returns (PFetchPeerDataResponse);
     rpc request_cdc_client(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
+    rpc sample_tablet_key_ranges(PSampleTabletKeyRangesRequest) returns (PSampleTabletKeyRangesResponse);
 };

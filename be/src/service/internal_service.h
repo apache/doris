@@ -251,6 +251,11 @@ public:
                             PRequestCdcClientResult* result,
                             google::protobuf::Closure* done) override;
 
+    void sample_tablet_key_ranges(google::protobuf::RpcController* controller,
+                                  const PSampleTabletKeyRangesRequest* request,
+                                  PSampleTabletKeyRangesResponse* response,
+                                  google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,

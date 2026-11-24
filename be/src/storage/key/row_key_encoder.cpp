@@ -241,6 +241,24 @@ std::string RowKeyEncoder::encode_short_keys(const std::vector<const IColumn*>& 
             });
 }
 
+void RowKeyEncoder::encode_sort_key_fields(const std::vector<const IColumn*>& key_columns,
+                                           size_t pos, std::vector<std::string>* out) const {
+    assert(key_columns.size() == _sort_key_coders.size());
+    out->resize(_sort_key_coders.size());
+    for (size_t cid = 0; cid < _sort_key_coders.size(); ++cid) {
+        auto& field = (*out)[cid];
+        field.clear();
+        const auto* value_column = value_column_at(key_columns[cid], pos);
+        if (UNLIKELY(!value_column)) {
+            field.push_back(KeyConsts::KEY_NULL_FIRST_MARKER);
+            continue;
+        }
+        field.push_back(KeyConsts::KEY_NORMAL_MARKER);
+        const KeyColumnCoder& coder = _sort_key_coders[cid];
+        coder.full_encode_ascending(*value_column, pos, coder.length, &field);
+    }
+}
+
 void RowKeyEncoder::append_seq_suffix(std::string* encoded_keys, const IColumn* seq_column,
                                       size_t pos) const {
     const auto* value_column = value_column_at(seq_column, pos);

@@ -140,11 +140,14 @@ class BackendHeartbeatHandlerTest {
     void keyRangeCapabilityResetsAfterAnOlderHeartbeat() throws Exception {
         var upgraded = success(123L);
         upgraded.getBackendInfo().setSupportsKeyRangeBlockSamplingV1(true);
+        upgraded.getBackendInfo().setSupportsSharedKeyRangeBlockSamplingV1(true);
         Mockito.when(client.heartbeat(Mockito.any())).thenReturn(upgraded, success(124L));
         backend.handleHbResponse(heartbeat(), false);
         Assertions.assertTrue(backend.isSupportsKeyRangeBlockSamplingV1());
+        Assertions.assertTrue(backend.isSupportsSharedKeyRangeBlockSamplingV1());
         backend.handleHbResponse(heartbeat(), false);
         Assertions.assertFalse(backend.isSupportsKeyRangeBlockSamplingV1());
+        Assertions.assertFalse(backend.isSupportsSharedKeyRangeBlockSamplingV1());
     }
 
     @Test

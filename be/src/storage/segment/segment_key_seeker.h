@@ -23,12 +23,13 @@
 #include <vector>
 
 namespace doris {
-class Field;
 class KeyBoundsPB;
 class ShortKeyIndexDecoder;
 class Status;
 class StorageReadOptions;
 class TabletSchema;
+struct RowSetSplits;
+struct SampleSegment;
 namespace segment_v2 {
 class Segment;
 }
@@ -40,14 +41,19 @@ public:
     static Status open(std::shared_ptr<segment_v2::Segment> segment, const TabletSchema& target,
                        const StorageReadOptions& options, std::unique_ptr<SegmentKeySeeker>* out,
                        const KeyBoundsPB* bounds = nullptr);
+    static Status open_read_source(const std::vector<RowSetSplits>& rs_splits,
+                                   const TabletSchema& target, StorageReadOptions& options,
+                                   bool use_segment_cache,
+                                   std::vector<std::unique_ptr<SegmentKeySeeker>>* seekers,
+                                   std::vector<SampleSegment>* segments);
     virtual const ShortKeyIndexDecoder& index() const = 0;
     virtual Status read_prefix(uint32_t row, std::string* prefix) = 0;
-    virtual Status read_tuple(uint32_t row, std::vector<Field>* tuple, size_t* bytes) = 0;
-    virtual Status read_key(uint32_t row, std::string* prefix, std::vector<Field>* tuple,
+    virtual Status read_tuple(uint32_t row, std::vector<std::string>* tuple, size_t* bytes) = 0;
+    virtual Status read_key(uint32_t row, std::string* prefix, std::vector<std::string>* tuple,
                             size_t* bytes);
 
-    Status lower_bound(const std::string& prefix, const std::vector<Field>& tuple, uint32_t rows,
-                       uint32_t* ordinal);
+    Status lower_bound(const std::string& prefix, const std::vector<std::string>& tuple,
+                       uint32_t rows, uint32_t* ordinal, uint32_t min_ordinal = 0);
 
 private:
     std::string _max_key;

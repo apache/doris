@@ -161,6 +161,25 @@ suite("test_fixed_block_analyze", "nonConcurrent") {
         assertEquals("30", randByName.v[7].replace("'", ""))
         assertEquals("30", randByName.v[8].replace("'", ""))
 
+        // Unpartitioned composite-key RANDOM AGG_KEYS with many overlapping rowsets (shared KEY_RANGE_BLOCK)
+        sql "DROP TABLE IF EXISTS fixed_block_analyze_unpart_random_agg"
+        sql """CREATE TABLE fixed_block_analyze_unpart_random_agg (tag VARCHAR(32) NOT NULL, k INT NOT NULL, v BIGINT SUM NOT NULL)
+               AGGREGATE KEY(tag, k)
+               DISTRIBUTED BY RANDOM BUCKETS 4
+               PROPERTIES ("replication_num"="1", "disable_auto_compaction"="true")"""
+        for (int batch = 0; batch < 6; batch++) {
+            sql """INSERT INTO fixed_block_analyze_unpart_random_agg
+                   SELECT CONCAT('t_', CAST(number % 64 AS STRING)), number, 10 FROM numbers("number"="8192")"""
+        }
+        waitForRows("fixed_block_analyze_unpart_random_agg", 49152)
+        sql "ANALYZE TABLE fixed_block_analyze_unpart_random_agg WITH SAMPLE ROWS 1024 WITH SYNC"
+        def unpartRandStats = sql "SHOW COLUMN STATS fixed_block_analyze_unpart_random_agg"
+        def unpartRandByName = unpartRandStats.collectEntries { [(it[0]): it] }
+        assertEquals(["tag", "k", "v"] as Set, unpartRandByName.keySet())
+        checkCounts(unpartRandStats, ["tag", "k", "v"])
+        assertEquals("60", unpartRandByName.v[7].replace("'", ""))
+        assertEquals("60", unpartRandByName.v[8].replace("'", ""))
+
         // Sampled histogram collection on DUP, AGG, and RANDOM AGG
         sql """CREATE TABLE IF NOT EXISTS internal.__internal_schema.histogram_statistics (
                id VARCHAR(4096) NOT NULL,
@@ -173,7 +192,8 @@ suite("test_fixed_block_analyze", "nonConcurrent") {
                buckets VARCHAR(65533) NOT NULL,
                update_time DATETIME NOT NULL
                ) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 7 PROPERTIES ("replication_num"="1")"""
-        for (def histTbl : ["fixed_block_analyze_dup", "fixed_block_analyze_comp_agg", "fixed_block_analyze_random_agg"]) {
+        for (def histTbl : ["fixed_block_analyze_dup", "fixed_block_analyze_comp_agg",
+                            "fixed_block_analyze_random_agg", "fixed_block_analyze_unpart_random_agg"]) {
             sql "TRUNCATE TABLE internal.__internal_schema.histogram_statistics"
             sql "ANALYZE TABLE ${histTbl}(k, v) WITH HISTOGRAM WITH SAMPLE ROWS 1024 WITH SYNC"
             def histRows = sql "SELECT col_id, sample_rate, buckets FROM internal.__internal_schema.histogram_statistics"

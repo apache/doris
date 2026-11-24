@@ -53,6 +53,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
@@ -76,17 +77,21 @@ import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TChangelogScanType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TKeyRangeBlockSampleParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TNormalizedOlapScanNode;
 import org.apache.doris.thrift.TNormalizedPlanNode;
@@ -101,6 +106,8 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSortInfo;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTabletSampleOptions;
 import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -121,10 +128,13 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -494,6 +504,11 @@ public class OlapScanNode extends ScanNode {
             }
         }
         this.maxVersion = visibleVersionMap.values().stream().max(Long::compareTo).orElse(0L);
+        try {
+            coordinateSharedKeyRangeSamples(olapTable.getAllBackendsByAllCluster());
+        } catch (UserException e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
     }
 
     public Long getTabletSingleReplicaSize(Long tabletId) {
@@ -679,7 +694,7 @@ public class OlapScanNode extends ScanNode {
                     }
                     Backend backend = allBackends.get(beId);
                     // Check the sampling protocol even when fallback for corrupt replicas is disabled.
-                    if (backend == null || !supportsTableSample(backend)
+                    if (backend == null || !supportsTableSample(backend, partition)
                             || (fallbackWhenCorrupt && !backend.isQueryAvailable())) {
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("Cannot pin query to backend {} for replica {}", beId,
@@ -711,7 +726,8 @@ public class OlapScanNode extends ScanNode {
                     if (replicaOptional.isPresent()) {
                         Replica replica = replicaOptional.get();
                         Backend backend = allBackends.get(replica.getBackendIdWithoutException());
-                        if (backend != null && backend.isQueryAvailable() && supportsTableSample(backend)) {
+                        if (backend != null && backend.isQueryAvailable()
+                                && supportsTableSample(backend, partition)) {
                             replicas.clear();
                             replicas.add(replica);
                         }
@@ -772,7 +788,7 @@ public class OlapScanNode extends ScanNode {
                     errs.add(err);
                     continue;
                 }
-                if (!supportsTableSample(backend)) {
+                if (!supportsTableSample(backend, partition)) {
                     errs.add("Backend " + backendId + " does not support " + tableSample.getFixedBlockSpec().mode
                             + " sampling v1 for tablet "
                             + tabletId);
@@ -857,12 +873,18 @@ public class OlapScanNode extends ScanNode {
         return backend == null ? null : backend.getLocationTag();
     }
 
-    private boolean supportsTableSample(Backend backend) {
+    private boolean supportsTableSample(Backend backend, Partition partition) {
         if (!hasFixedBlockSample()) {
             return true;
         }
-        return hasKeyRangeSample()
-                ? backend.isSupportsKeyRangeBlockSamplingV1() : backend.isSupportsFixedBlockSamplingV1();
+        if (hasKeyRangeSample()) {
+            if (partition.getDistributionInfo() instanceof RandomDistributionInfo) {
+                return backend.isSupportsKeyRangeBlockSamplingV1()
+                        && backend.isSupportsSharedKeyRangeBlockSamplingV1();
+            }
+            return backend.isSupportsKeyRangeBlockSamplingV1();
+        }
+        return backend.isSupportsFixedBlockSamplingV1();
     }
 
     private boolean isEnableCooldownReplicaAffinity(ConnectContext connectContext) {
@@ -917,8 +939,294 @@ public class OlapScanNode extends ScanNode {
         long start = System.currentTimeMillis();
         computeSampleTabletIds();
         computeTabletInfo();
+        if (!(Config.isCloudMode() && Config.enable_cloud_snapshot_version)) {
+            coordinateSharedKeyRangeSamples(olapTable.getAllBackendsByAllCluster());
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
+        }
+    }
+
+    private void coordinateSharedKeyRangeSamples(ImmutableMap<Long, Backend> allBackends) throws UserException {
+        if (!hasKeyRangeSample() || scanRangeLocations.isEmpty()) {
+            return;
+        }
+        List<Partition> randomPartitions = new ArrayList<>();
+        for (Long partitionId : selectedPartitionIds) {
+            Partition partition = olapTable.getPartition(partitionId);
+            if (partition != null && partition.getDistributionInfo() instanceof RandomDistributionInfo) {
+                randomPartitions.add(partition);
+            }
+        }
+        if (randomPartitions.isEmpty()) {
+            return;
+        }
+        Map<Long, TScanRangeLocations> locationsByTablet = Maps.newHashMapWithExpectedSize(scanRangeLocations.size());
+        for (TScanRangeLocations loc : scanRangeLocations) {
+            locationsByTablet.put(loc.getScanRange().getPaloScanRange().getTabletId(), loc);
+        }
+        long timeoutSec = ConnectContext.get() != null ? Math.max(5L, ConnectContext.get().getExecTimeoutS()) : 30L;
+
+        record PendingSingleBe(Partition partition, List<TScanRangeLocations> partLocations,
+                List<Long> candidateBackendIds, long version,
+                InternalService.PSampleTabletKeyRangesRequest request,
+                Future<InternalService.PSampleTabletKeyRangesResponse> firstAttempt, String firstAddr) {
+        }
+
+        List<PendingSingleBe> singleBePending = new ArrayList<>();
+        List<Partition> multiBePartitions = new ArrayList<>();
+        Map<Long, List<TScanRangeLocations>> partLocationsMap = new LinkedHashMap<>();
+
+        for (Partition partition : randomPartitions) {
+            MaterializedIndex selectedTable = olapTable.getPartitionIndex(partition, selectedIndexId);
+            List<Tablet> allTablets = selectedTable.getTablets();
+            List<TScanRangeLocations> partLocations = new ArrayList<>(allTablets.size());
+            List<Long> tabletIds = new ArrayList<>(allTablets.size());
+            for (Tablet tablet : allTablets) {
+                TScanRangeLocations loc = locationsByTablet.get(tablet.getId());
+                if (loc != null) {
+                    partLocations.add(loc);
+                    tabletIds.add(tablet.getId());
+                }
+            }
+            if (partLocations.isEmpty()) {
+                continue;
+            }
+            if (partLocations.size() != allTablets.size()) {
+                throw new UserException("KEY_RANGE_BLOCK on RANDOM partition " + partition.getName()
+                        + " requires scanning all partition tablets");
+            }
+            TPaloScanRange firstRange = partLocations.get(0).getScanRange().getPaloScanRange();
+            long version = Long.parseLong(firstRange.getVersion());
+            if (version <= Partition.PARTITION_INIT_VERSION) {
+                for (TScanRangeLocations loc : partLocations) {
+                    FixedBlockSampleSpec.applyEmptySharedIntervals(
+                            loc.getScanRange().getPaloScanRange().getSampleOptions());
+                }
+                continue;
+            }
+            List<Long> fullCoverageBackends = findFullCoverageBackends(partLocations, allBackends);
+            if (!fullCoverageBackends.isEmpty()) {
+                TTabletSampleOptions opts = firstRange.getSampleOptions();
+                TKeyRangeBlockSampleParams krParams = opts.getKeyRangeBlockParams();
+                InternalService.PSampleTabletKeyRangesRequest request =
+                        InternalService.PSampleTabletKeyRangesRequest.newBuilder()
+                                .addAllTabletIds(tabletIds)
+                                .setVersion(version)
+                                .setDomainId(partition.getId())
+                                .setSampleUnitRows(krParams.getSampleUnitRows())
+                                .setIntraTabletUnitProbability(opts.getIntraTabletUnitProbability())
+                                .setMaxSampleUnitsPerTablet(krParams.getMaxSampleUnitsPerTablet())
+                                .setSeed(opts.getSeed())
+                                .setReturnBoundaryCuts(false)
+                                .build();
+                Backend firstBe = allBackends.get(fullCoverageBackends.get(0));
+                TNetworkAddress brpcAddr = new TNetworkAddress(firstBe.getHost(), firstBe.getBrpcPort());
+                String firstAddr = brpcAddr.getHostname() + ":" + brpcAddr.getPort();
+                Future<InternalService.PSampleTabletKeyRangesResponse> firstFuture = null;
+                try {
+                    firstFuture = BackendServiceProxy.getInstance().sampleTabletKeyRanges(brpcAddr, request);
+                } catch (RpcException e) {
+                    LOG.warn("Failed initial key-range sample RPC to {}", firstAddr, e);
+                }
+                singleBePending.add(new PendingSingleBe(partition, partLocations, fullCoverageBackends,
+                        version, request, firstFuture, firstAddr));
+            } else {
+                partLocationsMap.put(partition.getId(), partLocations);
+                multiBePartitions.add(partition);
+            }
+        }
+
+        for (PendingSingleBe item : singleBePending) {
+            InternalService.PSampleTabletKeyRangesResponse succeeded = null;
+            String lastError = "no queryable replica";
+            for (int idx = 0; idx < item.candidateBackendIds().size(); idx++) {
+                Backend backend = allBackends.get(item.candidateBackendIds().get(idx));
+                if (backend == null) {
+                    continue;
+                }
+                TNetworkAddress brpcAddr = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+                String addrStr = idx == 0 ? item.firstAddr() : brpcAddr.getHostname() + ":" + brpcAddr.getPort();
+                try {
+                    Future<InternalService.PSampleTabletKeyRangesResponse> future = idx == 0
+                            ? item.firstAttempt()
+                            : BackendServiceProxy.getInstance().sampleTabletKeyRanges(brpcAddr, item.request());
+                    if (future == null) {
+                        continue;
+                    }
+                    InternalService.PSampleTabletKeyRangesResponse resp = future.get(timeoutSec, TimeUnit.SECONDS);
+                    int code = resp.getStatus().getStatusCode();
+                    if (code == TStatusCode.OK.getValue()) {
+                        succeeded = resp;
+                        break;
+                    }
+                    String errMsg = resp.getStatus().getErrorMsgsCount() > 0
+                            ? resp.getStatus().getErrorMsgs(0) : ("status_code=" + code);
+                    if (code == TStatusCode.INVALID_ARGUMENT.getValue()) {
+                        throw new UserException(errMsg);
+                    }
+                    lastError = addrStr + " returned " + errMsg;
+                } catch (UserException e) {
+                    throw e;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new UserException("Interrupted while sampling key ranges for partition "
+                            + item.partition().getName(), e);
+                } catch (Exception e) {
+                    lastError = addrStr + " failed: " + e.getMessage();
+                }
+            }
+            if (succeeded != null) {
+                for (TScanRangeLocations loc : item.partLocations()) {
+                    FixedBlockSampleSpec.applySharedIntervals(
+                            loc.getScanRange().getPaloScanRange().getSampleOptions(), succeeded);
+                }
+            } else {
+                partLocationsMap.put(item.partition().getId(), item.partLocations());
+                multiBePartitions.add(item.partition());
+                LOG.warn("Falling back to multi-BE key-range coordination for partition {} after: {}",
+                        item.partition().getName(), lastError);
+            }
+        }
+
+        for (Partition partition : multiBePartitions) {
+            List<TScanRangeLocations> partLocations = partLocationsMap.get(partition.getId());
+            InternalService.PSampleTabletKeyRangesResponse merged =
+                    coordinateMultiBePartitionKeyRanges(partition, partLocations, allBackends, timeoutSec);
+            for (TScanRangeLocations loc : partLocations) {
+                FixedBlockSampleSpec.applySharedIntervals(
+                        loc.getScanRange().getPaloScanRange().getSampleOptions(), merged);
+            }
+        }
+    }
+
+    private static List<Long> findFullCoverageBackends(List<TScanRangeLocations> partLocations,
+            ImmutableMap<Long, Backend> allBackends) {
+        List<Long> candidates = new ArrayList<>();
+        for (TScanRangeLocation replica : partLocations.get(0).getLocations()) {
+            long beId = replica.getBackendId();
+            if (allBackends.containsKey(beId) && !candidates.contains(beId)) {
+                candidates.add(beId);
+            }
+        }
+        for (int i = 1; i < partLocations.size() && !candidates.isEmpty(); i++) {
+            Set<Long> replicaBes = new HashSet<>();
+            for (TScanRangeLocation replica : partLocations.get(i).getLocations()) {
+                replicaBes.add(replica.getBackendId());
+            }
+            candidates.removeIf(beId -> !replicaBes.contains(beId));
+        }
+        return candidates;
+    }
+
+    private static InternalService.PSampleTabletKeyRangesResponse coordinateMultiBePartitionKeyRanges(
+            Partition partition, List<TScanRangeLocations> partLocations,
+            ImmutableMap<Long, Backend> allBackends, long timeoutSec) throws UserException {
+        TPaloScanRange firstRange = partLocations.get(0).getScanRange().getPaloScanRange();
+        long version = Long.parseLong(firstRange.getVersion());
+        TTabletSampleOptions opts = firstRange.getSampleOptions();
+        TKeyRangeBlockSampleParams krParams = opts.getKeyRangeBlockParams();
+        long unitRows = krParams.getSampleUnitRows();
+        long probeUnitRows = Math.max(1L, unitRows / 2L);
+        Set<Long> failedBackends = new HashSet<>();
+        String lastError = "no queryable replica";
+
+        while (true) {
+            Map<Long, List<Long>> tabletsByBe = new LinkedHashMap<>();
+            boolean allCovered = true;
+            for (TScanRangeLocations loc : partLocations) {
+                long tabletId = loc.getScanRange().getPaloScanRange().getTabletId();
+                long chosenBe = -1L;
+                for (TScanRangeLocation replica : loc.getLocations()) {
+                    long beId = replica.getBackendId();
+                    if (!failedBackends.contains(beId) && allBackends.containsKey(beId)) {
+                        if (tabletsByBe.containsKey(beId)) {
+                            chosenBe = beId;
+                            break;
+                        }
+                        if (chosenBe < 0) {
+                            chosenBe = beId;
+                        }
+                    }
+                }
+                if (chosenBe < 0) {
+                    allCovered = false;
+                    break;
+                }
+                tabletsByBe.computeIfAbsent(chosenBe, ignored -> new ArrayList<>()).add(tabletId);
+            }
+            if (!allCovered) {
+                throw new UserException("Failed to sample shared key ranges for RANDOM partition "
+                        + partition.getName() + ": " + lastError);
+            }
+
+            Map<Long, Future<InternalService.PSampleTabletKeyRangesResponse>> futures = new LinkedHashMap<>();
+            long callFailedBe = -1L;
+            for (Map.Entry<Long, List<Long>> entry : tabletsByBe.entrySet()) {
+                Backend be = allBackends.get(entry.getKey());
+                TNetworkAddress brpcAddr = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+                InternalService.PSampleTabletKeyRangesRequest req =
+                        InternalService.PSampleTabletKeyRangesRequest.newBuilder()
+                                .addAllTabletIds(entry.getValue())
+                                .setVersion(version)
+                                .setDomainId(partition.getId())
+                                .setSampleUnitRows(probeUnitRows)
+                                .setIntraTabletUnitProbability(opts.getIntraTabletUnitProbability())
+                                .setMaxSampleUnitsPerTablet(krParams.getMaxSampleUnitsPerTablet())
+                                .setSeed(opts.getSeed())
+                                .setReturnBoundaryCuts(true)
+                                .build();
+                try {
+                    futures.put(entry.getKey(), BackendServiceProxy.getInstance().sampleTabletKeyRanges(brpcAddr, req));
+                } catch (RpcException e) {
+                    lastError = brpcAddr.getHostname() + ":" + brpcAddr.getPort() + " failed: " + e.getMessage();
+                    callFailedBe = entry.getKey();
+                    break;
+                }
+            }
+            if (callFailedBe >= 0) {
+                failedBackends.add(callFailedBe);
+                continue;
+            }
+
+            List<InternalService.PSampleTabletKeyRangesResponse> slices = new ArrayList<>(futures.size());
+            for (Map.Entry<Long, Future<InternalService.PSampleTabletKeyRangesResponse>> entry : futures.entrySet()) {
+                Backend be = allBackends.get(entry.getKey());
+                String addrStr = be.getHost() + ":" + be.getBrpcPort();
+                try {
+                    InternalService.PSampleTabletKeyRangesResponse resp =
+                            entry.getValue().get(timeoutSec, TimeUnit.SECONDS);
+                    int code = resp.getStatus().getStatusCode();
+                    if (code == TStatusCode.OK.getValue()) {
+                        slices.add(resp);
+                        continue;
+                    }
+                    String errMsg = resp.getStatus().getErrorMsgsCount() > 0
+                            ? resp.getStatus().getErrorMsgs(0) : ("status_code=" + code);
+                    if (code == TStatusCode.INVALID_ARGUMENT.getValue()) {
+                        throw new UserException(errMsg);
+                    }
+                    lastError = addrStr + " returned " + errMsg;
+                    callFailedBe = entry.getKey();
+                    break;
+                } catch (UserException e) {
+                    throw e;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new UserException("Interrupted while sampling key ranges for partition "
+                            + partition.getName(), e);
+                } catch (Exception e) {
+                    lastError = addrStr + " failed: " + e.getMessage();
+                    callFailedBe = entry.getKey();
+                    break;
+                }
+            }
+            if (callFailedBe >= 0) {
+                failedBackends.add(callFailedBe);
+                continue;
+            }
+            return FixedBlockSampleSpec.mergeAndSampleSharedKeyRanges(slices, partition.getId(), unitRows,
+                    opts.getIntraTabletUnitProbability(), krParams.getMaxSampleUnitsPerTablet(), opts.getSeed());
         }
     }
 

@@ -548,14 +548,16 @@ TEST_F(VerticalSegmentWriterWritePathsTest, KeyRangeSeeksStoredKeys) {
     // Column iterators open on the first read, after the temporary options have been destroyed.
     ASSERT_TRUE(SegmentKeySeeker::open(segment, *schema, StorageReadOptions(stats), &seeker).ok());
     for (uint32_t row : {0U, 63U, 64U, 65U, 511U}) {
-        std::vector<Field> tuple;
+        std::vector<std::string> tuple;
         size_t bytes;
         ASSERT_TRUE(seeker->read_tuple(row, &tuple, &bytes).ok());
-        ASSERT_EQ(block.get_by_position(0).column->operator[](row), tuple.at(0));
+        ASSERT_EQ(schema->num_key_columns(), tuple.size());
         std::string prefix;
         ASSERT_TRUE(seeker->read_prefix(row, &prefix).ok());
         uint32_t ordinal;
         ASSERT_TRUE(seeker->lower_bound(prefix, tuple, segment->num_rows(), &ordinal).ok());
+        EXPECT_EQ(row, ordinal);
+        ASSERT_TRUE(seeker->lower_bound(prefix, tuple, segment->num_rows(), &ordinal, row).ok());
         EXPECT_EQ(row, ordinal);
     }
 }

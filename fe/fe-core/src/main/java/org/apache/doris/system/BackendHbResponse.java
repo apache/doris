@@ -58,6 +58,8 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private boolean supportsFixedBlockSamplingV1;
     @SerializedName("supportsKeyRangeBlockSamplingV1")
     private boolean supportsKeyRangeBlockSamplingV1;
+    @SerializedName("supportsSharedKeyRangeBlockSamplingV1")
+    private boolean supportsSharedKeyRangeBlockSamplingV1;
 
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
@@ -171,12 +173,20 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         return supportsKeyRangeBlockSamplingV1;
     }
 
+    public boolean isSupportsSharedKeyRangeBlockSamplingV1() {
+        return supportsSharedKeyRangeBlockSamplingV1;
+    }
+
     public void setSupportsFixedBlockSamplingV1(boolean supported) {
         supportsFixedBlockSamplingV1 = supported;
     }
 
     public void setSupportsKeyRangeBlockSamplingV1(boolean supported) {
         supportsKeyRangeBlockSamplingV1 = supported;
+    }
+
+    public void setSupportsSharedKeyRangeBlockSamplingV1(boolean supported) {
+        supportsSharedKeyRangeBlockSamplingV1 = supported;
     }
 
     public void setPaimonRustReaderSupported(boolean supported) {
