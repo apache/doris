@@ -30,13 +30,13 @@ import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
-import org.apache.paimon.tag.Tag;
 import org.apache.paimon.utils.SnapshotManager;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.function.LongSupplier;
@@ -255,10 +255,6 @@ final class PaimonSchemaPin {
         if (!PaimonScanParams.hasPinnedVersion(scanOptions)) {
             return Optional.empty();
         }
-        if (hasQueryAuth(table)) {
-            // Dynamic server-side row/column authorization runs in scan.plan(); do not serve cached results.
-            return Optional.empty();
-        }
         if (!coordinates(scanOptions).isEmpty()) {
             validate(table, scanOptions);
         }
@@ -273,15 +269,42 @@ final class PaimonSchemaPin {
         return Optional.of(new ConnectorSqlCacheVersion(digest(payload), resolved.get().updateTimeMillis));
     }
 
-    private static boolean hasQueryAuth(Table table) {
-        if (table instanceof FallbackReadFileStoreTable) {
-            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
-            return hasQueryAuth(pair.wrapped()) || hasQueryAuth(pair.other());
+    /**
+     * Checks dynamic query-auth eligibility against the physical branch's effective bound schema (plus any
+     * runtime/catalog/query option overlay), rather than the potentially stale cached {@link FileStoreTable}
+     * schema. Dynamic server-side row/column authorization runs in {@code scan.plan()}, so enabled branches
+     * must not serve SQL-cached results.
+     */
+    private static boolean isQueryAuthEnabled(
+            DataTable data, TableSchema effectiveSchema, Map<String, String> scanOptions) {
+        String key = CoreOptions.QUERY_AUTH_ENABLED.key();
+        String effective = effectiveSchema.options().get(key);
+        if (Boolean.parseBoolean(effective)) {
+            return true;
         }
-        if (table instanceof DelegatedFileStoreTable) {
-            return hasQueryAuth(((DelegatedFileStoreTable) table).wrapped());
+        if (data instanceof FileStoreTable) {
+            FileStoreTable fileStore = (FileStoreTable) data;
+            String liveValue = fileStore.options().get(key);
+            if (Boolean.parseBoolean(liveValue)) {
+                if (fileStore.schema().id() == effectiveSchema.id()) {
+                    return true;
+                }
+                Optional<TableSchema> cachedPersisted = readSchema(
+                        fileStore.schemaManager(), fileStore.schema().id());
+                if (!cachedPersisted.isPresent()
+                        || !Objects.equals(cachedPersisted.get().options().get(key), liveValue)) {
+                    return true;
+                }
+            }
         }
-        return table instanceof FileStoreTable && ((FileStoreTable) table).coreOptions().queryAuthEnabled();
+        String catalogOverride = scanOptions.get("doris.internal.paimon.catalog-option." + key);
+        if (Boolean.parseBoolean(catalogOverride)) {
+            return true;
+        }
+        if (Boolean.parseBoolean(scanOptions.get(key))) {
+            return true;
+        }
+        return effective == null && CoreOptions.QUERY_AUTH_ENABLED.defaultValue();
     }
 
     private static Optional<ResolvedVersion> resolveTableVersion(
@@ -314,27 +337,11 @@ final class PaimonSchemaPin {
     private static Optional<ResolvedVersion> resolveDataTableVersion(
             DataTable data, Map<String, String> scanOptions) {
         OptionalLong boundSchema = PaimonScanParams.boundSchemaId(scanOptions);
-        String tagName = scanOptions.get(CoreOptions.SCAN_TAG_NAME.key());
-        if (tagName != null) {
-            Optional<Tag> tagOpt = data.tagManager().get(tagName);
-            if (!tagOpt.isPresent()) {
-                return Optional.empty();
-            }
-            Tag tag = tagOpt.get();
-            long schemaId = boundSchema.orElse(tag.schemaId());
-            Optional<TableSchema> schema = readSchema(data.schemaManager(), schemaId);
-            if (!schema.isPresent()) {
-                return Optional.empty();
-            }
-            String token = data.location() + "|schema:" + schemaId + ":" + schemaDigest(schema.get())
-                    + "|tag:" + tagName + ":" + tag.id() + ":" + digest(tag.toJson());
-            return Optional.of(new ResolvedVersion(token, tag.timeMillis(), OptionalLong.of(tag.timeMillis())));
-        }
         if (PaimonScanParams.isPinnedEmptyScan(scanOptions)) {
             Optional<TableSchema> schema = boundSchema.isPresent()
                     ? readSchema(data.schemaManager(), boundSchema.getAsLong())
                     : data.schemaManager().latest();
-            if (!schema.isPresent()) {
+            if (!schema.isPresent() || isQueryAuthEnabled(data, schema.get(), scanOptions)) {
                 return Optional.empty();
             }
             String token = data.location() + "|schema:" + schema.get().id() + ":"
@@ -352,7 +359,7 @@ final class PaimonSchemaPin {
         Snapshot snap = snapshot(data, snapshotId);
         long schemaId = boundSchema.orElse(snap.schemaId());
         Optional<TableSchema> schema = readSchema(data.schemaManager(), schemaId);
-        if (!schema.isPresent()) {
+        if (!schema.isPresent() || isQueryAuthEnabled(data, schema.get(), scanOptions)) {
             return Optional.empty();
         }
         String token = data.location() + "|schema:" + schemaId + ":" + schemaDigest(schema.get())
@@ -386,13 +393,6 @@ final class PaimonSchemaPin {
             return resolveFallbackBranchVersion(
                     ((DelegatedFileStoreTable) other).wrapped(), scanOptions, fallbackPath, mainSnapshotMillis);
         }
-        String pinnedFallbackSchema = scanOptions.get(PREFIX + fallbackPath + "schema-id");
-        Optional<TableSchema> schema = pinnedFallbackSchema != null
-                ? readSchema(other.schemaManager(), Long.parseLong(pinnedFallbackSchema))
-                : other.schemaManager().latest();
-        if (!schema.isPresent()) {
-            return Optional.empty();
-        }
         SnapshotManager manager = other.snapshotManager();
         String pinnedFallbackSnapshot = fallbackSnapshotId(scanOptions, fallbackPath);
         Long selectedSnapshotId;
@@ -407,15 +407,27 @@ final class PaimonSchemaPin {
         } else {
             selectedSnapshotId = manager.latestSnapshotId();
         }
-        if (selectedSnapshotId == null) {
+        Snapshot snap = null;
+        if (selectedSnapshotId != null) {
+            if (!manager.snapshotExists(selectedSnapshotId)) {
+                return Optional.empty();
+            }
+            snap = snapshot(other, selectedSnapshotId);
+        }
+        String pinnedFallbackSchema = scanOptions.get(PREFIX + fallbackPath + "schema-id");
+        Optional<TableSchema> schema = pinnedFallbackSchema != null
+                ? readSchema(other.schemaManager(), Long.parseLong(pinnedFallbackSchema))
+                : snap != null
+                        ? readSchema(other.schemaManager(), snap.schemaId())
+                        : other.schemaManager().latest();
+        if (!schema.isPresent() || isQueryAuthEnabled(other, schema.get(), scanOptions)) {
+            return Optional.empty();
+        }
+        if (snap == null) {
             String token = other.location() + "|schema:" + schema.get().id() + ":"
                     + schemaDigest(schema.get()) + "|empty";
             return Optional.of(new ResolvedVersion(token, 0L, OptionalLong.empty()));
         }
-        if (!manager.snapshotExists(selectedSnapshotId)) {
-            return Optional.empty();
-        }
-        Snapshot snap = snapshot(other, selectedSnapshotId);
         String token = other.location() + "|schema:" + schema.get().id() + ":" + schemaDigest(schema.get())
                 + "|snap:" + selectedSnapshotId + ":" + digest(snap.toJson());
         return Optional.of(new ResolvedVersion(token, snap.timeMillis(), OptionalLong.of(snap.timeMillis())));

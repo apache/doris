@@ -193,7 +193,10 @@ public class PaimonNativePartitionAndCacheVersionTest {
                     .orElseThrow().getVersion();
             Assertions.assertNotEquals(firstEmpty, secondEmpty);
 
-            // Tag version survives expired snapshot file and detects tag replacement.
+            // Mutable name-only tag pins (both direct tag time travel and @options scan.tag-name) decline SQL
+            // cache / partition-view versioning to prevent mutable tag replacement races (including A -> B -> A
+            // and fallback-branch tag divergence), while direct tag partition listing still reflects the tag's
+            // retained partitions even after snapshot 1's snapshot file was expired.
             FileStoreTable table = (FileStoreTable) catalog.getTable(id);
             writeRow(table, 10, "2026-02-01");
             table.createTag("v1", 1L);
@@ -207,26 +210,22 @@ public class PaimonNativePartitionAndCacheVersionTest {
             ConnectorMvccSnapshot tagPin1 = mdTag1.resolveTimeTravel(
                     sTag1, baseTag1, ConnectorTimeTravelSpec.tag("v1")).orElseThrow();
             ConnectorTableHandle tagHandle1 = mdTag1.applySnapshot(sTag1, baseTag1, tagPin1);
-            ConnectorSqlCacheVersion tagV1 = mdTag1.getSqlCacheVersion(sTag1, tagHandle1).orElseThrow();
-            Assertions.assertEquals(tagV1.getVersion(),
-                    mdTag1.getPartitionViewVersion(sTag1, tagHandle1).orElseThrow());
-            // Direct tag partition listing must reflect the tag (only dt=2026-02-01), NOT latest (which also has
-            // dt=2026-02-02), even after the underlying snapshot file for snapshot 1 was expired.
+            Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> mdTag1.getSqlCacheVersion(sTag1, tagHandle1));
+            Assertions.assertFalse(mdTag1.getPartitionViewVersion(sTag1, tagHandle1).isPresent());
             List<ConnectorPartitionInfo> tagPartitions = mdTag1.listPartitions(sTag1, tagHandle1, Optional.empty());
             Assertions.assertEquals(Collections.singletonList("dt=2026-02-01"),
                     tagPartitions.stream()
                             .map(ConnectorPartitionInfo::getPartitionName)
                             .collect(Collectors.toList()));
 
-            ((FileStoreTable) catalog.getTable(id)).replaceTag("v1", 2L, null);
-            PaimonConnectorMetadata mdTag2 = liveMetadata(ops);
-            ConnectorSession sTag2 = session(Collections.emptyMap(), new MapStatementScope());
-            ConnectorTableHandle baseTag2 = mdTag2.getTableHandle(sTag2, "db1", "t1").orElseThrow();
-            ConnectorMvccSnapshot tagPin2 = mdTag2.resolveTimeTravel(
-                    sTag2, baseTag2, ConnectorTimeTravelSpec.tag("v1")).orElseThrow();
-            ConnectorSqlCacheVersion tagV2 = mdTag2.getSqlCacheVersion(
-                    sTag2, mdTag2.applySnapshot(sTag2, baseTag2, tagPin2)).orElseThrow();
-            Assertions.assertNotEquals(tagV1.getVersion(), tagV2.getVersion());
+            ConnectorMvccSnapshot tagOptionsPin = mdTag1.resolveTimeTravel(
+                    sTag1, baseTag1, ConnectorTimeTravelSpec.options(
+                            Collections.singletonMap(CoreOptions.SCAN_TAG_NAME.key(), "v1"))).orElseThrow();
+            ConnectorTableHandle tagOptionsHandle = mdTag1.applySnapshot(sTag1, baseTag1, tagOptionsPin);
+            Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> mdTag1.getSqlCacheVersion(sTag1, tagOptionsHandle));
+            Assertions.assertFalse(mdTag1.getPartitionViewVersion(sTag1, tagOptionsHandle).isPresent());
 
             // Branch + fallback-branch sensitivity: writing to the fallback branch invalidates main's version.
             Identifier fbId = Identifier.create("db1", "fb_tbl");
@@ -358,6 +357,50 @@ public class PaimonNativePartitionAndCacheVersionTest {
             Assertions.assertFalse(liveMd.getPartitionViewVersion(
                     session(Collections.emptyMap(), ConnectorStatementScope.NONE), plainPinned).isPresent());
             Assertions.assertTrue(liveMd.getPartitionViewVersion(scopedSession, plainPinned).isPresent());
+
+            // Stale cached schema-0 handle (query-auth.enabled=false) after external schema-only ALTER enables
+            // query-auth.enabled=true at schema 1: beginQuerySnapshot binds schema 1, and eligibility must inspect
+            // that effective bound schema rather than the stale cached schema 0.
+            Identifier evolvedAuthId = Identifier.create("db1", "evolved_auth_tbl");
+            catalog.createTable(evolvedAuthId, partitionedSchema(Collections.emptyMap()), false);
+            PaimonTableHandle staleBase = (PaimonTableHandle) liveMd.getTableHandle(
+                    scopedSession, "db1", "evolved_auth_tbl").orElseThrow();
+            staleBase.setPaimonTable(catalog.getTable(evolvedAuthId));
+            catalog.alterTable(evolvedAuthId, Collections.singletonList(
+                    SchemaChange.setOption(CoreOptions.QUERY_AUTH_ENABLED.key(), "true")), false);
+            PaimonConnectorMetadata evolvedMd = liveMetadata(new CountingCatalogOps(catalog));
+            ConnectorTableHandle evolvedPinned = pinLatest(evolvedMd, scopedSession, staleBase);
+            Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> evolvedMd.getSqlCacheVersion(scopedSession, evolvedPinned));
+            Assertions.assertFalse(evolvedMd.getPartitionViewVersion(scopedSession, evolvedPinned).isPresent());
+
+            // Reverse schema-only ALTER (cached schema 0 had query-auth.enabled=true, schema 1 disables it):
+            // effective bound schema 1 is eligible for SQL cache.
+            PaimonTableHandle staleEnabledBase = (PaimonTableHandle) evolvedMd.getTableHandle(
+                    scopedSession, "db1", "evolved_auth_tbl").orElseThrow();
+            staleEnabledBase.setPaimonTable(catalog.getTable(evolvedAuthId));
+            catalog.alterTable(evolvedAuthId, Collections.singletonList(
+                    SchemaChange.setOption(CoreOptions.QUERY_AUTH_ENABLED.key(), "false")), false);
+            PaimonConnectorMetadata disabledMd = liveMetadata(new CountingCatalogOps(catalog));
+            ConnectorTableHandle disabledPinned = pinLatest(disabledMd, scopedSession, staleEnabledBase);
+            Assertions.assertTrue(disabledMd.getSqlCacheVersion(scopedSession, disabledPinned).isPresent());
+
+            // Fallback branch stale cached schema 0 (query-auth.enabled=false) after external ALTER enables
+            // query-auth.enabled=true on the fallback branch at schema 1 must also disable SQL cache.
+            Identifier fbAuthId = Identifier.create("db1", "fb_auth_tbl");
+            catalog.createTable(fbAuthId, partitionedSchema(Collections.emptyMap()), false);
+            ((FileStoreTable) catalog.getTable(fbAuthId)).createBranch("batch");
+            catalog.alterTable(fbAuthId, Collections.singletonList(
+                    SchemaChange.setOption(CoreOptions.SCAN_FALLBACK_BRANCH.key(), "batch")), false);
+            PaimonTableHandle staleFbBase = (PaimonTableHandle) liveMd.getTableHandle(
+                    scopedSession, "db1", "fb_auth_tbl").orElseThrow();
+            staleFbBase.setPaimonTable(catalog.getTable(fbAuthId));
+            catalog.alterTable(new Identifier("db1", "fb_auth_tbl", "batch"), Collections.singletonList(
+                    SchemaChange.setOption(CoreOptions.QUERY_AUTH_ENABLED.key(), "true")), false);
+            PaimonConnectorMetadata fbAuthMd = liveMetadata(new CountingCatalogOps(catalog));
+            ConnectorTableHandle fbAuthPinned = pinLatest(fbAuthMd, scopedSession, staleFbBase);
+            Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> fbAuthMd.getSqlCacheVersion(scopedSession, fbAuthPinned));
         }
     }
 

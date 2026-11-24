@@ -576,11 +576,11 @@ public final class PaimonScanParams {
     static boolean hasPinnedVersion(Map<String, String> options) {
         if (options == null || options.isEmpty()
                 || options.containsKey(CoreOptions.INCREMENTAL_BETWEEN.key())
-                || options.containsKey(CoreOptions.INCREMENTAL_BETWEEN_TIMESTAMP.key())) {
+                || options.containsKey(CoreOptions.INCREMENTAL_BETWEEN_TIMESTAMP.key())
+                || options.containsKey(CoreOptions.SCAN_TAG_NAME.key())) {
             return false;
         }
         return options.containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key())
-                || options.containsKey(CoreOptions.SCAN_TAG_NAME.key())
                 || isPinnedEmptyScan(options);
     }
 
@@ -593,7 +593,6 @@ public final class PaimonScanParams {
         }
         Map<String, String> remaining = userOptions(options);
         remaining.remove(CoreOptions.SCAN_SNAPSHOT_ID.key());
-        remaining.remove(CoreOptions.SCAN_TAG_NAME.key());
         return remaining.isEmpty() || PaimonReaderOptions.metadataNeutralOptions().containsAll(remaining.keySet());
     }
 
