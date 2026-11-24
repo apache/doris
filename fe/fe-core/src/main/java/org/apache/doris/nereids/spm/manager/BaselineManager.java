@@ -19,6 +19,10 @@ package org.apache.doris.nereids.spm.manager;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchema;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
@@ -900,7 +904,7 @@ public class BaselineManager {
 
         /** Confirms the written row and any deleted versions before closing this window. */
         boolean isSettled(BaselinePlan row, BaselinePersistence store) {
-            if (!isSatisfiedBy(row)) {
+            if (!requiresIdentityAbsence() && !isSatisfiedBy(row)) {
                 return false;
             }
             try {
@@ -908,6 +912,11 @@ public class BaselineManager {
             } catch (RuntimeException e) {
                 return false; // the outcome cannot be read: the window stays held
             }
+        }
+
+        /** A committed DELETE needs raw absence of its own identity, even behind a tombstone. */
+        boolean requiresIdentityAbsence() {
+            return expectedStatus == null && cleanupVisible != null;
         }
     }
 
@@ -2469,8 +2478,8 @@ public class BaselineManager {
                 }
                 throw e;
             }
-            // The IDENTITY delete is CONFIRMED from here on (persistDeleteByIdentity only
-            // returns once the row is gone), so the obligations below are settled in an order
+            // The identity DELETE committed. Its shared publication obligation can outlive
+            // this call, so the obligations below are settled in an order
             // that keeps every one of them recoverable: the KEY CLEANUP was already retained
             // above, the cache entry leaves first, then the two tombstone scopes and the
             // CONFIRMED absence fence, and only then are the lingering rows of this id wiped.
@@ -2663,7 +2672,7 @@ public class BaselineManager {
         try {
             for (BaselinePlan row : durable) {
                 persistDeleteByIdentity(row);
-                // This identity is confirmed gone even if a later incarnation's delete fails.
+                // This identity's DELETE committed even if a later incarnation's delete fails.
                 noteDroppedSeqState(row);
                 oweDropTombstone(id, row);
             }
@@ -2675,6 +2684,7 @@ public class BaselineManager {
                 for (BaselinePlan row : durable) {
                     recordPendingAbsenceFence(row);
                 }
+                evictReWarmedAfterAbsenceFence(durable);
             }
             throw e;
         }
@@ -3480,13 +3490,11 @@ public class BaselineManager {
             }
             confirmInsertVisible(intent);
             long keepFromMicros = Math.max(0L, intentTime);
-            // The intent's read-back confirmation can consume most of the window's
-            // successor-facing age bound (BASELINE_VISIBILITY_ATTEMPTS probes). A window past
-            // that bound is IGNORED by every other FE's fence read, so the DELETE below would
-            // run with nothing left to reject a paginated reader's stale page - the prune had
-            // no renewed lease and no dispatch-age check of its own (the.
+            // The intent's read-back can consume the budget the prune needs, particularly
+            // when the adapter needs both empty-fingerprint predicates.
+            int pruneBudgetSeconds = identityDeleteBudgetSeconds(intent);
             try {
-                assertMutationWindowDispatchable(mutation);
+                assertMutationWindowDispatchable(mutation, pruneBudgetSeconds);
             } catch (MutationWindowUnavailableException agedWindow) {
                 // The intent is CONFIRMED READABLE, so the ordering it proves is durable (its
                 // stored instant is the newest one) and its window may close now. The prune gets
@@ -3494,7 +3502,7 @@ public class BaselineManager {
                 endRowMutation(mutation);
                 mutation = 0;
                 try {
-                    mutation = beginRowMutation();
+                    mutation = beginRowMutation(pruneBudgetSeconds);
                     LOG.info("SPM renewed the mutation window of the no-op status statement of"
                             + " baseline {} before its version prune (new window {})",
                             plan.getId(), mutation);
@@ -5994,6 +6002,10 @@ public class BaselineManager {
      * fails retryably instead of concluding.
      */
     private long beginRowMutation() {
+        return beginRowMutation(BASELINE_WRITE_TIMEOUT_SECONDS);
+    }
+
+    private long beginRowMutation(int writeBudgetSeconds) {
         if (!persistence.isDurable()) {
             return 0;
         }
@@ -6023,7 +6035,7 @@ public class BaselineManager {
             throw e;
         }
         long elapsedMillis = mutationWindowNow() - windowOpenedAt;
-        if (!hasMutationWindowWriteBudget(elapsedMillis)) {
+        if (!hasMutationWindowWriteBudget(elapsedMillis, writeBudgetSeconds)) {
             // The window is ALREADY too close to its successor-facing age bound for the row
             // statement to run INSIDE it: a successor reading the clock from here on could
             // see QUIET (the marker row has aged past the bound) while this statement - or the
@@ -6038,7 +6050,7 @@ public class BaselineManager {
             endRowMutation(tick);
             throw new MutationWindowUnavailableException("SPM mutation window " + tick
                     + " took " + elapsedMillis + " ms to become readable, leaving less than its"
-                    + " " + BASELINE_WRITE_TIMEOUT_SECONDS + " s row-statement budget inside the "
+                    + " " + writeBudgetSeconds + " s row-statement budget inside the "
                     + MUTATION_WINDOW_MAX_AGE_SECONDS + " s window bound; nothing was changed -"
                     + " retry the operation");
         }
@@ -6047,9 +6059,15 @@ public class BaselineManager {
     }
 
     /** Keeps the entire statement budget before the earliest reader-side cutoff. */
-    private static boolean hasMutationWindowWriteBudget(long elapsedMillis) {
-        return elapsedMillis < (MUTATION_WINDOW_MAX_AGE_SECONDS - BASELINE_WRITE_TIMEOUT_SECONDS) * 1000L
+    private static boolean hasMutationWindowWriteBudget(long elapsedMillis, int writeBudgetSeconds) {
+        return elapsedMillis < (MUTATION_WINDOW_MAX_AGE_SECONDS - writeBudgetSeconds) * 1000L
                 - Config.max_bdbje_clock_delta_ms;
+    }
+
+    /** Empty fingerprints require separate DELETEs for the empty string and legacy SQL NULL. */
+    private static int identityDeleteBudgetSeconds(BaselinePlan row) {
+        return normalizedFingerprint(row).isEmpty() ? 2 * BASELINE_WRITE_TIMEOUT_SECONDS
+                : BASELINE_WRITE_TIMEOUT_SECONDS;
     }
 
     /** Waits for this process's open marker to become readable before dispatch. */
@@ -6104,16 +6122,16 @@ public class BaselineManager {
      *
      * Parameter tick: the window tick the statement would be dispatched under
      */
-    private void assertMutationWindowDispatchable(long tick) {
+    private void assertMutationWindowDispatchable(long tick, int writeBudgetSeconds) {
         Long openedAtMillis = mutationWindowOpenedAt.get(tick);
         if (openedAtMillis == null) {
             return;
         }
         long elapsedMillis = mutationWindowNow() - openedAtMillis;
-        if (!hasMutationWindowWriteBudget(elapsedMillis)) {
+        if (!hasMutationWindowWriteBudget(elapsedMillis, writeBudgetSeconds)) {
             throw new MutationWindowUnavailableException("SPM mutation window " + tick
                     + " was opened " + elapsedMillis + " ms ago, leaving less than its "
-                    + BASELINE_WRITE_TIMEOUT_SECONDS + " s row-statement budget inside the "
+                    + writeBudgetSeconds + " s row-statement budget inside the "
                     + MUTATION_WINDOW_MAX_AGE_SECONDS + " s window bound; the delayed"
                     + " statement was NOT dispatched and nothing was changed - retry the"
                     + " operation");
@@ -6220,29 +6238,18 @@ public class BaselineManager {
     }
 
     /**
-     * Keeps the SHARED mutation window of a dispatched DELETE open because its outcome is
-     * AMBIGUOUS (see persistDeleteByIdentity): the statement reported an error that may have
-     * been raised after a commit, and no read can prove the row gone yet. The window is the
-     * cluster-visible evidence that the DROP is not settled, so every other FE's fence read
-     * refuses to conclude - a successor that reads the OLD ENABLED row and reports
-     * ALTER... ENABLE as a successful no-op would lose that row when this DELETE publishes.
-     * The window closes after a read shows absence and any retained DROP tombstones
-     * are readable, or after MUTATION_WINDOW_MAX_AGE_SECONDS.
-     *
-     * Parameter tick: the window tick the DELETE was dispatched under
-     * Parameter id: the baseline id whose row must become absent
-     * Returns: whether the window was taken over: the caller must NOT close it
+     * Keeps the shared mutation window of a dispatched DELETE until publication can be proved.
+     * For a committed DELETE, tombstone-filtered absence does not prove the raw row is gone.
+     * The partition version fence covers publication that outlives the shared marker.
      */
-    private boolean holdUnresolvedAbsenceMutationWindow(long tick, long id) {
+    private boolean holdUnresolvedAbsenceMutationWindow(long tick, BaselinePlan row, boolean committed) {
         if (tick == 0) {
             return false; // no shared window exists (in-memory / scripted store)
         }
-        unresolvedMutationWindows.put(tick, new UnresolvedMutationWindow(id, null, 0,
-                mutationWindowNow()));
-        LOG.warn("SPM keeps mutation window {} OPEN: the DELETE of baseline {} may still have"
-                + " COMMITTED while no read can prove the row gone, so a successor must not"
-                + " treat the old-status row as final; the window closes after absence and any retained"
-                + " DROP tombstones are confirmed (or after its age bound)", tick, id);
+        unresolvedMutationWindows.put(tick, new UnresolvedMutationWindow(row.getId(), null, 0,
+                mutationWindowNow(), committed ? store -> store.isRowGone(row) : null));
+        LOG.warn("SPM keeps mutation window {} open until the DELETE of baseline {} is readable",
+                tick, row.getId());
         return true;
     }
 
@@ -6270,11 +6277,11 @@ public class BaselineManager {
             UnresolvedMutationWindow held = entry.getValue();
             boolean readable;
             try {
-                List<BaselinePlan> rows = filterTombstonedDurableRows(
-                        readPersistedParsedById(held.id));
                 BaselinePlan winner = null;
-                for (BaselinePlan row : rows) {
-                    winner = winner == null ? row : pickDurableWinner(winner, row);
+                if (!held.requiresIdentityAbsence()) {
+                    for (BaselinePlan row : filterTombstonedDurableRows(readPersistedParsedById(held.id))) {
+                        winner = winner == null ? row : pickDurableWinner(winner, row);
+                    }
                 }
                 readable = held.isSettled(winner, persistence);
             } catch (RuntimeException e) {
@@ -6282,7 +6289,8 @@ public class BaselineManager {
             }
             PendingMutationFence fence = pendingDropForWindow(held);
             if (fence != null) {
-                readable = (readable || fence.confirmed) && tryConfirmObservedDrop(held.id, fence);
+                readable = (readable || !held.requiresIdentityAbsence() && fence.confirmed)
+                        && tryConfirmObservedDrop(held.id, fence);
             }
             if (!readable) {
                 continue;
@@ -6296,12 +6304,9 @@ public class BaselineManager {
     }
 
     /**
-     * Closes the mutation windows this FE HELD OPEN for an unreadable committed outcome
-     * (see holdUnresolvedMutationWindow) once a snapshot proves the outcome readable - or
-     * once the window aged past MUTATION_WINDOW_MAX_AGE_SECONDS, after which every fence
-     * read ignores it anyway. Called by every snapshot publish path (see
-     * resolvePendingMutationFences), OUTSIDE the state lock: the completion append and the
-     * window delete below are internal-table I/O.
+     * Closes held windows once a snapshot proves the outcome readable. Abandoned windows
+     * can age out, while a committed identity DELETE retains its raw absence check.
+     * Completion runs outside the state lock because it writes the shared clock.
      *
      * Parameter persisted: the snapshot about to be applied (not modified)
      */
@@ -6315,16 +6320,17 @@ public class BaselineManager {
             UnresolvedMutationWindow held = entry.getValue();
             boolean readable = held.isSettled(persisted.get(held.id), persistence)
                     && pendingDropForWindow(held) == null;
-            boolean agedOut = now - held.sinceMillis
-                    > MUTATION_WINDOW_MAX_AGE_SECONDS * 1000L;
+            boolean agedOut = !held.requiresIdentityAbsence()
+                    && now - held.sinceMillis > MUTATION_WINDOW_MAX_AGE_SECONDS * 1000L;
             if (!readable && !agedOut) {
                 continue;
             }
-            unresolvedMutationWindows.remove(entry.getKey(), held);
-            endRowMutation(entry.getKey());
-            LOG.info("SPM mutation window {} of baseline {} closed: its committed row is {}",
-                    entry.getKey(), held.id,
-                    readable ? "readable now" : "still unreadable past the window bound");
+            if (unresolvedMutationWindows.remove(entry.getKey(), held)) {
+                endRowMutation(entry.getKey());
+                LOG.info("SPM mutation window {} of baseline {} closed: its committed row is {}",
+                        entry.getKey(), held.id,
+                        readable ? "readable now" : "still unreadable past the window bound");
+            }
         }
     }
 
@@ -7658,14 +7664,21 @@ public class BaselineManager {
      */
     private Map<Long, List<BaselinePlan>> readRawSnapshotFromTable() throws Exception {
         return readStableRawSnapshot(BaselineManager::readSnapshotPage,
-                this::readSnapshotFence,
+                this::readPaginatedSnapshotFence,
                 this::settleHeldMutationWindowsBeforeSnapshot);
     }
 
     /** One page of the whole-table snapshot, read through the internal table. */
     private static List<ResultRow> readSnapshotPage(Long pageStart, long offset) throws Exception {
+        String sql = snapshotPageSql(pageStart, offset);
+        if (Config.isCloudMode()) {
+            // A cached version on one page and a fresh version on another would escape
+            // a bracket that reads the authoritative versions on both sides.
+            sql = "SELECT /*+ SET_VAR(cloud_partition_version_cache_ttl_ms=0) */" + sql.substring("SELECT".length());
+        }
+        String pageSql = sql;
         return inInternalIoMode(() -> StatisticsUtil.executeQuery(
-                snapshotPageSql(pageStart, offset), Collections.emptyMap(),
+                pageSql, Collections.emptyMap(),
                 INTERNAL_QUERY_TIMEOUT_SECONDS));
     }
 
@@ -7702,7 +7715,7 @@ public class BaselineManager {
             Map<Long, List<BaselinePlan>> snapshot =
                     collectSnapshotRows(reader, SNAPSHOT_PAGE_SIZE, rowsRead, completion);
             SnapshotFence after = fenceReader.readFence();
-            // THREE conditions are required: the fence proves no mutation COMPLETED
+            // The matching fence proves no mutation COMPLETED or published
             // around the read, BOTH fence reads must show no OPEN mutation window (the
             // tick moves BEFORE a mutation's statement, so two same-tick reads alone could
             // certify a snapshot whose pages straddle that statement - e.g. a DROP's
@@ -7732,21 +7745,28 @@ public class BaselineManager {
         final long tickSum;
         /** The tick of an OPEN mutation window (0 = none; see beginRowMutation). */
         final long pending;
+        /** Visible versions used to detect publication independently of mutation-window lifetime. */
+        final Map<Long, Long> partitionVersions;
 
         SnapshotFence(long tickMax, long tickCount, long tickSum) {
             this(tickMax, tickCount, tickSum, 0);
         }
 
         SnapshotFence(long tickMax, long tickCount, long tickSum, long pending) {
+            this(tickMax, tickCount, tickSum, pending, Map.of());
+        }
+
+        SnapshotFence(long tickMax, long tickCount, long tickSum, long pending, Map<Long, Long> partitionVersions) {
             this.tickMax = tickMax;
             this.tickCount = tickCount;
             this.tickSum = tickSum;
             this.pending = pending;
+            this.partitionVersions = partitionVersions;
         }
 
         boolean matches(SnapshotFence other) {
             return tickMax == other.tickMax && tickCount == other.tickCount
-                    && tickSum == other.tickSum;
+                    && tickSum == other.tickSum && partitionVersions.equals(other.partitionVersions);
         }
 
         /**
@@ -7761,7 +7781,8 @@ public class BaselineManager {
         @Override
         public String toString() {
             return "(clock=" + tickMax + ", ticks=" + tickCount
-                    + ", tickSum=" + tickSum + ", pending=" + pending + ")";
+                    + ", tickSum=" + tickSum + ", pending=" + pending
+                    + ", partitionVersions=" + partitionVersions + ")";
         }
     }
 
@@ -7775,6 +7796,42 @@ public class BaselineManager {
     private SnapshotFence readSnapshotFence() throws Exception {
         long[] clock = persistence.clock();
         return new SnapshotFence(clock[0], clock[1], clock[2], clock[3]);
+    }
+
+    /**
+     * A DELETE can publish after its writer's window expires or the FE exits. Every
+     * published DELETE advances a partition version used by the page scans, so two
+     * matching clocks alone cannot certify that the pages read the same state.
+     */
+    private SnapshotFence readPaginatedSnapshotFence() throws Exception {
+        SnapshotFence clock = readSnapshotFence();
+        if (!clock.quiet()) {
+            return clock;
+        }
+        OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog()
+                .getDbOrMetaException(FeConstants.INTERNAL_DB_NAME)
+                .getTableOrMetaException(InternalSchema.SPM_BASELINES_TBL_NAME, TableIf.TableType.OLAP);
+        Map<Long, Long> published = new HashMap<>();
+        List<Partition> partitions;
+        table.readLock();
+        try {
+            partitions = List.copyOf(table.getPartitions());
+            if (Config.isNotCloudMode()) {
+                for (Partition partition : partitions) {
+                    published.put(partition.getId(), partition.getVisibleVersion());
+                }
+            }
+        } finally {
+            table.readUnlock();
+        }
+        if (Config.isCloudMode()) {
+            List<CloudPartition> cloudPartitions = partitions.stream().map(CloudPartition.class::cast).toList();
+            List<Long> versions = CloudPartition.getSnapshotVisibleVersionFromMs(cloudPartitions, false);
+            for (int i = 0; i < partitions.size(); i++) {
+                published.put(partitions.get(i).getId(), versions.get(i));
+            }
+        }
+        return new SnapshotFence(clock.tickMax, clock.tickCount, clock.tickSum, clock.pending, published);
     }
 
     /** The live implementation half of BaselinePersistence.clock. */
@@ -8786,23 +8843,21 @@ public class BaselineManager {
     }
 
     /**
-     * Polls whether an identity deletion is visible. Returns when the row is absent, or logs and returns after the
-     * probe budget expires because the statement already reported success. Probe exceptions propagate. The caller
-     * handles cache removal and durable deletion fences.
+     * Confirms the raw identity is absent. An exhausted probe budget leaves the committed
+     * DELETE to be settled by the shared window and the partition publication fence.
      */
-    private void confirmIdentityGone(BaselinePlan p) {
-        if (!persistence.isDurable()) {
-            return;
-        }
+    private boolean confirmIdentityGone(BaselinePlan p) {
         for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
-            if (persistence.isRowGone(p)) {
-                return;
+            try {
+                if (persistence.isRowGone(p)) {
+                    return true;
+                }
+            } catch (RuntimeException e) {
+                LOG.debug("SPM identity DELETE visibility probe failed: {}", e.getMessage());
             }
             sleepBeforeVisibilityRetry();
         }
-        LOG.warn("SPM persist (delete) reported success and baseline {} is still readable"
-                + " after {} probes; the committed delete is the durable outcome, removing"
-                + " the row from the cache", p.getId(), BASELINE_VISIBILITY_ATTEMPTS);
+        return false;
     }
 
     /** Waits until the old version targeted by the status cleanup is no longer readable. */
@@ -9008,7 +9063,8 @@ public class BaselineManager {
         // Open the mutation window BEFORE the delete and close it AFTER (see
         // beginRowMutation): a strict failure fails the DROP, so a delete that may have
         // committed is never preceded by a missing window.
-        long mutation = beginRowMutation();
+        int writeBudgetSeconds = identityDeleteBudgetSeconds(p);
+        long mutation = beginRowMutation(writeBudgetSeconds);
         boolean windowHeld = false;
         try {
             // DISPATCH-time re-checks, the same two the status DELETE runs:
@@ -9019,7 +9075,7 @@ public class BaselineManager {
             // successor, so the same pause let the DELETE erase a row the successor had
             // already updated. Both are re-validated immediately before the statement.
             assertLeaderForWrite();
-            assertMutationWindowDispatchable(mutation);
+            assertMutationWindowDispatchable(mutation, writeBudgetSeconds);
             try {
                 persistence.deleteByIdentity(p);
             } catch (Exception e) {
@@ -9044,14 +9100,14 @@ public class BaselineManager {
                 // delayed DELETE published. The window makes every later fence read fail
                 // retryably until a snapshot shows the row gone (then it is closed, see
                 // resolveHeldMutationWindows) or it ages past its bound.
-                windowHeld = holdUnresolvedAbsenceMutationWindow(mutation, p.getId());
+                windowHeld = holdUnresolvedAbsenceMutationWindow(mutation, p, false);
                 throw new RuntimeException("SPM persist (delete) failed: " + e.getMessage()
                         + (presence == BaselinePersistence.DurablePresence.UNKNOWN
                                 ? " (the durable row could not be confirmed deleted)" : ""), e);
             }
-            // Poll visibility after SQL success. If the probe budget expires, confirmIdentityGone logs the lag
-            // and the caller treats the delete as committed while retaining its publication fence.
-            confirmIdentityGone(p);
+            if (!confirmIdentityGone(p)) {
+                windowHeld = holdUnresolvedAbsenceMutationWindow(mutation, p, true);
+            }
         } finally {
             if (!windowHeld) {
                 endRowMutation(mutation);
@@ -9129,11 +9185,12 @@ public class BaselineManager {
         // Open the mutation window BEFORE the status DELETE and close it after (see
         // beginRowMutation): an overlapping snapshot read must retry over the flip's
         // DELETE half as well.
-        long mutation = beginRowMutation();
+        int writeBudgetSeconds = identityDeleteBudgetSeconds(p);
+        long mutation = beginRowMutation(writeBudgetSeconds);
         boolean windowHeld = false;
         try {
             assertLeaderForWrite();
-            assertMutationWindowDispatchable(mutation);
+            assertMutationWindowDispatchable(mutation, writeBudgetSeconds);
             if (!persistence.isDurable()) {
                 return;
             }
@@ -9486,7 +9543,7 @@ public class BaselineManager {
         @Override
         public boolean isRowGone(BaselinePlan plan) {
             return owner.probeRowFromTable(plan.getId(), plan.getBindSqlDigest(),
-                    plan.getPlanSql(), null, plan.getSchemaFingerprint(), null)
+                    plan.getPlanSql(), null, normalizedFingerprint(plan), null)
                     == DurablePresence.ABSENT;
         }
 

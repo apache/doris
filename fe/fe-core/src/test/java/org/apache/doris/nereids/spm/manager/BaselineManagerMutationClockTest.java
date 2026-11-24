@@ -25,6 +25,7 @@ import org.apache.doris.nereids.spm.BaselineStatus;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
@@ -1157,6 +1158,71 @@ public class BaselineManagerMutationClockTest {
         }
     }
 
+    @Test
+    public void testCommittedDropKeepsItsWindowUntilRawAbsenceIsReadable() throws Exception {
+        manager = newManager();
+        BaselineManagerTestAccess.clear(manager);
+        MutationClockSimulator clock = new MutationClockSimulator();
+        AmbiguousDeleteStore store = new AmbiguousDeleteStore();
+        doubles.mutationClockStore = clock;
+        doubles.idAllocatorStore = store;
+        try {
+            long id = manager.createBaseline(baseline("d-lagging-commit", "p-lagging-commit"));
+            store.deleteCommitted = true;
+            doubles.visibilityProbe = (probeId, status) -> store.rows.containsKey(probeId);
+
+            Assertions.assertTrue(manager.dropBaseline(id));
+            Assertions.assertTrue(store.rows.containsKey(id), "DELETE committed but has not published");
+            Assertions.assertTrue(BaselineManagerTestAccess.holdsUnresolvedMutationWindow());
+            Assertions.assertFalse(BaselineManagerTestAccess.snapshotFence(manager).quiet());
+
+            // Even a tombstone-filtered snapshot cannot certify publication of the raw DELETE.
+            windowClock.addAndGet(OPEN_WINDOW_MAX_AGE_MILLIS + 1);
+            manager.applyRefreshedBaselines(Map.of());
+            BaselineManagerTestAccess.settleHeldMutationWindowsBeforeSnapshot(manager);
+            Assertions.assertTrue(BaselineManagerTestAccess.holdsUnresolvedMutationWindow());
+            Assertions.assertFalse(BaselineManagerTestAccess.snapshotFence(manager).quiet());
+
+            store.rows.remove(id);
+            BaselineManagerTestAccess.settleHeldMutationWindowsBeforeSnapshot(manager);
+            Assertions.assertFalse(BaselineManagerTestAccess.holdsUnresolvedMutationWindow());
+            Assertions.assertTrue(BaselineManagerTestAccess.snapshotFence(manager).quiet());
+        } finally {
+            BaselineManagerTestAccess.clear(manager);
+        }
+    }
+
+    @Test
+    public void testEmptyFingerprintDropReservesBothDeleteTimeouts() {
+        manager = newManager();
+        BaselineManagerTestAccess.clear(manager);
+        MutationClockSimulator clock = new MutationClockSimulator();
+        AmbiguousDeleteStore store = new AmbiguousDeleteStore();
+        doubles.mutationClockStore = clock;
+        doubles.idAllocatorStore = store;
+        long oldClockDelta = Config.max_bdbje_clock_delta_ms;
+        try {
+            Config.max_bdbje_clock_delta_ms = 5_000;
+            BaselinePlan baseline = baseline("d-two-deletes", "p-two-deletes");
+            baseline.setSchemaFingerprint("");
+            long id = manager.createBaseline(baseline);
+            java.util.concurrent.atomic.AtomicInteger probes = new java.util.concurrent.atomic.AtomicInteger();
+            gateway.leaderProbe = () -> {
+                if (probes.incrementAndGet() == 3) {
+                    windowClock.addAndGet(104_900L);
+                }
+                return true;
+            };
+
+            RuntimeException failure = Assertions.assertThrows(RuntimeException.class, () -> manager.dropBaseline(id));
+            Assertions.assertTrue(failure.getMessage().contains("20 s row-statement budget"), failure.getMessage());
+            Assertions.assertEquals(0, store.deleteCalls, "the late adapter never starts the first DELETE");
+        } finally {
+            Config.max_bdbje_clock_delta_ms = oldClockDelta;
+            BaselineManagerTestAccess.clear(manager);
+        }
+    }
+
     /**
      * Round-58 (comment 4a): a caller that pauses after its window opened must not dispatch
      * the row statement once the window aged past MUTATION_WINDOW_MAX_AGE_SECONDS - every
@@ -1165,8 +1231,9 @@ public class BaselineManagerMutationClockTest {
      * INSERT half is confirmed), but the cleanup is REFUSED before dispatch.
      */
     @ParameterizedTest
-    @ValueSource(longs = {105_000L, 109_900L, 200_000L})
-    public void testWindowWithInsufficientBudgetRefusesDelayedStatusCleanup(long elapsedMillis) throws Exception {
+    @CsvSource({"104900,true", "105000,false", "109900,false", "200000,false"})
+    public void testWindowWithInsufficientBudgetRefusesDelayedStatusCleanup(long elapsedMillis,
+            boolean emptyFingerprint) throws Exception {
         manager = newManager();
         BaselineManagerTestAccess.clear(manager);
         MutationClockSimulator clock = new MutationClockSimulator();
@@ -1174,12 +1241,16 @@ public class BaselineManagerMutationClockTest {
         long oldClockDelta = Config.max_bdbje_clock_delta_ms;
         try {
             Config.max_bdbje_clock_delta_ms = 5_000;
-            long id = manager.createBaseline(baseline("d-aged-cleanup", "p-aged-cleanup"));
+            BaselinePlan plan = baseline("d-aged-cleanup", "p-aged-cleanup");
+            if (emptyFingerprint) {
+                plan.setSchemaFingerprint("");
+            }
+            long id = manager.createBaseline(plan);
             doubles.statusProtocolStore = store;
             doubles.mutationClockStore = clock;
             store.rows.put(BaselineStatus.ENABLED, 1);
             // the durable table of this scenario holds the row the create wrote
-            BaselinePlan durableRow = baseline("d-aged-cleanup", "p-aged-cleanup");
+            BaselinePlan durableRow = plan.copyPersistedScalars();
             durableRow.setId(id);
             doubles.seedDurableRow(durableRow);
 
@@ -1318,6 +1389,8 @@ public class BaselineManagerMutationClockTest {
         private final Map<Long, BaselinePlan> rows = new java.util.LinkedHashMap<>();
         private final List<String> markers = new ArrayList<>();
         private boolean failIdentityMarker;
+        private boolean deleteCommitted;
+        private int deleteCalls;
 
         @Override
         public void appendDroppedMarker(long id, String bindSqlDigest, long planSqlHash, long atMillis) {
@@ -1350,7 +1423,10 @@ public class BaselineManagerMutationClockTest {
 
         @Override
         public void deleteByIdentity(BaselinePlan plan) {
-            throw new RuntimeException("KV_TXN_MAYBE_COMMITTED");
+            deleteCalls++;
+            if (!deleteCommitted) {
+                throw new RuntimeException("KV_TXN_MAYBE_COMMITTED");
+            }
         }
     }
 }

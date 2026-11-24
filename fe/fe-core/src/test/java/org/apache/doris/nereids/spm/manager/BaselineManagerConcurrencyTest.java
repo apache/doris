@@ -4737,6 +4737,34 @@ public class BaselineManagerConcurrencyTest {
                 "the successor must not be lost to the OFFSET continuation");
     }
 
+    @Test
+    public void testSnapshotRetriesWhenDeletePublishesAfterTheClockWindowExpires() throws Exception {
+        Map<Long, BaselinePlan> table = new java.util.LinkedHashMap<>();
+        for (long id = 1; id <= 2001; id++) {
+            table.put(id, withId(baseline("late" + id, "select k from t"), id));
+        }
+        AtomicInteger visibleVersion = new AtomicInteger(8);
+        AtomicInteger reads = new AtomicInteger();
+        Map<Long, BaselinePlan> snapshot = BaselineManagerTestAccess.readStableSnapshot((pageStart, offset) -> {
+            List<ResultRow> page = table.values().stream()
+                    .filter(row -> pageStart == null || row.getId() >= pageStart)
+                    .skip(offset)
+                    .limit(2000)
+                    .map(BaselineManagerConcurrencyTest::rowOf)
+                    .toList();
+            if (reads.getAndIncrement() == 0) {
+                // The first page still ended on id 2000. The shared clock is already quiet.
+                table.remove(2000L);
+                visibleVersion.incrementAndGet();
+            }
+            return page;
+        }, () -> new BaselineManager.SnapshotFence(6L, 2001L, 12006L, 0L,
+                Map.of(1L, (long) visibleVersion.get())));
+
+        Assertions.assertEquals(table.keySet(), snapshot.keySet());
+        Assertions.assertTrue(snapshot.containsKey(2001L), "the OFFSET must not hide the live successor");
+    }
+
     /**
      * The default 3-arg fence is CLOSED (no open window) - scripted / legacy callers keep
      * working - and an open window is never quiet, whatever the tick tuple says.

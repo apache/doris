@@ -81,6 +81,7 @@ public class SPMRound65ManagerTest {
         };
         /** One id whose identity DELETE fails (the best-effort leader repair case). */
         long failDeletesForId = -1L;
+        Runnable beforeFailedDelete = () -> {};
 
         @Override
         public boolean isDurable() {
@@ -111,6 +112,7 @@ public class SPMRound65ManagerTest {
         @Override
         public void deleteByIdentity(BaselinePlan plan) {
             if (plan.getId() == failDeletesForId) {
+                beforeFailedDelete.run();
                 throw new RuntimeException("internal statement timed out after 10s");
             }
             rows.remove(plan.getId());
@@ -235,6 +237,31 @@ public class SPMRound65ManagerTest {
                 "later statements must not be served the dropped baseline from the cache");
         Assertions.assertTrue(reads.get() > readsBeforeSecondLookup,
                 "the second lookup must read the table instead of a stale cached bucket");
+    }
+
+    @Test
+    public void testAmbiguousUncachedDropEvictsARewarmedHash() {
+        Round65Store store = new Round65Store();
+        BaselineManager manager = newManager(store);
+        long hash = 0xA1L;
+        long id = 10L;
+        BaselinePlan enabled = row(id, "digest_a", hash, BaselineStatus.ENABLED, 1_000L);
+        store.rows.put(id, enabled);
+        manager.applyRefreshedBaselines(Map.of(id, enabled));
+        BaselineManagerTestAccess.evictRowFromCacheOnly(manager, id);
+        long epoch = BaselineManagerTestAccess.knownHashEpoch(manager, hash);
+
+        store.failDeletesForId = id;
+        store.beforeFailedDelete = () -> {
+            Assertions.assertEquals(1, manager.findCandidateBaselines("digest_a", hash).size());
+            Assertions.assertNotNull(BaselineManagerTestAccess.rawCacheGet(manager, id));
+        };
+
+        Assertions.assertThrows(RuntimeException.class, () -> manager.dropBaseline(id));
+        Assertions.assertTrue(store.rows.containsKey(id), "the DELETE may still publish");
+        Assertions.assertNotEquals(epoch, BaselineManagerTestAccess.knownHashEpoch(manager, hash));
+        Assertions.assertNull(BaselineManagerTestAccess.rawCacheGet(manager, id));
+        Assertions.assertTrue(manager.findCandidateBaselines("digest_a", hash).isEmpty());
     }
 
     // ==================== #4: the superseded same-key twin ====================

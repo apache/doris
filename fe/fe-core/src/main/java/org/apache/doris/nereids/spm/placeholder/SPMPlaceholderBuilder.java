@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.spm.placeholder;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -32,6 +33,8 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -531,12 +534,26 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         if (expr instanceof Function) {
             return switch (((Function) expr).getName().toLowerCase(Locale.ROOT)) {
-                case "array_repeat" -> 0;
+                case "array_repeat", "array_agg", "collect_list", "collect_set" -> 0;
                 case "array_with_constant" -> 1;
                 default -> -1;
             };
         }
         return -1;
+    }
+
+    /** Tests a parsed builtin name or the corresponding bound struct constructor. */
+    private static boolean isStructCall(Expression expression, boolean named) {
+        if (expression instanceof UnboundFunction) {
+            UnboundFunction call = (UnboundFunction) expression;
+            return (call.getDbName() == null || call.getDbName().isEmpty())
+                    && (named ? "named_struct" : "struct").equalsIgnoreCase(call.getName());
+        }
+        return named ? expression instanceof CreateNamedStruct : expression instanceof CreateStruct;
+    }
+
+    private boolean isStructFieldPosition(Expression parent) {
+        return isStructCall(parent, false) || isStructCall(parent, true) && currentChildIndex() % 2 == 1;
     }
 
     /**
@@ -962,6 +979,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 && literal == parent.child(2)) {
             return literal;
         }
+        // The named struct's labels are literal selectors. Only its field values can vary.
+        if (isStructCall(parent, true) && currentChildIndex() % 2 == 0) {
+            return literal;
+        }
         // Deduplicate by value + parent structure + child position: a literal reuses an
         // existing id only when the value, the parent expression structure AND the
         // position inside that parent all match. The position is required - the two
@@ -980,13 +1001,14 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return existing;
         }
         long id = nextId++;
+        boolean structField = isStructFieldPosition(parent);
         boolean containerPosition = isNullTypeContainerPosition(parent);
         boolean conditionalContainer = containerElementDepth > 0
                 && (literal instanceof ArrayLiteral || literal instanceof MapLiteral)
                 && isConditionalResultPosition(parent);
         SpmConstVar placeholder = SpmConstVar.of(id,
-                markerPayload(literal, parent, currentProjectItem() >= 0,
-                        booleanConditionalDepth > 0 && isConditionalResultPosition(parent),
+                markerPayload(literal, parent, currentProjectItem() >= 0 || structField,
+                        structField || booleanConditionalDepth > 0 && isConditionalResultPosition(parent),
                         booleanConditionalDepth > 0 && (containerPosition || conditionalContainer),
                         containerElementDepth > 0 && !containerPosition, mapKeyDepth));
         placeholderIndex.put(key, placeholder);
@@ -1375,10 +1397,13 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         boolean projectedValue = currentProjectItem() >= 0
                 && (parent == null || parent instanceof org.apache.doris.nereids.trees.expressions.Alias
                         || parent instanceof org.apache.doris.nereids.analyzer.UnboundAlias);
-        boolean booleanConditionalOperand = (projectedValue
+        // Each STRUCT field has its own type. A derived-table consumer can bind that
+        // type as a Boolean operand and discard a field whose marker still has NullType.
+        boolean typedOutput = projectedValue || isStructFieldPosition(parent);
+        boolean booleanConditionalOperand = (typedOutput
                 || parent instanceof And || parent instanceof Or || parent instanceof Not)
                 && producesNullType(expr);
-        boolean containerElementOperand = (projectedValue
+        boolean containerElementOperand = (typedOutput
                 || booleanConditionalDepth > 0 && isNullTypeContainerPosition(parent))
                 && isAllNullContainer(expr);
 

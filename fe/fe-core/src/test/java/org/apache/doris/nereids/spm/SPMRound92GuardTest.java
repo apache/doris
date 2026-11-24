@@ -66,7 +66,10 @@ public class SPMRound92GuardTest {
             "element_at(array_with_constant(1, NULL), 1)",
             "element_at(array_flatten(array(array(NULL))), 1)",
             "element_at(array_flatten([[NULL]]), 1)",
-            "element_at(deduplicate_map(map('x', NULL)), 'x')"
+            "element_at(deduplicate_map(map('x', NULL)), 'x')",
+            "element_at(array_agg(NULL), 1)",
+            "element_at(collect_list(NULL), 1)",
+            "element_at(collect_set(NULL), 1)"
     })
     public void testContainerProducerKeepsTheBooleanMarkerType(String operand) {
         String query = "SELECT k, k > 0 OR %s AS c FROM t";
@@ -82,6 +85,19 @@ public class SPMRound92GuardTest {
         Scope scope = new Scope(List.of(new SlotReference("k", IntegerType.INSTANCE)));
         Expression analyzed = new ExpressionAnalyzer(null, scope, null, true, true).analyze(parameterized);
         Assertions.assertEquals(nullMarkers.size(), analyzed.collect(expr -> expr instanceof SpmConstVar).size());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"struct(NULL, 7)", "named_struct('col1', NULL, 'col2', 7)"})
+    public void testProjectedStructKeepsTheNullFieldMarker(String constructor) {
+        String query = "SELECT k, k > 0 OR s.col1 AS c FROM (SELECT k, " + constructor + " AS s FROM t) x";
+        List<SpmConstVar> nullMarkers = markers(query);
+        List<SpmConstVar> valueMarkers = markers(query.replace("NULL", "TRUE"));
+        Assertions.assertEquals(3, nullMarkers.size(), "threshold and two struct fields");
+        Assertions.assertEquals(valueMarkers.stream().map(SpmConstVar::getDataType).toList(),
+                nullMarkers.stream().map(SpmConstVar::getDataType).toList());
+        Assertions.assertTrue(nullMarkers.stream().anyMatch(marker ->
+                marker.getValue().isNullLiteral() && marker.getDataType().isBooleanType()));
     }
 
     @Test

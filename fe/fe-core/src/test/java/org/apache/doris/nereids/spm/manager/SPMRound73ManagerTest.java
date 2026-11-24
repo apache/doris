@@ -23,6 +23,8 @@ import org.apache.doris.nereids.spm.BaselineStatus;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -370,15 +372,19 @@ public class SPMRound73ManagerTest {
      * with nothing left to reject a paginated reader's stale page. The prune must verify its
      * lease and - since the intent is already durable and readable - run under a RENEWED window.
      */
-    @Test
-    public void testAgedWindowIsRenewedBeforeTheVersionPrune() {
+    @ParameterizedTest
+    @CsvSource({"200000,false", "104900,true"})
+    public void testAgedWindowIsRenewedBeforeTheVersionPrune(long elapsedMillis, boolean emptyFingerprint) {
         TestStore store = new TestStore();
         BaselineManager manager = manager(store);
         BaselinePlan enabled = row(5L, "digest_a", BaselineStatus.ENABLED);
+        if (emptyFingerprint) {
+            enabled.setSchemaFingerprint("");
+        }
         store.rows.put(5L, enabled);
         manager.applyRefreshedBaselines(Map.of(5L, enabled));
-        // the intent write burns the whole window budget (the reviewer's slow confirmation)
-        store.clockJumpOnInsertMillis = 200_000L;
+        // The intent write leaves too little time for the prune adapter.
+        store.clockJumpOnInsertMillis = elapsedMillis;
 
         Assertions.assertTrue(manager.updateStatus(5L, BaselineStatus.ENABLED),
                 "the no-op ALTER still succeeds");
