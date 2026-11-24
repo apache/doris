@@ -22,10 +22,12 @@ suite("test_mc_limit_split_optimization", "p2,external,maxcompute,external_remot
         return
     }
 
+    String endpoint = context.config.otherConfigs.get("mcEndpoint")
+            ?: "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
     String ak = context.config.otherConfigs.get("ak")
     String sk = context.config.otherConfigs.get("sk")
     String mc_catalog_name = "test_mc_limit_split_opt"
-    String defaultProject = "mc_doris_test_write"
+    String defaultProject = context.config.otherConfigs.get("mcWriteProject") ?: "mc_doris_test_write"
     // String defaultProject = "doris_test_schema"
 
     sql """drop catalog if exists ${mc_catalog_name}"""
@@ -35,7 +37,7 @@ suite("test_mc_limit_split_optimization", "p2,external,maxcompute,external_remot
         "mc.default.project" = "${defaultProject}",
         "mc.access_key" = "${ak}",
         "mc.secret_key" = "${sk}",
-        "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api",
+        "mc.endpoint" = "${endpoint}",
         "mc.quota" = "pay-as-you-go",
         "mc.enable.namespace.schema" = "true"
     );

@@ -24,7 +24,7 @@ suite("test_max_compute_validate_connection", "p2,external") {
 
     String ak = context.config.otherConfigs.get("ak")
     String sk = context.config.otherConfigs.get("sk")
-    String defaultProject = "mc_datalake"
+    String defaultProject = context.config.otherConfigs.get("mcDefaultProject") ?: "mc_datalake"
     String invalidEndpoint = "http://127.0.0.1:1/api"
     String catalogDefaultFalse = "test_mc_validate_default_false"
     String catalogExplicitFalse = "test_mc_validate_explicit_false"
