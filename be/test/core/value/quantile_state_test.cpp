@@ -222,18 +222,17 @@ TEST(QuantileStateTest, LowCompression1440SamplesRetainLessBuffer) {
     expect_digest_samples(low, 1440, 0, 1439);
 }
 
-static void expect_low_mixed_result_roundtrip(QuantileState result) {
+static void expect_mixed_result_roundtrip(QuantileState result) {
     ASSERT_EQ(TDIGEST, result._type);
-    EXPECT_EQ(128, result._compression);
-    EXPECT_EQ(128, result._mutable_tdigest().compression());
-    EXPECT_EQ(128, result._mutable_tdigest().max_unprocessed());
+    EXPECT_EQ(2048, result._compression);
+    EXPECT_EQ(2048, result._mutable_tdigest().compression());
     EXPECT_EQ(0, result._explicit_data.capacity());
     expect_digest_samples(result, 960, 0, 959);
     std::vector<uint8_t> bytes(result.get_serialized_size());
     ASSERT_EQ(bytes.size(), result.serialize(bytes.data()));
     QuantileState restored;
     ASSERT_TRUE(restored.deserialize(Slice(reinterpret_cast<char*>(bytes.data()), bytes.size())));
-    EXPECT_EQ(128, restored._compression);
+    EXPECT_EQ(2048, restored._compression);
     restored.add_value(1000);
     expect_digest_samples(restored, 961, 0, 1000);
 }
@@ -250,8 +249,8 @@ TEST(QuantileStateTest, LowCompressionMixedMergeAndRoundTrip) {
     low_first.merge(high);
     auto high_first = high;
     high_first.merge(low);
-    expect_low_mixed_result_roundtrip(low_first);
-    expect_low_mixed_result_roundtrip(high_first);
+    expect_mixed_result_roundtrip(low_first);
+    expect_mixed_result_roundtrip(high_first);
     EXPECT_EQ(480, serialized_digest_weight(low_copy));
     EXPECT_EQ(2048, high._compression);
 }
@@ -277,6 +276,8 @@ TEST(QuantileStateTest, LowCompressionMergePreservesWeightedSourceExtrema) {
         QuantileState lower(128);
         lower.add_value(sign * 100);
         source.merge(lower);
+        EXPECT_EQ(256, source._compression);
+        EXPECT_EQ(256, source._mutable_tdigest().compression());
         expect_digest_samples(source, 100260, source_min, source_max);
         std::vector<uint8_t> bytes(source.get_serialized_size());
         ASSERT_EQ(bytes.size(), source.serialize(bytes.data()));
@@ -287,20 +288,59 @@ TEST(QuantileStateTest, LowCompressionMergePreservesWeightedSourceExtrema) {
     }
 }
 
-static void expect_low_mixed_capacity(QuantileState& result, const char* label) {
+TEST(QuantileStateTest, HighCompressionMergePreservesLowDigestEndpoint) {
+    QuantileState low(128);
+    low.add_value(0);
+    for (int i = 0; i <= 128; ++i) {
+        low.add_value(100);
+    }
+    auto& digest = low._mutable_tdigest();
+    digest.add(1, 1);
+    digest.add(100, 100000);
+    EXPECT_EQ(0, low.get_value_by_percentile(0));
+    ASSERT_FALSE(digest.processed().empty());
+    EXPECT_GT(digest.processed().front().mean(), 0);
+
+    QuantileState high(2048);
+    high.add_value(100);
+    high.merge(low);
+    EXPECT_EQ(2048, high._compression);
+    EXPECT_EQ(2048, high._mutable_tdigest().compression());
+    EXPECT_EQ(0, high.get_value_by_percentile(0));
+    EXPECT_EQ(100, high.get_value_by_percentile(1));
+}
+
+TEST(QuantileStateTest, HighCompressionMergePreservesLowDigestMaximum) {
+    QuantileState negative_low(128);
+    negative_low.add_value(0);
+    for (int i = 0; i <= 128; ++i) {
+        negative_low.add_value(-100);
+    }
+    auto& negative_digest = negative_low._mutable_tdigest();
+    negative_digest.add(-1, 1);
+    negative_digest.add(-100, 100000);
+    EXPECT_EQ(0, negative_low.get_value_by_percentile(1));
+    ASSERT_FALSE(negative_digest.processed().empty());
+    EXPECT_LT(negative_digest.processed().back().mean(), 0);
+
+    QuantileState negative_high(2048);
+    negative_high.add_value(-100);
+    negative_high.merge(negative_low);
+    EXPECT_EQ(-100, negative_high.get_value_by_percentile(0));
+    EXPECT_EQ(0, negative_high.get_value_by_percentile(1));
+}
+
+static void expect_high_mixed_result(QuantileState& result, const char* label) {
     SCOPED_TRACE(label);
     auto& digest = result._mutable_tdigest();
-    EXPECT_EQ(128, result._compression);
-    EXPECT_EQ(128, digest.compression());
-    EXPECT_LE(digest._unprocessed.capacity(), 256);
-    EXPECT_LE(digest._processed.capacity(), 512);
-    EXPECT_LE(digest._cumulative.capacity(), 513);
+    EXPECT_EQ(10000, result._compression);
+    EXPECT_EQ(10000, digest.compression());
     EXPECT_EQ(0, result.get_value_by_percentile(0));
     EXPECT_EQ(60000, digest._max);
     expect_digest_samples(result, 60001, 0, 60000);
 }
 
-TEST(QuantileStateTest, LowCompressionMixedMergeBoundsRetainedCapacity) {
+TEST(QuantileStateTest, LowCompressionMixedMergeSelectsHigherCompression) {
     QuantileState high(10000);
     for (int i = 0; i < 60000; ++i) {
         high.add_value(i);
@@ -312,20 +352,20 @@ TEST(QuantileStateTest, LowCompressionMixedMergeBoundsRetainedCapacity) {
 
     auto high_first = high;
     high_first.merge(low);
-    expect_low_mixed_capacity(high_first, "pending high first");
+    expect_high_mixed_result(high_first, "pending high first");
     auto low_first = low;
     low_first.merge(high);
-    expect_low_mixed_capacity(low_first, "pending low first");
+    expect_high_mixed_result(low_first, "pending low first");
     EXPECT_EQ(60000, high._mutable_tdigest().unprocessed().size());
 
     EXPECT_EQ(0, high.get_value_by_percentile(0));
     EXPECT_GT(high._mutable_tdigest().processed().size(), 1000);
     auto processed_high_first = high;
     processed_high_first.merge(low);
-    expect_low_mixed_capacity(processed_high_first, "processed high first");
+    expect_high_mixed_result(processed_high_first, "processed high first");
     auto processed_low_first = low;
     processed_low_first.merge(high);
-    expect_low_mixed_capacity(processed_low_first, "processed low first");
+    expect_high_mixed_result(processed_low_first, "processed low first");
 }
 
 TEST(QuantileStateTest, EmptyAndExplicitMergeUseNonemptyCompression) {
@@ -340,17 +380,20 @@ TEST(QuantileStateTest, EmptyAndExplicitMergeUseNonemptyCompression) {
     EXPECT_EQ(128, empty._compression);
     EXPECT_EQ(EXPLICIT, empty._type);
     empty.merge(high);
+    EXPECT_EQ(2048, empty._compression);
     EXPECT_EQ(EXPLICIT, empty._type);
     EXPECT_EQ(128, empty._explicit_data.size());
     empty.add_value(128);
-    expect_digest_samples(empty, 129, 0, 128);
+    EXPECT_EQ(EXPLICIT, empty._type);
+    EXPECT_EQ(129, empty._explicit_data.size());
 
     auto reverse = high;
     reverse.merge(low);
-    EXPECT_EQ(128, reverse._compression);
+    EXPECT_EQ(2048, reverse._compression);
     EXPECT_EQ(EXPLICIT, reverse._type);
     reverse.add_value(128);
-    expect_digest_samples(reverse, 129, 0, 128);
+    EXPECT_EQ(EXPLICIT, reverse._type);
+    EXPECT_EQ(129, reverse._explicit_data.size());
 }
 
 TEST(QuantileStateTest, ReadOversizedLowExplicitThenAppend) {
@@ -370,7 +413,9 @@ TEST(QuantileStateTest, ReadOversizedLowExplicitThenAppend) {
     QuantileState singleton(2048);
     singleton.add_value(1440);
     merged.merge(singleton);
-    expect_digest_samples(merged, 1441, 0, 1440);
+    EXPECT_EQ(2048, merged._compression);
+    EXPECT_EQ(EXPLICIT, merged._type);
+    EXPECT_EQ(1441, merged._explicit_data.size());
     restored.add_value(1440);
     EXPECT_EQ(0, restored._explicit_data.capacity());
     expect_digest_samples(restored, 1441, 0, 1440);
@@ -393,9 +438,8 @@ TEST(QuantileStateTest, LowCompressionThreePartialTreesAndSelfMerge) {
     auto reverse = first;
     reverse.merge(right_tree);
     for (auto state : {left_tree, reverse}) {
-        EXPECT_EQ(128, state._compression);
-        EXPECT_EQ(128, state._mutable_tdigest().compression());
-        EXPECT_EQ(128, state._mutable_tdigest().max_unprocessed());
+        EXPECT_EQ(2048, state._compression);
+        EXPECT_EQ(2048, state._mutable_tdigest().compression());
         expect_digest_samples(state, 1440, 10, 30);
         const auto before = state;
         state.merge(state);

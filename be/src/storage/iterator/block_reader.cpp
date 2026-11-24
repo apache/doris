@@ -531,8 +531,16 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
 
     for (auto idx : _agg_columns_idx) {
         const auto& column = *_read_schema->column(idx);
+        // Query and compaction share the reader, but only persisted compaction output
+        // needs the legacy 2048 floor. Other aggregate columns keep the normal reader.
+        const auto* suffix =
+                column.aggregation() == FieldAggregationMethod::
+                                                OLAP_FIELD_AGGREGATION_QUANTILE_UNION &&
+                                is_compaction_reader_type(read_params.reader_type)
+                        ? AGG_COMPACTION_SUFFIX
+                        : AGG_READER_SUFFIX;
         AggregateFunctionPtr function = column.get_aggregate_function(
-                AGG_READER_SUFFIX, read_params.get_be_exec_version(), _read_schema->data_type(idx));
+                suffix, read_params.get_be_exec_version(), _read_schema->data_type(idx));
 
         // Every aggregate value column must resolve its reader aggregate function.
         if (!function) {

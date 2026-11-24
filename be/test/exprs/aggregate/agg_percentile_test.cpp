@@ -289,6 +289,63 @@ TEST(AggregateFunctionQuantileStateTest, RestoredAccumulatorMergesNextPartial) {
     }
 }
 
+static QuantileState make_compaction_input(float compression, int first_value) {
+    QuantileState state(compression);
+    for (int i = 0; i < 480; ++i) {
+        state.add_value(i + first_value);
+    }
+    return state;
+}
+
+static void expect_compaction_merge(float left_compression, float right_compression, float expected,
+                                    bool reverse) {
+    using Data = AggregateFunctionQuantileStateData<AggregateFunctionQuantileStateCompactionOp>;
+    auto left = make_compaction_input(left_compression, 0);
+    auto right = make_compaction_input(right_compression, 480);
+    Data result;
+    result.add(reverse ? right : left);
+    EXPECT_EQ(std::max(2048.0F, reverse ? right_compression : left_compression),
+              result.value._compression);
+    result.merge(reverse ? left : right);
+    EXPECT_EQ(expected, result.value._compression);
+    EXPECT_EQ(expected, result.value._mutable_tdigest().compression());
+    EXPECT_EQ(0, result.value.get_value_by_percentile(0));
+    EXPECT_EQ(959, result.value.get_value_by_percentile(1));
+    EXPECT_EQ(left_compression, left._compression);
+    EXPECT_EQ(right_compression, right._compression);
+}
+
+TEST(AggregateFunctionQuantileStateTest, CompactionSelectsMaximumCompression) {
+    auto type = std::make_shared<DataTypeQuantileState>();
+    auto function = AggregateFunctionSimpleFactory::instance().get(
+            "quantile_union_compaction", {type}, type, false,
+            BeExecVersionManager::get_newest_version(), {.column_names = {}});
+    ASSERT_NE(nullptr, function);
+
+    expect_compaction_merge(128, 256, 2048, false);
+    expect_compaction_merge(128, 256, 2048, true);
+    expect_compaction_merge(128, 2048, 2048, false);
+    expect_compaction_merge(128, 2048, 2048, true);
+    expect_compaction_merge(128, 10000, 10000, false);
+    expect_compaction_merge(128, 10000, 10000, true);
+}
+
+TEST(AggregateFunctionQuantileStateTest, CompactionPromotesSingleLowState) {
+    using Data = AggregateFunctionQuantileStateData<AggregateFunctionQuantileStateCompactionOp>;
+    auto low = make_compaction_input(128, 0);
+    Data single;
+    single.add(low);
+    EXPECT_EQ(2048, single.value._compression);
+    EXPECT_EQ(2048, single.value._mutable_tdigest().compression());
+    EXPECT_EQ(128, low._compression);
+    std::vector<uint8_t> bytes(single.value.get_serialized_size());
+    ASSERT_EQ(bytes.size(), single.value.serialize(bytes.data()));
+    QuantileState restored(Slice(reinterpret_cast<char*>(bytes.data()), bytes.size()));
+    EXPECT_EQ(2048, restored._compression);
+    EXPECT_EQ(0, restored.get_value_by_percentile(0));
+    EXPECT_EQ(479, restored.get_value_by_percentile(1));
+}
+
 TEST(AggregateFunctionQuantileStateTest, RepeatedExplicitFramesReuseCapacity) {
     for (size_t frame_size : {size_t(2), size_t(3), size_t(QUANTILE_STATE_EXPLICIT_NUM)}) {
         expect_repeated_explicit_frames_reuse_capacity(frame_size);

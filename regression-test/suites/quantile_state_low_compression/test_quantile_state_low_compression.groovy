@@ -120,5 +120,32 @@ suite("test_quantile_state_low_compression", "docker,p1,quantile_state_low_compr
                 FROM test_quantile_state_low_partials
             ) x ORDER BY part
         """
+
+        sql "DROP TABLE IF EXISTS test_quantile_state_compaction_floor"
+        sql """
+            CREATE TABLE test_quantile_state_compaction_floor (
+                k INT NOT NULL,
+                s QUANTILE_STATE QUANTILE_UNION NOT NULL
+            ) AGGREGATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES("replication_num" = "1", "disable_auto_compaction" = "true")
+        """
+        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (1, to_quantile_state(1.0, 128))"
+        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (1, to_quantile_state(2.0, 256))"
+        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (2, to_quantile_state(3.0, 128))"
+        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (3, to_quantile_state(4.0, 128))"
+        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (3, to_quantile_state(5.0, 10000))"
+        // The first four bytes of the state are the little-endian FLOAT compression.
+        order_qt_before_compaction """
+            SELECT k, substr(hex(from_base64(quantile_state_to_base64(s))), 1, 8),
+                   quantile_percent(s, 0), quantile_percent(s, 1)
+            FROM test_quantile_state_compaction_floor ORDER BY k
+        """
+        trigger_and_wait_compaction("test_quantile_state_compaction_floor", "full")
+        order_qt_after_compaction """
+            SELECT k, substr(hex(from_base64(quantile_state_to_base64(s))), 1, 8),
+                   quantile_percent(s, 0), quantile_percent(s, 1)
+            FROM test_quantile_state_compaction_floor ORDER BY k
+        """
     }
 }

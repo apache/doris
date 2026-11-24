@@ -60,6 +60,8 @@ public:
     bool deserialize(const Slice& slice);
     size_t serialize(uint8_t* dst) const;
     void merge(const QuantileState& other);
+    // Physical compaction must not persist a state below the legacy reader floor.
+    void promote_compression_for_compaction();
     void add_value(const double& value);
     // Clear samples while retaining explicit capacity for the next aggregate frame.
     void reset();
@@ -83,7 +85,7 @@ private:
     void _add_to_digest(TDigest& digest, double value) const;
     size_t _explicit_limit() const;
     void _convert_to_tdigest();
-    void _normalize_low_digest();
+    void _normalize_digest();
     void _merge_explicit(const QuantileState& other);
 
     QuantileStateType _type = EMPTY;

@@ -27,8 +27,17 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_sum.h"
 #include "exprs/aggregate/helpers.h"
+#include "io/io_common.h"
 
 namespace doris {
+
+bool is_compaction_reader_type(ReaderType reader_type) {
+    return reader_type == ReaderType::READER_BASE_COMPACTION ||
+           reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+           reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
+           reader_type == ReaderType::READER_SEGMENT_COMPACTION ||
+           reader_type == ReaderType::READER_FULL_COMPACTION;
+}
 
 // auto spread at nullable condition, null value do not participate aggregate
 void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& factory) {
@@ -54,6 +63,8 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
                            creator_without_type::creator<AggregateFunctionHLLUnion<
                                    AggregateFunctionHLLUnionImpl<AggregateFunctionHLLData>>>);
     register_function_both("quantile_union", create_aggregate_function_quantile_state_union);
+    factory.register_function_both("quantile_union" + std::string(AGG_COMPACTION_SUFFIX),
+                                   create_aggregate_function_quantile_state_compaction);
 }
 
 } // namespace doris

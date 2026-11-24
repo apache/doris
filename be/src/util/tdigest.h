@@ -209,6 +209,14 @@ public:
         add(others.cbegin(), others.cend());
     }
 
+    void merge_preserving_extrema(const TDigest* other) {
+        // A low-C source can have min=0 while its first weighted centroid has mean=33.
+        // Bulk merging centroids alone would lose the true endpoint in a high-C target.
+        _min = std::min(_min, other->_min);
+        _max = std::max(_max, other->_max);
+        merge(other);
+    }
+
     // Recompress a larger partial into a low-compression state without retaining its
     // entire pending buffer. A bulk merge of 60000 pending centroids into C=128
     // otherwise leaves that allocation behind even after _process() clears it.

@@ -340,22 +340,29 @@ void QuantileState::_convert_to_tdigest() {
     _type = TDIGEST;
 }
 
-void QuantileState::_normalize_low_digest() {
-    if (_type != TDIGEST || _compression >= QUANTILE_STATE_COMPRESSION_DEFAULT) {
+void QuantileState::_normalize_digest() {
+    if (_type != TDIGEST) {
         return;
     }
     if (_tdigest_ptr->digest.compression() == _compression &&
-        _tdigest_ptr->digest.max_unprocessed() == static_cast<Index>(std::ceil(_compression))) {
+        (_compression >= QUANTILE_STATE_COMPRESSION_DEFAULT ||
+         _tdigest_ptr->digest.max_unprocessed() == static_cast<Index>(std::ceil(_compression)))) {
         return;
     }
-    // A lower outer C cannot be implemented by merely relabeling a higher-C digest;
-    // rebuild from weighted centroids rather than replaying their means as unit samples.
+    // A changed outer C must not leave stale inner metadata (for example, 128+2048 -> 2048).
+    // Rebuild from weighted centroids; a prior low-C digest cannot regain lost precision.
     auto rebuilt = std::make_shared<TDigestHolder>(_compression);
     {
         std::shared_lock lock(_tdigest_ptr->mutex);
         rebuilt->digest.merge_bounded(&_tdigest_ptr->digest);
     }
     _tdigest_ptr = std::move(rebuilt);
+}
+
+void QuantileState::promote_compression_for_compaction() {
+    // A compacted row may have only one low-C input, so the floor applies before any merge too.
+    _compression = std::max<float>(_compression, QUANTILE_STATE_COMPRESSION_DEFAULT);
+    _normalize_digest();
 }
 
 void QuantileState::_merge_explicit(const QuantileState& other) {
@@ -403,18 +410,14 @@ void QuantileState::merge(const QuantileState& other) {
     if (_type == EMPTY) {
         // EMPTY carries no precision choice: the first nonempty input supplies both samples and C.
         *this = other;
-        _normalize_low_digest();
+        _normalize_digest();
         return;
     }
 
-    // A low-C partial cannot regain precision by merging into a high-C partial. Keep the
-    // existing high-C choice, but use the minimum C whenever either input is low.
-    const float result_compression = (_compression < QUANTILE_STATE_COMPRESSION_DEFAULT ||
-                                      other._compression < QUANTILE_STATE_COMPRESSION_DEFAULT)
-                                             ? std::min(_compression, other._compression)
-                                             : _compression;
-    _compression = result_compression;
-    _normalize_low_digest();
+    // Mixed partials use the higher requested compression in either merge order.
+    // A previously compressed low-C input cannot regain the precision it already discarded.
+    _compression = std::max(_compression, other._compression);
+    _normalize_digest();
 
     if (other._type == SINGLE) {
         add_value(other._single_data);
@@ -423,14 +426,14 @@ void QuantileState::merge(const QuantileState& other) {
     } else if (other._type == TDIGEST) {
         if (_type != TDIGEST) {
             const auto& source_digest = other._tdigest_ptr->digest;
-            const bool can_share = result_compression >= QUANTILE_STATE_COMPRESSION_DEFAULT ||
-                                   (result_compression == other._compression &&
-                                    source_digest.compression() == result_compression &&
+            const bool can_share = _compression == other._compression &&
+                                   source_digest.compression() == _compression &&
+                                   (_compression >= QUANTILE_STATE_COMPRESSION_DEFAULT ||
                                     source_digest.max_unprocessed() ==
-                                            static_cast<Index>(std::ceil(result_compression)));
+                                            static_cast<Index>(std::ceil(_compression)));
             if (can_share) {
-                // Preserve the legacy high-C fast path. Low-C sharing additionally requires
-                // matching inner metadata; otherwise a 128 outer header could hide a 2048 digest.
+                // Sharing requires matching inner metadata; a 10000 outer header must not
+                // hide a 2048 digest when a singleton meets a lower-C partial.
                 _tdigest_ptr = other._tdigest_ptr;
                 const auto old_type = _type;
                 _type = TDIGEST;
@@ -452,12 +455,12 @@ void QuantileState::merge(const QuantileState& other) {
 #ifdef BE_TEST
         TEST_SYNC_POINT("QuantileState::merge:source_locked");
 #endif
-        if (result_compression < QUANTILE_STATE_COMPRESSION_DEFAULT) {
+        if (_compression < QUANTILE_STATE_COMPRESSION_DEFAULT) {
             // A high-C partial may have tens of thousands of pending centroids;
             // bulk merge would retain that allocation in this low-C result.
             digest.merge_bounded(&other._tdigest_ptr->digest);
         } else {
-            digest.merge(&other._tdigest_ptr->digest);
+            digest.merge_preserving_extrema(&other._tdigest_ptr->digest);
         }
     }
 }

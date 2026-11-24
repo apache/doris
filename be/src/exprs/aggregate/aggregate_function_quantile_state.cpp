@@ -24,19 +24,31 @@
 
 namespace doris {
 
+template <typename Op>
+AggregateFunctionPtr create_quantile_state_aggregate(const DataTypes& argument_types,
+                                                     const AggregateFunctionAttr& attr) {
+    const bool arg_is_nullable = argument_types[0]->is_nullable();
+    if (arg_is_nullable) {
+        return std::make_shared<AggregateFunctionQuantileStateOp<true, Op>>(
+                argument_types, attr.is_window_function);
+    } else {
+        return std::make_shared<AggregateFunctionQuantileStateOp<false, Op>>(
+                argument_types, attr.is_window_function);
+    }
+}
+
 AggregateFunctionPtr create_aggregate_function_quantile_state_union(
         const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
         const bool result_is_nullable, const AggregateFunctionAttr& attr) {
-    const bool arg_is_nullable = argument_types[0]->is_nullable();
-    if (arg_is_nullable) {
-        return std::make_shared<
-                AggregateFunctionQuantileStateOp<true, AggregateFunctionQuantileStateUnionOp>>(
-                argument_types, attr.is_window_function);
-    } else {
-        return std::make_shared<
-                AggregateFunctionQuantileStateOp<false, AggregateFunctionQuantileStateUnionOp>>(
-                argument_types, attr.is_window_function);
-    }
+    return create_quantile_state_aggregate<AggregateFunctionQuantileStateUnionOp>(argument_types,
+                                                                                  attr);
+}
+
+AggregateFunctionPtr create_aggregate_function_quantile_state_compaction(
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr) {
+    return create_quantile_state_aggregate<AggregateFunctionQuantileStateCompactionOp>(
+            argument_types, attr);
 }
 
 void register_aggregate_function_quantile_state(AggregateFunctionSimpleFactory& factory) {

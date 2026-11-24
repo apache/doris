@@ -64,6 +64,25 @@ struct AggregateFunctionQuantileStateUnionOp {
     }
 };
 
+struct AggregateFunctionQuantileStateCompactionOp {
+    static constexpr auto name = "quantile_union";
+
+    static void add(QuantileState& res, const QuantileState& data, bool& is_first) {
+        if (UNLIKELY(is_first)) {
+            res = data;
+            is_first = false;
+        } else {
+            res.merge(data);
+        }
+        // Even a group with one low-C row must be safe for legacy readers after compaction.
+        res.promote_compression_for_compaction();
+    }
+
+    static void merge(QuantileState& res, const QuantileState& data, bool& is_first) {
+        add(res, data, is_first);
+    }
+};
+
 template <typename Op>
 struct AggregateFunctionQuantileStateData {
     using DataType = QuantileState;
@@ -174,6 +193,10 @@ private:
 };
 
 AggregateFunctionPtr create_aggregate_function_quantile_state_union(
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
+
+AggregateFunctionPtr create_aggregate_function_quantile_state_compaction(
         const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
         const bool result_is_nullable, const AggregateFunctionAttr& attr);
 
