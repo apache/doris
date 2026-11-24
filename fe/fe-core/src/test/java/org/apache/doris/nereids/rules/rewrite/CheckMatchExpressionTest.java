@@ -17,14 +17,21 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MatchAll;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -41,6 +48,8 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
 class CheckMatchExpressionTest {
 
@@ -52,6 +61,21 @@ class CheckMatchExpressionTest {
         checkMatchExpression = new CheckMatchExpression();
         checkChildrenMethod = CheckMatchExpression.class.getDeclaredMethod("checkChildren", LogicalFilter.class);
         checkChildrenMethod.setAccessible(true);
+    }
+
+    @Test
+    void testAllowsBoundRootAndAliasSlots() {
+        OlapTable table = new OlapTable();
+        table.setIndexes(List.of(new Index(1, "values_idx", List.of("v"), IndexType.INVERTED,
+                Map.of("variant_index_scope", "values", "parser", "english"), "")));
+        SlotReference root = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(), table,
+                new Column("v", Type.VARIANT), Arrays.asList());
+        SlotReference alias = (SlotReference) new Alias(root, "renamed").toSlot();
+        for (SlotReference slot : Arrays.asList(root, alias)) {
+            Assertions.assertDoesNotThrow(() -> invokeCheck(new Or(
+                    new MatchAny(slot, new StringLiteral("hello")),
+                    new MatchAll(slot, new StringLiteral("hello world")))));
+        }
     }
 
     @Test
