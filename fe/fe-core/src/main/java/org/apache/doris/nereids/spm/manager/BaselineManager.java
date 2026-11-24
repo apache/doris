@@ -7687,7 +7687,7 @@ public class BaselineManager {
      */
     private static Map<Long, List<BaselinePlan>> readStableRawSnapshot(SnapshotPageReader reader,
             SnapshotFenceReader fenceReader, Runnable settleBeforeAttempt) throws Exception {
-        for (int attempt = 1; ; attempt++) {
+        for (int attempt = 1; attempt <= SNAPSHOT_STABILITY_ATTEMPTS; attempt++) {
             if (settleBeforeAttempt != null) {
                 try {
                     settleBeforeAttempt.run();
@@ -7697,6 +7697,12 @@ public class BaselineManager {
                 }
             }
             SnapshotFence before = fenceReader.readFence();
+            if (!before.quiet()) {
+                // A snapshot that starts with an open window cannot pass validation, even if it closes mid-read.
+                LOG.warn("SPM baseline snapshot started with an open mutation window"
+                                + " ({}, attempt {}/{})", before, attempt, SNAPSHOT_STABILITY_ATTEMPTS);
+                continue;
+            }
             AtomicLong rowsRead = new AtomicLong();
             SnapshotCompletion completion = new SnapshotCompletion();
             Map<Long, List<BaselinePlan>> snapshot =
@@ -7712,20 +7718,17 @@ public class BaselineManager {
             // internal-query row limit cancelling a page - looks exactly like a short,
             // completed page, and the probe is the bounded replacement of the former
             // table-wide row-count cross-check).
-            if (before.matches(after) && before.quiet() && after.quiet()
-                    && completion.endProven) {
+            if (before.matches(after) && after.quiet() && completion.endProven) {
                 return snapshot;
             }
             LOG.warn("SPM baseline table changed while its paginated snapshot was read"
                             + " ({} -> {}, rows read {}, end proven {}, attempt {}/{})",
                     before, after, rowsRead.get(), completion.endProven, attempt,
                     SNAPSHOT_STABILITY_ATTEMPTS);
-            if (attempt >= SNAPSHOT_STABILITY_ATTEMPTS) {
-                throw new IllegalStateException("SPM baseline table kept changing while its"
-                        + " paginated snapshot was read (concurrent CREATE / ALTER / DROP,"
-                        + " or a truncated read; retry the operation)");
-            }
         }
+        throw new IllegalStateException("SPM baseline table kept changing while its"
+                + " paginated snapshot was read (concurrent CREATE / ALTER / DROP,"
+                + " or a truncated read; retry the operation)");
     }
 
     /** The fence of one paginated snapshot read (see readStableRawSnapshot). */

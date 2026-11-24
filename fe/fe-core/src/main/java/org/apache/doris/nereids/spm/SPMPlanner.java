@@ -1027,7 +1027,7 @@ public class SPMPlanner {
      * replayed ahead of authorization, and replaying a view's base-table expansion would
      * authorize those base tables instead of the view), when an inline VALUES cell /
      * REPLACE payload or analyzed concrete expression folds a value the caller's session must
-     * evaluate for itself, when binding inserts the session's encryption mode (see
+     * evaluate for itself, when binding inserts the session's encryption mode or AI resource (see
      * SPMPlanTreeSupport.requiresSessionSensitiveReplay), or when the statement
      * pins a materialized view / rollup with an explicit INDEX clause (the decompiled
      * text cannot carry the pin, and dropping it would read the base table instead of the

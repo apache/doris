@@ -8891,7 +8891,7 @@ public final class SPMPlanTreeSupport {
         }
     }
 
-    /** Finds a session-sensitive call whose inputs can be folded before replay. */
+    /** Tests unparameterized expressions for the supplied session-sensitive condition. */
     private static boolean containsFoldableCall(Expression expression, Predicate<Expression> sensitive) {
         if (expression instanceof SpmConstVar || expression instanceof SpmConstList) {
             return false;
@@ -9008,13 +9008,16 @@ public final class SPMPlanTreeSupport {
         return type == null || type instanceof ArrayType && ((ArrayType) type).getItemType().isDecimalLikeType();
     }
 
-    /** Two- and three-argument calls take their mode from the session when the binder fills the fourth child. */
-    private static boolean usesImplicitEncryptionMode(Expression expression) {
-        if (expression.arity() != 2 && expression.arity() != 3) {
+    /** Recognizes builtin call forms whose binder inserts an argument from the session. */
+    private static boolean usesImplicitSessionArgument(Expression expression) {
+        int arity = expression.arity();
+        if (arity == 0 || arity > 3) {
             return false;
         }
         return switch (unqualifiedFunctionName(expression)) {
-            case "aes_encrypt", "aes_decrypt", "sm4_encrypt", "sm4_decrypt" -> true;
+            case "aes_encrypt", "aes_decrypt", "sm4_encrypt", "sm4_decrypt" -> arity == 2 || arity == 3;
+            case "ai_filter", "ai_fixgrammar", "ai_generate", "ai_sentiment", "ai_summarize", "embed" -> arity == 1;
+            case "ai_agg", "ai_classify", "ai_extract", "ai_mask", "ai_similarity", "ai_translate" -> arity == 2;
             default -> false;
         };
     }
@@ -9046,7 +9049,7 @@ public final class SPMPlanTreeSupport {
      *   concretely, see SPMAstCheckVisitor): SELECT * REPLACE(from_unixtime(0) AS a) FROM t
      *
      * A constant call in either position can fold using the creator's time zone, locale, cast mode or decimal settings.
-     * An omitted encryption mode can become a bound argument anywhere, even when the input uses a column.
+     * An omitted encryption mode or AI resource can become a bound argument, even when the input uses a column.
      * Raw replay keeps these choices in the caller's session.
      *
      * Parameter plan: the parsed (unbound) tree
@@ -9057,7 +9060,7 @@ public final class SPMPlanTreeSupport {
                 || isLocaleSensitiveCall(expression) || isStrictCastSensitiveCall(expression)
                 || isConcreteDecimalArithmetic(expression, SPMPlanTreeSupport::typeKnownBeforeAnalysis)
                 || isConcreteDecimalArrayFunction(expression, SPMPlanTreeSupport::typeKnownBeforeAnalysis)
-                || usesImplicitEncryptionMode(expression), true);
+                || usesImplicitSessionArgument(expression), true);
     }
 
     /** Detects casts that can already have been folded in older frozen baselines. */
@@ -9066,7 +9069,7 @@ public final class SPMPlanTreeSupport {
     }
 
     private static boolean containsFoldablePayload(LogicalPlan plan, Predicate<Expression> sensitive,
-            boolean checkImplicitEncryptionMode) {
+            boolean checkImplicitSessionArguments) {
         return anyPlan(plan, node -> {
             if (node instanceof InlineTable) {
                 for (List<NamedExpression> row : ((InlineTable) node).getConstantExprsList()) {
@@ -9078,7 +9081,7 @@ public final class SPMPlanTreeSupport {
                 }
             }
             for (Expression expr : node.getExpressions()) {
-                if (containsSensitiveExpressionOrStarPayload(expr, sensitive, checkImplicitEncryptionMode)) {
+                if (containsSensitiveExpressionOrStarPayload(expr, sensitive, checkImplicitSessionArguments)) {
                     return true;
                 }
             }
@@ -9086,10 +9089,10 @@ public final class SPMPlanTreeSupport {
         });
     }
 
-    /** Searches concrete REPLACE expressions and, during capture, implicit modes in ordinary expressions. */
+    /** Searches concrete REPLACE expressions and, during capture, implicit arguments in ordinary expressions. */
     private static boolean containsSensitiveExpressionOrStarPayload(Expression expression,
-            Predicate<Expression> sensitive, boolean checkImplicitEncryptionMode) {
-        if (checkImplicitEncryptionMode && usesImplicitEncryptionMode(expression)) {
+            Predicate<Expression> sensitive, boolean checkImplicitSessionArguments) {
+        if (checkImplicitSessionArguments && usesImplicitSessionArgument(expression)) {
             return true;
         }
         if (expression instanceof UnboundStar) {
@@ -9100,7 +9103,7 @@ public final class SPMPlanTreeSupport {
             }
         }
         for (Expression child : expression.children()) {
-            if (containsSensitiveExpressionOrStarPayload(child, sensitive, checkImplicitEncryptionMode)) {
+            if (containsSensitiveExpressionOrStarPayload(child, sensitive, checkImplicitSessionArguments)) {
                 return true;
             }
         }

@@ -172,6 +172,28 @@ public class SPMRound91GuardTest {
     }
 
     @Test
+    public void testOmittedAiResourceRequiresRawReplay() {
+        for (String name : List.of("ai_filter", "ai_fixgrammar", "ai_generate", "ai_sentiment",
+                "ai_summarize", "embed")) {
+            assertAiResourceGuard(name, "s");
+        }
+        for (String name : List.of("ai_agg", "ai_classify", "ai_extract", "ai_mask", "ai_similarity", "ai_translate")) {
+            assertAiResourceGuard(name, "s, other");
+        }
+        Assertions.assertFalse(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
+                parse("SELECT db1.ai_sentiment(s) FROM t")));
+        Assertions.assertTrue(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
+                parse("SELECT * REPLACE(ai_sentiment(s) AS s) FROM t")));
+    }
+
+    private static void assertAiResourceGuard(String name, String inputs) {
+        Assertions.assertTrue(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
+                parse("SELECT " + name + "(" + inputs + ") FROM t")), name);
+        Assertions.assertFalse(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
+                parse("SELECT " + name + "('resource', " + inputs + ") FROM t")), name);
+    }
+
+    @Test
     public void testConcreteDecimalArrayPayloadRequiresRawReplay() {
         for (String function : List.of("array_avg", "array_sum", "array_product", "array_cum_sum")) {
             Assertions.assertTrue(SPMPlanTreeSupport.requiresSessionSensitiveReplay(

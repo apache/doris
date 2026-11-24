@@ -21,7 +21,6 @@ import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineSource;
 import org.apache.doris.nereids.spm.BaselineStatus;
 import org.apache.doris.qe.VariableMgr;
-import org.apache.doris.statistics.repository.ResultRow;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -496,9 +495,7 @@ public class SPMRound63ManagerTest {
     }
 
     /**
-     * The snapshot reader runs the settlement BEFORE each attempt's quiet gate: with a
-     * fence that stays pending until the settlement ran TWICE, the read still converges
-     * (exactly two settlement runs prove the callback precedes each attempt's fence read).
+     * A held window can settle between attempts. Paging starts only after settlement makes the fence quiet.
      */
     @Test
     public void testSnapshotReaderSettlesBeforeTheQuietGate() {
@@ -507,14 +504,38 @@ public class SPMRound63ManagerTest {
         BaselineManager.SnapshotFenceReader fenceReader = () ->
                 new BaselineManager.SnapshotFence(1L, 1L, 1L,
                         settlements.get() >= 2 ? 0L : 7L);
-        BaselineManager.SnapshotPageReader reader =
-                (pageStart, offset) -> new ArrayList<ResultRow>();
+        List<Integer> pageAttempts = new ArrayList<>();
+        BaselineManager.SnapshotPageReader reader = (pageStart, offset) -> {
+            pageAttempts.add(settlements.get());
+            return List.of();
+        };
 
         Map<Long, List<BaselinePlan>> snapshot = BaselineManagerTestAccess
                 .readStableRawSnapshotWithSettle(reader, fenceReader, settle);
         Assertions.assertNotNull(snapshot);
         Assertions.assertEquals(2, settlements.get(),
                 "the reader must settle BEFORE reading the fence of each attempt");
+        Assertions.assertEquals(List.of(2, 2), pageAttempts,
+                "only the second attempt should read the empty page and its end probe");
+    }
+
+    @Test
+    public void testSnapshotNeverReadsPagesWhileStartingFenceStaysOpen() {
+        AtomicInteger settlements = new AtomicInteger();
+        AtomicInteger fenceReads = new AtomicInteger();
+        AtomicInteger pageReads = new AtomicInteger();
+        IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                () -> BaselineManagerTestAccess.readStableRawSnapshotWithSettle((pageStart, offset) -> {
+                    pageReads.incrementAndGet();
+                    return List.of();
+                }, () -> {
+                    fenceReads.incrementAndGet();
+                    return new BaselineManager.SnapshotFence(7L, 1L, 7L, 7L);
+                }, settlements::incrementAndGet));
+        Assertions.assertTrue(failure.getMessage().contains("retry the operation"));
+        Assertions.assertEquals(3, settlements.get());
+        Assertions.assertEquals(3, fenceReads.get());
+        Assertions.assertEquals(0, pageReads.get());
     }
 
     // ==================== the explicit INSERT failure types ====================

@@ -4644,9 +4644,9 @@ public class BaselineManagerConcurrencyTest {
      * published map then mixes the two states. A concrete shape: page one ends ON the
      * dropped id (2000), the continuation's `id >= 2000 OFFSET 1` skips the successor
      * (2001) that slid into the removed slot, and the end probe accepts the short read - so
-     * the dropped baseline kept replaying AND the successor went missing. The window
-     * (pending) is held OPEN across attempt one's BOTH fence reads here: only the pending
-     * gate can reject that mixed read.
+     * the dropped baseline kept replaying AND the successor went missing. The first attempt starts quiet.
+     * Once page one is read, the DROP takes effect and the ending fence shows an open window, discarding that
+     * attempt even with an unchanged tick tuple.
      */
     @Test
     public void testSnapshotReadRetriesWhileAMutationWindowIsOpen() throws Exception {
@@ -4657,65 +4657,32 @@ public class BaselineManagerConcurrencyTest {
         table.put(2000L, List.of(withId(baseline("dw2000", "select k from tw2000"), 2000L)));
         table.put(2001L, List.of(withId(baseline("dw2001", "select k from tw2001"), 2001L)));
 
-        long[] tick = {6L}; // the DROP's begin tick (beginRowMutation)
-        long[] pending = {6L}; // ... whose window stays open across both reads of attempt 1
         AtomicInteger pageCalls = new AtomicInteger();
-        CountDownLatch pageOneRead = new CountDownLatch(1);
-        CountDownLatch deleteLanded = new CountDownLatch(1);
-        Thread drop = new Thread(() -> {
-            try {
-                pageOneRead.await();
-                table.remove(2000L); // the DELETE half of the open window
-                deleteLanded.countDown();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        });
-        drop.start();
         AtomicInteger fenceReads = new AtomicInteger();
         List<String> fenceLog = new ArrayList<>();
-        Map<Long, BaselinePlan> snapshot;
-        try {
-            snapshot = BaselineManagerTestAccess.readStableSnapshot((pageStart, offset) -> {
-                List<ResultRow> rows = table.entrySet().stream()
-                        .filter(entry -> pageStart == null || entry.getKey() >= pageStart)
-                        .flatMap(entry -> entry.getValue().stream())
-                        .skip(offset)
-                        .map(BaselineManagerConcurrencyTest::rowOf)
-                        .collect(java.util.stream.Collectors.toList());
-                if (pageCalls.getAndIncrement() == 0) {
-                    // page one IS the full 2,000-row page ending on id 2000: the DELETE
-                    // commits while the page is in flight (its view still holds id 2000)
-                    pageOneRead.countDown();
-                    try {
-                        deleteLanded.await();
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
-                return rows;
-            }, () -> {
-                int read = fenceReads.incrementAndGet();
-                fenceLog.add(read + ":" + tick[0] + "|" + pending[0]);
-                BaselineManager.SnapshotFence fence = new BaselineManager.SnapshotFence(
-                        tick[0], 2001L, 12006L, pending[0]);
-                if (read == 2) {
-                    // endRowMutation: the window closes with a NEWER tick - AFTER attempt
-                    // one's second read already observed the open one
-                    pending[0] = 0L;
-                    tick[0] = 7L;
-                }
-                return fence;
-            });
-        } finally {
-            drop.join();
-        }
+        Map<Long, BaselinePlan> snapshot = BaselineManagerTestAccess.readStableSnapshot((pageStart, offset) -> {
+            List<ResultRow> rows = table.entrySet().stream()
+                    .filter(entry -> pageStart == null || entry.getKey() >= pageStart)
+                    .flatMap(entry -> entry.getValue().stream())
+                    .skip(offset)
+                    .map(BaselineManagerConcurrencyTest::rowOf)
+                    .collect(java.util.stream.Collectors.toList());
+            if (pageCalls.getAndIncrement() == 0) {
+                // Page one still carries id 2000 when the DELETE lands.
+                table.remove(2000L);
+            }
+            return rows;
+        }, () -> {
+            int read = fenceReads.incrementAndGet();
+            long tick = read <= 2 ? 6L : 7L;
+            long pending = read == 2 ? 6L : 0L;
+            fenceLog.add(read + ":" + tick + "|" + pending);
+            return new BaselineManager.SnapshotFence(tick, 2001L, 12006L, pending);
+        });
         Assertions.assertEquals(4, fenceReads.get(),
                 "one fence pair per attempt: the window-crossing read is discarded and the"
                         + " stable post-drop read is published");
-        Assertions.assertEquals(List.of("1:6|6", "2:6|6"), fenceLog.subList(0, 2),
-                "attempt one saw the SAME tuple on both reads - only the open window"
-                        + " (pending != 0) can reject its mixed view");
+        Assertions.assertEquals(List.of("1:6|0", "2:6|6", "3:7|0", "4:7|0"), fenceLog);
         Assertions.assertEquals(2000, snapshot.size(),
                 "the state after the drop must be published: " + snapshot.keySet().size());
         Assertions.assertFalse(snapshot.containsKey(2000L),
