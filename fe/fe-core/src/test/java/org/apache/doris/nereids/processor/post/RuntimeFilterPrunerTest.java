@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -218,6 +219,16 @@ class RuntimeFilterPrunerTest extends TestWithFeService {
                 + "UNION DISTINCT SELECT CAST(0 AS INT) FROM s) "
                 + "SELECT f.id FROM rf_prune_fact f JOIN [broadcast] s ON f.agent_code = s.agent_code",
                 knownStats, PhysicalRecursiveUnion.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testRecursiveTermKeepsWorkTableRuntimeFilter(boolean knownStats) {
+        assertBuildKeepsRuntimeFilter("WITH RECURSIVE walk(agent_code) AS ("
+                + "SELECT agent_code FROM rf_prune_stream_base@incr('incrementType'='MIN_DELTA') "
+                + "UNION ALL SELECT e.agent_code FROM rf_prune_fact e "
+                + "JOIN [broadcast] walk w ON e.agent_code = w.agent_code) "
+                + "SELECT agent_code FROM walk", knownStats, PhysicalWorkTableReference.class);
     }
 
     @Test

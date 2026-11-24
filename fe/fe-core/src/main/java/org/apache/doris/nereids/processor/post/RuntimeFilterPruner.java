@@ -38,10 +38,12 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.Statistics;
@@ -69,6 +71,7 @@ import java.util.Set;
  */
 public class RuntimeFilterPruner extends PlanPostProcessor {
     private final Set<CTEId> changelogCteIds = new HashSet<>();
+    private final Set<CTEId> changelogWorkTableIds = new HashSet<>();
 
     @Override
     public Plan visit(Plan plan, CascadesContext context) {
@@ -91,6 +94,30 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveUnion, CascadesContext context) {
         visitChildrenAndPropagateChangelog(recursiveUnion, context);
         return recursiveUnion;
+    }
+
+    @Override
+    public PhysicalRecursiveUnionAnchor<? extends Plan> visitPhysicalRecursiveUnionAnchor(
+            PhysicalRecursiveUnionAnchor<? extends Plan> anchor, CascadesContext context) {
+        // The recursive union visits the seed before the recursive term reads the work table.
+        propagateEffectiveSrc(anchor, context);
+        if (context.getRuntimeFilterContext().getEffectiveSrcType(anchor)
+                == RuntimeFilterContext.EffectiveSrcType.CHANGELOG) {
+            changelogWorkTableIds.add(anchor.getCteId());
+        }
+        return anchor;
+    }
+
+    @Override
+    public PhysicalWorkTableReference visitPhysicalWorkTableReference(
+            PhysicalWorkTableReference reference, CascadesContext context) {
+        if (changelogWorkTableIds.contains(reference.getCteId())) {
+            context.getRuntimeFilterContext().addEffectiveSrcNode(reference,
+                    RuntimeFilterContext.EffectiveSrcType.CHANGELOG);
+        } else {
+            visitPhysicalRelation(reference, context);
+        }
+        return reference;
     }
 
     @Override
