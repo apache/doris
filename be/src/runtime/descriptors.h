@@ -225,28 +225,18 @@ public:
     MaxComputeTableDescriptor(const TTableDescriptor& tdesc);
     ~MaxComputeTableDescriptor() override;
     std::string debug_string() const override;
-    std::string region() const { return _region; }
     std::string project() const { return _project; }
     std::string table() const { return _table; }
-    std::string odps_url() const { return _odps_url; }
-    std::string tunnel_url() const { return _tunnel_url; }
-    std::string access_key() const { return _access_key; }
-    std::string secret_key() const { return _secret_key; }
-    std::string public_access() const { return _public_access; }
     std::string endpoint() const { return _endpoint; }
     std::string quota() const { return _quota; }
     Status init_status() const { return _init_status; }
     std::map<std::string, std::string> properties() const { return _props; }
 
 private:
-    std::string _region; //deprecated
     std::string _project;
     std::string _table;
-    std::string _odps_url;      //deprecated
-    std::string _tunnel_url;    //deprecated
-    std::string _access_key;    //deprecated
-    std::string _secret_key;    //deprecated
-    std::string _public_access; //deprecated
+    std::string _access_key; //deprecated
+    std::string _secret_key; //deprecated
     std::string _endpoint;
     std::string _quota;
     std::map<std::string, std::string> _props;

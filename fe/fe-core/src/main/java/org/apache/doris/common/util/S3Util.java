@@ -21,13 +21,11 @@ import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.credentials.CloudCredential;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
@@ -63,66 +61,6 @@ import java.util.regex.Pattern;
 
 public class S3Util {
     private static final Logger LOG = LogManager.getLogger(Util.class);
-
-    private static AwsCredentialsProvider getAwsCredencialsProvider(CloudCredential credential) {
-        AwsCredentials awsCredential;
-        AwsCredentialsProvider awsCredentialsProvider;
-        if (!credential.isTemporary()) {
-            awsCredential = AwsBasicCredentials.create(credential.getAccessKey(), credential.getSecretKey());
-        } else {
-            awsCredential = AwsSessionCredentials.create(credential.getAccessKey(), credential.getSecretKey(),
-                        credential.getSessionToken());
-        }
-
-        if (!credential.isWhole()) {
-            awsCredentialsProvider = AwsCredentialsProviderChain.of(
-                    SystemPropertyCredentialsProvider.create(),
-                    EnvironmentVariableCredentialsProvider.create(),
-                    WebIdentityTokenFileCredentialsProvider.create(),
-                    ProfileCredentialsProvider.create(),
-                    InstanceProfileCredentialsProvider.create());
-        } else {
-            awsCredentialsProvider = StaticCredentialsProvider.create(awsCredential);
-        }
-
-        return awsCredentialsProvider;
-    }
-
-    @Deprecated
-    public static S3Client buildS3Client(String endpoint, String region, CloudCredential credential,
-            boolean isUsePathStyle) {
-        EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
-                .builder()
-                .baseDelay(Duration.ofSeconds(1))
-                .maxBackoffTime(Duration.ofMinutes(1))
-                .build();
-        // retry 3 time with Equal backoff
-        RetryPolicy retryPolicy = RetryPolicy
-                .builder()
-                .numRetries(3)
-                .backoffStrategy(backoffStrategy)
-                .build();
-        ClientOverrideConfiguration clientConf = ClientOverrideConfiguration
-                .builder()
-                // set retry policy
-                .retryPolicy(retryPolicy)
-                // using AwsS3V4Signer
-                .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
-                .build();
-        return S3Client.builder()
-                .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
-                        .connectionTimeout(Duration.ofSeconds(30)).build())
-                .endpointOverride(URI.create(buildEndpointUrl(endpoint)))
-                .credentialsProvider(getAwsCredencialsProvider(credential))
-                .region(Region.of(region))
-                .overrideConfiguration(clientConf)
-                // disable chunkedEncoding because of bos not supported
-                .serviceConfiguration(S3Configuration.builder()
-                        .chunkedEncodingEnabled(false)
-                        .pathStyleAccessEnabled(isUsePathStyle)
-                        .build())
-                .build();
-    }
 
     /**
      * Using (accessKey, secretKey) or roleArn for creating different credentials provider when creating s3client

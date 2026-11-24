@@ -52,8 +52,4 @@ public final class CertificateRuntimeAuthFactory {
         }
     }
 
-    @Deprecated
-    public static CertificateRuntimeAuthService create() {
-        return getInstance();
-    }
 }

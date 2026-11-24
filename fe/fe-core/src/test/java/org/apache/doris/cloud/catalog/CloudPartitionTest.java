@@ -25,7 +25,6 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rpc.RpcException;
 
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -36,10 +35,6 @@ import java.util.Arrays;
 import java.util.List;
 
 public class CloudPartitionTest {
-
-    @Disabled
-    public void getCachedVisibleVersion() {
-    }
 
     public static CloudPartition createPartition(long pId, long dbId, long tblId) {
         return new CloudPartition(pId, "p" + pId, null, null, dbId, tblId);

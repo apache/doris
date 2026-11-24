@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.qe.help.HelpModule;
-import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.tls.server.FeServerStarterFactory;
 import org.apache.doris.tls.server.ServerStarter;
 
@@ -36,11 +35,6 @@ public class QeService {
     private final int arrowFlightSQLPort;
     private final ServerStarter mysqlStarter;
     private final ServerStarter flightStarter;
-
-    @Deprecated
-    public QeService(int port, int arrowFlightSQLPort) {
-        this(port, arrowFlightSQLPort, ExecuteEnv.getInstance().getScheduler());
-    }
 
     public QeService(int port, int arrowFlightSQLPort, ConnectScheduler scheduler) {
         this.port = port;

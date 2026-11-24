@@ -288,14 +288,10 @@ std::string IcebergTableDescriptor::debug_string() const {
 
 MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tdesc)
         : TableDescriptor(tdesc),
-          _region(tdesc.mcTable.region),
           _project(tdesc.mcTable.project),
           _table(tdesc.mcTable.table),
-          _odps_url(tdesc.mcTable.odps_url),
-          _tunnel_url(tdesc.mcTable.tunnel_url),
           _access_key(tdesc.mcTable.access_key),
-          _secret_key(tdesc.mcTable.secret_key),
-          _public_access(tdesc.mcTable.public_access) {
+          _secret_key(tdesc.mcTable.secret_key) {
     if (tdesc.mcTable.__isset.endpoint) {
         _endpoint = tdesc.mcTable.endpoint;
     } else {

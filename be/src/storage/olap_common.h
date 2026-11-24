@@ -164,10 +164,8 @@ enum class FieldAggregationMethod {
 };
 
 enum class PushType {
-    PUSH_NORMAL = 1,          // for broker/hadoop load, not used any more
-    PUSH_FOR_DELETE = 2,      // for delete
-    PUSH_FOR_LOAD_DELETE = 3, // not used any more
-    PUSH_NORMAL_V2 = 4,       // for spark load
+    PUSH_FOR_DELETE = 2, // for delete
+    PUSH_NORMAL_V2 = 4,  // for spark load
 };
 
 // <start_version_id, end_version_id>, such as <100, 110>
@@ -254,10 +252,6 @@ struct OlapReaderStatistics {
     int64_t block_fetch_ns = 0; // time of rowset reader's `next_batch()` call
     int64_t block_load_ns = 0;
     int64_t blocks_load = 0;
-    // Not used any more, will be removed after non-vectorized code is removed
-    int64_t block_seek_num = 0;
-    // Not used any more, will be removed after non-vectorized code is removed
-    int64_t block_seek_ns = 0;
 
     // block_load_ns
     //      block_init_ns

@@ -29,8 +29,6 @@ class DorisArrowSchemaConvertor;
 class ResultBlockBufferBase;
 
 struct ResultFileOptions {
-    // [[deprecated]]
-    bool is_local_file;
     std::string file_path;
     TFileFormatType::type file_format;
     std::string column_separator;
@@ -39,18 +37,12 @@ struct ResultFileOptions {
     std::vector<TNetworkAddress> broker_addresses;
     std::map<std::string, std::string> broker_properties;
     std::string success_file_name;
-    std::vector<std::vector<std::string>> schema;       //not use in outfile with parquet format
-    std::map<std::string, std::string> file_properties; //not use in outfile with parquet format
 
     std::vector<TParquetSchema> parquet_schemas;
     TParquetCompressionType::type parquet_commpression_type;
     TParquetVersion::type parquet_version;
     bool parquert_disable_dictionary = false;
     bool enable_int96_timestamps = true;
-    //note: use outfile with parquet format, have deprecated 9:schema and 10:file_properties
-    //But in order to consider the compatibility when upgrading, so add a bool to check
-    //Now the code version is 1.1.2, so when the version is after 1.2, could remove this code.
-    bool is_refactor_before_flag = false;
     std::string orc_schema;
     TFileCompressType::type orc_compression_type;
     // currently only for csv
@@ -85,10 +77,8 @@ struct ResultFileOptions {
             file_name_padding = t_opt.file_name_padding;
         }
 
-        is_local_file = true;
         if (t_opt.__isset.broker_addresses) {
             broker_addresses = t_opt.broker_addresses;
-            is_local_file = false;
         }
         if (t_opt.__isset.broker_properties) {
             broker_properties = t_opt.broker_properties;
@@ -96,15 +86,7 @@ struct ResultFileOptions {
         if (t_opt.__isset.success_file_name) {
             success_file_name = t_opt.success_file_name;
         }
-        if (t_opt.__isset.schema) {
-            schema = t_opt.schema;
-            is_refactor_before_flag = true;
-        }
-        if (t_opt.__isset.file_properties) {
-            file_properties = t_opt.file_properties;
-        }
         if (t_opt.__isset.parquet_schemas) {
-            is_refactor_before_flag = false;
             parquet_schemas = t_opt.parquet_schemas;
         }
         if (t_opt.__isset.parquet_compression_type) {

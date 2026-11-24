@@ -2503,36 +2503,6 @@ public class EditLog {
         logEdit(OperationType.OP_REFRESH_EXTERNAL_TABLE, log);
     }
 
-    @Deprecated
-    public void logDropExternalTable(ExternalObjectLog log) {
-        logEdit(OperationType.OP_DROP_EXTERNAL_TABLE, log);
-    }
-
-    @Deprecated
-    public void logCreateExternalTable(ExternalObjectLog log) {
-        logEdit(OperationType.OP_CREATE_EXTERNAL_TABLE, log);
-    }
-
-    @Deprecated
-    public void logDropExternalDatabase(ExternalObjectLog log) {
-        logEdit(OperationType.OP_DROP_EXTERNAL_DB, log);
-    }
-
-    @Deprecated
-    public void logCreateExternalDatabase(ExternalObjectLog log) {
-        logEdit(OperationType.OP_CREATE_EXTERNAL_DB, log);
-    }
-
-    @Deprecated
-    public void logAddExternalPartitions(ExternalObjectLog log) {
-        logEdit(OperationType.OP_ADD_EXTERNAL_PARTITIONS, log);
-    }
-
-    @Deprecated
-    public void logDropExternalPartitions(ExternalObjectLog log) {
-        logEdit(OperationType.OP_DROP_EXTERNAL_PARTITIONS, log);
-    }
-
     public void logInvalidateExternalPartitions(ExternalObjectLog log) {
         logEdit(OperationType.OP_REFRESH_EXTERNAL_PARTITIONS, log);
     }

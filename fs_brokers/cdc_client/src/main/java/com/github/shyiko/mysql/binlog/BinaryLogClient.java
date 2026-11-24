@@ -435,25 +435,7 @@ public class BinaryLogClient implements BinaryLogClientMXBean {
         this.keepAliveInterval = keepAliveInterval;
     }
 
-    /**
-     * @return "keep alive" connect timeout in milliseconds.
-     * @see #setKeepAliveConnectTimeout(long)
-     *
-     * @deprecated in favour of {@link #getConnectTimeout()}
-     */
-    public long getKeepAliveConnectTimeout() {
-        return connectTimeout;
-    }
 
-    /**
-     * @param connectTimeout "keep alive" connect timeout in milliseconds.
-     * @see #getKeepAliveConnectTimeout()
-    *
-     * @deprecated in favour of {@link #setConnectTimeout(long)}
-     */
-    public void setKeepAliveConnectTimeout(long connectTimeout) {
-        this.connectTimeout = connectTimeout;
-    }
 
     /**
      * @return heartbeat period in milliseconds (0 if not set (default)).

@@ -490,21 +490,6 @@ public class MetaServiceClient {
                 .alterCluster(request);
     }
 
-    /**
-     * This method is deprecated, there is no code to call it.
-     */
-    @Deprecated
-    public Cloud.AlterObjStoreInfoResponse alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) {
-        if (!request.hasCloudUniqueId()) {
-            Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
-            builder.mergeFrom(request);
-            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
-                .alterObjStoreInfo(builder.setCloudUniqueId(Config.cloud_unique_id).build());
-        }
-        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
-                .alterObjStoreInfo(request);
-    }
-
     public Cloud.AlterObjStoreInfoResponse alterStorageVault(Cloud.AlterObjStoreInfoRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();

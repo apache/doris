@@ -599,16 +599,6 @@ public class MetaServiceProxy {
                 Cloud.RemoveDeleteBitmapUpdateLockResponse::getStatus);
     }
 
-    /**
-     * This method is deprecated, there is no code to call it.
-     */
-    @Deprecated
-    public Cloud.AlterObjStoreInfoResponse alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request)
-            throws RpcException {
-        return executeWithMetrics("alterObjStoreInfo", (client) -> client.alterObjStoreInfo(request),
-                Cloud.AlterObjStoreInfoResponse::getStatus);
-    }
-
     public Cloud.AlterObjStoreInfoResponse alterStorageVault(Cloud.AlterObjStoreInfoRequest request)
             throws RpcException {
         return executeWithMetrics("alterStorageVault", (client) -> client.alterStorageVault(request),

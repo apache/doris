@@ -670,42 +670,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         this.numInstances = numInstances;
     }
 
-    @Deprecated
-    public void appendTrace(StringBuilder sb) {
-        sb.append(planNodeName);
-        if (!children.isEmpty()) {
-            sb.append("(");
-            int idx = 0;
-            for (PlanNode child : children) {
-                if (idx++ != 0) {
-                    sb.append(",");
-                }
-                child.appendTrace(sb);
-            }
-            sb.append(")");
-        }
-    }
-
-    /**
-     * find planNode recursively based on the planNodeId
-     */
-    @Deprecated
-    public static PlanNode findPlanNodeFromPlanNodeId(PlanNode root, PlanNodeId id) {
-        if (root == null || root.getId() == null || id == null) {
-            return null;
-        } else if (root.getId().equals(id)) {
-            return root;
-        } else {
-            for (PlanNode child : root.getChildren()) {
-                PlanNode retNode = findPlanNodeFromPlanNodeId(child, id);
-                if (retNode != null) {
-                    return retNode;
-                }
-            }
-            return null;
-        }
-    }
-
     public String getPlanTreeExplainStr() {
         StringBuilder sb = new StringBuilder();
         sb.append("[").append(getId().asInt()).append(": ").append(getPlanNodeName()).append("]");
