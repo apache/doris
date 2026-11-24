@@ -228,6 +228,10 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
         if (spec.getKind() == ConnectorTimeTravelSpec.Kind.VERSION_REF) {
             throw invalidVersion(spec.getStringValue());
         }
+        if (spec.getKind() == ConnectorTimeTravelSpec.Kind.TIMESTAMP) {
+            long timestampMillis = DeltaLakeTimeTravel.parseTimestampMillis(session, spec);
+            return beginQuerySnapshot(session, loadTimestamp(session, (DeltaLakeTableHandle) handle, timestampMillis));
+        }
         if (spec.getKind() != ConnectorTimeTravelSpec.Kind.SNAPSHOT_ID) {
             return Optional.empty();
         }
@@ -264,6 +268,14 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     private DeltaLakeTableHandle loadVersion(ConnectorSession session, DeltaLakeTableHandle delta, long version) {
         return DeltaLakeStatementScope.atVersion(session, delta, version,
                 () -> runtime.execute(() -> delta.atVersion(runtime, version)));
+    }
+
+    private DeltaLakeTableHandle loadTimestamp(ConnectorSession session, DeltaLakeTableHandle delta,
+            long timestampMillis) {
+        DeltaLakeTableHandle resolved = DeltaLakeStatementScope.atTimestamp(session, delta, timestampMillis,
+                () -> runtime.execute(() -> delta.atTimestamp(runtime, timestampMillis)));
+        // Seed the version scope so applySnapshot reuses the loaded snapshot instead of re-reading the log.
+        return DeltaLakeStatementScope.atVersion(session, delta, resolved.getVersion(), () -> resolved);
     }
 
     @Override

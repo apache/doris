@@ -218,9 +218,9 @@ final class DeltaLakeUnityCatalog implements DeltaLakeTableResolver {
 
     @Override
     public Snapshot managedSnapshot(Engine engine, String database, String table, DeltaLakeTableReference reference,
-            Optional<Long> version) {
+            Optional<Long> version, Optional<Long> timestampMillis) {
         return managedTables.loadSnapshot(engine, reference.registrationId, reference.path,
-                new UCTableIdentifier(catalog, database, table), version, Optional.empty());
+                new UCTableIdentifier(catalog, database, table), version, timestampMillis);
     }
 
     private JsonNode request(String resource, JsonNode body, boolean allowMissing) throws IOException {

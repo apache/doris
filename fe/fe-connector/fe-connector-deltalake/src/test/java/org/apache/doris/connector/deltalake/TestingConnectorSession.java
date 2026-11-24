@@ -30,6 +30,7 @@ import java.util.function.Supplier;
 class TestingConnectorSession implements ConnectorSession {
     private final String queryId;
     private final Map<String, String> properties;
+    private final String timeZone;
     private final ConnectorStatementScope scope = new ConnectorStatementScope() {
         private volatile boolean closed;
         private final Map<String, Object> values = new ConcurrentHashMap<>();
@@ -76,12 +77,21 @@ class TestingConnectorSession implements ConnectorSession {
     };
 
     TestingConnectorSession(String queryId) {
-        this(queryId, Collections.emptyMap());
+        this(queryId, Collections.emptyMap(), "UTC");
     }
 
     TestingConnectorSession(String queryId, Map<String, String> properties) {
+        this(queryId, properties, "UTC");
+    }
+
+    TestingConnectorSession(String queryId, String timeZone) {
+        this(queryId, Collections.emptyMap(), timeZone);
+    }
+
+    TestingConnectorSession(String queryId, Map<String, String> properties, String timeZone) {
         this.queryId = queryId;
         this.properties = Map.copyOf(properties);
+        this.timeZone = timeZone;
     }
 
     @Override
@@ -96,7 +106,7 @@ class TestingConnectorSession implements ConnectorSession {
 
     @Override
     public String getTimeZone() {
-        return "UTC";
+        return timeZone;
     }
 
     @Override

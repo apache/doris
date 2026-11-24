@@ -35,7 +35,7 @@ interface DeltaLakeTableResolver extends Closeable {
     Optional<DeltaLakeTableReference> tableLocation(String database, String table) throws IOException;
 
     default Snapshot managedSnapshot(Engine engine, String database, String table, DeltaLakeTableReference reference,
-            Optional<Long> version) {
+            Optional<Long> version, Optional<Long> timestampMillis) {
         throw new UnsupportedOperationException("Catalog-managed snapshots require Unity Catalog");
     }
 

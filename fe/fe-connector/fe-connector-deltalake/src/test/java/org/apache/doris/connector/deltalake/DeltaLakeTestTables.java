@@ -24,6 +24,7 @@ import io.delta.kernel.types.StructType;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -32,24 +33,48 @@ final class DeltaLakeTestTables {
     private DeltaLakeTestTables() {
     }
 
-    static void commit(Path table, long version, String id, StructType schema) throws IOException {
-        commit(table, version, id, schema, Collections.emptyList());
+    static Path commit(Path table, long version, String id, StructType schema) throws IOException {
+        return commit(table, version, id, schema, Collections.emptyList());
     }
 
-    static void commit(Path table, long version, String id, StructType schema, List<String> partitions)
+    static Path commit(Path table, long version, String id, StructType schema, List<String> partitions)
             throws IOException {
-        commit(table, version, id, schema, partitions, Map.of("minReaderVersion", 1, "minWriterVersion", 2));
+        return commit(table, version, id, schema, partitions, Map.of("minReaderVersion", 1, "minWriterVersion", 2));
     }
 
-    static void commit(Path table, long version, String id, StructType schema, List<String> partitions,
+    static Path commit(Path table, long version, String id, StructType schema, List<String> partitions,
             Map<String, Object> protocolFields) throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
+        return commit(table, version, id, schema, partitions, protocolFields, Collections.emptyMap(), null, null);
+    }
+
+    static Path commit(Path table, long version, String id, StructType schema, List<String> partitions,
+            Map<String, Object> protocolFields, Map<String, String> configuration, Long inCommitTimestamp,
+            Long fileModifiedMillis) throws IOException {
         Path log = Files.createDirectories(table.resolve("_delta_log"));
-        String protocol = mapper.writeValueAsString(Map.of("protocol", protocolFields));
-        String metadata = mapper.writeValueAsString(Map.of("metaData", Map.of(
+        Path commitFile = log.resolve(String.format("%020d.json", version));
+        return writeCommit(commitFile, id, schema, partitions, protocolFields, configuration, inCommitTimestamp,
+                fileModifiedMillis);
+    }
+
+    static Path writeCommit(Path commitFile, String id, StructType schema, List<String> partitions,
+            Map<String, Object> protocolFields, Map<String, String> configuration, Long inCommitTimestamp,
+            Long fileModifiedMillis) throws IOException {
+        ObjectMapper mapper = new ObjectMapper();
+        Files.createDirectories(commitFile.getParent());
+        StringBuilder content = new StringBuilder();
+        if (inCommitTimestamp != null) {
+            content.append(mapper.writeValueAsString(Map.of("commitInfo",
+                    Map.of("timestamp", inCommitTimestamp, "inCommitTimestamp", inCommitTimestamp)))).append('\n');
+        }
+        content.append(mapper.writeValueAsString(Map.of("protocol", protocolFields))).append('\n');
+        content.append(mapper.writeValueAsString(Map.of("metaData", Map.of(
                 "id", id, "format", Map.of("provider", "parquet", "options", Collections.emptyMap()),
                 "schemaString", schema.toJson(), "partitionColumns", partitions,
-                "configuration", Collections.emptyMap(), "createdTime", 0)));
-        Files.writeString(log.resolve(String.format("%020d.json", version)), protocol + "\n" + metadata + "\n");
+                "configuration", configuration, "createdTime", 0)))).append('\n');
+        Files.writeString(commitFile, content.toString());
+        if (fileModifiedMillis != null) {
+            Files.setLastModifiedTime(commitFile, FileTime.fromMillis(fileModifiedMillis));
+        }
+        return commitFile;
     }
 }

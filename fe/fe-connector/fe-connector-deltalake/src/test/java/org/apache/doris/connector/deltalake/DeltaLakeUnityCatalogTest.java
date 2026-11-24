@@ -46,6 +46,8 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -250,6 +252,84 @@ class DeltaLakeUnityCatalogTest {
             DeltaLakeTableHandle pinned = (DeltaLakeTableHandle) metadata.applySnapshot(session, latest, v0);
             Assertions.assertEquals("table-1", pinned.reference().registrationId);
             Assertions.assertSame(pinned, metadata.applySnapshot(session, latest, v0));
+        }
+    }
+
+    @Test
+    void resolvesHistoricalTimestampThroughUnityCatalog(@TempDir Path dir) throws Exception {
+        Path table = dir.resolve("t");
+        long t0 = Instant.parse("2026-11-24T00:00:00Z").toEpochMilli();
+        long t1 = Instant.parse("2026-11-24T01:00:00Z").toEpochMilli();
+        DeltaLakeTestTables.commit(table, 0, "delta-uuid", new StructType().add("old_name", LongType.LONG),
+                List.of(), Map.of("minReaderVersion", 1, "minWriterVersion", 2), Collections.emptyMap(), null, t0);
+        DeltaLakeTestTables.commit(table, 1, "delta-uuid", new StructType().add("new_name", StringType.STRING),
+                List.of(), Map.of("minReaderVersion", 1, "minWriterVersion", 2), Collections.emptyMap(), null, t1);
+        route("tables/main.db.t", exchange -> reply(exchange, 200,
+                EXTERNAL.replace("s3://warehouse/t", table.toUri().toString())));
+        route("temporary-table-credentials", exchange -> reply(exchange, 200, "{}"));
+        Map<String, String> raw = Map.of("deltalake.catalog.type", "uc",
+                UnityCatalogProperties.URI_KEY, uri, UnityCatalogProperties.NAMESPACE, "main",
+                UnityCatalogProperties.TOKEN, "metadata-only");
+        TestingConnectorSession session = new TestingConnectorSession("uc-timestamp-read", "Asia/Shanghai");
+        try (Connector connector = new DeltaLakeConnectorProvider().create(raw, new RecordingConnectorContext());
+                ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle latest = metadata.getTableHandle(session, "db", "t").orElseThrow();
+            ConnectorMvccSnapshot v0 = metadata.resolveTimeTravel(session, latest,
+                    ConnectorTimeTravelSpec.timestamp("2026-11-24 08:30:00", false)).orElseThrow();
+            Assertions.assertEquals(0, v0.getSnapshotId());
+            Assertions.assertEquals(Set.of("old_name"), metadata.getColumnHandles(session, latest, v0).keySet());
+            DeltaLakeTableHandle pinned = (DeltaLakeTableHandle) metadata.applySnapshot(session, latest, v0);
+            Assertions.assertEquals("table-1", pinned.reference().registrationId);
+            Assertions.assertSame(pinned, metadata.applySnapshot(session, latest, v0));
+        }
+    }
+
+    @Test
+    void resolvesHistoricalTimestampForManagedUnityCatalogTable(@TempDir Path dir) throws Exception {
+        Path table = dir.resolve("managed");
+        String tableUuid = "00000000-0000-0000-0000-000000000001";
+        Map<String, Object> protocol = Map.of(
+                "minReaderVersion", 3, "minWriterVersion", 7,
+                "readerFeatures", List.of("catalogManaged"),
+                "writerFeatures", List.of("catalogManaged", "inCommitTimestamp"));
+        Map<String, String> config = Map.of(
+                "delta.enableInCommitTimestamps", "true",
+                "io.unitycatalog.tableId", tableUuid);
+        long t0 = Instant.parse("2026-11-24T00:00:00Z").toEpochMilli();
+        long t1 = Instant.parse("2026-11-24T01:00:00Z").toEpochMilli();
+        DeltaLakeTestTables.commit(table, 0, "managed-uuid", new StructType().add("v0_col", LongType.LONG),
+                List.of(), protocol, config, t0, t0);
+        Path stagedV1 = DeltaLakeTestTables.writeCommit(
+                table.resolve("_delta_log/_staged_commits/00000000000000000001.test.json"),
+                "managed-uuid", new StructType().add("v1_col", StringType.STRING),
+                List.of(), protocol, config, t1, t1);
+        String location = table.toUri().toString();
+        String managedJson = EXTERNAL.replace("\"EXTERNAL\"", "\"MANAGED\"")
+                .replace("s3://warehouse/t", location)
+                .replace("table-1", tableUuid);
+        route("tables/main.db.t", exchange -> reply(exchange, 200, managedJson));
+        route("temporary-table-credentials", exchange -> reply(exchange, 200, "{}"));
+        String loadTableResponse = "{\"metadata\":{\"table-uuid\":\"" + tableUuid
+                + "\",\"table-type\":\"MANAGED\",\"location\":\"" + location + "\"},"
+                + "\"commits\":[{\"version\":1,\"timestamp\":" + t1
+                + ",\"file-name\":\"00000000000000000001.test.json\",\"file-size\":" + Files.size(stagedV1)
+                + ",\"file-modification-timestamp\":" + t1 + "}],\"latest-table-version\":1}";
+        route("delta/v1/catalogs/main/schemas/db/tables/t", exchange -> reply(exchange, 200, loadTableResponse));
+
+        Map<String, String> raw = Map.of("deltalake.catalog.type", "uc",
+                UnityCatalogProperties.URI_KEY, uri, UnityCatalogProperties.NAMESPACE, "main",
+                UnityCatalogProperties.TOKEN, "metadata-only");
+        TestingConnectorSession session = new TestingConnectorSession("uc-managed-time-as-of");
+        try (Connector connector = new DeltaLakeConnectorProvider().create(raw, new RecordingConnectorContext());
+                ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle latest = metadata.getTableHandle(session, "db", "t").orElseThrow();
+            Assertions.assertEquals(1, ((DeltaLakeTableHandle) latest).getVersion());
+            Assertions.assertEquals(Set.of("v1_col"), metadata.getColumnHandles(session, latest).keySet());
+
+            ConnectorMvccSnapshot v0 = metadata.resolveTimeTravel(session, latest,
+                    ConnectorTimeTravelSpec.timestamp("2026-11-24T00:30:00Z", false)).orElseThrow();
+            Assertions.assertEquals(0, v0.getSnapshotId());
+            Assertions.assertEquals(Set.of("v0_col"), metadata.getColumnHandles(session, latest, v0).keySet());
         }
     }
 

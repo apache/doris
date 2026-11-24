@@ -28,6 +28,7 @@ import java.util.function.Supplier;
 final class DeltaLakeStatementScope {
     static final String SNAPSHOT_NAMESPACE = "deltalake.snapshot";
     static final String VERSION_NAMESPACE = "deltalake.snapshot-version";
+    static final String TIMESTAMP_NAMESPACE = "deltalake.snapshot-timestamp";
 
     static final String FILE_COUNT_NAMESPACE = "deltalake.file-count";
 
@@ -51,10 +52,19 @@ final class DeltaLakeStatementScope {
 
     static DeltaLakeTableHandle atVersion(ConnectorSession session, DeltaLakeTableHandle handle, long version,
             Supplier<DeltaLakeTableHandle> loader) {
+        return resolveByCoordinate(session, VERSION_NAMESPACE, handle, version, loader);
+    }
+
+    static DeltaLakeTableHandle atTimestamp(ConnectorSession session, DeltaLakeTableHandle handle,
+            long timestampMillis, Supplier<DeltaLakeTableHandle> loader) {
+        return resolveByCoordinate(session, TIMESTAMP_NAMESPACE, handle, timestampMillis, loader);
+    }
+
+    private static DeltaLakeTableHandle resolveByCoordinate(ConnectorSession session, String namespace,
+            DeltaLakeTableHandle handle, long coordinate, Supplier<DeltaLakeTableHandle> loader) {
         String key = String.join("\0", handle.getTable(), handle.getPath(),
                 Objects.toString(handle.reference().registrationId, ""), handle.getTableId(),
-                Long.toString(version));
-        return ConnectorStatementScopes.resolveInStatement(session, VERSION_NAMESPACE, handle.getDatabase(),
-                key, loader);
+                Long.toString(coordinate));
+        return ConnectorStatementScopes.resolveInStatement(session, namespace, handle.getDatabase(), key, loader);
     }
 }

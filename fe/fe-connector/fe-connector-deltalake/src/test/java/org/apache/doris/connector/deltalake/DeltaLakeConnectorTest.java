@@ -40,6 +40,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +51,9 @@ class DeltaLakeConnectorTest {
     private static final Map<String, Object> VARIANT_PROTOCOL = Map.of(
             "minReaderVersion", 3, "minWriterVersion", 7,
             "readerFeatures", List.of("variantType"), "writerFeatures", List.of("variantType"));
+    private static final Map<String, Object> ICT_PROTOCOL = Map.of(
+            "minReaderVersion", 1, "minWriterVersion", 7,
+            "writerFeatures", List.of("inCommitTimestamp"));
 
     @TempDir
     Path warehouse;
@@ -161,8 +165,148 @@ class DeltaLakeConnectorTest {
             KernelException missing = Assertions.assertThrows(KernelException.class, () -> metadata.resolveTimeTravel(
                     session, table, ConnectorTimeTravelSpec.snapshotId("7")));
             Assertions.assertTrue(missing.getMessage().contains("Cannot load table version 7"), missing.getMessage());
-            Assertions.assertTrue(metadata.resolveTimeTravel(session, table,
-                    ConnectorTimeTravelSpec.timestamp("0", true)).isEmpty());
+        }
+    }
+
+    @Test
+    void resolvesTimeAsOfByCommitFileTimeAndReusesStatementSnapshot() throws Exception {
+        Path table = warehouse.resolve("db/table");
+        long t0 = Instant.parse("2026-11-24T00:00:00Z").toEpochMilli();
+        long t1 = Instant.parse("2026-11-24T01:00:00Z").toEpochMilli();
+        long t2 = Instant.parse("2026-11-24T02:00:00Z").toEpochMilli();
+        Path v0File = DeltaLakeTestTables.commit(table, 0, "first",
+                new StructType().add("old_name", LongType.LONG), List.of(),
+                Map.of("minReaderVersion", 1, "minWriterVersion", 2), Collections.emptyMap(), null, t0);
+        DeltaLakeTestTables.commit(table, 1, "first",
+                new StructType().add("mid_name", StringType.STRING), List.of(),
+                Map.of("minReaderVersion", 1, "minWriterVersion", 2), Collections.emptyMap(), null, t1);
+        DeltaLakeTestTables.commit(table, 2, "first",
+                new StructType().add("new_name", LongType.LONG), List.of(),
+                Map.of("minReaderVersion", 1, "minWriterVersion", 2), Collections.emptyMap(), null, t2);
+        TestingConnectorSession session = new TestingConnectorSession("time-as-of-read", "Asia/Shanghai");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle latest = metadata.getTableHandle(session, "db", "table").orElseThrow();
+
+            // Exact epoch millis matches version 0; applySnapshot reuses the statement-scoped snapshot without re-reading.
+            ConnectorMvccSnapshot atT0 = metadata.resolveTimeTravel(session, latest,
+                    ConnectorTimeTravelSpec.timestamp(Long.toString(t0), true)).orElseThrow();
+            Assertions.assertEquals(0, atT0.getSnapshotId());
+            Assertions.assertEquals(0, atT0.getSchemaId());
+            Assertions.assertTrue(atT0.isSchemaRetained());
+            Assertions.assertEquals("old_name", metadata.getTableSchema(session, latest, atT0)
+                    .getColumns().get(0).getName());
+            Assertions.assertEquals(Set.of("old_name"), metadata.getColumnHandles(session, latest, atT0).keySet());
+
+            // Session-timezone datetime between t0 (08:00+08) and t1 (09:00+08) resolves to version 0.
+            ConnectorMvccSnapshot betweenT0AndT1 = metadata.resolveTimeTravel(session, latest,
+                    ConnectorTimeTravelSpec.timestamp("2026-11-24 08:30:00", false)).orElseThrow();
+            Assertions.assertEquals(0, betweenT0AndT1.getSnapshotId());
+
+            // Explicit UTC offset ignores session timezone and resolves to version 1.
+            ConnectorMvccSnapshot atT1 = metadata.resolveTimeTravel(session, latest,
+                    ConnectorTimeTravelSpec.timestamp("2026-11-24T01:00:00Z", false)).orElseThrow();
+            Assertions.assertEquals(1, atT1.getSnapshotId());
+            Assertions.assertEquals(Set.of("mid_name"), metadata.getColumnHandles(session, latest, atT1).keySet());
+            Assertions.assertSame(metadata.applySnapshot(session, latest, atT1),
+                    metadata.applySnapshot(session, latest, atT1));
+
+            // Commits added after the statement's latest handle was opened are visible to FOR TIME AS OF.
+            long t3 = Instant.parse("2026-11-24T03:00:00Z").toEpochMilli();
+            DeltaLakeTestTables.commit(table, 3, "first",
+                    new StructType().add("later", LongType.LONG), List.of(),
+                    Map.of("minReaderVersion", 1, "minWriterVersion", 2), Collections.emptyMap(), null, t3);
+            ConnectorMvccSnapshot atLater = metadata.resolveTimeTravel(session, latest,
+                    ConnectorTimeTravelSpec.timestamp("2026-11-24T03:00:00Z", false)).orElseThrow();
+            Assertions.assertEquals(3, atLater.getSnapshotId());
+            Assertions.assertEquals(Set.of("later"), metadata.getColumnHandles(session, latest, atLater).keySet());
+            Assertions.assertEquals(2, metadata.beginQuerySnapshot(session, latest).orElseThrow().getSnapshotId());
+
+            // Remove version 0 log file to prove applySnapshot reuses the handle seeded by resolveTimeTravel.
+            Files.delete(v0File);
+            Assertions.assertEquals(Set.of("old_name"), metadata.getColumnHandles(session, latest, atT0).keySet());
+        }
+    }
+
+    @Test
+    void resolvesTimeAsOfUsingInCommitTimestampsOverFileMtime() throws Exception {
+        Path table = warehouse.resolve("db/ict_table");
+        Map<String, String> ictConfig = Map.of("delta.enableInCommitTimestamps", "true");
+        long ict0 = Instant.parse("2026-05-01T00:00:00Z").toEpochMilli();
+        long ict1 = Instant.parse("2026-05-01T01:00:00Z").toEpochMilli();
+        // Deliberately invert file modification times far in the future so only ICT yields the right versions.
+        long mtime0 = Instant.parse("2026-11-24T10:00:00Z").toEpochMilli();
+        long mtime1 = Instant.parse("2026-11-24T09:00:00Z").toEpochMilli();
+        DeltaLakeTestTables.commit(table, 0, "ict-id",
+                new StructType().add("v0_col", LongType.LONG), List.of(), ICT_PROTOCOL, ictConfig, ict0, mtime0);
+        DeltaLakeTestTables.commit(table, 1, "ict-id",
+                new StructType().add("v1_col", StringType.STRING), List.of(), ICT_PROTOCOL, ictConfig, ict1, mtime1);
+
+        TestingConnectorSession session = new TestingConnectorSession("ict-time-as-of");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle latest = metadata.getTableHandle(session, "db", "ict_table").orElseThrow();
+            ConnectorMvccSnapshot v0 = metadata.resolveTimeTravel(session, latest,
+                    ConnectorTimeTravelSpec.timestamp("2026-05-01 00:30:00", false)).orElseThrow();
+            Assertions.assertEquals(0, v0.getSnapshotId());
+            Assertions.assertEquals(Set.of("v0_col"), metadata.getColumnHandles(session, latest, v0).keySet());
+
+            ConnectorMvccSnapshot v1 = metadata.resolveTimeTravel(session, latest,
+                    ConnectorTimeTravelSpec.timestamp("2026-05-01 01:00:00", false)).orElseThrow();
+            Assertions.assertEquals(1, v1.getSnapshotId());
+            Assertions.assertEquals(Set.of("v1_col"), metadata.getColumnHandles(session, latest, v1).keySet());
+        }
+    }
+
+    @Test
+    void rejectsInvalidEarlyRecreatedOrUnsupportedTimestamps() throws Exception {
+        Path table = warehouse.resolve("db/table");
+        StructType schema = new StructType().add("id", LongType.LONG);
+        long t0 = Instant.parse("2026-11-24T00:00:00Z").toEpochMilli();
+        long t1 = Instant.parse("2026-11-24T01:00:00Z").toEpochMilli();
+        long t2 = Instant.parse("2026-11-24T02:00:00Z").toEpochMilli();
+        DeltaLakeTestTables.commit(table, 0, "another-table", schema, List.of(),
+                Map.of("minReaderVersion", 1, "minWriterVersion", 2), Collections.emptyMap(), null, t0);
+        DeltaLakeTestTables.commit(table, 1, "first", schema, List.of(), VARIANT_PROTOCOL,
+                Collections.emptyMap(), null, t1);
+        DeltaLakeTestTables.commit(table, 2, "first", schema, List.of(),
+                Map.of("minReaderVersion", 1, "minWriterVersion", 2), Collections.emptyMap(), null, t2);
+        TestingConnectorSession session = new TestingConnectorSession("timestamp-errors");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle latest = metadata.getTableHandle(session, "db", "table").orElseThrow();
+
+            DorisConnectorException malformed = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.resolveTimeTravel(session, latest,
+                            ConnectorTimeTravelSpec.timestamp("not-a-timestamp", false)));
+            Assertions.assertTrue(malformed.getMessage().contains("FOR TIME AS OF"), malformed.getMessage());
+
+            KernelException beforeEarliest = Assertions.assertThrows(KernelException.class,
+                    () -> metadata.resolveTimeTravel(session, latest,
+                            ConnectorTimeTravelSpec.timestamp(Long.toString(t0 - 1_000), true)));
+            Assertions.assertTrue(beforeEarliest.getMessage().contains("before the earliest"),
+                    beforeEarliest.getMessage());
+
+            KernelException afterLatest = Assertions.assertThrows(KernelException.class,
+                    () -> metadata.resolveTimeTravel(session, latest,
+                            ConnectorTimeTravelSpec.timestamp(Long.toString(t2 + 1_000), true)));
+            Assertions.assertTrue(afterLatest.getMessage().contains("after the latest"),
+                    afterLatest.getMessage());
+
+            DorisConnectorException identity = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.resolveTimeTravel(session, latest,
+                            ConnectorTimeTravelSpec.timestamp(Long.toString(t0), true)));
+            Assertions.assertTrue(identity.getMessage().contains("recreated"), identity.getMessage());
+
+            DorisConnectorException features = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.resolveTimeTravel(session, latest,
+                            ConnectorTimeTravelSpec.timestamp(Long.toString(t1), true)));
+            Assertions.assertTrue(features.getMessage().contains("variantType"), features.getMessage());
+
+            // Table recreated at latest version between getTableHandle and resolveTimeTravel.
+            DeltaLakeTestTables.commit(table, 2, "replacement", schema, List.of(),
+                    Map.of("minReaderVersion", 1, "minWriterVersion", 2), Collections.emptyMap(), null, t2);
+            DorisConnectorException recreatedLatest = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.resolveTimeTravel(session, latest,
+                            ConnectorTimeTravelSpec.timestamp(Long.toString(t2), true)));
+            Assertions.assertTrue(recreatedLatest.getMessage().contains("recreated"), recreatedLatest.getMessage());
         }
     }
 
