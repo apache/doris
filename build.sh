@@ -740,6 +740,8 @@ modules=()
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("fe-core")
+    # Build the dependency bundle before the native connector provider is implemented.
+    modules+=("fe-connector/fe-connector-mongodb")
     for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do
         modules+=("${extra_module_path}")
     done
@@ -1071,6 +1073,11 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/connectors/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_extensions/"
+
+    # Stage dependencies as an archive until a connector provider is available.
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/connector"
+    cp -p "${DORIS_HOME}/fe/fe-connector/fe-connector-mongodb/target/doris-fe-connector-mongodb.zip" \
+        "${DORIS_OUTPUT}/fe/plugins/connector/mongodb.zip"
 
     if [ "${TARGET_SYSTEM}" = "Darwin" ] || [ "${TARGET_SYSTEM}" = "Linux" ]; then
       mkdir -p "${DORIS_OUTPUT}/fe/arthas"

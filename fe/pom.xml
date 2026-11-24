@@ -224,6 +224,8 @@ under the License.
         <module>fe-foundation</module>
         <module>fe-common</module>
         <module>fe-core</module>
+        <!-- Keep the dependency-only bundle independent of the master connector aggregator. -->
+        <module>fe-connector/fe-connector-mongodb</module>
         <module>hive-udf</module>
         <module>be-java-extensions</module>
         <module>fe-extension-loader</module>
