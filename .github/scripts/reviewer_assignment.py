@@ -39,6 +39,7 @@ from routing_config import load_routing
 from ci_context import candidate_summary, eligible_pools, sample_reviewers
 
 REQUEST_LABEL = "need-reviewers"
+REQUEST_COMMAND = "/assign-reviewers"
 DONE_LABEL = "reviewers-assigned"
 BOT = "github-actions[bot]"
 MARKER = re.compile(r"<!-- reviewer-assignment:(\{[^\n]+\}) -->")
@@ -127,10 +128,10 @@ def checkpoint(api, context):
                     and saved.get("pr_number") == context["pr_number"]
                     and saved.get("run_id") == context["run_id"]):
                 require(saved.get("head_sha") == context["head_sha"],
-                        "This run already selected reviewers for an older PR head; reapply the label.")
+                        "This run already selected reviewers for an older PR head; post /assign-reviewers again.")
                 if not saved.get("reviewers"):
                     require(saved.get("fallback_reviewer") == context["fallback_reviewer"],
-                            "This run's fallback reviewer changed; reapply the label.")
+                            "This run's fallback reviewer changed; post /assign-reviewers again.")
                 found.append((comment, saved))
     require(len(found) <= 1, "Multiple assignment checkpoints exist for this workflow run.")
     return found[0] if found else None
@@ -140,8 +141,8 @@ def verify_pr(pr, context):
     require(pr["number"] == context["pr_number"] and pr["state"] == "open",
             "The requested PR is no longer open.")
     require(pr["base"]["repo"]["full_name"] == context["repository"], "PR repository mismatch.")
-    require(pr["head"]["sha"] == context["head_sha"], "PR head changed; reapply need-reviewers.")
-    require(pr["base"]["sha"] == context["base_sha"], "PR base changed; reapply need-reviewers.")
+    require(pr["head"]["sha"] == context["head_sha"], "PR head changed; post /assign-reviewers again.")
+    require(pr["base"]["sha"] == context["base_sha"], "PR base changed; post /assign-reviewers again.")
     require(pr["user"]["login"].lower() == context["author"].lower(), "PR author changed.")
 
 
@@ -167,8 +168,24 @@ def request_event(event, event_name):
                 "pr_number must be a positive integer.")
         return {"action": "labeled", "label": {"name": REQUEST_LABEL},
                 "pull_request": {"number": int(number)}}
-    require(event_name == "pull_request_target", "Unsupported assignment event.")
-    return event
+    require(event_name == "issue_comment" and event["action"] == "created",
+            "Only new assignment comments are accepted.")
+    require(event["issue"].get("pull_request") is not None, "The command requires a PR comment.")
+    require(event["comment"]["body"] == REQUEST_COMMAND, "Unsupported assignment command.")
+    require(event["comment"]["user"]["id"] == event["sender"]["id"] and
+            event["comment"]["user"]["login"] == event["sender"]["login"],
+            "The comment author must be the event sender.")
+    # Keep one internal request shape for comment requests and read-only previews.
+    return {"action": "labeled", "label": {"name": REQUEST_LABEL},
+            "pull_request": {"number": event["issue"]["number"]},
+            "requester": event["sender"]["login"]}
+
+
+def authorize_request(api, event, repository):
+    requester = quote(event["requester"], safe="")
+    permission = api.request("GET", f"repos/{repository}/collaborators/{requester}/permission")
+    require(permission["permission"] in {"write", "maintain", "admin"},
+            "Only repository writers can request reviewer assignment.")
 
 
 def prepare(api, event, repository, run_id, workspace, tool=TOOL):
@@ -271,7 +288,7 @@ def apply(api, context, selection, tool=TOOL):
     # Empty means manual triage, not a claim that the fallback has module expertise.
     fallback = mapping["config"]["fallback_reviewer"]
     if not selected:
-        require(context["fallback_reviewer"] == fallback, "The fallback reviewer changed; reapply need-reviewers.")
+        require(context["fallback_reviewer"] == fallback, "The fallback reviewer changed; post /assign-reviewers again.")
     people = selected or [fallback]
     for person in people:
         user = api.request("GET", "users/" + quote(person, safe=""))
@@ -304,7 +321,7 @@ def apply(api, context, selection, tool=TOOL):
         api.request("POST", issue + "/assignees", {"assignees": missing})
     assigned = api.request("GET", issue)
     require({person.lower() for person in people} <= {p["login"].lower() for p in assigned["assignees"]},
-            "GitHub did not assign every selected reviewer; keeping need-reviewers for recovery.")
+            "GitHub did not assign every selected reviewer; rerun this workflow to recover.")
     if selected:
         message = ", ".join("@" + person for person in people) + ", please review this PR."
     else:
@@ -333,9 +350,11 @@ def main():
     parser.add_argument("mode", choices=["prepare", "validate", "apply"])
     parser.add_argument("--workspace", type=Path, required=True)
     args = parser.parse_args()
-    event_name = os.environ.get("GITHUB_EVENT_NAME", "pull_request_target")
+    event_name = os.environ["GITHUB_EVENT_NAME"]
     event = request_event(json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text()), event_name)
-    require(args.mode != "apply" or event_name == "pull_request_target", "Manual runs cannot mutate a PR.")
+    require(args.mode != "apply" or event_name == "issue_comment", "Manual runs cannot mutate a PR.")
+    if event_name == "issue_comment" and args.mode in {"prepare", "apply"}:
+        authorize_request(GitHub(), event, os.environ["GITHUB_REPOSITORY"])
     if args.mode == "prepare":
         reused = prepare(GitHub(), event,
                          os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_RUN_ID"], args.workspace)

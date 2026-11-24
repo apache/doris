@@ -41,8 +41,8 @@ suite("test_variant_empty_index_file", "p0") {
     // The schema owns an index, so every segment owns an index file -- but an
     // all-NULL VARIANT column extracts no subcolumn, so no logical index is ever
     // opened and the file is closed empty. Reading it must say "is empty"
-    // (E-6004), never "not found" (E-6003): the file is there, it just has no
-    // index in it.
+    // with E-6003: empty and absent containers both mean no index data, but
+    // the message must still distinguish the existing empty file.
     def assert_empty_index_file = { String table ->
         sql "sync"
         def tablets = sql_return_maparray """ show tablets from ${table}; """
@@ -52,7 +52,7 @@ suite("test_variant_empty_index_file", "p0") {
         String port = backendId_to_backendHttpPort.get(backend_id)
         def (code, out, err) = http_client("GET", String.format("http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet_id))
         logger.info("Run show_nested_index_file_on_tablet: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals("E-6004", parseJson(out.trim()).status)
+        assertEquals("E-6003", parseJson(out.trim()).status)
         assertTrue(out.contains(" is empty"))
     }
 

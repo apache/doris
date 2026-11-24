@@ -381,21 +381,6 @@ TEST(ColumnConstTest, structure_equals) {
     }
 }
 
-TEST(ColumnConstTest, erase) {
-    auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
-    auto column_const = ColumnConst::create(column_data, 3);
-    column_const->erase(0, 1);
-    EXPECT_EQ(column_const->size(), 2);
-    EXPECT_EQ(column_const->get_data_column().get_int(0), 7);
-
-    column_const->erase(1, 1);
-    EXPECT_EQ(column_const->size(), 1);
-    EXPECT_EQ(column_const->get_data_column().get_int(0), 7);
-
-    column_const->erase(0, 1);
-    EXPECT_EQ(column_const->size(), 0);
-}
-
 TEST(ColumnConstTest, replace_column_data) {
     auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
     auto column_const = ColumnConst::create(column_data, 3);

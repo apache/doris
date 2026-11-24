@@ -234,17 +234,16 @@ public class ConnectorPluginManagerTest {
 
     @Test
     void admittedProviderSecretKeysAreMaskedInShownCatalogProperties() {
-        // SHOW CREATE CATALOG masks only the keys on DatasourcePrintableMap's list. A connector's own secret
-        // keys must reach that list through its security surface, so fe-core never has to name them. The
-        // list is process-wide, hence key names no other test uses.
-        String token = "test.connector.admitted.bearer-token";
-        String passThroughSecret = "test.connector.admitted.passthrough.client-secret";
+        // Opaque names isolate provider admission from built-in and configurable credential-name rules.
+        // The registration list is process-wide, hence key names no other test uses.
+        String token = "test.connector.admitted.material";
+        String passThroughSecret = "test.connector.admitted.passthrough.client-material";
         Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey(token));
         Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey(passThroughSecret));
 
         Assertions.assertTrue(admit(createProvider("secret_type",
                 ConnectorSecuritySurface.ofSensitiveKeys(token)
-                        .withSensitiveKeyPrefix("test.connector.admitted.passthrough.", "secret")), false));
+                        .withSensitiveKeyPrefix("test.connector.admitted.passthrough.", "material")), false));
 
         Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey(token.toUpperCase()),
                 "declared keys must match case-insensitively, like the engine's own list");
@@ -269,7 +268,7 @@ public class ConnectorPluginManagerTest {
     @Test
     void refusedProviderDoesNotExtendTheMaskingList() {
         // Only a provider that will serve catalogs contributes keys; a refused claimant leaves no trace.
-        String token = "test.connector.refused.bearer-token";
+        String token = "test.connector.refused.material";
         Assertions.assertTrue(admit(createProvider("dup", true, "first"), false));
         Assertions.assertFalse(admit(createProvider("dup",
                 ConnectorSecuritySurface.ofSensitiveKeys(token)
@@ -282,13 +281,14 @@ public class ConnectorPluginManagerTest {
     @Test
     void registerProviderMasksDeclaredSecretKeysToo() {
         // Tests stand in for a real plugin through registerProvider, so it must mask like the admission path.
-        String token = "test.connector.override.api-key";
+        String token = "test.connector.override.material";
+        Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey(token));
         manager.registerProvider(createProvider("override_type",
                 ConnectorSecuritySurface.ofSsrfEndpoints("override.uri").withSensitiveKeys(token)
-                        .withSensitiveKeyPrefix("test.connector.override.passthrough.", "password")));
+                        .withSensitiveKeyPrefix("test.connector.override.passthrough.", "material")));
 
         Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey(token));
-        Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey("test.connector.override.passthrough.password"));
+        Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey("test.connector.override.passthrough.material"));
         Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey("override.uri"),
                 "an endpoint key is policed, not masked");
     }

@@ -44,6 +44,7 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/debug_points.h"
 
 namespace doris {
@@ -571,8 +572,8 @@ TEST_F(VIcebergMergeSinkTest, TestErrorCloseRemovesRolledDataFiles) {
     RuntimeProfile profile("iceberg_merge_cleanup_sink");
     ASSERT_TRUE(sink->open(&state, &profile).ok());
 
-    std::filesystem::path path =
-            std::filesystem::temp_directory_path() / "doris_iceberg_merge_rolled_file.parquet";
+    const doris::test::ScopedTempDirectory scoped_path("viceberg_merge_sink_test");
+    std::filesystem::path path = scoped_path.path() / "doris_iceberg_merge_rolled_file.parquet";
     {
         std::ofstream output(path);
         output << "rolled-data";
@@ -603,10 +604,12 @@ TEST_F(VIcebergMergeSinkTest, TestDeleteCloseFailureRemovesBothInnerSinkFiles) {
     RuntimeProfile profile("iceberg_merge_delete_close_cleanup_sink");
     ASSERT_TRUE(sink->open(&state, &profile).ok());
 
-    std::filesystem::path data_path = std::filesystem::temp_directory_path() /
-                                      "doris_iceberg_merge_delete_close_data.parquet";
-    std::filesystem::path delete_path = std::filesystem::temp_directory_path() /
-                                        "doris_iceberg_merge_delete_close_position.parquet";
+    const doris::test::ScopedTempDirectory scoped_data_path("viceberg_merge_sink_test");
+    std::filesystem::path data_path =
+            scoped_data_path.path() / "doris_iceberg_merge_delete_close_data.parquet";
+    const doris::test::ScopedTempDirectory scoped_delete_path("viceberg_merge_sink_test");
+    std::filesystem::path delete_path =
+            scoped_delete_path.path() / "doris_iceberg_merge_delete_close_position.parquet";
     {
         std::ofstream output(data_path);
         output << "closed-data";

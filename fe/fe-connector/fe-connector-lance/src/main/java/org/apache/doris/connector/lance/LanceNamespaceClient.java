@@ -20,6 +20,10 @@ package org.apache.doris.connector.lance;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Expiry;
+import com.github.benmanes.caffeine.cache.Ticker;
 import org.apache.commons.lang3.StringUtils;
 import org.lance.namespace.LanceNamespace;
 import org.lance.namespace.errors.NamespaceNotFoundException;
@@ -32,25 +36,39 @@ import org.lance.namespace.model.ListTablesRequest;
 import org.lance.namespace.model.ListTablesResponse;
 import org.lance.namespace.model.TableExistsRequest;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Namespace requests and table access resolution. The catalog client owns the native resources and holds
  * a lease throughout each call to this client.
+ *
+ * <p>Every metadata read starts from the table's access: the dataset URI and the storage options the namespace
+ * describes. Those rarely change, while describing costs a REST request or a directory listing per read, so a
+ * described access is reused for {@code lance.table_access_cache_ttl_seconds}, counted from the describe: a hit
+ * never extends it. A table whose options carry vended credentials, or whose URI may carry credentials, is
+ * described on every read: the BE cannot renew credentials during a scan of any length, and no fixed margin
+ * covers every query.
  */
 final class LanceNamespaceClient {
     /** Joins the components of a nested namespace into one Doris database name. */
     private static final String DATABASE_NAMESPACE_DELIMITER = ".";
     private static final int PAGE_SIZE = 1000;
+    private static final int TABLE_ACCESS_CACHE_MAX_ENTRIES = 10_000;
 
     private final LanceNamespace namespace;
+    /** Whether to ask the namespace for each table's storage credentials, as a REST namespace can vend them. */
+    private final boolean vendCredentials;
     private final String rootDatabase;
     private final List<String> parentNamespace;
     private final List<StorageProperties> storageProperties;
@@ -61,13 +79,26 @@ final class LanceNamespaceClient {
      * catalog.
      */
     private final Object namespaceLock = new Object();
+    private final long tableAccessTtlNanos;
+    private final Ticker ticker;
+    /** Replaced, never cleared, on invalidation; see {@link #invalidateTableAccessCache()}. */
+    private volatile Cache<List<String>, CachedTableAccess> tableAccessCache;
 
-    LanceNamespaceClient(LanceNamespace namespace, String rootDatabase, List<String> parentNamespace,
-            List<StorageProperties> storageProperties) {
+    /**
+     * @param tableAccessTtlSeconds how long a described access is reused; 0 describes the table on every read
+     * @param ticker the clock the TTL is measured with
+     */
+    LanceNamespaceClient(LanceNamespace namespace, boolean vendCredentials, String rootDatabase,
+            List<String> parentNamespace, List<StorageProperties> storageProperties, long tableAccessTtlSeconds,
+            Ticker ticker) {
         this.namespace = namespace;
+        this.vendCredentials = vendCredentials;
         this.rootDatabase = rootDatabase;
         this.parentNamespace = Collections.unmodifiableList(new ArrayList<>(parentNamespace));
         this.storageProperties = Collections.unmodifiableList(new ArrayList<>(storageProperties));
+        this.tableAccessTtlNanos = TimeUnit.SECONDS.toNanos(tableAccessTtlSeconds);
+        this.ticker = ticker;
+        this.tableAccessCache = newTableAccessCache();
     }
 
     List<String> listDatabaseNames() {
@@ -176,13 +207,42 @@ final class LanceNamespaceClient {
         }
     }
 
-    /** Describes the table and builds the URI and options both the FE and the BE open it with. */
+    /**
+     * The URI and options both the FE and the BE open the table with: a cached access while its TTL lasts,
+     * otherwise a new describe. Concurrent misses of one table share one describe; a failed describe is not
+     * cached.
+     */
     LanceTableAccess resolveTableAccess(String dbName, String tableName) {
-        List<String> tableId = buildTableId(dbName, tableName);
+        List<String> tableId = Collections.unmodifiableList(buildTableId(dbName, tableName));
+        if (tableAccessTtlNanos == 0) {
+            return describeTableAccess(tableId, dbName, tableName).access;
+        }
+        // A hit takes neither the namespace lock nor any filesystem or REST I/O.
+        return tableAccessCache.get(tableId, id -> describeTableAccess(id, dbName, tableName)).access;
+    }
+
+    /**
+     * Drops every cached access, catalog-wide, for REFRESH TABLE as for REFRESH DATABASE: describing a table again
+     * is cheap. The cache is swapped rather than cleared, so that this waits for nothing, and a describe already in
+     * flight, which still answers its own caller, cannot repopulate the cache that reads admitted after the refresh
+     * use.
+     */
+    void invalidateTableAccessCache() {
+        tableAccessCache = newTableAccessCache();
+    }
+
+    private CachedTableAccess describeTableAccess(List<String> tableId, String dbName, String tableName) {
         DescribeTableResponse table = namespace.describeTable(
-                new DescribeTableRequest().id(tableId).withTableUri(true));
+                new DescribeTableRequest().id(tableId).withTableUri(true).vendCredentials(vendCredentials));
         if (Boolean.TRUE.equals(table.getIsOnlyDeclared())) {
             throw new DorisConnectorException("Lance table is declared in the namespace but has no data yet");
+        }
+        // The namespace, not the dataset's _versions/ directory, decides which versions of such a table exist.
+        // Opening it by URI reads the newest manifest in storage, which the namespace may not have published,
+        // and is all this connector can do yet. Refused on every read: a refusal is never cached.
+        if (Boolean.TRUE.equals(table.getManagedVersioning())) {
+            throw new DorisConnectorException("Lance table " + dbName + "." + tableName + " has its versions"
+                    + " managed by the namespace (managed_versioning), which is not supported yet");
         }
         String datasetUri = StringUtils.firstNonBlank(table.getTableUri(), table.getLocation());
         if (datasetUri == null) {
@@ -191,8 +251,65 @@ final class LanceNamespaceClient {
         // One option map serves both readers: the FE opens the dataset through the Lance Java SDK and the
         // BE through lance-c, so neither can end up with credentials the other lacks. The dataset URL picks
         // the option vocabulary, the same way Lance picks a provider from it.
-        return new LanceTableAccess(datasetUri, LanceStorageOptions.fromDorisAndVendedStorageOptions(
+        LanceTableAccess access = new LanceTableAccess(datasetUri, LanceStorageOptions.fromDorisAndVendedStorageOptions(
                 datasetUri, storageProperties, table.getStorageOptions()));
+        return new CachedTableAccess(access, cacheTtlNanos(datasetUri, table.getStorageOptions()));
+    }
+
+    /** How long a described access may be reused: 0 when it may carry credentials. */
+    private long cacheTtlNanos(String datasetUri, Map<String, String> vendedOptions) {
+        // The BE cannot renew credentials during a scan. A fixed expiry margin cannot cover arbitrary query
+        // durations, so vended options are described again for every read, even with a reported deadline.
+        if (vendedOptions != null && !vendedOptions.isEmpty()) {
+            return 0;
+        }
+        try {
+            URI uri = new URI(datasetUri.trim());
+            // Presigned or SAS credentials may live in the URI even when the storage options are empty. A
+            // registry-based authority holds user info that URI.getRawUserInfo() does not report.
+            if (uri.isOpaque() || uri.getRawUserInfo() != null || uri.getRawQuery() != null
+                    || uri.getRawFragment() != null
+                    || (uri.getRawAuthority() != null && uri.getRawAuthority().contains("@"))) {
+                return 0;
+            }
+            return tableAccessTtlNanos;
+        } catch (URISyntaxException e) {
+            // A locator that cannot be classified stays usable, but is not assumed credential-free.
+            return 0;
+        }
+    }
+
+    private Cache<List<String>, CachedTableAccess> newTableAccessCache() {
+        return Caffeine.newBuilder().maximumSize(TABLE_ACCESS_CACHE_MAX_ENTRIES).ticker(ticker)
+                .expireAfter(new Expiry<List<String>, CachedTableAccess>() {
+                    @Override
+                    public long expireAfterCreate(List<String> key, CachedTableAccess value, long currentTime) {
+                        return value.ttlNanos;
+                    }
+
+                    @Override
+                    public long expireAfterUpdate(List<String> key, CachedTableAccess value, long currentTime,
+                            long currentDuration) {
+                        return value.ttlNanos;
+                    }
+
+                    @Override
+                    public long expireAfterRead(List<String> key, CachedTableAccess value, long currentTime,
+                            long currentDuration) {
+                        return currentDuration;
+                    }
+                }).build();
+    }
+
+    /** A described access and how long it may be reused; a TTL of 0 expires it at once. */
+    private static final class CachedTableAccess {
+        private final LanceTableAccess access;
+        private final long ttlNanos;
+
+        private CachedTableAccess(LanceTableAccess access, long ttlNanos) {
+            this.access = access;
+            this.ttlNanos = ttlNanos;
+        }
     }
 
     private List<String> buildNamespaceId(String dbName) {

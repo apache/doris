@@ -17,14 +17,18 @@
 
 #include "storage/index/inverted/analysis/analyzer/ik/dic/Dictionary.h"
 
+#include <fstream>
+
+#include "storage/index/inverted/analysis/analyzer/ik/dic/DictSegment.h"
+
 namespace doris::segment_v2 {
 
 Dictionary::Dictionary(const Configuration& cfg, bool use_ext_dict)
-        : main_dict_(std::make_unique<DictSegment>(0)),
-          quantifier_dict_(std::make_unique<DictSegment>(0)),
-          stop_words_(std::make_unique<DictSegment>(0)),
-          config_(std::make_unique<Configuration>(cfg)),
-          load_ext_dict_(use_ext_dict) {}
+        : config_(std::make_unique<Configuration>(cfg)),
+          load_ext_dict_(use_ext_dict),
+          main_dict_(loadMainDict()),
+          quantifier_dict_(loadQuantifierDict()),
+          stop_words_(loadStopWordDict()) {}
 
 void Dictionary::loadDictFile(DictSegment* dict, const std::string& file_path, bool critical,
                               const std::string& dict_name) {
@@ -44,16 +48,17 @@ void Dictionary::loadDictFile(DictSegment* dict, const std::string& file_path, b
     }
 }
 
-void Dictionary::loadMainDict() {
+FlatDict Dictionary::loadMainDict() const {
     try {
-        loadDictFile(main_dict_.get(), config_->getDictPath() + "/" + config_->getMainDictFile(),
-                     true, "Main Dict");
+        DictSegment main_dict(0);
+        loadDictFile(&main_dict, config_->getDictPath() + "/" + config_->getMainDictFile(), true,
+                     "Main Dict");
 
         // Load extension dictionaries - can fail
         if (load_ext_dict_) {
             for (const auto& extDict : config_->getExtDictFiles()) {
                 try {
-                    loadDictFile(main_dict_.get(), config_->getDictPath() + "/" + extDict, false,
+                    loadDictFile(&main_dict, config_->getDictPath() + "/" + extDict, false,
                                  "Extra Dict");
                 } catch (const Exception& e) {
                     // Extension dictionary loading failure is logged but doesn't affect main functionality
@@ -62,23 +67,24 @@ void Dictionary::loadMainDict() {
                 }
             }
         }
+        return FlatDict(main_dict);
     } catch (const Exception& e) {
         LOG(ERROR) << "Failed to load main dictionary: " << e.what();
         throw;
     }
 }
 
-void Dictionary::loadStopWordDict() {
+FlatDict Dictionary::loadStopWordDict() const {
     try {
-        loadDictFile(stop_words_.get(),
-                     config_->getDictPath() + "/" + config_->getStopWordDictFile(), false,
-                     "Stopword");
+        DictSegment stop_words(0);
+        loadDictFile(&stop_words, config_->getDictPath() + "/" + config_->getStopWordDictFile(),
+                     false, "Stopword");
 
         // Load extension stopword dictionaries
         if (load_ext_dict_) {
             for (const auto& extDict : config_->getExtStopWordDictFiles()) {
                 try {
-                    loadDictFile(stop_words_.get(), config_->getDictPath() + "/" + extDict, false,
+                    loadDictFile(&stop_words, config_->getDictPath() + "/" + extDict, false,
                                  "Extra Stopword");
                 } catch (const Exception& e) {
                     // Extension stopword loading failure is just logged
@@ -87,6 +93,7 @@ void Dictionary::loadStopWordDict() {
                 }
             }
         }
+        return FlatDict(stop_words);
     } catch (const std::exception& e) {
         // Catch any other unexpected exceptions
         LOG(ERROR) << "Unexpected error loading stopword dictionary: " << e.what();
@@ -94,11 +101,13 @@ void Dictionary::loadStopWordDict() {
     }
 }
 
-void Dictionary::loadQuantifierDict() {
+FlatDict Dictionary::loadQuantifierDict() const {
     try {
-        loadDictFile(quantifier_dict_.get(),
+        DictSegment quantifier_dict(0);
+        loadDictFile(&quantifier_dict,
                      config_->getDictPath() + "/" + config_->getQuantifierDictFile(), true,
                      "Quantifier");
+        return FlatDict(quantifier_dict);
     } catch (const Exception& e) {
         LOG(ERROR) << "Failed to load quantifier dictionary: " << e.what();
         throw;
@@ -113,63 +122,15 @@ void Dictionary::initial(const Configuration& cfg, bool useExtDict) {
     if (singleton_.load(std::memory_order_relaxed) != nullptr) {
         return;
     }
-    std::unique_ptr<Dictionary> dictionary(new Dictionary(cfg, useExtDict));
+    std::unique_ptr<Dictionary> dictionary;
     try {
-        dictionary->loadMainDict();
-        dictionary->loadQuantifierDict();
-        dictionary->loadStopWordDict();
+        dictionary.reset(new Dictionary(cfg, useExtDict));
     } catch (const Exception& e) {
         LOG(ERROR) << "Dictionary loading failed: " << e.what();
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "Dictionary initialization failed");
     }
     singleton_.store(dictionary.release(), std::memory_order_release);
-}
-
-Hit Dictionary::matchInMainDict(const CharacterUtil::TypedRuneArray& typed_runes,
-                                size_t unicode_offset, size_t length) {
-    Hit result = main_dict_->match(typed_runes, unicode_offset, length);
-
-    if (!result.isUnmatch()) {
-        result.setByteBegin(typed_runes[unicode_offset].offset);
-        result.setCharBegin(unicode_offset);
-        result.setByteEnd(typed_runes[unicode_offset + length - 1].getNextBytePosition());
-        result.setCharEnd(unicode_offset + length);
-    }
-    return result;
-}
-
-Hit Dictionary::matchInQuantifierDict(const CharacterUtil::TypedRuneArray& typed_runes,
-                                      size_t unicode_offset, size_t length) {
-    Hit result = quantifier_dict_->match(typed_runes, unicode_offset, length);
-
-    if (!result.isUnmatch()) {
-        result.setByteBegin(typed_runes[unicode_offset].offset);
-        result.setCharBegin(unicode_offset);
-        result.setByteEnd(typed_runes[unicode_offset + length - 1].getNextBytePosition());
-        result.setCharEnd(unicode_offset + length);
-    }
-    return result;
-}
-
-void Dictionary::matchWithHit(const CharacterUtil::TypedRuneArray& typed_runes,
-                              size_t current_index, Hit& hit) {
-    if (auto* matchedSegment = hit.getMatchedDictSegment()) {
-        matchedSegment->match(typed_runes, current_index, 1, hit);
-        return;
-    }
-    hit.setUnmatch();
-}
-
-bool Dictionary::isStopWord(const CharacterUtil::TypedRuneArray& typed_runes, size_t unicode_offset,
-                            size_t length) {
-    if (typed_runes.empty() || unicode_offset >= typed_runes.size()) {
-        return false;
-    }
-
-    Hit result = stop_words_->match(typed_runes, unicode_offset, length);
-
-    return result.isMatch();
 }
 
 } // namespace doris::segment_v2

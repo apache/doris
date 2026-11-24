@@ -178,12 +178,12 @@ class GcsFileSystemProviderTest {
     }
 
     @Test
-    void sensitivePropertyKeys_coverSecretAliasesButNotAccessKey() {
+    void sensitivePropertyKeys_coverAllCredentialAliases() {
         Set<String> keys = provider.sensitivePropertyKeys();
 
         Assertions.assertTrue(keys.contains("gs.secret_key"), keys.toString());
         Assertions.assertTrue(keys.contains("gs.session_token"), keys.toString());
-        Assertions.assertFalse(keys.contains("gs.access_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("gs.access_key"), keys.toString());
     }
 
     @Test

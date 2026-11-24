@@ -58,7 +58,7 @@ suite("test_timestamp_ns_complex_type") {
         order by id
     """
 
-    sql "set default_variant_enable_doc_mode = false"
+    sql "set debug_variant_enable_doc_mode = false"
     sql "drop table if exists timestamp_ns_typed_variant"
     sql """
         create table timestamp_ns_typed_variant (

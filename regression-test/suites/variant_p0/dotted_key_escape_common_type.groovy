@@ -16,7 +16,7 @@
 // under the License.
 
 suite("dotted_key_escape_common_type", "p0") {
-    sql "set default_variant_enable_doc_mode=false"
+    sql "set debug_variant_enable_doc_mode=false"
     sql "set group_commit='off_mode'"
     sql "set enable_sql_cache=false"
     sql "set enable_query_cache=false"

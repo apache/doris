@@ -19,6 +19,7 @@ package org.apache.doris.common;
 
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.tls.TlsAcceptedThriftSocket;
 
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -42,6 +43,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
+import javax.net.ssl.SSLSocket;
 
 public class ThriftServer {
     private static final Logger LOG = LogManager.getLogger(ThriftServer.class);
@@ -220,7 +222,9 @@ public class ThriftServer {
                 throw new TTransportException("Blocking server's accept() may not return NULL");
             }
 
-            TSocket socket = new TSocket(result);
+            // Authenticate on the request worker; a stalled peer must not block the serial accept loop.
+            TSocket socket = result instanceof SSLSocket
+                    ? new TlsAcceptedThriftSocket((SSLSocket) result) : new TSocket(result);
 
             TConfiguration cfg = socket.getConfiguration();
             cfg.setMaxMessageSize(Config.thrift_max_message_size);

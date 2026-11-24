@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.NamedColumnHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
@@ -204,6 +205,38 @@ class LanceConnectorNativeTest {
                 "Lance tables do not support @branch yet"));
     }
 
+    /**
+     * The profile of a scan counts each stage of the statement's metadata reads of its table, and its planning: the
+     * query-begin pin reads the newest version, FOR TIME AS OF opens the newest version and then the one it picks,
+     * and the scan of the pinned version reuses the statement's first read.
+     */
+    @Test
+    void scanProfileCountsTheStatementsMetadataReadsAndItsPlanning() {
+        ConnectorMvccSnapshot pin = metadata.beginQuerySnapshot(session, table).get();
+        Assertions.assertEquals(2, metadata.resolveTimeTravel(session, table,
+                ConnectorTimeTravelSpec.timestamp("2026-07-20 03:53:50.755", false)).get().getSnapshotId());
+        plan(metadata.applySnapshot(session, table, pin));
+
+        List<ConnectorScanProfile> profiles = connector.getScanPlanProvider().collectScanProfiles(session);
+        Assertions.assertEquals(1, profiles.size());
+        Assertions.assertEquals("Lance Metadata Metrics", profiles.get(0).getGroupName());
+        Assertions.assertEquals("Table Scan (default.all_types)", profiles.get(0).getScanLabel());
+        Map<String, String> counts = new HashMap<>(profiles.get(0).getMetrics());
+        counts.keySet().removeIf(name -> name.endsWith("Time"));
+        Map<String, String> expected = new HashMap<>();
+        expected.put("MetadataReadCalls", "2");
+        expected.put("MetadataReadFailures", "0");
+        expected.put("SplitPlanningCalls", "1");
+        expected.put("SplitPlanningFailures", "0");
+        expected.put("TableAccessResolveCalls", "2");
+        expected.put("DatasetOpenCalls", "3");
+        expected.put("VersionResolveCalls", "1");
+        expected.put("SchemaReadCalls", "2");
+        expected.put("FragmentMetadataReadCalls", "2");
+        Assertions.assertEquals(expected, counts);
+        Assertions.assertTrue(connector.getScanPlanProvider().collectScanProfiles(session).isEmpty());
+    }
+
     /** The regression dataset carries every type Lance tables map, including the additional ones. */
     @Test
     void projectingAnAdditionalTypeRaisesTheUpgradeFence(@TempDir Path regressionWarehouse) throws Exception {
@@ -218,14 +251,14 @@ class LanceConnectorNativeTest {
                     regressionMetadata.getTableHandle(statement, "default", "all_types").get(),
                     regressionMetadata.beginQuerySnapshot(statement,
                             regressionMetadata.getTableHandle(statement, "default", "all_types").get()).get());
-            Assertions.assertNull(regression.getScanPlanProvider().getScanNodeProperties(statement, allTypes,
+            Assertions.assertNull(regression.getScanPlanProvider().getScanNodePropertiesResult(statement, allTypes,
                     Collections.singletonList(new NamedColumnHandle("row_id")), Optional.empty())
-                    .get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
+                    .getProperties().get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
             for (String column : Arrays.asList("null_col", "duration_ns_col", "json_col", "bfloat16_vector_col")) {
                 Assertions.assertEquals("Additional Lance types", regression.getScanPlanProvider()
-                        .getScanNodeProperties(statement, allTypes,
+                        .getScanNodePropertiesResult(statement, allTypes,
                                 Collections.singletonList(new NamedColumnHandle(column)), Optional.empty())
-                        .get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS), column);
+                        .getProperties().get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS), column);
             }
         } finally {
             regression.close();

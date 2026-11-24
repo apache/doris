@@ -1928,6 +1928,18 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 type, new org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral(99));
         Assertions.assertNull(outOfBounds);
 
+        // These ordinals have low bits equal to one. Resolve the original value before pruning.
+        for (String value : List.of("4294967297", "-18446744073709551615")) {
+            Assertions.assertNull(AccessPathExpressionCollector.resolveStructField(type,
+                    new org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral(
+                            new java.math.BigInteger(value))));
+        }
+        // The path must use the schema name, even when the query uses different letter case.
+        StructField caseInsensitive = AccessPathExpressionCollector.resolveStructField(type,
+                new org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral("NOT_NULL_F"));
+        Assertions.assertNotNull(caseInsensitive);
+        Assertions.assertEquals("not_null_f", caseInsensitive.getName());
+
         // Non-literal returns null
         StructField nonLiteral = AccessPathExpressionCollector.resolveStructField(
                 type, NullLiteral.INSTANCE);

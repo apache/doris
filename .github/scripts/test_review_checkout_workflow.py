@@ -116,7 +116,7 @@ class ReviewCheckoutWorkflowTest(unittest.TestCase):
                         self.pr_event(action=action, merged=False, same_repo=same_repo))
 
     def test_other_callers_keep_workflow_sha_pinning_and_sha_fallback(self):
-        for event in ("issue_comment", "workflow_dispatch"):
+        for event in ("issue_comment", "workflow_dispatch", "workflow_run"):
             for workflow_sha in ("b" * 40, ""):
                 with self.subTest(event=event, workflow_sha=workflow_sha):
                     self.assertEqual(workflow_sha or "c" * 40, self.ref({
@@ -131,13 +131,15 @@ class ReviewCheckoutWorkflowTest(unittest.TestCase):
 
     def test_closed_pr_still_reaches_aggregate_and_releases_shared_head_context(self):
         sync = (WORKFLOWS / "code-review-sync-result.yml").read_text()
-        triggers = sync.split("  pull_request_target:\n", 1)[1].split("  issue_comment:", 1)[0]
+        relay = (WORKFLOWS / "pull-request-events.yml").read_text()
+        triggers = relay.split("  pull_request:\n", 1)[1].split("\npermissions:", 1)[0]
         self.assertIn("closed", triggers)
-        caller = sync.split("\n  sync-status:\n", 1)[1].split("\n  sync-previous-head-status:", 1)[0]
+        caller = sync.split("\n  sync-status:\n", 1)[1]
         self.assertIn("uses: ./.github/workflows/code-review-aggregate-status.yml", caller)
-        condition = re.search(r"^    if: (.*)$", caller, re.MULTILINE).group(1)
+        self.assertIn("needs: resolve-event", caller)
+        self.assertIn("fromJSON(needs.resolve-event.outputs.head_shas)", caller)
+        self.assertIn("workflows: [Pull Request Events]", sync)
         github = self.pr_event()
-        self.assertTrue(expression_value(condition, github))
         self.assert_trusted_default_checkout(github)
         head = github["event"]["pull_request"]["head"]["sha"]
         # A merged PR must no longer hold another open PR at the same head pending.

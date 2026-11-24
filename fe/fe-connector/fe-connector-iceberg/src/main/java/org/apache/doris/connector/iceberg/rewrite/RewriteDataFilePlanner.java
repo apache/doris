@@ -328,10 +328,10 @@ public class RewriteDataFilePlanner {
     }
 
     /**
-     * Check if group has too much content
+     * Check if group content exceeds the maximum desired file size.
      */
     private boolean hasTooMuchContent(RewriteDataGroup group) {
-        return group.getTotalSize() > parameters.getMaxFileGroupSizeBytes();
+        return group.getTotalSize() > parameters.getMaxFileSizeBytes();
     }
 
     /**

@@ -83,6 +83,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/utils.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/defer_op.h"
 #include "util/timezone_utils.h"
 #include "util/url_coding.h"
@@ -2099,7 +2100,8 @@ TEST(LanceTableReaderScalarSegmentTest, FiltersIndexedAndUncoveredDomainsWithout
     const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     for (const auto index_type : {LANCE_SCALAR_BTREE, LANCE_SCALAR_BITMAP}) {
         SCOPED_TRACE(index_type == LANCE_SCALAR_BTREE ? "BTREE" : "BITMAP");
-        const auto dataset_uri = std::filesystem::temp_directory_path() /
+        const doris::test::ScopedTempDirectory scoped_dataset_uri("lance_reader_test");
+        const auto dataset_uri = scoped_dataset_uri.path() /
                                  ("doris_lance_scalar_segment_" + std::to_string(unique_suffix) +
                                   "_" + std::to_string(index_type) + ".lance");
         Defer cleanup {[&] {
@@ -2336,9 +2338,9 @@ TEST(LanceTableReaderFilterTest, SkipsUnsafeStringRuntimeFiltersBeforeLanceCStri
 
 TEST(LanceTableReaderFilterTest, SkipsTimestampNanoRuntimeFilterBeforeMaterialization) {
     const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto dataset_uri =
-            std::filesystem::temp_directory_path() /
-            ("doris_lance_timestamp_nano_rf_" + std::to_string(unique_suffix) + ".lance");
+    const doris::test::ScopedTempDirectory scoped_dataset_uri("lance_reader_test");
+    const auto dataset_uri = scoped_dataset_uri.path() / ("doris_lance_timestamp_nano_rf_" +
+                                                          std::to_string(unique_suffix) + ".lance");
     Defer cleanup {[&] {
         std::error_code error;
         std::filesystem::remove_all(dataset_uri, error);
@@ -2395,9 +2397,9 @@ TEST(LanceTableReaderFilterTest, SkipsTimestampNanoRuntimeFilterBeforeMaterializ
 
 TEST(LanceTableReaderFilterTest, PreservesNegativeNaNUnderFloatingMinRuntimeFilter) {
     const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto dataset_uri =
-            std::filesystem::temp_directory_path() /
-            ("doris_lance_negative_nan_rf_" + std::to_string(unique_suffix) + ".lance");
+    const doris::test::ScopedTempDirectory scoped_dataset_uri("lance_reader_test");
+    const auto dataset_uri = scoped_dataset_uri.path() / ("doris_lance_negative_nan_rf_" +
+                                                          std::to_string(unique_suffix) + ".lance");
     Defer cleanup {[&] {
         std::error_code error;
         std::filesystem::remove_all(dataset_uri, error);
@@ -2481,9 +2483,9 @@ TEST(LanceTableReaderFilterTest, PreservesNegativeNaNUnderFloatingMinRuntimeFilt
 
 TEST(LanceTableReaderFilterTest, SkipsPhysicalNumericTypesUnsupportedByPinnedPlanner) {
     const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto dataset_uri =
-            std::filesystem::temp_directory_path() /
-            ("doris_lance_unsupported_numeric_rf_" + std::to_string(unique_suffix) + ".lance");
+    const doris::test::ScopedTempDirectory scoped_dataset_uri("lance_reader_test");
+    const auto dataset_uri = scoped_dataset_uri.path() / ("doris_lance_unsupported_numeric_rf_" +
+                                                          std::to_string(unique_suffix) + ".lance");
     Defer cleanup {[&] {
         std::error_code error;
         std::filesystem::remove_all(dataset_uri, error);
@@ -2561,9 +2563,9 @@ TEST(LanceTableReaderFilterTest, SkipsPhysicalNumericTypesUnsupportedByPinnedPla
 
 TEST(LanceTableReaderFilterTest, KeepsInt64MinRuntimeFiltersOutOfLanceScanner) {
     const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto dataset_uri =
-            std::filesystem::temp_directory_path() /
-            ("doris_lance_int64_min_rf_" + std::to_string(unique_suffix) + ".lance");
+    const doris::test::ScopedTempDirectory scoped_dataset_uri("lance_reader_test");
+    const auto dataset_uri = scoped_dataset_uri.path() / ("doris_lance_int64_min_rf_" +
+                                                          std::to_string(unique_suffix) + ".lance");
     Defer cleanup {[&] {
         std::error_code error;
         std::filesystem::remove_all(dataset_uri, error);
@@ -4316,9 +4318,9 @@ TEST(LanceTableReaderTypeTest, RejectsVisibleInvalidPayloadsInCompactedArrays) {
 // it as the DECIMAL64 column that the precision selects.
 TEST(LanceTableReaderTypeTest, ReadsDecimal256WithDecimal128PrecisionFromLanceDataset) {
     const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto dataset_uri =
-            std::filesystem::temp_directory_path() /
-            ("doris_lance_narrow_decimal256_" + std::to_string(unique_suffix) + ".lance");
+    const doris::test::ScopedTempDirectory scoped_dataset_uri("lance_reader_test");
+    const auto dataset_uri = scoped_dataset_uri.path() / ("doris_lance_narrow_decimal256_" +
+                                                          std::to_string(unique_suffix) + ".lance");
     Defer cleanup {[&] {
         std::error_code error;
         std::filesystem::remove_all(dataset_uri, error);
@@ -4512,9 +4514,9 @@ TEST(LanceTableReaderSchemaTest, MapsZeroFieldStructsAsUnsupported) {
 // Verifies a written zero-field struct is fetched as unsupported and does not block its siblings.
 TEST(LanceTableReaderSchemaTest, FetchesZeroFieldStructAsUnsupportedAndScansSiblings) {
     const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto dataset_uri =
-            std::filesystem::temp_directory_path() /
-            ("doris_lance_zero_field_struct_" + std::to_string(unique_suffix) + ".lance");
+    const doris::test::ScopedTempDirectory scoped_dataset_uri("lance_reader_test");
+    const auto dataset_uri = scoped_dataset_uri.path() / ("doris_lance_zero_field_struct_" +
+                                                          std::to_string(unique_suffix) + ".lance");
     Defer cleanup {[&] {
         std::error_code error;
         std::filesystem::remove_all(dataset_uri, error);
@@ -4586,9 +4588,9 @@ TEST(LanceTableReaderSchemaTest, FetchesZeroFieldStructAsUnsupportedAndScansSibl
 
 TEST(LanceTableReaderSchemaTest, FetchesNegativeScaleDecimalAsUnsupported) {
     const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto dataset_uri =
-            std::filesystem::temp_directory_path() /
-            ("doris_lance_negative_decimal_scale_" + std::to_string(unique_suffix) + ".lance");
+    const doris::test::ScopedTempDirectory scoped_dataset_uri("lance_reader_test");
+    const auto dataset_uri = scoped_dataset_uri.path() / ("doris_lance_negative_decimal_scale_" +
+                                                          std::to_string(unique_suffix) + ".lance");
     Defer cleanup {[&] {
         std::error_code error;
         std::filesystem::remove_all(dataset_uri, error);

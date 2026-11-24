@@ -34,11 +34,15 @@
 #include "io/cache/fs_file_cache_storage.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_request.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/slice.h"
 
 namespace doris {
 
 class FileCacheActionTest : public testing::Test {
+protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"file_cache_action"};
+
 public:
     FileCacheActionTest() : _action(nullptr) {}
     ~FileCacheActionTest() override = default;
@@ -70,7 +74,7 @@ public:
         ASSERT_NE(doris::ExecEnv::GetInstance()->file_cache_factory(), nullptr);
         reset_file_cache_factory();
 
-        _base_path = "/tmp/file_cache_action_ut_" + std::to_string(getpid());
+        _base_path = (scoped_temp_dir_.path() / "cache").string();
         (void)std::filesystem::create_directories(_base_path);
         doris::io::FileCacheSettings settings;
         settings.storage = "memory";

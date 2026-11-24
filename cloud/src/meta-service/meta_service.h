@@ -1068,6 +1068,9 @@ private:
     // cloud_unique_id.
     static bool check_strict_instance_auth(const ::google::protobuf::Message& req,
                                            MetaServiceResponseStatus* status);
+    // Reject a request whose instance_id is not the instance its cloud_unique_id belongs to.
+    bool check_request_instance_id(const ::google::protobuf::Message& req,
+                                   MetaServiceResponseStatus* status);
 
     template <typename Request, typename Response>
     using MetaServiceMethod = void (cloud::MetaService::*)(::google::protobuf::RpcController*,
@@ -1096,6 +1099,14 @@ private:
                 (Request::descriptor()->FindFieldByName("instance_id") != nullptr ||
                  Request::descriptor()->FindFieldByName("instance_ids") != nullptr);
         if (names_instance_by_id && !check_strict_instance_auth(*req, resp->mutable_status())) {
+            return;
+        }
+
+        // Only rpc goes through the proxy, the http api (authorized by token) calls impl directly.
+        static const bool names_instance =
+                !std::is_same_v<Request, BootstrapInstanceRequest> &&
+                Request::descriptor()->FindFieldByName("instance_id") != nullptr;
+        if (names_instance && !check_request_instance_id(*req, resp->mutable_status())) {
             return;
         }
 
@@ -1201,13 +1212,11 @@ private:
             auto dist = std::uniform_int_distribution(-config::idempotent_request_replay_delay_range_ms,
                                                       config::idempotent_request_replay_delay_range_ms);
             int64_t sleep_ms = config::idempotent_request_replay_delay_base_ms + dist(rng);
-            std::string debug_string = req.ShortDebugString();
             if constexpr (std::is_same_v<Request, GetTabletStatsRequest>) {
                 auto short_req = req;
                 if (short_req.tablet_idx_size() > 10) {
                     short_req.mutable_tablet_idx()->DeleteSubrange(10, req.tablet_idx_size() - 10);
                 }
-                debug_string = short_req.ShortDebugString();
                 TEST_SYNC_POINT_CALLBACK("idempotent_injection_short_debug_string_for_get_stats", &short_req);
             }
             LOG(INFO) << " request_name=" << req.GetDescriptor()->name()
@@ -1216,8 +1225,7 @@ private:
                       << " now_ts=" << duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()
                       << " idempotent_request_replay_delay_base_ms=" << config::idempotent_request_replay_delay_base_ms
                       << " idempotent_request_replay_delay_range_ms=" << config::idempotent_request_replay_delay_range_ms
-                      << " idempotent_request_replay_delay_ms=" << sleep_ms
-                      << " request=" << debug_string;
+                      << " idempotent_request_replay_delay_ms=" << sleep_ms;
             if (sleep_ms < 0 || exclusion.count(req.GetDescriptor()->name())) return;
             brpc::Controller ctrl;
             bthread_usleep(sleep_ms * 1000);

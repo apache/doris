@@ -36,6 +36,19 @@ under the License.
             <artifactId>iceberg-aws</artifactId>
             <version>${iceberg.version}</version>
         </dependency>
+        <!-- NativeGcsResolvingFileIO extends ResolvingFileIO (a HadoopConfigurable). Both consumers bundle
+             iceberg-core and hadoop-common themselves, so neither is shipped from here. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-core</artifactId>
+            <version>${iceberg.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+            <scope>provided</scope>
+        </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-filesystem-gcs</artifactId>

@@ -1,0 +1,78 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+name: Resolve Relayed PR Event
+
+on:
+  workflow_call:
+    outputs:
+      pr_number:
+        value: ${{ jobs.resolve.outputs.pr_number }}
+      head_shas:
+        value: ${{ jobs.resolve.outputs.head_shas }}
+      check_large_files:
+        value: ${{ jobs.resolve.outputs.check_large_files }}
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      pr_number: ${{ steps.event.outputs.pr_number }}
+      head_shas: ${{ steps.event.outputs.head_shas }}
+      check_large_files: ${{ steps.event.outputs.check_large_files }}
+    steps:
+      - name: Checkout trusted event resolver
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts/pr_workflow_event.py
+            .github/scripts/review_github_api.py
+          sparse-checkout-cone-mode: false
+
+      - name: Download event hints from the triggering run
+        uses: actions/download-artifact@v4
+        with:
+          name: pull-request-event
+          path: ${{ runner.temp }}/pull-request-event
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve authoritative PR state
+        id: event
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_GITHUB_DIAGNOSTICS_DIR: ${{ runner.temp }}/review-github-diagnostics
+        run: |
+          python3 .github/scripts/pr_workflow_event.py \
+            --relay-file "$RUNNER_TEMP/pull-request-event/pr-event.json" >> "$GITHUB_OUTPUT"
+
+      - name: Preserve GitHub API failure diagnostics
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-api-errors-resolve-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/review-github-diagnostics/*.json
+          if-no-files-found: ignore
