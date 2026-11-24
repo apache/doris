@@ -55,3 +55,12 @@ The REST write suites create their own tables. Enable the corresponding
 `oss_hdfs_catalog_test` needs actual OSS-HDFS storage and its separately
 configured Paimon query tables. An ordinary OSS warehouse does not replace
 that fixture.
+
+EMR migration suites use `emrCatalogCommonProp` for the HMS and Hadoop properties.
+`test_hive_migrate_paimon` also accepts `emrPaimonWarehouse`, preserving the original
+warehouse when unset. See the [initialization recipes](../../../tools/emr_storage_regression/p2_fixtures/README.md)
+for the four Iceberg and two Paimon tables, including the required migration and
+schema history. The special ORC stream case needs its original file separately.
+
+See [DEPENDENCIES.md](DEPENDENCIES.md) for the remaining external services,
+preloaded fixtures, bootstrap sources and disabled suites.

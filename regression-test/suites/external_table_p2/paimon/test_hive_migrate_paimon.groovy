@@ -27,12 +27,14 @@ suite("test_hive_migrate_paimon", "p2,external") {
     }
 
     String props = context.config.otherConfigs.get("emrCatalogCommonProp")
+    String warehouse = context.config.otherConfigs.getOrDefault("emrPaimonWarehouse",
+            "hdfs://master-1-1.c-a212282673679a24.cn-beijing.emr.aliyuncs.com:9000/user/hive/warehouse/")
     String catalog_name = "test_hive_migrate_paimon"
     sql """drop catalog if exists ${catalog_name}"""
     sql """create catalog if not exists ${catalog_name} properties (
         "type" = "paimon",
         "paimon.catalog.type" = "hms",
-        "warehouse" = "hdfs://master-1-1.c-a212282673679a24.cn-beijing.emr.aliyuncs.com:9000/user/hive/warehouse/",
+        "warehouse" = "${warehouse}",
         'hive.version' = '3.1.3',
         ${props}
     );"""
