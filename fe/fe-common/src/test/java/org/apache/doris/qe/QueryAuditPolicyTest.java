@@ -191,7 +191,7 @@ public class QueryAuditPolicyTest {
         Assertions.assertTrue(QueryAuditPolicy.checkConfigValue("be_report_query_statistics_timeout_ms", "60001")
                 .get().endsWith("the value must be at most 60000"));
         Assertions.assertTrue(QueryAuditPolicy.checkConfigValue("workload_runtime_status_thread_interval_ms", "2001")
-                .get().endsWith("the value must be at most 2000"));
+                .get().endsWith("the value must be between 1 and 2000"));
         Assertions.assertEquals(Optional.empty(), QueryAuditPolicy.checkConfigValue("qe_slow_log_ms", "1"));
     }
 
@@ -230,6 +230,23 @@ public class QueryAuditPolicyTest {
                         .collect(Collectors.toList()));
         Assertions.assertEquals(60000, Config.be_report_query_statistics_timeout_ms);
         Assertions.assertEquals(2000, Config.workload_runtime_status_thread_interval_ms);
+    }
+
+    @Test
+    public void testDispatcherIntervalMustBePositive() {
+        String config = "workload_runtime_status_thread_interval_ms";
+        Config.query_audit_always_on = true;
+        for (int invalid : new int[] {-1, 0}) {
+            Assertions.assertTrue(QueryAuditPolicy.checkConfigValue(config, Integer.toString(invalid)).isPresent());
+            Config.workload_runtime_status_thread_interval_ms = invalid;
+            Assertions.assertEquals(1, QueryAuditPolicy.applyStartupOverrides().size());
+            Assertions.assertEquals(2000, Config.workload_runtime_status_thread_interval_ms);
+        }
+        Assertions.assertTrue(QueryAuditPolicy.checkConfigValue(config, "1").isEmpty());
+        Assertions.assertTrue(QueryAuditPolicy.checkConfigValue(config, "2000").isEmpty());
+
+        Config.query_audit_always_on = false;
+        Assertions.assertTrue(QueryAuditPolicy.checkConfigValue(config, "0").isEmpty());
     }
 
     @Test

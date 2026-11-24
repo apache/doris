@@ -139,7 +139,8 @@ public class Config extends ConfigBase {
     public static String[] activate_lineage_plugin = {};
 
     @ConfField(description = "Whether to use a file to record logs. When starting FE with --console, all logs will be "
-            + "written to both standard output and file. Disabling this option will stop writing logs " + "to files.")
+            + "written to both standard output and file. Disabling this option stops file logging. "
+            + "query_audit_always_on keeps the audit file enabled.")
     public static boolean enable_file_logger = true;
 
     @ConfField(mutable = false, masterOnly = false,

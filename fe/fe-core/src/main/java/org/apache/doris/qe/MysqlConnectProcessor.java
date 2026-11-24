@@ -49,7 +49,9 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.commands.ExecuteCommand;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.thrift.TUniqueId;
@@ -158,20 +160,13 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         MysqlProtocolAdapter.of(ctx).beginPreparedExecute(prepCtx);
         int paramCount = prepareCommand.placeholderCount();
         LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
-        // null bitmap
-        // With query_audit_always_on, an execution that fails before its EXECUTE text is built below is audited with
-        // the statement it was prepared from.
-        String stmtStr = QueryAuditPolicy.isAlwaysOn() ? prepareCommand.getOriginalStmt().originStmt : "";
-        if (QueryAuditPolicy.isAlwaysOn()) {
-            String sqlHash = prepCtx.getSqlHash();
-            // Proxy contexts can prepare without a COM_QUERY having assigned a hash.
-            ctx.setSqlHash(sqlHash == null ? DigestUtils.md5Hex(stmtStr) : sqlHash);
-        }
+        String stmtStr = null;
+        LogicalPlan redactionPlan = null;
         try {
             if (prepCtx.getLongDataError() != null) {
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, prepCtx.getLongDataError());
                 if (QueryAuditPolicy.isAlwaysOn()) {
-                    auditExecute(stmtStr);
+                    auditExecute(null, prepCtx, null);
                 }
                 return;
             }
@@ -297,8 +292,11 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 finishExecution(prepCtx);
             }
             if (shouldAuditExecute()) {
-                stmtStr = executeStmt.toSql();
-                stmtStr = stmtStr + " /*originalSql = " + prepareCommand.getOriginalStmt().originStmt + "*/";
+                redactionPlan = getPreparedRedactionPlan(prepareCommand);
+                if (redactionPlan == null) {
+                    stmtStr = executeStmt.toSql()
+                            + " /*originalSql = " + prepareCommand.getOriginalStmt().originStmt + "*/";
+                }
             }
         } catch (Throwable e) {
             // Catch all throwable.
@@ -309,7 +307,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         } finally {
             prepCtx.clearLongData();
         }
-        auditExecute(stmtStr);
+        auditExecute(stmtStr, prepCtx, redactionPlan);
     }
 
     // See QueryAuditPolicy.shouldAuditPreparedExecute: with query_audit_always_on, the FE that received the
@@ -319,19 +317,50 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 ctx.isProxy());
     }
 
-    private void auditExecute(String stmtStr) {
-        boolean audit = shouldAuditExecute();
-        if (audit && executor != null) {
-            auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
-        } else if (audit && QueryAuditPolicy.isAlwaysOn()) {
-            // No executor assigned query/statement IDs, so do not retain the previous statement's IDs.
-            ctx.resetQueryId();
-            ctx.setStmtId(0);
-            auditAfterExec(stmtStr, null, null, true);
-        } else {
+    private static LogicalPlan getPreparedRedactionPlan(PrepareCommand command) {
+        LogicalPlan plan = command.getLogicalPlan();
+        return plan instanceof NeedAuditEncryption redactor && redactor.needAuditEncryption() ? plan : null;
+    }
+
+    private void auditExecute(String stmtStr, PreparedStatementContext prepared, LogicalPlan redactionPlan) {
+        boolean alwaysOn = QueryAuditPolicy.isAlwaysOn();
+        if (!shouldAuditExecute() || (executor == null && !alwaysOn)) {
             // When audit log is disabled for prepared statements, still update QPS metrics.
             AuditLogHelper.updateMetrics(ctx);
+            return;
         }
+        StatementBase parsedStmt = executor == null ? null : executor.getParsedStmt();
+        if (stmtStr == null && redactionPlan == null) {
+            redactionPlan = getPreparedRedactionPlan(prepared.command);
+        }
+        if (redactionPlan != null) {
+            // Mask the original template using its plan. Rendering EXECUTE would put the template in a comment
+            // and include bound values, neither of which the SQL redactor can identify reliably.
+            parsedStmt = new LogicalPlanAdapter(redactionPlan, null);
+        }
+        String originalSql = prepared.command.getOriginalStmt().originStmt;
+        if (stmtStr == null) {
+            stmtStr = alwaysOn || redactionPlan != null ? originalSql : "";
+        }
+        String sqlHash = null;
+        if (alwaysOn) {
+            sqlHash = prepared.getSqlHash();
+            if (sqlHash == null) {
+                sqlHash = DigestUtils.md5Hex(originalSql);
+            }
+        }
+        if (executor == null) {
+            auditExecuteWithoutExecutor(stmtStr, parsedStmt, sqlHash);
+        } else {
+            auditAfterExec(stmtStr, parsedStmt, executor.getQueryStatisticsForAuditLog(), true, sqlHash);
+        }
+    }
+
+    private void auditExecuteWithoutExecutor(String stmtStr, StatementBase parsedStmt, String sqlHash) {
+        // No executor assigned query/statement IDs, so do not retain the previous statement's IDs.
+        ctx.resetQueryId();
+        ctx.setStmtId(0);
+        auditAfterExec(stmtStr, parsedStmt, null, true, sqlHash);
     }
 
     /**
@@ -373,6 +402,10 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             LOG.warn("No such statement in context, stmtId:{}", stmtId);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_STMT_HANDLER,
                     String.format("Unknown prepared statement handler (%s) given to mysqld_stmt_execute", stmtId));
+            if (QueryAuditPolicy.isAlwaysOn()) {
+                String stmtStr = "EXECUTE `" + Integer.toUnsignedString(stmtId) + "`";
+                auditExecuteWithoutExecutor(stmtStr, null, DigestUtils.md5Hex(stmtStr));
+            }
             return;
         }
         handleExecute(preparedStatementContext.command, stmtId, preparedStatementContext, packetBuf, null);

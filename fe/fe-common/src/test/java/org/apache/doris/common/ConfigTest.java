@@ -149,6 +149,7 @@ public class ConfigTest {
         boolean alwaysOn = Config.query_audit_always_on;
         int queueSize = Config.audit_event_log_queue_size;
         int timeout = Config.query_audit_log_timeout_ms;
+        int dispatcherInterval = Config.workload_runtime_status_thread_interval_ms;
         try {
             Config.query_audit_always_on = true;
             ConfigException error = Assertions.assertThrows(ConfigException.class,
@@ -165,6 +166,12 @@ public class ConfigTest {
             ConfigBase.setMutableConfig("query_audit_log_timeout_ms", "1000");
             Assertions.assertEquals(1000, Config.query_audit_log_timeout_ms);
 
+            Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("workload_runtime_status_thread_interval_ms", "0"));
+            Assertions.assertEquals(dispatcherInterval, Config.workload_runtime_status_thread_interval_ms);
+            ConfigBase.setMutableConfig("workload_runtime_status_thread_interval_ms", "1");
+            Assertions.assertEquals(1, Config.workload_runtime_status_thread_interval_ms);
+
             // The switch itself changes only on disk.
             ConfigException notMutable = Assertions.assertThrows(ConfigException.class,
                     () -> ConfigBase.setMutableConfig("query_audit_always_on", "false"));
@@ -178,6 +185,7 @@ public class ConfigTest {
             Config.query_audit_always_on = alwaysOn;
             Config.audit_event_log_queue_size = queueSize;
             Config.query_audit_log_timeout_ms = timeout;
+            Config.workload_runtime_status_thread_interval_ms = dispatcherInterval;
         }
     }
 

@@ -97,8 +97,15 @@ public class AuditLogHelper {
     public static void logAuditLog(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
             org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables,
             UnaryOperator<String> auditSqlRedactor) {
+        logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables, auditSqlRedactor, null);
+    }
+
+    // A prepared audit event can have a different hash from the live connection's execution state.
+    static void logAuditLog(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
+            org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables,
+            UnaryOperator<String> auditSqlRedactor, String sqlHash) {
         try {
-            logAuditLogImpl(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables, auditSqlRedactor);
+            logAuditLogImpl(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables, auditSqlRedactor, sqlHash);
         } catch (Throwable t) {
             LOG.warn("Failed to write audit log.", t);
         }
@@ -237,7 +244,7 @@ public class AuditLogHelper {
 
     private static void logAuditLogImpl(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
             org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables,
-            UnaryOperator<String> auditSqlRedactor) {
+            UnaryOperator<String> auditSqlRedactor, String sqlHash) {
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
@@ -302,7 +309,7 @@ public class AuditLogHelper {
                 .setCommandType(ctx.getCommand().toString())
                 .setStmtType(stmtType)
                 .setStmtId(ctx.getStmtId())
-                .setSqlHash(ctx.getSqlHash())
+                .setSqlHash(sqlHash == null ? ctx.getSqlHash() : sqlHash)
                 .setIsQuery(ctx.getState().isQuery())
                 .setIsNereids(ctx.getState().isNereids())
                 .setisInternal(ctx.getState().isInternal())

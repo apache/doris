@@ -187,10 +187,19 @@ public abstract class ConnectProcessor {
 
     protected void auditAfterExec(String origStmt, StatementBase parsedStmt,
             Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+        auditAfterExec(origStmt, parsedStmt, statistics, printFuzzyVariables, null);
+    }
+
+    protected void auditAfterExec(String origStmt, StatementBase parsedStmt,
+            Data.PQueryStatistics statistics, boolean printFuzzyVariables, String sqlHash) {
         if (Config.enable_bdbje_debug_mode) {
             return;
         }
-        AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
+        if (sqlHash == null) {
+            AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
+        } else {
+            AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables, null, sqlHash);
+        }
     }
 
     /**

@@ -123,9 +123,9 @@ public final class QueryAuditPolicy {
                             DEFAULT_BE_REPORT_QUERY_STATISTICS_TIMEOUT_MS),
                     () -> Config.be_report_query_statistics_timeout_ms,
                     v -> Config.be_report_query_statistics_timeout_ms = v))
-            // The interval of the thread that dispatches the events.
+            // A negative interval terminates the dispatch thread, and zero leaves it spinning.
             .put("workload_runtime_status_thread_interval_ms", new ProtectedConfig(
-                    new Protected("workload_runtime_status_thread_interval_ms", Rule.AT_MOST,
+                    new Protected("workload_runtime_status_thread_interval_ms", Rule.POSITIVE_AT_MOST,
                             DEFAULT_WORKLOAD_RUNTIME_STATUS_THREAD_INTERVAL_MS),
                     () -> Config.workload_runtime_status_thread_interval_ms,
                     v -> Config.workload_runtime_status_thread_interval_ms = v))
@@ -359,6 +359,8 @@ public final class QueryAuditPolicy {
         AT_LEAST,
         // Larger values hold events back: the default is the maximum.
         AT_MOST,
+        // A worker sleep interval has to be positive as well as bounded.
+        POSITIVE_AT_MOST,
         // A batching knob, harmful in both directions: the default is the only value.
         FIXED
     }
@@ -385,6 +387,8 @@ public final class QueryAuditPolicy {
                     return value >= bound;
                 case AT_MOST:
                     return value <= bound;
+                case POSITIVE_AT_MOST:
+                    return value > 0 && value <= bound;
                 default:
                     return value == bound;
             }
@@ -420,6 +424,8 @@ public final class QueryAuditPolicy {
                     return ", the value must be at least " + bound;
                 case AT_MOST:
                     return ", the value must be at most " + bound;
+                case POSITIVE_AT_MOST:
+                    return ", the value must be between 1 and " + bound;
                 case FIXED:
                     return ", the value must be " + bound;
                 default:
