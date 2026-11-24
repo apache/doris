@@ -414,9 +414,8 @@ public class AlterMTMVTest extends TestWithFeService {
                 .getDb("alter_ivm_test").get()
                 .getTableOrMetaException("ivm_alter_mv");
 
-        // Incremental MTMV persists plan signature at create time.
         IvmInfo initialInfo = mtmv.getIvmInfo();
-        Assertions.assertNotNull(initialInfo.getPlanSignature());
+        Assertions.assertNull(initialInfo.getPlanSignature());
 
         IvmInfo newInfo = new IvmInfo(initialInfo);
         newInfo.setPlanSignature("sig-1");

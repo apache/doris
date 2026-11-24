@@ -27,9 +27,14 @@
 
 namespace doris::client {
 
+enum class RpcPurpose { INTERNAL_RPC, EXTERNAL_SERVICE };
+
 Status configure_brpc_channel_options(brpc::ChannelOptions* options);
+Status configure_brpc_channel_options(brpc::ChannelOptions* options, RpcPurpose purpose);
 
 std::shared_ptr<apache::thrift::transport::TSocket> create_thrift_client_socket(
         const std::string& host, int port);
+std::shared_ptr<apache::thrift::transport::TSocket> create_thrift_client_socket(
+        const std::string& host, int port, RpcPurpose purpose);
 
 } // namespace doris::client

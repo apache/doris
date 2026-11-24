@@ -23,7 +23,6 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -46,7 +45,6 @@ import org.apache.doris.statistics.model.Statistics;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
@@ -193,7 +191,8 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     public String toString() {
         TopnPushInfo topnPushInfo = (TopnPushInfo) getMutableState(
                 MutableState.KEY_PUSH_TOPN_TO_AGG).orElse(null);
-        return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]" + getGroupIdWithPrefix(),
+        return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]"
+                + getGroupIdWithPrefix(),
                 "stats", statistics,
                 "aggPhase", aggregateParam.aggPhase,
                 "aggMode", aggregateParam.aggMode,
@@ -204,32 +203,6 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 "topnFilter", topnPushInfo != null,
                 "topnPushDown", getMutableState(MutableState.KEY_PUSH_TOPN_TO_AGG).isPresent()
         );
-    }
-
-    @Override
-    public String getFingerprint() {
-        StringBuilder builder = new StringBuilder();
-        String aggPhase = "Aggregate(" + this.aggregateParam.aggPhase.toString() + ")";
-        List<Object> groupByExpressionsArgs = Lists.newArrayList(
-                "groupByExpr", groupByExpressions);
-        builder.append(Utils.toSqlString(aggPhase, groupByExpressionsArgs.toArray()));
-
-        builder.append("outputExpr=");
-        for (NamedExpression expr : outputExpressions) {
-            if (expr instanceof Alias) {
-                if (expr.child(0) instanceof AggregateExpression) {
-                    builder.append(((AggregateExpression) expr.child(0)).getFunction().getName());
-                } else if (expr.child(0) instanceof AggregateFunction) {
-                    builder.append(((AggregateFunction) expr.child(0)).getName());
-                } else {
-                    builder.append(Utils.toStringOrNull(expr));
-                }
-            } else {
-                builder.append(Utils.toStringOrNull(expr));
-            }
-        }
-
-        return builder.toString();
     }
 
     /**
@@ -291,9 +264,10 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalHashAggregate<>(groupByExpressions, newOutput,
-                partitionExpressions, aggregateParam, maybeUsingStream, Optional.empty(), getLogicalProperties(),
-                physicalProperties, statistics, hasSourceRepeat, child()));
+        return AbstractPlan.rebuildKeepingStates(this, AbstractPlan.copyWithSameId(this,
+                () -> new PhysicalHashAggregate<>(groupByExpressions, newOutput,
+                        partitionExpressions, aggregateParam, maybeUsingStream, getGroupExpression(),
+                        getLogicalProperties(), physicalProperties, statistics, hasSourceRepeat, child())));
     }
 
     @Override
@@ -324,9 +298,10 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
+        return rebuildKeepingStates(this,
+                new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
                 aggregateParam, maybeUsingStream, groupExpression, null,
-                physicalProperties, statistics, hasSourceRepeat, child());
+                physicalProperties, statistics, hasSourceRepeat, child()));
     }
 
     /**

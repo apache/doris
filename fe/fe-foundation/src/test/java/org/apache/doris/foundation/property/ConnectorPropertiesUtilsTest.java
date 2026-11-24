@@ -215,6 +215,33 @@ public class ConnectorPropertiesUtilsTest {
     }
 
     @Test
+    void diagnosticOnlySensitivityDoesNotExportSharedAliases() {
+        DiagnosticAddressConfig config = new DiagnosticAddressConfig();
+        String uri = "https://fixture:fixture-uri-secret@api.example.com/";
+        ConnectorPropertiesUtils.bindConnectorProperties(config,
+                Map.of("uri", uri, "fixture.password", "fixture-password"));
+        String rendered = ConnectorPropertiesUtils.toMaskedString(config);
+        Assertions.assertTrue(rendered.contains("uri=***"), rendered);
+        Assertions.assertTrue(rendered.contains("password=***"), rendered);
+        Assertions.assertFalse(rendered.contains("fixture-uri-secret"), rendered);
+        Assertions.assertFalse(rendered.contains("fixture-password"), rendered);
+        Assertions.assertEquals(Set.of("fixture.password", "fixture.password.alias"),
+                ConnectorPropertiesUtils.getSensitiveKeys(DiagnosticAddressConfig.class));
+        Assertions.assertEquals(uri, config.uri);
+        Assertions.assertEquals("fixture-password", config.password);
+        Assertions.assertTrue(ConnectorPropertiesUtils.toMaskedString(new DiagnosticAddressConfig())
+                .contains("uri=<empty>"));
+    }
+
+    static class DiagnosticAddressConfig {
+        @ConnectorProperty(names = {"uri", "rest.uri"}, sensitive = true, sensitiveInDiagnosticsOnly = true)
+        private String uri = "";
+
+        @ConnectorProperty(names = {"fixture.password", "fixture.password.alias"}, sensitive = true)
+        private String password = "";
+    }
+
+    @Test
     void testToMaskedStringMasksSensitiveFields() {
         Map<String, String> props = new HashMap<>();
         props.put("string.key", "hello");

@@ -72,11 +72,20 @@ public class ClientPool {
     public static GenericPool<FrontendService.Client> frontendPool =
             new GenericPool("FrontendService", backendConfig, Config.backend_rpc_timeout_ms,
                     Config.thrift_server_type.equalsIgnoreCase(ThriftServer.THREADED_SELECTOR));
+    // Remote Doris catalogs belong to independent clusters and keep their existing plaintext policy.
+    // A separate pool prevents a remote client from being reused for an internal TLS endpoint.
+    public static GenericPool<FrontendService.Client> remoteFrontendPool =
+            new GenericPool<>("FrontendService", backendConfig, Config.backend_rpc_timeout_ms,
+                    Config.thrift_server_type.equalsIgnoreCase(ThriftServer.THREADED_SELECTOR),
+                    ThriftClientTransportProvider.RpcPurpose.EXTERNAL_SERVICE);
     public static GenericPool<FrontendService.Client> frontendStatsPool =
             new GenericPool<>("FrontendService", heartbeatConfig, heartbeatTimeoutMs,
                     Config.thrift_server_type.equalsIgnoreCase(ThriftServer.THREADED_SELECTOR));
     public static GenericPool<BackendService.Client> backendPool =
             new GenericPool("BackendService", backendConfig, Config.backend_rpc_timeout_ms);
+    // Broker filesystem clients use plaintext independently of the cluster's private RPC TLS policy.
+    // Heartbeats must use the same transport as filesystem operations on the selected broker endpoint.
     public static GenericPool<TPaloBrokerService.Client> brokerPool =
-            new GenericPool("TPaloBrokerService", brokerPoolConfig, brokerTimeoutMs);
+            new GenericPool("TPaloBrokerService", brokerPoolConfig, brokerTimeoutMs, false,
+                    ThriftClientTransportProvider.RpcPurpose.EXTERNAL_SERVICE);
 }

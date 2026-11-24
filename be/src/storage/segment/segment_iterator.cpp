@@ -909,6 +909,10 @@ static bool can_consume_candidate_rows(const VExprContextSPtr& expr_ctx) {
         DORIS_CHECK(virtual_expr != nullptr);
         effective_root = virtual_expr.get();
     }
+    // A filtering SEARCH starts from the candidate rows at its root.
+    if (!root->is_virtual_slot_ref() && root->node_type() == TExprNodeType::SEARCH_EXPR) {
+        return true;
+    }
     if (effective_root->node_type() != TExprNodeType::MATCH_PRED) {
         return false;
     }
@@ -1174,7 +1178,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     std::shared_ptr<std::vector<uint64_t>> result_row_ids;
     segment_v2::AnnIndexStats ann_index_stats;
 
-    // Try to load ANN index before search
+    // Load ANN index before search
     auto ann_index_iterator_casted =
             dynamic_cast<segment_v2::AnnIndexIterator*>(ann_index_iterator);
     if (ann_index_iterator_casted == nullptr) {
@@ -1187,12 +1191,16 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     // Track load index timing
     {
         SCOPED_TIMER(&(ann_index_stats.load_index_costs_ns));
-        if (!ann_index_iterator_casted->try_load_index()) {
-            VLOG_DEBUG << "Failed to load ANN index, fallback to brute force search";
+        Status load_status = ann_index_iterator_casted->load_index();
+        // Old segments may not have a newly added ANN index yet. Only absence permits a scan;
+        // IO, memory and invalid-index failures must reach the caller.
+        if (load_status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+            VLOG_DEBUG << "ANN index is missing, fallback to brute force search: " << load_status;
             _column_states[src_cid].need_read_data = true;
             _opts.stats->ann_fall_back_brute_force_cnt += 1;
             return Status::OK();
         }
+        RETURN_IF_ERROR(load_status);
         double load_costs_ms =
                 static_cast<double>(ann_index_stats.load_index_costs_ns.value()) / 1000000.0;
         DorisMetrics::instance()->ann_index_load_costs_ms->increment(
@@ -1505,7 +1513,10 @@ Status SegmentIterator::_apply_index_expr() {
     // a compound predicate or a SEARCH, which combines its own leaf bitmaps the
     // same way, are therefore evaluated without the candidate; the top-level
     // single-predicate consumption stays exact within the candidate.
-    auto evaluate_with_candidate_policy = [&](const VExprContextSPtr& expr_ctx) {
+    // A filtering conjunct that is a SEARCH by itself still gets the candidate, at its root
+    // only: SEARCH answers two-valued, and the conjunct reads its result only within the
+    // candidate.
+    auto evaluate_with_candidate_policy = [&](const VExprContextSPtr& expr_ctx, bool filters) {
         // Earlier expression conjuncts may have crossed the engage threshold.
         // Refresh for both subsequent conjuncts and virtual-column projections.
         _refresh_candidate_pushdown();
@@ -1522,12 +1533,20 @@ Status SegmentIterator::_apply_index_expr() {
                               _index_query_context->candidate_rows != nullptr &&
                               combines_index_results(*effective_root);
         const roaring::Roaring* saved = suppress ? _index_query_context->candidate_rows : nullptr;
+        const bool search_root = suppress && filters && !root->is_virtual_slot_ref() &&
+                                 root->node_type() == TExprNodeType::SEARCH_EXPR;
         if (suppress) {
             _index_query_context->candidate_rows = nullptr;
+        }
+        if (search_root) {
+            _index_query_context->search_root_candidates = saved;
         }
         Status st = expr_ctx->evaluate_inverted_index(num_rows());
         if (suppress) {
             _index_query_context->candidate_rows = saved;
+        }
+        if (search_root) {
+            _index_query_context->search_root_candidates = nullptr;
         }
         return st;
     };
@@ -1555,7 +1574,7 @@ Status SegmentIterator::_apply_index_expr() {
         // answer approximately then knows its work will be used. The virtual column loop
         // further down consumes none, and deliberately names none.
         expr_ctx->set_approx_index_result_consumer(expr_ctx->root().get());
-        if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
+        if (Status st = evaluate_with_candidate_policy(expr_ctx, /*filters=*/true); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
             } else {
@@ -1605,7 +1624,7 @@ Status SegmentIterator::_apply_index_expr() {
             if (expr_ctx->get_index_context() == nullptr) {
                 continue;
             }
-            if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
+            if (Status st = evaluate_with_candidate_policy(expr_ctx, /*filters=*/false); !st.ok()) {
                 if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                     continue;
                 } else {

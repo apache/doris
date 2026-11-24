@@ -17,12 +17,12 @@
 
 // CREATE TABLE LIKE prints the source as DDL text and parses it again. The text of a nested group VARIANT
 // column used to carry variant_max_sparse_column_statistics_size = 0, which does not parse, so the statement
-// failed. The properties the text leaves out, such as a disabled doc mode, come from the default_variant_*
+// failed. The properties the text leaves out, such as a disabled doc mode, come from the debug_variant_*
 // session variables, which take effect only with debug points enabled, as in the tests; the fuzzy runs pick
 // them at random, so set them to their defaults.
 suite("test_variant_create_table_like", "p0") {
-    sql """ set default_variant_enable_doc_mode = false """
-    sql """ set default_variant_enable_nested_group = false """
+    sql """ set debug_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_nested_group = false """
     sql """ DROP TABLE IF EXISTS variant_create_like_src """
     sql """
         CREATE TABLE variant_create_like_src (

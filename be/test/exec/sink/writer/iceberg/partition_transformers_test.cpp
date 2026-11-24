@@ -17,9 +17,14 @@
 
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 
+#include <fast_float/fast_float.h>
 #include <gtest/gtest.h>
 
+#include <bit>
+#include <cmath>
 #include <limits>
+#include <system_error>
+#include <type_traits>
 
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_timestamp_ns.h"
@@ -34,6 +39,41 @@ class PartitionTransformersTest : public testing::Test {
 public:
     PartitionTransformersTest() = default;
     virtual ~PartitionTransformersTest() = default;
+
+    template <typename T>
+    void check_floating_point_partition_round_trip(PrimitiveType primitive_type) {
+        auto type = DataTypeFactory::instance().create_data_type(primitive_type, false);
+        IdentityPartitionColumnTransform transform(type);
+        const std::vector<T> values = {T(1.0000001),
+                                       T(1.0000002),
+                                       std::nextafter(T(1), T(2)),
+                                       T(-1.0000001),
+                                       T(1e-8),
+                                       T(-1e-8),
+                                       std::numeric_limits<T>::min(),
+                                       -std::numeric_limits<T>::min(),
+                                       std::numeric_limits<T>::max(),
+                                       -std::numeric_limits<T>::max(),
+                                       std::numeric_limits<T>::denorm_min(),
+                                       -std::numeric_limits<T>::denorm_min(),
+                                       T(0.0),
+                                       T(-0.0)};
+        using Bits = std::conditional_t<sizeof(T) == sizeof(UInt32), UInt32, UInt64>;
+        for (T value : values) {
+            const auto serialized = transform.get_partition_value(type, value);
+            SCOPED_TRACE(serialized);
+            T parsed;
+            const auto result = fast_float::from_chars(
+                    serialized.data(), serialized.data() + serialized.size(), parsed);
+            ASSERT_EQ(std::errc {}, result.ec);
+            ASSERT_EQ(serialized.data() + serialized.size(), result.ptr);
+            EXPECT_EQ(std::bit_cast<Bits>(value), std::bit_cast<Bits>(parsed));
+            EXPECT_EQ(serialized, transform.to_human_string(type, value));
+        }
+
+        EXPECT_NE(transform.to_human_string(type, T(1.0000001)),
+                  transform.to_human_string(type, T(1.0000002)));
+    }
 };
 
 TEST_F(PartitionTransformersTest, human_hour_floors_negative_ordinals) {
@@ -299,6 +339,14 @@ TEST_F(PartitionTransformersTest, test_string_truncate_transform) {
     for (size_t i = 0; i < result_column->size(); ++i) {
         EXPECT_EQ(expected_data[i], result_column->get_data_at(i));
     }
+}
+
+TEST_F(PartitionTransformersTest, test_float_partition_value_round_trip) {
+    check_floating_point_partition_round_trip<Float32>(TYPE_FLOAT);
+}
+
+TEST_F(PartitionTransformersTest, test_double_partition_value_round_trip) {
+    check_floating_point_partition_round_trip<Float64>(TYPE_DOUBLE);
 }
 
 TEST_F(PartitionTransformersTest, test_floating_point_special_partition_value) {

@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.lance;
 
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.commons.lang3.StringUtils;
@@ -34,13 +35,11 @@ final class LanceErrorMessages {
     }
 
     private static final int MAX_PROVIDER_MESSAGE_BYTES = 1024;
-    private static final String[] RUNTIME_SENSITIVE_OPTION_KEYS = {
-            "aws_access_key_id", "aws_secret_access_key", "aws_session_token",
-            // OSS credentials only reach these options because of this change, so they have to be
-            // recognized here too. The emitted spelling is the only one that occurs: the map read
-            // below is the merged one, where a vended alias has already been normalized onto it.
-            "oss_access_key_id", "oss_secret_access_key", "oss_security_token"
-    };
+    // Namespaces can vend options for any Lance provider, including pass-through Azure/GCS aliases.
+    // Use the same case-insensitive credential markers as catalog masking, across the whole option map.
+    private static final ConnectorSecuritySurface RUNTIME_SECURITY_SURFACE =
+            ConnectorSecuritySurface.ofSensitiveKeyPrefix("", "key", "secret", "password", "token",
+                    "credential", "authorization", "cookie", "sas", "service_account");
 
     /**
      * A connector error for {@code error}, sanitized. The cause is a stand-in carrying the sanitized text
@@ -61,9 +60,11 @@ final class LanceErrorMessages {
         Map<String, String> nonNullStorageOptions = runtimeStorageOptions == null
                 ? Collections.emptyMap() : runtimeStorageOptions;
         List<String> sensitiveValues = new ArrayList<>(catalogSecrets);
-        for (String sensitiveKey : RUNTIME_SENSITIVE_OPTION_KEYS) {
-            sensitiveValues.add(nonNullStorageOptions.getOrDefault(sensitiveKey, ""));
-        }
+        nonNullStorageOptions.forEach((key, value) -> {
+            if (RUNTIME_SECURITY_SURFACE.sensitiveKeyPrefixes().stream().anyMatch(prefix -> prefix.covers(key))) {
+                sensitiveValues.add(value);
+            }
+        });
         sensitiveValues.add(datasetUri);
         sensitiveValues.removeIf(StringUtils::isEmpty);
         sensitiveValues.sort((left, right) -> Integer.compare(right.length(), left.length()));

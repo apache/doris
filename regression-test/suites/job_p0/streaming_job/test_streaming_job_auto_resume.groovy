@@ -63,9 +63,9 @@ suite("test_streaming_job_auto_resume", "nonConcurrent") {
             Awaitility.await().atMost(100, SECONDS)
                     .pollInterval(1, SECONDS).until(
                     {
-                        def count = sql """ select status, FailedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='STREAMING' """
+                        def count = sql """ select status, FailedTaskCount from jobs("type"="insert") where Name='${jobName}' and ExecuteType='STREAMING' """
                         log.info("FailedTaskCount: " + count)
-                        count.size() == 1 && '0' < count.get(1).get(0)
+                        count.size() == 1 && (count[0][1] as long) > 0
                     }
             )
         } catch (Exception ex){
@@ -73,6 +73,7 @@ suite("test_streaming_job_auto_resume", "nonConcurrent") {
             def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
             log.info("show job: " + showjob)
             log.info("show task: " + showtask)
+            throw ex
         }
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("FlushToken.submit_flush_error")
@@ -83,10 +84,10 @@ suite("test_streaming_job_auto_resume", "nonConcurrent") {
         Awaitility.await().atMost(100, SECONDS)
                 .pollInterval(1, SECONDS).until(
                 {
-                    def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='STREAMING' """
+                    def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}' and ExecuteType='STREAMING' """
                     log.info("jobSuccendCount: " + jobSuccendCount)
                     // check job status and succeed task count larger than 2
-                    jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
+                    jobSuccendCount.size() == 1 && (jobSuccendCount[0][0] as long) >= 2
                 }
         )
     } catch (Exception ex){
@@ -96,6 +97,11 @@ suite("test_streaming_job_auto_resume", "nonConcurrent") {
         log.info("show task: " + showtask)
         throw ex;
     }
+
+    Awaitility.await().pollInSameThread().atMost(100, SECONDS).pollInterval(1, SECONDS).until {
+        sql("SELECT COUNT(*) FROM ${tableName}")[0][0] == 20
+    }
+    order_qt_recovered_data "SELECT * FROM ${tableName} ORDER BY c1, c2, c3"
 
     // case2: test user pause will not auto resume
     sql """

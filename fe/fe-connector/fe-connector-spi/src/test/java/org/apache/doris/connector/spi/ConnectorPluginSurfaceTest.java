@@ -89,7 +89,7 @@ public class ConnectorPluginSurfaceTest {
             version.load(in);
         }
         // Major 35 adds coarse-split targets and BE refinement after API 34 path partition keys.
-        Assertions.assertEquals("35.0", version.getProperty("api.version"));
+        Assertions.assertEquals("36.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -98,6 +98,8 @@ public class ConnectorPluginSurfaceTest {
             DiagnosticException.class,
             ConnectorTableNotFoundException.class,
             ConnectorProvider.class,
+            ConnectorFileSource.class,
+            ConnectorFileSourceOps.class,
             ConnectorSecuritySurface.class,
             ConnectorContext.class,
             ConnectorSession.class,

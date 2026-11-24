@@ -35,6 +35,7 @@
 #include "storage/index/inverted/snii/snii_query_oracle.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 
 // Pins the documents and physical reads of the chained conjunction over an SNII index. Every
 // term below drives one of its paths: full windows that need no read, near-full windows every
@@ -87,7 +88,9 @@ std::vector<uint32_t> intersect(const std::vector<uint32_t>& left,
 }
 
 std::string corpus_path() {
-    return "/tmp/snii_chained_conjunction_io_" + std::to_string(getpid()) + ".idx";
+    static const doris::test::ScopedTempDirectory temp_dir("chained_conjunction_io_test");
+    return (temp_dir.path() / "snii_chained_conjunction_io_").string() + std::to_string(getpid()) +
+           ".idx";
 }
 
 void write_corpus(const std::string& path) {

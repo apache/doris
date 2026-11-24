@@ -329,6 +329,9 @@ struct TOlapTableSink {
     // initial partition list is empty, so auto-partition tables whose first partitions arrive at
     // runtime still enter the correct mode from the start.
     25: optional bool enable_adaptive_random_bucket
+
+    // Remote catalog endpoints follow their own cluster's transport policy.
+    26: optional bool remote_endpoint = false
 }
 
 struct THiveLocationParams {

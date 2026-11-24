@@ -27,6 +27,7 @@
 
 #include "common/status.h"
 #include "storage/index/inverted/snii/io/local_file.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using doris::Status;
@@ -37,16 +38,11 @@ using doris::snii::io::Range;
 
 namespace {
 
-// Owns one scratch file holding 256 bytes (byte[i] = i) and removes it on scope
-// exit. The name carries the pid and a counter, like the other scratch paths in
-// this directory: a fixed /tmp name left behind by another user on a shared
-// machine makes ::open fail with EACCES and takes every test here down with it.
+// Owns an isolated scratch directory containing the 256-byte ramp file.
 class RampFile {
 public:
     RampFile() {
-        static int counter = 0;
-        path_ = "/tmp/snii_metered_ramp_" + std::to_string(::getpid()) + "_" +
-                std::to_string(counter++) + ".bin";
+        path_ = (temp_dir_.path() / "ramp.bin").string();
         LocalFileWriter w;
         EXPECT_TRUE(w.open(path_).ok());
         std::vector<uint8_t> data(256);
@@ -56,11 +52,11 @@ public:
         EXPECT_TRUE(w.append(Slice(data)).ok());
         EXPECT_TRUE(w.finalize().ok());
     }
-    ~RampFile() { std::remove(path_.c_str()); }
 
     const std::string& path() const { return path_; }
 
 private:
+    doris::test::ScopedTempDirectory temp_dir_ {"snii_metered_ramp"};
     std::string path_;
 };
 

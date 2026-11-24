@@ -20,12 +20,13 @@ package org.apache.doris.qe.runtime;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.scan.FileScanEncryptionGuard;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.protocol.TFastSerializer;
-import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.BackendServiceClient;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
@@ -57,18 +58,23 @@ public class PipelineExecutionTaskBuilder {
 
     private PipelineExecutionTask buildTask(CoordinatorContext coordinatorContext,
             Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragmentsParam) {
-        BackendServiceProxy backendServiceProxy = BackendServiceProxy.getInstance();
+        // Validate the complete worker graph before creating tasks: a remote BE also initiates exchanges
+        // and reports back to the coordinator, independently of the FE-to-BE channel selected below.
+        if (workerToFragmentsParam.keySet().stream().anyMatch(worker -> !isInternalWorker(worker))
+                && !BackendServiceClient.supportsRemoteWorkers()) {
+            throw new IllegalStateException("Private RPC TLS requires local query workers; set "
+                    + "use_arrow_flight=true on the remote Doris catalog to read its results into local workers");
+        }
         PipelineExecutionTask pipelineExecutionTask = new PipelineExecutionTask(
                 coordinatorContext,
-                backendServiceProxy,
-                buildMultiFragmentTasks(coordinatorContext, backendServiceProxy, workerToFragmentsParam)
+                buildMultiFragmentTasks(coordinatorContext, workerToFragmentsParam)
         );
         coordinatorContext.getJobProcessor().setPipelineExecutionTask(pipelineExecutionTask);
         return pipelineExecutionTask;
     }
 
     private Map<BackendWorker, MultiFragmentsPipelineTask> buildMultiFragmentTasks(
-            CoordinatorContext coordinatorContext, BackendServiceProxy backendServiceProxy,
+            CoordinatorContext coordinatorContext,
             Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragmentsParam) {
 
         Map<DistributedPlanWorker, ByteString> workerToSerializeFragments = serializeFragments(workerToFragmentsParam);
@@ -86,7 +92,7 @@ public class PipelineExecutionTaskBuilder {
                     new MultiFragmentsPipelineTask(
                             coordinatorContext,
                             backend,
-                            backendServiceProxy,
+                            coordinatorContext.getBackendRpcTarget(worker),
                             serializeFragments,
                             buildSingleFragmentPipelineTask(
                                     coordinatorContext.executionProfile, backend, fragmentParamsList)
@@ -111,6 +117,11 @@ public class PipelineExecutionTaskBuilder {
         return tasks;
     }
 
+    static boolean isInternalWorker(DistributedPlanWorker worker) {
+        // Catalog identity survives distribution even when local and remote backend IDs/addresses coincide.
+        return worker.getCatalogId() == InternalCatalog.INTERNAL_CATALOG_ID;
+    }
+
     private Map<DistributedPlanWorker, ByteString> serializeFragments(
             Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragmentsParam) {
 
@@ -119,7 +130,7 @@ public class PipelineExecutionTaskBuilder {
                 .parallelStream()
                 .map(kv -> {
                     try {
-                        FileScanEncryptionGuard.checkFragments(kv.getValue());
+                        FileScanEncryptionGuard.checkFragments(kv.getValue(), isInternalWorker(kv.getKey()));
                         ByteString serializeString =
                                 new TFastSerializer(1024, new Factory()).serialize(kv.getValue());
                         return Pair.of(kv.getKey(), serializeString);

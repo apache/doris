@@ -1,9 +1,11 @@
 # Reviewer routing
 
 The GitHub workflow reads this directory to choose at most two reviewer
-candidates when an open PR receives `need-reviewers`. It adds assignees, posts a
-mention and replaces the label with `reviewers-assigned`. Reapplying the request
-label selects again; retrying the same run preserves its saved decision.
+candidates when a repository writer (write, maintain or admin permission) posts
+the exact comment `/assign-reviewers` on an open PR. It adds assignees, posts a
+mention and adds `reviewers-assigned`, removing a legacy `need-reviewers` label
+if present. A new command selects again; retrying the same run preserves its
+saved decision. Editing a comment or adding a label does not request assignment.
 
 ## Maintain one file
 

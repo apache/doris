@@ -18,3 +18,9 @@ Apache	40
 B1	10
 Doris	18
 
+-- !after_rollback --
+AfterRollback	50
+Apache	40
+B1	10
+Doris	18
+

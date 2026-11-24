@@ -111,7 +111,10 @@ public:
     Status close() override;
 
 #ifdef BE_TEST
-    size_t TEST_document_buffer_size() const { return _document_buffer.size(); }
+    bool TEST_document_in_padding_buffer() const {
+        return !_document_view.empty() && _document_view.data() == _padding_buffer.data();
+    }
+    size_t TEST_padding_buffer_size() const { return _padding_buffer.size(); }
 #endif
 
 private:
@@ -139,6 +142,8 @@ private:
     // Chunked HTTP transfers concatenate their pipe buffers into one document.
     Status _read_one_document(size_t* size, bool* eof);
     Status _read_one_document_from_pipe(size_t* read_size);
+    // Grows `_padding_buffer` to hold `size` bytes plus simdjson padding, keeping its contents.
+    void _grow_padding_buffer(size_t size);
     // Moves the logical document into a simdjson-padded buffer and creates an ondemand document.
     Status _parse_next_json(size_t* size, bool* eof);
     // Applies json_root and validates the object/array shape required by strip_outer_array.
@@ -223,11 +228,9 @@ private:
     simdjson::ondemand::value _json_value;
     simdjson::ondemand::array _array;
     simdjson::ondemand::array_iterator _array_iter;
-    std::string _document_buffer;
     std::string_view _document_view;
     std::string _padding_buffer;
     size_t _original_doc_size = 0;
-    size_t _padded_size = 1024 * 1024 * 8 + simdjson::SIMDJSON_PADDING;
     SimdJsonReadContext _simdjson_context;
 };
 

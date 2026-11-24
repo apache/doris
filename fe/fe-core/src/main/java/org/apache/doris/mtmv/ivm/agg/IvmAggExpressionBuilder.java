@@ -19,6 +19,7 @@ package org.apache.doris.mtmv.ivm.agg;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.mtmv.ivm.IvmException;
+import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -76,8 +77,10 @@ public class IvmAggExpressionBuilder {
 
     /** Guards a count-like expression from going negative while keeping an expression-typed result. */
     public Expression assertNonNegative(Expression expr, String message) {
+        StringLiteral errorMessage = new StringLiteral(IvmFailureClassifier.NEGATIVE_AGGREGATE_COUNT_MSG_PREFIX
+                + message);
         return new If(new AssertTrue(new GreaterThanEqual(expr,
-                new BigIntLiteral(0)), new StringLiteral(message)),
+                new BigIntLiteral(0)), errorMessage),
                 expr, new NullLiteral(expr.getDataType()));
     }
 

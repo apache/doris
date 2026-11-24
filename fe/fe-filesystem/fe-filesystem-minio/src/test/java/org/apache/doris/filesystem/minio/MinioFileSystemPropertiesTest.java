@@ -113,7 +113,7 @@ class MinioFileSystemPropertiesTest {
     }
 
     @Test
-    void toString_masksSecretsButNotAccessKey() {
+    void toString_masksAllCredentials() {
         String rendered = MinioFileSystemProperties.of(Map.of(
                 "minio.endpoint", "http://127.0.0.1:9000",
                 "minio.access_key", "minio-ak-plain",
@@ -122,7 +122,8 @@ class MinioFileSystemPropertiesTest {
 
         Assertions.assertFalse(rendered.contains("minio-sk-plain"), rendered);
         Assertions.assertFalse(rendered.contains("minio-token-plain"), rendered);
-        Assertions.assertTrue(rendered.contains("accessKey=minio-ak-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("minio-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("accessKey=***"), rendered);
     }
 
     // ------------------------------------------------------------------

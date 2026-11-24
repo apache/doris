@@ -197,6 +197,34 @@ public interface ConnectorProvider extends PluginFactory {
     }
 
     /**
+     * The formats this plugin reads through the file table functions, as in
+     * {@code s3("uri" = ..., "format" = "<name>")}, in lower case; empty (the default) when it reads none.
+     *
+     * <p>Such a format names a data set the plugin interprets as a whole, such as a table directory with
+     * manifests of its own, not files the engine lists and splits: the engine hands the location and the storage
+     * the user gave to the connector {@link #createFileFormatConnector} builds, and reads the columns and plans
+     * the scan through it. When it loads the plugin, the engine claims each name for this plugin, and refuses a
+     * name of a format the engine reads itself (such as csv, parquet or orc) or one another plugin claims.</p>
+     *
+     * <p>Answered from the provider because the question is asked while analyzing a statement, before any
+     * connector is built.</p>
+     */
+    default Set<String> getFileFormats() {
+        return Collections.emptySet();
+    }
+
+    /**
+     * Builds the connector that reads {@code format}, one of {@link #getFileFormats()}, for the file table
+     * functions. It belongs to no catalog: the engine builds it when a statement first reads the format and keeps
+     * it for the life of the FE, so it must not hold anything of one statement or one user. {@code context}
+     * carries this plugin's configuration and no storage; every read brings its own location and storage in a
+     * {@link ConnectorFileSource}. The metadata of the connector must implement {@link ConnectorFileSourceOps}.
+     */
+    default Connector createFileFormatConnector(String format, ConnectorContext context) {
+        throw new UnsupportedOperationException("Connector " + getType() + " reads no file format");
+    }
+
+    /**
      * The name this connector's tables display as their engine. Defaults to {@link #getType()}; override only
      * to spell it differently from the catalog type.
      *

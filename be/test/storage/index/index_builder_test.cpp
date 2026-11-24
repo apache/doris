@@ -665,8 +665,8 @@ protected:
     // Builds a k2 index over a rowset whose schema owns a k1 index that was never
     // written, and returns the index ids present in the output rowset's index
     // file. `leave_empty_index_file` picks between the two shapes a source
-    // segment with no index content can have on disk: a zero-byte file (read as
-    // INVERTED_INDEX_BYPASS) or no file at all (INVERTED_INDEX_FILE_NOT_FOUND).
+    // segment with no index content can have on disk: a zero-byte file or no file
+    // at all. Both are read as INVERTED_INDEX_FILE_NOT_FOUND.
     //
     // The rowset is written BEFORE the schema gains k1, so k1 has no content
     // anywhere and nothing can be lost by either shape. That is not an artifact
@@ -743,9 +743,7 @@ protected:
             auto reader = std::make_unique<segment_v2::IndexFileReader>(
                     io::global_local_filesystem(), source_prefix, InvertedIndexStorageFormatPB::V2);
             auto st = reader->init();
-            EXPECT_TRUE(leave_empty_index_file ? st.is<ErrorCode::INVERTED_INDEX_BYPASS>()
-                                               : st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>())
-                    << st;
+            EXPECT_TRUE(st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) << st;
         }
 
         TOlapTableIndex k2_index;
@@ -1395,7 +1393,7 @@ TEST_F(IndexBuilderTest, BuildInvertedIndexAfterWritingDataTest) {
 // nothing to carry over, and every requested index is built from the raw columns.
 TEST_F(IndexBuilderTest, BuildIndexOverEmptyIndexFileTest) {
     // Without tolerating the empty index file this fails the whole ALTER with
-    // [E-6004]inverted index file ... is empty.
+    // [E-6003]inverted index file ... is empty.
     EXPECT_EQ(build_k2_index_over_unwritten_k1(14695, 15695, true), (std::set<int64_t> {2}));
 }
 

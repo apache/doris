@@ -49,6 +49,7 @@ public class JdbcMySQLClient extends JdbcClient {
 
     private boolean convertDateToNull = false;
     private boolean isDoris = false;
+    private boolean enableMappingVector;
 
     protected JdbcMySQLClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
@@ -81,6 +82,11 @@ public class JdbcMySQLClient extends JdbcClient {
         super(jdbcClientConfig);
         convertDateToNull = isConvertDatetimeToNull(jdbcClientConfig);
         this.dbType = dbType;
+    }
+
+    // JDBC Catalog cannot decode native VECTOR values; enable mapping only for CDC readers.
+    public void enableVectorMapping() {
+        enableMappingVector = true;
     }
 
     static boolean isDorisServerIdentity(String serverIdentity) {
@@ -332,6 +338,8 @@ public class JdbcMySQLClient extends JdbcClient {
             }
             case "FLOAT":
                 return Type.FLOAT;
+            case "VECTOR":
+                return enableMappingVector ? ArrayType.create(Type.FLOAT, true) : Type.UNSUPPORTED;
             case "DOUBLE":
                 return Type.DOUBLE;
             case "DECIMAL": {

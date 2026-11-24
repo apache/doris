@@ -232,7 +232,8 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public PhysicalPartitionTopN<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit, phase,
-                groupExpression, null, physicalProperties, statistics, child());
+        return rebuildKeepingStates(this,
+                new PhysicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit, phase,
+                groupExpression, null, physicalProperties, statistics, child()));
     }
 }
