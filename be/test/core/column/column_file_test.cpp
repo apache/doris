@@ -298,7 +298,7 @@ TEST_F(ColumnFileTest, FilterPermuteEraseAndResize) {
     expect_file(*permuted, 1, a);
     EXPECT_EQ(source->filter(filter), 2);
     expect_file(*source, 1, c);
-    source->erase(0, 1);
+    EXPECT_EQ(source->filter(IColumn::Filter {0, 1}), 1);
     expect_file(*source, 0, c);
     source->reserve(8);
     source->resize(3);
@@ -350,7 +350,7 @@ TEST_F(ColumnFileTest, InPlaceFilterReusesInlineArenaAcrossRepeatedFilters) {
     EXPECT_EQ(binary.get_data()[1].data(), last);
     EXPECT_EQ(binary.allocated_bytes(), allocated);
     source->sanity_check();
-    source->erase(0, 1);
+    EXPECT_EQ(source->filter(IColumn::Filter {0, 1}), 1);
     expect_file(*source, 0, file(&payload));
     EXPECT_EQ(binary.get_data()[0].data(), last);
     EXPECT_EQ(binary.allocated_bytes(), allocated);

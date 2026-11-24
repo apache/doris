@@ -73,7 +73,6 @@ public:
     void reserve(size_t n) override;
     void resize(size_t n) override;
     void clear() override;
-    void erase(size_t start, size_t length) override;
     ColumnPtr filter(const Filter& filter, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     Status filter_by_selector(const uint16_t* selector, size_t count,

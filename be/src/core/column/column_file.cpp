@@ -199,15 +199,6 @@ void ColumnFile::clear() {
     }
 }
 
-void ColumnFile::erase(size_t start, size_t length) {
-    DCHECK_LE(start, size());
-    DCHECK_LE(length, size() - start);
-    // Filtering also works for the arena-backed VARBINARY child, which has no erase().
-    Filter keep(size(), 1);
-    std::fill(keep.begin() + start, keep.begin() + start + length, 0);
-    filter(keep);
-}
-
 ColumnPtr ColumnFile::filter(const Filter& filter, ssize_t result_size_hint) const {
     MutableColumns children;
     children.reserve(NUM_CHILDREN);
