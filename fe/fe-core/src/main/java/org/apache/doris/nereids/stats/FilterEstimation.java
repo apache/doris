@@ -63,6 +63,7 @@ import org.apache.commons.math3.util.Precision;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -679,19 +680,13 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     selectivity = 0.0;
                 } else if (ndv >= 1.0) {
                     selectivity = StatsMathUtil.minNonNaN(1.0, 1.0 / ndv);
-                    if (statsForLeft.getHotValues() != null && cp.child(1) instanceof Literal) {
-                        Literal constHand = (Literal) cp.child(1);
-                        for (Literal hot : statsForLeft.getHotValues().keySet()) {
-                            try {
-                                // stats-derive may be applied before type coercion. so we need to try to catch
-                                // comparison exception. for example: boolean compare with int
-                                if (((ComparableLiteral) hot).compareTo((ComparableLiteral) constHand) == 0) {
-                                    selectivity = statsForLeft.getHotValues().get(hot);
-                                    break;
-                                }
-                            } catch (Exception e) {
-                                // ignore
-                            }
+                    Map<Literal, Float> hotValues = statsForLeft.getHotValues();
+                    if (hotValues != null && !hotValues.isEmpty() && cp.child(1) instanceof Literal) {
+                        Map.Entry<Literal, Float> match = findMatchingHotValue(hotValues, (Literal) cp.child(1));
+                        if (match != null && match.getValue() > 0) {
+                            selectivity = Statistics.getValidSelectivity(match.getValue());
+                        } else {
+                            selectivity = estimateSkewedValueSelectivity(hotValues, ndv, 1, List.of());
                         }
                     }
                 } else {
@@ -729,28 +724,55 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         }
     }
 
-    private Map<Literal, Float> computeHotValuesForInPredicates(ColumnStatistic colStats,
-                                                                List<Literal> options) {
-        if (colStats.getHotValues() != null) {
-            Map<Literal, Float> hotValues = colStats.getHotValues();
-            Map<Literal, Float> matchedHotValues = new HashMap<>();
-            for (Expression option : options) {
-                try {
-                    for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
-                        if (((ComparableLiteral) entry.getKey()).compareTo((ComparableLiteral) option) == 0) {
-                            matchedHotValues.put(entry.getKey(), entry.getValue());
-                            break;
-                        }
-                    }
-                } catch (Exception e) {
-                    // ignore
+    private static Map.Entry<Literal, Float> findMatchingHotValue(Map<Literal, Float> hotValues, Literal option) {
+        for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
+            try {
+                if (((ComparableLiteral) entry.getKey()).compareTo((ComparableLiteral) option) == 0) {
+                    return entry;
                 }
-            }
-            if (!matchedHotValues.isEmpty()) {
-                return matchedHotValues;
+            } catch (Exception e) {
+                // Statistics may be derived before type coercion makes the literals comparable.
             }
         }
         return null;
+    }
+
+    private Map<Literal, Float> computeHotValuesForInPredicates(ColumnStatistic colStats, List<Literal> options) {
+        Map<Literal, Float> matchedHotValues = new HashMap<>();
+        for (Literal option : options) {
+            Map.Entry<Literal, Float> entry = findMatchingHotValue(colStats.getHotValues(), option);
+            if (entry != null) {
+                matchedHotValues.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return matchedHotValues.isEmpty() ? null : matchedHotValues;
+    }
+
+    private static double estimateSkewedValueSelectivity(Map<Literal, Float> hotValues, double inputNdv,
+            double selectedNdv, Collection<Float> matchedHotRatios) {
+        // These frequencies are conditional on the value being non-NULL. Legacy statistics
+        // can round rare values to zero, so include those values in the remaining distribution.
+        double remainingRatio = 1;
+        double remainingNdv = inputNdv;
+        for (float ratio : hotValues.values()) {
+            if (ratio > 0) {
+                remainingRatio -= ratio;
+                remainingNdv--;
+            }
+        }
+        double selectivity = 0;
+        double selectedColdNdv = selectedNdv;
+        for (float ratio : matchedHotRatios) {
+            if (ratio > 0) {
+                selectivity += ratio;
+                selectedColdNdv--;
+            }
+        }
+        if (remainingNdv > 0) {
+            double coldFraction = Statistics.getValidSelectivity(selectedColdNdv / remainingNdv);
+            selectivity += Math.max(0, remainingRatio) * coldFraction;
+        }
+        return Statistics.getValidSelectivity(selectivity);
     }
 
     private ColumnStatistic updateInPredicateColumnStatistics(InPredicate inPredicate, EstimationContext context,
@@ -789,9 +811,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     // remove the options which is out of compareExpr.range
                     Preconditions.checkState(Math.abs(optionStats.maxValue - optionStats.minValue) < 1e-06,
                             "literal's min/max doesn't equal");
-                    literalOptions.add((Literal) option);
                     double constValue = optionStats.maxValue;
                     if (compareExprStats.minValue <= constValue && compareExprStats.maxValue >= constValue) {
+                        literalOptions.add((Literal) option);
                         validInOptCount++;
                         LiteralExpr optionLiteralExpr = ((Literal) option).toLegacyLiteral();
                         if (maxOptionLiteral == null || optionLiteralExpr.compareTo(maxOptionLiteral) >= 0) {
@@ -808,7 +830,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     nonLiteralOptionCount++;
                 }
             }
-            if (!literalOptions.isEmpty() && compareExprStats.getHotValues() != null) {
+            if (nonLiteralOptionCount < options.size() && compareExprStats.getHotValues() != null) {
                 Map<Literal, Float> matchedHotValues =
                         computeHotValuesForInPredicates(compareExprStats, literalOptions);
                 compareExprStatsBuilder.setHotValues(matchedHotValues);
@@ -855,21 +877,14 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         ColumnStatistic newCompareExprStats = updateInPredicateColumnStatistics(inPredicate, context, compareExprStats);
         double selectivity;
         if (!newCompareExprStats.isMinMaxInvalid()) {
-            if (newCompareExprStats.getHotValues() == null) {
+            Map<Literal, Float> hotValues = compareExprStats.getHotValues();
+            if (hotValues == null || hotValues.isEmpty()) {
                 selectivity = Statistics.getValidSelectivity(
                         Math.min(StatsMathUtil.divide(newCompareExprStats.ndv, compareExprStats.ndv), 1));
             } else {
-                double nonHotRatio = 1
-                        - compareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
-                if (nonHotRatio > 0) {
-                    double nonHotSel = nonHotRatio
-                            * (newCompareExprStats.ndv - newCompareExprStats.getHotValues().size())
-                            / (compareExprStats.ndv - compareExprStats.getHotValues().size());
-                    double hotSel = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
-                    selectivity = nonHotSel + hotSel;
-                } else {
-                    selectivity = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
-                }
+                Map<Literal, Float> matched = newCompareExprStats.getHotValues();
+                selectivity = estimateSkewedValueSelectivity(hotValues, compareExprStats.ndv,
+                        newCompareExprStats.ndv, matched == null ? List.of() : matched.values());
             }
         } else {
             selectivity = Statistics.getValidSelectivity(
