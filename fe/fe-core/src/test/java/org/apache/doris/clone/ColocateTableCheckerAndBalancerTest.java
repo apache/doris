@@ -123,7 +123,7 @@ public class ColocateTableCheckerAndBalancerTest {
     }
 
     @Test
-    public void testBuildGlobalStatisticSkipsChangelogIndex() {
+    public void testBuildGlobalStatisticSkipsChangelogIndex() throws Exception {
         Env env = Mockito.mock(Env.class);
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         ColocateTableIndex colocateTableIndex = new ColocateTableIndex();
@@ -174,7 +174,7 @@ public class ColocateTableCheckerAndBalancerTest {
     }
 
     @Test
-    public void testMatchGroupsSchedulesChangelogWithoutMarkingGroupUnstable() {
+    public void testMatchGroupsSchedulesChangelogWithoutMarkingGroupUnstable() throws Exception {
         Env env = Mockito.mock(Env.class);
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         TabletScheduler tabletScheduler = Mockito.mock(TabletScheduler.class);

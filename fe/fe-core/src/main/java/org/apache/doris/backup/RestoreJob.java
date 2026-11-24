@@ -1805,7 +1805,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
             env.getEditLog().logRestoreJob(this);
             for (ColocatePersistInfo info : colocatePersistInfos) {
-                env.getEditLog().logColocateAddTable(info);
+                Env.getCurrentColocateIndex().persistRestoredTableMembership(info);
             }
             LOG.info("finished making snapshots. {}", this);
             return;
