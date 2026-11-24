@@ -106,8 +106,14 @@ suite("regression_test_variant_mtmv"){
 ('replication_num' = '1') AS SELECT * FROM tbl1;
     """
 
-    // a VARIANT the query computes is stored as a new column, as CTAS does: its count of 0 extracts no
-    // dynamic path, and the query is still rewritten to the MV
+    // a VARIANT the query computes is stored as a new column with the default subcolumn limit (2048),
+    // as CTAS does, and the query is still rewritten to the MV
+    sql "set debug_variant_max_subcolumns_count = 2048"
+    sql "set debug_variant_enable_doc_mode = false"
+    sql "set debug_variant_doc_materialization_min_rows = 0"
+    sql "set debug_variant_doc_hash_shard_count = 0"
+    sql "set debug_variant_max_sparse_column_statistics_size = 10000"
+    sql "set debug_variant_enable_nested_group = false"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv_parse_to_variant"""
     sql """DROP TABLE IF EXISTS mv_parse_to_variant_src"""
     sql """

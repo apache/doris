@@ -187,12 +187,12 @@ public class VariantSerializeTypeDdlTest extends TestWithFeService {
     @Test
     public void testRefreshAcceptsMvThatStoresComputedVariantAsV1() throws Exception {
         MTMV mv = createMvOfOldColumn("mv_refresh");
-        // an older version stored the VARIANT the query computes as V1 (count=0), while 4.2 analyses it as V2 (2048)
+        // an older version stored the non-doc VARIANT the query computes as V1 (count=0) with inactive
+        // variantDocShardCount=64, while 4.2 analyses it as V2 (count=2048) with variantDocShardCount=0
         for (String name : new String[] {"va", "pv"}) {
             Column column = mv.getColumn(name);
-            column.setType(((VariantType) column.getType())
-                    .withSerializeType(TVariantSerializeType.V1)
-                    .withMaxSubcolumnsCount(0));
+            column.setType(new VariantType(Lists.newArrayList(), 0, false, 10000, 0, false, 0L, 64,
+                    false, TVariantSerializeType.V1));
         }
         try {
             Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(mv,
@@ -231,6 +231,16 @@ public class VariantSerializeTypeDdlTest extends TestWithFeService {
         VariantType c2048V2 = c2048V1.withSerializeType(TVariantSerializeType.V2);
         Assertions.assertEquals(c2048V1, c2048V2);
         Assertions.assertEquals(c2048V1.hashCode(), c2048V2.hashCode());
+        // Inactive docShardCount=64 on a non-doc column does not affect equality, while active docShardCount does
+        VariantType cLegacyNonDoc = new VariantType(Lists.newArrayList(), 0, false, 10000, 0, false, 0L, 64,
+                false, TVariantSerializeType.V1);
+        Assertions.assertEquals(cBase, cLegacyNonDoc);
+        Assertions.assertEquals(cBase.hashCode(), cLegacyNonDoc.hashCode());
+        VariantType cDoc64 = new VariantType(Lists.newArrayList(), 2048, false, 0, 0, true, 0L, 64,
+                false, TVariantSerializeType.V2);
+        VariantType cDoc8 = new VariantType(Lists.newArrayList(), 2048, false, 0, 0, true, 0L, 8,
+                false, TVariantSerializeType.V2);
+        Assertions.assertNotEquals(cDoc64, cDoc8);
     }
 
     @Test

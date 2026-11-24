@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_variant_count_zero_keeps_paths_sparse") {
+    sql " set debug_variant_max_subcolumns_count = 2048 "
+    sql " set debug_variant_enable_nested_group = false "
     sql " set debug_variant_enable_doc_mode = false "
     sql " set debug_variant_doc_materialization_min_rows = 0 "
     sql """ set debug_variant_enable_typed_paths_to_sparse = false """
@@ -70,8 +72,7 @@ suite("test_variant_count_zero_keeps_paths_sparse") {
     qt_desc_ctas "DESC test_variant_count_zero_ctas"
     order_qt_read_ctas "SELECT k, zero['a'], typed['t'], added['e'] FROM test_variant_count_zero_ctas"
 
-    // CTAS creates a new column with the count of the query's type: the count of 0 of a VARIANT expression
-    // then extracts no dynamic path
+    // CTAS of an unbound VARIANT expression adopts the default subcolumn limit (2048) under V2
     sql "DROP TABLE IF EXISTS test_variant_count_zero_ctas_expr"
     sql """
         CREATE TABLE test_variant_count_zero_ctas_expr

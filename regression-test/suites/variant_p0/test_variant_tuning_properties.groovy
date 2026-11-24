@@ -17,6 +17,12 @@
 
 suite("test_variant_tuning_properties") {
     sql """ set describe_extend_variant_column = true """
+    sql "set debug_variant_max_subcolumns_count = 2048"
+    sql "set debug_variant_enable_doc_mode = false"
+    sql "set debug_variant_doc_materialization_min_rows = 0"
+    sql "set debug_variant_doc_hash_shard_count = 0"
+    sql "set debug_variant_max_sparse_column_statistics_size = 10000"
+    sql "set debug_variant_enable_nested_group = false"
 
     // when extraction starts: a data file below variant_doc_materialization_min_rows keeps its dynamic paths in the
     // sparse encoding, and compaction extracts them once it writes enough rows; doc mode is a separate switch

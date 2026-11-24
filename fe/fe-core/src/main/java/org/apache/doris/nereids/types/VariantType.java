@@ -242,6 +242,25 @@ public class VariantType extends PrimitiveType {
         return sb.toString();
     }
 
+    private int effectiveShardCount() {
+        if (enableNestedGroup) {
+            return 0;
+        }
+        return enableVariantDocMode ? variantDocShardCount : variantSparseHashShardCount;
+    }
+
+    private int effectiveMaxSparseColumnStatisticsSize() {
+        if (enableNestedGroup || enableVariantDocMode) {
+            return 0;
+        }
+        return variantMaxSparseColumnStatisticsSize;
+    }
+
+    private TVariantSerializeType effectiveSerializeType() {
+        // the serialize type only changes what a max subcolumns count of 0 means
+        return (variantMaxSubcolumnsCount != 0 || enableNestedGroup) ? null : variantSerializeType;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -253,16 +272,14 @@ public class VariantType extends PrimitiveType {
         VariantType other = (VariantType) o;
         return this.variantMaxSubcolumnsCount == other.variantMaxSubcolumnsCount
                     && this.enableTypedPathsToSparse == other.enableTypedPathsToSparse
-                    && this.variantMaxSparseColumnStatisticsSize == other.variantMaxSparseColumnStatisticsSize
-                    && this.variantSparseHashShardCount == other.variantSparseHashShardCount
+                    && this.effectiveMaxSparseColumnStatisticsSize()
+                            == other.effectiveMaxSparseColumnStatisticsSize()
+                    && this.effectiveShardCount() == other.effectiveShardCount()
                     && this.enableVariantDocMode == other.enableVariantDocMode
                     && this.variantDocMaterializationMinRows == other.variantDocMaterializationMinRows
-                    && this.variantDocShardCount == other.variantDocShardCount
                     && this.enableNestedGroup == other.enableNestedGroup
                     && Objects.equals(predefinedFields, other.predefinedFields)
-                    // the serialize type only changes what a max subcolumns count of 0 means
-                    && (variantMaxSubcolumnsCount != 0 || enableNestedGroup
-                            || this.variantSerializeType == other.variantSerializeType);
+                    && this.effectiveSerializeType() == other.effectiveSerializeType();
     }
 
     @Override
@@ -288,12 +305,10 @@ public class VariantType extends PrimitiveType {
 
     @Override
     public int hashCode() {
-        TVariantSerializeType effectiveSerializeType =
-                (variantMaxSubcolumnsCount != 0 || enableNestedGroup) ? null : variantSerializeType;
         return Objects.hash(super.hashCode(), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                            variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
-                            enableVariantDocMode, variantDocMaterializationMinRows, variantDocShardCount,
-                            enableNestedGroup, predefinedFields, effectiveSerializeType);
+                            effectiveMaxSparseColumnStatisticsSize(), effectiveShardCount(),
+                            enableVariantDocMode, variantDocMaterializationMinRows,
+                            enableNestedGroup, predefinedFields, effectiveSerializeType());
     }
 
     @Override
