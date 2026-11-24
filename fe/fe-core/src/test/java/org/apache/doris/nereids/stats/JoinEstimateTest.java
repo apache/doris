@@ -22,11 +22,14 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.statistics.model.ColumnStatistic;
@@ -89,6 +92,40 @@ public class JoinEstimateTest {
         ColumnStatistic outBStats = outputStats.findColumnStatistics(b);
         Assertions.assertNotNull(outAStats);
         Assertions.assertEquals(5, outBStats.ndv);
+    }
+
+    @Test
+    public void testMixedJoinKeyStatistics() {
+        SlotReference leftKey = new SlotReference("leftKey", IntegerType.INSTANCE);
+        SlotReference rightKey = new SlotReference("rightKey", IntegerType.INSTANCE);
+        SlotReference leftApp = new SlotReference("leftApp", IntegerType.INSTANCE);
+        SlotReference rightApp = new SlotReference("rightApp", IntegerType.INSTANCE);
+        SlotReference flag = new SlotReference("flag", IntegerType.INSTANCE);
+        ColumnStatistic key = new ColumnStatisticBuilder(1_000)
+                .setNdv(10).setMinValue(0).setMaxValue(9).build();
+        Statistics left = new StatisticsBuilder().setRowCount(1_000)
+                .putColumnStatistics(leftKey, key)
+                .putColumnStatistics(leftApp, ColumnStatistic.UNKNOWN)
+                .putColumnStatistics(flag, new ColumnStatisticBuilder(1_000)
+                        .setNdv(2).setMinValue(0).setMaxValue(1).build())
+                .build();
+        Statistics right = new StatisticsBuilder().setRowCount(1_000)
+                .putColumnStatistics(rightKey, key).build();
+
+        EqualTo known = new EqualTo(rightKey, leftKey);
+        EqualTo unknown = new EqualTo(leftApp, rightApp);
+        LogicalJoin<Plan, Plan> mixed = new LogicalJoin<>(JoinType.INNER_JOIN, List.of(unknown, known),
+                new DummyPlan(), new DummyPlan(), JoinReorderContext.EMPTY);
+        LogicalJoin<Plan, Plan> allUnknown = new LogicalJoin<>(JoinType.INNER_JOIN, List.of(unknown),
+                new DummyPlan(), new DummyPlan(), JoinReorderContext.EMPTY);
+        LogicalJoin<Plan, Plan> residual = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN, List.of(known, unknown),
+                List.of(new EqualTo(flag, new IntegerLiteral(0))),
+                new DummyPlan(), new DummyPlan(), JoinReorderContext.EMPTY);
+
+        Assertions.assertEquals(100_000, JoinEstimation.estimate(left, right, mixed).getRowCount());
+        Assertions.assertEquals(1_000, JoinEstimation.estimate(left, right, allUnknown).getRowCount());
+        Assertions.assertEquals(50_000, JoinEstimation.estimate(left, right, residual).getRowCount());
+        Assertions.assertEquals(200_000, JoinEstimation.estimate(left, right, mixed, 2).getRowCount());
     }
 
     @Test

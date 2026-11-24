@@ -31,13 +31,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute[DistributionSpecGather]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((v1.cc_name = v1_lead.cc_name) and (v1.i_brand = v1_lead.i_brand) and (v1.i_category = v1_lead.i_category) and (v1.rn = expr_(rn - 1))) otherCondition=() build RFs:RF7 i_category->i_category;RF8 i_brand->i_brand;RF9 cc_name->cc_name;RF10 rn->(rn - 1)
+--------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((v1.cc_name = v1_lead.cc_name) and (v1.i_brand = v1_lead.i_brand) and (v1.i_category = v1_lead.i_category) and (v1.rn = expr_(rn - 1))) otherCondition=() build RFs:RF7 i_category->i_category;RF8 i_category->i_category;RF9 i_brand->i_brand;RF10 i_brand->i_brand;RF11 cc_name->cc_name;RF12 cc_name->cc_name;RF13 expr_(rn - 1)->rn;RF14 expr_(rn - 1)->(rn + 1)
 ----------------PhysicalProject
-------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF7 RF8 RF9 RF10
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN shuffle] hashCondition=((v1.cc_name = v1_lag.cc_name) and (v1.i_brand = v1_lag.i_brand) and (v1.i_category = v1_lag.i_category) and (v1.rn = expr_(rn + 1))) otherCondition=() build RFs:RF3 i_category->i_category;RF4 i_brand->i_brand;RF5 cc_name->cc_name;RF6 rn->(rn + 1)
+------------------hashJoin[INNER_JOIN shuffle] hashCondition=((v1.cc_name = v1_lag.cc_name) and (v1.i_brand = v1_lag.i_brand) and (v1.i_category = v1_lag.i_category) and (v1.rn = expr_(rn + 1))) otherCondition=() build RFs:RF3 i_category->i_category;RF4 i_brand->i_brand;RF5 cc_name->cc_name;RF6 rn->(rn + 1);RF15 i_category->i_category;RF16 i_brand->i_brand;RF17 cc_name->cc_name;RF18 rn->(rn - 1)
 --------------------PhysicalProject
-----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3 RF4 RF5 RF6
+----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3 RF4 RF5 RF6 RF8 RF10 RF12 RF14
 --------------------filter(((cast(abs((v2.sum_sales - cast(v2.avg_monthly_sales as DECIMALV3(38, 2)))) as DECIMALV3(38, 10)) / v2.avg_monthly_sales) > 0.100000) and (v2.avg_monthly_sales > 0.0000) and (v2.d_year = 1999))
-----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF7 RF9 RF11 RF13
+----------------PhysicalProject
+------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF15 RF16 RF17 RF18
 
