@@ -57,11 +57,13 @@ constexpr std::string_view ARROW_EXTENSION_NAME = "ARROW:extension:name";
 constexpr std::string_view ARROW_JSON_EXTENSION = "arrow.json";
 constexpr std::string_view LANCE_JSON_EXTENSION = "lance.json";
 constexpr std::string_view LANCE_BFLOAT16_EXTENSION = "lance.bfloat16";
+constexpr std::string_view LANCE_BLOB_EXTENSION = "lance.blob.v2";
 
 enum class LanceExtensionKind {
     NONE,
     JSON,
     BFLOAT16,
+    BLOB,
 };
 
 int arrow_time_precision(arrow::TimeUnit::type unit) {
@@ -143,13 +145,21 @@ Status get_lance_extension(const std::shared_ptr<arrow::Field>& field,
         *extension_kind = LanceExtensionKind::BFLOAT16;
         return Status::OK();
     }
+    if (*extension_name == LANCE_BLOB_EXTENSION) {
+        if ((*storage_type)->id() != arrow::Type::STRUCT) {
+            return Status::NotSupported("Lance Blob v2 requires STRUCT storage for field '{}'",
+                                        field->name());
+        }
+        *extension_kind = LanceExtensionKind::BLOB;
+        return Status::OK();
+    }
     return Status::NotSupported("unsupported Lance Arrow extension type '{}' for field '{}'",
                                 *extension_name, field->name());
 }
 
 // Map Arrow fields recursively, preserving Null leaves in complex types.
 Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
-                                 DataTypePtr* doris_type) {
+                                 DataTypePtr* doris_type, bool top_level = false) {
     const auto nullable_primitive = [&](PrimitiveType type, int precision = 0, int scale = 0,
                                         int len = -1) {
         *doris_type =
@@ -165,6 +175,10 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
         return nullable_primitive(TYPE_JSONB);
     case LanceExtensionKind::BFLOAT16:
         return nullable_primitive(TYPE_FLOAT);
+    case LanceExtensionKind::BLOB:
+        return top_level ? nullable_primitive(TYPE_FILE)
+                         : Status::NotSupported(
+                                   "Lance BLOB currently supports only top-level scalar columns");
     case LanceExtensionKind::NONE:
         break;
     }
@@ -643,14 +657,15 @@ size_t lance_vector_element_width(TVectorElementType::type type) {
     return 0;
 }
 
-Status parse_fragment_ids(const TLanceFileDesc& lance_params, std::vector<uint64_t>* fragment_ids) {
+Status parse_fragment_ids(const TLanceSplitParams& split_params,
+                          std::vector<uint64_t>* fragment_ids) {
     DORIS_CHECK(fragment_ids != nullptr);
     fragment_ids->clear();
-    if (!lance_params.__isset.fragment_ids || lance_params.fragment_ids.empty()) {
+    if (!split_params.__isset.fragment_ids || split_params.fragment_ids.empty()) {
         return Status::OK();
     }
-    fragment_ids->reserve(lance_params.fragment_ids.size());
-    for (const auto fragment_id : lance_params.fragment_ids) {
+    fragment_ids->reserve(split_params.fragment_ids.size());
+    for (const auto fragment_id : split_params.fragment_ids) {
         if (fragment_id < 0) {
             return Status::InvalidArgument("Lance fragment id must be non-negative: {}",
                                            fragment_id);
@@ -660,28 +675,28 @@ Status parse_fragment_ids(const TLanceFileDesc& lance_params, std::vector<uint64
     return Status::OK();
 }
 
-Status parse_index_segment_uuids(const TLanceFileDesc& lance_params,
+Status parse_index_segment_uuids(const TLanceSplitParams& split_params,
                                  std::vector<uint8_t>* segment_uuids, size_t* segment_count) {
     DORIS_CHECK(segment_uuids != nullptr);
     DORIS_CHECK(segment_count != nullptr);
     segment_uuids->clear();
     *segment_count = 0;
-    if (!lance_params.__isset.index_segment_uuids || lance_params.index_segment_uuids.empty()) {
+    if (!split_params.__isset.index_segment_uuids || split_params.index_segment_uuids.empty()) {
         return Status::OK();
     }
     constexpr size_t UUID_SIZE = 16;
-    if (lance_params.index_segment_uuids.size() > std::numeric_limits<size_t>::max() / UUID_SIZE) {
+    if (split_params.index_segment_uuids.size() > std::numeric_limits<size_t>::max() / UUID_SIZE) {
         return Status::InvalidArgument("too many Lance index segment UUIDs");
     }
-    segment_uuids->reserve(lance_params.index_segment_uuids.size() * UUID_SIZE);
-    for (const auto& uuid : lance_params.index_segment_uuids) {
+    segment_uuids->reserve(split_params.index_segment_uuids.size() * UUID_SIZE);
+    for (const auto& uuid : split_params.index_segment_uuids) {
         if (uuid.size() != UUID_SIZE) {
             return Status::InvalidArgument("Lance index segment UUID must contain 16 bytes, got {}",
                                            uuid.size());
         }
         segment_uuids->insert(segment_uuids->end(), uuid.begin(), uuid.end());
     }
-    *segment_count = lance_params.index_segment_uuids.size();
+    *segment_count = split_params.index_segment_uuids.size();
     return Status::OK();
 }
 
@@ -703,7 +718,7 @@ Status convert_arrow_schema_to_doris(const std::shared_ptr<arrow::Schema>& arrow
             return Status::InvalidArgument("duplicate Lance schema column: {}", field->name());
         }
         DataTypePtr doris_type;
-        const auto type_status = arrow_field_to_doris_type(field, &doris_type);
+        const auto type_status = arrow_field_to_doris_type(field, &doris_type, true);
         if (type_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
             parsed_types.emplace_back(std::make_shared<DataTypeNothing>());
         } else {

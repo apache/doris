@@ -265,8 +265,9 @@ Status import_lance_dataset_schema(LanceDataset* dataset, std::shared_ptr<arrow:
 
 // Validate and convert the fragment and index-segment identifiers carried by the FE into the
 // unsigned and packed representations expected by lance-c.
-Status parse_fragment_ids(const TLanceFileDesc& lance_params, std::vector<uint64_t>* fragment_ids);
-Status parse_index_segment_uuids(const TLanceFileDesc& lance_params,
+Status parse_fragment_ids(const TLanceSplitParams& split_params,
+                          std::vector<uint64_t>* fragment_ids);
+Status parse_index_segment_uuids(const TLanceSplitParams& split_params,
                                  std::vector<uint8_t>* segment_uuids, size_t* segment_count);
 
 // Resolves one Arrow field once when a stream schema is bound. Runtime conversion then reuses this

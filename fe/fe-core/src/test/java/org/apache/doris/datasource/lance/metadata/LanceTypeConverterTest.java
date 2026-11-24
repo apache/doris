@@ -39,6 +39,23 @@ import java.util.Collections;
 public class LanceTypeConverterTest {
 
     @Test
+    public void testScalarBlobV2Mapping() {
+        Field blob = new Field("payload", new FieldType(true, ArrowType.Struct.INSTANCE, null,
+                Collections.singletonMap("ARROW:extension:name", "lance.blob.v2")),
+                Arrays.asList(Field.nullable("data", ArrowType.LargeBinary.INSTANCE),
+                        Field.nullable("uri", ArrowType.Utf8.INSTANCE)));
+        Assertions.assertEquals(Type.FILE, LanceTypeConverter.toDorisType(blob));
+        Assertions.assertTrue(LanceTypeConverter.requiresCurrentBeReader(blob));
+        Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(new Field("items",
+                FieldType.nullable(ArrowType.List.INSTANCE), Collections.singletonList(blob))));
+        Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(new Field("bad",
+                new FieldType(true, ArrowType.LargeBinary.INSTANCE, null,
+                        Collections.singletonMap("ARROW:extension:name", "lance.blob.v2")), null)));
+        Assertions.assertTrue(LanceTypeConverter.toDorisType(
+                Field.nullable("bytes", ArrowType.LargeBinary.INSTANCE)).isVarbinaryType());
+    }
+
+    @Test
     public void testDate32AndDate64MapToDate() {
         Assertions.assertEquals(Type.DATEV2, LanceTypeConverter.toDorisType(
                 Field.nullable("date32_col", new ArrowType.Date(DateUnit.DAY))));

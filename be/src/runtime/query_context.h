@@ -87,6 +87,8 @@ const std::string toString(QuerySource query_source);
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
 class DescriptorTbl;
+class LanceBlobReader;
+class LanceBlobSourceDictionary;
 class QueryContext : public std::enable_shared_from_this<QueryContext> {
     ENABLE_FACTORY_CREATOR(QueryContext);
 
@@ -107,6 +109,10 @@ public:
     void init_query_task_controller();
 
     ExecEnv* exec_env() const { return _exec_env; }
+    // Initialize after installing FE scan parameters and before starting any fragment.
+    Status init_lance_blob();
+    LanceBlobReader& get_lance_blob_reader();
+    const LanceBlobSourceDictionary& get_lance_blob_source_dictionary() const;
 
     bool is_timeout(timespec now) const {
         if (_timeout_second <= 0) {
@@ -334,6 +340,8 @@ public:
     Status reset_global_rf(const google::protobuf::RepeatedField<int32_t>& filter_ids);
 
 private:
+    std::unique_ptr<LanceBlobReader> _lance_blob_reader;
+    std::unique_ptr<LanceBlobSourceDictionary> _lance_blob_source_dictionary;
     // Task-level progress counters for current query.
     friend class QueryTaskController;
 

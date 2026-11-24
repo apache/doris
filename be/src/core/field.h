@@ -74,6 +74,9 @@ struct Struct : public FieldVector {
 
 struct File : public FieldVector {
     using FieldVector::FieldVector;
+    // Query-wide source ID assigned by FE; internal references are not SQL fields.
+    uint32_t blob_source_id = 0;
+    uint64_t blob_row_id = 0;
 };
 
 struct Map : public FieldVector {

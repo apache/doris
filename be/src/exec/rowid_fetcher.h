@@ -164,8 +164,7 @@ private:
             Block& result_block, PRuntimeProfileTree* pprofile, int64_t* init_reader_avg_ms,
             int64_t* get_block_avg_ms, size_t* scan_range_cnt);
 
-    static Status read_lance_rows_by_row_ids(const TFileRangeDesc& scan_range_desc,
-                                             const std::vector<uint64_t>& row_ids,
+    static Status read_lance_rows_by_row_ids(const std::vector<uint64_t>& row_ids,
                                              const std::vector<SlotDescriptor>& slots,
                                              RuntimeState* runtime_state,
                                              RuntimeProfile* runtime_profile,

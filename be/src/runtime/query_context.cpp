@@ -41,6 +41,8 @@
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/lance_blob_reader.h"
+#include "runtime/lance_blob_source_dictionary.h"
 #include "runtime/memory/heap_profiler.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
@@ -228,8 +230,29 @@ void QueryContext::record_spill_data_dir(SpillDataDir* data_dir) {
     _spill_data_dirs.emplace(data_dir);
 }
 
+Status QueryContext::init_lance_blob() {
+    auto source_dictionary = std::make_unique<LanceBlobSourceDictionary>();
+    RETURN_IF_ERROR(source_dictionary->init(file_scan_range_params_map));
+    auto reader = std::make_unique<LanceBlobReader>();
+    _lance_blob_source_dictionary = std::move(source_dictionary);
+    _lance_blob_reader = std::move(reader);
+    return Status::OK();
+}
+
+LanceBlobReader& QueryContext::get_lance_blob_reader() {
+    DCHECK(_lance_blob_reader != nullptr);
+    return *_lance_blob_reader;
+}
+
+const LanceBlobSourceDictionary& QueryContext::get_lance_blob_source_dictionary() const {
+    DCHECK(_lance_blob_source_dictionary != nullptr);
+    return *_lance_blob_source_dictionary;
+}
+
 QueryContext::~QueryContext() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
+    _lance_blob_reader.reset();
+    _lance_blob_source_dictionary.reset();
     // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
     // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
     // query mem tracker consumption is not equal to 0 after use, because there is memory consumed

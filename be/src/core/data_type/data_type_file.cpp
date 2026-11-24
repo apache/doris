@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <limits>
 
 #include "core/column/column_const.h"
@@ -192,6 +193,7 @@ int64_t DataTypeFile::get_uncompressed_serialized_bytes(const IColumn& column, i
     for (size_t i = 0; i < FIELD_COUNT; ++i) {
         size += _elements[i]->get_uncompressed_serialized_bytes(file.get_column(i), version);
     }
+    size += file.size() * (sizeof(uint32_t) + sizeof(uint64_t));
     return size;
 }
 
@@ -202,6 +204,16 @@ char* DataTypeFile::serialize(const IColumn& column, char* buf, int version) con
     const auto& file = assert_cast<const ColumnFile&>(*data);
     for (size_t i = 0; i < FIELD_COUNT; ++i) {
         buf = _elements[i]->serialize(file.get_column(i), buf, version);
+    }
+    if (file.size() != 0) {
+        const auto& ids = assert_cast<const ColumnOffset32&>(file.blob_source_ids()).get_data();
+        const auto& row_ids = assert_cast<const ColumnOffset64&>(file.blob_row_ids()).get_data();
+        const auto id_bytes = file.size() * sizeof(uint32_t);
+        const auto row_bytes = file.size() * sizeof(uint64_t);
+        std::memcpy(buf, ids.data(), id_bytes);
+        buf += id_bytes;
+        std::memcpy(buf, row_ids.data(), row_bytes);
+        buf += row_bytes;
     }
     return buf;
 }
@@ -217,6 +229,18 @@ const char* DataTypeFile::deserialize(const char* buf, MutableColumnPtr* column,
         buf = _elements[i]->deserialize(buf, &child, version);
         file.get_column_ptr(i) = std::move(child);
     }
+    auto ids = ColumnOffset32::create(file.size());
+    auto row_ids = ColumnOffset64::create(file.size());
+    if (file.size() != 0) {
+        const auto id_bytes = file.size() * sizeof(uint32_t);
+        const auto row_bytes = file.size() * sizeof(uint64_t);
+        std::memcpy(ids->get_data().data(), buf, id_bytes);
+        buf += id_bytes;
+        std::memcpy(row_ids->get_data().data(), buf, row_bytes);
+        buf += row_bytes;
+    }
+    file.blob_source_ids_ptr() = std::move(ids);
+    file.blob_row_ids_ptr() = std::move(row_ids);
     file.sanity_check();
     return buf;
 }

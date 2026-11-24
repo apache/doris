@@ -130,10 +130,9 @@ public class ThriftPlansBuilder {
         Multiset<DistributedPlanWorker> workerProcessInstanceNum = computeInstanceNumPerWorker(distributedPlans);
         Map<DistributedPlanWorker, TPipelineFragmentParamsList> fragmentsGroupByWorker = Maps.newLinkedHashMap();
         int currentInstanceIndex = 0;
-        Map<Integer, TFileScanRangeParams> sharedFileScanRangeParams = Maps.newLinkedHashMap();
+        // Freeze source IDs and definitions before any fragment is serialized, including consumers.
+        Map<Integer, TFileScanRangeParams> sharedFileScanRangeParams = computeFileScanRangeParams(distributedPlans);
         for (PipelineDistributedPlan currentFragmentPlan : distributedPlans) {
-            sharedFileScanRangeParams.putAll(computeFileScanRangeParams(currentFragmentPlan));
-
             Map<Integer, Integer> exchangeSenderNum = computeExchangeSenderNum(currentFragmentPlan);
             ListMultimap<DistributedPlanWorker, AssignedJob> instancesPerWorker
                     = groupInstancePerWorker(currentFragmentPlan);
@@ -541,17 +540,23 @@ public class ThriftPlansBuilder {
     }
 
     private static Map<Integer, TFileScanRangeParams> computeFileScanRangeParams(
-            PipelineDistributedPlan distributedPlan) {
-        // scan node id -> TFileScanRangeParams
-        Map<Integer, TFileScanRangeParams> fileScanRangeParamsMap = Maps.newLinkedHashMap();
-        for (ScanNode scanNode : distributedPlan.getFragmentJob().getScanNodes()) {
-            if (scanNode instanceof FileQueryScanNode) {
-                TFileScanRangeParams fileScanRangeParams = ((FileQueryScanNode) scanNode).getFileScanRangeParams();
-                fileScanRangeParamsMap.put(scanNode.getId().asInt(), fileScanRangeParams);
+            List<PipelineDistributedPlan> distributedPlans) {
+        Map<Integer, FileQueryScanNode> fileScans = new TreeMap<>();
+        for (PipelineDistributedPlan plan : distributedPlans) {
+            for (ScanNode scan : plan.getFragmentJob().getScanNodes()) {
+                if (scan instanceof FileQueryScanNode) {
+                    fileScans.put(scan.getId().asInt(), (FileQueryScanNode) scan);
+                }
             }
         }
-
-        return fileScanRangeParamsMap;
+        // Allocate once in scan-node order, then share the complete table with every backend.
+        Map<Integer, TFileScanRangeParams> result = Maps.newLinkedHashMap();
+        int nextSourceId = 1;
+        for (Entry<Integer, FileQueryScanNode> entry : fileScans.entrySet()) {
+            nextSourceId = entry.getValue().assignFileReadSources(nextSourceId);
+            result.put(entry.getKey(), entry.getValue().getFileScanRangeParams());
+        }
+        return result;
     }
 
     private static TPipelineInstanceParams instanceToThrift(

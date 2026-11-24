@@ -65,6 +65,7 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
+import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
@@ -405,6 +406,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return params;
     }
 
+    /** Assign query-wide FILE source IDs before fragment serialization. Non-Lance scans have none. */
+    public int assignFileReadSources(int nextSourceId) {
+        return nextSourceId;
+    }
+
     // Set some parameters of scan to support different types of file data sources
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
     }
@@ -431,6 +437,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
             genSlotToSchemaIdMapForOrc();
         }
         params.setFormatType(fileFormatType);
+        if (fileFormatType == TFileFormatType.FORMAT_LANCE) {
+            if (!params.isSetLanceScanParams()) {
+                params.setLanceScanParams(new TLanceScanParams());
+            }
+            // The complete map is sent to every BE, including those that only consume FILEs.
+            params.getLanceScanParams().setScanNodeId(getId().asInt());
+        }
         boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON
                 || fileFormatType == TFileFormatType.FORMAT_TEXT;
         boolean isWal = fileFormatType == TFileFormatType.FORMAT_WAL;

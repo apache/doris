@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.tvf.source;
 
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.TableIf;
@@ -30,6 +31,7 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.lance.source.LanceBlobReadSourcePlanner;
 import org.apache.doris.datasource.lance.source.LanceScanNode;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.datasource.lance.source.LanceSplitBuilder;
@@ -46,8 +48,8 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TLanceScanParams;
+import org.apache.doris.thrift.TLanceSplitParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
@@ -55,6 +57,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -126,6 +129,19 @@ public class TVFScanNode extends FileQueryScanNode {
 
     @Override
     public void createScanRangeLocations() throws UserException {
+        if (tableValuedFunction.isLanceFormat() && !blobReadColumns().isEmpty()
+                && (tableValuedFunction.getTFileType() == TFileType.FILE_LOCAL
+                        || !LanceBlobReadSourcePlanner.isRemoteDataset(tableValuedFunction.getFilePath())
+                        || tableValuedFunction.getLanceDatasetVersion() <= 0)) {
+            throw new UserException("Lance BLOB TVF reads require remote storage and a fixed snapshot; "
+                    + "local BLOB TVFs are not supported");
+        }
+        if (tableValuedFunction.isLanceFormat()) {
+            long version = tableValuedFunction.getTFileType() == TFileType.FILE_LOCAL
+                    ? 0 : tableValuedFunction.getLanceDatasetVersion();
+            params.setLanceScanParams(new TLanceScanParams()
+                    .setDatasetUri(tableValuedFunction.getFilePath()).setVersion(version));
+        }
         super.createScanRangeLocations();
         if (tableValuedFunction.isLanceFormat()) {
             // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
@@ -134,10 +150,28 @@ public class TVFScanNode extends FileQueryScanNode {
                     tableValuedFunction.getFilePath(),
                     Collections.singletonList(tableValuedFunction.getStorageProperties()));
             if (!lanceStorageOptions.isEmpty()) {
-                params.setLanceScanParams(
-                        new TLanceScanParams().setLanceStorageOptions(lanceStorageOptions));
+                params.getLanceScanParams().setLanceStorageOptions(lanceStorageOptions);
             }
         }
+    }
+
+    private List<String> blobReadColumns() {
+        List<String> columns = new ArrayList<>();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (slot.isMaterialized() && slot.getColumn() != null && slot.getType().isFileType()) {
+                columns.add(slot.getColumn().getName());
+            }
+        }
+        return columns;
+    }
+
+    @Override
+    public int assignFileReadSources(int nextSourceId) {
+        if (!tableValuedFunction.isLanceFormat()) {
+            return nextSourceId;
+        }
+        return LanceBlobReadSourcePlanner.assign(params.getLanceScanParams(),
+                blobReadColumns(), nextSourceId);
     }
 
     @Override
@@ -242,16 +276,14 @@ public class TVFScanNode extends FileQueryScanNode {
                 throw new IllegalArgumentException("Expected LanceSplit but got " + split.getClass().getName());
             }
             LanceSplit lanceSplit = (LanceSplit) split;
-            TLanceFileDesc lanceParams = new TLanceFileDesc();
-            lanceParams.setDatasetUri(lanceSplit.getDatasetUri());
-            lanceParams.setVersion(lanceSplit.getVersion());
+            TLanceSplitParams splitParams = new TLanceSplitParams();
             if (lanceSplit.hasFragmentIds()) {
-                lanceParams.setFragmentIds(lanceSplit.getFragmentIds());
+                splitParams.setFragmentIds(lanceSplit.getFragmentIds());
             }
 
             TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
             tableFormatFileDesc.setTableFormatType(TableFormatType.LANCE.value());
-            tableFormatFileDesc.setLanceParams(lanceParams);
+            tableFormatFileDesc.setLanceSplitParams(splitParams);
             rangeDesc.setTableFormatParams(tableFormatFileDesc);
             return;
         }

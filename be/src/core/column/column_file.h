@@ -27,12 +27,15 @@ namespace doris {
 // Complete physical FILE values: uri, offset, size, content_type, checksum, inline.
 // All six children are nullable; parent SQL NULL belongs to an outer ColumnNullable.
 // Input-boundary validation is responsible for URI/range/metadata validity.
+// Query-wide FE source IDs and native row IDs follow value copies and internal serialization.
+// The query owns all source definitions; columns never hold storage configuration or SDK handles.
 class ColumnFile final : public COWHelper<IColumn, ColumnFile> {
 private:
     friend class COWHelper<IColumn, ColumnFile>;
 
     ColumnFile();
-    explicit ColumnFile(MutableColumns&& columns);
+    explicit ColumnFile(MutableColumns&& columns, MutableColumnPtr blob_source_ids = nullptr,
+                        MutableColumnPtr blob_row_ids = nullptr);
     ColumnFile(const ColumnFile&) = default;
 
 public:
@@ -44,7 +47,8 @@ public:
     size_t tuple_size() const { return NUM_CHILDREN; }
     bool is_variable_length() const override { return true; }
     bool is_exclusive() const override {
-        return IColumn::is_exclusive() &&
+        return IColumn::is_exclusive() && _blob_source_ids->is_exclusive() &&
+               _blob_row_ids->is_exclusive() &&
                std::all_of(_columns.begin(), _columns.end(),
                            [](const auto& column) { return column->is_exclusive(); });
     }
@@ -55,6 +59,19 @@ public:
     Columns get_columns_copy() const { return {_columns.begin(), _columns.end()}; }
     const ColumnPtr& get_column_ptr(size_t i) const { return _columns[i]; }
     ColumnPtr& get_column_ptr(size_t i) { return _columns[i]; }
+    uint32_t blob_source_id_at(size_t row) const;
+    uint64_t blob_row_id_at(size_t row) const;
+    const IColumn& blob_source_ids() const { return *_blob_source_ids; }
+    const IColumn& blob_row_ids() const { return *_blob_row_ids; }
+    ColumnPtr& blob_source_ids_ptr() { return _blob_source_ids; }
+    ColumnPtr& blob_row_ids_ptr() { return _blob_row_ids; }
+    // Pad missing Blob IDs with zeros to match the value row count, preserving existing IDs.
+    // Used by producers that populate the public children directly (e.g. STRUCT -> FILE).
+    void fill_missing_blob_ids();
+    // True if any row has a nonzero Blob source ID.
+    bool has_blob_references() const;
+    // Zero all Blob IDs while preserving FILE values and the row count.
+    void reset_blob_ids();
 
     MutableColumnPtr clone_resized(size_t size) const override;
     Field operator[](size_t n) const override;
@@ -121,6 +138,12 @@ public:
 
 private:
     FileColumns _columns;
+    void _append_blob_reference(const ColumnFile& source, size_t row);
+    void _append_blob_references(const ColumnFile& source, size_t start, size_t length);
+    // Row-aligned IDs into the current query's source dictionary. Zero means unbound.
+    IColumn::WrappedPtr _blob_source_ids;
+    // Native row IDs within each row's source, rather than positions in this column.
+    IColumn::WrappedPtr _blob_row_ids;
 };
 
 } // namespace doris

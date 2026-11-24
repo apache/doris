@@ -902,7 +902,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         }
         case TFileFormatType::FORMAT_LANCE: {
             auto lance_reader = std::make_unique<format::lance::LanceTableReader>();
-            st = lance_reader->fetch_schema(range, params, &col_names, &col_types);
+            st = lance_reader->fetch_schema(params, &col_names, &col_types);
             if (!st.ok()) {
                 LOG(WARNING) << "fetch Lance table schema failed, errmsg=" << st;
                 st.to_protobuf(result->mutable_status());
