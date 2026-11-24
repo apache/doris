@@ -136,6 +136,16 @@ suite("test_lance_s3_tvf", "p0,external") {
         FROM file("uri" = "s3://warehouse/lance/all_types.lance", ${storage}, "format" = "lance")
     """
 
+    // A column keeps the dataset's spelling and resolves in any case. Two columns whose names differ only in
+    // case are refused, as a file's are: Doris could not tell them apart.
+    String columnCase = lanceTvf("column_case.lance")
+    order_qt_column_case_desc """DESC FUNCTION ${columnCase}"""
+    order_qt_column_case """SELECT row_id, username FROM ${columnCase} WHERE USERNAME <> 'b'"""
+    test {
+        sql """SELECT * FROM ${lanceTvf("column_case_conflict.lance")}"""
+        exception "Repeated lowercase column names: id"
+    }
+
     // An internal table in the statement, as the target of a load or in a join, keeps the
     // predicate with Lance.
     sql """DROP TABLE IF EXISTS test_lance_s3_tvf_load"""
@@ -157,6 +167,15 @@ suite("test_lance_s3_tvf", "p0,external") {
         sql """
             SELECT * FROM hdfs("uri" = "hdfs://127.0.0.1:8020/lance/all_types.lance",
                 "fs.defaultFS" = "hdfs://127.0.0.1:8020", "format" = "lance")
+        """
+        exception "Format lance is read only by the s3() table function, or by file() over S3-compatible storage"
+    }
+    // file() hands Azure storage to s3() as well, which must not give it to Lance as an s3:// location.
+    test {
+        sql """
+            SELECT * FROM file("uri" = "wasbs://warehouse@demo.blob.core.windows.net/lance/all_types.lance",
+                "azure.endpoint" = "https://demo.blob.core.windows.net", "azure.account_name" = "demo",
+                "azure.account_key" = "c2s=", "format" = "lance")
         """
         exception "Format lance is read only by the s3() table function, or by file() over S3-compatible storage"
     }

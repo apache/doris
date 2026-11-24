@@ -250,6 +250,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
      * nothing is listed, and it pins what the statement reads.
      */
     protected void readPluginFormat() throws AnalysisException {
+        // s3() reports FILE_S3 whatever it binds, Azure included, and rewrites an Azure location to
+        // s3://container/path, which a plugin would read with no S3 storage at all.
+        if (!(storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties)) {
+            throw pluginFormatOutsideS3(pluginFormat.getFormat());
+        }
         long startAt = System.currentTimeMillis();
         try {
             validateEndpoint(getBrokerDesc());
@@ -258,8 +263,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             ConnectorSession session = pluginFormat.buildSession();
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, pluginFormat.getConnector());
             pluginTableHandle = ((ConnectorFileSourceOps) metadata).getFileTableHandle(session, source);
-            columns = ConnectorColumnConverter.convertColumns(
+            List<Column> pluginColumns = ConnectorColumnConverter.convertColumns(
                     metadata.getTableSchema(session, pluginTableHandle).getColumns());
+            // Kept in the plugin's spelling; names that differ only in case are refused, as a file's are.
+            Set<String> columnLowerNames = new HashSet<>();
+            for (Column column : pluginColumns) {
+                addColumnLowerName(columnLowerNames, column.getName());
+            }
+            columns = pluginColumns;
         } catch (UserException e) {
             throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
         } catch (DorisConnectorException e) {
@@ -270,6 +281,24 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 profile.addExternalTvfInitTime(System.currentTimeMillis() - startAt);
             }
         }
+    }
+
+    /** A plugin reads its data set from object storage by the S3 vocabulary, which only s3() hands over. */
+    private static AnalysisException pluginFormatOutsideS3(String format) {
+        return new AnalysisException("Format " + format + " is read only by the s3() table function,"
+                + " or by file() over S3-compatible storage");
+    }
+
+    /**
+     * Records a column's name in lower case and returns it, refusing a name another column already took: Doris
+     * resolves column names regardless of case, so two columns whose names differ only in case cannot be told apart.
+     */
+    private static String addColumnLowerName(Set<String> columnLowerNames, String columnName) {
+        String colLowerName = columnName.toLowerCase();
+        if (!columnLowerNames.add(colLowerName)) {
+            throw new NotSupportedException("Repeated lowercase column names: " + colLowerName);
+        }
+        return colLowerName;
     }
 
     // The keys in properties map need to be lowercase.
@@ -293,11 +322,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         pluginFormat = ConnectorFactory.getFileFormat(formatString).orElse(null);
         if (pluginFormat != null) {
-            // A plugin reads its data set from object storage by the S3 vocabulary; no other table function hands
-            // one over, and file() reaches here through s3() for such storage.
+            // No other table function hands a data set over, and file() reaches here through s3() for object
+            // storage. readPluginFormat checks the binding, which may be Azure.
             if (getTFileType() != TFileType.FILE_S3) {
-                throw new AnalysisException("Format " + formatString + " is read only by the s3() table function,"
-                        + " or by file() over S3-compatible storage");
+                throw pluginFormatOutsideS3(formatString);
             }
             fileFormatProperties = new PluginFileFormatProperties(formatString);
         } else {
@@ -574,16 +602,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
             String originalColName = result.getColumnNames(idx);
-            String colLowerName = originalColName.toLowerCase();
-            // Since doris does not distinguish between upper and lower case columns when querying, in order to avoid
-            // query ambiguity, two columns with the same name but different capitalization are not allowed.
-            if (columnLowerNames.contains(colLowerName)) {
-                throw new NotSupportedException("Repeated lowercase column names: " + colLowerName);
-            } else {
-                columnLowerNames.add(colLowerName);
-                String colName = preserveColumnCase ? originalColName : colLowerName;
-                columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
-            }
+            String colLowerName = addColumnLowerName(columnLowerNames, originalColName);
+            String colName = preserveColumnCase ? originalColName : colLowerName;
+            columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
         }
         // add path columns
         // HACK(tsy): path columns are all treated as STRING type now, after BE supports reading all columns

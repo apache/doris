@@ -44,8 +44,12 @@ import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.scan.PluginDrivenScanNode;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
+import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
@@ -202,6 +206,53 @@ public class PluginFileFormatTableValuedFunctionTest {
     }
 
     @Test
+    public void azureStorageNeverReachesThePlugin() {
+        // file() hands Azure to s3(), whose file type is FILE_S3 whatever it binds, and s3() binds an Azure endpoint as
+        // Azure. Both make the location s3://container/path, which the plugin would read with no S3 storage at all.
+        Map<String, String> wasbs = Map.of("uri", "wasbs://warehouse@demo.blob.core.windows.net/test.lance",
+                "format", FORMAT, "azure.endpoint", "https://demo.blob.core.windows.net",
+                "azure.account_name", "demo", "azure.account_key", "c2s=");
+        Assertions.assertEquals(StorageTypeId.AZURE, StorageAdapter.of(wasbs).getType());
+        RuntimeException file = Assertions.assertThrows(RuntimeException.class,
+                () -> new FileTableValuedFunction(wasbs), this::handedToThePlugin);
+        Assertions.assertTrue(file.getMessage().contains("Format " + FORMAT + " is read only by the s3() table"
+                + " function, or by file() over S3-compatible storage"), file.getMessage());
+
+        Map<String, String> azureEndpoint = Map.of("uri", "s3://warehouse/test.lance", "format", FORMAT,
+                "s3.endpoint", "https://demo.blob.core.windows.net", "s3.access_key", "demo", "s3.secret_key", "c2s=");
+        Assertions.assertEquals(StorageTypeId.AZURE, StorageAdapter.of(azureEndpoint).getType());
+        AnalysisException s3 = Assertions.assertThrows(AnalysisException.class,
+                () -> new S3TableValuedFunction(azureEndpoint), this::handedToThePlugin);
+        Assertions.assertTrue(s3.getMessage().contains("is read only by the s3() table function, or by file() over"
+                + " S3-compatible storage"), s3.getMessage());
+        Mockito.verifyNoInteractions(connector);
+    }
+
+    @Test
+    public void columnsWhoseNamesDifferOnlyInCaseAreRefused() {
+        // Doris resolves column names regardless of case: id and ID could not be told apart in a query.
+        Mockito.when(metadata.getTableSchema(Mockito.any(), Mockito.eq(handle))).thenReturn(schemaOf("id", "ID"));
+        try (MockedStatic<S3Util> s3 = Mockito.mockStatic(S3Util.class)) {
+            NotSupportedException e = Assertions.assertThrows(NotSupportedException.class,
+                    () -> new S3TableValuedFunction(PROPERTIES));
+            Assertions.assertTrue(e.getMessage().contains("Repeated lowercase column names: id"), e.getMessage());
+        }
+    }
+
+    @Test
+    public void mixedCaseColumnKeepsThePluginsSpelling() throws Exception {
+        Mockito.when(metadata.getTableSchema(Mockito.any(), Mockito.eq(handle)))
+                .thenReturn(schemaOf("row_id", "UserName"));
+        try (MockedStatic<S3Util> s3 = Mockito.mockStatic(S3Util.class)) {
+            S3TableValuedFunction tvf = new S3TableValuedFunction(PROPERTIES);
+
+            Assertions.assertEquals(Arrays.asList("row_id", "UserName"),
+                    tvf.getTableColumns().stream().map(Column::getName).collect(Collectors.toList()));
+            Assertions.assertEquals("UserName", tvf.getTable().getColumn("username").getName());
+        }
+    }
+
+    @Test
     public void pathPartitionKeysAreRefused() {
         Map<String, String> properties = new HashMap<>(PROPERTIES);
         properties.put("path_partition_keys", "dt");
@@ -262,6 +313,22 @@ public class PluginFileFormatTableValuedFunctionTest {
         // OUTFILE, INSERT INTO s3() and routine load resolve their format here, which knows no plugin's.
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
                 () -> FileFormatProperties.createFileFormatProperties(FORMAT));
+    }
+
+    private static ConnectorTableSchema schemaOf(String... names) {
+        List<ConnectorColumn> columns = new ArrayList<>();
+        for (String name : names) {
+            columns.add(new ConnectorColumn(name, ConnectorType.of("INT"), "", true, null));
+        }
+        return new ConnectorTableSchema("set", columns, FORMAT, Collections.emptyMap());
+    }
+
+    /** What the plugin was asked to read, for a failure message: each location with the storage it came with. */
+    private String handedToThePlugin() {
+        return "handed to the plugin: " + sources.stream()
+                .map(source -> source.getLocation() + " with " + source.getStorageProperties().stream()
+                        .map(StorageProperties::providerName).collect(Collectors.toList()))
+                .collect(Collectors.toList());
     }
 
     private static ScanNode scanNode(ExternalFileTableValuedFunction tvf) throws Exception {

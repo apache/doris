@@ -84,6 +84,14 @@ true	1	1000	1000000	1000000000	{"engine":"doris","format":"lance"}	[1, 2, 3, 4]
 -- !file_tvf --
 12	78
 
+-- !column_case_desc --
+UserName	text	Yes	false	\N	NONE
+row_id	int	Yes	false	\N	NONE
+
+-- !column_case --
+1	a
+3	c
+
 -- !load --
 10	100
 11	9223372036854775807
