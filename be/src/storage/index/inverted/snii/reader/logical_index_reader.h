@@ -197,10 +197,13 @@ public:
     // `accept_key`, when set, is a key-only predicate: a term it rejects is skipped before its
     // dictionary entry body is decoded, so a caller that keeps few of the terms (a regexp or
     // wildcard expansion over the whole dictionary) does not pay a body decode for every term.
-    Status visit_prefix_terms(
-            std::string_view prefix, const PrefixHitVisitor& visitor,
-            DictBlockCache* cache = nullptr,
-            const std::function<bool(std::string_view term)>& accept_key = {}) const;
+    // `required_text`, when set, is a byte string every accepted term holds; with it the walk
+    // visits only the DICT blocks the gram summary names for it (dict_gram_summary.h), so the
+    // blocks without the text are neither fetched, decompressed nor scanned.
+    Status visit_prefix_terms(std::string_view prefix, const PrefixHitVisitor& visitor,
+                              DictBlockCache* cache = nullptr,
+                              const std::function<bool(std::string_view term)>& accept_key = {},
+                              std::string_view required_text = {}) const;
     Status visit_term_range(std::string_view lower_inclusive,
                             std::optional<std::string_view> upper_exclusive,
                             const PrefixHitVisitor& visitor, DictBlockCache* cache = nullptr) const;
@@ -316,6 +319,11 @@ private:
     };
     Status load_resident_dict_blocks();
     Status load_resident_bsbf();
+    // Reads the gram summary and names the blocks that can hold every gram of `text`
+    // (DictGramSummaryReader::candidate_blocks); the index must have the section. *known is
+    // false, with no candidates, for a section version this reader does not read.
+    Status dict_gram_candidates(std::string_view text, std::vector<uint64_t>* blocks, bool* known,
+                                bool* any) const;
     // Resolves the DictBlockReader for `ordinal`. Resident blocks return a pointer
     // into the reader-owned resident set with *pin left null (stable for the reader
     // lifetime). On-demand blocks are decoded (optionally via the request-scoped
@@ -349,5 +357,9 @@ private:
     size_t norms_reserved_charge_ = 0;
     std::shared_ptr<TermLookupCache> term_lookups_;
 };
+
+// Test-only instrumentation seam: the number of DICT blocks visit_prefix_terms has opened since
+// the process started, so a test can assert that the gram summary skipped the rest.
+uint64_t prefix_walk_block_count();
 
 } // namespace doris::snii::reader

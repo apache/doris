@@ -49,7 +49,8 @@ CoreMetadata sample_core(IndexConfig index_config = IndexConfig::kDocsOnly) {
                              .posting_region = {.offset = 21, .length = 22},
                              .norms = {},
                              .null_bitmap = {.offset = 41, .length = 42},
-                             .bsbf = {.offset = 51, .length = 52}};
+                             .bsbf = {.offset = 51, .length = 52},
+                             .dict_gram_summary = {.offset = 61, .length = 62}};
     // Norms require positions for BM25 frequencies; docs-only samples omit them.
     if (has_positions(index_config)) {
         metadata.section_refs.norms = {.offset = 31, .length = 32};
@@ -111,7 +112,23 @@ void expect_core_eq(const CoreMetadata& expected, const CoreMetadata& actual) {
     EXPECT_EQ(expected.section_refs.null_bitmap.length, actual.section_refs.null_bitmap.length);
     EXPECT_EQ(expected.section_refs.bsbf.offset, actual.section_refs.bsbf.offset);
     EXPECT_EQ(expected.section_refs.bsbf.length, actual.section_refs.bsbf.length);
+    EXPECT_EQ(expected.section_refs.dict_gram_summary.offset,
+              actual.section_refs.dict_gram_summary.offset);
+    EXPECT_EQ(expected.section_refs.dict_gram_summary.length,
+              actual.section_refs.dict_gram_summary.length);
     EXPECT_EQ(expected.gram_scheme, actual.gram_scheme);
+}
+
+// An index without a gram summary omits the field and decodes to an empty region.
+TEST(SniiCoreMetadata, OmitsAbsentDictGramSummary) {
+    auto metadata = sample_core();
+    metadata.section_refs.dict_gram_summary = {};
+    ByteSink sink;
+    ASSERT_TRUE(encode_core_metadata(metadata, &sink).ok());
+    CoreMetadata decoded;
+    ASSERT_TRUE(decode_core_metadata(sink.view(), &decoded).ok());
+    EXPECT_EQ(decoded.section_refs.dict_gram_summary.offset, 0U);
+    EXPECT_EQ(decoded.section_refs.dict_gram_summary.length, 0U);
 }
 
 // Since A2, core metadata forbids norms on docs-only segments: norms require positions.

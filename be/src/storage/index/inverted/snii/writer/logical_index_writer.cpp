@@ -21,6 +21,7 @@
 #include <array>
 #include <atomic>
 #include <cstdlib>
+#include <limits>
 #include <memory>
 #include <span>
 #include <utility>
@@ -522,6 +523,24 @@ uint32_t high_df_floor_for(const SniiIndexInput& in) {
                                  format::kHighDfDigestDivisor);
 }
 
+namespace {
+
+// Under a hard limit (native compaction, which falls back to a raw-column rebuild when a
+// reservation is refused) the gram summary may hold this share of the cap, so an optional
+// section never pushes a merge near its budget over it: 8 MiB of the default 512 MiB, which a
+// text index needs a few of, while a 1 MiB test cap leaves the summary nothing.
+constexpr uint64_t kDictGramSummaryHardCapShare = 64;
+
+uint64_t dict_gram_summary_budget_bytes(const MemoryReporter* reporter) {
+    if (reporter == nullptr || reporter->cap_policy() != MemoryReporter::CapPolicy::kHardLimit ||
+        reporter->cap_bytes() == 0) {
+        return std::numeric_limits<uint64_t>::max();
+    }
+    return reporter->cap_bytes() / kDictGramSummaryHardCapShare;
+}
+
+} // namespace
+
 LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDocids null_docids)
         : index_id_(in.index_id),
           index_suffix_(in.index_suffix),
@@ -554,10 +573,17 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDoci
           term_hashes_reservation_(in.mem_reporter == nullptr
                                            ? MemoryReporter::Reservation()
                                            : in.mem_reporter->make_reservation()),
-          bsbf_bytes_reservation_(in.mem_reporter == nullptr
-                                          ? MemoryReporter::Reservation()
-                                          : in.mem_reporter->make_reservation()) {
+          bsbf_bytes_reservation_(in.mem_reporter == nullptr ? MemoryReporter::Reservation()
+                                                             : in.mem_reporter->make_reservation()),
+          dict_gram_summary_enabled_(in.dict_gram_summary),
+          gram_summary_reservation_(in.mem_reporter == nullptr
+                                            ? MemoryReporter::Reservation()
+                                            : in.mem_reporter->make_reservation()),
+          gram_summary_bytes_reservation_(in.mem_reporter == nullptr
+                                                  ? MemoryReporter::Reservation()
+                                                  : in.mem_reporter->make_reservation()) {
     prx_window_limits_.zstd_budget = in.prx_zstd_budget ? &prx_zstd_budget_ : nullptr;
+    gram_summary_budget_bytes_ = dict_gram_summary_budget_bytes(memory_reporter_);
 }
 
 Status LogicalIndexWriter::reserve_term_hash_for_append() {
@@ -619,12 +645,20 @@ struct LogicalIndexWriter::BlockState {
     explicit BlockState(MemoryReporter* memory_reporter)
             : metadata(memory_reporter == nullptr ? MemoryReporter::Reservation()
                                                   : memory_reporter->make_postings_reservation()),
+              gram_codes_reservation(memory_reporter == nullptr
+                                             ? MemoryReporter::Reservation()
+                                             : memory_reporter->make_postings_reservation()),
               inline_bytes(memory_reporter),
               inline_lengths(memory_reporter),
               transfer_buffer(memory_reporter) {}
 
     std::unique_ptr<DictBlockBuilder> block;
     MemoryReporter::Reservation metadata;
+    // The gram codes of the block's keys so far, each once, folded into the summary when the
+    // block is cut; the set keeps them distinct while the keys stream past.
+    std::vector<uint32_t> gram_codes;
+    format::DictGramSet gram_set;
+    MemoryReporter::Reservation gram_codes_reservation;
     // One pair of bounded streams covers both inline DD and PRX, including
     // small payloads that would otherwise accumulate inside DictEntry.
     PostingByteBuffer inline_bytes;
@@ -709,6 +743,69 @@ Status LogicalIndexWriter::build_streamed_dictionary(BlockState* state, PostingB
 }
 
 Status LogicalIndexWriter::flush_streamed_block(BlockState* state) {
+    RETURN_IF_ERROR(flush_streamed_block_bytes(state));
+    return fold_block_grams(state);
+}
+
+// Gives the summary up for this index and frees what it held. The summary is optional: a build
+// that cannot afford it (the gram limit, or a reservation refused under a memory cap) goes on
+// without it, and the dictionary is walked in full as before.
+void LogicalIndexWriter::abandon_gram_summary(BlockState* state) {
+    dict_gram_summary_enabled_ = false;
+    gram_summary_ = format::DictGramSummaryBuilder {};
+    gram_summary_reservation_.reset();
+    std::vector<uint32_t>().swap(state->gram_codes);
+    state->gram_set = format::DictGramSet {};
+    state->gram_codes_reservation.reset();
+}
+
+Status LogicalIndexWriter::collect_term_grams(std::string_view term, BlockState* state) {
+    format::collect_dict_gram_codes(term, &state->gram_set, &state->gram_codes);
+    const size_t gram_bytes =
+            state->gram_set.resident_bytes() + state->gram_codes.capacity() * sizeof(uint32_t);
+    if (gram_bytes + gram_summary_.resident_bytes() > gram_summary_budget_bytes_) {
+        abandon_gram_summary(state);
+        return Status::OK();
+    }
+    if (memory_reporter_ != nullptr && gram_bytes > state->gram_codes_reservation.bytes()) {
+        const Status reserved = state->gram_codes_reservation.set_bytes(gram_bytes);
+        if (reserved.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
+            abandon_gram_summary(state);
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(reserved);
+    }
+    return Status::OK();
+}
+
+Status LogicalIndexWriter::fold_block_grams(BlockState* state) {
+    if (!dict_gram_summary_enabled_) {
+        return Status::OK();
+    }
+    gram_summary_.add_block(static_cast<uint32_t>(blocks_.size() - 1), &state->gram_codes);
+    state->gram_codes.clear();
+    state->gram_set.clear();
+    if (gram_summary_.over_gram_limit() ||
+        gram_summary_.resident_bytes() + state->gram_set.resident_bytes() >
+                gram_summary_budget_bytes_) {
+        // Keys without literal structure (random ids, ideographic pairs): the summary would be
+        // dropped at finish, so the rest of the build does not collect for it. Or the summary
+        // has reached what a hard memory limit lets it hold.
+        abandon_gram_summary(state);
+        return Status::OK();
+    }
+    if (memory_reporter_ != nullptr) {
+        const Status reserved = gram_summary_reservation_.set_bytes(gram_summary_.resident_bytes());
+        if (reserved.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
+            abandon_gram_summary(state);
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(reserved);
+    }
+    return Status::OK();
+}
+
+Status LogicalIndexWriter::flush_streamed_block_bytes(BlockState* state) {
     if (state->inline_bytes.size() == 0) {
         RETURN_IF_ERROR(flush_block(state->block.get(), state->block_first_term));
         return state->inline_lengths.clear_reuse();
@@ -855,6 +952,9 @@ Status LogicalIndexWriter::process_term(StreamedTermPostings& tp, BlockState* st
 
     RETURN_IF_ERROR(reserve_term_hash_for_append());
     const uint64_t term_hash = format::bsbf_hash(tp.term);
+    if (dict_gram_summary_enabled_) {
+        RETURN_IF_ERROR(collect_term_grams(tp.term, st));
+    }
     DictEntry entry;
     FreqStats stats;
     StreamingTermEncoder encoder(this, &tp, term_has_prx, &st->transfer_buffer, st->frq_base,
@@ -1036,12 +1136,36 @@ Status LogicalIndexWriter::finalize_build() {
     std::vector<uint64_t>().swap(term_hashes_); // release
     term_hashes_reservation_.reset();
 
+    // The gram summary is written only where it can skip blocks (dict_gram_summary.h).
+    gram_summary_bytes_.clear();
+    gram_summary_built_ = false;
+    if (dict_gram_summary_enabled_ && gram_summary_.prunes()) {
+        ByteSink summary_sink;
+        gram_summary_.finish(&summary_sink);
+        if (summary_sink.size() * 100 <=
+            dict_buf_.size() * format::kDictGramSummaryMaxDictPercent) {
+            gram_summary_bytes_ = summary_sink.take();
+            if (memory_reporter_ != nullptr) {
+                RETURN_IF_ERROR(
+                        gram_summary_bytes_reservation_.set_bytes(gram_summary_bytes_.capacity()));
+            }
+            gram_summary_built_ = true;
+        }
+    }
+    gram_summary_ = format::DictGramSummaryBuilder {};
+    gram_summary_reservation_.reset();
+
     return Status::OK();
 }
 
 void LogicalIndexWriter::release_bsbf_bytes() {
     std::vector<uint8_t>().swap(bsbf_bytes_);
     bsbf_bytes_reservation_.reset();
+}
+
+void LogicalIndexWriter::release_dict_gram_summary_bytes() {
+    std::vector<uint8_t>().swap(gram_summary_bytes_);
+    gram_summary_bytes_reservation_.reset();
 }
 
 void LogicalIndexWriter::release_null_bitmap_bytes() {

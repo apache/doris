@@ -286,7 +286,7 @@ Status SniiIndexSource::expand_terms(index_query::TermPattern& pattern, int32_t 
                 *stop = max_expansions > 0 && out->size() == static_cast<size_t>(max_expansions);
                 return Status::OK();
             },
-            /*cache=*/nullptr, accept_key);
+            /*cache=*/nullptr, accept_key, required);
 }
 
 // A prefix reaching the marker enumerates internal terms; an empty one does when the dictionary

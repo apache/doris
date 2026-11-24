@@ -1515,6 +1515,10 @@ DECLARE_mInt32(snii_inline_read_max_segments);
 // Bigger blocks -> better per-block zstd on the dict region, larger cold
 // fetch+decompress unit per dict-block miss. Write side only.
 DECLARE_mInt32(snii_target_dict_block_bytes);
+// Write the SNII DICT gram summary, which lets a wildcard or regexp expansion skip the
+// dictionary blocks without the literal it must find. Write side only; segments without
+// one are walked in full.
+DECLARE_mBool(snii_dict_gram_summary);
 // Maximum process-memory share for SNII index builds. Above this share, writers with reclaimable posting arenas receive spill requests; zero disables the share trigger but keeps process-pressure backstops.
 DECLARE_mInt32(snii_index_build_max_memory_limit_percent);
 // Minimum reclaimable posting-arena size for a forced spill. Smaller requests remain pending.

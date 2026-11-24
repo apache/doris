@@ -42,6 +42,8 @@ struct SectionRefs {
     RegionRef norms;
     RegionRef null_bitmap;
     RegionRef bsbf;
+    // Optional: zero length when the index has no gram summary (dict_gram_summary.h).
+    RegionRef dict_gram_summary;
 };
 
 // Digest of the highest-df terms of one index: (hash, df) pairs small enough to travel with
