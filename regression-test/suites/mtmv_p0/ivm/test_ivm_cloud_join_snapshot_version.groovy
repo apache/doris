@@ -21,55 +21,55 @@ suite("test_ivm_cloud_join_snapshot_version", "nonConcurrent") {
         return
     }
 
-    sql "SET enable_materialized_view_rewrite = false"
-    sql "SET enable_dml_materialized_view_rewrite = false"
-
-    sql "DROP MATERIALIZED VIEW IF EXISTS ivm_cloud_join_snapshot_mv"
-    sql "DROP TABLE IF EXISTS ivm_cloud_join_snapshot_left"
-    sql "DROP TABLE IF EXISTS ivm_cloud_join_snapshot_right"
-
-    sql """
-        CREATE TABLE ivm_cloud_join_snapshot_left (k INT NOT NULL, v INT)
-        UNIQUE KEY(k)
-        DISTRIBUTED BY HASH(k) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "1",
-            "enable_unique_key_merge_on_write" = "true",
-            "changelog.enable" = "true",
-            "changelog.need_historical_value" = "true"
-        )
-    """
-    sql """
-        CREATE TABLE ivm_cloud_join_snapshot_right (k INT NOT NULL, v INT)
-        UNIQUE KEY(k)
-        DISTRIBUTED BY HASH(k) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "1",
-            "enable_unique_key_merge_on_write" = "true",
-            "changelog.enable" = "true",
-            "changelog.need_historical_value" = "true"
-        )
-    """
-    sql "INSERT INTO ivm_cloud_join_snapshot_left VALUES (1, 10)"
-    sql "INSERT INTO ivm_cloud_join_snapshot_right VALUES (1, 20)"
-
-    sql """
-        CREATE MATERIALIZED VIEW ivm_cloud_join_snapshot_mv
-        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 1
-        PROPERTIES ("replication_num" = "1")
-        AS
-        SELECT l.k AS k, COUNT(*) AS cnt, SUM(l.v + r.v) AS total
-        FROM ivm_cloud_join_snapshot_left l JOIN ivm_cloud_join_snapshot_right r ON l.k = r.k
-        WHERE l.v > 0
-        GROUP BY l.k
-    """
-    sql "REFRESH MATERIALIZED VIEW ivm_cloud_join_snapshot_mv COMPLETE"
-    waitingMTMVTaskFinishedByMvName("ivm_cloud_join_snapshot_mv")
-    order_qt_baseline "SELECT k, cnt, total FROM ivm_cloud_join_snapshot_mv"
-
-    // Keep the left partition's FE cache stale until the incremental refresh reads it.
+    // Disable syncing before the source tables are created so an existing sync batch cannot already contain them.
     setFeConfigTemporary([cloud_enable_version_syncer: false]) {
+        sql "SET enable_materialized_view_rewrite = false"
+        sql "SET enable_dml_materialized_view_rewrite = false"
+
+        sql "DROP MATERIALIZED VIEW IF EXISTS ivm_cloud_join_snapshot_mv"
+        sql "DROP TABLE IF EXISTS ivm_cloud_join_snapshot_left"
+        sql "DROP TABLE IF EXISTS ivm_cloud_join_snapshot_right"
+
+        sql """
+            CREATE TABLE ivm_cloud_join_snapshot_left (k INT NOT NULL, v INT)
+            UNIQUE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true",
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
+            )
+        """
+        sql """
+            CREATE TABLE ivm_cloud_join_snapshot_right (k INT NOT NULL, v INT)
+            UNIQUE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true",
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
+            )
+        """
+        sql "INSERT INTO ivm_cloud_join_snapshot_left VALUES (1, 10)"
+        sql "INSERT INTO ivm_cloud_join_snapshot_right VALUES (1, 20)"
+
+        sql """
+            CREATE MATERIALIZED VIEW ivm_cloud_join_snapshot_mv
+            BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+            AS
+            SELECT l.k AS k, COUNT(*) AS cnt, SUM(l.v + r.v) AS total
+            FROM ivm_cloud_join_snapshot_left l JOIN ivm_cloud_join_snapshot_right r ON l.k = r.k
+            WHERE l.v > 0
+            GROUP BY l.k
+        """
+        sql "REFRESH MATERIALIZED VIEW ivm_cloud_join_snapshot_mv COMPLETE"
+        waitingMTMVTaskFinishedByMvName("ivm_cloud_join_snapshot_mv")
+        order_qt_baseline "SELECT k, cnt, total FROM ivm_cloud_join_snapshot_mv"
+
         def skipCacheUpdate = "FE.CloudGlobalTransactionMgr.updateVersion.disabled"
         sql "INSERT INTO ivm_cloud_join_snapshot_right VALUES (7, 200)"
         try {
@@ -84,6 +84,7 @@ suite("test_ivm_cloud_join_snapshot_version", "nonConcurrent") {
         sql "REFRESH MATERIALIZED VIEW ivm_cloud_join_snapshot_mv INCREMENTAL"
         waitingMTMVTaskFinishedByMvName("ivm_cloud_join_snapshot_mv")
         order_qt_first_refresh "SELECT k, cnt, total FROM ivm_cloud_join_snapshot_mv"
+        order_qt_stale_left_partition_after_refresh "SELECT k FROM ivm_cloud_join_snapshot_left"
 
         sql "REFRESH MATERIALIZED VIEW ivm_cloud_join_snapshot_mv INCREMENTAL"
         waitingMTMVTaskFinishedByMvName("ivm_cloud_join_snapshot_mv")

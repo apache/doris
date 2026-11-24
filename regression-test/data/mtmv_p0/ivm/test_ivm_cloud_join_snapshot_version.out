@@ -13,6 +13,9 @@
 1	1	30
 7	1	300
 
+-- !stale_left_partition_after_refresh --
+1
+
 -- !second_refresh --
 1	1	30
 7	1	300
