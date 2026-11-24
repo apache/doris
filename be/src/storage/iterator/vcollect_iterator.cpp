@@ -555,15 +555,17 @@ Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
         _current++;
     } else {
         _ref.row_pos++;
-        if (_is_merge_iterator && _ref.row_pos < _block->rows()) {
-            _ref.is_same = _row_is_same[_ref.row_pos];
-        }
     }
 
     RETURN_IF_ERROR(refresh_current_row());
 
     if (_get_data_by_ref) {
         _ref = _block_view[_current];
+    } else if (_is_merge_iterator) {
+        // After refresh_current_row(): when the previous row ended its Block, the refresh read the
+        // next Block and cleared is_same, so a bit taken before it was lost.
+        DCHECK_LT(static_cast<size_t>(_ref.row_pos), _row_is_same.size());
+        _ref.is_same = _row_is_same[_ref.row_pos];
     }
 
     *ref = _ref;

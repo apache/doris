@@ -34,6 +34,7 @@
 #include "common/check.h"
 #include "io/io_common.h"
 #include "storage/index/ann/ann_index_files.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/snii/format/dict_entry.h"

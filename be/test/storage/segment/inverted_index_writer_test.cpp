@@ -49,6 +49,7 @@
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/clucene_terms.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_fs_directory.h"

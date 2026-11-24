@@ -253,8 +253,6 @@ public:
                        ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
     }
 
-    void erase(size_t start, size_t length) override;
-
     size_t serialize_impl(char* pos, const size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override;

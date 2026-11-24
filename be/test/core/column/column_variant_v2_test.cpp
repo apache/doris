@@ -1843,47 +1843,6 @@ TEST(ColumnVariantV2Test, CompositeShreddedSizeDoesNotRecountSegments) {
     EXPECT_EQ(*size_calls, 0);
 }
 
-TEST(ColumnVariantV2Test, EraseRemovesRowsInEveryState) {
-    // Encoded rows with two metadata dictionaries: the ids of the remaining rows stay valid.
-    auto encoded = ColumnVariantV2::create();
-    for (const char* json : {R"({"a":1})", "2", R"({"b":3})", "4", R"("five")"}) {
-        insert_encoded_field(*encoded, encode_json(json));
-    }
-    encoded->erase(0, 2);
-    ASSERT_EQ(encoded->size(), 3);
-    EXPECT_EQ(json_at(*encoded, 0), R"({"b":3})");
-    EXPECT_EQ(json_at(*encoded, 2), R"("five")");
-    encoded->erase(1, 1);
-    ASSERT_EQ(encoded->size(), 2);
-    EXPECT_EQ(json_at(*encoded, 1), R"("five")");
-    encoded->erase(2, 0);
-    EXPECT_EQ(encoded->size(), 2);
-    validate_encoded_column(*encoded);
-
-    constexpr std::array<int32_t, 4> VALUES {7, 8, 9, 10};
-    constexpr std::array<uint8_t, 4> NULLS {0, 1, 0, 0};
-    auto typed = typed_int32(VALUES, NULLS);
-    typed->erase(0, 2);
-    EXPECT_TRUE(typed->is_typed());
-    constexpr std::array<int32_t, 2> REMAINING {9, 10};
-    constexpr std::array<uint8_t, 2> REMAINING_NULLS {0, 0};
-    expect_int32_rows(*typed, REMAINING, REMAINING_NULLS);
-
-    auto rows = ColumnVariantV2::create();
-    for (const char* json : {"1", "2", "3"}) {
-        insert_encoded_field(*rows, encode_json(json));
-    }
-    auto calls = std::make_shared<size_t>(0);
-    auto shredded = ColumnVariantV2::create_shredded(
-            std::make_shared<MaterializingShreddedState>(rows->get_ptr(), calls));
-    shredded->erase(0, 1);
-    EXPECT_FALSE(shredded->is_shredded());
-    ASSERT_EQ(shredded->size(), 2);
-    EXPECT_EQ(json_at(*shredded, 0), "2");
-    EXPECT_EQ(json_at(*shredded, 1), "3");
-    EXPECT_EQ(rows->size(), 3);
-}
-
 TEST(ColumnVariantV2Test, CompositeValidatesSegmentsAfterFirstTypedMiss) {
     auto first_calls = std::make_shared<size_t>(0);
     auto second_calls = std::make_shared<size_t>(0);
@@ -2970,8 +2929,6 @@ TEST(ColumnVariantV2Test, TypedMutatorsDetachSharedNestedColumn) {
     constexpr std::array<uint8_t, 2> FIRST_TWO_NULLS {};
     exercise([](ColumnVariantV2& column) { column.pop_back(1); }, FIRST_TWO, FIRST_TWO_NULLS);
     exercise([](ColumnVariantV2& column) { column.resize(2); }, FIRST_TWO, FIRST_TWO_NULLS);
-    constexpr std::array<int32_t, 2> LAST_TWO {2, 3};
-    exercise([](ColumnVariantV2& column) { column.erase(0, 1); }, LAST_TWO, FIRST_TWO_NULLS);
     constexpr std::array<int32_t, 2> FILTERED {1, 3};
     constexpr std::array<uint8_t, 2> FILTERED_NULLS {};
     exercise(
@@ -3673,6 +3630,10 @@ TEST(ColumnVariantV2Test, ETCrossCheckTemporalClassMatrix) {
 
 TEST(ColumnVariantV2Test, TypedComparisonBoundariesMatchEncodedWithoutMaterializing) {
     auto check = [](const ColumnVariantV2::MutablePtr& typed) {
+        // IColumn::compare_at promises only the sign of its result. A typed STRING row compares
+        // with memcmp_small_allow_overflow15, which returns -1/0/1 on SSE2 but the raw byte
+        // difference elsewhere (aarch64), while the encoded comparison returns -1/0/1.
+        auto sign = [](int cmp) { return (cmp > 0) - (cmp < 0); };
         ASSERT_TRUE(typed->is_typed());
         const auto* original = &typed->typed_column();
         auto encoded = encoded_copy_of(*typed);
@@ -3680,10 +3641,10 @@ TEST(ColumnVariantV2Test, TypedComparisonBoundariesMatchEncodedWithoutMaterializ
         for (size_t right = 0; right < typed->size(); ++right) {
             for (int hint : {-1, 1}) {
                 for (size_t left = 0; left < typed->size(); ++left) {
-                    const int expected = encoded->compare_at(left, right, *encoded, hint);
-                    EXPECT_EQ(typed->compare_at(left, right, *typed, hint), expected);
-                    EXPECT_EQ(typed->compare_at(left, right, *encoded, hint), expected);
-                    EXPECT_EQ(encoded->compare_at(left, right, *typed, hint), expected);
+                    const int expected = sign(encoded->compare_at(left, right, *encoded, hint));
+                    EXPECT_EQ(sign(typed->compare_at(left, right, *typed, hint)), expected);
+                    EXPECT_EQ(sign(typed->compare_at(left, right, *encoded, hint)), expected);
+                    EXPECT_EQ(sign(encoded->compare_at(left, right, *typed, hint)), expected);
                 }
                 for (int direction : {-1, 1}) {
                     std::vector<uint8_t> typed_cmp(typed->size(), 0);
