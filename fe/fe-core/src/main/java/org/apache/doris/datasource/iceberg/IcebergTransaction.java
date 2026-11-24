@@ -58,6 +58,7 @@ import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.encryption.EncryptionManager;
+import org.apache.iceberg.exceptions.CleanableFailure;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
@@ -102,6 +103,7 @@ public class IcebergTransaction implements Transaction {
     private String branchName;
     private Long baseSnapshotId;
     private boolean hasStagedUpdates;
+    private boolean commitMayHaveSucceeded;
     private Map<String, List<DeleteFile>> rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
 
     // Rewrite operation support
@@ -701,11 +703,19 @@ public class IcebergTransaction implements Transaction {
                 if (!hasStagedUpdates) {
                     validatePinnedWriterMetadata();
                 }
+                // A REST catalog may publish metadata before its response is lost or malformed.
+                // From this point, only an SDK CleanableFailure proves that deletion is safe.
+                commitMayHaveSucceeded = true;
                 transaction.commitTransaction();
             });
         } catch (RuntimeException e) {
+            if (e instanceof CleanableFailure) {
+                commitMayHaveSucceeded = false;
+            }
+            cleanupReportedFiles();
             throw e;
         } catch (Exception e) {
+            cleanupReportedFiles();
             throw new UserException("Failed to commit Iceberg transaction: " + e.getMessage(), e);
         } finally {
             releaseWritableTableLease();
@@ -842,6 +852,7 @@ public class IcebergTransaction implements Transaction {
     @Override
     public void rollback() {
         try {
+            cleanupReportedFiles();
             if (isRewriteMode) {
                 // Clear the collected files for rewrite mode
                 synchronized (filesToDelete) {
@@ -852,9 +863,52 @@ public class IcebergTransaction implements Transaction {
                 }
                 LOG.info("Rewrite transaction rolled back");
             }
-            // For insert mode, do nothing as original implementation
         } finally {
             releaseWritableTableLease();
+        }
+    }
+
+    private void cleanupReportedFiles() {
+        List<TIcebergCommitData> pending;
+        synchronized (this) {
+            pending = new ArrayList<>(commitDataList);
+            commitDataList.clear();
+        }
+        Table rollbackTable = table;
+        if (commitMayHaveSucceeded) {
+            LOG.warn("Preserving {} reported Iceberg files because the commit may have succeeded", pending.size());
+            return;
+        }
+        if (rollbackTable == null || pending.isEmpty()) {
+            return;
+        }
+        Set<String> paths = new HashSet<>();
+        for (TIcebergCommitData data : pending) {
+            if (data != null && data.isSetFilePath() && data.getFilePath() != null
+                    && !data.getFilePath().isEmpty()) {
+                paths.add(data.getFilePath());
+            }
+        }
+        if (paths.isEmpty()) {
+            return;
+        }
+        try {
+            // Cleanup must finish before releasing the lease and its generation's FileIO.
+            // If begin failed before acquiring a lease, use the retained metadata ops' credentials.
+            ExecutionAuthenticator authenticator = writableTableLease == null
+                    ? ops.getExecutionAuthenticator() : writableAuthenticator();
+            authenticator.execute(() -> {
+                for (String path : paths) {
+                    try {
+                        rollbackTable.io().deleteFile(path);
+                    } catch (Exception e) {
+                        // Keep the original query failure; log cleanup failures for orphan maintenance.
+                        LOG.warn("Failed to delete uncommitted Iceberg file {}: {}", path, e.getMessage());
+                    }
+                }
+            });
+        } catch (Exception e) {
+            LOG.warn("Failed to clean reported Iceberg files: {}", e.getMessage());
         }
     }
 
