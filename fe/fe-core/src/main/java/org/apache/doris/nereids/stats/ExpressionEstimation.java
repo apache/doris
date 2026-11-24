@@ -342,8 +342,15 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     .setMaxValue(leftMax - rightMin).setMinExpr(null)
                     .setMaxExpr(null).build();
         }
+        boolean isMultiply = binaryArithmetic instanceof Multiply;
+        boolean isDivide = binaryArithmetic instanceof Divide || binaryArithmetic instanceof IntegralDivide;
+        if ((isMultiply || isDivide) && (leftColStats.isMinMaxInvalid() || rightColStats.isMinMaxInvalid())) {
+            // Unavailable endpoints can produce NaN or a spurious zero range in multiplication and division.
+            return new ColumnStatisticBuilder().setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
+                    .setNumNulls(numNulls).setDataSize(isDivide ? exprResultTypeWidth : dataSize).build();
+        }
         // TODO: stat for multiply and divide produced by below algorithm may have huge deviation with reality.
-        if (binaryArithmetic instanceof Multiply) {
+        if (isMultiply) {
             double min = Math.min(
                     Math.min(
                             Math.min(leftMin * rightMin, leftMin * rightMax),
@@ -358,7 +365,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(min).setMaxValue(max)
                     .setMaxExpr(null).setMinExpr(null).build();
         }
-        if (binaryArithmetic instanceof Divide || binaryArithmetic instanceof IntegralDivide) {
+        if (isDivide) {
             double min = Math.min(
                     Math.min(
                             Math.min(leftMin / noneZeroDivisor(rightMin), leftMin / noneZeroDivisor(rightMax)),

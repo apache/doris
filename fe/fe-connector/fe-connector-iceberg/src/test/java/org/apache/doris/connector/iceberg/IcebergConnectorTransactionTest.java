@@ -48,6 +48,7 @@ import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
@@ -223,6 +224,13 @@ public class IcebergConnectorTransactionTest {
             throw new AssertionError(e);
         }
         return files;
+    }
+
+    private static DataFile onlyAddedDataFile(Table table) {
+        List<DataFile> files = new ArrayList<>();
+        table.currentSnapshot().addedDataFiles(table.io()).forEach(files::add);
+        Assertions.assertEquals(1, files.size());
+        return files.get(0);
     }
 
     private static DataFile dataFile(PartitionSpec spec, String path, long records) {
@@ -765,6 +773,88 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void dataFilesDefaultToUnsortedWithoutABoundFileSortOrder() {
+        for (WriteOperation operation : Arrays.asList(
+                WriteOperation.INSERT, WriteOperation.OVERWRITE, WriteOperation.REWRITE)) {
+            InMemoryCatalog catalog = freshCatalog();
+            TableIdentifier id = TableIdentifier.of("db1", "t1");
+            Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                    props("format-version", "2", "write.format.default", "parquet"));
+            table.replaceSortOrder().asc("id").commit();
+            table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 1L)).commit();
+            IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+
+            txn.beginWrite(SESSION, "db1", "t1",
+                    operation == WriteOperation.REWRITE ? rewriteCtx() : pinnedCtx(operation, table));
+            if (operation == WriteOperation.REWRITE) {
+                txn.updateRewriteFiles(currentDataFiles(table));
+            }
+            txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/new.parquet", 1L, 1024L)));
+            txn.commit();
+
+            Table committed = catalog.loadTable(id);
+            Assertions.assertTrue(committed.sortOrder().isSorted());
+            Assertions.assertEquals(Integer.valueOf(0), onlyAddedDataFile(committed).sortOrderId(),
+                    operation + " must not claim the table order without a complete bound sorting plan");
+        }
+    }
+
+    @Test
+    public void dataFilesUseBoundFileSortOrderAfterDefaultOrderEvolution() {
+        for (WriteOperation operation : Arrays.asList(
+                WriteOperation.INSERT, WriteOperation.OVERWRITE, WriteOperation.REWRITE)) {
+            InMemoryCatalog catalog = freshCatalog();
+            TableIdentifier id = TableIdentifier.of("db1", "t1");
+            Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                    props("format-version", "2", "write.format.default", "parquet"));
+            table.replaceSortOrder().asc("id").commit();
+            SortOrder fileSortOrder = table.sortOrder();
+            table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 1L)).commit();
+            IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+
+            txn.beginWrite(SESSION, "db1", "t1",
+                    operation == WriteOperation.REWRITE ? rewriteCtx() : pinnedCtx(operation, table));
+            // Model the complete sorting plan recorded before the sink starts writing files.
+            txn.bindFileSortOrder(fileSortOrder);
+            if (operation == WriteOperation.REWRITE) {
+                txn.updateRewriteFiles(currentDataFiles(table));
+            }
+            catalog.loadTable(id).replaceSortOrder().desc("name").commit();
+            txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/new.parquet", 1L, 1024L)));
+            txn.commit();
+
+            Table committed = catalog.loadTable(id);
+            Assertions.assertNotEquals(fileSortOrder.orderId(), committed.sortOrder().orderId());
+            Assertions.assertEquals(Integer.valueOf(fileSortOrder.orderId()),
+                    onlyAddedDataFile(committed).sortOrderId(),
+                    operation + " must describe the executed order instead of the new table default");
+        }
+    }
+
+    @Test
+    public void rowLevelDataFilesUseBoundUnsortedOrderOnSortedTables() {
+        for (WriteOperation operation : Arrays.asList(WriteOperation.UPDATE, WriteOperation.MERGE)) {
+            InMemoryCatalog catalog = freshCatalog();
+            TableIdentifier id = TableIdentifier.of("db1", "t1");
+            Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                    props("format-version", "2", "write.format.default", "parquet"));
+            table.replaceSortOrder().asc("id").commit();
+            table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 1L)).commit();
+            IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+
+            txn.beginWrite(SESSION, "db1", "t1", pinnedCtx(operation, table));
+            txn.bindFileSortOrder(SortOrder.unsorted());
+            txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/new.parquet", 1L, 1024L)));
+            txn.commit();
+
+            Table committed = catalog.loadTable(id);
+            Assertions.assertTrue(committed.sortOrder().isSorted());
+            Assertions.assertEquals(Integer.valueOf(0), onlyAddedDataFile(committed).sortOrderId(),
+                    operation + " must not claim a table order that its data writer did not execute");
+        }
+    }
+
+    @Test
     public void insertToBranchCommitsOnBranch() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
@@ -806,6 +896,7 @@ public class IcebergConnectorTransactionTest {
         IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
 
         txn.beginWrite(SESSION, "db1", "t1", ctx);
+        txn.bindFileSortOrder(ctx.getWriteSchemaContext().getSortOrder());
         txn.addCommitData(commitBytes(
                 dataFileItem("s3://b/db1/t1/id=7/f1.orc", 1L, 1024L, Collections.singletonList("7"))));
         txn.commit();
@@ -2577,6 +2668,45 @@ public class IcebergConnectorTransactionTest {
         Assertions.assertEquals(loadsAfterFirst, ops.log.stream().filter("loadTable:db1.t1"::equals).count(),
                 "begin-once: the table must be loaded exactly once");
         Assertions.assertEquals(expected, txn.getStartingSnapshotId(), "OCC anchor must stay pinned to S1");
+    }
+
+    @Test
+    public void sharedRewriteGroupsCannotReplaceTheBoundFileSortOrder() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("format-version", "2", "write.format.default", "parquet"));
+        table.replaceSortOrder().asc("id").commit();
+        SortOrder fileSortOrder = table.sortOrder();
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 2L)).commit();
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.bindFileSortOrder(fileSortOrder);
+        txn.updateRewriteFiles(currentDataFiles(table));
+        txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/group1.parquet", 1L, 1024L)));
+
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        SortOrder sameOrder = SortOrder.builderFor(SCHEMA)
+                .withOrderId(fileSortOrder.orderId()).asc("id").build();
+        Assertions.assertDoesNotThrow(() -> txn.bindFileSortOrder(sameOrder));
+        txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/group2.parquet", 1L, 1024L)));
+
+        SortOrder differentId = SortOrder.builderFor(SCHEMA)
+                .withOrderId(fileSortOrder.orderId() + 1).asc("id").build();
+        SortOrder differentDefinition = SortOrder.builderFor(SCHEMA)
+                .withOrderId(fileSortOrder.orderId()).desc("id").build();
+        Assertions.assertThrows(IllegalStateException.class, () -> txn.bindFileSortOrder(differentId));
+        Assertions.assertThrows(IllegalStateException.class, () -> txn.bindFileSortOrder(differentDefinition));
+        Assertions.assertDoesNotThrow(() -> txn.bindFileSortOrder(fileSortOrder),
+                "a rejected group must not replace the order already bound for earlier fragments");
+        txn.commit();
+
+        List<DataFile> files = currentDataFiles(catalog.loadTable(id));
+        Assertions.assertEquals(2, files.size());
+        for (DataFile file : files) {
+            Assertions.assertEquals(Integer.valueOf(fileSortOrder.orderId()), file.sortOrderId());
+        }
     }
 
     @Test

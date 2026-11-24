@@ -1,0 +1,228 @@
+Isolate remote GetInfo state per connection. The driver/database map remains immutable,
+so connection-open readers cannot race with vendor writes and unsupported servers cannot
+inherit a previous server's identity. Advertise local capability 0x444f0001 for FE's guard.
+
+--- a/go/adbc/driver/internal/driverbase/driver_info.go
++++ b/go/adbc/driver/internal/driverbase/driver_info.go
+@@ -103,0 +104,9 @@
++// Clone preserves immutable driver defaults without sharing server information between connections.
++func (di *DriverInfo) Clone() *DriverInfo {
++	info := make(map[adbc.InfoCode]any, len(di.info))
++	for code, value := range di.info {
++		info[code] = value
++	}
++	return &DriverInfo{name: di.name, info: info}
++}
++
+--- a/go/adbc/driver/internal/driverbase/connection.go
++++ b/go/adbc/driver/internal/driverbase/connection.go
+@@ -134 +134,2 @@
+-		DriverInfo:  database.DriverInfo,
++		// GetInfo prepares remote values; neither another connection nor database-level readers may share them.
++		DriverInfo:  database.DriverInfo.Clone(),
+--- /dev/null
++++ b/go/adbc/driver/internal/driverbase/driver_info_isolation_test.go
+@@ -0,0 +1,63 @@
++// Licensed to the Apache Software Foundation (ASF) under one
++// or more contributor license agreements.  See the NOTICE file
++// distributed with this work for additional information
++// regarding copyright ownership.  The ASF licenses this file
++// to you under the Apache License, Version 2.0 (the
++// "License"); you may not use this file except in compliance
++// with the License.  You may obtain a copy of the License at
++//
++//   http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing,
++// software distributed under the License is distributed on an
++// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++// KIND, either express or implied.  See the License for the
++// specific language governing permissions and limitations
++// under the License.
++
++package driverbase
++
++import (
++	"sync"
++	"testing"
++
++	"github.com/apache/arrow-adbc/go/adbc"
++)
++
++func TestConnectionDriverInfoIsolated(t *testing.T) {
++	shared := DefaultDriverInfo("Flight SQL")
++	database := &DatabaseImplBase{DriverInfo: shared}
++	first := NewConnectionImplBase(database)
++	second := NewConnectionImplBase(database)
++	if err := first.DriverInfo.RegisterInfoCode(adbc.InfoVendorName, "DorisFE"); err != nil {
++		t.Fatal(err)
++	}
++	for name, info := range map[string]*DriverInfo{"driver": shared, "second connection": second.DriverInfo} {
++		got, _ := info.GetInfoForInfoCode(adbc.InfoVendorName)
++		if got != "Flight SQL" {
++			t.Fatalf("%s inherited another connection's vendor: %v", name, got)
++		}
++	}
++}
++
++func TestConnectionDriverInfoConcurrentReadersAndWriters(t *testing.T) {
++	shared := DefaultDriverInfo("Flight SQL")
++	database := &DatabaseImplBase{DriverInfo: shared}
++	var done sync.WaitGroup
++	for worker := 0; worker < 16; worker++ {
++		done.Add(1)
++		go func() {
++			defer done.Done()
++			connection := NewConnectionImplBase(database)
++			for round := 0; round < 1000; round++ {
++				if err := connection.DriverInfo.RegisterInfoCode(adbc.InfoVendorName, "DorisFE"); err != nil {
++					t.Error(err)
++					return
++				}
++				shared.GetInfoForInfoCode(adbc.InfoDriverVersion)
++				shared.InfoSupportedCodes()
++			}
++		}()
++	}
++	done.Wait()
++}
+--- a/go/adbc/driver/flightsql/flightsql_driver.go
++++ b/go/adbc/driver/flightsql/flightsql_driver.go
+@@ -117,0 +118,4 @@
++	// Doris probes this local capability before requesting mutable remote vendor information.
++	if err := info.RegisterInfoCode(adbc.InfoCode(0x444f0001), true); err != nil {
++		panic(err)
++	}
+--- /dev/null
++++ b/go/adbc/driver/flightsql/doris_info_isolation_test.go
+@@ -0,0 +1,130 @@
++// Licensed to the Apache Software Foundation (ASF) under one
++// or more contributor license agreements.  See the NOTICE file
++// distributed with this work for additional information
++// regarding copyright ownership.  The ASF licenses this file
++// to you under the Apache License, Version 2.0 (the
++// "License"); you may not use this file except in compliance
++// with the License.  You may obtain a copy of the License at
++//
++//   http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing,
++// software distributed under the License is distributed on an
++// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++// KIND, either express or implied.  See the License for the
++// specific language governing permissions and limitations
++// under the License.
++
++package flightsql_test
++
++import (
++	"context"
++	"sync"
++	"testing"
++
++	"github.com/apache/arrow-adbc/go/adbc"
++	driver "github.com/apache/arrow-adbc/go/adbc/driver/flightsql"
++	"github.com/apache/arrow-go/v18/arrow/array"
++	"github.com/apache/arrow-go/v18/arrow/flight"
++	"github.com/apache/arrow-go/v18/arrow/flight/flightsql"
++	"github.com/apache/arrow-go/v18/arrow/memory"
++	"github.com/stretchr/testify/require"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/status"
++)
++
++type dorisUnsupportedInfoServer struct{ flightsql.BaseServer }
++
++func (*dorisUnsupportedInfoServer) GetFlightInfoSqlInfo(context.Context, flightsql.GetSqlInfo, *flight.FlightDescriptor) (*flight.FlightInfo, error) {
++	return nil, status.Error(codes.Unimplemented, "SQL info unsupported")
++}
++
++func dorisInfoServer(t *testing.T, supported bool) string {
++	t.Helper()
++	server := flight.NewServerWithMiddleware(nil)
++	base := flightsql.BaseServer{Alloc: memory.DefaultAllocator}
++	if supported {
++		require.NoError(t, base.RegisterSqlInfo(flightsql.SqlInfoFlightSqlServerName, "DorisFE"))
++		require.NoError(t, base.RegisterSqlInfo(flightsql.SqlInfoFlightSqlServerTransaction, int32(0)))
++		server.RegisterFlightService(flightsql.NewFlightServer(&base))
++	} else {
++		server.RegisterFlightService(flightsql.NewFlightServer(&dorisUnsupportedInfoServer{BaseServer: base}))
++	}
++	require.NoError(t, server.Init("127.0.0.1:0"))
++	done := make(chan struct{})
++	go func() { defer close(done); _ = server.Serve() }()
++	t.Cleanup(func() { server.Shutdown(); <-done })
++	return "grpc+tcp://" + server.Addr().String()
++}
++
++func dorisReadVendor(connection adbc.Connection) (string, error) {
++	reader, err := connection.GetInfo(context.Background(), []adbc.InfoCode{adbc.InfoVendorName})
++	if err != nil {
++		return "", err
++	}
++	defer reader.Release()
++	for reader.Next() {
++		record := reader.RecordBatch()
++		values := record.Column(1).(*array.DenseUnion)
++		for row := 0; row < int(record.NumRows()); row++ {
++			if record.Column(0).(*array.Uint32).Value(row) == uint32(adbc.InfoVendorName) {
++				strings := values.Field(values.ChildID(row)).(*array.String)
++				return strings.Value(int(values.ValueOffset(row))), nil
++			}
++		}
++	}
++	return "", reader.Err()
++}
++
++func TestDorisFlightSqlVendorInfoDoesNotLeak(t *testing.T) {
++	native := driver.NewDriver(memory.DefaultAllocator)
++	first, err := native.NewDatabase(map[string]string{"uri": dorisInfoServer(t, true)})
++	require.NoError(t, err)
++	defer first.Close()
++	a, err := first.Open(context.Background())
++	require.NoError(t, err)
++	defer a.Close()
++	vendor, err := dorisReadVendor(a)
++	require.NoError(t, err)
++	require.Equal(t, "DorisFE", vendor)
++	second, err := native.NewDatabase(map[string]string{"uri": dorisInfoServer(t, false)})
++	require.NoError(t, err)
++	defer second.Close()
++	b, err := second.Open(context.Background())
++	require.NoError(t, err)
++	defer b.Close()
++	vendor, err = dorisReadVendor(b)
++	require.NoError(t, err)
++	require.Equal(t, "Flight SQL", vendor, "An unsupported server must not inherit another server's vendor")
++}
++
++func TestDorisFlightSqlMixedConnectionsAndProbes(t *testing.T) {
++	native := driver.NewDriver(memory.DefaultAllocator)
++	database, err := native.NewDatabase(map[string]string{"uri": dorisInfoServer(t, true)})
++	require.NoError(t, err)
++	defer database.Close()
++	var done sync.WaitGroup
++	for worker := 0; worker < 16; worker++ {
++		done.Add(1)
++		go func(probe bool) {
++			defer done.Done()
++			for round := 0; round < 16; round++ {
++				connection, err := database.Open(context.Background())
++				if err != nil {
++					t.Error(err)
++					return
++				}
++				if probe {
++					_, err = dorisReadVendor(connection)
++					if err != nil {
++						t.Error(err)
++					}
++				}
++				if err = connection.Close(); err != nil {
++					t.Error(err)
++				}
++			}
++		}(worker == 0)
++	}
++	done.Wait()
++}

@@ -230,9 +230,9 @@ class LanceRestCatalogTest {
     }
 
     /**
-     * A described table access serves the later statements until its TTL runs out or a refresh: REFRESH TABLE and
-     * REFRESH DATABASE describe the table again, and so does the new generation REFRESH CATALOG opens. With a TTL
-     * of 0 every statement describes it.
+     * A described table access serves the later statements until its TTL runs out or a refresh: REFRESH TABLE,
+     * DATABASE and CATALOG each open a new generation, which describes the table again. With a TTL of 0 every
+     * statement describes it.
      */
     @Test
     void describedAccessServesLaterStatementsUntilARefresh() throws IOException {

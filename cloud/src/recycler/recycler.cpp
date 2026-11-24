@@ -6841,7 +6841,12 @@ int InstanceRecycler::scan_and_recycle(
     };
 
     std::unique_ptr<RangeGetIterator> it;
-    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
+    while (it == nullptr || it->more()) {
+        if (stopped()) {
+            err = "recycler stopped before scan completed";
+            ret = -1;
+            return ret;
+        }
         if (get_range_retried > 1000) {
             err = "txn_get exceeds max retry(1000), may not scan all keys";
             ret = -3;

@@ -126,22 +126,22 @@ public final class LanceConnector implements Connector {
     }
 
     /**
-     * REFRESH DATABASE: every table is described again on its next read, and the Session keeps its cached
-     * metadata. That is safe while a dataset lives: a committed version never changes, and a read of the newest
-     * version still finds the newest one. A dataset deleted and written again at the same URI starts its
-     * versions over, though, and for one with V1 manifest names Lance keys a version's index list by the version
-     * alone, so the Session can serve the deleted dataset's indexes for the new one: that case needs REFRESH
-     * CATALOG ({@link #invalidateAll}).
+     * REFRESH DATABASE: retires the generation, as {@link #invalidateAll} does. Describing the tables again would
+     * not be enough, because the Session can serve the metadata of a deleted dataset for one written again at the
+     * same URI. The new dataset starts its versions over, and for one with V1 manifest names Lance keys a
+     * version's index list by the URI and the version alone. A filtered scan of the new dataset would then be
+     * planned over index segments it does not have, and the BE refuses such a range. A Lance Session cannot drop
+     * the entries of one dataset, so every table of the catalog starts cold again.
      */
     @Override
     public void invalidateDb(String dbName) {
-        client.invalidateTableAccess();
+        client.refresh();
     }
 
-    /** REFRESH TABLE: as {@link #invalidateDb}, for every table, since a described table access is cheap. */
+    /** REFRESH TABLE: retires the generation, for the reason {@link #invalidateDb} gives. */
     @Override
     public void invalidateTable(String dbName, String tableName) {
-        client.invalidateTableAccess();
+        client.refresh();
     }
 
     @Override

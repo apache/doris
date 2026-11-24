@@ -44,9 +44,21 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.ConnectorFactory;
+import org.apache.doris.connector.PluginFileFormat;
+import org.apache.doris.connector.spi.ConnectorFileSource;
+import org.apache.doris.connector.spi.ConnectorFileSourceOps;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.PluginFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
+import org.apache.doris.datasource.scan.PluginDrivenScanNode;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileEntry;
@@ -95,6 +107,7 @@ import org.apache.thrift.TSerializer;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -136,6 +149,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     public FileFormatProperties fileFormatProperties;
     private String hiveParquetTimeZone = "";
     private long tableId;
+    /** The reader of this table function's format when a connector plugin claims it; null for the engine's own. */
+    private PluginFileFormat pluginFormat;
+    /** What that plugin resolved {@link #filePath} to; see {@link #readPluginFormat}. */
+    private ConnectorTableHandle pluginTableHandle;
 
     public abstract TFileType getTFileType();
 
@@ -168,15 +185,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
-            // "Object storage" here means an S3-compatible binding (S3/OSS/OBS/COS/GCS/MinIO/
-            // Ozone) — the exact implementor set of the legacy object-storage marker interface;
-            // Azure deliberately stays excluded, matching the legacy instanceof check.
-            StorageAdapter storageAdapter = brokerDesc.getStorageAdapter();
-            if (storageAdapter != null
-                    && storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties) {
-                S3Util.validateAndTestEndpoint(
-                        ((S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties()).getEndpoint());
-            }
+            validateEndpoint(brokerDesc);
             if (files != null) {
                 fileStatuses.addAll(files);
                 return;
@@ -214,6 +223,84 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
 
+    /**
+     * The endpoint white list and SSRF check of an object-storage location, which the FE reaches before any BE
+     * does: listing its files, or a plugin reading the data set there.
+     */
+    private static void validateEndpoint(BrokerDesc brokerDesc) throws UserException {
+        // "Object storage" here means an S3-compatible binding (S3/OSS/OBS/COS/GCS/MinIO/
+        // Ozone) — the exact implementor set of the legacy object-storage marker interface;
+        // Azure deliberately stays excluded, matching the legacy instanceof check.
+        StorageAdapter storageAdapter = brokerDesc.getStorageAdapter();
+        if (storageAdapter != null
+                && storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties) {
+            S3Util.validateAndTestEndpoint(
+                    ((S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties()).getEndpoint());
+        }
+    }
+
+    /** Whether a connector plugin reads this table function's format; see {@link #readPluginFormat}. */
+    public boolean isPluginFormat() {
+        return pluginFormat != null;
+    }
+
+    /**
+     * Hands the location to the plugin that reads this table function's format, after the endpoint check a listing
+     * gets, and takes the columns from what the plugin resolved. The plugin interprets the data set as a whole, so
+     * nothing is listed, and it pins what the statement reads.
+     */
+    protected void readPluginFormat() throws AnalysisException {
+        // s3() reports FILE_S3 whatever it binds, Azure included, and rewrites an Azure location to
+        // s3://container/path, which a plugin would read with no S3 storage at all.
+        if (!(storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties)) {
+            throw pluginFormatOutsideS3(pluginFormat.getFormat());
+        }
+        long startAt = System.currentTimeMillis();
+        try {
+            validateEndpoint(getBrokerDesc());
+            ConnectorFileSource source = new ConnectorFileSource(pluginFormat.getFormat(), filePath,
+                    Collections.singletonList(storageAdapter.getSpiProperties()), backendConnectProperties);
+            ConnectorSession session = pluginFormat.buildSession();
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, pluginFormat.getConnector());
+            pluginTableHandle = ((ConnectorFileSourceOps) metadata).getFileTableHandle(session, source);
+            List<Column> pluginColumns = ConnectorColumnConverter.convertColumns(
+                    metadata.getTableSchema(session, pluginTableHandle).getColumns());
+            // Kept in the plugin's spelling; names that differ only in case are refused, as a file's are.
+            Set<String> columnLowerNames = new HashSet<>();
+            for (Column column : pluginColumns) {
+                addColumnLowerName(columnLowerNames, column.getName());
+            }
+            columns = pluginColumns;
+        } catch (UserException e) {
+            throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
+        } catch (DorisConnectorException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        } finally {
+            SummaryProfile profile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+            if (profile != null) {
+                profile.addExternalTvfInitTime(System.currentTimeMillis() - startAt);
+            }
+        }
+    }
+
+    /** A plugin reads its data set from object storage by the S3 vocabulary, which only s3() hands over. */
+    private static AnalysisException pluginFormatOutsideS3(String format) {
+        return new AnalysisException("Format " + format + " is read only by the s3() table function,"
+                + " or by file() over S3-compatible storage");
+    }
+
+    /**
+     * Records a column's name in lower case and returns it, refusing a name another column already took: Doris
+     * resolves column names regardless of case, so two columns whose names differ only in case cannot be told apart.
+     */
+    private static String addColumnLowerName(Set<String> columnLowerNames, String columnName) {
+        String colLowerName = columnName.toLowerCase();
+        if (!columnLowerNames.add(colLowerName)) {
+            throw new NotSupportedException("Repeated lowercase column names: " + colLowerName);
+        }
+        return colLowerName;
+    }
+
     // The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
         Map<String, String> mergedProperties = Maps.newHashMap();
@@ -233,7 +320,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         tableId = Long.valueOf(getOrDefaultAndRemove(copiedProps, PROP_TABLE_ID, "-1"));
 
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
-        fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
+        pluginFormat = ConnectorFactory.getFileFormat(formatString).orElse(null);
+        if (pluginFormat != null) {
+            // No other table function hands a data set over, and file() reaches here through s3() for object
+            // storage. readPluginFormat checks the binding, which may be Azure.
+            if (getTFileType() != TFileType.FILE_S3) {
+                throw pluginFormatOutsideS3(formatString);
+            }
+            fileFormatProperties = new PluginFileFormatProperties(formatString);
+        } else {
+            fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
+        }
 
         // Logical file types retain binary bytes and instant semantics regardless of legacy flags.
         copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY);
@@ -266,6 +363,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                         .map(String::trim)
                         .collect(Collectors.toList()))
                 .orElse(Lists.newArrayList());
+        if (pluginFormat != null && !pathPartitionKeys.isEmpty()) {
+            throw new AnalysisException("'" + FileFormatConstants.PROP_PATH_PARTITION_KEYS
+                    + "' is not supported for format " + formatString);
+        }
         this.processedParams = new HashMap<>(copiedProps);
         return copiedProps;
     }
@@ -291,6 +392,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
+        if (pluginFormat != null) {
+            // Planned by the plugin through the connector scan interfaces, as the query() table function is.
+            return new PluginDrivenScanNode(id, desc, false, sv,
+                    ScanContext.builder().clusterName(sv.resolveCloudClusterName())
+                            .beExecVersion(ConnectContext.get().getStatementContext().getBeExecVersion())
+                            .build(),
+                    pluginFormat.getConnector(), pluginFormat.buildSession(), pluginTableHandle);
+        }
         return new TVFScanNode(id, desc, false, sv,
                 ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
     }
@@ -495,16 +604,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
             String originalColName = result.getColumnNames(idx);
-            String colLowerName = originalColName.toLowerCase();
-            // Since doris does not distinguish between upper and lower case columns when querying, in order to avoid
-            // query ambiguity, two columns with the same name but different capitalization are not allowed.
-            if (columnLowerNames.contains(colLowerName)) {
-                throw new NotSupportedException("Repeated lowercase column names: " + colLowerName);
-            } else {
-                columnLowerNames.add(colLowerName);
-                String colName = preserveColumnCase ? originalColName : colLowerName;
-                columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
-            }
+            String colLowerName = addColumnLowerName(columnLowerNames, originalColName);
+            String colName = preserveColumnCase ? originalColName : colLowerName;
+            columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
         }
         // add path columns
         // HACK(tsy): path columns are all treated as STRING type now, after BE supports reading all columns

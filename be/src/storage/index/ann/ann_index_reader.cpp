@@ -80,7 +80,14 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
         RETURN_IF_ERROR(_index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
         auto source = _index_file_reader->open_ann_source(&_index_meta, io_ctx);
         if (!source.has_value()) {
-            return Status::IOError("Failed to open index file: {}", source.error().to_string());
+            // SNII reports an absent logical index separately from an absent container.
+            // Normalize only this lookup failure; missing files inside an ANN index are errors.
+            if (source.error().is<ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND>()) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                        "ANN index {} is missing: {}", _index_meta.index_id(),
+                        source.error().to_string());
+            }
+            return source.error();
         }
         _vector_index = std::make_unique<FaissVectorIndex>();
         _vector_index->set_metric(_metric_type);
@@ -99,18 +106,6 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
         _source = std::move(*source);
         return Status::OK();
     });
-}
-
-bool AnnIndexReader::try_load_index(io::IOContext* io_ctx) {
-#ifndef BE_TEST
-    Status st = load_index(io_ctx);
-    if (!st.ok()) {
-        LOG_WARNING("Failed to load ann index, will fallback to brute force search: {}",
-                    st.to_string());
-        return false;
-    }
-#endif
-    return true;
 }
 
 Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnIndexStats* stats) {

@@ -181,7 +181,7 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         Map<Long, Long> rowCountEstimates = streamWrapper.estimateChangelogRead(
                 selectedPartitionIds, offsetMap, streamScanType);
         OlapChangelogTableWrapper table =
-                new OlapChangelogTableWrapper(baseTable, makePartitionScanStates(
+                OlapChangelogTableWrapper.forStream(baseTable, makePartitionScanStates(
                         streamWrapper, selectedPartitionIds, offsetMap, rowCountEstimates));
         Map<String, String> scanParams = new HashMap<>();
         scanParams.put(OlapScanNode.OLAP_INCREMENT_TYPE, streamScanType.toString());

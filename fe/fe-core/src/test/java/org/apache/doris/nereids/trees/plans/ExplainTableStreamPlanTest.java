@@ -464,6 +464,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             if (!(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)) {
                 continue;
             }
+            Assertions.assertTrue(((OlapChangelogTableWrapper) scanNode.getOlapTable()).isStreamScan());
             List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);
             Assertions.assertFalse(locations.isEmpty());
             for (TScanRangeLocations loc : locations) {
@@ -744,6 +745,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             if (!(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)) {
                 continue;
             }
+            Assertions.assertFalse(((OlapChangelogTableWrapper) scanNode.getOlapTable()).isStreamScan());
             List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);
             Assertions.assertFalse(locations.isEmpty());
             for (TScanRangeLocations loc : locations) {
@@ -917,6 +919,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         Assertions.assertEquals(mow ? 1 : 0, changelogScans.size());
         for (LogicalOlapScan scan : changelogScans) {
             OlapChangelogTableWrapper wrapper = (OlapChangelogTableWrapper) scan.getTable();
+            Assertions.assertFalse(wrapper.isStreamScan());
             Assertions.assertFalse(wrapper.getPartitionIds().isEmpty());
             for (Long partitionId : wrapper.getPartitionIds()) {
                 Assertions.assertEquals(Pair.of(exclusiveBound, null), wrapper.getPartitionOffset(partitionId));

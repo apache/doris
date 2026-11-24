@@ -132,7 +132,7 @@ TEST_F(ColumnTest, ShrinkColumnString) {
 
     shrunk_col = shrunk_col->shrink(10);
     EXPECT_EQ(shrunk_col->size(), 10);
-    EXPECT_EQ(shrunk_col->use_count(), 1);
+    EXPECT_TRUE(shrunk_col->is_exclusive());
     EXPECT_EQ(shrunk_col->get_data_at(0), StringRef("aaa"));
     EXPECT_EQ(shrunk_col->get_data_at(1), StringRef("bb"));
     // column string scale in will not clear
@@ -146,7 +146,7 @@ TEST_F(ColumnTest, ShrinkColumnInt64) {
 
     shrunk_col = col_int->shrink(10);
     EXPECT_EQ(shrunk_col->size(), 10);
-    EXPECT_EQ(shrunk_col->use_count(), 1);
+    EXPECT_TRUE(shrunk_col->is_exclusive());
     EXPECT_EQ(static_cast<const ColumnInt64*>(shrunk_col.get())->get_element(0), 1);
     EXPECT_EQ(static_cast<const ColumnInt64*>(shrunk_col.get())->get_element(1), 2);
     // column vector scale out will not empty init
@@ -162,7 +162,7 @@ TEST_F(ColumnTest, ShrinkColumnDecimal64) {
 
     shrunk_col = col_dcm->shrink(10);
     EXPECT_EQ(shrunk_col->size(), 10);
-    EXPECT_EQ(shrunk_col->use_count(), 1);
+    EXPECT_TRUE(shrunk_col->is_exclusive());
     EXPECT_EQ(static_cast<const ColumnDecimal64*>(shrunk_col.get())->get_element(0),
               Decimal64(1.23));
     EXPECT_EQ(static_cast<const ColumnDecimal64*>(shrunk_col.get())->get_element(1),

@@ -18,6 +18,7 @@
 package org.apache.doris.connector.lance;
 
 import org.apache.doris.connector.spi.ConnectorSecuritySurface;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,29 @@ class LanceConnectorProviderTest {
     void typeIsLance() {
         Assertions.assertEquals("lance", new LanceConnectorProvider().getType());
         Assertions.assertEquals("lance", new LanceConnectorProvider().name());
+    }
+
+    /**
+     * The file table functions read {@code format = "lance"} through the plugin. The engine builds the format's
+     * connector when a statement first names the format: building it reads neither storage nor lance.conf.
+     */
+    @Test
+    void readsTheLanceFileFormatAndBuildsItsConnectorWithoutReadingAnything() {
+        LanceConnectorProvider provider = new LanceConnectorProvider();
+        Assertions.assertEquals(Collections.singleton("lance"), provider.getFileFormats());
+        LanceTestContext unreachable = new LanceTestContext() {
+            @Override
+            public ConnectorStorageContext getStorageContext() {
+                throw new AssertionError("building the file format connector must not bind storage properties");
+            }
+
+            @Override
+            public Map<String, String> getConnectorConfig() {
+                throw new AssertionError("building the file format connector must not read lance.conf");
+            }
+        };
+        Assertions.assertTrue(provider.createFileFormatConnector("lance", unreachable)
+                instanceof LanceFileFormatConnector);
     }
 
     /**

@@ -45,11 +45,8 @@ public:
                    uint32_t segment_id = 0, size_t rows_of_segment = 0);
     ~AnnIndexReader() override = default;
 
+    // Only INVERTED_INDEX_FILE_NOT_FOUND permits the caller to fall back to a scan.
     Status load_index(io::IOContext* io_ctx);
-
-    // Try to load index, return true if successful, false if failed
-    // This method is used to check if index can be loaded before query
-    bool try_load_index(io::IOContext* io_ctx);
 
     Status query(io::IOContext* io_ctx, AnnTopNParam* param, AnnIndexStats* stats);
 

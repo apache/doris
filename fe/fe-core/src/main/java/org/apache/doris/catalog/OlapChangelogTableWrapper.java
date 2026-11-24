@@ -39,17 +39,34 @@ import java.util.stream.Collectors;
 public class OlapChangelogTableWrapper extends OlapTableWrapper {
 
     private final MaterializedIndexMeta changelogIndexMeta;
+    private final boolean streamScan;
 
     public OlapChangelogTableWrapper(OlapTable originTable) {
         this(originTable, Collections.emptyMap());
     }
 
     public OlapChangelogTableWrapper(OlapTable originTable, Map<Long, PartitionScanState> partitionScanStates) {
+        this(originTable, partitionScanStates, false);
+    }
+
+    /** Build the changelog branch of a stream read or its snapshot reconstruction. */
+    public static OlapChangelogTableWrapper forStream(OlapTable originTable,
+            Map<Long, PartitionScanState> partitionScanStates) {
+        return new OlapChangelogTableWrapper(originTable, partitionScanStates, true);
+    }
+
+    private OlapChangelogTableWrapper(OlapTable originTable, Map<Long, PartitionScanState> partitionScanStates,
+            boolean streamScan) {
         super(originTable, originTable.getName(), originTable.getChangelogIndexMeta().getSchema(), KeysType.DUP_KEYS,
                 partitionScanStates);
         this.changelogIndexMeta = originTable.getChangelogIndexMeta();
+        this.streamScan = streamScan;
         Preconditions.checkNotNull(changelogIndexMeta, "changelog meta is null, table=%s", originTable.getName());
         this.setBaseIndexId(changelogIndexMeta.getIndexId());
+    }
+
+    public boolean isStreamScan() {
+        return streamScan;
     }
 
     @Override
@@ -103,11 +120,11 @@ public class OlapChangelogTableWrapper extends OlapTableWrapper {
             return false;
         }
         OlapChangelogTableWrapper other = (OlapChangelogTableWrapper) obj;
-        return changelogIndexMeta.equals(other.changelogIndexMeta);
+        return streamScan == other.streamScan && changelogIndexMeta.equals(other.changelogIndexMeta);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), changelogIndexMeta.getChangelogIndexId());
+        return Objects.hash(super.hashCode(), changelogIndexMeta.getChangelogIndexId(), streamScan);
     }
 }

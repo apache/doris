@@ -142,6 +142,11 @@ final class IcebergWriterHelper {
      * file; {@code "null"} partition tokens map to a real {@code null}.
      */
     static WriteResult convertToWriterResult(Table table, List<TIcebergCommitData> commitDataList, ZoneId zone) {
+        return convertToWriterResult(table, SortOrder.unsorted(), commitDataList, zone);
+    }
+
+    static WriteResult convertToWriterResult(Table table, SortOrder fileSortOrder,
+            List<TIcebergCommitData> commitDataList, ZoneId zone) {
         PartitionSpec spec = table.spec();
         FileFormat fileFormat = getFileFormat(table);
         MetricsConfig metricsConfig = MetricsConfig.forTable(table);
@@ -151,14 +156,19 @@ final class IcebergWriterHelper {
             schema = appendRowLineageFieldsForV3(schema);
         }
         return convertToWriterResult(
-                spec, fileFormat, metricsConfig, schema, table.sortOrder(), commitDataList, zone);
+                spec, fileFormat, metricsConfig, schema, fileSortOrder, commitDataList, zone);
     }
 
     static WriteResult convertToWriterResult(
             IcebergWriteSchemaContext context, List<TIcebergCommitData> commitDataList, ZoneId zone) {
+        return convertToWriterResult(context, SortOrder.unsorted(), commitDataList, zone);
+    }
+
+    static WriteResult convertToWriterResult(IcebergWriteSchemaContext context, SortOrder fileSortOrder,
+            List<TIcebergCommitData> commitDataList, ZoneId zone) {
         return convertToWriterResult(
                 context.getPartitionSpec(), context.getFileFormat(), context.getMetricsConfig(),
-                context.getMergeSchema(), context.getSortOrder(), commitDataList, zone);
+                context.getMergeSchema(), fileSortOrder, commitDataList, zone);
     }
 
     private static WriteResult convertToWriterResult(

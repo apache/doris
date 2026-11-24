@@ -22,7 +22,9 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI entry point for the Lance connector.
@@ -52,6 +54,17 @@ public class LanceConnectorProvider implements ConnectorProvider {
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new LanceConnector(properties, context);
+    }
+
+    /** {@code s3("uri" = ..., "format" = "lance")}, and {@code file()} over S3-compatible storage. */
+    @Override
+    public Set<String> getFileFormats() {
+        return Collections.singleton(LanceScanPlanProvider.FILE_FORMAT);
+    }
+
+    @Override
+    public Connector createFileFormatConnector(String format, ConnectorContext context) {
+        return new LanceFileFormatConnector(context);
     }
 
     /**
