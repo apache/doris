@@ -243,6 +243,28 @@ uint32_t ColumnVector<T>::_crc32c_hash(uint32_t hash, size_t idx) const {
 }
 
 template <PrimitiveType T>
+void ColumnVector<T>::update_equal_flags(EqualFlags& flags,
+                                         const uint8_t* __restrict null_map) const {
+    const size_t rows = size();
+    DCHECK_EQ(flags.size(), rows);
+    // Restricted pointers: a write to `flags` cannot change them, so the loops vectorize.
+    const auto* __restrict values = data.data();
+    uint8_t* __restrict equal = flags.data();
+    if (null_map == nullptr) {
+        for (size_t row = 1; row < rows; ++row) {
+            equal[row] &= Compare::compare(values[row - 1], values[row]) == 0;
+        }
+        return;
+    }
+    for (size_t row = 1; row < rows; ++row) {
+        const uint8_t previous_null = null_map[row - 1] != 0;
+        const uint8_t null = null_map[row] != 0;
+        equal[row] &= (previous_null == null) &
+                      (null | (Compare::compare(values[row - 1], values[row]) == 0));
+    }
+}
+
+template <PrimitiveType T>
 void ColumnVector<T>::update_crc32c_batch(uint32_t* __restrict hashes,
                                           const uint8_t* __restrict null_map) const {
     auto s = size();
