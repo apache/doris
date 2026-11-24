@@ -288,6 +288,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 try {
                     IcebergEncryptionRead.checkWrite(loaded);
                     validateBoundWriteGeneration(ctx, loaded);
+                    IcebergWriterHelper.validateWriteFormat(loaded);
                     IcebergSchemaUtils.validateNoUnknownForWrite(loaded.schema());
                     if (writeSchemaContext != null) {
                         writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());

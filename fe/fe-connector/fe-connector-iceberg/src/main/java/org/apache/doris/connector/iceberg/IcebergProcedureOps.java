@@ -201,14 +201,17 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
         // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces the
         // DorisConnectorException verbatim (not wrapped by executeAuthenticated's catch).
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
+        Function<Table, ConnectorProcedureResult> execute = table -> {
+            IcebergWriterHelper.validateWriteFormat(table);
+            return action.execute(wrapTableForProcedure(table), session);
+        };
         ConnectorProcedureResult result;
         if (context == null) {
-            result = ops.withTable(handle.getDbName(), handle.getTableName(), table -> action.execute(table, session));
+            result = ops.withTable(handle.getDbName(), handle.getTableName(), execute);
         } else {
             try {
                 result = context.executeAuthenticated(() ->
-                        ops.withTable(handle.getDbName(), handle.getTableName(),
-                                table -> action.execute(wrapTableForProcedure(table), session)));
+                        ops.withTable(handle.getDbName(), handle.getTableName(), execute));
             } catch (DorisConnectorException e) {
                 throw e;
             } catch (Exception e) {
@@ -238,6 +241,7 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
         // surfaces verbatim.
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         Function<Table, List<RewriteDataGroup>> planTasks = table -> {
+            IcebergWriterHelper.validateWriteFormat(table);
             IcebergSchemaUtils.validateNoUnknownForWrite(table.schema());
             return planner.planAndOrganizeTasks(IcebergScanPlanning.requiresServerSideScanPlanning(table)
                     ? table : wrapTableForProcedure(table));

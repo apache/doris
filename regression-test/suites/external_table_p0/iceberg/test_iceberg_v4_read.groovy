@@ -52,6 +52,14 @@ suite("test_iceberg_v4_read", "p0,external") {
             'meta.cache.iceberg.table.enable' = '${cached}',
             'meta.cache.iceberg.manifest.enable' = '${cached}'
         )"""
+        // Both whole-table and row-level DELETE must refuse before entering an unadapted V4 write path.
+        // The read matrix below also verifies that these refused statements preserve the fixture rows.
+        for (String predicate : ["", " WHERE id = 1"]) {
+            test {
+                sql "DELETE FROM ${catalog}.iceberg_v4_db.relative_v4${predicate}"
+                exception "Doris does not support writes to Iceberg format v4 tables"
+            }
+        }
         try {
             for (String batch : ["false", "true"]) {
                 sql "SET enable_external_table_batch_mode=${batch}"

@@ -19,6 +19,8 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
@@ -80,8 +82,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -379,7 +386,7 @@ class IcebergFormatV4ReadTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void metadataDeleteWithRelativeLocationsFallsBackWithoutCommitting(boolean withDeletes) throws Exception {
+    void metadataDeleteWithRelativeLocationsRejectsUnsupportedDml(boolean withDeletes) throws Exception {
         Table table = createTable(4);
         DataFile file = data(table, "data/first.parquet");
         table.newFastAppend().appendFile(file).commit();
@@ -395,11 +402,56 @@ class IcebergFormatV4ReadTest {
         ops.table = relative;
         IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops,
                 IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
-        OptionalLong result = Assertions.assertDoesNotThrow(() -> metadata.deleteUsingMetadata(null,
+        RuntimeException failure = Assertions.assertThrows(RuntimeException.class, () -> metadata.deleteUsingMetadata(null,
                 new IcebergTableHandle("db", "table"), Optional.empty(), null, () -> false));
-        Assertions.assertTrue(result.isEmpty());
+        Assertions.assertTrue(failure.getMessage().contains("format v4"));
         Assertions.assertEquals(snapshot, relative.currentSnapshot().snapshotId());
         Assertions.assertEquals(1, provider(relative, false).planScan(null, request()).size());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"INSERT", "OVERWRITE", "DELETE", "UPDATE", "MERGE", "REWRITE"})
+    void v4DataWriteRefusesBeforeOpeningTheRawTransaction(String operation) throws Exception {
+        Table table = createTable(4);
+        table.newFastAppend().appendFile(data(table, "data/first.parquet")).commit();
+        long snapshot = table.currentSnapshot().snapshotId();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = relativeMetadata(table);
+        IcebergConnectorTransaction transaction = new IcebergConnectorTransaction(1, ops, new RecordingConnectorContext());
+        TestStatementScope scope = new TestStatementScope();
+        ConnectorSession session = new IcebergStatementScopeTest.ScopeSession(1, "v4-write", scope);
+        WriteOperation op = WriteOperation.valueOf(operation);
+        try {
+            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> transaction.beginWrite(session, "db", "table", new IcebergWriteContext(op,
+                            op == WriteOperation.OVERWRITE, Collections.emptyMap(), Optional.empty())));
+            Assertions.assertTrue(error.getMessage().contains("format v4"));
+            Assertions.assertEquals(snapshot, table.currentSnapshot().snapshotId());
+        } finally {
+            transaction.rollback();
+            scope.closeAll();
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"2,false", "2,true", "3,false", "3,true"})
+    void upgradeThenRewriteRefusesBeforeChangingLegacyPathSemantics(int originalVersion, boolean authenticated)
+            throws Exception {
+        Table table = createTable(originalVersion);
+        table.newFastAppend().appendFile(data(table, "/data/legacy.parquet")).commit();
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "4").commit();
+        long snapshot = table.currentSnapshot().snapshotId();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = table;
+        IcebergProcedureOps procedures = new IcebergProcedureOps(Collections.emptyMap(), ops,
+                authenticated ? new RecordingConnectorContext() : null);
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> procedures.execute(null, new IcebergTableHandle("db", "table"), "rewrite_manifests",
+                        Collections.emptyMap(), null, Collections.emptyList()));
+        Assertions.assertTrue(error.getMessage().contains("format v4"));
+        Assertions.assertEquals(snapshot, table.currentSnapshot().snapshotId());
+        Assertions.assertEquals("/data/legacy.parquet", provider(table, false).planScan(null, request()).get(0)
+                .getPath().orElseThrow());
     }
 
     private static final class RecordingAuthenticator implements HadoopAuthenticator {
@@ -671,6 +723,180 @@ class IcebergFormatV4ReadTest {
             Assertions.assertEquals(sequence, file.dataSequenceNumber());
             Assertions.assertEquals(sequence, file.fileSequenceNumber());
             Assertions.assertEquals(sequence * 100, file.firstRowId());
+        }
+    }
+
+    @Test
+    void overlappingStatementReadsKeepV4DescriptorInheritanceSeparate() throws Exception {
+        Table table = createTable(4);
+        ManifestWriter<DataFile> writer = ManifestFiles.write(4, table.spec(),
+                table.io().newOutputFile(table.location() + "/metadata/overlap.avro"), null);
+        try (ManifestWriter<DataFile> closeable = writer) {
+            closeable.add(data(table, "data/inherited.parquet"));
+        }
+        GenericManifestFile first = (GenericManifestFile) writer.toManifestFile().copy();
+        GenericManifestFile second = (GenericManifestFile) writer.toManifestFile().copy();
+        first.put(4, 1L);
+        first.put(6, 10L);
+        first.put(15, 100L);
+        second.put(4, 2L);
+        second.put(6, 20L);
+        second.put(15, 200L);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger opens = new AtomicInteger();
+        FileIO observed = new FileIO() {
+            @Override
+            public Map<String, String> properties() {
+                return table.io().properties();
+            }
+
+            @Override
+            public InputFile newInputFile(String path) {
+                if (opens.incrementAndGet() == 1) {
+                    entered.countDown();
+                    try {
+                        Assertions.assertTrue(release.await(10, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+                }
+                return table.io().newInputFile(path);
+            }
+
+            @Override
+            public OutputFile newOutputFile(String path) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public void deleteFile(String path) {
+                throw new UnsupportedOperationException();
+            }
+        };
+        Table view = IcebergSnapshotTableOperations.v4ReadTable(new BaseTable(new StaticTableOperations(
+                ((BaseTable) table).operations().current(), observed), table.name()));
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try (IcebergManifestReader reader = new IcebergManifestReader(
+                new IcebergManifestCache(), view, "overlap", () -> { })) {
+            Future<ManifestCacheValue> initial = workers.submit(() -> reader.read(first));
+            try {
+                Assertions.assertTrue(entered.await(10, TimeUnit.SECONDS));
+                Future<CompletionStage<ManifestCacheValue>> next = workers.submit(() -> reader.readFuture(second));
+                CompletionStage<ManifestCacheValue> pending = next.get(10, TimeUnit.SECONDS);
+                release.countDown();
+                DataFile one = initial.get(10, TimeUnit.SECONDS).getDataFiles().get(0);
+                DataFile two = pending.toCompletableFuture().get(10, TimeUnit.SECONDS).getDataFiles().get(0);
+                Assertions.assertEquals(1L, one.dataSequenceNumber());
+                Assertions.assertEquals(100L, one.firstRowId());
+                Assertions.assertEquals(2L, two.dataSequenceNumber());
+                Assertions.assertEquals(2L, two.fileSequenceNumber());
+                Assertions.assertEquals(200L, two.firstRowId());
+            } finally {
+                release.countDown();
+            }
+        } finally {
+            workers.shutdownNow();
+            Assertions.assertTrue(workers.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void slashLeadingMetadataJsonPrefersTheTableRelativeObject(boolean rejectSchemeLess) throws Exception {
+        Table table = createTable(4);
+        String reference = "/metadata/current.json";
+        String json = TableMetadataParser.toJson(((BaseTable) table).operations().current());
+        ObjectNode unrelated = (ObjectNode) JsonUtil.mapper().readTree(json);
+        unrelated.put("table-uuid", "00000000-0000-0000-0000-000000000001");
+        try (OutputStream output = table.io().newOutputFile(reference).createOrOverwrite()) {
+            output.write(unrelated.toString().getBytes(StandardCharsets.UTF_8));
+        }
+        try (OutputStream output = table.io().newOutputFile(table.location() + "/" + reference).createOrOverwrite()) {
+            output.write(json.getBytes(StandardCharsets.UTF_8));
+        }
+        FileIO delegate = new FileIO() {
+            @Override
+            public Map<String, String> properties() {
+                return table.io().properties();
+            }
+
+            @Override
+            public InputFile newInputFile(String path) {
+                if (rejectSchemeLess && path.startsWith("/")) {
+                    throw new IllegalArgumentException("A URI scheme is required");
+                }
+                return table.io().newInputFile(path);
+            }
+
+            @Override
+            public OutputFile newOutputFile(String path) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public void deleteFile(String path) {
+                throw new UnsupportedOperationException();
+            }
+        };
+        Table view = IcebergSnapshotTableOperations.v4ReadTable(new BaseTable(new StaticTableOperations(
+                TableMetadataParser.fromJson(reference, json), delegate), table.name()));
+        try (org.apache.iceberg.io.SeekableInputStream input = view.io().newInputFile(reference).newStream()) {
+            Assertions.assertArrayEquals(json.getBytes(StandardCharsets.UTF_8), input.readAllBytes());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void rootedMetadataJsonFallbackRequiresTheFrozenGeneration(boolean matching) throws Exception {
+        Table table = createTable(4);
+        String reference = "/metadata/rooted.metadata.json";
+        String json = TableMetadataParser.toJson(((BaseTable) table).operations().current());
+        ObjectNode candidate = (ObjectNode) JsonUtil.mapper().readTree(json);
+        if (!matching) {
+            ((ObjectNode) candidate.get("properties")).put("fixture", "different");
+        }
+        try (OutputStream output = table.io().newOutputFile(reference).createOrOverwrite()) {
+            output.write(candidate.toString().getBytes(StandardCharsets.UTF_8));
+        }
+        Table view = IcebergSnapshotTableOperations.v4ReadTable(new BaseTable(new StaticTableOperations(
+                TableMetadataParser.fromJson(reference, json), table.io()), table.name()));
+        if (matching) {
+            try (org.apache.iceberg.io.SeekableInputStream input = view.io().newInputFile(reference).newStream()) {
+                Assertions.assertArrayEquals(candidate.toString().getBytes(StandardCharsets.UTF_8), input.readAllBytes());
+            }
+        } else {
+            Assertions.assertThrows(org.apache.iceberg.exceptions.NotFoundException.class,
+                    () -> view.io().newInputFile(reference));
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"2,avro", "2,parquet", "3,avro", "3,parquet"})
+    void qualifiedLegacyEntriesRemainReadableAfterV4Rewrite(int originalVersion, String encoding) throws Exception {
+        Table table = createTable(originalVersion);
+        table.newFastAppend().appendFile(data(table, "/data/legacy.parquet")).commit();
+        long snapshot = table.currentSnapshot().snapshotId();
+        ManifestFile original = table.currentSnapshot().dataManifests(table.io()).get(0);
+        DataFile legacy;
+        try (ManifestReader<DataFile> reader = ManifestFiles.read(original, table.io(), table.specs())) {
+            legacy = reader.iterator().next().copy();
+        }
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "4").commit();
+        // V4 writers must qualify inherited scheme-less paths before copying them to a V4 manifest.
+        DataFile qualified = DataFiles.builder(table.spec()).copy(legacy)
+                .withPath("file:///data/legacy.parquet").build();
+        ManifestWriter<DataFile> writer = ManifestFiles.write(4, table.spec(), table.io().newOutputFile(
+                table.location() + "/metadata/qualified." + encoding), null);
+        try (ManifestWriter<DataFile> closeable = writer) {
+            closeable.existing(qualified, snapshot, legacy.dataSequenceNumber(), legacy.fileSequenceNumber());
+        }
+        table.rewriteManifests().deleteManifest(original).addManifest(writer.toManifestFile()).commit();
+        for (boolean cached : new boolean[] {false, true}) {
+            List<ConnectorScanRange> ranges = provider(coldMetadata(table), cached).planScan(null, request());
+            Assertions.assertEquals(1, ranges.size());
+            Assertions.assertEquals("file:///data/legacy.parquet", ranges.get(0).getPath().orElseThrow());
         }
     }
 

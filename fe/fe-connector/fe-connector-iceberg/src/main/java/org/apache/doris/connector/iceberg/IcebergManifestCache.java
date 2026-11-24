@@ -254,7 +254,7 @@ final class IcebergManifestCache {
         recordAccess(manifestKey(manifest, table), queryId, allowCacheHit);
     }
 
-    private static IcebergManifestEntryKey manifestKey(ManifestFile manifest, Table table) {
+    static IcebergManifestEntryKey manifestKey(ManifestFile manifest, Table table) {
         if (table instanceof BaseTable && ((BaseTable) table).operations().current().formatVersion() >= 4) {
             // Parsed files inherit the descriptor's raw manifest location. Physical aliases cannot share
             // that provenance across table bases, even when they open the same immutable manifest bytes.

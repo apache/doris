@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.apache.iceberg.ContentFile;
@@ -29,16 +30,24 @@ import org.apache.iceberg.ManifestListFile;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.avro.AvroIterable;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.util.JsonUtil;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.Serializable;
 import java.io.UncheckedIOException;
+import java.security.DigestOutputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -319,11 +328,19 @@ public final class IcebergV4FileIO implements FileIO {
                 return bound.location;
             }
         }
-        // Static metadata-table tasks size the frozen metadata JSON using its original pointer, not a V4
-        // content descriptor. Preserve an existing rooted JSON pointer without relaxing content-file resolution.
-        if (path.startsWith("/") && metadata != null && path.equals(metadata.metadataFileLocation())
-                && existingInput(path) != null) {
-            return path;
+        if (path.startsWith("/") && metadata != null && path.equals(metadata.metadataFileLocation())) {
+            String relative = hasBase() ? resolve(tableLocation, path) : null;
+            InputFile candidate = relative == null ? null : existingInput(relative);
+            if (candidate != null) {
+                return remember(path, relative, null);
+            }
+            // A catalog may retain a rooted pointer after an upgrade. Existence alone cannot prove
+            // that a rooted object belongs to this table or to its frozen metadata generation.
+            candidate = existingInput(path);
+            if (candidate != null && matchesFrozenMetadata(candidate)) {
+                return remember(path, path, null);
+            }
+            throw new NotFoundException("Cannot find frozen table metadata: %s", path);
         }
         // MANIFESTS also sizes its list through the string overload before opening the typed descriptor.
         if (path.startsWith("/") && metadata != null) {
@@ -334,6 +351,38 @@ public final class IcebergV4FileIO implements FileIO {
             }
         }
         return resolve(tableLocation, path);
+    }
+
+    private boolean matchesFrozenMetadata(InputFile candidate) {
+        TableMetadata loaded;
+        if (candidate.location().contains(".metadata.json")) {
+            loaded = TableMetadataParser.read(candidate);
+        } else {
+            // Catalog-supplied JSON pointers need not follow the SDK's codec-bearing file-name convention.
+            try (InputStream input = candidate.newStream()) {
+                loaded = TableMetadataParser.fromJson(candidate.location(), JsonUtil.mapper().readTree(input));
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+        // UUID and snapshot alone cannot distinguish metadata-only schema or property updates.
+        return Arrays.equals(metadataDigest(metadata), metadataDigest(loaded));
+    }
+
+    private static byte[] metadataDigest(TableMetadata metadata) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            // Stream the SDK encoding: metadata histories must not become additional whole JSON trees/strings.
+            try (JsonGenerator json = JsonUtil.factory().createGenerator(
+                    new DigestOutputStream(OutputStream.nullOutputStream(), digest))) {
+                TableMetadataParser.toJson(metadata, json);
+            }
+            return digest.digest();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
     }
 
     // Absolute descriptors may carry encryption metadata understood by the delegate. Relative V4 encrypted
