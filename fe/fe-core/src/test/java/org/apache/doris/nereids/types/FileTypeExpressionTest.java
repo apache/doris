@@ -196,6 +196,22 @@ public class FileTypeExpressionTest extends TestWithFeService {
     }
 
     @Test
+    public void testArraySortedMergeRejectsFileElements() {
+        for (String sql : Arrays.asList(
+                "select array_sorted_merge((x, y) -> if(element_at(x, 'uri') = element_at(y, 'uri'), x, null),"
+                        + " array(f), array(f), true)" + FROM_FILE_SOURCE,
+                "select array_sorted_merge((x, y) -> x, array(holder), array(holder), true)"
+                        + FROM_FILE_SOURCE)) {
+            assertAnalysisError("array_sorted_merge does not support type",
+                    () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql), sql);
+        }
+        String control = "select array_sorted_merge((x, y) -> if(x = y, x, null), array(id), array(id), true)"
+                + FROM_FILE_SOURCE;
+        Assertions.assertDoesNotThrow(
+                () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(control), control);
+    }
+
+    @Test
     public void testAliasFunctionsUseDeclaredSignatures() {
         for (String sqlType : Arrays.asList("FILE", "ARRAY<FILE>", "STRUCT<f:FILE>", "MAP<STRING,FILE>")) {
             AliasUdf alias = new AliasUdf("file_alias", Collections.singletonList(type(sqlType)),
