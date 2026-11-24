@@ -199,9 +199,19 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, Block* block, bool
     return Status::OK();
 }
 
-Status LoadBlockQueue::remove_load_id(const UniqueId& load_id) {
+Status LoadBlockQueue::remove_load_id(const UniqueId& load_id, bool sync_wal) {
     std::unique_lock l(mutex);
     if (_load_ids_to_write_dep.find(load_id) != _load_ids_to_write_dep.end()) {
+        if (sync_wal) {
+            // The last producer leaving the queue lets the internal load close the WAL.
+            // Sync all blocks for this request before releasing its registration.
+            RETURN_IF_ERROR(status);
+            auto st = _v_wal_writer->sync();
+            if (!st.ok()) {
+                _cancel_without_lock(st);
+                return st;
+            }
+        }
         _load_ids_to_write_dep[load_id]->set_always_ready();
         _load_ids_to_write_dep.erase(load_id);
         for (auto read_dep : _read_deps) {

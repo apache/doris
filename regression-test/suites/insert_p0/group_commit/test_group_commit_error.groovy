@@ -76,6 +76,17 @@ suite("test_group_commit_error", "nonConcurrent") {
     GetDebugPoint().clearDebugPointsForAllBEs()
     GetDebugPoint().clearDebugPointsForAllFEs()
     try {
+        GetDebugPoint().enableDebugPointForAllBEs("WalWriter.sync.fail")
+        sql "set group_commit = async_mode"
+        test {
+            sql "insert into ${tableName} values (0, 0)"
+            exception "injected WAL sync failure"
+        }
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("WalWriter.sync.fail")
+    }
+
+    try {
         GetDebugPoint().enableDebugPointForAllFEs("OlapInsertExecutor.beginTransaction.failed")
         sql """ set group_commit = async_mode """
         sql """ insert into ${tableName} values (1, 1) """

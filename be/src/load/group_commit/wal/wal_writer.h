@@ -35,6 +35,7 @@ public:
     ~WalWriter();
 
     Status init(const io::FileSystemSPtr& fs);
+    Status sync();
     Status finalize();
 
     Status append_blocks(const PBlockArray& blocks);

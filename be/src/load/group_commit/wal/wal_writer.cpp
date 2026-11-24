@@ -96,6 +96,12 @@ Status WalWriter::init(const io::FileSystemSPtr& fs) {
     return Status::OK();
 }
 
+Status WalWriter::sync() {
+    DBUG_EXECUTE_IF("WalWriter.sync.fail",
+                    { return Status::IOError("injected WAL sync failure"); });
+    return _file_writer->sync();
+}
+
 Status WalWriter::finalize() {
     if (!_file_writer) {
         return Status::InternalError("wal writer is null,fail to close file={}", _file_name);

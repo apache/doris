@@ -165,7 +165,9 @@ TEST_F(WalReaderWriterTest, TestReadIncompleteLastRecord) {
         std::string file_name = _s_test_data_path + "/incomplete_last_record_" + std::to_string(i);
         auto wal_writer = WalWriter(file_name);
         ASSERT_TRUE(wal_writer.init(io::global_local_filesystem()).ok());
-        ASSERT_TRUE(wal_writer.append_blocks({&first_block, &last_block}).ok());
+        ASSERT_TRUE(wal_writer.append_blocks({&first_block}).ok());
+        ASSERT_TRUE(wal_writer.sync().ok());
+        ASSERT_TRUE(wal_writer.append_blocks({&last_block}).ok());
         ASSERT_TRUE(wal_writer.finalize().ok());
         ASSERT_NO_THROW(std::filesystem::resize_file(file_name, truncated_sizes[i]));
 

@@ -77,7 +77,7 @@ public:
                      std::shared_ptr<Dependency> get_block_dep);
     bool contain_load_id(const UniqueId& load_id);
     Status add_load_id(const UniqueId& load_id, const std::shared_ptr<Dependency> put_block_dep);
-    Status remove_load_id(const UniqueId& load_id);
+    Status remove_load_id(const UniqueId& load_id, bool sync_wal = false);
     void cancel(const Status& st);
     bool need_commit() const { return _need_commit.load(); }
 

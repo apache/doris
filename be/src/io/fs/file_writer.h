@@ -84,6 +84,9 @@ public:
         return Status::NotSupported("try_finish_close is not supported");
     }
 
+    // Persist appended data while keeping the file open for further appends.
+    virtual Status sync() { return Status::NotSupported("sync is not supported"); }
+
     Status append(const Slice& data) { return appendv(&data, 1); }
 
     virtual Status appendv(const Slice* data, size_t data_cnt) = 0;
