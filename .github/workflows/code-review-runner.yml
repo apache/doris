@@ -1227,9 +1227,8 @@ jobs:
                 summary="Review completed for PR #${PR_NUMBER}: P0=${REVIEW_P0}, P1=${REVIEW_P1}."
                 if [ "$REVIEW_CONVERGED" = "false" ]; then
                   summary="Review did not converge after ${REVIEW_ROUNDS} rounds for PR #${PR_NUMBER}: P0=${REVIEW_P0}, P1=${REVIEW_P1}."
-                elif [[ "$REVIEW_CONVERGED" == true && "$state" == failure && "$REVIEW_P0" == 0 &&
-                        "$REVIEW_P1" =~ ^[1-9][0-9]*$ && "$REVIEW_ID" =~ ^[1-9][0-9]*$ ]]; then
-                  # Only a verified P1-only result is eligible for a dismissal.
+                elif [[ "$REVIEW_CONVERGED" == true && "$state" == failure && "$REVIEW_ID" =~ ^[1-9][0-9]*$ ]]; then
+                  # A converged review fails when it reports P0 or P1 findings.
                   target_url="${{ github.server_url }}/${REPO}/pull/${PR_NUMBER}#pullrequestreview-${REVIEW_ID}"
                 fi
                 ;;

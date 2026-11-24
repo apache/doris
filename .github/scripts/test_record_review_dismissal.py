@@ -75,6 +75,11 @@ class ReviewDismissalTest(unittest.TestCase):
             result = resolve(records)
             self.assertEqual(("success", URL), (result.state, result.target_url))
             self.assertIn("dismissal", result.description)
+        for p0, p1 in ((1, 0), (0, 2), (1, 2)):
+            with self.subTest(p0=p0, p1=p1):
+                finding = dict(source, description=f"Review completed for PR #123: P0={p0}, P1={p1}.")
+                self.assertEqual("failure", resolve([finding]).state)
+                self.assertEqual("success", resolve([finding, receipt]).state)
         reviews.append(dict(self.review, id=87, state="CHANGES_REQUESTED", body="<!-- code-review-completion:t -->"))
         self.assertEqual("failure", resolve([receipt, source]).state)
         self.assertEqual("success", resolve([receipt, source, status(3, source="skip")]).state)
@@ -88,7 +93,7 @@ class ReviewDismissalTest(unittest.TestCase):
         self.assertEqual("pending", resolve([receipt, source, dict(source, id=3, state="pending")]).state)
         for changed in (dict(source, id=3, target_url=URL + "0"),
                         dict(source, id=3, target_url=REPO_URL + "/actions/runs/42"),
-                        dict(source, id=3, description="Review completed for PR #123: P0=1, P1=2."),
+                        dict(source, id=3, description="Review completed for PR #123: P0=0, P1=0."),
                         dict(source, id=3, description="Review did not converge after 3 rounds"),
                         dict(source, id=3, creator={"login": "other"})):
             self.assertEqual("failure", resolve([source, receipt, changed]).state)

@@ -79,6 +79,7 @@ class ReviewConvergenceWorkflowTest(unittest.TestCase):
             (True, 0, 1, "failure"),
             (False, 0, 0, "failure"),
             (False, 0, 1, "failure"),
+            (False, 1, 0, "failure"),
         ):
             with self.subTest(converged=converged, p0=p0, p1=p1), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
@@ -102,7 +103,7 @@ class ReviewConvergenceWorkflowTest(unittest.TestCase):
                 }, capture_output=True, text=True, check=True)
                 args = json.loads(result.stdout)
                 posted = dict(args[i + 1].split("=", 1) for i in range(len(args)) if args[i] == "-f")
-                eligible = converged and p0 == 0 and p1 > 0
+                eligible = converged and p0 + p1 > 0
                 self.assertEqual(eligible, posted["target_url"].endswith("/pull/123#pullrequestreview-99"))
                 self.assertEqual(expected, posted["state"])
                 self.assertIn("repos/apache/doris/statuses/" + "a" * 40, args)

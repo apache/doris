@@ -104,8 +104,10 @@ def resolve_status(
             key = (int(match.group(1)), match.group(2).casefold())
             url = item.get("target_url")
             description = item.get("description") or ""
+            counts = re.fullmatch(rf"Review completed for PR #{key[0]}: P0=(0|[1-9][0-9]*), P1=(0|[1-9][0-9]*)\.",
+                                  description)
             if (key in open_contexts and (key[0], url) in dismissed
-                    and re.fullmatch(rf"Review completed for PR #{key[0]}: P0=0, P1=[1-9][0-9]*\.", description)
+                    and counts and counts.groups() != ("0", "0")
                     and (item.get("creator") or {}).get("login") == "github-actions[bot]"):
                 accepted_dismissals[key] = url
                 continue
@@ -159,7 +161,7 @@ def resolve_status(
     if accepted_dismissals:
         key = min(accepted_dismissals)
         number, url = key[0], accepted_dismissals[key]
-        return Resolution("success", f"Code review passed after manual P1 dismissal for PR #{number}.", url)
+        return Resolution("success", f"Code review passed after manual review dismissal for PR #{number}.", url)
 
     count = len(open_contexts)
     noun = "context" if count == 1 else "contexts"
