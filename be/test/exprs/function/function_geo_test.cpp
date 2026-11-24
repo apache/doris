@@ -62,6 +62,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "testutil/any_type.h"
+#include "testutil/column_helper.h"
 
 namespace doris {
 using namespace ut_type;
@@ -2438,7 +2439,7 @@ static void expect_dwithin_constant_shapes(const std::vector<double>& radii, boo
                                            bool nullable_radius) {
     const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
     Block block;
-    for (const auto& wkt : {"POINT (0 0)", "POINT (1 0)"}) {
+    for (const auto& wkt : {"POLYGON ((0 0,0 2,-2 0,0 0))", "POINT (1 0)"}) {
         const auto wkb = spatial_test_wkb(geography_test_hex(wkt));
         auto column = type->create_column();
         column->insert_data(wkb.data(), wkb.size());
@@ -2460,7 +2461,11 @@ static void expect_dwithin_constant_shapes(const std::vector<double>& radii, boo
             "st_dwithin", block.get_columns_with_type_and_name(), result_type);
     ASSERT_NE(function, nullptr);
     block.insert({nullptr, result_type, "result"});
+    const auto before = geography_distance_work_for_test();
     const auto status = function->execute(nullptr, block, {0, 1, 2}, 3, radii.size());
+    const auto after = geography_distance_work_for_test();
+    EXPECT_EQ(after[0] - before[0], 1);
+    EXPECT_EQ(after[1] - before[1], 1);
     if (invalid) {
         EXPECT_FALSE(status.ok());
         EXPECT_NE(status.to_string().find("finite and nonnegative"), std::string::npos);
@@ -2480,6 +2485,74 @@ TEST(VGeoFunctionsTest, GeographyDWithinConstantShapesEvaluateEveryRadiusRow) {
     expect_dwithin_constant_shapes({0, 200000}, false, false);
     expect_dwithin_constant_shapes({0, -1}, true, false);
     expect_dwithin_constant_shapes({0, -1}, false, true);
+}
+
+static ColumnsWithTypeAndName polygon_distance_arguments(size_t polygon_arg, bool within) {
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
+    const auto polygon =
+            spatial_test_wkb(geography_test_hex("POLYGON ((-10 -10,10 -10,0 10,-10 -10))"));
+    const Strings points {"POINT (0 -20)", "POINT (0 -21)", "POINT (0 5)", "POINT (0 10)"};
+    auto shapes = type->create_column();
+    shapes->insert_data(polygon.data(), polygon.size());
+    auto positions = type->create_column();
+    for (const auto& wkt : points) {
+        const auto wkb = spatial_test_wkb(geography_test_hex(wkt));
+        positions->insert_data(wkb.data(), wkb.size());
+    }
+    ColumnsWithTypeAndName args(2);
+    args[polygon_arg] = {ColumnConst::create(std::move(shapes), points.size()), type, "polygon"};
+    args[1 - polygon_arg] = {std::move(positions), type, "points"};
+    if (within) {
+        args.emplace_back(ColumnFloat64::create(points.size(), 0),
+                          std::make_shared<DataTypeFloat64>(), "radius");
+    }
+    return args;
+}
+
+static void check_distance_work(const std::string& name, const ColumnsWithTypeAndName& args,
+                                size_t expected_nodings, size_t expected_builds,
+                                ColumnPtr* result) {
+    DataTypePtr result_type = std::make_shared<DataTypeFloat64>();
+    ColumnNumbers indices {0, 1};
+    if (name == "st_dwithin") {
+        indices.push_back(2);
+        result_type = std::make_shared<DataTypeUInt8>();
+    }
+    result_type = make_nullable(result_type);
+    const auto function = SimpleFunctionFactory::instance().get_function(name, args, result_type);
+    ASSERT_NE(function, nullptr);
+    Block block(args);
+    const auto rows = block.rows();
+    block.insert({nullptr, result_type, "result"});
+    const auto before = geography_distance_work_for_test();
+    const auto builds = geography_point_polygon_work_for_test()[1];
+    ASSERT_TRUE(function->execute(nullptr, block, indices, args.size(), rows).ok());
+    *result = block.get_by_position(args.size()).column;
+    const auto after = geography_distance_work_for_test();
+    EXPECT_EQ(after[0] - before[0], rows);
+    EXPECT_EQ(after[1] - before[1], expected_nodings);
+    EXPECT_EQ(geography_point_polygon_work_for_test()[1] - builds, expected_builds);
+}
+
+static void expect_constant_polygon_distance(const std::string& name, size_t polygon_arg) {
+    SCOPED_TRACE(name + " polygon argument " + std::to_string(polygon_arg));
+    auto args = polygon_distance_arguments(polygon_arg, name == "st_dwithin");
+    ColumnPtr cached;
+    // Only the boundary vertex needs joint raw noding with the prepared polygon.
+    ASSERT_NO_FATAL_FAILURE(check_distance_work(name, args, 1, 1, &cached));
+    auto& polygon = args[polygon_arg].column;
+    polygon = polygon->convert_to_full_column_if_const();
+    ColumnPtr reference;
+    ASSERT_NO_FATAL_FAILURE(check_distance_work(name, args, polygon->size(), 0, &reference));
+    EXPECT_FALSE(cached->has_null());
+    EXPECT_TRUE(ColumnHelper::column_equal(cached, reference));
+}
+
+TEST(VGeoFunctionsTest, GeographyDistanceReusesConstantPolygonForVaryingPoints) {
+    for (const auto* function : {"st_distance", "st_dwithin"}) {
+        expect_constant_polygon_distance(function, 0);
+        expect_constant_polygon_distance(function, 1);
+    }
 }
 
 static Status execute_dwithin_zero_test(const std::string& left, const std::string& right,

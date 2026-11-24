@@ -101,6 +101,12 @@ suite("test_spatial_wkb_compatibility") {
             from numbers("number" = "6")"""
         // A scan produces both WKB byte orders for the same point.
         def pointLiteral = "${constructor}('${point1}')"
+        test {
+            sql """with shapes as (${encodedShapes})
+                select ST_AsText(NULLIF(l.shape, r.shape))
+                from shapes l join shapes r on l.id + 1 = r.id"""
+            exception "nullif does not support spatial comparison"
+        }
         for (String query : [
                 "select shape = ${pointLiteral} from shapes",
                 "select id from shapes where shape < ${pointLiteral}",
@@ -264,6 +270,8 @@ suite("test_spatial_wkb_compatibility") {
     }
     qt_ordinary_min_max """select min(number), max(number), count(distinct number)
         from numbers('number'='3')"""
+    qt_ordinary_nullif """select count(v), sum(v) from
+        (select nullif(number, number % 2) v from numbers('number'='3')) t"""
 
 
     // Closest-edge queries include polygon interiors; a hole remains outside the polygon.

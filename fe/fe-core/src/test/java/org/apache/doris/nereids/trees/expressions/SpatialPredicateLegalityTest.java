@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -33,6 +34,8 @@ import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -40,6 +43,26 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 public class SpatialPredicateLegalityTest {
+    @Test
+    public void nullIfRejectsSpatialLeavesBeforeCoercionAndAfterRewrite() {
+        Expression integer = new SlotReference("id", IntegerType.INSTANCE);
+        for (DataType spatial : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (DataType type : List.of(spatial, ArrayType.of(spatial), MapType.of(IntegerType.INSTANCE, spatial),
+                    new StructType(List.of(new StructField("shape", spatial, true, ""))))) {
+                Expression left = new SlotReference("a", type);
+                Expression right = new SlotReference("b", type);
+                for (NullIf function : List.of(new NullIf(left, right), new NullIf(integer, right),
+                        new NullIf(left, integer))) {
+                    assertUnsupportedSpatialComparison(function);
+                    AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                            function::checkLegalityAfterRewrite);
+                    Assertions.assertEquals("nullif does not support spatial comparison", error.getMessage());
+                }
+            }
+        }
+    }
+
     @Test
     public void mapValueAndEntryRejectSpatialComparisonsBeforeCoercion() {
         Expression integer = new SlotReference("id", IntegerType.INSTANCE);

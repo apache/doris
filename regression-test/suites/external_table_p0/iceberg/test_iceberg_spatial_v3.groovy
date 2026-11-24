@@ -145,6 +145,23 @@ public class CreateIcebergSpatialV3Table {
         return Binary.fromConstantByteArray(bytes);
     }
 
+    private static void createSpatialKeyMap(Catalog catalog, Namespace namespace,
+            Map<String, String> properties) throws Exception {
+        TableIdentifier name = TableIdentifier.of(namespace, "spatial_key_map");
+        if (catalog.tableExists(name)) {
+            catalog.dropTable(name);
+        }
+        Schema schema = new Schema(Types.NestedField.optional(1, "m", Types.MapType.ofOptional(
+                2, 3, Types.GeographyType.crs84(), Types.IntegerType.get())));
+        Table table = catalog.createTable(name, schema, PartitionSpec.unpartitioned(), properties);
+        MessageType message = MessageTypeParser.parseMessageType(
+                "message spatial_key_map { " + parquetField(table.schema().findField("m")) + "}");
+        Group row = new SimpleGroupFactory(message).newGroup();
+        row.addGroup("m").addGroup("key_value")
+                .append("key", binary("00000000013FF00000000000004000000000000000")).append("value", 7);
+        appendParquetRow(table, message, row);
+    }
+
     private static void createRequiredNestedTargets(Catalog catalog, Namespace namespace,
             Map<String, String> properties) {
         for (boolean geography : new boolean[] {false, true}) {
@@ -385,6 +402,7 @@ public class CreateIcebergSpatialV3Table {
         Group nestedRow = new SimpleGroupFactory(nestedMessage).newGroup();
         nestedRow.addGroup("shapes").addGroup("list").append("element", row.getBinary("geog", 0));
         appendParquetRow(nestedTable, nestedMessage, nestedRow);
+        createSpatialKeyMap(catalog, namespace, tableProperties);
         createNestedSource(catalog, namespace, tableProperties);
         createRequiredNestedTargets(catalog, namespace, tableProperties);
         createOrcWriteTargets(catalog, namespace, tableProperties);
@@ -446,6 +464,13 @@ public class CreateIcebergSpatialV3Table {
         sql """use ${dbName}"""
     }
     createCatalog()
+    // The external schema bypasses the Doris MAP constructor. Both byte orders encode POINT(1 2).
+    for (String wkb : ["0101000000000000000000F03F0000000000000040", "00000000013FF00000000000004000000000000000"]) {
+        test {
+            sql "select element_at(m, ST_GeogFromWKB('${wkb}')) from spatial_key_map"
+            exception "element_at does not support spatial MAP keys"
+        }
+    }
     test {
         sql """create table spatial_invalid_geometry_crs (geom geometry(''))
             engine=iceberg properties ('format-version' = '3')"""

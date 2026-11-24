@@ -126,6 +126,9 @@ true
 -- !ordinary_min_max --
 0	2	3
 
+-- !ordinary_nullif --
+1	2
+
 -- !geography_interior_zero_distance --
 0	true	true	true	true
 1	true	true	true	true

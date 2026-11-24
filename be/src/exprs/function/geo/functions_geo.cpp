@@ -1261,6 +1261,8 @@ private:
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
 
+        std::optional<double> constant_distance;
+        std::shared_ptr<const GeographyPointPolygonIndex> polygon_index;
         for (size_t row = 0; row < size; ++row) {
             // Propagate NULL before using nested placeholders; a NULL geometry has an
             // empty payload, not a WKB shape.
@@ -1287,11 +1289,24 @@ private:
                 res->insert_default();
                 continue;
             }
-            const double distance =
-                    is_spatial_type(left.type)
-                            ? geography_distance(*left.shape, *right.shape, left.value_at(row),
-                                                 right.value_at(row))
-                            : left.shape->Distance(right.shape.get());
+            double distance;
+            if (constant_distance) {
+                distance = *constant_distance;
+            } else if (is_spatial_type(left.type)) {
+                const bool one_constant_polygon =
+                        (left.constant != right.constant) &&
+                        (left.constant ? left.shape : right.shape)->type() ==
+                                GeoShapeType::GEO_SHAPE_POLYGON;
+                distance = geography_distance(*left.shape, *right.shape, left.value_at(row),
+                                              right.value_at(row),
+                                              one_constant_polygon ? &polygon_index : nullptr);
+                // A varying ST_DWithin radius changes the comparison, not the distance.
+                if (left.constant && right.constant) {
+                    constant_distance = distance;
+                }
+            } else {
+                distance = left.shape->Distance(right.shape.get());
+            }
             if (UNLIKELY(distance < 0)) {
                 null_map_data[row] = 1;
                 res->insert_default();

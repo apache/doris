@@ -43,7 +43,8 @@ bool geography_bearing(const GeoCoordinate& from, const GeoCoordinate& to, doubl
 Status geography_clockwise_angle(const GeoCoordinate& start, const GeoCoordinate& vertex,
                                  const GeoCoordinate& end, double* angle, bool* computed);
 double geography_distance(const GeoShape& left_shape, const GeoShape& right_shape,
-                          StringRef left_wkb, StringRef right_wkb);
+                          StringRef left_wkb, StringRef right_wkb,
+                          std::shared_ptr<const GeographyPointPolygonIndex>* constant_polygon);
 double geography_length(StringRef wkb);
 double geography_area(const GeoShape& shape, StringRef wkb, bool square_meters);
 #ifdef BE_TEST
@@ -59,6 +60,7 @@ Status geography_polygon_line_admission_for_test(std::string_view name, const st
                                                  const std::string& right, bool* result,
                                                  size_t* checks);
 std::array<size_t, 2> geography_point_polygon_work_for_test();
+std::array<size_t, 2> geography_distance_work_for_test();
 size_t geography_polygon_crossing_checks_for_test(const std::string& left,
                                                   const std::string& right);
 #endif

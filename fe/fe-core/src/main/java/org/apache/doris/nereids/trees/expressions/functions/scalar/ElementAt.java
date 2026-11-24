@@ -110,6 +110,7 @@ public class ElementAt extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        checkSpatialMapKey();
         // Struct field access (the former struct_element) only accepts a constant int/string index,
         // since the selected field — and therefore the result type — must be known at analysis time.
         if (child(0).getDataType() instanceof StructType) {
@@ -118,6 +119,23 @@ public class ElementAt extends ScalarFunction
                 throw new AnalysisException("element_at over a struct only allows a constant int or"
                         + " string second parameter: " + this.toSql());
             }
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkSpatialMapKey();
+    }
+
+    private void checkSpatialMapKey() {
+        DataType container = child(0).getDataType();
+        if (!(container instanceof MapType)) {
+            return;
+        }
+        DataType key = ((MapType) container).getKeyType();
+        if (key.toCatalogDataType().typeContainsSpatialType()
+                || child(1).getDataType().toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("element_at does not support spatial MAP keys");
         }
     }
 

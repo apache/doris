@@ -318,6 +318,8 @@ static thread_local size_t geography_candidate_visits = 0;
 static thread_local size_t geography_polygon_crossing_checks = 0;
 static thread_local size_t geography_polygon_admission_checks = 0;
 static thread_local size_t geography_point_polygon_preparations = 0;
+static thread_local size_t geography_distance_evaluations = 0;
+static thread_local size_t geography_distance_pair_nodings = 0;
 #endif
 
 // Test coplanarity of the original degree ordinates, not independently rounded S2 vectors.
@@ -1335,6 +1337,12 @@ static std::pair<bool, bool> geography_rounded_polygon_contains(const S2ShapeInd
     return {closed, S2BooleanOperation::Contains(index, point_index, options)};
 }
 
+static double geography_index_distance(const S2ShapeIndex& left, const S2ShapeIndex& right) {
+    S2ClosestEdgeQuery query(&left);
+    S2ClosestEdgeQuery::ShapeIndexTarget target(&right);
+    return S2Earth::ToMeters(query.GetDistance(&target).ToAngle());
+}
+
 class GeographyPointPolygonIndex {
 public:
     GeographyPointPolygonIndex(const GeoShape& polygon, StringRef wkb) {
@@ -1356,8 +1364,51 @@ public:
 
     bool try_relation(std::string_view name, const GeoShape& polygon, StringRef point_wkb,
                       bool* result) const {
-        if (!_short_edges) {
+        const auto point = independent_point(polygon, point_wkb);
+        if (!point) {
             return false;
+        }
+        // A distant point cannot make a raw boundary cut. The cached polygon therefore
+        // has the same noding as the per-pair index. Keep the original OPEN/CLOSED check.
+        if (name == "st_touches") {
+            *result = false;
+            return true;
+        }
+        const auto [closed, interior] = geography_rounded_polygon_contains(_index, *point);
+        if (closed && !interior) {
+            return false;
+        }
+        *result = name == "st_disjoint" ? !interior : interior;
+        return true;
+    }
+
+    std::optional<double> try_distance(const GeoShape& polygon, StringRef point_wkb,
+                                       bool polygon_first) const {
+        const auto point = independent_point(polygon, point_wkb);
+        if (!point) {
+            return std::nullopt;
+        }
+        MutableS2ShapeIndex point_index;
+        point_index.Add(std::make_unique<S2PointVectorShape>(std::vector<S2Point> {point->point}));
+        const double distance = polygon_first ? geography_index_distance(_index, point_index)
+                                              : geography_index_distance(point_index, _index);
+        // As in the per-pair path, a near-zero distance needs an intersection certificate.
+        if (distance <= S2Earth::ToMeters(geography_conversion_error().ToAngle())) {
+            if (geography_rounded_polygon_contains(_index, *point).second) {
+                return 0.0;
+            }
+            return std::nullopt;
+        }
+        return distance;
+    }
+
+private:
+    // A distant point cannot split any short polygon edge. Its inclusion therefore leaves
+    // the noded polygon index unchanged for both relation and distance queries.
+    std::optional<GeographyVertex> independent_point(const GeoShape& polygon,
+                                                     StringRef point_wkb) const {
+        if (!_short_edges) {
+            return std::nullopt;
         }
         const GeographyCoordinates raw(point_wkb);
         DCHECK_EQ(raw.status, GeoParseStatus::GEO_PARSE_OK);
@@ -1376,23 +1427,11 @@ public:
         ++geography_polygon_admission_checks;
 #endif
         if (query.IsConservativeDistanceLessOrEqual(&target, radius)) {
-            return false;
+            return std::nullopt;
         }
-        // A distant point cannot make a raw boundary cut. The cached polygon therefore
-        // has the same noding as the per-pair index. Keep the original OPEN/CLOSED check.
-        if (name == "st_touches") {
-            *result = false;
-            return true;
-        }
-        const auto [closed, interior] = geography_rounded_polygon_contains(_index, point);
-        if (closed && !interior) {
-            return false;
-        }
-        *result = name == "st_disjoint" ? !interior : interior;
-        return true;
+        return point;
     }
 
-private:
     MutableS2ShapeIndex _index;
     bool _short_edges = false;
 };
@@ -1609,6 +1648,10 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
 #ifdef BE_TEST
 std::array<size_t, 2> geography_point_polygon_work_for_test() {
     return {geography_polygon_admission_checks, geography_point_polygon_preparations};
+}
+
+std::array<size_t, 2> geography_distance_work_for_test() {
+    return {geography_distance_evaluations, geography_distance_pair_nodings};
 }
 
 Status geography_polygon_line_admission_for_test(std::string_view name, const std::string& left,
@@ -2106,7 +2149,11 @@ static double geography_raw_arc_distance(const GeoCoordinate& start, const GeoCo
 }
 
 double geography_distance(const GeoShape& left_shape, const GeoShape& right_shape,
-                          StringRef left_wkb, StringRef right_wkb) {
+                          StringRef left_wkb, StringRef right_wkb,
+                          std::shared_ptr<const GeographyPointPolygonIndex>* constant_polygon) {
+#ifdef BE_TEST
+    ++geography_distance_evaluations;
+#endif
     // Read original ordinates: 58 and 58.00000000000001 degrees can round to the same S2Point.
     // Reuse raw-arc product identities in wide arithmetic; accessors retain the raw WKB.
     if (left_shape.type() == GeoShapeType::GEO_SHAPE_POINT &&
@@ -2116,14 +2163,29 @@ double geography_distance(const GeoShape& left_shape, const GeoShape& right_shap
         return geography_raw_arc_distance({.x = start.first, .y = start.second},
                                           {.x = end.first, .y = end.second});
     }
+    const bool polygon_first = left_shape.type() == GeoShapeType::GEO_SHAPE_POLYGON;
+    const auto& other = polygon_first ? right_shape : left_shape;
+    if (constant_polygon != nullptr && other.type() == GeoShapeType::GEO_SHAPE_POINT) {
+        const auto& polygon = polygon_first ? left_shape : right_shape;
+        if (!*constant_polygon) {
+            *constant_polygon = std::make_shared<GeographyPointPolygonIndex>(
+                    polygon, polygon_first ? left_wkb : right_wkb);
+        }
+        if (auto distance = (*constant_polygon)
+                                    ->try_distance(polygon, polygon_first ? right_wkb : left_wkb,
+                                                   polygon_first)) {
+            return *distance;
+        }
+    }
+#ifdef BE_TEST
+    ++geography_distance_pair_nodings;
+#endif
     const GeographyEdgeNodes nodes(left_wkb, right_wkb);
     MutableS2ShapeIndex left;
     MutableS2ShapeIndex right;
     geography_shape_index(left_shape, nodes.left, nodes, &left);
     geography_shape_index(right_shape, nodes.right, nodes, &right);
-    S2ClosestEdgeQuery query(&left);
-    S2ClosestEdgeQuery::ShapeIndexTarget target(&right);
-    const double distance = S2Earth::ToMeters(query.GetDistance(&target).ToAngle());
+    const double distance = geography_index_distance(left, right);
     // LINESTRING(57 0,58 0) and (58+ulp 0,59 0) share only a rounded endpoint.
     // A tiny arc straddling longitude 2 at latitude 58.9 crosses (2,58)->(2,59), but
     // S2 can report a positive near-zero distance. Require the existing Intersects

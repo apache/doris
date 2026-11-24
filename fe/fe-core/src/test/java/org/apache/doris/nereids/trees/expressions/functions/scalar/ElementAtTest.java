@@ -18,14 +18,20 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.GeographyType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 
@@ -39,6 +45,26 @@ import java.util.List;
  * Unit tests for ElementAt scalar function computeSignature behavior on VariantType.
  */
 public class ElementAtTest {
+
+    @Test
+    public void testSpatialMapLookupChecksOnlyComparedTypes() {
+        DataType geography = new GeographyType("OGC:CRS84", "spherical");
+        SlotReference ordinaryKeys = new SlotReference("ordinary_keys", MapType.of(IntegerType.INSTANCE, geography));
+        ElementAt allowed = new ElementAt(ordinaryKeys, new IntegerLiteral(1));
+        Assertions.assertDoesNotThrow(allowed::checkLegalityBeforeTypeCoercion);
+        Assertions.assertDoesNotThrow(allowed::checkLegalityAfterRewrite);
+        Assertions.assertEquals(geography, allowed.getDataType());
+
+        for (DataType keyType : List.of(geography, ArrayType.of(geography))) {
+            SlotReference spatialKeys = new SlotReference("spatial_keys", MapType.of(keyType, IntegerType.INSTANCE));
+            SlotReference spatialProbe = new SlotReference("spatial_probe", keyType);
+            for (ElementAt lookup : List.of(new ElementAt(spatialKeys, new NullLiteral()),
+                    new ElementAt(ordinaryKeys, spatialProbe))) {
+                Assertions.assertThrows(AnalysisException.class, lookup::checkLegalityBeforeTypeCoercion);
+                Assertions.assertThrows(AnalysisException.class, lookup::checkLegalityAfterRewrite);
+            }
+        }
+    }
 
     @Test
     public void testVariantSelectorKeepsIntegerAndStringSemanticsDistinct() {
