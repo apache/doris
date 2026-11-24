@@ -22,10 +22,12 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -36,15 +38,14 @@ import java.util.Set;
 public class InPredicateDedup implements ExpressionPatternRuleFactory {
     public static final InPredicateDedup INSTANCE = new InPredicateDedup();
 
-    // In many BI scenarios, the sql is auto-generated, and hence there may be thousands of options.
-    // It takes a long time to apply this rule. So set a threshold for the max number.
+    // Size limit for other IN rewrites and sample size for large-list deduplication.
     public static final int REWRITE_OPTIONS_MAX_SIZE = 200;
+    private static final int LARGE_IN_PREFIX_DISTINCT_LIMIT = 100;
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
             matchesType(InPredicate.class)
-                    .when(inPredicate -> inPredicate.getOptions().size() <= REWRITE_OPTIONS_MAX_SIZE)
                     .then(InPredicateDedup::dedup)
                     .toRule(ExpressionRuleType.IN_PREDICATE_DEDUP)
         );
@@ -52,15 +53,47 @@ public class InPredicateDedup implements ExpressionPatternRuleFactory {
 
     /** dedup */
     public static Expression dedup(InPredicate inPredicate) {
+        List<Expression> options = inPredicate.getOptions();
+        if (options.size() > REWRITE_OPTIONS_MAX_SIZE) {
+            return dedupLiteralPrefix(inPredicate, options);
+        }
+
         ImmutableSet.Builder<Expression> newOptionsBuilder = ImmutableSet.builderWithExpectedSize(inPredicate.arity());
-        for (Expression option : inPredicate.getOptions()) {
+        for (Expression option : options) {
             newOptionsBuilder.add(option);
         }
 
         Set<Expression> newOptions = newOptionsBuilder.build();
-        if (newOptions.size() == inPredicate.getOptions().size()) {
+        if (newOptions.size() == options.size()) {
             return inPredicate;
         }
         return new InPredicate(inPredicate.getCompareExpr(), newOptions);
+    }
+
+    private static Expression dedupLiteralPrefix(InPredicate inPredicate, List<Expression> options) {
+        Set<Literal> distinctPrefix = new LinkedHashSet<>();
+        int prefixEnd = 0;
+        for (; prefixEnd < options.size(); prefixEnd++) {
+            Expression option = options.get(prefixEnd);
+            if (!(option instanceof Literal)) {
+                break;
+            }
+            distinctPrefix.add((Literal) option);
+            // Continue past the sample only when it contains enough duplicates.
+            if (prefixEnd < REWRITE_OPTIONS_MAX_SIZE && distinctPrefix.size() > LARGE_IN_PREFIX_DISTINCT_LIMIT) {
+                return inPredicate;
+            }
+        }
+        if (distinctPrefix.size() == prefixEnd) {
+            return inPredicate;
+        }
+
+        // Keep the first non-literal option and every option after it in their original order.
+        List<Expression> compacted = ImmutableList.<Expression>builderWithExpectedSize(
+                        distinctPrefix.size() + (options.size() - prefixEnd))
+                .addAll(distinctPrefix)
+                .addAll(options.subList(prefixEnd, options.size()))
+                .build();
+        return new InPredicate(inPredicate.getCompareExpr(), compacted, inPredicate.isInferred());
     }
 }
