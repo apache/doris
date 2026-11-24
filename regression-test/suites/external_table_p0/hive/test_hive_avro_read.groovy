@@ -94,6 +94,25 @@ suite("test_hive_avro_read", "p0,external,hive,external_docker") {
         hive_docker """ALTER TABLE doris_hive_avro_read.avro_partition_override PARTITION (p='old')
             SET SERDEPROPERTIES ('avro.schema.literal'='${partitionSchema}')"""
 
+        // A valid Parquet partition cannot share the table-level Avro physical reader.
+        hive_docker "DROP TABLE IF EXISTS doris_hive_avro_read.avro_mixed_format"
+        hive_docker "DROP TABLE IF EXISTS doris_hive_avro_read.avro_parquet_source"
+        hive_docker "CREATE TABLE doris_hive_avro_read.avro_parquet_source (id INT) STORED AS PARQUET"
+        hive_docker "INSERT INTO doris_hive_avro_read.avro_parquet_source SELECT 2"
+        def parquetLocations = hive_docker("DESCRIBE FORMATTED doris_hive_avro_read.avro_parquet_source").findAll {
+            it[0]?.toString()?.trim()?.replace(':', '') == 'Location'
+        }
+        assertEquals(1, parquetLocations.size(), "Hive must report the physical Parquet data location")
+        String parquetLocation = parquetLocations[0][1].toString().trim()
+        hive_docker """CREATE EXTERNAL TABLE doris_hive_avro_read.avro_mixed_format (id INT)
+            PARTITIONED BY (p STRING) STORED AS AVRO"""
+        hive_docker """ALTER TABLE doris_hive_avro_read.avro_mixed_format
+            ADD PARTITION (p='parquet') LOCATION '${parquetLocation}'"""
+        hive_docker """ALTER TABLE doris_hive_avro_read.avro_mixed_format PARTITION (p='parquet')
+            SET FILEFORMAT PARQUET"""
+        hive_docker """ALTER TABLE doris_hive_avro_read.avro_mixed_format PARTITION (p='parquet')
+            SET SERDE 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'"""
+
         String storageProperties = ""
         if (warehouse?.startsWith("s3")) {
             String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
@@ -123,6 +142,10 @@ suite("test_hive_avro_read", "p0,external,hive,external_docker") {
             test {
                 sql "SELECT id,added FROM avro_partition_override WHERE p='old'"
                 exception "Native Hive Avro partition reader schema overrides are unsupported"
+            }
+            test {
+                sql "SELECT id FROM avro_mixed_format WHERE p='parquet'"
+                exception "Native Hive Avro reads do not support partition storage format"
             }
             "qt_${hivePrefix}_empty" "SELECT COUNT(*) FROM avro_empty"
             "order_qt_${hivePrefix}_evolved" "SELECT label,id,added,items FROM avro_evolved ORDER BY id"

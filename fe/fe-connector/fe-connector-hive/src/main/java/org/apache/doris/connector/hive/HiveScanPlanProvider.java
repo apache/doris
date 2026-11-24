@@ -851,16 +851,23 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         List<String> partKeyNames = handle.getPartitionKeyNames();
         List<PartitionScanInfo> result = new ArrayList<>(hmsPartitions.size());
         for (HmsPartitionInfo part : hmsPartitions) {
+            // BE receives one physical reader for the whole scan. An explicit Parquet/ORC
+            // partition must never reach the Avro OCF decoder under the table's format.
+            if (format == HiveFileFormat.AVRO && part.getInputFormat() != null
+                    && HiveFileFormat.detect(part.getInputFormat(), part.getSerializationLib(), false, false)
+                    != HiveFileFormat.AVRO) {
+                throw new DorisConnectorException("Native Hive Avro reads do not support partition storage format: "
+                        + part.getInputFormat() + " for " + handle.getDbName() + "." + handle.getTableName()
+                        + " partition " + part.getValues());
+            }
             HiveAvroSchemaPolicy.validatePartition(handle, part, format);
             Map<String, String> partValues = new LinkedHashMap<>();
             List<String> values = part.getValues();
             for (int i = 0; i < partKeyNames.size() && i < values.size(); i++) {
                 partValues.put(partKeyNames.get(i), values.get(i));
             }
-            // Per-partition file format is not carried to BE (the whole scan node reads with the single
-            // table-level format resolved in planScan/getScanNodeProperties); leave it null so planScan falls
-            // back to the table format, matching the unpartitioned case. Detecting it per partition here would
-            // also fail-loud spuriously if one partition carried an unusual serde the table itself does not.
+            // Per-partition format is not carried to BE; Avro rejects incompatible explicit
+            // descriptors above, while other formats retain their table-level dispatch.
             result.add(new PartitionScanInfo(
                     part.getLocation(), partValues, null));
         }

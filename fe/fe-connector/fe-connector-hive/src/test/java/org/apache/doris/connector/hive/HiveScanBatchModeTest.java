@@ -177,6 +177,86 @@ public class HiveScanBatchModeTest {
     }
 
     @Test
+    public void avroPartitionFormatMismatchIsRejectedBeforeEveryListingPath() throws Exception {
+        Map<String, String> formats = Map.of(PARQUET_INPUT_FORMAT, PARQUET_SERDE,
+                "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat", "org.apache.hadoop.hive.ql.io.orc.OrcSerde");
+        for (Map.Entry<String, String> format : formats.entrySet()) {
+            HmsPartitionInfo partition = new HmsPartitionInfo(List.of("one"), "s3://bucket/p=one",
+                    format.getKey(), null, format.getValue(), Map.of());
+            CountingLister lister = new CountingLister();
+            HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+            HiveTableHandle handle = parquetHandle(List.of("p")).toBuilder()
+                    .inputFormat("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat")
+                    .serializationLib("org.apache.hadoop.hive.serde2.avro.AvroSerDe")
+                    .prunedPartitions(List.of(partition)).prunedPartitionsByName(Map.of("p=one", partition)).build();
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                    .requiredPartitions(List.of("p=one")).build();
+            FakeSession session = new FakeSession();
+            DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> provider.planScan(session, request));
+            Assertions.assertTrue(failure.getMessage().contains("partition storage format"));
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> provider.planScanForPartitionBatch(session, request, List.of("p=one")));
+            try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+                Assertions.assertThrows(DorisConnectorException.class, source::hasNext);
+            }
+            for (ConnectorSplitSource source : provider.streamPartitionSources(session, request, 1, 1).get()) {
+                try (ConnectorSplitSource current = source) {
+                    Assertions.assertThrows(DorisConnectorException.class, current::hasNext);
+                }
+            }
+            Assertions.assertEquals(0, lister.totalCalls);
+        }
+    }
+
+    @Test
+    public void formattedPartitionReaderLiteralWorksThroughEveryPlanningPath() throws Exception {
+        String literal = "{\"type\":\"record\",\"name\":\"r\",\"fields\":[]}";
+        String pretty = "{ \"fields\": [ ],\n \"name\": \"r\", \"type\": \"record\" }";
+        for (boolean serde : List.of(false, true)) {
+            HmsPartitionInfo partition = new HmsPartitionInfo(List.of("one"), "s3://bucket/p=one",
+                    "org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat",
+                    null, "org.apache.hadoop.hive.serde2.avro.AvroSerDe",
+                    serde ? Map.of() : Map.of("avro.schema.literal", pretty),
+                    serde ? Map.of("avro.schema.literal", pretty) : Map.of());
+            HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
+            HiveTableHandle handle = parquetHandle(List.of("p")).toBuilder()
+                    .inputFormat("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat")
+                    .serializationLib("org.apache.hadoop.hive.serde2.avro.AvroSerDe")
+                    .tableParameters(Map.of("avro.schema.literal", literal))
+                    .prunedPartitions(List.of(partition)).prunedPartitionsByName(Map.of("p=one", partition)).build();
+            FakeSession session = new FakeSession();
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                    .requiredPartitions(List.of("p=one")).build();
+            List<List<ConnectorScanRange>> plans = new ArrayList<>();
+            plans.add(provider.planScan(session, request));
+            plans.add(provider.planScanForPartitionBatch(session, request, List.of("p=one")));
+            try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+                List<ConnectorScanRange> ranges = new ArrayList<>();
+                while (source.hasNext()) {
+                    ranges.add(source.next());
+                }
+                plans.add(ranges);
+            }
+            List<ConnectorScanRange> cooperative = new ArrayList<>();
+            for (ConnectorSplitSource source : provider.streamPartitionSources(session, request, 1, 1).get()) {
+                try (ConnectorSplitSource current = source) {
+                    while (current.hasNext()) {
+                        cooperative.add(current.next());
+                    }
+                }
+            }
+            plans.add(cooperative);
+            for (List<ConnectorScanRange> plan : plans) {
+                Assertions.assertEquals(1, plan.size());
+                Assertions.assertEquals("avro", ((HiveScanRange) plan.get(0)).getFileFormat());
+            }
+            Assertions.assertEquals(literal, provider.getScanNodeProperties(session, handle,
+                    Collections.emptyList(), Optional.empty()).get("hive.avro.schema.literal"));
+        }
+    }
+
+    @Test
     public void partitionSchemaOverrideIsRejectedByEveryPlanningPath() throws Exception {
         String literal = "{\"type\":\"record\",\"name\":\"r\",\"fields\":["
                 + "{\"name\":\"added\",\"type\":\"int\",\"default\":7}]}";
@@ -188,6 +268,7 @@ public class HiveScanBatchModeTest {
                 raw.setValues(List.of("one"));
                 StorageDescriptor sd = new StorageDescriptor();
                 sd.setLocation("s3://bucket/p=one");
+                sd.setInputFormat("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat");
                 sd.setSerdeInfo(new SerDeInfo("avro", "org.apache.hadoop.hive.serde2.avro.AvroSerDe",
                         serdeOverride ? override : Map.of()));
                 raw.setParameters(serdeOverride ? Map.of() : override);

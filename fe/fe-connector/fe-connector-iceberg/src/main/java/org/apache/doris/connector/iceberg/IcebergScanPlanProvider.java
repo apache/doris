@@ -51,6 +51,7 @@ import com.google.common.collect.FluentIterable;
 import org.apache.iceberg.BaseFileScanTask;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.BatchScan;
+import org.apache.iceberg.ContentFile;
 import org.apache.iceberg.ContentScanTask;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataTask;
@@ -1295,6 +1296,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     @SuppressWarnings("unchecked")
     private static Iterable<PositionDeletesScanTask> splitPositionDeleteScanTask(PositionDeletesScanTask task,
             long targetSplitSize) {
+        // Metadata delete scans use the same prefix-walking Avro reader as ordinary data scans.
+        if (task.file().format() == FileFormat.AVRO) {
+            if (hasExcessAvroOffsets(task.file())) {
+                return Collections.singletonList(task);
+            }
+            targetSplitSize = AvroFileSplitSize.bounded(task.length(), targetSplitSize);
+        }
         return ((SplittableScanTask<PositionDeletesScanTask>) task).split(targetSplitSize);
     }
 
@@ -3169,13 +3177,18 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .transformAndConcat(task -> {
                     // Iceberg's offset-aware splitter ignores targetSize and emits every stored
                     // offset. Keep such Avro files whole rather than rewalking their prefix per block.
-                    if (task.file().format() == FileFormat.AVRO && task.file().splitOffsets() != null
-                            && task.file().splitOffsets().size() > AvroFileSplitSize.MAX_SPLITS) {
+                    if (hasExcessAvroOffsets(task.file())) {
                         return Collections.singletonList(task);
                     }
                     return task.split(selectFeSplitSize(task, fallbackSize, coarseSize));
                 });
         return CloseableIterable.combine(splits, tasks);
+    }
+
+    private static boolean hasExcessAvroOffsets(ContentFile<?> file) {
+        // Both SDK splitters ignore target size when stored offsets are present.
+        return file.format() == FileFormat.AVRO && file.splitOffsets() != null
+                && file.splitOffsets().size() > AvroFileSplitSize.MAX_SPLITS;
     }
 
     private SplitPlan splitFiles(TableScan scan, ConnectorSession session, long coarseSplitSize) {

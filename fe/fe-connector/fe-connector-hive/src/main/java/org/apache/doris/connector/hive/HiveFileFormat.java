@@ -86,8 +86,8 @@ public enum HiveFileFormat {
     }
 
     /**
-     * Resolves the read format of a hive table, reproducing legacy {@code HMSExternalTable.getFileFormatType}.
-     * The {@code inputFormat} chooses parquet / orc / text-file; for the text-file family the {@code serDeLib}
+     * Resolves the read format of a hive table using legacy family/SerDe rules and native Avro support.
+     * The {@code inputFormat} chooses parquet / orc / avro / text; for text files, the {@code serDeLib}
      * chooses json / csv / hive-text. The two extra flags reproduce the legacy OpenX-JSON special case: with
      * {@code readHiveJsonInOneColumn} an OpenX-JSON table is read as a single CSV column (only when its first
      * column is a string). Fails loud on an unrecognized inputFormat or serde, matching legacy (which threw
@@ -117,9 +117,9 @@ public enum HiveFileFormat {
 
     /**
      * Maps an inputFormat class name to its coarse family token ({@link #FAMILY_TEXT}/{@link #FAMILY_PARQUET}/
-     * {@link #FAMILY_ORC}) by lowercase substring, first match wins in text->parquet->orc order (legacy
-     * {@code HiveMetaStoreClientHelper.HiveFileFormat.getFormat}). Throws on an unrecognized inputFormat,
-     * matching legacy's {@code "Not supported Hive file format"}.
+     * {@link #FAMILY_ORC}/{@link #FAMILY_AVRO}) by lowercase substring, first match wins:
+     * text->parquet->orc->avro (legacy {@code HiveMetaStoreClientHelper.HiveFileFormat.getFormat} plus Avro).
+     * Throws on an unrecognized inputFormat, matching legacy's {@code "Not supported Hive file format"}.
      */
     private static String detectFamily(String inputFormat) {
         if (inputFormat == null) {

@@ -3745,6 +3745,68 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void positionDeleteAvroSplitCountIsBoundedIncludingStoredOffsets() {
+        long mb = 1024L * 1024L;
+        List<Long> storedOffsets = new ArrayList<>();
+        for (int i = 0; i < 16; i++) {
+            storedOffsets.add(64L + i * 64 * mb);
+        }
+        for (List<Long> offsets : Arrays.asList(Collections.<Long>emptyList(), storedOffsets)) {
+            FileMetadata.Builder builder = FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned())
+                    .ofPositionDeletes().withPath("s3://b/db/t1/bounded-pos.avro").withFormat(FileFormat.AVRO)
+                    .withFileSizeInBytes(1024 * mb).withRecordCount(100);
+            if (!offsets.isEmpty()) {
+                builder.withSplitOffsets(offsets);
+            }
+            Table table = tableWithPositionDelete(builder.build());
+            for (long target : new long[] {64 * mb, 2048 * mb}) {
+                IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                        IcebergCatalogProperties.of(Map.of()), opsReturning(table));
+                ConnectorSession session = new FakeScanSession("UTC", Map.of("file_split_size", "" + target));
+                ConnectorScanRequest request = ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "position_deletes", -1L, null, -1L),
+                        Collections.emptyList()).build();
+                Assertions.assertEquals(-1, provider.streamingSplitEstimate(
+                        session, request.getTableHandle(), Optional.empty(), false));
+                List<ConnectorScanRange> ranges = provider.planScan(session, request);
+                Assertions.assertTrue(ranges.size() >= 1 && ranges.size() <= 2,
+                        "Avro metadata delete scans must share the data-file prefix traversal limit");
+                long end = 0;
+                for (ConnectorScanRange range : ranges) {
+                    Assertions.assertEquals(end, range.getStart());
+                    end += range.getLength();
+                    TFileRangeDesc descriptor = new TFileRangeDesc();
+                    TTableFormatFileDesc format = new TTableFormatFileDesc();
+                    ((IcebergScanRange) range).populateRangeParams(format, descriptor);
+                    Assertions.assertEquals(TFileFormatType.FORMAT_AVRO, descriptor.getFormatType());
+                }
+                Assertions.assertEquals(1024 * mb, end);
+                Assertions.assertEquals(offsets.isEmpty() && target < 1024 * mb ? 2 : 1, ranges.size());
+            }
+        }
+    }
+
+    @Test
+    public void positionDeleteParquetRetainsOffsetBasedSplits() {
+        long mb = 1024L * 1024L;
+        List<Long> offsets = new ArrayList<>();
+        for (int i = 0; i < 16; i++) {
+            offsets.add(64L + i * 64 * mb);
+        }
+        Table table = tableWithPositionDelete(FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned())
+                .ofPositionDeletes().withPath("s3://b/db/t1/offset-pos.parquet").withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(1024 * mb).withRecordCount(100).withSplitOffsets(offsets).build());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Map.of()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(
+                new FakeScanSession("UTC", Map.of("file_split_size", "" + 2048 * mb)),
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "position_deletes", -1L, null, -1L),
+                        Collections.emptyList()).build());
+        Assertions.assertEquals(16, ranges.size());
+    }
+
+    @Test
     public void planScanPositionDeletesPreservesAvroFileFormat() {
         Table table = tableWithPositionDelete(
                 positionDeleteFile("s3://b/db/t1/pos.avro", FileFormat.AVRO, null, null));
