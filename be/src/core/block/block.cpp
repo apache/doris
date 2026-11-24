@@ -308,7 +308,7 @@ void Block::check_number_of_rows(bool allow_null_columns) const {
     }
 }
 
-Status Block::check_type_and_column() const {
+Status Block::check_type_and_column() {
 #ifndef NDEBUG
     for (const auto& elem : data) {
         if (!elem.column) {
@@ -335,6 +335,14 @@ Status Block::check_type_and_column() const {
                     "error: {}",
                     elem.name, column->get_name(), type->get_name(), st.msg());
         }
+    }
+
+    for (size_t i = 0; i < data.size(); ++i) {
+        if (!data[i].column || !data[i].column->is_nullable()) {
+            continue;
+        }
+        auto column_guard = mutate_column_scoped(i);
+        column_guard.mutable_column()->inject_debug_nullable_payload();
     }
 #endif
     return Status::OK();
