@@ -16,7 +16,9 @@
 // under the License.
 
 suite("sparse_ancestor_promotion", "p0") {
-    sql "SET default_variant_enable_doc_mode = false"
+    // V2 execution keeps a JSON string as a string Variant value; V1 parsed it on insert.
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    sql "SET debug_variant_enable_doc_mode = false"
     def backendIPs = [:]
     def backendHttpPorts = [:]
     getBackendIpHttpPort(backendIPs, backendHttpPorts)
@@ -59,11 +61,11 @@ suite("sparse_ancestor_promotion", "p0") {
                     int id = batch * 5
                     int value = batch * 100
                     sql """INSERT INTO ${tableName} VALUES
-                        (${id + 1}, '{"a":${value + 1},"hot_${batch}":1}'),
-                        (${id + 2}, '{"a":${value + 2},"hot_${batch}":2}'),
-                        (${id + 3}, '{"hot_${batch}":3}'),
-                        (${id + 4}, '{"hot_${batch}":4}'),
-                        (${id + 5}, '{"a":{"b":${value + 5}},"hot_${batch}":5}')
+                        (${id + 1}, ${variantV2Function}('{"a":${value + 1},"hot_${batch}":1}')),
+                        (${id + 2}, ${variantV2Function}('{"a":${value + 2},"hot_${batch}":2}')),
+                        (${id + 3}, ${variantV2Function}('{"hot_${batch}":3}')),
+                        (${id + 4}, ${variantV2Function}('{"hot_${batch}":4}')),
+                        (${id + 5}, ${variantV2Function}('{"a":{"b":${value + 5}},"hot_${batch}":5}'))
                     """
                 }
                 def projection = """SELECT id, CAST(v['a'] AS STRING), v['a']['b'],
@@ -76,11 +78,11 @@ suite("sparse_ancestor_promotion", "p0") {
                 // Add another source with a sparse ancestor and compact against the new
                 // materialized ancestor, exercising both sides of the promotion boundary.
                 sql """INSERT INTO ${tableName} VALUES
-                    (16, '{"a":301,"hot_3":1}'),
-                    (17, '{"a":302,"hot_3":2}'),
-                    (18, '{"hot_3":3}'),
-                    (19, '{"hot_3":4}'),
-                    (20, '{"a":{"b":305},"hot_3":5}')
+                    (16, ${variantV2Function}('{"a":301,"hot_3":1}')),
+                    (17, ${variantV2Function}('{"a":302,"hot_3":2}')),
+                    (18, ${variantV2Function}('{"hot_3":3}')),
+                    (19, ${variantV2Function}('{"hot_3":4}')),
+                    (20, ${variantV2Function}('{"a":{"b":305},"hot_3":5}'))
                 """
                 qt_before_second projection
                 trigger_and_wait_compaction(tableName, "full", 1800)

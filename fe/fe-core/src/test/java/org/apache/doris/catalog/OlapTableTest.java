@@ -32,15 +32,19 @@ import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+import org.apache.doris.thrift.TPatternType;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -59,6 +63,35 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class OlapTableTest {
+
+    @Test
+    public void testVariantInvertedIndexLookupEncodesLogicalKeys() {
+        List<List<String>> paths = ImmutableList.of(ImmutableList.of("a.b"), ImmutableList.of("a", "b"),
+                ImmutableList.of("a%2Eb"), ImmutableList.of("50%"));
+        List<String> storagePaths = ImmutableList.of("a%2Eb", "a.b", "a%252Eb", "50%25");
+        ArrayList<VariantField> fields = new ArrayList<>();
+        List<Index> indexes = new ArrayList<>();
+        for (int i = 0; i < storagePaths.size(); ++i) {
+            fields.add(new VariantField(storagePaths.get(i), Type.STRING, "", TPatternType.MATCH_NAME));
+            indexes.add(new Index(i + 1, "idx_" + i, ImmutableList.of("v"), IndexDef.IndexType.INVERTED,
+                    ImmutableMap.of("field_pattern", storagePaths.get(i), "parser", "english"), ""));
+        }
+        Column column = new Column("v", new VariantType(fields));
+        OlapTable table = new OlapTable();
+        table.setIndexes(indexes);
+        table.setVariantEscapeDotsInKeys(true);
+        for (int i = 0; i < paths.size(); ++i) {
+            Assertions.assertSame(indexes.get(i), table.getInvertedIndex(column, paths.get(i)));
+            Assertions.assertSame(indexes.get(i), table.getInvertedIndex(column, paths.get(i), "english"));
+        }
+
+        table = new OlapTable();
+        table.setIndexes(indexes);
+        Column legacy = new Column("v", new VariantType(fields));
+        Assertions.assertSame(indexes.get(1), table.getInvertedIndex(legacy, ImmutableList.of("a", "b")));
+        Assertions.assertSame(indexes.get(1), table.getInvertedIndex(legacy, ImmutableList.of("a.b")));
+        Assertions.assertSame(indexes.get(0), table.getInvertedIndex(legacy, ImmutableList.of("a%2Eb")));
+    }
 
     @Test
     public void testPartitionFormatChangeDoesNotChangeLogicalSchemaVersion() {

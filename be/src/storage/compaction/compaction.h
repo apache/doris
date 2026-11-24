@@ -111,6 +111,10 @@ protected:
 
     Status merge_input_rowsets();
 
+    // Select storage once, before any source segment registers its rows.
+    void prepare_rowid_conversion(const RowsetWriterContext& ctx);
+    bool should_compress_rowid_conversion(const RowsetWriterContext& ctx) const;
+
     virtual Status prepare_merge_input_rowsets(MergeInputRowsetsResult* /*result*/) {
         return Status::OK();
     }

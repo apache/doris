@@ -20,12 +20,20 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.MatchPredicate;
+import org.apache.doris.analysis.SearchPredicate;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantField;
 import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
@@ -33,13 +41,17 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TPatternType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -48,6 +60,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public class ExpressionTranslatorTest {
@@ -109,5 +123,71 @@ public class ExpressionTranslatorTest {
         Expr actual = translator.visitOr(or, context);
         Assertions.assertTrue(actual.getChild(0).getNullableFromNereids().isPresent()
                 && actual.getNullableFromNereids().get());
+    }
+
+    @Test
+    public void testVariantIndexLookupUsesLogicalKeysForMatchAndSearch() {
+        for (boolean escaped : new boolean[] {false, true}) {
+            VariantType type = new VariantType(ImmutableList.of(), 0, false, 10000, 1,
+                    false, 0, 64, false);
+            Column column = new Column("v", type.toCatalogDataType());
+            OlapTable table = Mockito.mock(OlapTable.class);
+            Mockito.when(table.getVariantEscapeDotsInKeys()).thenReturn(escaped);
+            List<String> logical = ImmutableList.of("a.b", "50%");
+            SlotReference seed = new SlotReference("v", StringType.INSTANCE, true);
+            SlotReference slot = new SlotReference(seed.getExprId(), "v", StringType.INSTANCE, true,
+                    ImmutableList.of(), table, column, table, column, logical);
+            PlanTranslatorContext context = new PlanTranslatorContext();
+            context.addExprIdSlotRefPair(slot.getExprId(), new SlotRef(Type.STRING, true));
+            Assertions.assertNotNull(ExpressionTranslator.INSTANCE.visitMatch(
+                    new MatchAny(slot, new VarcharLiteral("abc")), context));
+            Mockito.verify(table).getInvertedIndex(column, logical, null);
+            SearchExpression search = new SearchExpression("v.a%2Eb:abc",
+                    SearchDslParser.parseDsl("v.a%2Eb:abc"), ImmutableList.of(slot));
+            Assertions.assertNotNull(ExpressionTranslator.INSTANCE.visitSearchExpression(search, context));
+            Mockito.verify(table).getInvertedIndex(column, logical);
+        }
+    }
+
+    @Test
+    public void testVariantSearchFallbackAndDirectLookupChooseTheSameIndex() throws Exception {
+        List<List<String>> paths = ImmutableList.of(ImmutableList.of("a.b"), ImmutableList.of("a", "b"),
+                ImmutableList.of("a%2Eb"), ImmutableList.of("50%"));
+        List<String> storagePaths = ImmutableList.of("a%2Eb", "a.b", "a%252Eb", "50%25");
+        ArrayList<VariantField> fields = new ArrayList<>();
+        List<Index> indexes = new ArrayList<>();
+        for (int i = 0; i < storagePaths.size(); ++i) {
+            fields.add(new VariantField(storagePaths.get(i), Type.STRING, "", TPatternType.MATCH_NAME));
+            indexes.add(new Index(i + 1, "idx_" + i, ImmutableList.of("v"), IndexType.INVERTED,
+                    ImmutableMap.of("field_pattern", storagePaths.get(i), "parser", "english"), ""));
+        }
+        Column column = new Column("v", new org.apache.doris.catalog.VariantType(fields));
+        OlapTable table = Mockito.spy(new OlapTable());
+        table.setIndexes(indexes);
+        table.setVariantEscapeDotsInKeys(true);
+        for (int i = 0; i < paths.size(); ++i) {
+            PlanTranslatorContext context = new PlanTranslatorContext();
+            TupleDescriptor tuple = context.generateTupleDesc();
+            tuple.setTable(table);
+            SlotReference seed = new SlotReference("v", StringType.INSTANCE, true);
+            SlotReference directSlot = new SlotReference(seed.getExprId(), "v", StringType.INSTANCE, true,
+                    ImmutableList.of(), table, column, table, column, paths.get(i));
+            SlotDescriptor descriptor = context.createSlotDesc(tuple, directSlot);
+            // CTE/projection remapping can lose original metadata while its translated slot still has it.
+            SlotReference remappedSlot = new SlotReference("v", StringType.INSTANCE, true);
+            context.addExprIdSlotRefPair(remappedSlot.getExprId(), new SlotRef(descriptor));
+            for (SlotReference slot : ImmutableList.of(directSlot, remappedSlot)) {
+                SearchExpression search = new SearchExpression("v.a:abc",
+                        SearchDslParser.parseDsl("v.a:abc"), ImmutableList.of(slot));
+                SearchPredicate predicate = (SearchPredicate) ExpressionTranslator.INSTANCE
+                        .visitSearchExpression(search, context);
+                java.lang.reflect.Field fieldIndexes = SearchPredicate.class.getDeclaredField("fieldIndexes");
+                fieldIndexes.setAccessible(true);
+                Assertions.assertSame(indexes.get(i), ((List<?>) fieldIndexes.get(predicate)).get(0));
+            }
+            Mockito.verify(table).getInvertedIndex(column, paths.get(i));
+            Mockito.verify(table, Mockito.times(2)).getInvertedIndexByStoragePath(
+                    column, table.toVariantStoragePath(paths.get(i)), null);
+        }
     }
 }

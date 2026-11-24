@@ -278,6 +278,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskCleanupDaemon;
 import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
@@ -346,7 +347,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-
 
 /**
  * A singleton class can also be seen as an entry point of Doris.
@@ -3728,7 +3728,7 @@ public class Env {
             sb.append("\n").append(distributionInfo.toSql());
             // properties
             sb.append("\nPROPERTIES (\n");
-            addOlapTablePropertyInfo(mtmv, sb, false, false, null);
+            addOlapTablePropertyInfo(mtmv, sb, false, false, false, null);
             addMTMVPropertyInfo(mtmv, sb);
             sb.append("\n)");
             sb.append("\nAS ");
@@ -3796,7 +3796,7 @@ public class Env {
     }
 
     private static void addOlapTablePropertyInfo(OlapTable olapTable, StringBuilder sb, boolean separatePartition,
-            boolean getDdlForSync, List<Long> partitionId) {
+            boolean getDdlForSync, boolean includeLegacyEncoding, List<Long> partitionId) {
         // replicationNum
         ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
         if (Config.isCloudMode()) {
@@ -4045,6 +4045,8 @@ public class Env {
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
         sb.append(olapTable.disableAutoCompaction()).append("\"");
 
+        addVariantEscapeDotsInKeysProperty(olapTable, sb, includeLegacyEncoding);
+
         if (olapTable.variantEnableFlattenNested()) {
             // enable flatten nested type in variant
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED).append("\" = \"");
@@ -4088,6 +4090,23 @@ public class Env {
 
         if (olapTable.isInAtomicRestore()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE).append("\" = \"true\"");
+        }
+    }
+
+    /**
+     * @param includeLegacyEncoding Emit an explicit false as well. The DDL of an existing table is
+     * replayed by LIKE/COPY TABLET/binlog sync, so it must pin the source encoding; SHOW CREATE
+     * keeps the historical false omission.
+     */
+    private static void addVariantEscapeDotsInKeysProperty(OlapTable olapTable, StringBuilder sb,
+            boolean includeLegacyEncoding) {
+        if (olapTable.getVariantEscapeDotsInKeys()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS)
+                    .append("\" = \"true\"");
+        } else if (includeLegacyEncoding && olapTable.getBaseSchema().stream()
+                .anyMatch(column -> column.getType().isVariantType())) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS)
+                    .append("\" = \"false\"");
         }
     }
 
@@ -4138,7 +4157,6 @@ public class Env {
         } else {
             sb.append("`").append(table.getName()).append("`");
         }
-
 
         sb.append(" (\n");
         int idx = 0;
@@ -4200,7 +4218,9 @@ public class Env {
                 sb.append("\nDISTRIBUTED BY HASH(").append(olapTable.getBaseSchema().get(0).getName())
                     .append(") BUCKETS 1");
                 sb.append("\nPROPERTIES (\n" + "\"replication_num\" = \"1\",\n" + "\"version_info\" = \""
-                        + specificVersion + "\"\n" + ")");
+                        + specificVersion + "\"");
+                addVariantEscapeDotsInKeysProperty(olapTable, sb, true);
+                sb.append("\n)");
                 createTableStmt.add(sb + ";");
                 return;
             }
@@ -4298,7 +4318,8 @@ public class Env {
 
             // properties
             sb.append("\nPROPERTIES (\n");
-            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync, partitionId);
+            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync,
+                    getDdlForLike || getDdlForSync, partitionId);
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
@@ -4562,7 +4583,6 @@ public class Env {
             sb.append("`").append(table.getName()).append("`");
         }
 
-
         sb.append(" (\n");
         int idx = 0;
         List<Column> columns = table instanceof IcebergExternalTable
@@ -4626,7 +4646,9 @@ public class Env {
                 sb.append("\nDISTRIBUTED BY HASH(").append(olapTable.getBaseSchema().get(0).getName())
                         .append(") BUCKETS 1");
                 sb.append("\nPROPERTIES (\n" + "\"replication_num\" = \"1\",\n" + "\"version_info\" = \""
-                        + specificVersion + "\"\n" + ")");
+                        + specificVersion + "\"");
+                addVariantEscapeDotsInKeysProperty(olapTable, sb, true);
+                sb.append("\n)");
                 createTableStmt.add(sb + ";");
                 return;
             }
@@ -4727,7 +4749,8 @@ public class Env {
 
             // properties
             sb.append("\nPROPERTIES (\n");
-            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync, partitionId);
+            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync,
+                    getDdlForLike || getDdlForSync, partitionId);
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
@@ -4908,8 +4931,8 @@ public class Env {
                 Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
                 while (iterator.hasNext()) {
                     Entry<String, String> property = iterator.next();
-                    String value = hidePassword && PrintableMap.SENSITIVE_KEY.contains(property.getKey())
-                            ? PrintableMap.PASSWORD_MASK : String.valueOf(property.getValue());
+                    String value = hidePassword ? PrintableMap.redactProperty(property.getKey(), property.getValue())
+                            : String.valueOf(property.getValue());
                     sb.append("  ").append(SqlLiteralUtils.quoteStringLiteral(property.getKey()))
                             .append(" = ").append(SqlLiteralUtils.quoteStringLiteral(value));
                     if (iterator.hasNext()) {
@@ -7233,6 +7256,7 @@ public class Env {
     public void eraseDatabase(long dbId, boolean needEditLog) {
         // remove database transaction manager
         Env.getCurrentGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
+        AgentTaskQueue.removePublishVersionTasks(dbId);
 
         if (needEditLog) {
             Env.getCurrentEnv().getEditLog().logEraseDb(dbId);

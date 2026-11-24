@@ -18,7 +18,7 @@
 suite("test_variant_field_pattern_invalid_inverted_index", "p0") {
     def tableName = "test_variant_field_pattern_invalid_inverted_index"
 
-    sql " set default_variant_enable_doc_mode = true"
+    sql " set debug_variant_enable_doc_mode = true"
 
     sql "DROP TABLE IF EXISTS ${tableName}"
     test {
@@ -219,7 +219,7 @@ suite("test_variant_field_pattern_invalid_inverted_index", "p0") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception("parser_mode is only available for chinese and ik parser")
+        exception("parser_mode is only available for chinese, ik and kuromoji parser")
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"

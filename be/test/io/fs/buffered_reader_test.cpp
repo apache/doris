@@ -20,9 +20,12 @@
 #include <glog/logging.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 #include <limits.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include <ostream>
 #include <thread>
@@ -33,6 +36,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "util/countdown_latch.h"
+#include "util/defer_op.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 
@@ -150,7 +154,7 @@ public:
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                        const io::IOContext* /*io_ctx*/) override {
+                        const io::IOContext* io_ctx) override {
         _read_started->count_down();
         _continue_read->wait();
         if (offset >= _size) {
@@ -158,7 +162,9 @@ protected:
             return Status::OK();
         }
         *bytes_read = std::min(_size - offset, result.size);
-        return Status::TimedOut("injected prefetch timeout");
+        memset(result.data, 0, *bytes_read);
+        io_ctx->file_cache_stats->bytes_read_from_remote += *bytes_read;
+        return Status::OK();
     }
 
 private:
@@ -352,37 +358,160 @@ TEST_F(BufferedReaderTest, test_miss) {
     EXPECT_EQ(45, bytes_read);
 }
 
-TEST_F(BufferedReaderTest, prefetch_task_keeps_reader_alive_after_close_timeout) {
+// A read timeout must not let close/destruction release the scanner's borrowed state.
+TEST_F(BufferedReaderTest, prefetch_close_drains_timed_out_reads) {
     const auto saved_timeout_ms = config::buffered_reader_read_timeout_ms;
-    config::buffered_reader_read_timeout_ms = 50;
+    Defer restore([&] { config::buffered_reader_read_timeout_ms = saved_timeout_ms; });
+    config::buffered_reader_read_timeout_ms = 20;
 
-    CountDownLatch read_started(1);
-    CountDownLatch continue_read(1);
-    std::atomic<bool> reader_destroyed = false;
-    auto inner_reader = std::make_shared<BlockingFileReader>(1024, &read_started, &continue_read,
-                                                             &reader_destroyed);
-    auto weak_reader = std::weak_ptr<io::FileReader>(inner_reader);
-    {
-        io::PrefetchBufferedReader reader(nullptr, std::move(inner_reader),
-                                          io::PrefetchRange(0, 1024));
+    for (bool explicit_close : {false, true}) {
+        SCOPED_TRACE(explicit_close);
+        CountDownLatch read_started(1);
+        CountDownLatch continue_read(1);
+        CountDownLatch close_started(1);
+        CountDownLatch close_finished(1);
+        std::atomic<bool> reader_destroyed = false;
+        io::FileCacheStatistics stats;
+        auto io_ctx = std::make_shared<io::IOContext>();
+        io_ctx->file_cache_stats = &stats;
+        auto inner_reader = std::make_shared<BlockingFileReader>(1024, &read_started,
+                                                                 &continue_read, &reader_destroyed);
+        auto reader = std::make_unique<io::PrefetchBufferedReader>(
+                nullptr, std::move(inner_reader), io::PrefetchRange(0, 1024), io_ctx);
         uint8_t buf[1];
         size_t bytes_read = 0;
-        Status st = reader.read_at(0, Slice {buf, 1}, &bytes_read);
-        EXPECT_TRUE(st.is<ErrorCode::TIMEOUT>());
-        EXPECT_TRUE(read_started.wait_for(std::chrono::seconds(1)));
-        EXPECT_FALSE(reader_destroyed.load());
-    }
-    EXPECT_FALSE(reader_destroyed.load());
-    EXPECT_FALSE(weak_reader.expired());
+        EXPECT_TRUE(reader->read_at(0, Slice {buf, 1}, &bytes_read).is<ErrorCode::TIMEOUT>());
+        EXPECT_TRUE(read_started.wait_for(std::chrono::seconds(5)));
+        EXPECT_EQ(stats.bytes_read_from_remote, 0);
 
-    continue_read.count_down();
-    for (int i = 0; i < 100 && !reader_destroyed.load(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::thread finish_read([&] {
+            close_started.wait();
+            // Hold the request beyond the old close timeout. Closing must remain blocked.
+            EXPECT_FALSE(close_finished.wait_for(std::chrono::milliseconds(100)));
+            EXPECT_FALSE(reader_destroyed.load());
+            continue_read.count_down();
+        });
+        close_started.count_down();
+        if (explicit_close) {
+            EXPECT_TRUE(reader->close().ok());
+        }
+        reader.reset();
+        close_finished.count_down();
+        finish_read.join();
+        // Let the pool release its task captures before the destructor-observer goes out of scope.
+        ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->wait();
+        EXPECT_TRUE(reader_destroyed.load());
+        EXPECT_EQ(stats.bytes_read_from_remote, 1024);
     }
-    EXPECT_TRUE(reader_destroyed.load());
-    EXPECT_TRUE(weak_reader.expired());
+}
 
-    config::buffered_reader_read_timeout_ms = saved_timeout_ms;
+class PrefetchStatisticsFileReader : public MockOffsetFileReader {
+public:
+    PrefetchStatisticsFileReader(size_t size, io::FileCacheStatistics* scanner_stats,
+                                 CountDownLatch* started, CountDownLatch* resume)
+            : MockOffsetFileReader(size),
+              _scanner_stats(scanner_stats),
+              _started(started),
+              _resume(resume) {}
+
+    std::atomic<bool> used_scanner_stats = false;
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        if (io_ctx->file_cache_stats == _scanner_stats) {
+            used_scanner_stats = true;
+        }
+        RETURN_IF_ERROR(MockOffsetFileReader::read_at_impl(offset, result, bytes_read, io_ctx));
+        auto* stats = io_ctx->file_cache_stats;
+        stats->bytes_read_from_remote += *bytes_read;
+        ++stats->num_remote_io_total;
+        stats->peer_hosts.insert("prefetch-test");
+        stats->remote_only_on_miss_triggered = true;
+        stats->remote_only_on_miss_threshold_bytes = 42;
+        _started->count_down();
+        _resume->wait();
+        return Status::OK();
+    }
+
+private:
+    io::FileCacheStatistics* _scanner_stats;
+    CountDownLatch* _started;
+    CountDownLatch* _resume;
+};
+
+TEST_F(BufferedReaderTest, prefetch_merges_worker_cache_statistics_on_consumer) {
+    constexpr size_t buffer_size = 4 * 1024 * 1024;
+    constexpr size_t file_size = 5 * buffer_size;
+    CountDownLatch started(4);
+    CountDownLatch resume(1);
+    io::FileCacheStatistics stats;
+    auto io_ctx = std::make_shared<io::IOContext>();
+    io_ctx->file_cache_stats = &stats;
+    auto inner =
+            std::make_shared<PrefetchStatisticsFileReader>(file_size, &stats, &started, &resume);
+    io::PrefetchBufferedReader reader(nullptr, inner, io::PrefetchRange(0, file_size), io_ctx,
+                                      4 * buffer_size);
+    std::thread release_workers([&] {
+        EXPECT_TRUE(started.wait_for(std::chrono::seconds(5)));
+        // All four workers have updated their counters, but the consumer has not merged them.
+        EXPECT_FALSE(inner->used_scanner_stats.load());
+        EXPECT_EQ(stats.bytes_read_from_remote, 0);
+        resume.count_down();
+    });
+    uint8_t buf[2];
+    size_t bytes_read = 0;
+    auto status = reader.read_at(0, Slice {buf, 1}, &bytes_read);
+    release_workers.join();
+    ASSERT_TRUE(status.ok());
+    EXPECT_EQ(stats.bytes_read_from_remote, buffer_size);
+    ASSERT_TRUE(reader.read_at(1, Slice {buf, 1}, &bytes_read).ok());
+    EXPECT_EQ(stats.bytes_read_from_remote, buffer_size); // No double merge for another slice.
+    // Reuse slot 0 without consuming slots 1..3; close must still collect their statistics.
+    ASSERT_TRUE(reader.read_at(4 * buffer_size, Slice {buf, 1}, &bytes_read).ok());
+    EXPECT_EQ(stats.bytes_read_from_remote, 2 * buffer_size);
+    ASSERT_TRUE(reader.close().ok());
+    EXPECT_EQ(stats.bytes_read_from_remote, file_size);
+    EXPECT_EQ(stats.num_remote_io_total, 5);
+    EXPECT_EQ(stats.peer_hosts.count("prefetch-test"), 1);
+    EXPECT_TRUE(stats.remote_only_on_miss_triggered);
+    EXPECT_EQ(stats.remote_only_on_miss_threshold_bytes, 42);
+    ASSERT_TRUE(reader.close().ok());
+    EXPECT_EQ(stats.bytes_read_from_remote, file_size);
+}
+
+TEST_F(BufferedReaderTest, prefetch_normalizes_ring_capacity) {
+    constexpr size_t mb = 1024 * 1024;
+    constexpr size_t file_size = 10 * mb;
+    std::vector<uint8_t> expected(file_size);
+    for (size_t i = 0; i < file_size; ++i) {
+        expected[i] = i % UCHAR_MAX;
+    }
+    const auto saved_buffer_mb = config::remote_storage_read_buffer_mb;
+    Defer restore([&] { config::remote_storage_read_buffer_mb = saved_buffer_mb; });
+    // Includes less than one buffer, a non-multiple of 4 MiB, and a multi-slot ring.
+    for (int capacity_mb : {0, 1, 6, 10, 16}) {
+        config::remote_storage_read_buffer_mb = capacity_mb;
+        for (size_t start : {size_t {0}, 4 * mb + 7}) {
+            SCOPED_TRACE(capacity_mb);
+            SCOPED_TRACE(start);
+            io::PrefetchBufferedReader reader(nullptr,
+                                              std::make_shared<MockOffsetFileReader>(file_size),
+                                              io::PrefetchRange(start, file_size));
+            std::vector<uint8_t> data(3 * mb);
+            for (size_t offset = start; offset < file_size;) {
+                size_t bytes_read = 0;
+                ASSERT_TRUE(
+                        reader.read_at(offset, Slice {data.data(), data.size()}, &bytes_read).ok());
+                ASSERT_EQ(bytes_read, std::min(data.size(), file_size - offset));
+                ASSERT_TRUE(std::equal(data.begin(), data.begin() + bytes_read,
+                                       expected.begin() + offset))
+                        << offset;
+                offset += bytes_read;
+            }
+            ASSERT_TRUE(reader.close().ok());
+        }
+    }
 }
 
 TEST_F(BufferedReaderTest, test_read_amplify) {

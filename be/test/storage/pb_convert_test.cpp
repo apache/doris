@@ -462,6 +462,44 @@ TEST(PbConvert, test_return_value_overloads) {
 
 // clang-format on
 
+TEST(PBConvertTest, VariantEscapeTablePolicyRoundTrip) {
+    for (bool escaped : {false, true}) {
+        TabletSchemaPB schema;
+        schema.set_variant_escape_dots_in_keys(escaped);
+        const auto cloud = doris_tablet_schema_to_cloud(schema);
+        EXPECT_TRUE(cloud.has_variant_escape_dots_in_keys());
+        EXPECT_EQ(cloud.variant_escape_dots_in_keys(), escaped);
+        const auto restored_schema = cloud_tablet_schema_to_doris(cloud);
+        EXPECT_TRUE(restored_schema.has_variant_escape_dots_in_keys());
+        EXPECT_EQ(restored_schema.variant_escape_dots_in_keys(), escaped);
+        auto moving_schema = schema;
+        auto moving_cloud = doris_tablet_schema_to_cloud(std::move(moving_schema));
+        EXPECT_TRUE(moving_cloud.has_variant_escape_dots_in_keys());
+        EXPECT_EQ(moving_cloud.variant_escape_dots_in_keys(), escaped);
+        const auto moved_schema = cloud_tablet_schema_to_doris(std::move(moving_cloud));
+        EXPECT_TRUE(moved_schema.has_variant_escape_dots_in_keys());
+        EXPECT_EQ(moved_schema.variant_escape_dots_in_keys(), escaped);
+    }
+}
+
+TEST(PBConvertTest, VariantEscapeTablePolicyAbsent) {
+    const TabletSchemaPB schema;
+    const auto cloud = doris_tablet_schema_to_cloud(schema);
+    EXPECT_FALSE(cloud.has_variant_escape_dots_in_keys());
+    EXPECT_FALSE(cloud.variant_escape_dots_in_keys());
+    const TabletSchemaCloudPB cloud_schema;
+    const auto restored_schema = cloud_tablet_schema_to_doris(cloud_schema);
+    EXPECT_FALSE(restored_schema.has_variant_escape_dots_in_keys());
+    EXPECT_FALSE(restored_schema.variant_escape_dots_in_keys());
+
+    const auto moving_cloud = doris_tablet_schema_to_cloud(TabletSchemaPB());
+    EXPECT_FALSE(moving_cloud.has_variant_escape_dots_in_keys());
+    EXPECT_FALSE(moving_cloud.variant_escape_dots_in_keys());
+    const auto moving_schema = cloud_tablet_schema_to_doris(TabletSchemaCloudPB());
+    EXPECT_FALSE(moving_schema.has_variant_escape_dots_in_keys());
+    EXPECT_FALSE(moving_schema.variant_escape_dots_in_keys());
+}
+
 } // namespace doris
 
 // vim: et tw=80 ts=4 sw=4 cc=80:

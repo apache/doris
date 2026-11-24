@@ -113,6 +113,11 @@ services:
     volumes:
       - ./init-catalog.sh:/init-catalog.sh:ro
     entrypoint: ["/bin/sh","-c","/init-catalog.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/polaris_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
     networks:
       - ${CONTAINER_UID}polaris
 

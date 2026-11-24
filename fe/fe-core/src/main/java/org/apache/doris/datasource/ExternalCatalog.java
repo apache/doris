@@ -38,6 +38,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
@@ -1287,6 +1288,7 @@ public abstract class ExternalCatalog
 
     @Override
     public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
+        PropertyAnalyzer.rejectVariantEscapeDotsInKeysExternal(createTableInfo.getProperties());
         makeSureInitialized();
 
         if (metadataOps == null) {

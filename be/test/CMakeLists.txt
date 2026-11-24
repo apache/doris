@@ -160,7 +160,11 @@ if (TARGET phdr_cache_test_dso)
     add_dependencies(doris_be_test phdr_cache_test_dso)
 endif()
 
-target_link_libraries(doris_be_test ${TEST_LINK_LIBS} 
+# Resolve the real dictionary from the source tree when the test runner changes DORIS_HOME.
+target_compile_definitions(doris_be_test PRIVATE
+    KUROMOJI_SOURCE_DICT_DIR="${BASE_DIR}/dict/kuromoji")
+
+target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
     -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)
 set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
 target_compile_options(doris_be_test PRIVATE -include gtest/gtest.h)

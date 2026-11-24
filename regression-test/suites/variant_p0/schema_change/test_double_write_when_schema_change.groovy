@@ -16,7 +16,7 @@
 // under the License.
 
 suite("double_write_schema_change_with_variant", "nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
+    setFeConfigTemporary([enable_variant_v2: false, enable_variant_escape_dots_in_keys: false]) {
     assertFalse(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = ""
     def set_be_config = { key, value ->

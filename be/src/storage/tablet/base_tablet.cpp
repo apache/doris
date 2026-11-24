@@ -1805,17 +1805,20 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     return Status::OK();
 }
 
-void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
+Status BaseTablet::calc_compaction_output_rowset_delete_bitmap(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowIdConversion& rowid_conversion,
         uint64_t start_version, uint64_t end_version, std::set<RowLocation>* missed_rows,
         std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
         const DeleteBitmap& input_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap) {
     RowLocation src;
-    RowLocation dst;
+    RowIdConversionSource::Pair converted_dst;
+    CompressedRowIdMap::DecodeWorkspace workspace;
+    CompressedRowIdMap::Cursor cursor;
     for (auto& rowset : input_rowsets) {
         src.rowset_id = rowset->rowset_id();
         for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
             src.segment_id = seg_id;
+            auto source = rowid_conversion.find_source(src.rowset_id, seg_id);
             DeleteBitmap subset_map(tablet_id());
             input_delete_bitmap.subset({rowset->rowset_id(), seg_id, start_version},
                                        {rowset->rowset_id(), seg_id, end_version}, &subset_map);
@@ -1825,7 +1828,8 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
                 auto cur_version = std::get<2>(iter->first);
                 for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
                     src.row_id = *index;
-                    if (rowid_conversion.get(src, &dst) != 0) {
+                    RETURN_IF_ERROR(source.get(src.row_id, cursor, workspace, &converted_dst));
+                    if (converted_dst.first == UINT32_MAX && converted_dst.second == UINT32_MAX) {
                         VLOG_CRITICAL << "Can't find rowid, may be deleted by the delete_handler, "
                                       << " src loaction: |" << src.rowset_id << "|"
                                       << src.segment_id << "|" << src.row_id
@@ -1835,6 +1839,8 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
                         }
                         continue;
                     }
+                    RowLocation dst(rowid_conversion.get_dst_rowset_id(), converted_dst.first,
+                                    converted_dst.second);
                     VLOG_DEBUG << "calc_compaction_output_rowset_delete_bitmap dst location: |"
                                << dst.rowset_id << "|" << dst.segment_id << "|" << dst.row_id
                                << " src location: |" << src.rowset_id << "|" << src.segment_id
@@ -1849,6 +1855,7 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
             }
         }
     }
+    return Status::OK();
 }
 
 Status BaseTablet::calc_compaction_output_rowset_internal_delete_bitmap(

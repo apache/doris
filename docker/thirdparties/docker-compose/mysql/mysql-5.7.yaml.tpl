@@ -32,6 +32,9 @@ services:
       - bash
       - -c
       - |
+        set -e
+        mkdir -p /etc/mysql/certs
+        cp /etc/mysql/certs-source/* /etc/mysql/certs/
         chown mysql:mysql /etc/mysql/certs/*
         chmod 600 /etc/mysql/certs/server.key
         chmod 644 /etc/mysql/certs/server.crt /etc/mysql/certs/root.crt
@@ -52,7 +55,7 @@ services:
       - ./data/:/var/lib/mysql
       - ./init:/docker-entrypoint-initdb.d
       - ./my.cnf:/etc/mysql/conf.d/my.cnf
-      - ./certs:/etc/mysql/certs
+      - ./certs:/etc/mysql/certs-source:ro
     networks:
       - doris--mysql_57
 

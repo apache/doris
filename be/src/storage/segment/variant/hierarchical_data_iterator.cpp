@@ -56,7 +56,8 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
                                         std::unique_ptr<SubstreamIterator>&& root_column_reader,
                                         ColumnReaderCache* column_reader_cache,
                                         OlapReaderStatistics* stats, ReadType read_type,
-                                        bool use_variant_v2, const io::IOContext* io_ctx) {
+                                        bool use_variant_v2, const io::IOContext* io_ctx,
+                                        uint32_t path_encoding) {
     // None leave node need merge with root
     std::unique_ptr<HierarchicalDataIterator> stream_iter(
             new HierarchicalDataIterator(path, read_type));
@@ -89,6 +90,7 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
 
     if (use_variant_v2) {
         variant_v2::VariantAssemblerOptions assembler_options;
+        assembler_options.path_encoding = path_encoding;
         assembler_options.requested_path = path;
         if (stream_iter->_binary_column_reader) {
             assembler_options.storage_map_kind = read_type == ReadType::SUBCOLUMNS_AND_SPARSE

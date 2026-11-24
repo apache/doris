@@ -1083,9 +1083,10 @@ TEST_F(VerticalCompactionTest, ClusterKeyMowCompactionNeedsOutputRowsetInternalD
 
     DeleteBitmap input_delete_bitmap(tablet->tablet_id());
     DeleteBitmap output_delete_bitmap(tablet->tablet_id());
-    tablet->calc_compaction_output_rowset_delete_bitmap(input_rowsets, rowid_conversion, 0,
-                                                        UINT64_MAX, nullptr, nullptr,
-                                                        input_delete_bitmap, &output_delete_bitmap);
+    ASSERT_TRUE(tablet->calc_compaction_output_rowset_delete_bitmap(
+                              input_rowsets, rowid_conversion, 0, UINT64_MAX, nullptr, nullptr,
+                              input_delete_bitmap, &output_delete_bitmap)
+                        .ok());
     st = tablet->calc_compaction_output_rowset_internal_delete_bitmap(
             input_rowsets, output_rowset, rowid_conversion, &output_delete_bitmap);
     ASSERT_TRUE(st.ok()) << st;
@@ -1148,10 +1149,12 @@ TEST_F(VerticalCompactionTest,
     ASSERT_TRUE(rowid_conversion->init_segment_map(input_rowsets[0]->rowset_id(), {1}).ok());
     ASSERT_TRUE(rowid_conversion->init_segment_map(input_rowsets[1]->rowset_id(), {2}).ok());
     rowid_conversion->set_dst_rowset_id(output_rowset->rowset_id());
-    rowid_conversion->add({RowLocation(input_rowsets[1]->rowset_id(), 0, 0),
-                           RowLocation(input_rowsets[1]->rowset_id(), 0, 1),
-                           RowLocation(input_rowsets[0]->rowset_id(), 0, 0)},
-                          {3});
+    ASSERT_TRUE(rowid_conversion
+                        ->add({RowLocation(input_rowsets[1]->rowset_id(), 0, 0),
+                               RowLocation(input_rowsets[1]->rowset_id(), 0, 1),
+                               RowLocation(input_rowsets[0]->rowset_id(), 0, 0)},
+                              {3})
+                        .ok());
 
     auto committed_rowset =
             create_rowset_with_sequence(tablet_schema, NONOVERLAPPING, {{{3, 40, 40}}}, 4);

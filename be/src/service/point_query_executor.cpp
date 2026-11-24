@@ -39,6 +39,7 @@
 #include "common/status.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type_serde/data_type_serde.h"
+#include "exec/common/variant_util.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -55,6 +56,7 @@
 #include "storage/row_cursor.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_fwd.h"
+#include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
@@ -359,6 +361,11 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
             LookupConnectionCache::instance()->add(uuid, reusable_ptr);
         }
     }
+    // Also validate cached query contexts against this tablet's persisted storage policy.
+    for (const auto* slot : _reusable->tuple_desc()->slots()) {
+        RETURN_IF_ERROR(variant_util::check_variant_execution(
+                _tablet->tablet_schema()->variant_escape_dots_in_keys(), slot->type()));
+    }
     _init_remote_scan_cache_write_limiter();
     // Set timezone from request for functions like from_unixtime()
     if (request->has_time_zone() && !request->time_zone().empty()) {
@@ -570,8 +577,11 @@ Status PointQueryExecutor::_lookup_row_data() {
                 if (!_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
                     std::string missing_columns;
                     for (int cid : _reusable->missing_col_uids()) {
-                        missing_columns +=
-                                _tablet->tablet_schema()->column_by_uid(cid).name() + ",";
+                        // Named from the query, not the tablet schema: a column a light schema
+                        // change just added is not in the tablet schema yet, and column_by_uid
+                        // throws on a uid it does not hold.
+                        const int pos = _reusable->get_col_uid_to_idx().at(cid);
+                        missing_columns += _reusable->tuple_desc()->slots()[pos]->col_name() + ",";
                     }
                     return Status::InternalError(
                             "Not support column store, set store_row_column=true or "
@@ -599,6 +609,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                                            return seg->id() == row_loc.segment_id;
                                        });
                 const auto& segment = *it;
+                const auto tablet_schema = _tablet->tablet_schema();
                 for (int cid : _reusable->missing_col_uids()) {
                     int pos = _reusable->get_col_uid_to_idx().at(cid);
                     std::vector<segment_v2::rowid_t> row_ids {
@@ -606,29 +617,24 @@ Status PointQueryExecutor::_lookup_row_data() {
                     auto& column = result_columns[pos];
                     std::unique_ptr<ColumnIterator> iter;
                     SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
-                    if (slot->col_unique_id() >= 0 &&
-                        _tablet->tablet_schema()->field_index(slot->col_unique_id()) < 0) {
-                        // Light schema change can reach FE before a load updates the BE schema.
-                        // Use the same FE defaults as the row-store decoder for new columns.
-                        const auto& default_value = _reusable->get_col_default_values()[pos];
-                        if (default_value.empty()) {
-                            column->insert_default();
-                        } else {
-                            Slice input(default_value.data(), default_value.size());
-                            DataTypeSerDe::FormatOptions options;
-                            options.converted_from_string = true;
-                            RETURN_IF_ERROR(_reusable->get_data_type_serdes()[pos]
-                                                    ->deserialize_one_cell_from_json(*column, input,
-                                                                                     options));
-                        }
-                        continue;
+                    int32_t index = slot->col_unique_id() >= 0
+                                            ? tablet_schema->field_index(slot->col_unique_id())
+                                            : tablet_schema->field_index(slot->col_name());
+                    // A light schema change adds a column without writing anything, and
+                    // BaseTablet::_max_version_schema only moves forward on write, so until the
+                    // next load on this BE the tablet schema here does not have it. Describe it
+                    // from the slot and let the segment answer: its value where a segment written
+                    // elsewhere holds the column, its default where none does.
+                    TabletSchemaSPtr read_schema = tablet_schema;
+                    if (index < 0) {
+                        read_schema = std::make_shared<TabletSchema>();
+                        read_schema->append_column(Schema::tablet_column_from_slot(*slot));
                     }
                     StorageReadOptions storage_read_options;
                     storage_read_options.stats = &_read_stats;
                     storage_read_options.io_ctx = io_ctx;
-                    RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
-                                                                    row_ids, column,
-                                                                    storage_read_options, iter));
+                    RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
+                            *read_schema, slot, row_ids, column, storage_read_options, iter));
                 }
             }
         }
