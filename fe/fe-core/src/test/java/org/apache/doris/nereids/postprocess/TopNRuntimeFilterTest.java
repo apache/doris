@@ -17,7 +17,11 @@
 
 package org.apache.doris.nereids.postprocess;
 
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
+import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
@@ -30,19 +34,32 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TSortAlgorithm;
+import org.apache.doris.thrift.TSortNode;
+import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTopnFilterDesc;
+import org.apache.doris.tso.TSOTimestamp;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -53,17 +70,126 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMatchSupported {
+    private boolean previousEnableChangelog;
+
     @Override
     public void runBeforeAll() throws Exception {
         super.runBeforeAll();
+        previousEnableChangelog = Config.enable_feature_changelog;
+        Config.enable_feature_changelog = true;
         createTable("CREATE TABLE topn_safety (id INT, k INT, d DATE, ts BIGINT) DUPLICATE KEY(id) "
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        createTable("CREATE TABLE topn_storage_agg (k INT, v BIGINT SUM) AGGREGATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        createTable("CREATE TABLE topn_storage_dup (k INT, v BIGINT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        createTable("CREATE TABLE topn_storage_mor (k INT, v BIGINT) UNIQUE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1', "
+                + "'enable_unique_key_merge_on_write'='false')");
+        createTable("CREATE TABLE topn_storage_mow (k INT, v BIGINT) UNIQUE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1', "
+                + "'enable_unique_key_merge_on_write'='true', 'changelog.enable'='true', "
+                + "'changelog.need_historical_value'='true')");
         createTable("CREATE TABLE uuid_topn (id INT, u UUID) DUPLICATE KEY(id) "
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
         createTable("CREATE TABLE topn_nested_fields (id INT, "
                 + "ts STRUCT<a: TIMESTAMPTZ(0), b: TIMESTAMPTZ(0)>, "
                 + "si STRUCT<a: INT, b: INT>, sd STRUCT<a: DATE, b: DATE>) DUPLICATE KEY(id) "
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
+    }
+
+    @Override
+    protected void runAfterAll() throws Exception {
+        Config.enable_feature_changelog = previousEnableChangelog;
+        super.runAfterAll();
+    }
+
+    @Test
+    public void testTopNFilterPreservesStorageMergeTargets() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        String previousAlgorithm = connectContext.getSessionVariable().forceSortAlgorithm;
+        String previousRules = String.join(",", connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().forceSortAlgorithm = "heap";
+        connectContext.getSessionVariable().setDisableNereidsRules(previousRules
+                + ",PRUNE_EMPTY_PARTITION,PUSH_DOWN_TOP_N_THROUGH_UNION");
+        try {
+            for (String source : List.of("topn_storage_agg", "topn_storage_mor", "topn_storage_mow",
+                    "topn_storage_mow@incr('incrementType'='MIN_DELTA')",
+                    "topn_storage_mow@incr('incrementType'='DETAIL')")) {
+                for (String key : List.of("k", "abs(k)")) {
+                    for (String direction : List.of("ASC", "DESC")) {
+                        String sql = "SELECT k,v FROM (SELECT k,v FROM " + source
+                                + " UNION ALL SELECT k,v FROM topn_storage_dup) u ORDER BY "
+                                + key + " " + direction + " NULLS LAST LIMIT 1";
+                        PlanChecker checker = PlanChecker.from(connectContext).parse(sql);
+                        // Direct analyzer tests must supply the planner's changelog reference timestamp.
+                        checker.getCascadesContext().getStatementContext().getOrRegisterChangelogReferenceTso(
+                                () -> TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis()));
+                        checker.analyze().rewrite().implement();
+                        PhysicalPlan plan = new PlanPostProcessors(checker.getCascadesContext())
+                                .process(checker.getPhysicalPlan());
+                        // Storage merges must retain ties even when there is no SQL aggregate node.
+                        Assertions.assertFalse(plan.anyMatch(PhysicalHashAggregate.class::isInstance),
+                                plan.treeString());
+                        List<TopnFilter> filters = checker.getCascadesContext().getTopnFilterContext().getTopnFilters();
+                        Assertions.assertEquals(1, filters.size(), plan.treeString());
+                        TopnFilter filter = filters.get(0);
+                        Assertions.assertEquals(2, filter.targets.size(), plan.treeString());
+                        Assertions.assertTrue(filter.targets.keySet().stream().anyMatch(target ->
+                                ((PhysicalOlapScan) target).getTable().getName().equals("topn_storage_dup")));
+                        new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext()))
+                                .translatePlan(plan);
+                        TTopnFilterDesc desc = filter.toThrift();
+                        Assertions.assertEquals(2, desc.getTargetNodeIdToTargetExprSize());
+                        for (ScanNode target : filter.legacyTargets.keySet()) {
+                            String tableName = ((OlapScanNode) target).getOlapTable().getName();
+                            boolean strict = tableName.equals("topn_storage_dup") || source.equals("topn_storage_mow");
+                            Assertions.assertEquals(strict, desc.getStrictTargetNodeIds().contains(target.getId().asInt()),
+                                    sql + "\n" + plan.treeString());
+                        }
+                    }
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().forceSortAlgorithm = previousAlgorithm;
+            connectContext.getSessionVariable().setDisableNereidsRules(previousRules);
+        }
+    }
+
+    @Test
+    public void testTopNFilterRetainsSelectedIndexThroughLazyScan() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        String previousRules = String.join(",", connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().setDisableNereidsRules(previousRules + ",PRUNE_EMPTY_PARTITION");
+        try {
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze("SELECT k,v FROM topn_storage_dup ORDER BY k LIMIT 1").rewrite().implement();
+            PhysicalPlan plan = checker.getPhysicalPlan();
+            PhysicalOlapScan scan = plan.<PhysicalOlapScan>collectToList(PhysicalOlapScan.class::isInstance).get(0);
+            PhysicalTopN<?> topn = plan.<PhysicalTopN<?>>collectToList(PhysicalTopN.class::isInstance).get(0);
+            OlapTable table = PlanConstructor.newOlapTable(10001, "topn_index_model", 0, KeysType.DUP_KEYS);
+            table.setIndexMeta(10002, "aggregate_index", table.getFullSchema(), 0, 0, (short) 0,
+                    TStorageType.COLUMN, KeysType.AGG_KEYS);
+            for (long indexId : List.of(table.getBaseIndexId(), 10002L)) {
+                PhysicalOlapScan selectedScan = Mockito.spy(scan);
+                Mockito.doReturn(table).when(selectedScan).getTable();
+                Mockito.doReturn(indexId).when(selectedScan).getSelectedIndexId();
+                for (PhysicalOlapScan target : List.of(selectedScan, new PhysicalLazyMaterializeOlapScan(
+                        selectedScan, Mockito.mock(SlotReference.class), List.of()))) {
+                    TopnFilterContext context = new TopnFilterContext();
+                    boolean accepted = target.accept(new TopnFilterPushDownVisitor(context),
+                            new PushDownContext(topn, scan.getOutput().get(0), false));
+                    Assertions.assertTrue(accepted);
+                    Assertions.assertEquals(1, context.getTopnFilters().size());
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().setDisableNereidsRules(previousRules);
+        }
     }
 
     @Test
@@ -79,6 +205,31 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         PhysicalTopN<? extends Plan> localTopN
                 = (PhysicalTopN<? extends Plan>) rfSource;
         Assertions.assertTrue(checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
+        new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+        TTopnFilterDesc desc = checker.getCascadesContext().getTopnFilterContext()
+                .getTopnFilter(localTopN).toThrift();
+        Assertions.assertFalse(desc.getTargetNodeIdToTargetExpr().isEmpty());
+    }
+
+    @Test
+    public void testSerializedSortAlgorithmAndOrderKeys() {
+        String previousAlgorithm = connectContext.getSessionVariable().forceSortAlgorithm;
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        try {
+            for (String algorithm : List.of("heap", "topn", "full")) {
+                connectContext.getSessionVariable().forceSortAlgorithm = algorithm;
+                TSortAlgorithm expectedAlgorithm = algorithm.equals("heap") ? TSortAlgorithm.HEAP_SORT
+                        : algorithm.equals("topn") ? TSortAlgorithm.TOPN_SORT : TSortAlgorithm.FULL_SORT;
+                assertSerializedSortMetadata("SELECT id,k FROM topn_safety ORDER BY k LIMIT 3 OFFSET 2", expectedAlgorithm, 1);
+                assertSerializedSortMetadata("SELECT id,k FROM topn_safety ORDER BY k,id LIMIT 3 OFFSET 2", expectedAlgorithm, 2);
+                assertSerializedSortMetadata("SELECT id,k FROM topn_safety ORDER BY k,k LIMIT 3 OFFSET 2", expectedAlgorithm, 1);
+                assertSerializedSortMetadata("SELECT id,k FROM topn_safety ORDER BY k,id,k LIMIT 3 OFFSET 2", expectedAlgorithm, 2);
+            }
+        } finally {
+            connectContext.getSessionVariable().forceSortAlgorithm = previousAlgorithm;
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+        }
     }
 
     @Test
@@ -104,7 +255,7 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
     }
 
     @Test
-    public void testTopNFilterCrossesGroupedKeyAggregation() {
+    public void testTopNFilterCrossesAggregationOnGroupingKeys() {
         double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
         boolean previousPushTopn = connectContext.getSessionVariable().pushTopnToAgg;
         boolean previousJoinReorder = connectContext.getSessionVariable().isDisableJoinReorder();
@@ -118,18 +269,25 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         try {
             for (String sql : List.of(
                     "SELECT k, count(1) FROM topn_safety GROUP BY k ORDER BY k LIMIT 1",
+                    "SELECT k, sum(ts + 1) FROM topn_safety GROUP BY k ORDER BY abs(k) LIMIT 1",
+                    "SELECT k, count(DISTINCT ts) FROM topn_safety GROUP BY k ORDER BY k LIMIT 1",
                     "SELECT t.k, t.total FROM (SELECT k, count(1) AS total FROM topn_safety "
                             + "GROUP BY k HAVING total > 10) t JOIN customer c ON t.k = c.c_custkey "
                             + "ORDER BY t.k LIMIT 1",
                     "SELECT k, sum(ts) FROM topn_safety GROUP BY GROUPING SETS((k)) ORDER BY k LIMIT 2")) {
-                // Exercise the runtime filter across aggregation, independently of TopN-to-agg pushdown.
+                // Inclusive target bounds retain all contributions at the boundary.
                 PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
                     String explain = planner.getFragments().stream()
                             .map(fragment -> fragment.getExplainString(TExplainLevel.NORMAL))
                             .collect(Collectors.joining("\n"));
                     Assertions.assertTrue(explain.contains("TOPN OPT:"), explain);
+                    for (TopnFilter filter : planner.getTopnFilters()) {
+                        Assertions.assertTrue(filter.toThrift().getStrictTargetNodeIds().isEmpty(), explain);
+                    }
                 });
             }
+            assertTopNFilterPresence(
+                    "SELECT k, sum(ts) AS s FROM topn_safety GROUP BY k ORDER BY s LIMIT 1", false);
         } finally {
             connectContext.getSessionVariable().topnFilterRatio = previousRatio;
             connectContext.getSessionVariable().pushTopnToAgg = previousPushTopn;
@@ -218,6 +376,73 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
             }
         } finally {
             connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules);
+        }
+    }
+
+    @Test
+    public void testTopNFilterPreservesAggregateAndUnionTargets() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        String previousAlgorithm = connectContext.getSessionVariable().forceSortAlgorithm;
+        boolean previousPushTopn = connectContext.getSessionVariable().pushTopnToAgg;
+        String previousDisabledRules = String.join(",",
+                connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().forceSortAlgorithm = "heap";
+        connectContext.getSessionVariable().pushTopnToAgg = false;
+        connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules
+                + ",PRUNE_EMPTY_PARTITION,PUSH_DOWN_TOP_N_THROUGH_UNION");
+        try {
+            for (boolean grouped : List.of(false, true)) {
+                for (String innerOrder : List.of("", " ORDER BY k LIMIT 2")) {
+                    for (String order : List.of("ASC NULLS FIRST", "DESC NULLS FIRST",
+                            "ASC NULLS LAST", "DESC NULLS LAST")) {
+                        String sql = "SELECT k,s FROM (SELECT " + (grouped ? "k" : "CAST(1 AS INT)")
+                                + " AS k, sum(ts + 1) AS s FROM (SELECT k,ts FROM topn_safety"
+                                + innerOrder + ") a" + (grouped ? " GROUP BY k" : "")
+                                + " UNION ALL SELECT k,ts AS s FROM topn_safety) u ORDER BY abs(k) "
+                                + order + " LIMIT 1";
+                        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite().implement();
+                        PhysicalPlan plan = new PlanPostProcessors(checker.getCascadesContext())
+                                .process(checker.getPhysicalPlan());
+                        List<PhysicalHashAggregate<?>> aggregates = plan.collectToList(
+                                PhysicalHashAggregate.class::isInstance);
+                        Assertions.assertFalse(aggregates.isEmpty(), plan.treeString());
+                        List<PhysicalRelation> aggregateScans = aggregates.stream()
+                                .flatMap(aggregate -> aggregate.<PhysicalRelation>collectToList(
+                                        PhysicalRelation.class::isInstance).stream())
+                                .distinct().collect(Collectors.toList());
+                        Assertions.assertEquals(1, aggregateScans.size(), plan.treeString());
+                        List<TopnFilter> filters = checker.getCascadesContext().getTopnFilterContext().getTopnFilters();
+                        List<TopnFilter> outerFilters = filters.stream()
+                                .filter(filter -> aggregates.stream().noneMatch(aggregate ->
+                                        aggregate.anyMatch(node -> node == filter.topn)))
+                                .collect(Collectors.toList());
+                        Assertions.assertEquals(1, outerFilters.size(), plan.treeString());
+                        // An inner TopN remains a barrier for the outer source. Otherwise BE
+                        // keeps equality on the aggregate target and may prune ties on its sibling.
+                        int expectedTargets = innerOrder.isEmpty() ? 2 : 1;
+                        Assertions.assertEquals(expectedTargets, outerFilters.get(0).targets.size(), plan.treeString());
+                        Assertions.assertEquals(innerOrder.isEmpty(), outerFilters.get(0).targets.keySet().stream()
+                                .anyMatch(aggregateScans::contains), plan.treeString());
+                        // The independent TopN inside the aggregate can still filter its own scan.
+                        long innerFilters = filters.stream()
+                                .filter(filter -> aggregates.stream().anyMatch(aggregate ->
+                                        aggregate.anyMatch(node -> node == filter.topn)))
+                                .filter(filter -> filter.targets.keySet().stream().anyMatch(aggregateScans::contains))
+                                .count();
+                        Assertions.assertEquals(innerOrder.isEmpty() ? 0 : 1, innerFilters, plan.treeString());
+                        new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext()))
+                                .translatePlan(plan);
+                        Assertions.assertEquals(expectedTargets, outerFilters.get(0).legacyTargets.size());
+                        Assertions.assertFalse(outerFilters.get(0).toThrift().getTargetNodeIdToTargetExpr().isEmpty());
+                    }
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().forceSortAlgorithm = previousAlgorithm;
+            connectContext.getSessionVariable().pushTopnToAgg = previousPushTopn;
             connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules);
         }
     }
@@ -408,5 +633,213 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         Expression expectedProbeExpr = new Substring(new Nullable(cNameSlot), new IntegerLiteral(1),
                 new IntegerLiteral(5));
         Assertions.assertEquals(expectedProbeExpr, probeExpr);
+    }
+
+    private void assertSerializedSortMetadata(String sql, TSortAlgorithm expectedAlgorithm, int expectedKeyCount) {
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite().implement();
+        PhysicalPlan plan = new PlanPostProcessors(checker.getCascadesContext())
+                .process(checker.getPhysicalPlan());
+        TopnFilterContext context = checker.getCascadesContext().getTopnFilterContext();
+        Assertions.assertFalse(context.getTopnFilters().isEmpty(), plan.treeString());
+        new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+        for (TopnFilter filter : context.getTopnFilters()) {
+            TSortNode sort = filter.legacySortNode.treeToThrift().getNodes().get(0).getSortNode();
+            Assertions.assertTrue(sort.isSetAlgorithm());
+            Assertions.assertEquals(expectedAlgorithm, sort.getAlgorithm(), plan.treeString());
+            Assertions.assertEquals(expectedKeyCount, sort.getSortInfo().getOrderingExprsSize());
+            TTopnFilterDesc desc = filter.toThrift();
+            Assertions.assertTrue(desc.isSetStrictTargetNodeIds());
+            Assertions.assertEquals(expectedAlgorithm == TSortAlgorithm.HEAP_SORT && expectedKeyCount == 1
+                    ? desc.getTargetNodeIdToTargetExprSize() : 0, desc.getStrictTargetNodeIdsSize());
+        }
+    }
+
+    @Test
+    public void testTopNFilterPreservesRightJoinRows() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        String previousAlgorithm = connectContext.getSessionVariable().forceSortAlgorithm;
+        boolean previousJoinReorder = connectContext.getSessionVariable().isDisableJoinReorder();
+        String previousDisabledRules = String.join(",",
+                connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().forceSortAlgorithm = "heap";
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules
+                + ",PRUNE_EMPTY_PARTITION,PUSH_DOWN_TOP_N_THROUGH_UNION,PUSH_DOWN_TOP_N_THROUGH_JOIN");
+        try {
+            for (JoinType joinType : List.of(JoinType.RIGHT_OUTER_JOIN, JoinType.FULL_OUTER_JOIN,
+                    JoinType.RIGHT_ANTI_JOIN, JoinType.RIGHT_SEMI_JOIN, JoinType.INNER_JOIN,
+                    JoinType.LEFT_OUTER_JOIN)) {
+                String joinSql = joinType.name().replace('_', ' ');
+                String payload = joinType.isRightAntiJoin() || joinType.isRightSemiJoin() ? "b.ts" : "a.ts";
+                for (String condition : List.of("=", "<")) {
+                    for (String rank : List.of("b.k", "CAST(1 AS INT)", "CAST(sleep(0) AS INT)")) {
+                        for (String order : List.of("ASC NULLS FIRST", "DESC NULLS FIRST",
+                                "ASC NULLS LAST", "DESC NULLS LAST")) {
+                            String sql = "SELECT k,payload FROM (SELECT /*+ leading(a b) */ " + rank
+                                    + " AS k," + payload + " AS payload FROM topn_safety a " + joinSql
+                                    + " topn_safety b ON a.k " + condition + " b.k UNION ALL "
+                                    + "SELECT k,ts AS payload FROM topn_safety) u ORDER BY k " + order + " LIMIT 1";
+                            PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite().implement();
+                            PhysicalPlan plan = new PlanPostProcessors(checker.getCascadesContext())
+                                    .process(checker.getPhysicalPlan());
+                            AbstractPhysicalJoin<?, ?> join = getOnlyJoin(plan);
+                            Assertions.assertEquals(joinType, join.getJoinType(), plan.treeString());
+                            Assertions.assertEquals(condition.equals("="), join instanceof PhysicalHashJoin,
+                                    plan.treeString());
+                            boolean safeJoin = joinType.isInnerJoin() || joinType.isLeftOuterJoin()
+                                    || joinType.isRightSemiJoin();
+                            boolean safeNullOrder = !joinType.isLeftOuterJoin() || order.contains("LAST");
+                            boolean canResolveProbe = condition.equals("=") || rank.startsWith("CAST");
+                            assertSubtreeTopNTargets(checker, plan, join, safeJoin && safeNullOrder && canResolveProbe);
+                        }
+                    }
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().forceSortAlgorithm = previousAlgorithm;
+            connectContext.getSessionVariable().setDisableJoinReorder(previousJoinReorder);
+            connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules);
+        }
+    }
+
+    @Test
+    public void testTopNFilterPreservesRightSemiMark() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        String previousAlgorithm = connectContext.getSessionVariable().forceSortAlgorithm;
+        String previousDisabledRules = String.join(",",
+                connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().forceSortAlgorithm = "heap";
+        connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules
+                + ",PRUNE_EMPTY_PARTITION,PUSH_DOWN_TOP_N_THROUGH_UNION,PUSH_DOWN_TOP_N_THROUGH_JOIN");
+        try {
+            for (String order : List.of("ASC NULLS FIRST", "DESC NULLS FIRST",
+                    "ASC NULLS LAST", "DESC NULLS LAST")) {
+                String sql = "SELECT k,m FROM (SELECT CAST(1 AS INT) AS k, "
+                        + "EXISTS(SELECT 1 FROM topn_safety a WHERE a.k = b.k) AS m FROM topn_safety b "
+                        + "UNION ALL SELECT k,k IS NOT NULL AS m FROM topn_safety) u ORDER BY k " + order + " LIMIT 1";
+                PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite().implement();
+                // JoinCommute permits this hash mark alternative. Exercise it independently of costing.
+                PhysicalPlan plan = (PhysicalPlan) checker.getPhysicalPlan().rewriteUp(node -> {
+                    if (node instanceof PhysicalHashJoin && ((PhysicalHashJoin<?, ?>) node).isMarkJoin()) {
+                        PhysicalHashJoin<?, ?> join = (PhysicalHashJoin<?, ?>) node;
+                        Assertions.assertFalse(join.getHashJoinConjuncts().isEmpty());
+                        Assertions.assertTrue(join.getMarkJoinConjuncts().isEmpty());
+                        if (join.getJoinType().isLeftSemiJoin()) {
+                            PhysicalHashJoin<Plan, Plan> swapped = new PhysicalHashJoin<>(JoinType.RIGHT_SEMI_JOIN,
+                                    join.getHashJoinConjuncts(), join.getOtherJoinConjuncts(),
+                                    join.getMarkJoinConjuncts(), join.getDistributeHint(),
+                                    join.getMarkJoinSlotReference(), join.getLogicalProperties(),
+                                    join.right(), join.left());
+                            swapped = swapped.withPhysicalPropertiesAndStats(join.getPhysicalProperties(), join.getStats());
+                            swapped.addFilterConjuncts(join.getFilterConjuncts());
+                            swapped.setShouldTranslateOutput(join.isShouldTranslateOutput());
+                            return swapped;
+                        }
+                    }
+                    return node;
+                });
+                plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+                AbstractPhysicalJoin<?, ?> join = getOnlyJoin(plan);
+                Assertions.assertEquals(JoinType.RIGHT_SEMI_JOIN, join.getJoinType(), plan.treeString());
+                Assertions.assertTrue(join.isMarkJoin(), plan.treeString());
+                assertSubtreeTopNTargets(checker, plan, join, false);
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().forceSortAlgorithm = previousAlgorithm;
+            connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules);
+        }
+    }
+
+    @Test
+    public void testTopNFilterDoesNotReevaluateVolatileProbe() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        String previousAlgorithm = connectContext.getSessionVariable().forceSortAlgorithm;
+        String previousDisabledRules = String.join(",",
+                connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().forceSortAlgorithm = "heap";
+        connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules
+                + ",PRUNE_EMPTY_PARTITION,PUSH_DOWN_TOP_N_THROUGH_UNION");
+        try {
+            Map<String, Boolean> ranks = Map.of(
+                    "if(rand(3) < 0.5, 0, 1)", false,
+                    "if(rand(3) < 0.5, 0, 1) + k", false,
+                    "cast(if(rand(3) < 0.5, 0, 1) + k AS BIGINT)", false,
+                    "length(uuid())", false,
+                    "abs(k)", true,
+                    "CAST(1 AS INT)", true);
+            for (Map.Entry<String, Boolean> rank : ranks.entrySet()) {
+                for (String order : List.of("ASC NULLS FIRST", "DESC NULLS FIRST",
+                        "ASC NULLS LAST", "DESC NULLS LAST")) {
+                    String sql = "SELECT k,payload FROM (SELECT " + rank.getKey()
+                            + " AS k,ts AS payload FROM topn_safety UNION ALL "
+                            + "SELECT k,ts AS payload FROM topn_safety) u ORDER BY k " + order + " LIMIT 1";
+                    PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite().implement();
+                    PhysicalPlan plan = new PlanPostProcessors(checker.getCascadesContext())
+                            .process(checker.getPhysicalPlan());
+                    List<PhysicalUnion> unions = plan.collectToList(PhysicalUnion.class::isInstance);
+                    Assertions.assertEquals(1, unions.size(), plan.treeString());
+                    Plan branch = unions.get(0).child(0);
+                    Assertions.assertEquals(1, branch.collectToList(PhysicalRelation.class::isInstance).size());
+                    Assertions.assertEquals(!rank.getValue(), branch.anyMatch(node -> ((Plan) node).getExpressions()
+                            .stream().anyMatch(Expression::containsVolatileExpression)), plan.treeString());
+                    // Alias expansion must reject the volatile branch while retaining the deterministic sibling.
+                    assertSubtreeTopNTargets(checker, plan, branch, rank.getValue());
+                    if (!rank.getValue()) {
+                        // Without a sibling, the source must not register any scan filter at all.
+                        assertTopNFilterPresence("SELECT " + rank.getKey() + " AS rk,ts FROM topn_safety "
+                                + "ORDER BY rk " + order + " LIMIT 1", false);
+                    }
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().forceSortAlgorithm = previousAlgorithm;
+            connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules);
+        }
+    }
+
+    private AbstractPhysicalJoin<?, ?> getOnlyJoin(PhysicalPlan plan) {
+        List<AbstractPhysicalJoin<?, ?>> joins = plan.collectToList(AbstractPhysicalJoin.class::isInstance);
+        Assertions.assertEquals(1, joins.size(), plan.treeString());
+        return joins.get(0);
+    }
+
+    private void assertSubtreeTopNTargets(PlanChecker checker, PhysicalPlan plan, Plan subtree,
+            boolean allowSubtreeTarget) {
+        List<TopnFilter> filters = checker.getCascadesContext().getTopnFilterContext().getTopnFilters();
+        List<TopnFilter> outerFilters = filters.stream()
+                .filter(filter -> !subtree.anyMatch(node -> node == filter.topn)).collect(Collectors.toList());
+        Assertions.assertEquals(1, outerFilters.size(), plan.treeString());
+        TopnFilter filter = outerFilters.get(0);
+        List<PhysicalRelation> subtreeScans = subtree.collectToList(PhysicalRelation.class::isInstance);
+        // The safe UNION sibling still supplies a bound; check the other branch independently.
+        Assertions.assertEquals(allowSubtreeTarget ? 2 : 1, filter.targets.size(), plan.treeString());
+        Assertions.assertEquals(allowSubtreeTarget,
+                filter.targets.keySet().stream().anyMatch(subtreeScans::contains), plan.treeString());
+        new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+        Assertions.assertEquals(allowSubtreeTarget ? 2 : 1, filter.legacyTargets.size());
+        Assertions.assertEquals(allowSubtreeTarget ? 2 : 1,
+                filter.toThrift().getTargetNodeIdToTargetExprSize());
+    }
+
+    private void assertTopNFilterPresence(String sql, boolean expected) {
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite().implement();
+        PhysicalPlan plan = new PlanPostProcessors(checker.getCascadesContext())
+                .process(checker.getPhysicalPlan());
+        Assertions.assertEquals(expected,
+                !checker.getCascadesContext().getTopnFilterContext().getTopnFilters().isEmpty(),
+                plan.treeString());
+        if (expected) {
+            new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+            for (TopnFilter filter : checker.getCascadesContext().getTopnFilterContext().getTopnFilters()) {
+                TTopnFilterDesc desc = filter.toThrift();
+                Assertions.assertEquals(filter.legacyTargets.size(), desc.getTargetNodeIdToTargetExprSize());
+            }
+        }
     }
 }

@@ -66,6 +66,16 @@ public:
     std::unique_ptr<ThreadPoolToken> token_;
 };
 
+void QueryContext::init_runtime_predicates(const std::vector<TTopnFilterDesc>& topn_filter_descs) {
+    // Initialize before publishing QueryContext: scans can cache their comparison function
+    // before the source SortSink is initialized. The FE-selected mode stays immutable.
+    for (const auto& desc : topn_filter_descs) {
+        const std::unordered_set<int32_t> strict_targets(desc.strict_target_node_ids.begin(),
+                                                         desc.strict_target_node_ids.end());
+        _runtime_predicates.try_emplace(desc.source_node_id, desc, strict_targets);
+    }
+}
+
 const std::string toString(QuerySource queryType) {
     switch (queryType) {
     case QuerySource::INTERNAL_FRONTEND:

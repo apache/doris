@@ -39,14 +39,17 @@ class VTopNPred : public VExpr {
     ENABLE_FACTORY_CREATOR(VTopNPred);
 
 public:
-    VTopNPred(const TExprNode& node, int source_node_id, VExprContextSPtr target_ctx)
+    VTopNPred(const TExprNode& node, int source_node_id, int target_node_id,
+              VExprContextSPtr target_ctx)
             : VExpr(node),
               _source_node_id(source_node_id),
+              _target_node_id(target_node_id),
               _expr_name(fmt::format("VTopNPred(source_node_id={})", _source_node_id)),
               _target_ctx(std::move(target_ctx)) {}
     bool is_topn_filter() const override { return true; }
 
-    static Status create_vtopn_pred(const TExpr& target_expr, int source_node_id, VExprSPtr& expr) {
+    static Status create_vtopn_pred(const TExpr& target_expr, int source_node_id,
+                                    int target_node_id, VExprSPtr& expr) {
         VExprContextSPtr target_ctx;
         RETURN_IF_ERROR(VExpr::create_expr_tree(target_expr, target_ctx));
 
@@ -54,7 +57,7 @@ public:
         node.__set_node_type(TExprNodeType::FUNCTION_CALL);
         node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
         node.__set_is_nullable(target_ctx->root()->is_nullable());
-        expr = VTopNPred::create_shared(node, source_node_id, target_ctx);
+        expr = VTopNPred::create_shared(node, source_node_id, target_node_id, target_ctx);
 
         DCHECK(target_ctx->root() != nullptr);
         expr->add_child(target_ctx->root());
@@ -71,7 +74,8 @@ public:
 
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
-        *cloned_expr = VTopNPred::create_shared(clone_texpr_node(), _source_node_id, nullptr);
+        *cloned_expr = VTopNPred::create_shared(clone_texpr_node(), _source_node_id,
+                                                _target_node_id, nullptr);
         return Status::OK();
     }
 
@@ -85,7 +89,7 @@ public:
         argument_template.emplace_back(nullptr, _children[0]->data_type(), "topn value");
 
         _function = SimpleFunctionFactory::instance().get_function(
-                _predicate->is_asc() ? "le" : "ge", argument_template, _data_type, {},
+                _predicate->comparison_function(_target_node_id), argument_template, _data_type, {},
                 state->be_exec_version());
         if (!_function) {
             return Status::InternalError("get function failed");
@@ -192,7 +196,7 @@ public:
             TFunction fn;
             TFunctionName fn_name;
             fn_name.__set_db_name("");
-            fn_name.__set_function_name(_predicate->is_asc() ? "le" : "ge");
+            fn_name.__set_function_name(_predicate->comparison_function(_target_node_id));
             fn.__set_name(fn_name);
             fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
             std::vector<TTypeDesc> arg_types;
@@ -210,7 +214,7 @@ public:
             TExprNode texpr_node;
             texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
             texpr_node.__set_node_type(TExprNodeType::BINARY_PRED);
-            texpr_node.__set_opcode(_predicate->is_asc() ? TExprOpcode::LE : TExprOpcode::GE);
+            texpr_node.__set_opcode(_predicate->comparison_opcode(_target_node_id));
             texpr_node.__set_fn(fn);
             texpr_node.__set_num_children(2);
             texpr_node.__set_is_nullable(is_nullable());
@@ -230,7 +234,7 @@ public:
             new_root->add_child(VLiteral::create_shared(node));
         }
 
-        // Since the normal greater than or less than relationship does not consider the relationship of null values, the generated `col >=/<= xxx OR col is null.`
+        // A comparison rejects SQL NULL. Add IS NULL to preserve NULLS FIRST for either bound type.
         if (_predicate->nulls_first()) {
             VExprSPtr col_is_null_node;
             {
@@ -302,6 +306,7 @@ private:
     }
 
     int _source_node_id;
+    int _target_node_id;
     std::string _expr_name;
     RuntimePredicate* _predicate = nullptr;
     FunctionBasePtr _function;

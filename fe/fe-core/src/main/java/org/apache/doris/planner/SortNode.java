@@ -119,6 +119,10 @@ public class SortNode extends PlanNode {
         isAnalyticSort = v;
     }
 
+    public TSortAlgorithm getSortAlgorithm() {
+        return algorithm;
+    }
+
     public SortInfo getSortInfo() {
         return info;
     }

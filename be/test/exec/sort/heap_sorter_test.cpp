@@ -117,4 +117,25 @@ TEST_F(HeapSorterTest, test_topn_sorter1) {
     }
 }
 
+TEST_F(HeapSorterTest, RuntimeFilterBoundWaitsForLimitPlusOffset) {
+    sorter = HeapSorter::create_unique(ordering_expr_ctxs, &_state, 3, 2, &pool, is_asc_order,
+                                       nulls_first, *row_desc);
+    sorter->init_profile(&_profile);
+
+    auto first = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4});
+    ASSERT_TRUE(sorter->append_block(&first).ok());
+    EXPECT_TRUE(sorter->get_top_value().is_null());
+
+    auto second = ColumnHelper::create_block<DataTypeInt64>({5, 5});
+    ASSERT_TRUE(sorter->append_block(&second).ok());
+    EXPECT_EQ(sorter->get_top_value(), Field::create_field<TYPE_BIGINT>(5));
+    ASSERT_TRUE(sorter->prepare_for_read(false).ok());
+
+    Block output;
+    bool eos = false;
+    ASSERT_TRUE(sorter->get_next(&_state, &output, &eos).ok());
+    EXPECT_TRUE(ColumnHelper::block_equal(output,
+                                          ColumnHelper::create_block<DataTypeInt64>({3, 4, 5})));
+}
+
 } // namespace doris

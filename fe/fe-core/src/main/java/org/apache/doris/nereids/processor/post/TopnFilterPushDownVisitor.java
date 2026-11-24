@@ -24,9 +24,11 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
@@ -50,6 +52,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * push down topn filter
@@ -211,6 +214,25 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
         return ctx;
     }
 
+    private boolean canPushDownToLeftChild(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join,
+            Expression probeExpr) {
+        JoinType joinType = join.getJoinType();
+        if (joinType.isRightAntiJoin() || (joinType.isRightSemiJoin() && join.isMarkJoin())) {
+            // Removing a probe can create an unmatched right row or change its mark value.
+            // This also applies to constant probes, which have no input slots.
+            return false;
+        }
+        if (joinType.isRightOuterJoin() || joinType.isFullOuterJoin() || joinType.isAsofRightOuterJoin()) {
+            // A right-side ordering key keeps its value when a match is removed, but the left
+            // payload changes. Strict bounds can then return a row that the original join would
+            // not produce. Slot-free expressions have the same problem. Check the original
+            // probe before substituting a right equality key with its left counterpart.
+            Set<Slot> inputSlots = probeExpr.getInputSlots();
+            return !inputSlots.isEmpty() && join.left().getOutputSet().containsAll(inputSlots);
+        }
+        return true;
+    }
+
     @Override
     public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
@@ -219,6 +241,9 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
             // and to the right child of rightOuterJoin,
             // but PushDownTopNThroughJoin rule already pushes topn to the left and right side.
             // the topn-filter will be generated according to the inferred topn node.
+            return false;
+        }
+        if (!canPushDownToLeftChild(join, ctx.probeExpr)) {
             return false;
         }
         if (join.left().getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
@@ -255,7 +280,8 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
             return false;
         }
         // push to left child. right child is blocking operator, do not need topn-filter
-        if (join.left().getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+        if (join.left().getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
+                && canPushDownToLeftChild(join, ctx.probeExpr)) {
             return join.left().accept(this, ctx);
         }
         return false;
@@ -263,6 +289,11 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation relation, PushDownContext ctx) {
+        // The scan evaluates this fully expanded probe independently of the source projection.
+        // Re-evaluating a volatile expression can change its rank or advance a separate random sequence.
+        if (ctx.probeExpr.containsVolatileExpression()) {
+            return false;
+        }
         if (supportPhysicalRelations(relation) && relation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
             // in ut, relation.getStats() may return null
             if (relation.getStats() == null || ConnectContext.get() == null

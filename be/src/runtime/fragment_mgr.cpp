@@ -1362,6 +1362,15 @@ Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& gu
             info = it->second;
         }
 
+        // WAIT_FOR_DESTROY has drained the old recursive tasks. A rebuilt TopN has an empty
+        // heap, so a bound such as abs(k) < 1 from the previous round no longer has candidates
+        // to support it. Clear this source's bounds before preparing its new fragment.
+        for (const auto& node : info.params.fragment.plan.nodes) {
+            if (q_ctx->has_runtime_predicate(node.node_id)) {
+                q_ctx->get_runtime_predicate(node.node_id).reset_bounds();
+            }
+        }
+
         auto context = std::make_shared<PipelineFragmentContext>(
                 q_ctx->query_id(), info.params, q_ctx, _exec_env, info.finish_callback);
         // Propagate the recursion stage so that runtime filters created by this PFC
