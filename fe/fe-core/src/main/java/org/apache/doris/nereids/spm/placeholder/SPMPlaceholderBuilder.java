@@ -45,6 +45,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 
@@ -101,10 +102,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             "reverse", "trim_array");
 
     /**
-     * The MAP counterpart of TYPE_PRESERVING_ARRAY_CALLS (same retArgType(0)
-     * declaration: map_filter returns its first argument's map type).
+     * MAP functions that preserve the key and value types of their first argument.
+     * DeduplicateMap follows both type groups, while MapFilter declares retArgType(0).
      */
-    private static final Set<String> TYPE_PRESERVING_MAP_CALLS = Set.of("map_filter");
+    private static final Set<String> TYPE_PRESERVING_MAP_CALLS = Set.of("deduplicate_map", "map_filter");
     private static final int NO_MAP_KEY_DEPENDENCY = -1;
 
     /** Auto-increment placeholder id counter (starts at 1). */
@@ -504,8 +505,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
-     * Finds an array return signature whose element type follows an argument type and returns that argument index.
-     * A bound function with no such signature returns -1. An unbound array_repeat call falls back to index zero.
+     * Finds the scalar argument that supplies an array return type's element type. The signature's
+     * FollowToAnyDataType index identifies an AnyDataType group, not an argument position.
      */
     private static int elementTypeArgumentIndex(Expression expr) {
         if (expr instanceof BoundFunction) {
@@ -515,22 +516,27 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                     continue;
                 }
                 DataType itemType = ((ArrayType) returnType).getItemType();
-                if (itemType instanceof FollowToAnyDataType) {
-                    return ((FollowToAnyDataType) itemType).getIndex();
+                if (!(itemType instanceof FollowToAnyDataType)) {
+                    continue;
+                }
+                int group = ((FollowToAnyDataType) itemType).getIndex();
+                for (int i = 0; i < signature.argumentsTypes.size(); i++) {
+                    DataType argumentType = signature.argumentsTypes.get(i);
+                    if (argumentType instanceof AnyDataType && ((AnyDataType) argumentType).getIndex() == group) {
+                        return i;
+                    }
                 }
             }
             return -1;
         }
-        return isArrayRepeatCall(expr) ? 0 : -1;
-    }
-
-    /**
-     * Whether the expression is the unbound array_repeat(...) call (see
-     * elementTypeArgumentIndex).
-     */
-    private static boolean isArrayRepeatCall(Expression expr) {
-        return expr instanceof Function
-                && "array_repeat".equalsIgnoreCase(((Function) expr).getName());
+        if (expr instanceof Function) {
+            return switch (((Function) expr).getName().toLowerCase(Locale.ROOT)) {
+                case "array_repeat" -> 0;
+                case "array_with_constant" -> 1;
+                default -> -1;
+            };
+        }
+        return -1;
     }
 
     /**
@@ -604,6 +610,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return expr.arity() > 0 && expr.child(0) instanceof Lambda
                     && predicate.test(((Lambda) expr.child(0)).getLambdaFunction());
         }
+        if (isArrayFlattenCall(expr)) {
+            return expr.arity() == 1 && allArrayElementsMatch(expr.child(0),
+                    item -> allFlattenedElementsMatch(item, predicate));
+        }
         int elementIndex = elementTypeArgumentIndex(expr);
         if (elementIndex >= 0) {
             return elementIndex < expr.arity() && predicate.test(expr.child(elementIndex));
@@ -635,6 +645,16 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     /** ARRAY_MAP derives its element type from the lambda body at argument zero. */
     private static boolean isArrayMapCall(Expression expr) {
         return expr instanceof Function && "array_map".equalsIgnoreCase(((Function) expr).getName());
+    }
+
+    private static boolean isArrayFlattenCall(Expression expr) {
+        return expr instanceof Function && "array_flatten".equalsIgnoreCase(((Function) expr).getName());
+    }
+
+    /** Walks nested array items until the predicate accepts each flattened item. */
+    private static boolean allFlattenedElementsMatch(Expression item, Predicate<Expression> predicate) {
+        return predicate.test(item) || allArrayElementsMatch(item,
+                nested -> allFlattenedElementsMatch(nested, predicate));
     }
 
     /**
@@ -1000,7 +1020,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         // TYPE_PRESERVING_ARRAY_CALLS), so the classifier covers the family instead of two names.
         // ARRAY_CONCAT derives its element type from EVERY part, so each part is such a position,
         // and MAP_VALUES turns its map's VALUE type into the result's element type (position 0).
-        if (isTypePreservingArrayCall(parent) || isTypePreservingMapCall(parent)) {
+        if (isArrayFlattenCall(parent) || isTypePreservingArrayCall(parent) || isTypePreservingMapCall(parent)) {
             return currentChildIndex() == 0;
         }
         if (isArrayConcatCall(parent)) {
@@ -1176,7 +1196,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * Returns: whether the call can only be the ARRAY overload
      */
     private static boolean containerIsArray(Expression parent) {
-        if (isArrayReducerCall(parent) || isTypePreservingArrayCall(parent)
+        if (isArrayReducerCall(parent) || isArrayFlattenCall(parent) || isTypePreservingArrayCall(parent)
                 || isArrayConcatCall(parent)) {
             // array_min / array_max have no map overload at all, and the type-preserving
             // transformations only accept an array
@@ -1203,7 +1223,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * Returns: whether the call can only be the MAP overload
      */
     private static boolean containerIsMap(Expression parent) {
-        if (isMapValuesCall(parent) || isMapKeysCall(parent)) {
+        if (isMapValuesCall(parent) || isMapKeysCall(parent) || isTypePreservingMapCall(parent)) {
             return true;
         }
         if (!(parent instanceof Function) || parent.children().size() < 2) {

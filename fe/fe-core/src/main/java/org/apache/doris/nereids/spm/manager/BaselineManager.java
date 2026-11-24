@@ -19,6 +19,7 @@ package org.apache.doris.nereids.spm.manager;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchema;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
@@ -2328,25 +2329,15 @@ public class BaselineManager {
     }
 
     /**
-     * Whether the durable row of a pending create is READABLE right now. The probe is
-     * IDENTITY-scoped without a status constraint: the row carries the status the create
-     * wrote, and an unreadable / unconfirmable answer must defer (never adopt).
-     *
-     * Parameter p: the pending row
-     * Returns: true when a read sees the row
+     * Probes the pending incarnation. An ALTER can replace the original status and timestamp
+     * before the CREATE retry adopts the current durable winner.
      */
     private boolean durableRowReadable(BaselinePlan p) {
         if (!persistence.isDurable()) {
             return true;
         }
-        // The SCHEMA FINGERPRINT is part of the incarnation: after an ALTER TABLE the
-        // SAME SQL under the new schema is a DIFFERENT baseline, and without the
-        // constraint this probe treated another incarnation's readable row as THIS
-        // write's proof - the stale-fingerprint branch below then deleted that (valid)
-        // row by (id, digest, planSql) and a retry of this FE's abandoned CREATE removed
-        // a successful baseline. The status stays unconstrained (the row carries the
-        // status the create wrote; an unconfirmable answer must defer).
-        return persistence.isRowReadable(p);
+        return probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql(), null, normalizedFingerprint(p))
+                == BaselinePersistence.DurablePresence.PRESENT;
     }
 
     /**
@@ -6032,16 +6023,14 @@ public class BaselineManager {
             throw e;
         }
         long elapsedMillis = mutationWindowNow() - windowOpenedAt;
-        if (elapsedMillis + BASELINE_WRITE_TIMEOUT_SECONDS * 1000L
-                > MUTATION_WINDOW_MAX_AGE_SECONDS * 1000L) {
+        if (!hasMutationWindowWriteBudget(elapsedMillis)) {
             // The window is ALREADY too close to its successor-facing age bound for the row
             // statement to run INSIDE it: a successor reading the clock from here on could
             // see QUIET (the marker row has aged past the bound) while this statement - or the
             // statement of another mutation whose window is equally old - is still in flight,
             // and would accept a matching durable row as final. The elapsed time is measured
-            // from just BEFORE the marker write, i.e. it is an UPPER bound of the stored row's
-            // age (the row is written after it, and FE clocks are synced): refusing here is
-            // therefore the conservative side.
+            // from just before the marker write. The budget also accounts for a reader
+            // whose FE clock is ahead of the writer's.
             //
             // RETRYABLE, and nothing has been written yet: endRowMutation closes the window
             // exactly like a completed mutation, so the successors see the completion instead
@@ -6055,6 +6044,12 @@ public class BaselineManager {
         }
         mutationWindowOpenedAt.put(tick, windowOpenedAt);
         return tick;
+    }
+
+    /** Keeps the entire statement budget before the earliest reader-side cutoff. */
+    private static boolean hasMutationWindowWriteBudget(long elapsedMillis) {
+        return elapsedMillis < (MUTATION_WINDOW_MAX_AGE_SECONDS - BASELINE_WRITE_TIMEOUT_SECONDS) * 1000L
+                - Config.max_bdbje_clock_delta_ms;
     }
 
     /** Waits for this process's open marker to become readable before dispatch. */
@@ -6115,8 +6110,7 @@ public class BaselineManager {
             return;
         }
         long elapsedMillis = mutationWindowNow() - openedAtMillis;
-        if (elapsedMillis + BASELINE_WRITE_TIMEOUT_SECONDS * 1000L
-                > MUTATION_WINDOW_MAX_AGE_SECONDS * 1000L) {
+        if (!hasMutationWindowWriteBudget(elapsedMillis)) {
             throw new MutationWindowUnavailableException("SPM mutation window " + tick
                     + " was opened " + elapsedMillis + " ms ago, leaving less than its "
                     + BASELINE_WRITE_TIMEOUT_SECONDS + " s row-statement budget inside the "

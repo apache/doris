@@ -50,6 +50,16 @@ import java.util.List;
  */
 public class SPMRound91GuardTest {
 
+    @Test
+    public void testImplicitAiResourceInAsofUsingConditionRequiresRawReplay() {
+        String query = "SELECT l.k, r.ts FROM l ASOF LEFT JOIN r "
+                + "MATCH_CONDITION(CAST(%s AS DATETIME) >= r.ts) USING(k)";
+        Assertions.assertTrue(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
+                parse(String.format(query, "ai_generate(l.prompt)"))));
+        Assertions.assertFalse(SPMPlanTreeSupport.requiresSessionSensitiveReplay(
+                parse(String.format(query, "ai_generate('explicit_resource', l.prompt)"))));
+    }
+
     /**
      * The MAP wrapper path: every NULL in the {@code map(...)} VALUE positions keeps a marker, and
      * no marker keeps a NullType payload, so the Boolean consumer cannot drop the operand.

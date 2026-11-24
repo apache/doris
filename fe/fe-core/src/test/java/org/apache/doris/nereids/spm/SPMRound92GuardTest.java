@@ -18,17 +18,30 @@
 package org.apache.doris.nereids.spm;
 
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayWithConstant;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,6 +60,44 @@ import java.util.List;
  * </ul>
  */
 public class SPMRound92GuardTest {
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "element_at(array_with_constant(1, NULL), 1)",
+            "element_at(array_flatten(array(array(NULL))), 1)",
+            "element_at(array_flatten([[NULL]]), 1)",
+            "element_at(deduplicate_map(map('x', NULL)), 'x')"
+    })
+    public void testContainerProducerKeepsTheBooleanMarkerType(String operand) {
+        String query = "SELECT k, k > 0 OR %s AS c FROM t";
+        List<SpmConstVar> nullMarkers = markers(String.format(query, operand));
+        List<SpmConstVar> valueMarkers = markers(String.format(query, operand.replace("NULL", "TRUE")));
+        Assertions.assertTrue(nullMarkers.size() > 1);
+        Assertions.assertEquals(valueMarkers.stream().map(SpmConstVar::getDataType).toList(),
+                nullMarkers.stream().map(SpmConstVar::getDataType).toList());
+
+        Expression unbound = new NereidsParser().parseExpression("k > 0 OR " + operand);
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
+        Expression parameterized = builder.parameterizeExpressions(List.of(unbound)).get(0);
+        Scope scope = new Scope(List.of(new SlotReference("k", IntegerType.INSTANCE)));
+        Expression analyzed = new ExpressionAnalyzer(null, scope, null, true, true).analyze(parameterized);
+        Assertions.assertEquals(nullMarkers.size(), analyzed.collect(expr -> expr instanceof SpmConstVar).size());
+    }
+
+    @Test
+    public void testBoundArrayWithConstantUsesTheElementArgument() {
+        IntegerLiteral one = new IntegerLiteral(1);
+        Expression operand = new ElementAt(new ArrayWithConstant(one, new NullLiteral()), one);
+        Expression predicate = new Or(new EqualTo(one, new IntegerLiteral(2)), operand);
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
+        builder.parameterizeExpressions(List.of(predicate));
+        List<SpmConstVar> nullMarkers = builder.getPlaceholderExprs().stream()
+                .map(entry -> (SpmConstVar) entry.placeholderExpr())
+                .filter(marker -> marker.getValue().isNullLiteral())
+                .toList();
+        Assertions.assertEquals(1, nullMarkers.size());
+        Assertions.assertTrue(nullMarkers.get(0).getDataType().isBooleanType());
+    }
 
     /**
      * The NULL element variant keeps a marker for the element, and the marker is RETYPED: an

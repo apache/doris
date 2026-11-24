@@ -106,6 +106,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -2758,7 +2759,12 @@ public final class SPMPlanTreeSupport {
                     return false;
                 }
                 for (int j = 0; j < bindCells.size(); j++) {
-                    if (!checkExpression(bindCells.get(j), userCells.get(j), placeholderValues)) {
+                    NamedExpression bindCell = bindCells.get(j);
+                    NamedExpression userCell = userCells.get(j);
+                    // VALUES cells stay concrete. Keep the attributes that a child-wise
+                    // match can miss, such as CAST targets and INTERVAL units.
+                    if (!outputExpressionText(bindCell).equals(outputExpressionText(userCell))
+                            || !checkExpression(bindCell, userCell, placeholderValues)) {
                         return false;
                     }
                 }
@@ -9080,7 +9086,7 @@ public final class SPMPlanTreeSupport {
                     }
                 }
             }
-            for (Expression expr : node.getExpressions()) {
+            for (Expression expr : Iterables.concat(node.getExpressions(), outOfBandExpressions(node))) {
                 if (containsSensitiveExpressionOrStarPayload(expr, sensitive, checkImplicitSessionArguments)) {
                     return true;
                 }

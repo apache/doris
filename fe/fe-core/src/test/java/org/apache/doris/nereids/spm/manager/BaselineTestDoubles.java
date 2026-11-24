@@ -336,7 +336,9 @@ public final class BaselineTestDoubles {
             try {
                 for (BaselinePlan row : idAllocatorStore.readById(id)) {
                     if (rowMatches(row, id, bindSqlDigest, planSql, status, schemaFingerprint,
-                            requiredUpdateTimeMicros)) {
+                            requiredUpdateTimeMicros)
+                            && (status != null || visibilityProbe == null
+                                    || visibilityProbe.isReadable(id, row.getStatus(), row.getUpdateTime()))) {
                         return DurablePresence.PRESENT;
                     }
                 }

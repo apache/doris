@@ -17,10 +17,16 @@
 
 package org.apache.doris.nereids.spm;
 
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.manager.BaselineManagerTestAccess;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+
+import java.util.HashMap;
 
 /**
  * The relation-payload checks and the bounded identity read:
@@ -50,6 +56,22 @@ public class SPMRound47SafetyTest {
         Assertions.assertTrue(failure.getMessage().contains("VALUES")
                         || failure.getMessage().contains("align"),
                 "the rejection must describe the VALUES rows: " + failure.getMessage());
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "CAST(2 AS INT) | CAST(2 AS BOOLEAN)",
+            "DATE '2024-01-01' + INTERVAL 1 DAY | DATE '2024-01-01' + INTERVAL 1 MONTH"
+    })
+    public void testConcreteValuesCellAttributesParticipateInMatching(String captured, String variant) {
+        NereidsParser parser = new NereidsParser();
+        String sql = "SELECT * FROM (VALUES (%s)) v";
+        LogicalPlan bind = (LogicalPlan) parser.parseSingle(String.format(sql, captured));
+        LogicalPlan user = (LogicalPlan) parser.parseSingle(String.format(sql, variant));
+        Assertions.assertEquals(bind.toSpmDigest(), user.toSpmDigest());
+        Assertions.assertFalse(SPMPlanTreeSupport.check(bind, user, new HashMap<>()));
+        LogicalPlan same = (LogicalPlan) parser.parseSingle(String.format(sql, captured));
+        Assertions.assertTrue(SPMPlanTreeSupport.check(bind, same, new HashMap<>()));
     }
 
     /** The identity read uses the compact key and the reservation lifecycle order. */

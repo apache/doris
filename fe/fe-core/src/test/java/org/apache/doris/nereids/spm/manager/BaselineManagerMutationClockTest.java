@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.spm.manager;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineSource;
 import org.apache.doris.nereids.spm.BaselineStatus;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -627,13 +630,16 @@ public class BaselineManagerMutationClockTest {
      * statement then commits over the reported state. The mutation fails RETRYABLY with the
      * window CLOSED, exactly like an unreadable window.
      */
-    @Test
-    public void testWindowAgedPastTheBoundIsRefusedBeforeDispatch() throws Exception {
+    @ParameterizedTest
+    @ValueSource(longs = {105_000L, 109_900L, 200_000L})
+    public void testWindowWithInsufficientWriteBudgetIsRefusedBeforeDispatch(long elapsedMillis) throws Exception {
         manager = newManager();
         BaselineManagerTestAccess.clear(manager);
         MutationClockSimulator clock = new MutationClockSimulator();
         StatusStoreSimulator store = new StatusStoreSimulator();
+        long oldClockDelta = Config.max_bdbje_clock_delta_ms;
         try {
+            Config.max_bdbje_clock_delta_ms = 5_000;
             long id = manager.createBaseline(baseline("d-aged", "p-aged"));
             doubles.statusProtocolStore = store;
             doubles.mutationClockStore = clock;
@@ -643,14 +649,13 @@ public class BaselineManagerMutationClockTest {
             durableRow.setId(id);
             doubles.seedDurableRow(durableRow);
 
-            // the first visibility probe answers only after the window clock jumped past
-            // the whole bound: the guard must refuse the dispatch
+            // The visibility delay can exhaust either the skew-adjusted budget or the whole window.
             windowClock.set(1_700_000_000_000L);
             java.util.concurrent.atomic.AtomicBoolean jumped =
                     new java.util.concurrent.atomic.AtomicBoolean();
             clock.visibilityProbeHook = () -> {
                 if (jumped.compareAndSet(false, true)) {
-                    windowClock.addAndGet(200_000L);
+                    windowClock.addAndGet(elapsedMillis);
                 }
             };
 
@@ -678,6 +683,7 @@ public class BaselineManagerMutationClockTest {
                     "the row statement ran: " + store.operations);
             Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus());
         } finally {
+            Config.max_bdbje_clock_delta_ms = oldClockDelta;
             doubles.mutationClockStore = null;
             doubles.statusProtocolStore = null;
             windowClock.set(System.currentTimeMillis());
@@ -1158,13 +1164,16 @@ public class BaselineManagerMutationClockTest {
      * would land on a state written after the window closed. The ALTER stays successful (its
      * INSERT half is confirmed), but the cleanup is REFUSED before dispatch.
      */
-    @Test
-    public void testAgedOutWindowRefusesTheDelayedStatusCleanup() throws Exception {
+    @ParameterizedTest
+    @ValueSource(longs = {105_000L, 109_900L, 200_000L})
+    public void testWindowWithInsufficientBudgetRefusesDelayedStatusCleanup(long elapsedMillis) throws Exception {
         manager = newManager();
         BaselineManagerTestAccess.clear(manager);
         MutationClockSimulator clock = new MutationClockSimulator();
         StatusStoreSimulator store = new StatusStoreSimulator();
+        long oldClockDelta = Config.max_bdbje_clock_delta_ms;
         try {
+            Config.max_bdbje_clock_delta_ms = 5_000;
             long id = manager.createBaseline(baseline("d-aged-cleanup", "p-aged-cleanup"));
             doubles.statusProtocolStore = store;
             doubles.mutationClockStore = clock;
@@ -1181,7 +1190,7 @@ public class BaselineManagerMutationClockTest {
                     new java.util.concurrent.atomic.AtomicInteger();
             gateway.leaderProbe = () -> {
                 if (probes.incrementAndGet() == 3) {
-                    windowClock.addAndGet(200_000L);
+                    windowClock.addAndGet(elapsedMillis);
                 }
                 return true;
             };
@@ -1195,6 +1204,7 @@ public class BaselineManagerMutationClockTest {
                     "the delayed cleanup must NOT be dispatched into an aged window: "
                             + store.operations);
         } finally {
+            Config.max_bdbje_clock_delta_ms = oldClockDelta;
             doubles.mutationClockStore = null;
             doubles.statusProtocolStore = null;
             windowClock.set(System.currentTimeMillis());

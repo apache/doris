@@ -26,6 +26,7 @@ import org.apache.doris.statistics.repository.ResultRow;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
@@ -3161,6 +3162,51 @@ public class BaselineManagerConcurrencyTest {
                     "a readable row resolves the remembered identity");
             Assertions.assertEquals(1, store.rows.size(),
                     "still no second row: " + store.rows);
+        } finally {
+            doubles.visibilityProbe = null;
+            doubles.idAllocatorStore = null;
+            BaselineManagerTestAccess.clear(manager);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(BaselineStatus.class)
+    public void testRetryOfUnconfirmedCreateAdoptsTheCurrentVersion(BaselineStatus currentStatus) {
+        manager = newManager();
+        BaselineManagerTestAccess.clear(manager);
+        SimulatedStore store = new SimulatedStore();
+        try {
+            doubles.idAllocatorStore = store;
+            doubles.visibilityProbe = (id, status) -> false;
+            BaselinePlan attempted = baseline("d-pending-version", "p-pending-version");
+            RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.createBaseline(attempted));
+            Assertions.assertTrue(failure.getMessage().contains("not readable"));
+            long id = store.reservedHighWater;
+            Assertions.assertEquals(1, BaselineManagerTestAccess.pendingCreateCount(manager));
+
+            // Publication followed by an ALTER and cleanup leaves only the newer row.
+            BaselinePlan current = baseline("d-pending-version", "p-pending-version");
+            current.setId(id);
+            current.setStatus(currentStatus);
+            current.setUpdateTime(store.rowsOf(id).get(0).getUpdateTime() + 1_000_000L);
+            store.replaceRows(id, List.of(current));
+            doubles.visibilityProbe = new BaselineTestDoubles.DurableVisibilityProbe() {
+                @Override
+                public boolean isReadable(long rowId, BaselineStatus status) {
+                    return rowId == id && status == currentStatus;
+                }
+
+                @Override
+                public boolean isReadable(long rowId, BaselineStatus status, long updateTime) {
+                    return isReadable(rowId, status) && updateTime == current.getUpdateTime();
+                }
+            };
+            Assertions.assertEquals(id, manager.createBaseline(baseline("d-pending-version", "p-pending-version")));
+            Assertions.assertEquals(currentStatus, manager.getBaseline(id).getStatus());
+            Assertions.assertEquals(current.getUpdateTime(), manager.getBaseline(id).getUpdateTime());
+            Assertions.assertEquals(1, store.rows.size());
+            Assertions.assertEquals(0, BaselineManagerTestAccess.pendingCreateCount(manager));
         } finally {
             doubles.visibilityProbe = null;
             doubles.idAllocatorStore = null;
