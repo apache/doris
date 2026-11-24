@@ -82,7 +82,7 @@ class PushDownVectorTopNIntoOlapScanTest extends TestWithFeService {
                         .getCascadesContext().getRewritePlan();
                 LogicalOlapScan scan = (LogicalOlapScan) plan.collectFirst(LogicalOlapScan.class::isInstance).get();
                 // ANN evaluates indexed slots, so a surviving cast must stay in the scalar expression.
-                Assertions.assertTrue(scan.getAnnLimit().isEmpty(), plan.treeString());
+                Assertions.assertFalse(scan.getAnnLimit().isPresent(), plan.treeString());
                 Assertions.assertTrue(scan.getVirtualColumns().isEmpty(), plan.treeString());
             }
         }

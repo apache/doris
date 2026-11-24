@@ -1015,7 +1015,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
      * for StructLiteral, the value should not contain sub column's name.
      */
     public String getStringValueForStreamLoad(FormatOptions options) {
-        return getStringValueForQuery(options);
+        return getStringValueForQuery(options.forStreamLoad());
     }
 
     public final TExpr normalize(Normalizer normalizer) {

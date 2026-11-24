@@ -37,6 +37,7 @@ public class FormatOptions {
     private boolean isBoolValueNum;
     // Indicate the nested level of column. It is used to control some behavior of serde
     public int level = 0;
+    private boolean forStreamLoad;
 
     private FormatOptions(String nestedStringWrapper, String mapKeyDelim, String nullFormat, String collectionDelim,
             boolean isBoolValueNum) {
@@ -65,6 +66,19 @@ public class FormatOptions {
 
     public boolean isBoolValueNum() {
         return isBoolValueNum;
+    }
+
+    public boolean isForStreamLoad() {
+        return forStreamLoad;
+    }
+
+    public FormatOptions forStreamLoad() {
+        // Keep storage formatting local to this call and propagate it through nested literals.
+        FormatOptions options = new FormatOptions(nestedStringWrapper, mapKeyDelim, nullFormat,
+                collectionDelim, isBoolValueNum);
+        options.level = level;
+        options.forStreamLoad = true;
+        return options;
     }
 
     public static FormatOptions getDefault() {
