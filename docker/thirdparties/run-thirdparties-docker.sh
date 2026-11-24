@@ -997,7 +997,11 @@ start_mongodb() {
         return 0
     fi
     if [[ ! -x "${fixture_python}" ]]; then
-        python3 -m venv "${mongodb_dir}/.ci-venv"
+        # Minimal distro Python can provide venv without ensurepip; bootstrap only inside our venv.
+        python3 -m venv --without-pip "${mongodb_dir}/.ci-venv"
+    fi
+    if ! "${fixture_python}" -m pip --version >/dev/null 2>&1; then
+        "${fixture_python}" "${mongodb_dir}/bootstrap_ci_pip.py"
     fi
     "${fixture_python}" -m pip install --disable-pip-version-check -r "${mongodb_dir}/requirements-ci.txt"
     "${fixture_python}" -m unittest discover -s "${mongodb_dir}" -p test_snapshot_fixture.py

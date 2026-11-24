@@ -77,9 +77,11 @@ suites locally, start the fixture and set `enableMongoDBNativeTest = true`.
 
 External also enables `enableMongoSplitTest` and `enableMongoReadParameterTest` by default.
 The standard `run-thirdparties-docker.sh -c mongodb` startup now prepares both the standalone
-fixture and the authenticated snapshot topology used by these matrices. It needs Python 3
-with `venv` and installs the pinned `requirements-ci.txt` dependencies into the ignored
-`.ci-venv` directory. Linux uses bridge networking for a routable `IP_HOST`. A loopback
+fixture and the authenticated snapshot topology used by these matrices. It needs Python 3.9+
+with `venv`. A pinned, size/SHA-256-verified pip wheel bootstraps the ignored `.ci-venv`
+directory even when the system Python has no `ensurepip`; no system package installation is
+needed. The pinned `requirements-ci.txt` dependencies support Python 3.10 and are installed
+only in that venv. Linux uses bridge networking for a routable `IP_HOST`. A loopback
 `IP_HOST` uses the shared host network so replica members and routers resolve peer addresses
 in the same namespace; rootless Docker requires Engine 29.5 or newer for this mode.
 The advertised host must be reachable from the controller, containers and FE/BE.

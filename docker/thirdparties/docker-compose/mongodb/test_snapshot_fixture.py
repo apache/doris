@@ -28,10 +28,57 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import bootstrap_ci_pip
 from snapshot_fixture import Fixture
 
 
 class FixtureNetworkTest(unittest.TestCase):
+    def test_launcher_recovers_when_venv_has_no_ensurepip_or_pip(self):
+        launcher = Path(__file__).resolve().parents[2] / "run-thirdparties-docker.sh"
+        function = re.search(r"(?ms)^start_mongodb\(\) \{.*?^\}", launcher.read_text()).group(0)
+        for interrupted in (False, True):
+            with self.subTest(interrupted=interrupted), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                mongodb = root / "docker-compose/mongodb"
+                mongodb.mkdir(parents=True)
+                (mongodb / "mongodb.env.tpl").write_text("")
+                fake_python = mongodb / "fixture-python"
+                fake_python.write_text("""#!/usr/bin/env bash
+set -e
+case "$*" in
+    '-m pip --version') test -f "$FIXTURE_TEST_ROOT/pip-ready" ;;
+    *bootstrap_ci_pip.py) touch "$FIXTURE_TEST_ROOT/pip-ready" ;;
+    '-m pip install '*) test -f "$FIXTURE_TEST_ROOT/pip-ready" ;;
+    '-m unittest '*) : ;;
+    *ci_fixture.py*) touch "$FIXTURE_TEST_ROOT/controller-started" ;;
+    *) exit 29 ;;
+esac
+""")
+                fake_python.chmod(0o700)
+                if interrupted:
+                    target = mongodb / ".ci-venv/bin/python"
+                    target.parent.mkdir(parents=True)
+                    target.write_bytes(fake_python.read_bytes())
+                    target.chmod(0o700)
+                script = "ROOT=" + shlex.quote(str(root)) + "\n" + """
+export FIXTURE_TEST_ROOT="$ROOT"
+HOST_OS=Linux
+IP_HOST=fixture.example
+STOP=0
+envsubst() { cat; }
+start_rendered_compose_stack() { :; }
+python3() {
+    # Model a minimal Python installation with venv but no ensurepip.
+    [[ "$*" == '-m venv --without-pip '* ]] || return 17
+    mkdir -p "$4/bin"
+    cp "$ROOT/docker-compose/mongodb/fixture-python" "$4/bin/python"
+}
+""" + function + "\nstart_mongodb\n"
+                result = subprocess.run(["bash", "-ec", script], capture_output=True)
+                self.assertEqual(0, result.returncode, result.stderr.decode())
+                self.assertTrue((root / "controller-started").exists())
+                self.assertTrue((root / "pip-ready").exists())
+
     def test_failed_worker_records_only_its_component_and_exit_status(self):
         launcher = Path(__file__).resolve().parents[2] / "run-thirdparties-docker.sh"
         source = launcher.read_text()
@@ -167,6 +214,30 @@ compose_down_stack() { :; }
             subprocess.run(["bash", "-c", script], env=environment, check=True, capture_output=True)
             self.assertTrue((root / "called").exists(), "Worker metadata must not hide MongoDB cleanup")
             self.assertIn("--remove", (root / "called").read_text())
+
+
+class PipBootstrapTest(unittest.TestCase):
+    def test_bootstrap_refuses_the_system_interpreter_before_download(self):
+        with patch.object(bootstrap_ci_pip.sys, "prefix", bootstrap_ci_pip.sys.base_prefix), \
+                patch.object(bootstrap_ci_pip, "verified_wheel") as download:
+            with self.assertRaisesRegex(RuntimeError, "inside a virtual environment"):
+                bootstrap_ci_pip.main()
+            download.assert_not_called()
+
+    def test_corrupt_cached_wheel_is_never_executed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache = root / ".bootstrap"
+            cache.mkdir()
+            # Preserve the expected size to exercise checksum verification as well as length.
+            (cache / bootstrap_ci_pip.WHEEL_NAME).write_bytes(b"x" * bootstrap_ci_pip.WHEEL_SIZE)
+            with patch.object(bootstrap_ci_pip.sys, "prefix", str(root)), \
+                    patch.object(bootstrap_ci_pip.subprocess, "run") as execute, \
+                    patch.object(bootstrap_ci_pip, "urlopen") as download:
+                with self.assertRaisesRegex(RuntimeError, "size/SHA-256"):
+                    bootstrap_ci_pip.main()
+                execute.assert_not_called()
+                download.assert_not_called()
 
 
 if __name__ == "__main__":
