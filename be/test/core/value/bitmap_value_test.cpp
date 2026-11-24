@@ -890,6 +890,21 @@ TEST(BitmapValueTest, sub_range_limit) {
     config::enable_set_in_bitmap_value = false;
 }
 
+TEST(BitmapValueTest, offset_limit_singleton) {
+    const BitmapValue bitmap(7);
+    for (int64_t offset : {0, -1}) {
+        BitmapValue out;
+        EXPECT_EQ(bitmap.offset_limit(offset, 1, &out), 1);
+        EXPECT_EQ(out.to_string(), "7");
+    }
+
+    for (int64_t offset : {1, -2}) {
+        BitmapValue out;
+        EXPECT_EQ(bitmap.offset_limit(offset, 1, &out), 0);
+        EXPECT_TRUE(out.empty());
+    }
+}
+
 TEST(BitmapValueTest, offset_limit_negative_cardinality_for_set) {
     config::enable_set_in_bitmap_value = true;
 

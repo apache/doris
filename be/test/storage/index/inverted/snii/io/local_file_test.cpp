@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using doris::snii::io::LocalFileReader;
@@ -33,8 +34,9 @@ using doris::snii::io::LocalFileWriter;
 namespace {
 
 std::string TempPath(const char* name) {
-    return "/tmp/snii_io_test_" + std::to_string(geteuid()) + "_" + std::to_string(getpid()) + "_" +
-           name + ".bin";
+    static const doris::test::ScopedTempDirectory temp_dir("local_file_test");
+    return (temp_dir.path() / "snii_io_test_").string() + std::to_string(geteuid()) + "_" +
+           std::to_string(getpid()) + "_" + name + ".bin";
 }
 
 } // namespace

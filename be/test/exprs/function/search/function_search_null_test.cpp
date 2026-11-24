@@ -37,6 +37,7 @@
 #include "exprs/function/search/function_search.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"

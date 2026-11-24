@@ -45,6 +45,9 @@ suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
+
+// The default private RPC regression provisions its own TLS/plaintext clusters from these local packages.
+privateRpcTlsPackageHome = "${DORIS_HOME}"
 trinoPluginsPath = "/tmp/trino_connector"
 
 // will test <group>/<suite>.groovy
@@ -124,6 +127,7 @@ kafka_port=19193
 iceberg_rest_uri_port=18181
 iceberg_scan_planning_rest_uri_port=18182
 iceberg_minio_port=19001
+lance_rest_port=19102
 iceberg_rest_uri_port_s3=19181
 iceberg_rest_uri_port_oss=19182
 iceberg_rest_uri_port_cos=19183

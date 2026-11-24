@@ -260,6 +260,8 @@ public class DebeziumJsonDeserializer
             }
         } else {
             switch (name) {
+                case "io.debezium.data.FloatVector":
+                    return convertToArray(fieldSchema, dbzObj);
                 case Time.SCHEMA_NAME:
                 case MicroTime.SCHEMA_NAME:
                 case NanoTime.SCHEMA_NAME:

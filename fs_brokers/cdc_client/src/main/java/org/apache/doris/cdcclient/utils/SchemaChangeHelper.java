@@ -177,6 +177,8 @@ public class SchemaChangeHelper {
                 return length == 1 ? DorisType.BOOLEAN : DorisType.STRING;
             case "JSON":
                 return DorisType.JSON;
+            case "VECTOR":
+                return String.format("%s<%s>", DorisType.ARRAY, DorisType.FLOAT);
             case "TINYBLOB":
             case "BLOB":
             case "MEDIUMBLOB":

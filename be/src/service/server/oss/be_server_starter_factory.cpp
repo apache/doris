@@ -23,11 +23,11 @@
 #include <gen_cpp/BackendService.h>
 #include <gen_cpp/HeartbeatService.h>
 // IWYU pragma: no_include <bthread/errno.h>
-#include <errno.h> // IWYU pragma: keep
 #include <gflags/gflags_declare.h>
-#include <string.h>
 
 #include <algorithm>
+#include <cerrno> // IWYU pragma: keep
+#include <cstring>
 #include <memory>
 
 #include "agent/heartbeat_server.h"
@@ -43,6 +43,7 @@
 #include "service/internal_service.h"
 #include "storage/storage_engine.h"
 #include "util/mem_info.h"
+#include "util/private_rpc_tls.h"
 #include "util/thrift_server.h"
 
 namespace brpc {
@@ -74,9 +75,20 @@ public:
     ~OssBrpcServiceStarter() override { join(); }
 
     Status start() override {
-        if (config::enable_tls) {
-            return Status::NotSupported("BE BRPC TLS requires TLS module");
+        brpc::ServerOptions options;
+        if (_num_threads != -1) {
+            options.num_threads = _num_threads;
         }
+        options.idle_timeout_sec = config::brpc_idle_timeout_sec;
+        if (rpc_tls::enabled("brpc")) {
+            // Reject invalid identities before constructing key-carrying internal services.
+            RETURN_IF_ERROR(rpc_tls::configure_server(&options));
+        } else if (config::enable_https) {
+            auto* ssl_options = options.mutable_ssl_options();
+            ssl_options->default_cert.certificate = config::ssl_certificate_path;
+            ssl_options->default_cert.private_key = config::ssl_private_key_path;
+        }
+        options.has_builtin_services = config::enable_brpc_builtin_services;
 
         if (config::is_cloud_mode()) {
             _server->AddService(
@@ -86,18 +98,6 @@ public:
             _server->AddService(new PInternalServiceImpl(_env->storage_engine().to_local(), _env),
                                 brpc::SERVER_OWNS_SERVICE);
         }
-
-        brpc::ServerOptions options;
-        if (_num_threads != -1) {
-            options.num_threads = _num_threads;
-        }
-        options.idle_timeout_sec = config::brpc_idle_timeout_sec;
-        if (config::enable_https) {
-            auto* ssl_options = options.mutable_ssl_options();
-            ssl_options->default_cert.certificate = config::ssl_certificate_path;
-            ssl_options->default_cert.private_key = config::ssl_private_key_path;
-        }
-        options.has_builtin_services = config::enable_brpc_builtin_services;
 
         butil::EndPoint point;
         if (butil::str2endpoint(BackendOptions::get_service_bind_address(), _port, &point) < 0) {
@@ -150,7 +150,7 @@ public:
             : _service(std::make_unique<HttpService>(env, port, num_workers)) {}
 
     Status start() override {
-        if (config::enable_tls) {
+        if (rpc_tls::enabled("http")) {
             return Status::NotSupported("BE HTTP TLS requires TLS module");
         }
         return _service->start();
@@ -173,7 +173,7 @@ public:
     explicit OssFlightServiceStarter(int port) : _port(port) {}
 
     Status start() override {
-        if (config::enable_tls) {
+        if (rpc_tls::enabled("arrowflight")) {
             return Status::NotSupported("BE Arrow Flight TLS requires TLS module");
         }
         if (_service == nullptr) {
@@ -205,13 +205,12 @@ public:
             : _port(port), _service(std::move(service)) {}
 
     Status start() override {
-        if (config::enable_tls) {
-            return Status::NotSupported("BE backend thrift TLS requires TLS module");
-        }
         RETURN_IF_ERROR(_service->start_thrift_dependencies());
         auto processor = std::make_shared<BackendServiceProcessor>(_service);
         _server = std::make_unique<ThriftServer>("backend", processor, _port,
                                                  config::be_service_threads);
+        RETURN_IF_ERROR(rpc_tls::configure_thrift_server(
+                _server.get(), BackendOptions::get_service_bind_address_without_bracket(), _port));
         return _server->start();
     }
 
@@ -238,14 +237,13 @@ public:
             : _port(port), _worker_thread_num(worker_thread_num), _cluster_info(cluster_info) {}
 
     Status start() override {
-        if (config::enable_tls) {
-            return Status::NotSupported("BE heartbeat thrift TLS requires TLS module");
-        }
         auto* heartbeat_server = new HeartbeatServer(_cluster_info);
         heartbeat_server->init_cluster_id();
         std::shared_ptr<HeartbeatServer> handler(heartbeat_server);
         auto processor = std::make_shared<HeartbeatServiceProcessor>(handler);
         _server = std::make_unique<ThriftServer>("heartbeat", processor, _port, _worker_thread_num);
+        RETURN_IF_ERROR(rpc_tls::configure_thrift_server(
+                _server.get(), BackendOptions::get_service_bind_address_without_bracket(), _port));
         return _server->start();
     }
 

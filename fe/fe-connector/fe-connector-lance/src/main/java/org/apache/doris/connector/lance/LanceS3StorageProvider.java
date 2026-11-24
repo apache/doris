@@ -24,6 +24,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -117,17 +118,15 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
         if (properties.hasAssumeRole()) {
             throw new IllegalArgumentException("Lance S3 AssumeRole access is not supported yet");
         }
-        if (!properties.hasStaticCredentials()) {
-            throw new IllegalArgumentException("Lance S3 access currently requires static s3.access_key and"
-                    + " s3.secret_key; anonymous and credential-chain access are not supported yet");
-        }
         LanceStorageOptions.putIfNotEmpty(result, ACCESS_KEY_ID, properties.getAccessKey());
         LanceStorageOptions.putIfNotEmpty(result, SECRET_ACCESS_KEY, properties.getSecretKey());
         // Keep the complete static identity: an absent key lets Lance's with_env_s3() import an
         // unrelated AWS_SESSION_TOKEN from the FE or BE environment. An explicit empty value blocks it.
         String token = properties.getSessionToken();
         result.put(SESSION_TOKEN, token == null ? "" : token);
-        LanceStorageOptions.putIfNotEmpty(result, ENDPOINT, endpointForDataset(datasetUri, properties));
+        // Keep the service endpoint until vending has selected the final addressing mode.
+        LanceStorageOptions.putIfNotEmpty(result, ENDPOINT,
+                endpointForDataset(datasetUri, properties.getEndpoint(), false));
         LanceStorageOptions.putIfNotEmpty(result, REGION, properties.getRegion());
         result.put(VIRTUAL_HOSTED_STYLE, String.valueOf(!properties.isUsePathStyle()));
 
@@ -135,15 +134,14 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
     }
 
     /** object_store expects a bucket-qualified endpoint when virtual-hosted addressing is enabled. */
-    private static String endpointForDataset(String datasetUri, S3CompatibleFileSystemProperties properties) {
-        String endpoint = properties.getEndpoint();
+    private static String endpointForDataset(String datasetUri, String endpoint, boolean virtualHostedStyle) {
         if (endpoint == null || endpoint.isEmpty()) {
             return endpoint;
         }
         if (!endpoint.contains("://")) {
             endpoint = "https://" + endpoint;
         }
-        if (properties.isUsePathStyle()) {
+        if (!virtualHostedStyle) {
             return endpoint;
         }
         URI service = URI.create(endpoint);
@@ -191,7 +189,64 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
 
     @Override
     public Map<String, String> normalizeVendedStorageOptions(Map<String, String> options) {
-        return LanceStorageOptions.normalizeAliases(options, CANONICAL_BY_ALIAS);
+        Map<String, String> normalized = LanceStorageOptions.normalizeAliases(options, CANONICAL_BY_ALIAS);
+        if (normalized.containsKey(ACCESS_KEY_ID) && normalized.containsKey(SECRET_ACCESS_KEY)) {
+            // A vended key pair is its own identity. Without a token of its own, it must not inherit
+            // either the catalog's STS token or an unrelated token from the FE/BE environment.
+            normalized.putIfAbsent(SESSION_TOKEN, "");
+        }
+        return normalized;
+    }
+
+    @Override
+    public Map<String, String> mergeStorageOptions(String datasetUri, Map<String, String> catalogOptions,
+            Map<String, String> vendedOptions) {
+        Map<String, String> merged = LanceStorageProvider.super.mergeStorageOptions(
+                datasetUri, catalogOptions, vendedOptions);
+        if (!vendedOptions.containsKey(ENDPOINT)) {
+            // Only Doris endpoints need bucket qualification. Namespace endpoints already use
+            // object_store's native vocabulary and must keep the meaning the namespace assigned.
+            LanceStorageOptions.putIfNotEmpty(merged, ENDPOINT, endpointForDataset(datasetUri,
+                    catalogOptions.get(ENDPOINT), parseObjectStoreBoolean(
+                            merged.getOrDefault(VIRTUAL_HOSTED_STYLE, "false"))));
+        }
+        return merged;
+    }
+
+    /** Matches object_store's {@code ConfigValue<bool>} parser, including case-insensitive alternate spellings. */
+    private static boolean parseObjectStoreBoolean(String value) {
+        switch (value.toLowerCase(Locale.ROOT)) {
+            case "1":
+            case "true":
+            case "on":
+            case "yes":
+            case "y":
+                return true;
+            case "0":
+            case "false":
+            case "off":
+            case "no":
+            case "n":
+                return false;
+            default:
+                throw new IllegalArgumentException("Unrecognized value for S3 storage option '"
+                        + VIRTUAL_HOSTED_STYLE + "': '" + value
+                        + "'. Expected one of 1, true, on, yes, y, 0, false, off, no, n");
+        }
+    }
+
+    @Override
+    public void validateStorageOptions(List<StorageProperties> storageProperties,
+            Map<String, String> effectiveOptions) {
+        // REST catalogs may bind just an endpoint and receive their credentials from DescribeTable.
+        // Check the identity that will actually reach Lance, after those options have been merged.
+        if (selectS3Compatible(storageProperties) != null
+                && (effectiveOptions.getOrDefault(ACCESS_KEY_ID, "").isBlank()
+                || effectiveOptions.getOrDefault(SECRET_ACCESS_KEY, "").isBlank())) {
+            throw new IllegalArgumentException("Lance S3 access currently requires static s3.access_key and"
+                    + " s3.secret_key or namespace-vended credentials; anonymous and credential-chain access"
+                    + " are not supported yet");
+        }
     }
 
     @Override

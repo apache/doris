@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/check.h"
+#include "common/config.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "io/fs/local_file_system.h"
@@ -48,6 +49,7 @@
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/olap_common.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/debug_points.h"
 
 // The analyzed query entry: the caller hands the reader terms it already
 // analyzed, the reader takes them verbatim, and everything after analysis (the
@@ -134,6 +136,34 @@ doris::snii::writer::SniiIndexInput phrase_segment_input() {
 doris::snii::writer::SniiIndexInput scored_segment_input() {
     doris::snii::writer::SniiIndexInput input = phrase_segment_input();
     input.encoded_norms.assign(kDocCount, doris::snii::query::encode_norm(2));
+    return input;
+}
+
+// Every third document from doc 1 is NULL. The others hold "alpha", the even ones also "beta",
+// and their lengths run from 2 to 6 so that the norms move the scores.
+bool is_null_row(uint32_t docid) {
+    return docid % 3 == 1;
+}
+
+doris::snii::writer::SniiIndexInput scored_segment_with_nulls_input() {
+    std::vector<PostingDoc> alpha;
+    std::vector<PostingDoc> beta;
+    doris::snii::writer::SniiIndexInput input;
+    input.doc_count = kDocCount;
+    input.encoded_norms.resize(kDocCount);
+    for (uint32_t docid = 0; docid < kDocCount; ++docid) {
+        if (is_null_row(docid)) {
+            input.null_docids.push_back(docid);
+            input.encoded_norms[docid] = doris::snii::query::encode_norm(0);
+            continue;
+        }
+        alpha.push_back({.docid = docid, .positions = {0}});
+        if (docid % 2 == 0) {
+            beta.push_back({.docid = docid, .positions = {1}});
+        }
+        input.encoded_norms[docid] = doris::snii::query::encode_norm(2 + docid % 5);
+    }
+    input.terms = {make_term("alpha", std::move(alpha)), make_term("beta", std::move(beta))};
     return input;
 }
 
@@ -529,6 +559,55 @@ TEST_F(SniiIndexReaderAnalyzedQueryTest, ScoresReachTheCollectionSimilarity) {
     });
     EXPECT_GT(analyzed_score, 0.0F);
     EXPECT_FLOAT_EQ(analyzed_score, raw_score);
+}
+
+// Sparse norms change what is stored, not what is scored: through MATCH and the collection
+// similarity, every matched row scores bit for bit what it scores with dense norms.
+TEST_F(SniiIndexReaderAnalyzedQueryTest, SparseNormsScoreLikeDenseNorms) {
+    std::vector<uint32_t> beta_docs;
+    for (uint32_t docid = 0; docid < kDocCount; ++docid) {
+        if (!is_null_row(docid) && docid % 2 == 0) {
+            beta_docs.push_back(docid);
+        }
+    }
+    const auto scores_of = [&](bool sparse, std::string_view name, int64_t* file_size) {
+        const bool debug_points_were_enabled = config::enable_debug_points;
+        config::enable_debug_points = true;
+        DebugPoints::instance()->clear();
+        if (sparse) {
+            DebugPoints::instance()->add("LogicalIndexWriter::finalize_build.sparse_norms");
+        }
+        auto reader = open_reader(scored_segment_with_nulls_input(), name, _text_meta,
+                                  InvertedIndexReaderType::FULLTEXT);
+        DebugPoints::instance()->clear();
+        config::enable_debug_points = debug_points_were_enabled;
+        assert_ok(io::global_local_filesystem()->file_size(
+                InvertedIndexDescriptor::get_index_file_path_v2(std::string(kTestDir) + "/" +
+                                                                std::string(name)),
+                file_size));
+
+        std::vector<float> scores;
+        for (const uint32_t docid : beta_docs) {
+            QueryExecution execution;
+            execution.context->collection_statistics =
+                    std::make_shared<FixedCollectionStatistics>();
+            execution.context->collection_similarity = std::make_shared<CollectionSimilarity>();
+            EXPECT_EQ(raw(*reader, execution, "beta", InvertedIndexQueryType::MATCH_ANY_QUERY),
+                      beta_docs);
+            scores.push_back(score_for_doc(*execution.context->collection_similarity, docid));
+        }
+        return scores;
+    };
+
+    int64_t dense_size = 0;
+    int64_t sparse_size = 0;
+    const std::vector<float> dense = scores_of(/*sparse=*/false, "dense_norms", &dense_size);
+    const std::vector<float> sparse = scores_of(/*sparse=*/true, "sparse_norms", &sparse_size);
+    EXPECT_LT(sparse_size, dense_size);
+    ASSERT_EQ(dense.size(), beta_docs.size());
+    // Rows 0 and 2 have lengths 2 and 4, so the norms do move the scores.
+    EXPECT_NE(dense[0], dense[1]);
+    EXPECT_EQ(sparse, dense);
 }
 
 } // namespace

@@ -26,6 +26,8 @@
 #include <memory>
 #include <thread>
 
+#include "testutil/scoped_temp_dir.h"
+
 namespace doris::kerberos {
 
 // Mock KerberosTicketCache class
@@ -76,9 +78,11 @@ private:
 
 class KerberosTicketMgrTest : public testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"kerberos_ticket_mgr_test"};
+
     void SetUp() override {
         // Create a temporary directory for testing
-        _test_dir = std::filesystem::temp_directory_path() / "kerberos_mgr_test";
+        _test_dir = scoped_temp_dir_.path() / "kerberos_mgr_test";
         std::filesystem::create_directories(_test_dir);
         _mgr = std::make_unique<MockKerberosTicketMgr>(_test_dir.string());
     }

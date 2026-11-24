@@ -359,7 +359,6 @@ Status JsonReader::open(std::shared_ptr<FileScanRequest> request) {
     }
     RETURN_IF_ERROR(_parse_jsonpath_and_json_root());
     _json_parser = std::make_unique<simdjson::ondemand::parser>();
-    _padding_buffer.resize(_padded_size);
     _reader_eof = false;
     _single_document_read = false;
     _eof = false;
@@ -653,11 +652,11 @@ Status JsonReader::_read_one_document(size_t* size, bool* eof) {
         *eof = true;
         return Status::OK();
     }
-    _document_buffer.resize(cast_set<size_t>(read_size));
-    Slice result(_document_buffer.data(), _document_buffer.size());
+    const auto document_size = cast_set<size_t>(read_size);
+    _grow_padding_buffer(document_size);
+    Slice result(_padding_buffer.data(), document_size);
     RETURN_IF_ERROR(_physical_file_reader->read_at(_current_offset, result, size, _io_ctx.get()));
-    _document_buffer.resize(*size);
-    _document_view = _document_buffer;
+    _document_view = std::string_view(_padding_buffer.data(), *size);
     if (*size == 0) {
         *eof = true;
     }
@@ -672,12 +671,12 @@ Status JsonReader::_read_one_document_from_pipe(size_t* read_size) {
     DorisUniqueBufferPtr<uint8_t> file_buf;
     RETURN_IF_ERROR(stream_load_pipe->read_one_message(&file_buf, read_size));
     if (*read_size == 0) {
-        _document_buffer.clear();
         _document_view = {};
         return Status::OK();
     }
-    _document_buffer.assign(reinterpret_cast<const char*>(file_buf.get()), *read_size);
-    _document_view = _document_buffer;
+    _grow_padding_buffer(*read_size);
+    std::memcpy(_padding_buffer.data(), file_buf.get(), *read_size);
+    _document_view = std::string_view(_padding_buffer.data(), *read_size);
     if (!stream_load_pipe->is_chunked_transfer()) {
         return Status::OK();
     }
@@ -689,11 +688,19 @@ Status JsonReader::_read_one_document_from_pipe(size_t* read_size) {
         if (next_size == 0) {
             break;
         }
-        _document_buffer.append(reinterpret_cast<const char*>(next_buf.get()), next_size);
+        _grow_padding_buffer(*read_size + next_size);
+        std::memcpy(_padding_buffer.data() + *read_size, next_buf.get(), next_size);
         *read_size += next_size;
     }
-    _document_view = _document_buffer;
+    _document_view = std::string_view(_padding_buffer.data(), *read_size);
     return Status::OK();
+}
+
+void JsonReader::_grow_padding_buffer(size_t size) {
+    const size_t needed = size + simdjson::SIMDJSON_PADDING;
+    if (_padding_buffer.size() < needed) {
+        _padding_buffer.resize(needed);
+    }
 }
 
 Status JsonReader::_parse_next_json(size_t* size, bool* eof) {
@@ -707,17 +714,17 @@ Status JsonReader::_parse_next_json(size_t* size, bool* eof) {
         _document_view.remove_prefix(3);
         *size -= 3;
     }
-    if (*size + simdjson::SIMDJSON_PADDING > _padded_size) {
-        _padded_size = *size + simdjson::SIMDJSON_PADDING;
-        _padding_buffer.resize(_padded_size);
-    }
     // Ondemand values reference the input buffer. Keep the padded bytes in a member buffer until the
-    // current document is fully materialized.
-    std::memcpy(_padding_buffer.data(), _document_view.data(), *size);
+    // current document is fully materialized. File and pipe documents are already there, at offset
+    // 3 when a BOM was skipped, so the ranges may overlap.
+    if (_document_view.data() != _padding_buffer.data()) {
+        _grow_padding_buffer(*size);
+        std::memmove(_padding_buffer.data(), _document_view.data(), *size);
+    }
     _original_doc_size = *size;
+    const std::string_view document(_padding_buffer.data(), *size);
     const auto error =
-            _json_parser->iterate(std::string_view(_padding_buffer.data(), *size), _padded_size)
-                    .get(_original_json_doc);
+            _json_parser->iterate(document, _padding_buffer.size()).get(_original_json_doc);
     if (error != simdjson::error_code::SUCCESS) {
         return Status::DataQualityError(
                 "Parse json data for JsonDoc failed. code: {}, error info: {}", error,
