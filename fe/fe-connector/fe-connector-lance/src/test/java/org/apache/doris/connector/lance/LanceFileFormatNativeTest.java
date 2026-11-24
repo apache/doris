@@ -122,8 +122,8 @@ class LanceFileFormatNativeTest {
         Map<String, String> options = new HashMap<>();
         options.put("aws_access_key_id", "AKIDEXAMPLE");
         options.put("aws_secret_access_key", "example-secret-value");
-        // The same dataset and version, with another table function's credentials: the statement shares the
-        // metadata it read, never the storage.
+        // A handle on the same dataset and version with another table function's credentials: its scan reads the
+        // metadata and opens the dataset with them, not with the first handle's storage.
         LanceFileTableHandle handle = new LanceFileTableHandle(uri, ((LanceFileTableHandle) resolved).getVersion(),
                 options, Collections.singletonMap("AWS_SECRET_KEY", "example-secret-value"));
 

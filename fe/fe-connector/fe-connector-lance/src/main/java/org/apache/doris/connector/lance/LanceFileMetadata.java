@@ -38,8 +38,8 @@ import java.util.OptionalLong;
 
 /**
  * Resolves a {@code format = "lance"} file table function to the dataset at its URI, and serves that dataset's
- * columns. Created per statement; the metadata read when the handle is resolved is shared with the scan through
- * {@link LanceStatementScope}.
+ * columns. Created per statement; the metadata read when a handle is resolved is shared with that handle's scan
+ * through {@link LanceStatementScope}.
  */
 final class LanceFileMetadata implements ConnectorMetadata, ConnectorFileSourceOps {
     /** Informational format name the engine records with the schema, as for a catalog table. */

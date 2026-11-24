@@ -403,10 +403,7 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
             return NO_INDEXES;
         }
 
-        /**
-         * The table function's own options. The statement memo of the metadata is shared by every table function
-         * of the statement reading this URI and version, whichever credentials it brought.
-         */
+        /** The table function's own options, which its metadata was read with. */
         @Override
         public Map<String, String> storageOptions(ConnectorTableHandle handle, LanceTableMetadata metadata) {
             return fileHandle(handle).getStorageOptions();

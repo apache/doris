@@ -401,6 +401,41 @@ class LanceScanPlanProviderTest {
         Assertions.assertFalse(rangeParams(emptyCount.get(0)).isSetFragmentIds());
     }
 
+    /**
+     * A uri names no endpoint: two file table functions of one statement can name one uri at one version on two
+     * object stores, as two {@code s3()} calls with the same uri and two {@code s3.endpoint}s do. Each resolved its
+     * handle by reading its own dataset, and each counts that dataset.
+     */
+    @Test
+    void fileTableFunctionsOfOneUriOnTwoEndpointsCountTheirOwnDatasets() {
+        LanceFileTableHandle oneRow = fileHandle("http://127.0.0.1:19001");
+        LanceFileTableHandle twoRows = fileHandle("http://127.0.0.1:19002");
+        // What resolving each handle remembers: the dataset it read with its own storage.
+        LanceStatementScope.sharedFileMetadata(session, oneRow,
+                () -> metadata(oneRow.getStorageOptions(), new LanceFragmentInfo(0, 1, 1)));
+        LanceStatementScope.sharedFileMetadata(session, twoRows,
+                () -> metadata(twoRows.getStorageOptions(), new LanceFragmentInfo(0, 2, 2)));
+        LanceScanPlanProvider provider = LanceScanPlanProvider.forFiles(new LanceFileFormatConnector(() -> {
+            throw new AssertionError("the statement already read both datasets; nothing may read them again");
+        }));
+        Assertions.assertEquals(1, fileCount(provider, oneRow));
+        Assertions.assertEquals(2, fileCount(provider, twoRows));
+    }
+
+    private static LanceFileTableHandle fileHandle(String endpoint) {
+        return new LanceFileTableHandle(URI, 3, Collections.singletonMap("aws_endpoint", endpoint),
+                Collections.singletonMap("AWS_ENDPOINT", endpoint));
+    }
+
+    private long fileCount(LanceScanPlanProvider provider, LanceFileTableHandle fileHandle) {
+        long rows = 0;
+        for (ConnectorScanRange range : provider.planScan(session,
+                ConnectorScanRequest.builder(fileHandle, Collections.emptyList()).countPushdown(true).build())) {
+            rows += tableLevelRowCount(range);
+        }
+        return rows;
+    }
+
     /** lance_fragments_per_split groups fragments exactly, in manifest order, and never plans index segments. */
     @Test
     void debugGroupingTakesFragmentsPerSplitAtATime() {

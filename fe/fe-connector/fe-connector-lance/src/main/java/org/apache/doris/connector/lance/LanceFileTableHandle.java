@@ -23,19 +23,27 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * A Lance dataset that a file table function names, as {@code s3("uri" = ..., "format" = "lance")}, pinned to the
  * version the statement reads. It carries the table function's storage: the options the FE and the BE open the
  * dataset with, and the properties of the BE's file system. {@link #toString()} shows neither.
+ *
+ * <p>Each handle is one resolution of a table function's location, numbered apart from every other: a uri names no
+ * endpoint, so two table functions of a statement can name one uri at one version on two object stores, and the
+ * statement memo of the dataset's metadata is kept per resolution.
  */
 final class LanceFileTableHandle implements ConnectorTableHandle {
     private static final long serialVersionUID = 1L;
+    /** Numbers the resolutions; see {@link #getResolution()}. */
+    private static final AtomicLong RESOLUTIONS = new AtomicLong();
 
     private final String uri;
     private final long version;
     private final HashMap<String, String> storageOptions;
     private final HashMap<String, String> backendStorageProperties;
+    private final long resolution;
 
     LanceFileTableHandle(String uri, long version, Map<String, String> storageOptions,
             Map<String, String> backendStorageProperties) {
@@ -43,6 +51,7 @@ final class LanceFileTableHandle implements ConnectorTableHandle {
         this.version = version;
         this.storageOptions = new HashMap<>(storageOptions);
         this.backendStorageProperties = new HashMap<>(backendStorageProperties);
+        this.resolution = RESOLUTIONS.incrementAndGet();
     }
 
     String getUri() {
@@ -51,6 +60,11 @@ final class LanceFileTableHandle implements ConnectorTableHandle {
 
     long getVersion() {
         return version;
+    }
+
+    /** The number of this resolution, which no other handle has; it keys the statement memo of the metadata. */
+    long getResolution() {
+        return resolution;
     }
 
     /** The options both the FE and the BE open the dataset with. */
