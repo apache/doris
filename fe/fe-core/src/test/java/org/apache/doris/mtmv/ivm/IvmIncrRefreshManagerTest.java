@@ -20,9 +20,11 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.changelog.ChangelogUtils;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
@@ -85,7 +87,7 @@ public class IvmIncrRefreshManagerTest {
             manager.executeInternalRefresh(context);
         }
         // The incremental analyze must see the MTMV's excluded trigger tables, otherwise
-        // excluded base tables would be validated for binlog / key-type support.
+        // excluded base tables would be validated for changelog / key-type support.
         Assertions.assertNotNull(captured.get(), "executeCommand should have been invoked");
         Assertions.assertEquals(excluded, captured.get().getExcludedTriggerTables());
     }
@@ -173,16 +175,46 @@ public class IvmIncrRefreshManagerTest {
     }
 
     @Test
-    public void testManagerReturnsBinlogNotEnabledFallbackOnIvmException() throws Exception {
+    public void testNegativeAggregateCountRequiresCompleteRefresh() throws Exception {
+        IvmFailureReason reason = IvmFailureReason.NEGATIVE_AGGREGATE_COUNT;
+        for (String detail : List.of("negative group count", "negative hidden count for sum_score",
+                "negative count for score_count")) {
+            assertKnownExecutionFailureFallback(reason,
+                    "(Invalid argument) " + IvmFailureClassifier.NEGATIVE_AGGREGATE_COUNT_MSG_PREFIX + detail);
+        }
+        Assertions.assertTrue(reason.requiresCompleteRefresh());
+    }
+
+    @Test
+    public void testManagerReturnsChangelogBrokenFallbackForExpiredStreamOffset() throws Exception {
+        // What planning a MIN_DELTA read throws once changelog.ttl_seconds has expired the stream offset.
+        AnalysisException expired = Assertions.assertThrows(AnalysisException.class,
+                () -> ChangelogUtils.effectiveStartTso(99L, 100L, true));
         MTMV mtmv = mockMtmv();
-        TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), Collections.emptyList());
-        manager.throwBinlogNotEnabledOnAnalyze = true;
+        Command cmd = Mockito.mock(Command.class);
+        TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), makeCommands(cmd));
+        manager.failureMessage = expired.getMessage();
 
         IvmIncrRefreshResult result = manager.doRefresh(manager.context);
 
         Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED, result.getFailureReason());
-        Assertions.assertTrue(result.getDetailMessage().contains("no_binlog"));
+        Assertions.assertEquals(IvmFailureReason.CHANGELOG_BROKEN, result.getFailureReason());
+        // A strict refresh reports this detail, so it has to keep the offset and the cutoff.
+        Assertions.assertTrue(result.getDetailMessage().contains(expired.getMessage()));
+        Assertions.assertTrue(manager.executeCalled);
+    }
+
+    @Test
+    public void testManagerReturnsChangelogNotEnabledFallbackOnIvmException() throws Exception {
+        MTMV mtmv = mockMtmv();
+        TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), Collections.emptyList());
+        manager.throwChangelogNotEnabledOnAnalyze = true;
+
+        IvmIncrRefreshResult result = manager.doRefresh(manager.context);
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(IvmFailureReason.CHANGELOG_NOT_ENABLED, result.getFailureReason());
+        Assertions.assertTrue(result.getDetailMessage().contains("no_changelog"));
         Assertions.assertFalse(manager.executeCalled);
     }
 
@@ -190,7 +222,7 @@ public class IvmIncrRefreshManagerTest {
     public void testManagerReturnsPlanSignatureMismatchFallback() throws Exception {
         MTMV mtmv = mockMtmv();
         TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), Collections.emptyList());
-        manager.planSignatureMismatch = new IvmPlanSignature("current plan", "current-signature");
+        manager.planSignatureMismatch = new IvmPlanSignature("current plan", "current-signature", "plan tree");
 
         IvmIncrRefreshResult result = manager.doRefresh(manager.context);
 
@@ -248,7 +280,7 @@ public class IvmIncrRefreshManagerTest {
         private boolean throwOnExecute;
         private String failureMessage;
         private boolean throwIvmExceptionOnAnalyze;
-        private boolean throwBinlogNotEnabledOnAnalyze;
+        private boolean throwChangelogNotEnabledOnAnalyze;
         private IvmPlanSignature planSignatureMismatch;
 
         private TestIvmIncrRefreshManager(IvmIncrRefreshContext context, List<Command> commands) {
@@ -264,9 +296,9 @@ public class IvmIncrRefreshManagerTest {
             if (throwIvmExceptionOnAnalyze) {
                 throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED, "unsupported aggregate");
             }
-            if (throwBinlogNotEnabledOnAnalyze) {
-                throw new IvmException(IvmFailureReason.BINLOG_NOT_ENABLED,
-                        "binlog is not enabled for table: no_binlog");
+            if (throwChangelogNotEnabledOnAnalyze) {
+                throw new IvmException(IvmFailureReason.CHANGELOG_NOT_ENABLED,
+                        "changelog is not enabled for table: no_changelog");
             }
             if (commands == null || commands.isEmpty()) {
                 return;

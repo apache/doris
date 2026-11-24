@@ -23,7 +23,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
@@ -36,6 +36,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
@@ -96,6 +98,7 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -151,6 +154,27 @@ public class MTMVPlanUtil {
         // After 1, this logic is no longer needed. This is to be compatible with older versions
         setCatalogAndDb(ctx, mtmv);
         return ctx;
+    }
+
+    /**
+     * The compute group of the current session, which a manual refresh of an MV that declares none
+     * borrows. Null outside cloud mode, without a session, or when the session resolves none.
+     */
+    @Nullable
+    public static String getSessionComputeGroup() {
+        if (!Config.isCloudMode()) {
+            return null;
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return null;
+        }
+        try {
+            return ctx.getCloudCluster(false);
+        } catch (ComputeGroupException e) {
+            LOG.warn("failed to resolve compute group for refresh mtmv", e);
+            return null;
+        }
     }
 
     /**
@@ -215,23 +239,34 @@ public class MTMVPlanUtil {
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
         ctx.getState().setInternal(true);
-        ctx.setThreadLocalInfo();
-        ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(sessionVariables);
-        // Debug session variable should be disabled when refreshed
-        ctx.getSessionVariable().skipDeletePredicate = false;
-        ctx.getSessionVariable().skipDeleteBitmap = false;
-        ctx.getSessionVariable().skipDeleteSign = false;
-        ctx.getSessionVariable().skipStorageEngineMerge = false;
-        ctx.getSessionVariable().showHiddenColumns = false;
-        ctx.getSessionVariable().allowModifyMaterializedViewData = true;
-        ctx.getSessionVariable().setDisableNereidsRules(
-                disableRules.stream().map(RuleType::name).collect(Collectors.joining(",")));
-        ctx.setStartTime();
-        if (parentContext != null) {
-            ctx.changeDefaultCatalog(parentContext.getDefaultCatalog());
-            ctx.setDatabase(parentContext.getDatabase());
+        ConnectContext previousContext = ConnectContext.get();
+        try {
+            ctx.setThreadLocalInfo();
+            ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(sessionVariables);
+            // Debug session variable should be disabled when refreshed
+            ctx.getSessionVariable().skipDeletePredicate = false;
+            ctx.getSessionVariable().skipDeleteBitmap = false;
+            ctx.getSessionVariable().skipDeleteSign = false;
+            ctx.getSessionVariable().skipStorageEngineMerge = false;
+            ctx.getSessionVariable().showHiddenColumns = false;
+            ctx.getSessionVariable().allowModifyMaterializedViewData = true;
+            ctx.getSessionVariable().setDisableNereidsRules(
+                    disableRules.stream().map(RuleType::name).collect(Collectors.joining(",")));
+            ctx.setStartTime();
+            if (parentContext != null) {
+                ctx.changeDefaultCatalog(parentContext.getDefaultCatalog());
+                ctx.setDatabase(parentContext.getDatabase());
+            }
+            return ctx;
+        } catch (RuntimeException | Error e) {
+            // Initialization can fail before MTMVCache takes responsibility for context cleanup.
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+            throw e;
         }
-        return ctx;
     }
 
 
@@ -581,6 +616,7 @@ public class MTMVPlanUtil {
             ivmRewriteContext.ifPresent(rewriteContext -> {
                 rewriteContext.setUseFullKeys(MTMVPropertyUtil.isIvmUseFullKeys(mvProperties));
                 rewriteContext.setForceMow(MTMVPropertyUtil.isIvmForceMow(mvProperties));
+                rewriteContext.setMinMaxTopK(MTMVPropertyUtil.getIvmMinMaxTopK(mvProperties).orElse(null));
             });
             NereidsPlanner planner = new NereidsPlanner(statementContext);
             // this is for expression column name infer when not use alias
@@ -601,6 +637,12 @@ public class MTMVPlanUtil {
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
             }
             Plan analyzedPlan = planner.getAnalyzedPlan();
+            Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
+            Set<TableIf> oneLevelTables = Sets.newHashSet(statementContext.getOneLevelTables().values());
+            MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
+            // Row TTL injects a time-dependent internal predicate. Report the unsupported table policy before
+            // the generic nondeterministic-expression check so the policy cannot be bypassed by MV properties.
+            MTMVUtil.checkNoRowTtlBaseTable(relation);
             // can not contain Random function
             analyzeExpressions(analyzedPlan, mvProperties);
             // can not contain partition or tablets
@@ -610,8 +652,6 @@ public class MTMVPlanUtil {
                 throw new AnalysisException("can not contain invalid expression");
             }
 
-            Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
-            Set<TableIf> oneLevelTables = Sets.newHashSet(statementContext.getOneLevelTables().values());
             for (TableIf table : baseTables) {
                 if (table.isTemporary()) {
                     throw new AnalysisException("do not support create materialized view on temporary table ("
@@ -624,13 +664,22 @@ public class MTMVPlanUtil {
                     }
                 }
             }
-            MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
             MTMVPartitionInfo mvPartitionInfo = mvPartitionDefinition.analyzeAndTransferToMTMVPartitionInfo(planner);
             List<ColumnDefinition> columns = MTMVPlanUtil.generateColumns(plan, ctx, mvPartitionInfo.getPartitionCol(),
                     (distribution == null || CollectionUtils.isEmpty(distribution.getCols())) ? Sets.newHashSet()
                             : Sets.newHashSet(distribution.getCols()),
                     simpleColumnDefinitions, properties);
             Optional<IvmRewriteResult> ivmRewriteResult = planner.getCascadesContext().getIvmRewriteResult();
+            // CREATE persists the capacity normalize resolved, so a later refresh reads the same
+            // value instead of re-deriving it. NORMALIZE/INCREMENTAL read the MV's own property and
+            // must not mutate it here (the change would bypass journaling).
+            ivmRewriteContext.ifPresent(rewriteContext -> {
+                Long resolved = rewriteContext.getResolvedMinMaxTopK();
+                if (rewriteContext.isCreate() && resolved != null
+                        && !mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK)) {
+                    mvProperties.put(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK, String.valueOf(resolved));
+                }
+            });
             boolean appendOnlyDup = isAppendOnlyDup(ivmRewriteResult.orElse(null));
             // The table model decides both: only the unique-key model merges on write, and only it has IVM
             // hidden columns to lay out. An append-only detail MV is laid out as a plain DUP table.
@@ -640,13 +689,13 @@ public class MTMVPlanUtil {
                     ivmRewriteResult.orElse(null));
             properties = CreateTableInfo.addOlapHiddenColumns(columns, mvKeysType,
                     finalEnableMergeOnWrite, properties, false);
-            // A row-binlog table carries hidden columns on top of the OLAP ones above, added by
+            // A changelog table carries hidden columns on top of the OLAP ones above, added by
             // InternalCatalog#createOlapTable just before the table is built. The analyzed list has
             // to carry them too: an MTMV re-validates its schema against it whenever a base table
             // changes (MTMVPlanUtil#checkColumnIfChange), and a column missing here is
             // indistinguishable from a real schema change. Idempotent, so the table still gets one.
-            CreateTableInfo.addRowBinlogHiddenColumns(columns, mvKeysType, finalEnableMergeOnWrite,
-                    BinlogConfig.fromProperties(properties));
+            CreateTableInfo.addChangelogHiddenColumns(columns, mvKeysType, finalEnableMergeOnWrite,
+                    ChangelogConfig.fromProperties(properties));
             // analyze column
             Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             keysSet.addAll(keys);
@@ -1045,7 +1094,22 @@ public class MTMVPlanUtil {
         }
         checkColumnIfChange(mtmv, mtmvAnalyzedQueryInfo.getColumnDefinitions());
         checkMTMVPartitionInfo(mtmv, mtmvAnalyzedQueryInfo.getMvPartitionInfo());
+        checkVariantEscapeDotsInKeys(mtmv, mtmvAnalyzedQueryInfo.getRelation());
         return mtmvAnalyzedQueryInfo;
+    }
+
+    private static void checkVariantEscapeDotsInKeys(MTMV mtmv, MTMVRelation relation) throws JobException {
+        try {
+            List<TableIf> baseTables = Lists.newArrayList();
+            for (BaseTableInfo baseTable : relation.getBaseTables()) {
+                baseTables.add(MTMVUtil.getTable(baseTable));
+            }
+            PropertyAnalyzer.inheritVariantEscapeDotsInKeys(ImmutableMap.of(
+                    PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS,
+                    Boolean.toString(mtmv.getVariantEscapeDotsInKeys())), baseTables, true);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new JobException(e.getMessage(), e);
+        }
     }
 
     private static void checkMTMVPartitionInfo(MTMV mtmv, MTMVPartitionInfo analyzedMvPartitionInfo)

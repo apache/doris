@@ -56,7 +56,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "cpp/obj-client/obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/cluster_info.h"
@@ -72,7 +71,6 @@
 #include "util/client_cache.h"
 #include "util/client_connection_provider.h"
 #include "util/network_util.h"
-#include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 
@@ -893,7 +891,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             sync_stats->get_remote_rowsets_num += resp.rowset_meta().size();
         }
 
-        // MOW and row-binlog tablets need delete bitmap from meta-service.
+        // MOW and changelog tablets need delete bitmap from meta-service.
         if (options.sync_delete_bitmap && tablet->need_read_delete_bitmap() &&
             tablet->tablet_state() == TABLET_RUNNING) {
             DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.sync_tablet_delete_bitmap.block",
@@ -1628,18 +1626,18 @@ Status CloudMetaMgr::do_commit_rowset(RowsetMeta& rs_meta, const std::string& jo
 
 Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
                                    RowsetMetaSharedPtr* existed_rs_meta,
-                                   RowsetMeta* attach_row_binlog,
-                                   RowsetMetaSharedPtr* existed_attach_row_binlog) {
-    if (attach_row_binlog == nullptr) {
+                                   RowsetMeta* attach_changelog,
+                                   RowsetMetaSharedPtr* existed_attach_changelog) {
+    if (attach_changelog == nullptr) {
         return do_commit_rowset(rs_meta, job_id, table_id, existed_rs_meta);
     }
 
-    VLOG_DEBUG << "commit rowset with row binlog, tablet_id: " << rs_meta.tablet_id()
+    VLOG_DEBUG << "commit rowset with changelog, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id()
-               << ", attach_row_binlog_tablet_id: " << attach_row_binlog->tablet_id()
-               << ", attach_row_binlog_rowset_id: " << attach_row_binlog->rowset_id()
+               << ", attach_changelog_tablet_id: " << attach_changelog->tablet_id()
+               << ", attach_changelog_rowset_id: " << attach_changelog->rowset_id()
                << " txn_id: " << rs_meta.txn_id();
-    Status st = do_commit_rowset(*attach_row_binlog, job_id, table_id, existed_attach_row_binlog);
+    Status st = do_commit_rowset(*attach_changelog, job_id, table_id, existed_attach_changelog);
     if (!st.ok() && !st.is<ALREADY_EXIST>()) {
         return st;
     }
@@ -1685,18 +1683,18 @@ Status CloudMetaMgr::do_update_tmp_rowset(const RowsetMeta& rs_meta, int64_t tab
 }
 
 Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id,
-                                       const RowsetMeta* attach_row_binlog) {
-    if (attach_row_binlog == nullptr) {
+                                       const RowsetMeta* attach_changelog) {
+    if (attach_changelog == nullptr) {
         return do_update_tmp_rowset(rs_meta, table_id);
     }
 
-    VLOG_DEBUG << "update committed rowset with row binlog, tablet_id: " << rs_meta.tablet_id()
+    VLOG_DEBUG << "update committed rowset with changelog, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id()
-               << ", attach_row_binlog_tablet_id: " << attach_row_binlog->tablet_id()
-               << ", attach_row_binlog_rowset_id: " << attach_row_binlog->rowset_id();
+               << ", attach_changelog_tablet_id: " << attach_changelog->tablet_id()
+               << ", attach_changelog_rowset_id: " << attach_changelog->rowset_id();
     DCHECK_EQ(rs_meta.tablet_schema()->num_variant_columns(),
-              attach_row_binlog->tablet_schema()->num_variant_columns());
-    RETURN_IF_ERROR(do_update_tmp_rowset(*attach_row_binlog, table_id));
+              attach_changelog->tablet_schema()->num_variant_columns());
+    RETURN_IF_ERROR(do_update_tmp_rowset(*attach_changelog, table_id));
     return do_update_tmp_rowset(rs_meta, table_id);
 }
 
@@ -1909,42 +1907,23 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
 
     *is_vault_mode = resp.enable_storage_vault();
 
-    auto add_obj_store = [&vault_infos](const auto& obj_store) {
-        vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
-                                  StorageVaultPB_PathFormat {});
-    };
-
-    std::ranges::for_each(resp.obj_info(), add_obj_store);
-    std::ranges::for_each(resp.storage_vault(), [&](const auto& vault) {
+    for (const auto& info : resp.obj_info()) {
+        vault_infos->emplace_back(info.id(), info, StorageVaultPB_PathFormat {});
+    }
+    for (const auto& vault : resp.storage_vault()) {
         if (vault.has_hdfs_info()) {
             vault_infos->emplace_back(vault.id(), vault.hdfs_info(), vault.path_format());
+        } else if (vault.has_obj_info()) {
+            const auto& id = vault.id().empty() ? vault.obj_info().id() : vault.id();
+            // Older BEs wrote every object vault with layout 0, even when its metadata
+            // contained path_version=1. Keep those committed rowsets readable on upgrade.
+            vault_infos->emplace_back(id, vault.obj_info(), StorageVaultPB_PathFormat {});
         }
-        if (vault.has_obj_info()) {
-            add_obj_store(vault.obj_info());
-        }
-    });
-
-    // desensitization, hide secret
-    for (int i = 0; i < resp.obj_info_size(); ++i) {
-        resp.mutable_obj_info(i)->set_sk(resp.obj_info(i).sk().substr(0, 2) + "xxx");
-    }
-    for (int i = 0; i < resp.storage_vault_size(); ++i) {
-        auto* j = resp.mutable_storage_vault(i);
-        if (!j->has_obj_info()) continue;
-        j->mutable_obj_info()->set_sk(j->obj_info().sk().substr(0, 2) + "xxx");
     }
 
-    for (int i = 0; i < resp.obj_info_size(); ++i) {
-        resp.mutable_obj_info(i)->set_ak(hide_access_key(resp.obj_info(i).sk()));
-    }
-    for (int i = 0; i < resp.storage_vault_size(); ++i) {
-        auto* j = resp.mutable_storage_vault(i);
-        if (!j->has_obj_info()) continue;
-        j->mutable_obj_info()->set_sk(hide_access_key(j->obj_info().sk()));
-    }
-
-    LOG(INFO) << "get storage vault, enable_storage_vault=" << *is_vault_mode
-              << " response=" << resp.ShortDebugString();
+    LOG_INFO("received storage vaults")
+            .tag("count", vault_infos->size())
+            .tag("vault_mode", *is_vault_mode);
     return Status::OK();
 }
 

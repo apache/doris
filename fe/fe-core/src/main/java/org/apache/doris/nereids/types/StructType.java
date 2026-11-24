@@ -20,10 +20,12 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
 import com.google.common.collect.ImmutableList;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -31,6 +33,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -74,6 +77,15 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
 
     public Map<String, StructField> getNameToFields() {
         return nameToFields;
+    }
+
+    /** Resolve a one-based integer selector at its SQL precision. */
+    public StructField getFieldByOrdinal(BigDecimal ordinal) {
+        // For example, 4294967297 becomes 1 if converted to int before this comparison.
+        if (ordinal.signum() <= 0 || ordinal.compareTo(BigDecimal.valueOf(fields.size())) > 0) {
+            return null;
+        }
+        return fields.get(ordinal.intValueExact() - 1);
     }
 
     /** Get a field by its case-insensitive runtime name. */
@@ -196,5 +208,10 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
     @Override
     public String toString() {
         return "STRUCT<" + fields.stream().map(StructField::toString).collect(Collectors.joining(",")) + ">";
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.empty();
     }
 }

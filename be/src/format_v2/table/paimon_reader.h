@@ -55,6 +55,7 @@ public:
 protected:
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
         options->enable_paimon_metadata_virtual_columns = true;
+        options->truncate_datetimev2_precision_for_paimon = true;
     }
     format::TableColumnMappingMode mapping_mode() const override;
     Status annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) override;
@@ -86,7 +87,13 @@ public:
 
     Status init(format::TableReadOptions&& options) override;
     Status prepare_split(const format::SplitReadOptions& options) override;
-    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override;
+    Status build_physical_splits(const FileScanSplit& source_split,
+                                 std::vector<FileScanSplit>* splits, bool* was_split) override;
+    Status refresh_conjuncts(
+            VExprContextSPtrs conjuncts,
+            std::optional<uint64_t> condition_cache_digest = std::nullopt,
+            bool all_runtime_filters_applied = false,
+            std::shared_ptr<const format::PredicateSnapshot> predicate_snapshot = nullptr) override;
     Status get_block(Block* block, bool* eos) override;
     bool current_split_pruned() const override;
     bool current_split_uses_metadata_count() const override;

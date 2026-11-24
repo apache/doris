@@ -232,7 +232,6 @@ public:
         return IColumn::convert_column_if_overflow();
     }
 
-    void erase(size_t start, size_t length) override;
     size_t serialize_impl(char* pos, const size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override;

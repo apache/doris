@@ -19,7 +19,13 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.CTEContext;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.jobs.executor.Analyzer;
+import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
+import org.apache.doris.nereids.rules.analysis.BindExpression;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
+import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -48,8 +54,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.ConnectorComputeVariantType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -63,6 +75,7 @@ import java.util.List;
 import java.util.function.Function;
 
 public class VariantWritePlanValidatorTest {
+    private static final String VARIANT_SOURCE = "(SELECT parse_to_variant('{\"n\":2}') AS v) source";
 
     @Test
     public void testUnionIfAndCaseImplicitVariantLossAreRejected() {
@@ -86,6 +99,8 @@ public class VariantWritePlanValidatorTest {
             Assertions.assertTrue(exception.getMessage().contains(
                     "VARIANT write cannot safely convert input column 'payload'"), exception.getMessage());
             Assertions.assertTrue(exception.getMessage().contains("implicitly casts VARIANT to INT"),
+                    exception.getMessage());
+            Assertions.assertTrue(exception.getMessage().contains("use an explicit CAST if the conversion is intended"),
                     exception.getMessage());
         }
     }
@@ -518,6 +533,218 @@ public class VariantWritePlanValidatorTest {
                 exception.getMessage());
     }
 
+    @Test
+    public void testScalarFieldOfStructTargetIsNotTraced() {
+        // Only the parts of a value that reach a Variant leaf of the target are traced. The matched field of a
+        // STRUCT<matched BOOLEAN, payload VARIANT> target is written as a BOOLEAN, so a Variant cast to a number
+        // while computing it loses nothing written, however the struct gets its fields: built in place by
+        // named_struct or struct, from the columns of a subquery, from the fields of a struct column, through a
+        // cast between structs, an IF or a UNION. MUTATION: tracing all of a struct constructor, of the struct a
+        // field is read from, of the input of a cast, of an IF branch or of a UNION input -> rejected.
+        List<String> shapes = ImmutableList.of(
+                "SELECT 1, named_struct('matched', %s, 'payload', %s) FROM " + VARIANT_SOURCE,
+                "SELECT 1, struct(%s, %s) FROM " + VARIANT_SOURCE,
+                "SELECT 1, named_struct('matched', m, 'payload', p) FROM (SELECT %s AS m, %s AS p FROM "
+                        + VARIANT_SOURCE + ") projected",
+                "SELECT 1, named_struct('matched', s.matched, 'payload', s.payload) FROM (SELECT named_struct("
+                        + "'matched', %s, 'payload', %s) AS s FROM " + VARIANT_SOURCE + ") nested",
+                "SELECT 1, CAST(named_struct('m', %s, 'p', %s) AS STRUCT<matched: BOOLEAN, payload: VARIANT>) FROM "
+                        + VARIANT_SOURCE,
+                "SELECT 1, IF(v['n'] > 1, named_struct('matched', %s, 'payload', %s), NULL) FROM " + VARIANT_SOURCE,
+                "SELECT 1, named_struct('matched', %s, 'payload', %s) FROM " + VARIANT_SOURCE
+                        + " UNION ALL SELECT 2, named_struct('matched', FALSE, 'payload', v) FROM " + VARIANT_SOURCE);
+        assertAccepted(flaggedTarget(), formatEach(shapes, "IF(TRUE, v['n'], 1) > 1", "v"));
+
+        // The same loss in the payload field reaches the Variant leaf and is still rejected.
+        assertRejected(flaggedTarget(), "flagged", formatEach(shapes, "TRUE", "IF(TRUE, v, 1)"));
+    }
+
+    @Test
+    public void testStructFieldIsTracedByTheTargetFieldItIsWrittenTo() {
+        // A field read from a struct column is traced by the target field it is written to, not by its place in the
+        // struct it is read from: written to matched, the lossy field is not traced; written to payload, it is
+        // rejected, whether the field is chosen by name or by position. MUTATION: tracing all of the struct a field
+        // is read from -> the first group is rejected.
+        String nested = "(SELECT named_struct('lossy', IF(TRUE, v, 1), 'kept', v) AS s FROM " + VARIANT_SOURCE
+                + ") nested";
+        assertAccepted(flaggedTarget(), ImmutableList.of(
+                "SELECT 1, named_struct('matched', s.lossy > 1, 'payload', s.kept) FROM " + nested,
+                "SELECT 1, named_struct('matched', struct_element(s, 1) > 1, 'payload', struct_element(s, 2)) FROM "
+                        + nested));
+        assertRejected(flaggedTarget(), "flagged", ImmutableList.of(
+                "SELECT 1, named_struct('matched', s.kept IS NULL, 'payload', s.lossy) FROM " + nested,
+                "SELECT 1, named_struct('matched', struct_element(s, 2) IS NULL, 'payload', struct_element(s, 1)) "
+                        + "FROM " + nested));
+    }
+
+    @Test
+    public void testArrayElementsAndMapValuesFollowTheTargetType() {
+        // An ARRAY<STRUCT<matched BOOLEAN, payload VARIANT>> target traces each element as the struct target does,
+        // and a MAP<STRING, VARIANT> target traces the values of the map but not its keys. MUTATION: tracing all of
+        // an array or map constructor -> the accepted statements are rejected.
+        List<Column> arrayTarget = targetWithId("flagged_list", ArrayType.of(flaggedType()));
+        assertAccepted(arrayTarget, ImmutableList.of(
+                "SELECT 1, ARRAY(named_struct('matched', IF(TRUE, v['n'], 1) > 1, 'payload', v)) FROM "
+                        + VARIANT_SOURCE));
+        assertRejected(arrayTarget, "flagged_list", ImmutableList.of(
+                "SELECT 1, ARRAY(named_struct('matched', TRUE, 'payload', IF(TRUE, v, 1))) FROM " + VARIANT_SOURCE));
+
+        List<Column> mapTarget = targetWithId(
+                "payload_map", MapType.of(StringType.INSTANCE, ConnectorComputeVariantType.INSTANCE));
+        assertAccepted(mapTarget, ImmutableList.of("SELECT 1, map(IF(TRUE, v['k'], 1), v) FROM " + VARIANT_SOURCE));
+        assertRejected(mapTarget, "payload_map", ImmutableList.of(
+                "SELECT 1, map('k', IF(TRUE, v, 1)) FROM " + VARIANT_SOURCE));
+    }
+
+    @Test
+    public void testValueOfAnotherShapeIsTracedWhole() {
+        // The parts of a struct target do not map onto a value of another shape, so such a value is traced whole:
+        // a Variant written to the struct target, and an implicit cast from a Variant to the struct. MUTATION:
+        // dropping the part of the demand that does not map onto the value -> accepted.
+        assertRejected(flaggedTarget(), "flagged", ImmutableList.of(
+                "SELECT 1, CAST(IF(TRUE, v, 1) AS VARIANT) FROM " + VARIANT_SOURCE));
+
+        LogicalProject<?> variantToStruct = projectExpression(variant -> new Cast(variant, flaggedType()));
+        List<Column> structTarget = ImmutableList.of(new Column("payload", flaggedType().toCatalogDataType()));
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class,
+                () -> VariantWritePlanValidator.validateNoLossyCoercion(structTarget, variantToStruct));
+        Assertions.assertTrue(exception.getMessage().contains("implicitly casts VARIANT to STRUCT<"),
+                exception.getMessage());
+    }
+
+    @Test
+    public void testSelectingAndComparingArgumentsAreNotWrittenValues() {
+        // The second argument of NULLIF is only compared with the first, the index of an array and the key of a
+        // map only choose the element returned, and the cast a predicate applies to an operand only serves the
+        // comparison, so a Variant lost there writes nothing. MUTATION: tracing those arguments, or the operand
+        // cast of a predicate -> rejected.
+        assertAccepted(variantTargetWithId(), ImmutableList.of(
+                "SELECT 1, NULLIF(1, IF(TRUE, v, 1)) FROM " + VARIANT_SOURCE,
+                "SELECT 1, element_at(ARRAY(v), IF(TRUE, v['n'], 1)) FROM " + VARIANT_SOURCE,
+                "SELECT 1, element_at(map('k', v), IF(TRUE, v['k'], 1)) FROM " + VARIANT_SOURCE,
+                "SELECT 1, v['n'] > 0 FROM " + VARIANT_SOURCE,
+                "SELECT 1, v['n'] IN (1, 2) FROM " + VARIANT_SOURCE,
+                "SELECT 1, v['s'] LIKE 'a%' FROM " + VARIANT_SOURCE,
+                "SELECT 1, NOT v['flag'] FROM " + VARIANT_SOURCE,
+                "SELECT 1, ARRAY_FILTER(ARRAY(1, 2), ARRAY(v['n'] > 0, TRUE)) FROM " + VARIANT_SOURCE));
+
+        // A returned argument is still traced, and only the cast a predicate applies itself is skipped: the common
+        // type of an IF compared afterwards is still a loss. Other functions, whose arguments may be returned, are
+        // traced whole.
+        assertRejected(variantTargetWithId(), "payload", ImmutableList.of(
+                "SELECT 1, NULLIF(IF(TRUE, v, 1), 1) FROM " + VARIANT_SOURCE,
+                "SELECT 1, element_at(ARRAY(IF(TRUE, v, 1)), 1) FROM " + VARIANT_SOURCE,
+                "SELECT 1, IF(TRUE, v, 1) > 0 FROM " + VARIANT_SOURCE,
+                "SELECT 1, ELT(v['n'], 'a', 'b') FROM " + VARIANT_SOURCE,
+                "SELECT 1, SUBSTRING('abc', v['n']) FROM " + VARIANT_SOURCE,
+                "SELECT 1, MAX_BY(1, IF(TRUE, v, 1)) FROM " + VARIANT_SOURCE));
+    }
+
+    @Test
+    public void testSubqueryAndIsTrueOperandsOfPredicatesAreNotWrittenValues() {
+        // When BindSink validates the source, before SubqueryToApply, a scalar subquery keeps the cast a predicate
+        // applies to it as its type coercion, IN over a subquery is an InSubquery, and IS TRUE / IS FALSE are AND,
+        // NOT and IS NULL over the operand cast to BOOLEAN: still only the comparison is written. MUTATION: tracing
+        // the type coercion of a compared scalar subquery, or the operand of an InSubquery or an IS NULL as a
+        // value -> rejected.
+        String keys = "(SELECT 1 AS k UNION ALL SELECT 2) ks";
+        assertAccepted(variantTargetWithId(), ImmutableList.of(
+                "SELECT 1, (SELECT v['s'] FROM " + VARIANT_SOURCE + ") LIKE 'a%'",
+                "SELECT 1, v['n'] IN (SELECT k FROM " + keys + ") FROM " + VARIANT_SOURCE,
+                "SELECT 1, v['flag'] IS TRUE FROM " + VARIANT_SOURCE,
+                "SELECT 1, v['flag'] IS NOT FALSE FROM " + VARIANT_SOURCE),
+                VariantWritePlanValidatorTest::bindSource);
+
+        // The value compared is still traced: a loss in the query of the subquery or in the operand is rejected.
+        assertRejected(variantTargetWithId(), "payload", ImmutableList.of(
+                "SELECT 1, (SELECT IF(TRUE, v, 1) FROM " + VARIANT_SOURCE + ") LIKE 'a%'",
+                "SELECT 1, IF(TRUE, v, 1) IN (SELECT k FROM " + keys + ") FROM " + VARIANT_SOURCE,
+                "SELECT 1, IF(TRUE, v, 1) IS TRUE FROM " + VARIANT_SOURCE),
+                VariantWritePlanValidatorTest::bindSource);
+    }
+
+    @Test
+    public void testRecursiveCteNullableOutputsKeepTheFieldsTraced() {
+        // AnalyzeCTE wraps every output of both terms of a recursive CTE as Alias(Nullable(slot)), which keeps the
+        // value, so the matched field is still written as a BOOLEAN. Both terms build the struct the same way: in
+        // this test the analyzer cannot bind a column of r in the recursive term. MUTATION: tracing all of the
+        // argument of Nullable -> the first statement is rejected.
+        String recursive = "WITH RECURSIVE r AS (SELECT named_struct('matched', %1$s, 'payload', %2$s) AS s FROM "
+                + VARIANT_SOURCE + " UNION ALL SELECT named_struct('matched', %1$s, 'payload', %2$s) FROM r, "
+                + VARIANT_SOURCE + ") SELECT 1, s FROM r";
+        assertAccepted(flaggedTarget(), formatEach(ImmutableList.of(recursive), "IF(TRUE, v['n'], 1) > 1", "v"),
+                VariantWritePlanValidatorTest::bindSource);
+        assertRejected(flaggedTarget(), "flagged", formatEach(ImmutableList.of(recursive), "TRUE", "IF(TRUE, v, 1)"),
+                VariantWritePlanValidatorTest::bindSource);
+    }
+
+    @Test
+    public void testCteOutputIsTracedAgainForMoreOfIt() {
+        // flagged reads the payload field of s only, raw writes all of s into a Variant: the producer of s is traced
+        // again for raw although it was traced for flagged. MUTATION: reusing the trace of a CTE output whatever
+        // part of it was traced -> accepted.
+        String flags = "WITH flags AS (SELECT named_struct('matched', IF(TRUE, v['n'], 1) > 1, 'payload', v) AS s "
+                + "FROM " + VARIANT_SOURCE + ") ";
+        assertAccepted(flaggedTarget(), ImmutableList.of(flags + "SELECT 1, s FROM flags"));
+
+        List<Column> targets = ImmutableList.of(
+                new Column("id", org.apache.doris.catalog.Type.INT),
+                new Column("flagged", flaggedType().toCatalogDataType()),
+                new Column("raw", ConnectorComputeVariantType.INSTANCE.toCatalogDataType()));
+        assertRejected(targets, "raw", ImmutableList.of(flags + "SELECT 1, s, s AS raw FROM flags"));
+    }
+
+    private static List<String> formatEach(List<String> templates, Object... arguments) {
+        return templates.stream()
+                .map(template -> String.format(template, arguments))
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    private static void assertAccepted(List<Column> targets, List<String> sqlStatements) {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        assertAccepted(targets, sqlStatements, sql -> PlanChecker.from(connectContext).analyze(sql).getPlan());
+    }
+
+    private static void assertAccepted(
+            List<Column> targets, List<String> sqlStatements, Function<String, Plan> analyzer) {
+        for (String sql : sqlStatements) {
+            Plan analyzedPlan = analyzer.apply(sql);
+            Assertions.assertDoesNotThrow(
+                    () -> VariantWritePlanValidator.validateNoLossyCoercion(targets, analyzedPlan), sql);
+        }
+    }
+
+    private static void assertRejected(List<Column> targets, String targetColumn, List<String> sqlStatements) {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        assertRejected(targets, targetColumn, sqlStatements,
+                sql -> PlanChecker.from(connectContext).analyze(sql).getPlan());
+    }
+
+    private static void assertRejected(List<Column> targets, String targetColumn, List<String> sqlStatements,
+            Function<String, Plan> analyzer) {
+        for (String sql : sqlStatements) {
+            Plan analyzedPlan = analyzer.apply(sql);
+            AnalysisException exception = Assertions.assertThrows(
+                    AnalysisException.class,
+                    () -> VariantWritePlanValidator.validateNoLossyCoercion(targets, analyzedPlan),
+                    sql);
+            Assertions.assertTrue(exception.getMessage().contains("input column '" + targetColumn + "'"),
+                    sql + ": " + exception.getMessage());
+        }
+    }
+
+    /** The plan of {@code sql} as BindSink validates it: bound, with subqueries still expressions. */
+    private static Plan bindSource(String sql) {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
+                MemoTestUtils.createConnectContext(), sql);
+        cascadesContext.newTableCollector(true).collect();
+        Analyzer.buildCustomAnalyzer(cascadesContext, ImmutableList.of(
+                Analyzer.topDown(new AnalyzeCTE()),
+                Analyzer.bottomUp(new BindRelation(), new CheckPolicy(), new BindExpression()))).analyze();
+        return cascadesContext.getRewritePlan();
+    }
+
     /**
      * {@code WITH RECURSIVE source(a, payload) AS (SELECT IF(TRUE, CAST(v AS INT), 1), 1 UNION ALL SELECT a, x
      * FROM source) SELECT 1, payload FROM source}, shaped as AnalyzeCTE builds it, where x is the work-table
@@ -621,5 +848,21 @@ public class VariantWritePlanValidatorTest {
         return ImmutableList.of(
                 new Column("id", org.apache.doris.catalog.Type.INT),
                 new Column("payload", ConnectorComputeVariantType.INSTANCE.toCatalogDataType()));
+    }
+
+    private static StructType flaggedType() {
+        return new StructType(ImmutableList.of(
+                new StructField("matched", BooleanType.INSTANCE, true, ""),
+                new StructField("payload", ConnectorComputeVariantType.INSTANCE, true, "")));
+    }
+
+    private static List<Column> flaggedTarget() {
+        return targetWithId("flagged", flaggedType());
+    }
+
+    private static List<Column> targetWithId(String name, DataType type) {
+        return ImmutableList.of(
+                new Column("id", org.apache.doris.catalog.Type.INT),
+                new Column(name, type.toCatalogDataType()));
     }
 }

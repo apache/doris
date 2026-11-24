@@ -28,6 +28,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.ConnectorFunctionCall;
 import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
@@ -358,7 +359,64 @@ public class HudiPartitionPruningTest {
         Assertions.assertEquals(Collections.singletonList("1"), prunedPaths(result));
     }
 
+    @Test
+    public void complexLiteralIsNeverAPartitionValue() {
+        // p = CAST([TRUE] AS STRING): the engine strips the CAST, so the literal arrives as the element list [true]
+        // while BE renders the cast as "[1]"; a MAP or STRUCT literal arrives as its display text. Read as a
+        // partition value, either would prune the p=[1] partition away, and in an IN, skipping just that item
+        // would narrow the list to 'x'.
+        HudiConnectorMetadata metadata = metadata(
+                new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
+                new StubMetaClientExecutor(Arrays.asList("[1]", "x")));
+        HudiTableHandle handle = singleKeyHandle("p");
+        for (ConnectorLiteral literal : complexLiterals()) {
+            ConnectorExpression equality =
+                    new ConnectorComparison(ConnectorComparison.Operator.EQ, colRef("p"), literal);
+            ConnectorExpression inList = new ConnectorIn(colRef("p"), Arrays.asList(literal, lit("x")), false);
+            Assertions.assertFalse(metadata.applyFilter(null, handle, new ConnectorFilterConstraint(equality))
+                    .isPresent(), equality.toString());
+            Assertions.assertFalse(metadata.applyFilter(null, handle, new ConnectorFilterConstraint(inList))
+                    .isPresent(), inList.toString());
+        }
+    }
+
+    @Test
+    public void inListWithAnItemThatIsNotALiteralDoesNotPrune() {
+        // p IN (f(), 'x') with a call the planner did not fold: skipping the call would keep only p=x and lose the
+        // rows whose p equals what f() returns. A NULL item matches no partition, so the IN still prunes without it.
+        HudiConnectorMetadata metadata = metadata(
+                new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
+                new StubMetaClientExecutor(Arrays.asList("a", "x")));
+        HudiTableHandle handle = singleKeyHandle("p");
+        ConnectorExpression withCall = new ConnectorIn(colRef("p"), Arrays.asList(
+                new ConnectorFunctionCall("f", ConnectorType.of("STRING"), Collections.emptyList()), lit("x")), false);
+        ConnectorExpression withNull = new ConnectorIn(colRef("p"),
+                Arrays.asList(ConnectorLiteral.ofNull(ConnectorType.of("STRING")), lit("x")), false);
+
+        Assertions.assertFalse(
+                metadata.applyFilter(null, handle, new ConnectorFilterConstraint(withCall)).isPresent());
+        Assertions.assertEquals(Collections.singletonList("x"),
+                prunedPaths(metadata.applyFilter(null, handle, new ConnectorFilterConstraint(withNull))));
+    }
+
     // ========== helpers ==========
+
+    private static HudiTableHandle singleKeyHandle(String partitionKey) {
+        return new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
+                .partitionKeyNames(Collections.singletonList(partitionKey))
+                .build();
+    }
+
+    /** An ARRAY, a MAP and a STRUCT literal, each with the value the engine's converter gives that type. */
+    private static List<ConnectorLiteral> complexLiterals() {
+        return Arrays.asList(
+                new ConnectorLiteral(ConnectorType.arrayOf(ConnectorType.of("BOOLEAN")),
+                        Collections.singletonList(true)),
+                new ConnectorLiteral(ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("INT")),
+                        "{\"k\":1}"),
+                new ConnectorLiteral(ConnectorType.structOf(Collections.singletonList("f"),
+                        Collections.singletonList(ConnectorType.of("INT"))), "{\"f\":1}"));
+    }
 
     private Optional<FilterApplicationResult<ConnectorTableHandle>> applyFilter(
             HudiTableHandle handle, ConnectorExpression expr) {

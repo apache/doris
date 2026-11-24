@@ -201,7 +201,8 @@ protected:
         for (const auto& index : _indexes) {
             SniiIndexColumnWriter writer(&index_writer, &index, FieldType::OLAP_FIELD_TYPE_VARCHAR);
             RETURN_IF_ERROR(writer.init());
-            RETURN_IF_ERROR(writer.add_values("p", slices.data(), slices.size()));
+            RETURN_IF_ERROR(writer.add_values(reinterpret_cast<const uint8_t*>(slices.data()),
+                                              slices.size()));
             RETURN_IF_ERROR(writer.finish());
         }
         RETURN_IF_ERROR(index_writer.begin_close());

@@ -36,6 +36,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CorrWelford;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
@@ -59,10 +61,12 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MapAggV2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxMap;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Median;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinMap;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MinTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
@@ -149,6 +153,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(CorrWelford.class, "corr_welford"),
                 agg(ExponentialMovingAverage.class, "exponential_moving_average"),
                 agg(Count.class, "count"),
+                agg(CountAtMin.class, "count_at_min"),
+                agg(CountAtMax.class, "count_at_max"),
                 agg(CountByEnum.class, "count_by_enum"),
                 agg(CountMap.class, "count_map"),
                 agg(Covar.class, "covar", "covar_pop"),
@@ -212,6 +218,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(Sum.class, "sum"),
                 agg(Sum0.class, "sum0"),
                 agg(SumMap.class, "sum_map"),
+                agg(MinTopK.class, "min_topk"),
+                agg(MaxTopK.class, "max_topk"),
                 agg(TopN.class, "topn"),
                 agg(TopNArray.class, "topn_array"),
                 agg(TopNWeighted.class, "topn_weighted"),

@@ -143,15 +143,15 @@ public class EliminateGroupByKey extends DefaultPlanRewriter<Map<ExprId, ExprId>
         // still references the old ExprId, so we must rebuild both maps with the new ExprIds.
         Map<Slot, Slot> newConsumerToProducer = new LinkedHashMap<>();
         Multimap<Slot, Slot> newProducerToConsumer = LinkedHashMultimap.create();
-        for (Slot producerSlot : cteConsumer.getConsumerToProducerOutputMap().values()) {
+        for (Map.Entry<Slot, Slot> entry : cteConsumer.getConsumerToProducerOutputMap().entrySet()) {
+            Slot producerSlot = entry.getValue();
             ExprId newExprId = resolveExprIdChain(producerSlot.getExprId(), replaceMap);
             Slot effectiveProducerSlot = newExprId != null
                     ? (Slot) producerSlot.withExprId(newExprId)
                     : producerSlot;
-            for (Slot consumerSlot : cteConsumer.getProducerToConsumerOutputMap().get(producerSlot)) {
-                newProducerToConsumer.put(effectiveProducerSlot, consumerSlot);
-                newConsumerToProducer.put(consumerSlot, effectiveProducerSlot);
-            }
+            Slot consumerSlot = entry.getKey();
+            newProducerToConsumer.put(effectiveProducerSlot, consumerSlot);
+            newConsumerToProducer.put(consumerSlot, effectiveProducerSlot);
         }
         return cteConsumer.withTwoMaps(newConsumerToProducer, newProducerToConsumer);
     }

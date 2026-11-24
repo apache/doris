@@ -22,6 +22,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
@@ -69,6 +70,14 @@ public:
     PaimonBackendType type() const override { return PaimonBackendType::JNI; }
 
 private:
+    static jobjectArray _get_spill_directories(JNIEnv* env, jclass, jlong spill_session_handle);
+    static void _reserve_spill(JNIEnv* env, jclass, jlong spill_session_handle, jstring path,
+                               jlong bytes);
+    static void _update_spill_accounting(JNIEnv* env, jclass, jlong spill_session_handle,
+                                         jstring path, jlong current_bytes_delta, jlong write_bytes,
+                                         jlong read_bytes);
+    static Status _register_spill_natives(JNIEnv* env, jclass writer_class);
+
     Status _check_jni_exception(JNIEnv* env, const std::string& method_name);
     void _refresh_memory_profile();
 

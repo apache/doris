@@ -133,35 +133,29 @@ public class BrokerUtilTest {
         List<String> partitionKeys = Lists.newArrayList("Region", "Dt");
         FilePartitionUtils.ParsedColumnsFromPath parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfo(
                 "hdfs://host/table/REGION=cn/dt=" + ConnectorPartitionValues.NULL_PARTITION_NAME + "/data.parquet",
-                partitionKeys, false, false);
+                partitionKeys, false);
         Assertions.assertEquals(Lists.newArrayList("cn", ""), parsed.getValues());
         Assertions.assertEquals(Lists.newArrayList(false, true), parsed.getIsNull());
         Assertions.assertEquals(Lists.newArrayList("Region", "Dt"), partitionKeys);
 
         // A literal \N is data on the query path.
         parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfo(
-                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true, false);
+                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true);
         Assertions.assertEquals(Collections.singletonList("\\N"), parsed.getValues());
-        Assertions.assertEquals(Collections.singletonList(false), parsed.getIsNull());
-
-        // An ACID layout has one more directory level between the partition and the file.
-        parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfo(
-                "hdfs://host/table/p=value/delta_1_1/bucket_00000", Collections.singletonList("p"), true, true);
-        Assertions.assertEquals(Collections.singletonList("value"), parsed.getValues());
         Assertions.assertEquals(Collections.singletonList(false), parsed.getIsNull());
     }
 
     @Test
     public void parseColumnsFromPathForLoadKeepsLegacyNullSemantics() throws Exception {
         FilePartitionUtils.ParsedColumnsFromPath parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfoForLoad(
-                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true, false);
+                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true);
         Assertions.assertEquals(Collections.singletonList(""), parsed.getValues());
         Assertions.assertEquals(Collections.singletonList(true), parsed.getIsNull());
 
         // Other values, including the Hive default partition, parse as on the query path.
         parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfoForLoad(
                 "hdfs://host/table/p=a/q=" + ConnectorPartitionValues.NULL_PARTITION_NAME + "/data.orc",
-                Lists.newArrayList("p", "q"), true, false);
+                Lists.newArrayList("p", "q"), true);
         Assertions.assertEquals(Lists.newArrayList("a", ""), parsed.getValues());
         Assertions.assertEquals(Lists.newArrayList(false, true), parsed.getIsNull());
     }

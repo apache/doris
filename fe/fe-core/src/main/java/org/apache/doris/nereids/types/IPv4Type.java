@@ -18,8 +18,12 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+
+import java.util.Optional;
 
 /**
  * IPv4 type in Nereids.
@@ -31,6 +35,11 @@ public class IPv4Type extends PrimitiveType {
     public static final int WIDTH = 4;
 
     private IPv4Type() {
+    }
+
+    @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
     }
 
     @Override
@@ -72,5 +81,10 @@ public class IPv4Type extends PrimitiveType {
     @Override
     public String toSql() {
         return "IPV4";
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new IPv4Literal("0.0.0.0"));
     }
 }

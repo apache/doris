@@ -501,9 +501,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
             OlapTable olapTbl = (OlapTable) tbl;
             tbl.readLock();
             try {
-                if (olapTbl.needRowBinlog()) {
+                if (olapTbl.isLegacyChangelog()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, olapTbl.getLegacyChangelogMessage());
+                }
+                if (olapTbl.hasChangelog()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                            "Do not support backup table with binlog<Row> enabled: " + olapTbl.getName());
+                            "Do not support backup table with changelog enabled: " + olapTbl.getName());
                 }
                 if (!Config.ignore_backup_tmp_partitions && olapTbl.existTempPartitions()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,

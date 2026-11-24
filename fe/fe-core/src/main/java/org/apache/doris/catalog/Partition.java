@@ -261,7 +261,7 @@ public class Partition extends MetaObject {
         return getMaterializedIndices(extState, false);
     }
 
-    public List<MaterializedIndex> getMaterializedIndices(IndexExtState extState, boolean includeRowBinlog) {
+    public List<MaterializedIndex> getMaterializedIndices(IndexExtState extState, boolean includeChangelog) {
         List<MaterializedIndex> indices = Lists.newArrayList();
         switch (extState) {
             case ALL:
@@ -279,8 +279,8 @@ public class Partition extends MetaObject {
             default:
                 break;
         }
-        if (!includeRowBinlog) {
-            indices.removeIf(MaterializedIndex::isRowBinlog);
+        if (!includeChangelog) {
+            indices.removeIf(MaterializedIndex::isChangelog);
         }
         return indices;
     }
@@ -385,12 +385,12 @@ public class Partition extends MetaObject {
         return remoteDataSize;
     }
 
-    public long getBinlogDataSize() {
-        long binlogDataSize = 0;
+    public long getChangelogDataSize() {
+        long changelogDataSize = 0;
         for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE, true)) {
-            binlogDataSize += mIndex.getBinlogSize();
+            changelogDataSize += mIndex.getChangelogSize();
         }
-        return binlogDataSize;
+        return changelogDataSize;
     }
 
     public long getReplicaCount() {

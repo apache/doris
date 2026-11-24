@@ -17,12 +17,23 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeUtils;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -30,6 +41,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Test for ExprIdRewriter, especially for visitAlias functionality.
@@ -46,6 +59,62 @@ import java.util.Map;
  * LogicalResultSink to fail finding the expected input field.
  */
 public class ExprIdRewriterTest {
+
+    @Test
+    void testGuardedBranchIsRewritten() {
+        // MERGE INTO wraps every assignment in a ShortCircuitIf, and such a branch has to be rewritten as well:
+        // a reference which keeps an old exprId would point to a slot which the rewritten child does not output
+        ExprId oldExprId = new ExprId(1);
+        ExprId newExprId = new ExprId(2);
+        SlotReference guardedSlot = slot(oldExprId, "k");
+        SlotReference conditionSlot = slot(new ExprId(3), "v");
+        // MergeUtils.selectBranch is what MergeIntoCommand builds every assignment with
+        NamedExpression assignment = new Alias(new ExprId(9),
+                MergeUtils.selectBranch(new EqualTo(conditionSlot, new IntegerLiteral(1)),
+                        new Add(guardedSlot, new IntegerLiteral(1)), guardedSlot), "value");
+
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
+                PlanConstructor.student, ImmutableList.of(""));
+        LogicalProject<LogicalOlapScan> project
+                = new LogicalProject<>(ImmutableList.of(assignment), scan);
+        Map<ExprId, ExprId> replaceMap = new HashMap<>();
+        replaceMap.put(oldExprId, newExprId);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(scan);
+        Plan rewritten = new ExprIdRewriter(new ExprIdRewriter.ReplaceRule(replaceMap, true),
+                new JobContext(cascadesContext, null)).rewriteExpr(project, replaceMap);
+
+        Expression rewrittenAssignment = ((Alias) ((LogicalProject<?>) rewritten).getProjects().get(0)).child();
+        Set<ExprId> rewrittenSlotExprIds = rewrittenAssignment.collect(expression -> expression instanceof SlotReference)
+                .stream().map(expression -> ((SlotReference) expression).getExprId()).collect(Collectors.toSet());
+        Assertions.assertFalse(rewrittenSlotExprIds.contains(oldExprId), rewrittenAssignment.toString());
+        Assertions.assertTrue(rewrittenSlotExprIds.contains(newExprId), rewrittenAssignment.toString());
+    }
+
+    @Test
+    void testAliasIdIsRewrittenThroughThePlanRewrite() {
+        // a rule which renames an Alias (e.g. EliminateGroupByKeyByUniform) publishes the alias exprId itself, and
+        // the plan rewrite has to replace it, not only the exprIds of the slots below it
+        ExprId oldAliasExprId = new ExprId(8);
+        ExprId newAliasExprId = new ExprId(10);
+        NamedExpression item = new Alias(oldAliasExprId, new IntegerLiteral(200), "field1");
+
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
+                PlanConstructor.student, ImmutableList.of(""));
+        LogicalProject<LogicalOlapScan> project = new LogicalProject<>(ImmutableList.of(item), scan);
+        Map<ExprId, ExprId> replaceMap = new HashMap<>();
+        replaceMap.put(oldAliasExprId, newAliasExprId);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(scan);
+        Plan rewritten = new ExprIdRewriter(new ExprIdRewriter.ReplaceRule(replaceMap, true),
+                new JobContext(cascadesContext, null)).rewriteExpr(project, replaceMap);
+
+        NamedExpression rewrittenItem = ((LogicalProject<?>) rewritten).getProjects().get(0);
+        Assertions.assertEquals(newAliasExprId, rewrittenItem.getExprId(), rewrittenItem.toString());
+        Assertions.assertEquals("field1", rewrittenItem.getName());
+    }
+
+    private static SlotReference slot(ExprId exprId, String name) {
+        return new SlotReference(exprId, name, IntegerType.INSTANCE, true, ImmutableList.of("test", "t"));
+    }
 
     /**
      * Test that visitAlias correctly rewrites Alias ExprId.

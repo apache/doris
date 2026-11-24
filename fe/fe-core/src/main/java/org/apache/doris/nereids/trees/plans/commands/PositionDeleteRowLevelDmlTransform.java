@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.datasource.ExternalTable;
@@ -45,8 +46,10 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
 /**
@@ -209,10 +212,45 @@ public class PositionDeleteRowLevelDmlTransform implements RowLevelDmlTransform 
 
     @Override
     public Optional<ConnectorPredicate> extractWriteConstraint(Plan analyzedPlan, TableIf table) {
+        return WriteConstraintExtractor.extract(analyzedPlan, table.getId(), syntheticColumnExclusion(table));
+    }
+
+    @Override
+    public OptionalLong deleteUsingMetadata(ConnectContext ctx, RowLevelDmlArgs args, Plan analyzedPlan,
+            BooleanSupplier isCancelled) {
+        TableIf table = args.getTable();
+        // The statement's predicate must be extractable *exactly*: the connector turns it into a whole-file
+        // delete, where a dropped conjunct would drop data files that still hold live rows. extractCompletePredicate
+        // returns empty whenever completeness cannot be proven, and the row-level path then runs unchanged.
+        Optional<ConnectorExpression> predicate = WriteConstraintExtractor.extractCompletePredicate(
+                analyzedPlan, table.getId(), syntheticColumnExclusion(table));
+        if (!predicate.isPresent()) {
+            return OptionalLong.empty();
+        }
+        ExternalTable externalTable = (ExternalTable) table;
+        PluginDrivenExternalCatalog catalog =
+                (PluginDrivenExternalCatalog) ((PluginDrivenExternalTable) table).getCatalog();
+        ConnectorSession session = catalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
+        ConnectorTableHandle handle = metadata.getTableHandle(
+                        session, externalTable.getRemoteDbName(), externalTable.getRemoteName())
+                .orElseThrow(() -> new AnalysisException("Table not found: "
+                        + externalTable.getRemoteDbName() + "." + externalTable.getRemoteName()
+                        + " in catalog " + catalog.getName()));
+        // Fence the fresh by-name load against a drop/recreate (or schema rebind) that happened after analysis,
+        // exactly like the row-level write path does with its pinned write-metadata identity.
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                ((PluginDrivenExternalTable) table).getWriteSchemaSnapshot();
+        String boundWriteMetadataIdentity =
+                writeSchema == null ? null : writeSchema.getWriteMetadataIdentity();
+        return metadata.deleteUsingMetadata(session, handle, predicate, boundWriteMetadataIdentity, isCancelled);
+    }
+
+    /** The connector-declared synthetic (non-statement) columns, excluded from a statement predicate. */
+    private static Predicate<SlotReference> syntheticColumnExclusion(TableIf table) {
         Set<String> excludedColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         excludedColumns.addAll(((PluginDrivenExternalTable) table)
                 .getConnectorRowLevelWriteConstraintExcludedColumns());
-        Predicate<SlotReference> exclusion = slot -> excludedColumns.contains(slot.getName());
-        return WriteConstraintExtractor.extract(analyzedPlan, table.getId(), exclusion);
+        return slot -> excludedColumns.contains(slot.getName());
     }
 }

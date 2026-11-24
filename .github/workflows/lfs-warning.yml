@@ -19,10 +19,9 @@
 name: 'Check Large File'
 
 on:
-  push:
-    branches:
-      - master
-  pull_request_target:
+  workflow_run:
+    workflows: [Pull Request Events]
+    types: [completed]
 
 permissions:
   contents: read
@@ -30,7 +29,17 @@ permissions:
   issues: write
 
 jobs:
+  resolve-event:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    uses: ./.github/workflows/resolve-pr-event.yml
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+
   large-file-checker:
+    needs: resolve-event
+    if: needs.resolve-event.outputs.check_large_files == 'true'
     name: "Check large file"
     runs-on: ubuntu-latest
     steps:
@@ -41,16 +50,11 @@ jobs:
       - name: "Collect added files"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ needs.resolve-event.outputs.pr_number }}
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
-            PR_NUM="$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")"
-            gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}/files?per_page=100" --paginate \
-              --jq '.[] | select(.status == "added") | [.filename, .raw_url] | @tsv' > "$RUNNER_TEMP/files.tsv"
-          else
-            gh api "repos/$GITHUB_REPOSITORY/commits/${{ github.sha }}" \
-              --jq '.files[] | select(.status == "added") | [.filename, .raw_url] | @tsv' > "$RUNNER_TEMP/files.tsv"
-          fi
+          gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}/files?per_page=100" --paginate \
+            --jq '.[] | select(.status == "added") | [.filename, .raw_url] | @tsv' > "$RUNNER_TEMP/files.tsv"
           echo "Added files: $(wc -l < "$RUNNER_TEMP/files.tsv")"
 
       - name: "Check sizes against the 1MB limit"
@@ -68,15 +72,14 @@ jobs:
           echo "Oversized files: $(wc -l < "$RUNNER_TEMP/oversized.tsv")"
 
       - name: "Warn on oversized files in pull requests"
-        if: github.event_name == 'pull_request_target'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ needs.resolve-event.outputs.pr_number }}
         run: |
           set -euo pipefail
           if [[ ! -s "$RUNNER_TEMP/oversized.tsv" ]]; then
             exit 0
           fi
-          PR_NUM="$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")"
           {
             echo "⚠️ **Large files detected** (size limit: 1MB):"
             echo
@@ -85,14 +88,3 @@ jobs:
             done < "$RUNNER_TEMP/oversized.tsv"
           } > "$RUNNER_TEMP/comment.md"
           gh pr comment "${PR_NUM}" --body-file "$RUNNER_TEMP/comment.md"
-
-      # Unlike the previous action, a direct master push with oversized files
-      # now fails the check instead of being silently ignored.
-      - name: "Fail on oversized files pushed to master"
-        if: github.event_name == 'push'
-        run: |
-          if [[ -s "$RUNNER_TEMP/oversized.tsv" ]]; then
-            echo "::error::Files larger than 1MB were pushed to master:"
-            cat "$RUNNER_TEMP/oversized.tsv"
-            exit 1
-          fi

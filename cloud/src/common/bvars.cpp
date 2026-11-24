@@ -79,7 +79,6 @@ BvarLatencyRecorderWithTag g_bvar_ms_create_stage("ms", "create_stage");
 BvarLatencyRecorderWithTag g_bvar_ms_get_stage("ms", "get_stage");
 BvarLatencyRecorderWithTag g_bvar_ms_drop_stage("ms", "drop_stage");
 BvarLatencyRecorderWithTag g_bvar_ms_get_iam("ms", "get_iam");
-BvarLatencyRecorderWithTag g_bvar_ms_alter_iam("ms", "alter_iam");
 BvarLatencyRecorderWithTag g_bvar_ms_update_ak_sk("ms", "update_ak_sk");
 BvarLatencyRecorderWithTag g_bvar_ms_alter_ram_user("ms", "alter_ram_user");
 BvarLatencyRecorderWithTag g_bvar_ms_begin_copy("ms", "begin_copy");
@@ -172,6 +171,16 @@ mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num("recycle
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes("recycler_instance_last_round_recycled_bytes", {"instance_id", "resource_type"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes("recycler_instance_last_round_to_recycle_bytes", {"instance_id", "resource_type"});
 mBvarStatus<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts("recycler_instance_last_round_recycle_elpased_ts", {"instance_id", "resource_type"});
+// Current round TxnKV statistics.
+mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_kv_scanned(
+        "recycler_instance_current_round_kv_scanned",
+        {"instance_id", "resource_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_kv_expired(
+        "recycler_instance_current_round_kv_expired",
+        {"instance_id", "resource_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_kv_recycled(
+        "recycler_instance_current_round_kv_recycled",
+        {"instance_id", "resource_type"});
 // total recycled num and bytes of resources since recycler started
 mBvarInt64Adder g_bvar_recycler_instance_recycle_total_num_since_started("recycler_instance_recycle_total_num_since_started", {"instance_id", "resource_type"});
 mBvarInt64Adder g_bvar_recycler_instance_recycle_total_bytes_since_started("recycler_instance_recycle_total_bytes_since_started", {"instance_id", "resource_type"});
@@ -434,9 +443,6 @@ mBvarInt64Adder g_bvar_rpc_kv_create_stage_put_counter("rpc_kv_create_stage_put_
 mBvarInt64Adder g_bvar_rpc_kv_get_stage_get_counter("rpc_kv_get_stage_get_counter",{"instance_id"});
 // get_iam
 mBvarInt64Adder g_bvar_rpc_kv_get_iam_get_counter("rpc_kv_get_iam_get_counter",{"instance_id"});
-// alter_iam
-mBvarInt64Adder g_bvar_rpc_kv_alter_iam_get_counter("rpc_kv_alter_iam_get_counter",{"instance_id"});
-mBvarInt64Adder g_bvar_rpc_kv_alter_iam_put_counter("rpc_kv_alter_iam_put_counter",{"instance_id"});
 // alter_ram_user
 mBvarInt64Adder g_bvar_rpc_kv_alter_ram_user_get_counter("rpc_kv_alter_ram_user_get_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_alter_ram_user_put_counter("rpc_kv_alter_ram_user_put_counter",{"instance_id"});
@@ -646,9 +652,6 @@ mBvarInt64Adder g_bvar_rpc_kv_create_stage_put_bytes("rpc_kv_create_stage_put_by
 mBvarInt64Adder g_bvar_rpc_kv_get_stage_get_bytes("rpc_kv_get_stage_get_bytes",{"instance_id"});
 // get_iam
 mBvarInt64Adder g_bvar_rpc_kv_get_iam_get_bytes("rpc_kv_get_iam_get_bytes",{"instance_id"});
-// alter_iam
-mBvarInt64Adder g_bvar_rpc_kv_alter_iam_get_bytes("rpc_kv_alter_iam_get_bytes",{"instance_id"});
-mBvarInt64Adder g_bvar_rpc_kv_alter_iam_put_bytes("rpc_kv_alter_iam_put_bytes",{"instance_id"});
 // alter_ram_user
 mBvarInt64Adder g_bvar_rpc_kv_alter_ram_user_get_bytes("rpc_kv_alter_ram_user_get_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_alter_ram_user_put_bytes("rpc_kv_alter_ram_user_put_bytes",{"instance_id"});

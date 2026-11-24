@@ -102,16 +102,56 @@ TEST(SniiPfor, ExceptionsAtBoundaries) {
     roundtrip(v);
 }
 
-// ---------------------------------------------------------------------------
-// T11: histogram + suffix-sum choose_width and single-pass pfor_encode.
-//
-// The oracle helpers below are a faithful transcription of the PRE-T11 encoder
-// (O(maxw*n) bits_for width selection + std::vector low/exc split). The optimized
-// pfor_encode must (a) select the same bit_width and (b) emit byte-identical
-// output for arbitrary inputs -- the strongest guard that the on-disk format is
-// unchanged. The deterministic op-count seam proves each value's bit-width is
-// evaluated exactly once per run (vs the former ~(maxw+2) times).
-// ---------------------------------------------------------------------------
+namespace {
+
+// A hand-built block: bit width 0 (no packed bytes) followed by (index delta, value) exceptions.
+ByteSink exceptions_only(const std::vector<std::pair<uint32_t, uint32_t>>& exceptions) {
+    ByteSink sink;
+    sink.put_u8(0);
+    sink.put_varint32(static_cast<uint32_t>(exceptions.size()));
+    for (const auto& [delta, value] : exceptions) {
+        sink.put_varint32(delta);
+        sink.put_varint32(value);
+    }
+    return sink;
+}
+
+void expect_corrupted(const ByteSink& sink, size_t n) {
+    std::vector<uint32_t> out(n);
+    ByteSource decode_src(sink.view());
+    EXPECT_TRUE(pfor_decode(&decode_src, n, out.data())
+                        .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+    ByteSource skip_src(sink.view());
+    EXPECT_TRUE(pfor_skip(&skip_src, n).is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+}
+
+} // namespace
+
+// The second delta wraps the 32-bit exception index from 5 back to 3, which is inside the block.
+TEST(SniiPfor, ExceptionIndexDeltaWrapIsCorruption) {
+    expect_corrupted(exceptions_only({{5, 7}, {0xFFFFFFFEU, 9}}), 8);
+}
+
+TEST(SniiPfor, ExceptionIndexPastBlockIsCorruption) {
+    expect_corrupted(exceptions_only({{8, 7}}), 8);
+    expect_corrupted(exceptions_only({{3, 7}, {5, 9}}), 8);
+    expect_corrupted(exceptions_only({{0, 7}}), 0);
+}
+
+// The first exception may sit at index 0, and the last at n - 1.
+TEST(SniiPfor, ExceptionIndexEdgesAreAccepted) {
+    const ByteSink sink = exceptions_only({{0, 7}, {7, 9}});
+    std::vector<uint32_t> out(8);
+    ByteSource decode_src(sink.view());
+    ASSERT_TRUE(pfor_decode(&decode_src, 8, out.data()).ok());
+    EXPECT_EQ(out[0], 7U);
+    EXPECT_EQ(out[7], 9U);
+    ByteSource skip_src(sink.view());
+    EXPECT_TRUE(pfor_skip(&skip_src, 8).ok());
+}
+
+// Compare the optimized encoder with the original byte layout across varied
+// inputs. The operation counter checks that each value's width is evaluated once.
 namespace {
 
 uint8_t ref_bits_for(uint32_t v) {
@@ -156,7 +196,7 @@ uint32_t ref_low_mask(uint8_t w) {
     return (w >= 32) ? 0xFFFFFFFFU : ((1U << w) - 1U);
 }
 
-// Faithful transcription of the pre-T11 pfor_encode byte layout.
+// Reference implementation of the on-disk pfor_encode layout.
 std::vector<uint8_t> reference_pfor_encode(const std::vector<uint32_t>& values) {
     const size_t n = values.size();
     const uint8_t w = ref_choose_width(values);
@@ -252,7 +292,7 @@ std::vector<std::vector<uint32_t>> representative_inputs() {
 
 } // namespace
 
-// FW-01: random data (mostly small, occasional large to force exceptions) round-trips
+// Random data (mostly small, occasional large to force exceptions) round-trips
 // exactly and consumes the whole stream.
 TEST(SniiPforTest, RoundTripRandom) {
     Lcg rng(0xD1B54A32D192ED03ULL);
@@ -272,7 +312,7 @@ TEST(SniiPforTest, RoundTripRandom) {
     }
 }
 
-// FW-02: the chosen bit_width (encoded as byte 0) matches the original linear-scan
+// The chosen bit_width (encoded as byte 0) matches the original linear-scan
 // selection for representative + random inputs.
 TEST(SniiPforTest, WidthMatchesLinearScan) {
     std::vector<std::vector<uint32_t>> sets = representative_inputs();
@@ -294,7 +334,7 @@ TEST(SniiPforTest, WidthMatchesLinearScan) {
     }
 }
 
-// FW-03: exact, hand-verified golden bytes freeze the on-disk encoding for the
+// Exact, hand-verified golden bytes freeze the on-disk encoding for the
 // clean cases (w==0, and clean bit-packing at w==1/4/8). Any drift in width
 // choice or bit-packing is caught immediately.
 TEST(SniiPforTest, GoldenByteIdentical) {
@@ -306,9 +346,8 @@ TEST(SniiPforTest, GoldenByteIdentical) {
               (B {0x08, 0x00, 0xC8, 0xC8, 0xC8, 0xC8}));
 }
 
-// FW-03 (extended): the optimized encoder is byte-identical to the pre-T11
-// reference for representative inputs AND a large random sweep over mixed widths,
-// lengths (including n==0 and n>256), and exception densities.
+// The optimized encoder must match the reference bytes across varied widths,
+// lengths, and exception densities.
 TEST(SniiPforTest, EncodeMatchesLegacyReference) {
     for (const auto& v : representative_inputs()) {
         EXPECT_EQ(encode_to_bytes(v), reference_pfor_encode(v));
@@ -334,7 +373,7 @@ TEST(SniiPforTest, EncodeMatchesLegacyReference) {
     }
 }
 
-// FW-04: all zeros -> width 0 (the clz(0) guard), no packed bytes, no exceptions.
+// All zeros -> width 0 (the clz(0) guard), no packed bytes, no exceptions.
 TEST(SniiPforTest, AllZeros) {
     std::vector<uint32_t> v(256, 0U);
     ByteSink sink;
@@ -350,14 +389,14 @@ TEST(SniiPforTest, AllZeros) {
     EXPECT_TRUE(src.eof());
 }
 
-// FW-05: single-element runs (small, zero, max).
+// Single-element runs (small, zero, max).
 TEST(SniiPforTest, SingleElement) {
     roundtrip(std::vector<uint32_t> {42});
     roundtrip(std::vector<uint32_t> {0});
     roundtrip(std::vector<uint32_t> {0xFFFFFFFFU});
 }
 
-// FW-06: empty run -> [w=0][n_exc=0]; decode of 0 values is a no-op and consumes
+// Empty run -> [w=0][n_exc=0]; decode of 0 values is a no-op and consumes
 // the header. nullptr values with n==0 must not be dereferenced.
 TEST(SniiPforTest, EmptyRun) {
     ByteSink sink;
@@ -372,7 +411,7 @@ TEST(SniiPforTest, EmptyRun) {
     EXPECT_TRUE(src.eof());
 }
 
-// FW-07: values with bit31 set (width 32) round-trip, exercising the width-32
+// Values with bit31 set (width 32) round-trip, exercising the width-32
 // path (no `value >> w` UB; the exception split uses the cached width comparison).
 TEST(SniiPforTest, TopBitSet) {
     std::vector<uint32_t> v(64, 5U);
@@ -383,7 +422,7 @@ TEST(SniiPforTest, TopBitSet) {
     roundtrip(std::vector<uint32_t>(40, 0x80000000U)); // chosen width == 32
 }
 
-// FW-08: bimodal data (mostly narrow, a large minority very wide) keeps the chosen
+// Bimodal data (mostly narrow, a large minority very wide) keeps the chosen
 // width small, sending many values to the exception table. Byte-identical to the
 // legacy split and round-trips.
 TEST(SniiPforTest, ManyExceptions) {
@@ -406,7 +445,7 @@ TEST(SniiPforTest, ManyExceptions) {
     roundtrip(v);
 }
 
-// FW-09: runs larger than the 256-element stack buffer exercise the heap fallback;
+// Runs larger than the 256-element stack buffer exercise the heap fallback;
 // byte-identical to the reference and round-trip exact.
 TEST(SniiPforTest, LargeRunHeapFallback) {
     for (size_t n : {257U, 300U, 512U}) {
@@ -421,8 +460,7 @@ TEST(SniiPforTest, LargeRunHeapFallback) {
     }
 }
 
-// FW-10: a stream whose exception index is out of range must return Corruption,
-// not throw. (Decoder path, unchanged by T11, guarded here against regressions.)
+// An out-of-range exception index must return Corruption without throwing.
 TEST(SniiPforTest, CorruptExceptionIndexReturnsCorruption) {
     ByteSink sink;
     sink.put_u8(0);        // w = 0 -> no packed region

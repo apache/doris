@@ -117,20 +117,20 @@ void for_each_line(std::string_view content, F&& fn) {
 
 } // namespace
 
-uint8_t ipadic_category_ordinal(std::string_view name) {
+CharCategory ipadic_category_ordinal(std::string_view name) {
     name = trim(name);
-    if (name == "DEFAULT") return CAT_DEFAULT;
-    if (name == "SPACE") return CAT_SPACE;
-    if (name == "KANJI") return CAT_KANJI;
-    if (name == "SYMBOL") return CAT_SYMBOL;
-    if (name == "NUMERIC") return CAT_NUMERIC;
-    if (name == "ALPHA") return CAT_ALPHA;
-    if (name == "HIRAGANA") return CAT_HIRAGANA;
-    if (name == "KATAKANA") return CAT_KATAKANA;
-    if (name == "KANJINUMERIC") return CAT_KANJINUMERIC;
-    if (name == "GREEK") return CAT_GREEK;
-    if (name == "CYRILLIC") return CAT_CYRILLIC;
-    return CAT_CLASS_COUNT; // unknown
+    if (name == "DEFAULT") return CharCategory::CAT_DEFAULT;
+    if (name == "SPACE") return CharCategory::CAT_SPACE;
+    if (name == "KANJI") return CharCategory::CAT_KANJI;
+    if (name == "SYMBOL") return CharCategory::CAT_SYMBOL;
+    if (name == "NUMERIC") return CharCategory::CAT_NUMERIC;
+    if (name == "ALPHA") return CharCategory::CAT_ALPHA;
+    if (name == "HIRAGANA") return CharCategory::CAT_HIRAGANA;
+    if (name == "KATAKANA") return CharCategory::CAT_KATAKANA;
+    if (name == "KANJINUMERIC") return CharCategory::CAT_KANJINUMERIC;
+    if (name == "GREEK") return CharCategory::CAT_GREEK;
+    if (name == "CYRILLIC") return CharCategory::CAT_CYRILLIC;
+    return CharCategory::CAT_CLASS_COUNT; // unknown
 }
 
 Status parse_lexicon_line(std::string_view line, std::string* surface, BuilderWord* out) {
@@ -208,8 +208,8 @@ Status parse_matrix_def(std::string_view content, MatrixInput* out) {
 }
 
 Status parse_char_def(std::string_view content, CharDefInput* out) {
-    out->catmap.fill(static_cast<uint8_t>(CAT_DEFAULT));
-    out->defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
+    out->catmap.fill(CharCategory::CAT_DEFAULT);
+    out->defs.assign(static_cast<size_t>(CharCategory::CAT_CLASS_COUNT), CategoryDef {0, 0, 0});
     Status st = Status::OK();
     for_each_line(content, [&](std::string_view raw) {
         if (!st.ok()) {
@@ -242,8 +242,8 @@ Status parse_char_def(std::string_view content, CharDefInput* out) {
                 }
                 hi = lo;
             }
-            const uint8_t ord = ipadic_category_ordinal(tok[1]); // first = primary
-            if (ord >= CAT_CLASS_COUNT) {
+            const auto ord = ipadic_category_ordinal(tok[1]); // first = primary
+            if (ord >= CharCategory::CAT_CLASS_COUNT) {
                 return;
             }
             if (hi > 0xFFFF) {
@@ -254,8 +254,8 @@ Status parse_char_def(std::string_view content, CharDefInput* out) {
             }
         } else {
             // category definition: NAME INVOKE GROUP LENGTH
-            const uint8_t ord = ipadic_category_ordinal(tok[0]);
-            if (ord >= CAT_CLASS_COUNT || tok.size() < 4) {
+            const auto ord = ipadic_category_ordinal(tok[0]);
+            if (ord >= CharCategory::CAT_CLASS_COUNT || tok.size() < 4) {
                 return;
             }
             int invoke = 0;
@@ -265,16 +265,16 @@ Status parse_char_def(std::string_view content, CharDefInput* out) {
                 !parse_dec(tok[3], &length)) {
                 return;
             }
-            out->defs[ord] = CategoryDef {static_cast<uint8_t>(invoke != 0),
-                                          static_cast<uint8_t>(group != 0),
-                                          static_cast<uint16_t>(length < 0 ? 0 : length)};
+            out->defs[static_cast<size_t>(ord)] = CategoryDef {
+                    static_cast<uint8_t>(invoke != 0), static_cast<uint8_t>(group != 0),
+                    static_cast<uint16_t>(length < 0 ? 0 : length)};
         }
     });
     return st;
 }
 
 Status parse_unk_def(std::string_view content, UnkDictInput* out) {
-    out->per_category.assign(CAT_CLASS_COUNT, {});
+    out->per_category.assign(static_cast<size_t>(CharCategory::CAT_CLASS_COUNT), {});
     Status st = Status::OK();
     for_each_line(content, [&](std::string_view raw) {
         if (!st.ok()) {
@@ -289,11 +289,11 @@ Status parse_unk_def(std::string_view content, UnkDictInput* out) {
         if (!parse_lexicon_line(line, &surface, &w).ok()) {
             return; // skip malformed unk row
         }
-        const uint8_t ord = ipadic_category_ordinal(surface); // col 0 is the category name
-        if (ord >= CAT_CLASS_COUNT) {
+        const auto ord = ipadic_category_ordinal(surface); // col 0 is the category name
+        if (ord >= CharCategory::CAT_CLASS_COUNT) {
             return;
         }
-        out->per_category[ord].push_back(std::move(w));
+        out->per_category[static_cast<size_t>(ord)].push_back(std::move(w));
     });
     return st;
 }

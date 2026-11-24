@@ -41,6 +41,7 @@
 #include "storage/index/inverted/snii/format/prx_pod.h"
 #include "storage/index/inverted/snii/writer/posting_prx_encoder.h"
 #include "storage/index/inverted/snii/writer/posting_window_emitter.h"
+#include "util/debug_points.h"
 
 namespace doris::snii::writer {
 
@@ -68,8 +69,8 @@ constexpr int kRawFrqRegion = 0;
 // zstd level for whole-DICT-block compression comes from
 // SniiIndexInput::dict_block_zstd_level (default 3: ~40% on the 64KiB
 // front-coded blocks at ~120 MiB/s encode / ~600 MiB/s decode; higher levels
-// trade import CPU for size, decode speed unchanged). G16-h made it (and the
-// .prx auto level) caller-tunable.
+// trade import CPU for size, decode speed unchanged). The level and the
+// .prx auto level are caller-tunable.
 
 using format::FrqRegionMeta;
 
@@ -522,9 +523,6 @@ uint32_t high_df_floor_for(const SniiIndexInput& in) {
                                  format::kHighDfDigestDivisor);
 }
 
-LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
-        : LogicalIndexWriter(in, TrackedNullDocids(std::vector<uint32_t>(in.null_docids))) {}
-
 LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDocids null_docids)
         : index_id_(in.index_id),
           index_suffix_(in.index_suffix),
@@ -559,7 +557,9 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDoci
                                            : in.mem_reporter->make_reservation()),
           bsbf_bytes_reservation_(in.mem_reporter == nullptr
                                           ? MemoryReporter::Reservation()
-                                          : in.mem_reporter->make_reservation()) {}
+                                          : in.mem_reporter->make_reservation()) {
+    prx_window_limits_.zstd_budget = in.prx_zstd_budget ? &prx_zstd_budget_ : nullptr;
+}
 
 Status LogicalIndexWriter::reserve_term_hash_for_append() {
     if (memory_reporter_ == nullptr || term_hashes_.size() < term_hashes_.capacity()) {
@@ -934,6 +934,55 @@ Status LogicalIndexWriter::prepare_build(io::FileWriter* posting_out) {
     return Status::OK();
 }
 
+Status LogicalIndexWriter::build_norms_section() {
+    // Sparse norms drop the bytes of the NULL rows, and store a norm that every row shares once.
+    // Writers keep dense norms; this debug point lets tests choose between the two forms.
+    bool consider_sparse = false;
+    DBUG_EXECUTE_IF("LogicalIndexWriter::finalize_build.sparse_norms", { consider_sparse = true; });
+    const std::span<const uint32_t> null_docids(null_docids_.data(), null_docids_.size());
+    size_t section_size = format::NormsPodWriter::dense_section_size(doc_count_);
+    bool constant = false;
+    if (consider_sparse) {
+        constant = format::NormsPodWriter::sparse_values_constant(encoded_norms_, null_docids);
+        const size_t sparse_size = format::NormsPodWriter::sparse_section_size(
+                doc_count_, doc_count_ - null_docids.size(), constant);
+        // The smaller form wins; a tie keeps the dense form, which every reader of norms knows.
+        if (sparse_size < section_size) {
+            sparse_norms_ = true;
+            section_size = sparse_size;
+        }
+    }
+    if (sparse_norms_) {
+        // The reader restores a NULL row as an empty document, so only that norm is dropped.
+        for (const uint32_t null_docid : null_docids) {
+            DCHECK_EQ(encoded_norms_[null_docid], format::kNullRowNorm);
+        }
+    }
+    // The sparse payload buffer is reserved at the section size, which bounds it.
+    const size_t payload_size = sparse_norms_
+                                        ? section_size
+                                        : varint_len(encoded_norms_.size()) + encoded_norms_.size();
+    MemoryReporter::Reservation build_reservation = memory_reporter_ == nullptr
+                                                            ? MemoryReporter::Reservation()
+                                                            : memory_reporter_->make_reservation();
+    if (memory_reporter_ != nullptr) {
+        RETURN_IF_ERROR(build_reservation.set_bytes(payload_size));
+        RETURN_IF_ERROR(norms_section_reservation_.set_bytes(section_size));
+    }
+    ByteSink nsink;
+    if (sparse_norms_) {
+        format::NormsPodWriter::finish_sparse(encoded_norms_, null_docids, constant, &nsink);
+    } else {
+        format::NormsPodWriter::finish(encoded_norms_, &nsink);
+    }
+    norms_section_ = nsink.take();
+    DORIS_CHECK_EQ(norms_section_.capacity(), section_size);
+    if (memory_reporter_ != nullptr) {
+        DORIS_CHECK_EQ(norms_section_reservation_.bytes(), norms_section_.capacity());
+    }
+    return Status::OK();
+}
+
 Status LogicalIndexWriter::finalize_build() {
     if (has_norms_ && encoded_norms_.size() != doc_count_) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
@@ -949,22 +998,7 @@ Status LogicalIndexWriter::finalize_build() {
     stats_.null_count = static_cast<uint32_t>(null_docids_.size());
 
     if (has_norms_) {
-        const size_t payload_size = varint_len(encoded_norms_.size()) + encoded_norms_.size();
-        const size_t section_size = 1 + varint_len(payload_size) + payload_size + sizeof(uint32_t);
-        MemoryReporter::Reservation build_reservation =
-                memory_reporter_ == nullptr ? MemoryReporter::Reservation()
-                                            : memory_reporter_->make_reservation();
-        if (memory_reporter_ != nullptr) {
-            RETURN_IF_ERROR(build_reservation.set_bytes(payload_size));
-            RETURN_IF_ERROR(norms_section_reservation_.set_bytes(section_size));
-        }
-        ByteSink nsink;
-        format::NormsPodWriter::finish(encoded_norms_, &nsink);
-        norms_section_ = nsink.take();
-        DORIS_CHECK_EQ(norms_section_.capacity(), section_size);
-        if (memory_reporter_ != nullptr) {
-            DORIS_CHECK_EQ(norms_section_reservation_.bytes(), norms_section_.capacity());
-        }
+        RETURN_IF_ERROR(build_norms_section());
     }
 
     if (!null_docids_.empty()) {

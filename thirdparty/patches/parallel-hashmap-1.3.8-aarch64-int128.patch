@@ -1,0 +1,23 @@
+Backport upstream 4e410c7af3f93c4928c1fc84413720a2935ecd4a (PR #290).
+Keep the ARM32 exclusion while enabling intrinsic multiplication on ARM64.
+https://github.com/greg7mdp/parallel-hashmap/pull/290
+
+diff --git a/parallel_hashmap/phmap_config.h b/parallel_hashmap/phmap_config.h
+--- a/parallel_hashmap/phmap_config.h
++++ b/parallel_hashmap/phmap_config.h
+@@ -208,10 +208,14 @@
+ // Checks whether the __int128 compiler extension for a 128-bit 
+ // integral type is supported.
+ // ------------------------------------------------------------
++#if defined(__arm__) && !defined(__aarch64__)
++    #define PHMAP_ARM_32
++#endif
++
+ #ifdef PHMAP_HAVE_INTRINSIC_INT128
+     #error PHMAP_HAVE_INTRINSIC_INT128 cannot be directly set
+ #elif defined(__SIZEOF_INT128__)
+-    #if (defined(__clang__) && !defined(_WIN32) && !defined(__aarch64__)) || \
++    #if (defined(__clang__) && !defined(_WIN32) && !defined(PHMAP_ARM_32)) || \
+         (defined(__CUDACC__) && __CUDACC_VER_MAJOR__ >= 9) ||                \
+         (defined(__GNUC__) && !defined(__clang__) && !defined(__CUDACC__))
+         #define PHMAP_HAVE_INTRINSIC_INT128 1

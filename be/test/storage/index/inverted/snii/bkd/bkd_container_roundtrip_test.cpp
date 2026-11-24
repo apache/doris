@@ -246,9 +246,7 @@ TEST(BkdContainerRoundtripTest, NativeBkdSurvivesASealedContainer) {
     }
 }
 
-// The empty index through the same path: bkd_data is a ZERO-LENGTH blob file,
-// which the container must carry and the reader must accept as "empty" rather
-// than as damage (design 5.3).
+// The container preserves a zero-length bkd_data file for an empty index.
 TEST(BkdContainerRoundtripTest, EmptyIndexIsAZeroLengthBlobFile) {
     BkdContainer container;
     ASSERT_TRUE(container.build({}, /*points_per_leaf=*/16).ok());

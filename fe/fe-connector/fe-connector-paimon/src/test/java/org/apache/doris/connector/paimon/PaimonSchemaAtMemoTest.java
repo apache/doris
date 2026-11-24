@@ -17,10 +17,17 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
+
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -38,6 +45,33 @@ public class PaimonSchemaAtMemoTest {
     private static PaimonCatalogOps.PaimonSchemaSnapshot snap() {
         return new PaimonCatalogOps.PaimonSchemaSnapshot(
                 Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+    }
+
+    @Test
+    public void wideSchemaIsCachedUnderAWeightLimit() {
+        // A walk of the whole snapshot ran out of the 10,000-visit budget at about 2,500 fields, so a wider schema
+        // was read again on every time-travel query once a weight limit was set. MUTATION: estimating the snapshot
+        // as one graph -> two loads and a rejected admission -> red.
+        Map<String, String> properties = Map.of("meta.cache.max-weight", "64MB");
+        try (CatalogMetaCache owner = CatalogMetaCache.managed(91201L, "paimon", properties)) {
+            PaimonSchemaAtMemo memo = new PaimonSchemaAtMemo(owner, 100);
+            List<DataField> fields = new ArrayList<>();
+            for (int i = 0; i < 4_000; i++) {
+                fields.add(new DataField(i, "col_" + i, DataTypes.INT(), "comment " + i));
+            }
+            PaimonCatalogOps.PaimonSchemaSnapshot wide = new PaimonCatalogOps.PaimonSchemaSnapshot(
+                    fields, Collections.emptyList(), Collections.emptyList());
+            AtomicInteger loads = new AtomicInteger();
+            for (int i = 0; i < 2; i++) {
+                memo.getOrLoad(handle("db", "t"), 5L, () -> {
+                    loads.incrementAndGet();
+                    return wide;
+                });
+            }
+
+            Assertions.assertEquals(1, loads.get());
+            Assertions.assertEquals(0L, owner.entries().get("paimon-schema-at").metrics().getWeightRejectCount());
+        }
     }
 
     @Test

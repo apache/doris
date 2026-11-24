@@ -22,6 +22,7 @@ import java.util.Objects;
 import java.util.concurrent.Executor;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * Declarative definition of one physical metadata cache in a catalog.
@@ -41,6 +42,7 @@ public final class MetaCacheDefinition<K, V> {
     private final Duration refreshAfterWrite;
     private final Executor refreshExecutor;
     private final MetaCacheSizeEstimator<K, V> sizeEstimator;
+    private final Predicate<V> retentionPredicate;
 
     private MetaCacheDefinition(Builder<K, V> builder) {
         name = requireName(builder.name);
@@ -53,6 +55,7 @@ public final class MetaCacheDefinition<K, V> {
         refreshAfterWrite = builder.refreshAfterWrite;
         refreshExecutor = builder.refreshExecutor;
         sizeEstimator = builder.sizeEstimator;
+        retentionPredicate = builder.retentionPredicate;
         if (refreshAfterWrite != null && loader == null) {
             throw new IllegalArgumentException("refresh-after-write requires a default loader");
         }
@@ -105,6 +108,10 @@ public final class MetaCacheDefinition<K, V> {
         return sizeEstimator;
     }
 
+    Predicate<V> retentionPredicate() {
+        return retentionPredicate;
+    }
+
     private static String requireName(String name) {
         String nonNullName = Objects.requireNonNull(name, "name can not be null");
         if (nonNullName.isEmpty()) {
@@ -123,6 +130,7 @@ public final class MetaCacheDefinition<K, V> {
         private Duration refreshAfterWrite;
         private Executor refreshExecutor;
         private MetaCacheSizeEstimator<K, V> sizeEstimator;
+        private Predicate<V> retentionPredicate = value -> true;
         private String budgetGroup;
 
         private Builder(String name, CacheSpec cacheSpec, Function<K, ScopePath> scopeResolver) {
@@ -162,6 +170,16 @@ public final class MetaCacheDefinition<K, V> {
 
         public Builder<K, V> sizeEstimator(MetaCacheSizeEstimator<K, V> estimator) {
             this.sizeEstimator = Objects.requireNonNull(estimator, "estimator can not be null");
+            return this;
+        }
+
+        /**
+         * Declines retention of request-owned values, independently of count or weight limits. The predicate
+         * must be pure and non-blocking; a declined load is still returned and its discard listener runs.
+         * Use load scopes as well when an in-flight value must not be shared between requests.
+         */
+        public Builder<K, V> retainIf(Predicate<V> predicate) {
+            this.retentionPredicate = Objects.requireNonNull(predicate, "retention predicate can not be null");
             return this;
         }
 

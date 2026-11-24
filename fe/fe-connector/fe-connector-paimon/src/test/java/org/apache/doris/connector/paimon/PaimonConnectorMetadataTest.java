@@ -182,6 +182,15 @@ public class PaimonConnectorMetadataTest {
     }
 
     @Test
+    public void getTableHandlePropagatesLookupFailure() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.tableLookupFailure = new IllegalStateException("metastore timeout");
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadataWith(ops).getTableHandle(null, "db1", "t1"));
+        Assertions.assertSame(ops.tableLookupFailure, failure.getCause());
+    }
+
+    @Test
     public void getColumnHandlesReloadFallbackReloadsWhenTransientTableNull() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         ops.table = new FakePaimonTable(

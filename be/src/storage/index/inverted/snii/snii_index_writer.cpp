@@ -17,8 +17,6 @@
 
 #include "storage/index/inverted/snii/snii_index_writer.h"
 
-#include <CLucene.h>
-
 #include <algorithm>
 #include <cstring>
 #include <string_view>
@@ -58,11 +56,11 @@ void SniiIndexColumnWriter::_apply_gram_family_scheme(
     if (analyzer_provider != nullptr) {
         _gram_scheme = analyzer_provider->gram_scheme();
     }
-    // An index-level char_filter is wrapped around the reader by the writer itself
-    // (create_reader) and is invisible to the provider: once one exists, the stored term is no
-    // longer equal to GramExtractor.extract(raw column value), breaking the row invariant the
-    // query side (phase C) relies on, so this is treated as "not gram family" (fail-safe, for
-    // the same reason as R22).
+    // An index-level char_filter sits in front of the analyzer and is invisible to the scheme:
+    // once one exists, the stored term is no longer equal to GramExtractor.extract(raw column
+    // value), breaking the row invariant the query side (phase C) relies on, so this is treated
+    // as "not gram family" (fail-safe, for the same reason as R22; the FE refuses the
+    // combination).
     if (!_analyzer_config.char_filter_map.empty()) {
         _gram_scheme.reset();
     }
@@ -106,15 +104,10 @@ void SniiIndexColumnWriter::_arm_density_calibration() {
 Status SniiIndexColumnWriter::_create_analyzer_provider(
         inverted_index::AnalyzerProviderPtr* analyzer_provider) {
     try {
-        _char_string_reader = inverted_index::InvertedIndexAnalyzer::create_reader(
-                _analyzer_config.char_filter_map);
         if (_should_analyzer) {
             *analyzer_provider = inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(
                     &_analyzer_config);
         }
-    } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                "SNII create analyzer failed: {}", e.what());
     } catch (const Exception& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                 "SNII create analyzer failed: {}", e.what());
@@ -143,8 +136,8 @@ Status SniiIndexColumnWriter::init() {
     _analyzer_config.lower_case =
             get_parser_lowercase_from_properties<true>(_index_meta->properties());
     _analyzer_config.stop_words = get_parser_stopwords_from_properties(_index_meta->properties());
-    // Reader, provider and the gram-family decision all happen here -- all of them before the
-    // term buffer is constructed below.
+    // The provider and the gram-family decision both happen here, before the term buffer is
+    // constructed below.
     inverted_index::AnalyzerProviderPtr analyzer_provider;
     RETURN_IF_ERROR(_create_analyzer_provider(&analyzer_provider));
     auto ignore_above_value =
@@ -161,23 +154,11 @@ Status SniiIndexColumnWriter::init() {
                     ::doris::snii::writer::BuildMemoryPopulation::kRegistered),
             spill_threshold, ::doris::snii::writer::MemoryReporter::CapPolicy::kSpillThreshold,
             static_cast<uint64_t>(config::snii_postings_workspace_bytes));
+    _null_docids_reservation = _memory_reporter->make_reservation();
     _term_buffer = std::make_unique<::doris::snii::writer::SpimiTermBuffer>(
             _has_positions, spill_threshold, _memory_reporter.get());
-    // G09: join the PROCESS-WIDE build-RAM limiter. The per-writer spill threshold above
-    // bounds one writer; a load keeps (tablets x concurrency) writers alive at
-    // once, none of which may ever reach it -- the global registry bounds their
-    // SUM by asking the largest buffers to spill early (advisory flags honored
-    // on each writer's own thread; byte-identical output). Registration is
-    // UNCONDITIONAL: the limiter re-reads its trigger (SNII's share of the
-    // process limit, plus the process-level backstops) at every decision, so an
-    // admin enabling or disabling the share mid-load takes effect for writers
-    // that are already running -- it is not latched here.
-    // G09 anti-storm knobs (see the config comments): the forced-spill floor
-    // gates both the owner-side honor (a request is a pending no-op until the
-    // reclaimable arena regrows past it) and the limiter's victim eligibility,
-    // and the run-file knob additionally caps merge fan-in. Spill ranges share
-    // one append-only spool, avoiding repeated prefix rewrites. Both the workspace
-    // and fd limits still apply when this optional fan-in cap is disabled.
+    // Register with the process-wide memory limiter so writers can honor advisory spill requests.
+    // The arena floor and optional fan-in cap limit spill costs while workspace and fd limits still apply.
     _term_buffer->set_forced_spill_min_arena_bytes(
             static_cast<uint64_t>(std::max<int64_t>(config::snii_forced_spill_min_arena_bytes, 0)));
     _term_buffer->set_max_run_files(
@@ -188,13 +169,16 @@ Status SniiIndexColumnWriter::init() {
     try {
         if (_should_analyzer) {
             _analyzer = analyzer_provider->get_analyzer();
+            _stream = _analyzer->create_stream();
         }
-    } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                "SNII create analyzer failed: {}", e.what());
     } catch (const Exception& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                 "SNII create analyzer failed: {}", e.what());
+    }
+    if (_gram_scheme.has_value()) {
+        // A gram-family analyzer is a GramTextAnalyzer, whose stream is the GramTokenizer.
+        _gram_tokenizer = dynamic_cast<inverted_index::GramTokenizer*>(_stream.get());
+        DORIS_CHECK(_gram_tokenizer != nullptr);
     }
     // A2: Analyzed indexes with positions write norms (tokens per document, clamped to 1..255),
     // matching CLucene's scoring capabilities, unless the shared norms policy turns them off.
@@ -234,12 +218,10 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
         return Status::OK();
     }
 
-    // T1a: tokens STREAM from the analyzer straight into the SPIMI buffer as
-    // string_views (the buffer interns the bytes into its own storage) -- no
-    // per-row vector<TermInfo> and no per-token std::string materialization
-    // (the old get_analyse_result lane; profile: 3.4-4.7% of import CPU burned
-    // in token realloc). Golden-byte pins (snii_writer_golden_bytes_test.cpp)
-    // hold this path byte-identical to the materializing one it replaced.
+    // Tokens stream from the analyzer straight into the SPIMI buffer as string_views (the
+    // buffer interns the bytes into its own storage) -- no per-row vector<TermInfo> and no
+    // per-token std::string. Golden-byte pins (snii_writer_golden_bytes_test.cpp) hold this path
+    // byte-identical to the materializing one it replaced.
     auto consume_token = [&](std::string_view term, int32_t token_position, bool retain_positions) {
         const uint32_t position =
                 _has_positions ? position_base + cast_set<uint32_t>(token_position) : 0;
@@ -254,29 +236,22 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
         consume_token(logical_value, 0, _has_positions);
     } else {
         try {
-            _char_string_reader->init(logical_value.data(), cast_set<int32_t>(logical_value.size()),
-                                      false);
-            {
-                std::unique_ptr<lucene::analysis::TokenStream> owned_token_stream;
-                auto* token_stream = _plain_lane_token_stream(&owned_token_stream);
-                // EXACT InvertedIndexAnalyzer::get_analyse_result semantics,
-                // including the subtle one: an empty token's position increment is
-                // dropped WITH the token (not accumulated into the next).
-                lucene::analysis::Token token;
-                int32_t position = 0;
-                while (token_stream->next(&token)) {
-                    if (token.termLength<char>() != 0) {
-                        const std::string_view term(token.termBuffer<char>(),
-                                                    token.termLength<char>());
-                        position += token.getPositionIncrement();
-                        consume_token(term, position, _has_positions);
+            _stream->reset(logical_value);
+            // InvertedIndexAnalyzer::get_analyse_result semantics, including the subtle one: an
+            // empty token's position increment is dropped WITH the token (not accumulated into
+            // the next).
+            int32_t position = 0;
+            while (_stream->next_batch(_batch)) {
+                for (const inverted_index::TokenRef& token : _batch.tokens()) {
+                    if (token.size != 0) {
+                        position += token.position_increment;
+                        consume_token(token.term(), position, _has_positions);
                     }
                 }
-                _finish_plain_lane_row(token_stream, owned_token_stream != nullptr);
             }
-        } catch (const CLuceneError& e) {
-            return _latch_analysis_failure(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                    "SNII analyze value failed: {}", e.what()));
+            DCHECK_EQ(_batch.size(), 0);
+            _batch.release_oversized();
+            _report_analysis_capacity();
         } catch (const Exception& e) {
             return _latch_analysis_failure(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                     "SNII analyze value failed: {}", e.what()));
@@ -285,8 +260,7 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
     return Status::OK();
 }
 
-Status SniiIndexColumnWriter::add_values(const std::string /*name*/, const void* values,
-                                         size_t count) {
+Status SniiIndexColumnWriter::add_values(const uint8_t* values, size_t count) {
     if (!_failure_status.ok()) {
         return _failure_status;
     }
@@ -323,9 +297,9 @@ Status SniiIndexColumnWriter::add_values(const std::string /*name*/, const void*
     return Status::OK();
 }
 
-Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
+Status SniiIndexColumnWriter::add_array_values(size_t field_size, const uint8_t* value_ptr,
                                                const uint8_t* nested_null_map,
-                                               const uint8_t* offsets_ptr, size_t count) {
+                                               const uint64_t* offsets_ptr, size_t count) {
     // Arrays are not sampled: settle the rate on whatever has been seen rather than hold array
     // rows back as well, which would complicate the docid bookkeeping for a shape the gram
     // family is not built for.
@@ -336,7 +310,7 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
     if (count == 0) {
         return Status::OK();
     }
-    const auto* offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
+    const auto* offsets = offsets_ptr;
     size_t start_off = 0;
     for (size_t i = 0; i < count; ++i) {
         auto array_elem_size = offsets[i + 1] - offsets[i];
@@ -346,8 +320,7 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
             if (nested_null_map != nullptr && nested_null_map[j] == 1) {
                 continue;
             }
-            const auto* value = reinterpret_cast<const Slice*>(
-                    reinterpret_cast<const uint8_t*>(value_ptr) + j * field_size);
+            const auto* value = reinterpret_cast<const Slice*>(value_ptr + j * field_size);
             uint32_t max_position = position_base;
             uint32_t token_count = 0;
             RETURN_IF_ERROR(
@@ -367,91 +340,12 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
     return Status::OK();
 }
 
-void SniiIndexColumnWriter::_report_null_docids_capacity(bool release_all) {
-    if (_memory_reporter == nullptr) {
-        return;
-    }
-    const int64_t now =
-            release_all ? 0 : static_cast<int64_t>(_null_docids.capacity() * sizeof(uint32_t));
-    if (now != _null_docids_charged_bytes) {
-        _memory_reporter->report(now - _null_docids_charged_bytes);
-        _null_docids_charged_bytes = now;
-    }
+Status SniiIndexColumnWriter::_reserve_null_docids_for_append(size_t count) {
+    // Uninitialized writers in unit tests have no reporter.
+    return ::doris::snii::writer::reserve_docids_for_append(
+            _memory_reporter.get(), &_null_docids_reservation, &_null_docids, count);
 }
 
-// Hand back the token stream for one row. The two ways to get one differ in ownership AND in
-// reset:
-//
-//  - tokenStream() runs create_components() on every call -- a fresh tokenizer object graph per
-//    row -- wraps it in a heap TokenStreamWrapper the caller owns, and resets it internally
-//    (custom_analyzer.cpp:149-155).
-//  - reusableTokenStream() runs create_components() once and hands back a NON-OWNING pointer into
-//    the analyzer's cached components, and does NOT reset (custom_analyzer.cpp:157-163).
-//
-// `owned` therefore receives the stream only on the first lane; on the second the analyzer keeps
-// it and this writer must not delete it.
-//
-// The gram family takes the reusable lane. Its tokenizer carries per-row scratch sized by the row
-// (the fold buffer, the boundary flags, the gram list, the dedupe table), and rebuilding all of it
-// for every row was pure waste: reuse keeps the buffers warm and turns their capacity into a
-// steady, reportable quantity (see _report_gram_buffers_capacity). Holding on to the analyzer's
-// cached components is safe here because this writer built its own analyzer provider in init()
-// and IndexPolicyMgr does not cache providers (index_policy_mgr.cpp:266-274), so the
-// CustomAnalyzer -- and everything hanging off it -- belongs to this writer alone.
-//
-// Everything else stays on the owning lane: reuse changes the lifetime of an object shared by
-// every custom analyzer, and the gram family is the only configuration whose cost justifies
-// auditing that.
-lucene::analysis::TokenStream* SniiIndexColumnWriter::_plain_lane_token_stream(
-        std::unique_ptr<lucene::analysis::TokenStream>* owned) {
-    if (!_gram_scheme.has_value()) {
-        owned->reset(_analyzer->tokenStream(L"", _char_string_reader));
-        return owned->get();
-    }
-    auto* token_stream = _analyzer->reusableTokenStream(L"", _char_string_reader);
-    if (_gram_tokenizer == nullptr) {
-        // R22 keeps char filters and token filters out of the gram family, so the components'
-        // sink IS the tokenizer -- there is no filter wrapped around it to cast through.
-        _gram_tokenizer = dynamic_cast<inverted_index::GramTokenizer*>(token_stream);
-        DORIS_CHECK(_gram_tokenizer != nullptr);
-        if (_pending_density_permille.has_value()) {
-            // Before reset() below, which is what extracts: the first row through here is
-            // already a held-back one being replayed, and it must be cut at the solved rate.
-            _gram_tokenizer->set_density_permille(*_pending_density_permille);
-            _pending_density_permille.reset();
-        }
-    } else {
-        DCHECK_EQ(static_cast<lucene::analysis::TokenStream*>(_gram_tokenizer), token_stream);
-    }
-    // MANDATORY on this lane. reusableTokenStream only parks the new reader in _in_pending;
-    // DorisTokenizer::reset() is what promotes it to _in, and GramTokenizer::reset() is what
-    // re-extracts and rewinds the cursor. Skip it and the row is tokenized as a repeat of the
-    // previous one.
-    token_stream->reset();
-    return token_stream;
-}
-
-// End of one row on the plain lane, the mirror of _plain_lane_token_stream. An owned stream is
-// closed, as before. The reusable one is not: close() is teardown, and the next row will reset
-// and reuse this stream. Instead its buffers, whose capacity has just settled for this row,
-// are mirrored into the memory reporter.
-void SniiIndexColumnWriter::_finish_plain_lane_row(lucene::analysis::TokenStream* token_stream,
-                                                   bool owned) {
-    if (owned) {
-        token_stream->close();
-    } else {
-        _report_gram_buffers_capacity();
-    }
-}
-
-// The gram tokenizer's scratch (fold buffer, boundary flags, gram list, dedupe table) is sized by
-// the longest row this writer has seen and is never shrunk. They are ordinary heap allocations,
-// so the process-wide MemTrackerLimiter already sees them through the allocation hook -- but this
-// writer's own MemoryReporter did not, which meant the number driving its flush/spill decision
-// understated real RSS. On a DENSE scheme the scratch tracks the row length closely, and rows on
-// the analyzer lane are not bounded by ignore_above, so a single long row could move it by tens of
-// megabytes. Only meaningful on the reusable lane: without it the tokenizer dies at the end of
-// every row and there is no resident capacity to report.
 // Solves this segment's density from the rows held back for it, applies it, and tokenizes
 // them. Idempotent, and a no-op unless a gram scheme is in force with the feature enabled.
 //
@@ -468,7 +362,8 @@ Status SniiIndexColumnWriter::_finish_density_calibration() {
     const gram::DensitySolver::Solution solution = _density_solver->solve_detailed(coverage);
     if (_density_solver->observed_windows() > 0) {
         _gram_scheme->density_permille = solution.density_permille;
-        _pending_density_permille = solution.density_permille;
+        // Before the replay below, which is the first row this tokenizer cuts.
+        _gram_tokenizer->set_density_permille(solution.density_permille);
         if (solution.clamped && solution.achieved_coverage_permille < coverage) {
             // The sample asked for a rate outside the solver's bounds, so the recorded rate
             // does not keep the promise. Say so: a segment that silently misses its target
@@ -519,15 +414,30 @@ void SniiIndexColumnWriter::_report_density_sample_capacity(bool release_all) {
     }
 }
 
-void SniiIndexColumnWriter::_report_gram_buffers_capacity(bool release_all) {
-    if (_memory_reporter == nullptr || _gram_tokenizer == nullptr) {
+// What the analysis keeps between rows: the stream's scratch (for the gram family the fold
+// buffer, boundary flags, gram list and dedupe table) and the batch. They are ordinary heap
+// allocations, so the process-wide MemTrackerLimiter already sees them through the allocation
+// hook -- but this writer's own MemoryReporter does not, and the number driving its flush/spill
+// decision would understate real RSS. Rows on the analyzer lane are not bounded by ignore_above,
+// so one long row can move it by about its own size, until the next row releases what is above
+// the high water mark.
+void SniiIndexColumnWriter::_report_analysis_capacity(bool release_all) {
+    if (_memory_reporter == nullptr || _stream == nullptr) {
         return;
     }
-    const int64_t now = release_all ? 0 : static_cast<int64_t>(_gram_tokenizer->reserved_bytes());
-    if (now != _gram_buffers_charged_bytes) {
-        _memory_reporter->report(now - _gram_buffers_charged_bytes);
-        _gram_buffers_charged_bytes = now;
+    const int64_t now =
+            release_all ? 0
+                        : static_cast<int64_t>(_stream->reserved_bytes() + _batch.capacity_bytes());
+    if (now != _analysis_charged_bytes) {
+        _memory_reporter->report(now - _analysis_charged_bytes);
+        _analysis_charged_bytes = now;
     }
+}
+
+void SniiIndexColumnWriter::_release_analysis() {
+    _gram_tokenizer = nullptr;
+    _stream.reset();
+    _batch.release_all();
 }
 
 void SniiIndexColumnWriter::_report_encoded_norms_capacity(bool release_all) {
@@ -545,7 +455,7 @@ Status SniiIndexColumnWriter::add_nulls(uint32_t count) {
     if (!_failure_status.ok()) {
         return _failure_status;
     }
-    // GEOMETRIC BULK reserve -- never an exact one: append_nullable calls
+    // GEOMETRIC BULK reserve -- never an exact one: ScalarColumnWriter::append calls
     // add_nulls once per NULL RUN (thousands to millions of calls on a large
     // interleaved-null segment), and an exact reserve(size()+count) caps
     // capacity at "just enough" -- the NEXT call then reallocates and memcpys
@@ -555,10 +465,7 @@ Status SniiIndexColumnWriter::add_nulls(uint32_t count) {
     // the compaction ran 8+x slower than V3 (whose add_nulls is a roaring
     // addRange). Doubling on overflow keeps the O(count) amortization AND makes
     // one large run pay at most one reallocation.
-    const size_t need = _null_docids.size() + count;
-    if (need > _null_docids.capacity()) {
-        _null_docids.reserve(std::max(need, _null_docids.capacity() * 2));
-    }
+    RETURN_IF_ERROR(_reserve_null_docids_for_append(count));
     for (uint32_t i = 0; i < count; ++i) {
         _null_docids.push_back(_rid + i);
     }
@@ -567,7 +474,6 @@ Status SniiIndexColumnWriter::add_nulls(uint32_t count) {
         _encoded_norms.insert(_encoded_norms.end(), count, ::doris::snii::query::encode_norm(0));
         _report_encoded_norms_capacity();
     }
-    _report_null_docids_capacity();
     return Status::OK();
 }
 
@@ -579,13 +485,14 @@ Status SniiIndexColumnWriter::add_array_nulls(const uint8_t* null_map, size_t nu
     if (num_rows == 0 || null_map == nullptr) {
         return Status::OK();
     }
+    const size_t null_count = std::count(null_map, null_map + num_rows, static_cast<uint8_t>(1));
+    RETURN_IF_ERROR(_reserve_null_docids_for_append(null_count));
     const auto first_row = _rid - num_rows;
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 1) {
             _null_docids.push_back(cast_set<uint32_t>(first_row + i));
         }
     }
-    _report_null_docids_capacity();
     return Status::OK();
 }
 
@@ -598,10 +505,6 @@ Status SniiIndexColumnWriter::finish() {
     if (!status.ok()) {
         return Status::InternalError("SNII term buffer error: {}", status.to_string());
     }
-    // Ownership of _null_docids hands off to the flush below (transient,
-    // flush-scoped); release the accumulation-phase charge so the retained
-    // reporter (and the observation tracker behind it) balances to zero.
-    _report_null_docids_capacity(/*release_all=*/true);
     // A segment smaller than the sample budget reaches here still holding its rows back. Solve
     // on what there is and tokenize them, so a short segment is indexed like any other -- and
     // so `options.gram_scheme` below carries the rate its rows were actually cut at.
@@ -614,13 +517,16 @@ Status SniiIndexColumnWriter::finish() {
         options.encoded_norms = std::move(_encoded_norms);
     }
     status = _index_file_writer->add_snii_index(
-            _index_meta, cast_set<uint32_t>(_rid), std::move(_null_docids), _term_buffer.get(),
-            _config, std::move(options), _memory_reporter.get());
+            _index_meta, cast_set<uint32_t>(_rid),
+            ::doris::snii::writer::TrackedNullDocids(std::move(_null_docids_reservation),
+                                                     std::move(_null_docids)),
+            _term_buffer.get(), _config, std::move(options), _memory_reporter.get());
     _report_encoded_norms_capacity(/*release_all=*/true);
-    // The tokenizer's buffers outlive this call (they die with _analyzer), but the reporter is
-    // about to be handed to the index file writer and become a long-lived process-wide counter,
-    // so its accumulation-phase charges must balance to zero first.
-    _report_gram_buffers_capacity(/*release_all=*/true);
+    // The reporter is about to be handed to the index file writer and become a long-lived
+    // process-wide counter, so its accumulation-phase charges must balance to zero first, and the
+    // stream whose buffers are no longer charged goes.
+    _report_analysis_capacity(/*release_all=*/true);
+    _release_analysis();
     RETURN_IF_ERROR(status);
     _index_file_writer->retain_snii_memory_reporter(std::move(_memory_reporter));
     _term_buffer.reset();
@@ -637,12 +543,12 @@ Status SniiIndexColumnWriter::_latch_analysis_failure(Status status) {
 
 void SniiIndexColumnWriter::close_on_error() {
     _term_buffer.reset();
-    // Balance the observation-tracker mirror before dropping the reporter.
-    _report_null_docids_capacity(/*release_all=*/true);
+    std::vector<uint32_t>().swap(_null_docids);
+    _null_docids_reservation.reset();
     _report_encoded_norms_capacity(/*release_all=*/true);
-    _report_gram_buffers_capacity(/*release_all=*/true);
+    _report_analysis_capacity(/*release_all=*/true);
+    _release_analysis();
     _memory_reporter.reset();
-    _null_docids.clear();
     std::vector<uint8_t>().swap(_encoded_norms);
 }
 

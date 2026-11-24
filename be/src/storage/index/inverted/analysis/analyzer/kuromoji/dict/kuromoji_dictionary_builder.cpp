@@ -55,7 +55,7 @@ KmjFileHeader make_header(KmjFileKind kind) {
     KmjFileHeader h {};
     std::memcpy(h.magic, KMJ_MAGIC, sizeof(h.magic));
     h.format_version = KMJ_FORMAT_VERSION;
-    h.file_kind = kind;
+    h.file_kind = static_cast<uint32_t>(kind);
     h.file_size = 0; // patched at flush
     return h;
 }
@@ -139,7 +139,7 @@ Status KuromojiDictionaryBuilder::write_system(const std::string& path, const Sy
     }
 
     ByteSink sink;
-    sink.put_pod(make_header(KMJ_KIND_SYSTEM));
+    sink.put_pod(make_header(KmjFileKind::KMJ_KIND_SYSTEM));
     const uint64_t subhdr_at = sink.offset();
     KmjSystemHeader sub {};
     sink.put_pod(sub);
@@ -181,7 +181,7 @@ Status KuromojiDictionaryBuilder::write_matrix(const std::string& path, const Ma
         return Status::InvalidArgument("kuromoji dict: matrix cell count mismatch");
     }
     ByteSink sink;
-    sink.put_pod(make_header(KMJ_KIND_MATRIX));
+    sink.put_pod(make_header(KmjFileKind::KMJ_KIND_MATRIX));
     const uint64_t subhdr_at = sink.offset();
     KmjMatrixHeader sub {};
     sink.put_pod(sub);
@@ -200,7 +200,7 @@ Status KuromojiDictionaryBuilder::write_matrix(const std::string& path, const Ma
 
 Status KuromojiDictionaryBuilder::write_chardef(const std::string& path, const CharDefInput& in) {
     ByteSink sink;
-    sink.put_pod(make_header(KMJ_KIND_CHARDEF));
+    sink.put_pod(make_header(KmjFileKind::KMJ_KIND_CHARDEF));
     const uint64_t subhdr_at = sink.offset();
     KmjCharDefHeader sub {};
     sink.put_pod(sub);
@@ -230,7 +230,7 @@ Status KuromojiDictionaryBuilder::write_unkdict(const std::string& path, const U
     }
 
     ByteSink sink;
-    sink.put_pod(make_header(KMJ_KIND_UNKDICT));
+    sink.put_pod(make_header(KmjFileKind::KMJ_KIND_UNKDICT));
     const uint64_t subhdr_at = sink.offset();
     KmjUnkHeader sub {};
     sink.put_pod(sub);

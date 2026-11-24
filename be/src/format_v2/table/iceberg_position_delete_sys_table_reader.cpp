@@ -35,6 +35,7 @@
 #include "core/types.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/parquet_utils.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "format_v2/table/iceberg_reader.h"
 #include "format_v2/table/iceberg_schema_utils.h"
 #include "runtime/descriptors.h"
@@ -135,7 +136,13 @@ void set_iceberg_delete_field_id(ColumnDefinition* column) {
 }
 
 class PositionDeleteFileTableReader final : public format::TableReader {
+public:
+    explicit PositionDeleteFileTableReader(const TFileEncryptionInfo* encryption)
+            : _encryption(encryption) {}
+
 protected:
+    const TFileEncryptionInfo* file_encryption_info() const override { return _encryption; }
+
     format::TableColumnMappingMode mapping_mode() const override {
         const bool has_field_ids = supports_iceberg_scan_semantics_v1(_scan_params)
                                            ? schema_has_any_field_id(_data_reader.file_schema)
@@ -156,6 +163,9 @@ protected:
                 supports_iceberg_scan_semantics_v1(_scan_params) &&
                 _format == format::FileFormat::PARQUET;
     }
+
+private:
+    const TFileEncryptionInfo* _encryption;
 };
 
 } // namespace
@@ -276,6 +286,12 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_split() {
                 "file");
     }
     _delete_file_desc = _iceberg_file_desc->delete_files.data();
+    if (_delete_file_desc->__isset.encryption_info &&
+        (is_iceberg_deletion_vector(*_delete_file_desc) ||
+         !_delete_file_desc->__isset.file_format ||
+         _delete_file_desc->file_format != TFileFormatType::FORMAT_PARQUET)) {
+        return Status::NotSupported("File encryption [UNSUPPORTED_FILE_FORMAT]");
+    }
     if (is_iceberg_deletion_vector(*_delete_file_desc)) {
         _delete_file_kind = DeleteFileKind::DELETION_VECTOR;
     } else if (_delete_file_desc->__isset.content &&
@@ -323,8 +339,20 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
         // readers share the scanner profile and initialize concurrently, so lookup and creation
         // must also be atomic to preserve the unique child-name invariant.
         _position_reader_profile = _scanner_profile->get_or_create_child(kPositionReaderProfile);
+        if (_parquet_profile_cache != nullptr) {
+            _position_profile_cache =
+                    _parquet_profile_cache->get_child_cache(_position_reader_profile);
+        } else {
+            // Standalone callers have no scan-owned cache. Keep one across this reader's splits.
+            _standalone_position_profile_cache =
+                    std::make_unique<parquet::ParquetProfileCache>(_position_reader_profile);
+            _position_profile_cache = _standalone_position_profile_cache.get();
+        }
     }
-    _position_reader = std::make_unique<PositionDeleteFileTableReader>();
+    // The metadata table scans the delete file itself; a data-file descriptor is unrelated.
+    _position_reader = std::make_unique<PositionDeleteFileTableReader>(
+            _delete_file_desc->__isset.encryption_info ? &_delete_file_desc->encryption_info
+                                                       : nullptr);
     RETURN_IF_ERROR(_position_reader->init({
             .projected_columns = std::move(projected_columns),
             .conjuncts = {},
@@ -333,6 +361,7 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
             .io_ctx = _io_ctx,
             .runtime_state = _runtime_state,
             .scanner_profile = _position_reader_profile,
+            .parquet_profile_cache = _position_profile_cache,
             .file_slot_descs = nullptr,
             .push_down_agg_type = TPushAggOp::type::NONE,
             .condition_cache_digest = 0,

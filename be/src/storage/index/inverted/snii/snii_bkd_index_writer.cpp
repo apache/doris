@@ -17,6 +17,7 @@
 
 #include "storage/index/inverted/snii/snii_bkd_index_writer.h"
 
+#include <algorithm>
 #include <cstring>
 #include <utility>
 
@@ -25,6 +26,7 @@
 #include "storage/index/inverted/snii/bkd/bkd_types.h"
 #include "storage/index/inverted/snii/format/metadata_directory.h"
 #include "storage/index/inverted/snii/format/null_bitmap.h"
+#include "storage/index/inverted/snii/writer/snii_build_memory_tracker.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
@@ -84,13 +86,27 @@ Status SniiBkdIndexColumnWriter::init() {
     }
     _value_size = cast_set<uint32_t>(field_type_size(_value_type));
 
+    // The same accounting the text writer has: the builder's point buffer and the NULL docids are
+    // mirrored into the process-wide SNII build tracker. Unregistered, because a forced spill cannot
+    // reclaim them -- the builder spills on its own buffer bound only.
+    _memory_reporter = std::make_unique<::doris::snii::writer::MemoryReporter>(
+            ::doris::snii::writer::snii_build_consume_release(
+                    ::doris::snii::writer::BuildMemoryPopulation::kUnregistered));
+    _null_docids_reservation = _memory_reporter->make_reservation();
+
     ::doris::snii::bkd::BkdBuilderOptions options;
     options.bytes_per_dim = _value_size;
     options.field_type = _value_type;
+    options.reporter = _memory_reporter.get();
     return ::doris::snii::bkd::BkdBuilder::create(options, &_builder);
 }
 
-Status SniiBkdIndexColumnWriter::_add_value(const void* value, uint32_t docid) {
+Status SniiBkdIndexColumnWriter::_reserve_null_docids_for_append(size_t count) {
+    return ::doris::snii::writer::reserve_docids_for_append(
+            _memory_reporter.get(), &_null_docids_reservation, &_null_docids, count);
+}
+
+Status SniiBkdIndexColumnWriter::_add_value(const uint8_t* value, uint32_t docid) {
     DORIS_CHECK(_builder != nullptr);
     std::string encoded;
     _value_key_coder->full_encode_ascending(value, &encoded);
@@ -103,10 +119,9 @@ Status SniiBkdIndexColumnWriter::_add_value(const void* value, uint32_t docid) {
             ::doris::snii::Slice(reinterpret_cast<const uint8_t*>(encoded.data()), encoded.size()));
 }
 
-Status SniiBkdIndexColumnWriter::add_values(const std::string /*name*/, const void* values,
-                                            size_t count) {
+Status SniiBkdIndexColumnWriter::add_values(const uint8_t* values, size_t count) {
     DORIS_CHECK(values != nullptr || count == 0);
-    const auto* cursor = static_cast<const uint8_t*>(values);
+    const auto* cursor = values;
     for (size_t i = 0; i < count; ++i) {
         RETURN_IF_ERROR(_add_value(cursor, _rid));
         cursor += _value_size;
@@ -115,9 +130,9 @@ Status SniiBkdIndexColumnWriter::add_values(const std::string /*name*/, const vo
     return Status::OK();
 }
 
-Status SniiBkdIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
+Status SniiBkdIndexColumnWriter::add_array_values(size_t field_size, const uint8_t* value_ptr,
                                                   const uint8_t* null_map,
-                                                  const uint8_t* offsets_ptr, size_t count) {
+                                                  const uint64_t* offsets_ptr, size_t count) {
     if (count == 0) {
         return Status::OK();
     }
@@ -128,8 +143,8 @@ Status SniiBkdIndexColumnWriter::add_array_values(size_t field_size, const void*
     // reinterpret the payload.
     DORIS_CHECK_EQ(field_size, _value_size);
 
-    const auto* offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
-    const auto* elements = static_cast<const uint8_t*>(value_ptr);
+    const auto* offsets = offsets_ptr;
+    const auto* elements = value_ptr;
     size_t element = 0;
     for (size_t i = 0; i < count; ++i) {
         const size_t row_elements = offsets[i + 1] - offsets[i];
@@ -154,6 +169,7 @@ Status SniiBkdIndexColumnWriter::add_array_values(size_t field_size, const void*
 }
 
 Status SniiBkdIndexColumnWriter::add_nulls(uint32_t count) {
+    RETURN_IF_ERROR(_reserve_null_docids_for_append(count));
     for (uint32_t i = 0; i < count; ++i) {
         _null_docids.push_back(_rid);
         ++_rid;
@@ -168,6 +184,9 @@ Status SniiBkdIndexColumnWriter::add_array_nulls(const uint8_t* null_map, size_t
     // array level.
     DORIS_CHECK_GE(_rid, num_rows);
     const uint32_t first_rid = _rid - cast_set<uint32_t>(num_rows);
+    const auto null_count =
+            static_cast<size_t>(std::count(null_map, null_map + num_rows, static_cast<uint8_t>(1)));
+    RETURN_IF_ERROR(_reserve_null_docids_for_append(null_count));
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 1) {
             _null_docids.push_back(first_rid + cast_set<uint32_t>(i));
@@ -192,6 +211,10 @@ Status SniiBkdIndexColumnWriter::finish() {
 
     ::doris::snii::format::NullBitmapWriter null_writer;
     null_writer.add_many(_null_docids);
+    // The docids live in the bitmap now. This writer can be kept alive long after finish() returns,
+    // so give the vector and its charge back instead of holding them until destruction.
+    std::vector<uint32_t>().swap(_null_docids);
+    _null_docids_reservation.reset();
     ::doris::snii::ByteSink null_sink;
     RETURN_IF_ERROR(null_writer.finish(_rid, &null_sink));
 

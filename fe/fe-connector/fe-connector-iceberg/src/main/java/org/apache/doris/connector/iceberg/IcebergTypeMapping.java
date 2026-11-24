@@ -154,13 +154,16 @@ public final class IcebergTypeMapping {
                 // TIMESTAMP_NS is a wall-clock type; zoned nanoseconds need a distinct carrier.
                 return ConnectorType.of(((Types.TimestampNanoType) primitive).shouldAdjustToUTC()
                         ? "UNSUPPORTED" : "TIMESTAMP_NS");
+            case UNKNOWN:
+                // V3 unknown has only NULL values; retain its logical identity for schema display and writes.
+                return ConnectorType.of("UNKNOWN");
             case TIME:
                 // iceberg TIME has no Doris analogue -> UNSUPPORTED (explicit, byte-parity with legacy
                 // IcebergUtils which also mapped TIME to Type.UNSUPPORTED).
                 return ConnectorType.of("UNSUPPORTED");
             default:
                 // Any primitive iceberg type Doris cannot represent — notably the v3 types
-                // GEOMETRY / GEOGRAPHY / UNKNOWN — degrades to UNSUPPORTED: the table still LOADS and only this
+                // GEOMETRY / GEOGRAPHY — degrades to UNSUPPORTED: the table still LOADS and only this
                 // column is present-but-unqueryable. This DIVERGES from legacy (IcebergUtils.icebergPrimitiveType-
                 // ToDorisType threw IllegalArgumentException "Cannot transform unknown type", failing the whole
                 // table). Graceful degradation is INTENTIONAL (user decision 2026-07-13: map every unrepresentable
@@ -169,6 +172,17 @@ public final class IcebergTypeMapping {
                 // silently accept a type it cannot round-trip.)
                 return ConnectorType.of("UNSUPPORTED");
         }
+    }
+
+    /**
+     * Whether the primitive {@code icebergType} is read as {@code type}, so a {@code MODIFY COLUMN} stating
+     * {@code type} restates it rather than changing it. The read mapping cannot always be inverted by
+     * {@link #toIcebergPrimitive}: iceberg BINARY and FIXED(n) are read as VARBINARY and VARBINARY(n), which
+     * have no iceberg type of their own.
+     */
+    static boolean isReadAs(Type.PrimitiveType icebergType, ConnectorType type) {
+        // Neither legacy mapping option changes how a primitive type is read.
+        return type.equals(fromPrimitive(icebergType, true, true));
     }
 
     /**
@@ -186,6 +200,9 @@ public final class IcebergTypeMapping {
     static Type toIcebergPrimitive(ConnectorType type) {
         String name = type.getTypeName().toUpperCase(Locale.ROOT);
         switch (name) {
+            case "UNKNOWN":
+            case "NULL_TYPE":
+                throw new DorisConnectorException("Creating Iceberg unknown columns is not supported");
             case "UUID":
                 return Types.UUIDType.get();
             case "BOOLEAN":

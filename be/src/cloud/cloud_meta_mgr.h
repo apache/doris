@@ -16,6 +16,7 @@
 // under the License.
 #pragma once
 
+#include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <future>
@@ -30,7 +31,6 @@
 #include "common/status.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/rowset/rowset_meta.h"
-#include "util/s3_util.h"
 
 namespace doris {
 
@@ -52,8 +52,9 @@ class TabletIndexPB;
 class HostLevelMSRpcRateLimiters;
 class MSBackpressureHandler;
 
-using StorageVaultInfos = std::vector<
-        std::tuple<std::string, std::variant<S3Conf, HdfsVaultInfo>, StorageVaultPB_PathFormat>>;
+using StorageVaultInfos =
+        std::vector<std::tuple<std::string, std::variant<ObjectStoreInfoPB, HdfsVaultInfo>,
+                               StorageVaultPB_PathFormat>>;
 
 // run tasks in bthread with concurrency and wait until all tasks done
 // it stops running tasks if there are any tasks return !ok, leaving some tasks untouched
@@ -90,12 +91,12 @@ public:
 
     Status commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr,
-                         RowsetMeta* attach_row_binlog = nullptr,
-                         std::shared_ptr<RowsetMeta>* existed_attach_row_binlog = nullptr);
+                         RowsetMeta* attach_changelog = nullptr,
+                         std::shared_ptr<RowsetMeta>* existed_attach_changelog = nullptr);
     void cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id,
-                             const RowsetMeta* attach_row_binlog = nullptr);
+                             const RowsetMeta* attach_changelog = nullptr);
 
     Status update_packed_file_info(const std::string& packed_file_path,
                                    const cloud::PackedFileInfoPB& packed_file_info,

@@ -250,6 +250,11 @@ final class FakePaimonTable implements Table {
     }
 
     @Override
+    public void mergeBranch(String sourceBranch, String targetBranch) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public ExpireSnapshots newExpireSnapshots() {
         throw new UnsupportedOperationException();
     }

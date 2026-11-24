@@ -114,7 +114,7 @@ Status KuromojiDictionary::map_system(const std::string& path) {
     RETURN_IF_ERROR(_system_map.open(path));
     const uint8_t* p = _system_map.data();
     const std::size_t size = _system_map.size();
-    RETURN_IF_ERROR(check_header(p, size, KMJ_KIND_SYSTEM));
+    RETURN_IF_ERROR(check_header(p, size, KmjFileKind::KMJ_KIND_SYSTEM));
     constexpr uint64_t kHdrEnd = sizeof(KmjFileHeader) + sizeof(KmjSystemHeader);
     if (size < kHdrEnd) {
         return Status::Corruption("kuromoji dict: system.bin truncated sub-header");
@@ -152,7 +152,7 @@ Status KuromojiDictionary::map_matrix(const std::string& path) {
     RETURN_IF_ERROR(_matrix_map.open(path));
     const uint8_t* p = _matrix_map.data();
     const std::size_t size = _matrix_map.size();
-    RETURN_IF_ERROR(check_header(p, size, KMJ_KIND_MATRIX));
+    RETURN_IF_ERROR(check_header(p, size, KmjFileKind::KMJ_KIND_MATRIX));
     constexpr uint64_t kHdrEnd = sizeof(KmjFileHeader) + sizeof(KmjMatrixHeader);
     if (size < kHdrEnd) {
         return Status::Corruption("kuromoji dict: matrix.bin truncated sub-header");
@@ -175,16 +175,16 @@ Status KuromojiDictionary::map_chardef(const std::string& path) {
     RETURN_IF_ERROR(_chardef_map.open(path));
     const uint8_t* p = _chardef_map.data();
     const std::size_t size = _chardef_map.size();
-    RETURN_IF_ERROR(check_header(p, size, KMJ_KIND_CHARDEF));
+    RETURN_IF_ERROR(check_header(p, size, KmjFileKind::KMJ_KIND_CHARDEF));
     constexpr uint64_t kHdrEnd = sizeof(KmjFileHeader) + sizeof(KmjCharDefHeader);
     if (size < kHdrEnd) {
         return Status::Corruption("kuromoji dict: chardef.bin truncated sub-header");
     }
     KmjCharDefHeader c {};
     std::memcpy(&c, p + sizeof(KmjFileHeader), sizeof(c));
-    if (c.class_count != CAT_CLASS_COUNT) {
+    if (c.class_count != static_cast<uint32_t>(CharCategory::CAT_CLASS_COUNT)) {
         return Status::Corruption("kuromoji dict: chardef class_count {} != {}", c.class_count,
-                                  static_cast<uint32_t>(CAT_CLASS_COUNT));
+                                  static_cast<uint32_t>(CharCategory::CAT_CLASS_COUNT));
     }
     // catmap is exactly one byte per BMP code point.
     RETURN_IF_ERROR(check_region("chardef catmap", c.catmap_offset, 0x10000, 1, kHdrEnd, size));
@@ -199,16 +199,16 @@ Status KuromojiDictionary::map_unkdict(const std::string& path) {
     RETURN_IF_ERROR(_unk_map.open(path));
     const uint8_t* p = _unk_map.data();
     const std::size_t size = _unk_map.size();
-    RETURN_IF_ERROR(check_header(p, size, KMJ_KIND_UNKDICT));
+    RETURN_IF_ERROR(check_header(p, size, KmjFileKind::KMJ_KIND_UNKDICT));
     constexpr uint64_t kHdrEnd = sizeof(KmjFileHeader) + sizeof(KmjUnkHeader);
     if (size < kHdrEnd) {
         return Status::Corruption("kuromoji dict: unkdict.bin truncated sub-header");
     }
     KmjUnkHeader u {};
     std::memcpy(&u, p + sizeof(KmjFileHeader), sizeof(u));
-    if (u.class_count != CAT_CLASS_COUNT) {
+    if (u.class_count != static_cast<uint32_t>(CharCategory::CAT_CLASS_COUNT)) {
         return Status::Corruption("kuromoji dict: unkdict class_count {} != {}", u.class_count,
-                                  static_cast<uint32_t>(CAT_CLASS_COUNT));
+                                  static_cast<uint32_t>(CharCategory::CAT_CLASS_COUNT));
     }
     RETURN_IF_ERROR(check_region("unk runs", u.runs_offset, u.class_count, sizeof(WordIdRun),
                                  kHdrEnd, size));
@@ -256,7 +256,7 @@ Status KuromojiDictionary::validate_ranges() const {
     RETURN_IF_ERROR(check_runs(_unk_runs, _unk_runs_count, _unk_entries_count, "unk"));
     RETURN_IF_ERROR(check_entries(_unk_entries, _unk_entries_count, "unk"));
     for (uint32_t cp = 0; cp < 0x10000; ++cp) {
-        if (_catmap[cp] >= CAT_CLASS_COUNT) {
+        if (_catmap[cp] >= static_cast<uint32_t>(CharCategory::CAT_CLASS_COUNT)) {
             return Status::Corruption(
                     "kuromoji dict: chardef catmap has out-of-range category {} at code point {}",
                     static_cast<uint32_t>(_catmap[cp]), cp);

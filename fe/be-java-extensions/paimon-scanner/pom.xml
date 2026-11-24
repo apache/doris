@@ -471,6 +471,9 @@ under the License.
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <!-- Paimon 2.1 reads Variant values through ByteBuffer views. Match the
+                         java.nio access already enabled by bin/start_be.sh for the BE JVM. -->
+                    <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED @{argLine}</argLine>
                     <classpathDependencyExcludes>
                         <classpathDependencyExclude>
                             org.apache.logging.log4j:log4j-core

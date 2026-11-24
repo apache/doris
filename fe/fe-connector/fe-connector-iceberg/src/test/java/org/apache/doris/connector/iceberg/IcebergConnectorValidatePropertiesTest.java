@@ -52,7 +52,7 @@ public class IcebergConnectorValidatePropertiesTest {
 
     @Test
     public void restFlavorRulesReachableThroughProvider() {
-        Assertions.assertEquals("Invalid security type: bogus. Supported values are: none, oauth2",
+        Assertions.assertEquals("Invalid security type: bogus. Supported values are: none, oauth2, google",
                 rejectMessage(props("iceberg.catalog.type", "rest", "iceberg.rest.security.type", "bogus")));
         // valid REST (default none security) accepted.
         PROVIDER.validateProperties(props("iceberg.catalog.type", "rest", "iceberg.rest.uri", "http://r"));
@@ -128,6 +128,17 @@ public class IcebergConnectorValidatePropertiesTest {
                 "meta.cache.iceberg.manifest.capacity", "-1")).contains("is wrong"));
         Assertions.assertTrue(rejectMessage(props("iceberg.catalog.type", "hms", "hive.metastore.uris", "thrift://h",
                 "meta.cache.iceberg.table.enable", "maybe")).contains("is wrong"));
+    }
+
+    @Test
+    public void misspelledMetaCacheOptionRejectedThroughProvider() {
+        // The option must be known; an unknown entry stays accepted because a newer connector may read it.
+        Assertions.assertEquals(
+                "Unknown external meta cache property: meta.cache.iceberg.table.max-weigth",
+                rejectMessage(props("iceberg.catalog.type", "hms", "hive.metastore.uris", "thrift://h",
+                        "meta.cache.iceberg.table.max-weigth", "16MB")));
+        PROVIDER.validateProperties(props("iceberg.catalog.type", "hms", "hive.metastore.uris", "thrift://h",
+                "meta.cache.iceberg.schema.ttl-second", "0"));
     }
 
     @Test

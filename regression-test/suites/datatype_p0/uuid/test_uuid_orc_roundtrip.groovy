@@ -20,6 +20,9 @@ import java.nio.file.Paths
 
 // Checklist: G10 G11 G13 H08.
 suite("test_uuid_orc_roundtrip") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
     if (!getFeConfig("enable_outfile_to_local").equalsIgnoreCase("true")) {
         logger.warn("Please set enable_outfile_to_local to true to run test_uuid_orc_roundtrip")
         return

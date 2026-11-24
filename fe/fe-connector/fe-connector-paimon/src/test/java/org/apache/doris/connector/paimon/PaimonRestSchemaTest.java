@@ -30,8 +30,8 @@ import org.apache.paimon.options.Options;
 import org.apache.paimon.predicate.PredicateBuilder;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.rest.RESTCatalog;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
@@ -267,7 +267,7 @@ class PaimonRestSchemaTest {
         TableSchema fields = TableSchema.create(0L, schema);
         TableSchema persisted = new TableSchema(fields.version(), 0L, fields.fields(), fields.highestFieldId(),
                 fields.partitionKeys(), fields.primaryKeys(), fields.options(), fields.comment(), 1000L);
-        Assertions.assertTrue(new SchemaManager(io, location).commit(persisted));
+        Assertions.assertTrue(new FileSystemSchemaManager(io, location).commit(persisted));
         return FileStoreTableFactory.create(io, location, persisted);
     }
 
@@ -298,7 +298,7 @@ class PaimonRestSchemaTest {
         // Older schema formats and removed field IDs are also absent from REST's Schema payload.
         TableSchema persisted = new TableSchema(TableSchema.PAIMON_07_VERSION, 0L, fields.fields(), 10,
                 fields.partitionKeys(), fields.primaryKeys(), fields.options(), fields.comment(), creationTime);
-        Assertions.assertTrue(new SchemaManager(io, location).commit(persisted));
+        Assertions.assertTrue(new FileSystemSchemaManager(io, location).commit(persisted));
         return FileStoreTableFactory.create(io, location, persisted);
     }
 

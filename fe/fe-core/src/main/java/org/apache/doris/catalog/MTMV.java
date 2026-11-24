@@ -56,7 +56,11 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmInfo;
+import org.apache.doris.mtmv.ivm.IvmPlanSignature;
+import org.apache.doris.mtmv.ivm.IvmRefreshMethod;
+import org.apache.doris.mtmv.ivm.IvmRefreshSummary;
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.mtmv.ivm.agg.IvmAggStateKey;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.persist.AlterMTMV;
@@ -80,6 +84,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -111,7 +116,7 @@ public class MTMV extends OlapTable {
     @SerializedName("rs")
     private MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
     @SerializedName("ii")
-    private IvmInfo ivmInfo = new IvmInfo();
+    private volatile IvmInfo ivmInfo = new IvmInfo();
     /**
      * The refresh epoch of every MV partition, keyed by MV partition name.
      *
@@ -126,6 +131,10 @@ public class MTMV extends OlapTable {
      */
     @SerializedName("pst")
     private Map<String, MTMVPartitionState> partitionStates = Maps.newLinkedHashMap();
+    // What the refresh tasks of an IVM MV have come to; updated with each task result, see addTaskResult. An MV
+    // that is not an IVM MV leaves it empty.
+    @SerializedName("irs")
+    private IvmRefreshSummary ivmRefreshSummary = new IvmRefreshSummary();
     // Increased every time rewrite cache is invalidated to prevent publishing stale in-flight cache builds.
     private transient long rewriteCacheGeneration;
     private long schemaChangeVersion;
@@ -158,17 +167,6 @@ public class MTMV extends OlapTable {
         this.refreshSnapshot = new MTMVRefreshSnapshot();
         this.ivmInfo = new IvmInfo();
         this.ivmInfo.setEnableIvm(params.enableIvm);
-        if (params.enableIvm) {
-            // The unique-key model pins the layout its refresh reads down by a signature, so an MV of that
-            // model without one is a bug in the create path. An append-only detail MV publishes none: its
-            // refresh reads no layout, and it has no sequence column for a signature to order either.
-            if (params.keysType != KeysType.DUP_KEYS) {
-                if (params.ivmPlanSignature == null) {
-                    throw new IllegalArgumentException("IVM materialized view requires a plan signature");
-                }
-                this.ivmInfo.setPlanSignature(params.ivmPlanSignature);
-            }
-        }
         this.envInfo = new EnvInfo(-1L, -1L);
         this.sessionVariables = params.sessionVariables;
         mvRwLock = new ReentrantReadWriteLock(true);
@@ -223,13 +221,25 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public MTMVRefreshInfo alterRefreshInfo(MTMVRefreshInfo newRefreshInfo) {
+    /**
+     * Applies an ALTER_REFRESH_INFO op and journals it under one MV write lock, so that the record
+     * order is the order the change took effect in (see {@link #submitAlterLog}). The journal write
+     * itself is awaited by the caller after the lock is released.
+     *
+     * @return the pending journal entry, or null on replay (which has nothing to record)
+     */
+    public EditLogItem alterRefreshInfo(AlterMTMV alterMTMV, boolean isReplay) {
+        EditLogItem editLogItem = null;
         writeMvLock();
         try {
-            return refreshInfo.updateNotNull(newRefreshInfo);
+            refreshInfo.updateNotNull(alterMTMV.getRefreshInfo());
+            if (!isReplay) {
+                editLogItem = submitAlterLog(alterMTMV);
+            }
         } finally {
             writeMvUnlock();
         }
+        return editLogItem;
     }
 
     /**
@@ -238,8 +248,8 @@ public class MTMV extends OlapTable {
      * the transparent rewrite serving rows from it.
      *
      * <p>This is the step that <em>applies</em> a change, not the one that records it -- it takes the MV
-     * lock and moves all three, but nothing here is journaled. It is what {@code Alter#processAlterMTMV}
-     * calls for an {@code ALTER_STATUS} op, both live and on replay; a live caller reaches it through
+     * lock and moves all three, but nothing here is journaled. {@code Alter#processAlterMTMV} uses the
+     * overload that journals under the same lock; a live invalidation reaches it through
      * {@link #invalidateWholeMv}, which goes the journaled way round. A new invalidation belongs there:
      * calling this directly would leave the MV in a state a restart forgets. The one caller that goes
      * direct is {@link #processBaseViewChange}, and it is not new: the alter or the drop of the view is
@@ -252,13 +262,41 @@ public class MTMV extends OlapTable {
     public MTMVStatus alterStatus(MTMVStatus newStatus) {
         writeMvLock();
         try {
-            // only can update state, refresh state will be change by add task
-            this.schemaChangeVersion++;
-            this.refreshSnapshot = new MTMVRefreshSnapshot();
-            return this.status.updateStateAndDetail(newStatus);
+            return applyStatus(newStatus);
         } finally {
             writeMvUnlock();
         }
+    }
+
+    /**
+     * Applies an ALTER_STATUS op and journals it under one MV write lock. An ALTER_STATUS is applied
+     * together with what it stands for -- the version bump and the snapshot drop -- and the record has
+     * to describe that same step, not a later one: a result journaled in between would be replayed on
+     * either side of it.
+     *
+     * @return the pending journal entry, or null on replay (which has nothing to record)
+     */
+    public EditLogItem alterStatus(AlterMTMV alterMTMV, boolean isReplay) {
+        EditLogItem editLogItem = null;
+        writeMvLock();
+        try {
+            applyStatus(alterMTMV.getStatus());
+            if (!isReplay) {
+                editLogItem = submitAlterLog(alterMTMV);
+            }
+        } finally {
+            writeMvUnlock();
+        }
+        return editLogItem;
+    }
+
+    // Assumes the MV write lock is held.
+    private MTMVStatus applyStatus(MTMVStatus newStatus) {
+        // only can update state, refresh state will be change by add task
+        this.schemaChangeVersion++;
+        this.refreshSnapshot = new MTMVRefreshSnapshot();
+        invalidateRewriteCache();
+        return this.status.updateStateAndDetail(newStatus);
     }
 
     /**
@@ -278,6 +316,19 @@ public class MTMV extends OlapTable {
 
     public boolean isIvm() {
         return getIvmInfo().isEnableIvm();
+    }
+
+    /**
+     * Whether a refresh task of this IVM MV has ever succeeded. Until one has, the MV has no baseline for the
+     * incremental refresh to keep up, and the refresh that builds it is not the incremental refresh falling back.
+     */
+    public boolean hasSucceededIvmRefresh() {
+        readMvLock();
+        try {
+            return ivmRefreshSummary.hasSucceeded();
+        } finally {
+            readMvUnlock();
+        }
     }
 
     /**
@@ -315,6 +366,7 @@ public class MTMV extends OlapTable {
 
     public boolean addTaskResult(AlterMTMV alterMTMV, boolean isReplay) {
         MTMVTask task = alterMTMV.getTask();
+        IvmPlanSignature refreshedIvmPlanSignature = task.takeRefreshedIvmPlanSignature();
         MTMVRelation relation = alterMTMV.getRelation();
         Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = alterMTMV.getPartitionSnapshots();
         MTMVCache mtmvCacheWithGuard = null;
@@ -387,36 +439,28 @@ public class MTMV extends OlapTable {
                     applyRefreshedEpochs(capturedEpochs);
                 }
             }
+            boolean publishCache = false;
             if (task.getStatus() == TaskStatus.SUCCESS) {
+                publishCache = needUpdateCache && cacheGeneration == rewriteCacheGeneration && !isDropped;
+                // A successful refresh can restore a changed definition, including after several
+                // partial refreshes. Discard caches and builds from the previous snapshot coverage.
+                invalidateRewriteCache();
                 this.status.setState(MTMVState.NORMAL);
                 this.status.setSchemaChangeDetail(null);
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
                 this.relation = relation;
-                if (!isReplay && ivmInfo.isEnableIvm()) {
-                    String refreshedIvmPlanSignature = task.getRefreshedIvmPlanSignature();
-                    if (refreshedIvmPlanSignature != null) {
-                        ivmInfo.setPlanSignature(refreshedIvmPlanSignature);
-                    }
-                }
-                // The refresh publishes a new plan, so every cache built before this commit is stale.
-                // Bump before publishing so an in-flight build cannot pass its generation check later.
-                boolean publishCache = needUpdateCache && cacheGeneration == rewriteCacheGeneration && !isDropped;
-                rewriteCacheGeneration++;
-                if (needUpdateCache) {
-                    MTMVCacheManager manager = Env.getCurrentEnv().getMtmvCacheManager();
-                    if (publishCache && mtmvCacheWithGuard != null) {
-                        manager.put(this.id, true, mtmvCacheWithGuard);
-                    } else {
-                        manager.invalidate(this.id);
-                    }
-                    if (publishCache && mtmvCacheWithoutGuard != null) {
-                        manager.put(this.id, false, mtmvCacheWithoutGuard);
-                    }
+                if (!isReplay && ivmInfo.isEnableIvm() && refreshedIvmPlanSignature != null) {
+                    updateIvmPlanSignature(refreshedIvmPlanSignature, task.getTaskId(), IvmRefreshMethod.COMPLETE);
                 }
             } else {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
             }
             this.jobInfo.addHistoryTask(task);
+            if (ivmInfo.isEnableIvm()) {
+                // From the task as the journal carries it, here and in the replay alike, so that the summary does
+                // not depend on how many tasks the history keeps and a follower that takes over has the same one.
+                ivmRefreshSummary.update(task);
+            }
             compatiblePctSnapshot(partitionSnapshots);
             // What this task wrote is described by the epochs just recorded, so a partition the result
             // left dirty is left out: its snapshot would otherwise come back after an invalidation
@@ -426,6 +470,17 @@ public class MTMV extends OlapTable {
                 snapshotsToWrite = snapshotsOfCleanPartitions(partitionSnapshots);
             }
             this.refreshSnapshot.updateSnapshots(snapshotsToWrite, getPartitionNames());
+            if (publishCache) {
+                // Publish only after the refreshed partitions have been recorded. A partial
+                // refresh may restore NORMAL while other partitions still use the old definition.
+                MTMVCacheManager manager = Env.getCurrentEnv().getMtmvCacheManager();
+                if (mtmvCacheWithGuard != null) {
+                    manager.put(this.id, true, cacheWithValidOutputPredicates(mtmvCacheWithGuard));
+                }
+                if (mtmvCacheWithoutGuard != null) {
+                    manager.put(this.id, false, cacheWithValidOutputPredicates(mtmvCacheWithoutGuard));
+                }
+            }
             Env.getCurrentEnv().getMtmvService()
                     .refreshComplete(this, relation, task);
             if (isReplay) {
@@ -468,6 +523,7 @@ public class MTMV extends OlapTable {
             Map<TableNameInfo, Integer> oldWindowLimits =
                     MTMVPropertyUtil.getIvmPartitionWindowLimit(this.mvProperties);
             Map<String, String> oldSyncWindow = MTMVPropertyUtil.partitionSyncWindowOf(this.mvProperties);
+            Long oldMinMaxTopK = MTMVPropertyUtil.getIvmMinMaxTopK(this.mvProperties).orElse(null);
             this.mvProperties.putAll(mvProperties);
             // The one thing a property change can owe the refresh baseline: a whole-MV rebuild, when it
             // brings base table partitions back into the set the MV maintains. Their stream backlog was
@@ -489,7 +545,7 @@ public class MTMV extends OlapTable {
                 // property record never carried a snapshot.
                 return;
             }
-            if (rebuildsWholeMv(oldExcludedTriggerTables, oldWindowLimits, oldSyncWindow)) {
+            if (rebuildsWholeMv(oldExcludedTriggerTables, oldWindowLimits, oldSyncWindow, oldMinMaxTopK)) {
                 // Journaled on its own record, ahead of the property change below; a replay applies both
                 // in that order. Submitted here and awaited below, outside the lock: the order is the
                 // enqueue order, which the lock already fixes, so there is nothing to gain by holding the
@@ -516,15 +572,41 @@ public class MTMV extends OlapTable {
      * backlog was skipped.
      */
     private boolean rebuildsWholeMv(Set<TableNameInfo> oldExcludedTriggerTables,
-            Map<TableNameInfo, Integer> oldWindowLimits, Map<String, String> oldSyncWindow) {
-        // Judged once here rather than in each of the three: they answer "did this property move in the
+            Map<TableNameInfo, Integer> oldWindowLimits, Map<String, String> oldSyncWindow,
+            Long oldMinMaxTopK) {
+        // Judged once here rather than in each of the four: they answer "did this property move in the
         // direction that owes a rebuild", which is only a question an MV maintaining an IVM baseline has.
         if (!maintainsIvmBaseline()) {
             return false;
         }
-        return unexcludesABaseTable(oldExcludedTriggerTables)
+        // The persisted MIN/MAX state was built for the old capacity. A larger K needs values the old
+        // state already dropped; a smaller one would keep entries the new apply never produces. Either
+        // direction makes the state unreadable, so any change rebuilds the whole MV -- but only when
+        // the MV actually keeps that state: an aggregate MV without MIN/MAX, or a detail MV, has
+        // nothing for the property to describe.
+        boolean minMaxTopKChanged = !Objects.equals(oldMinMaxTopK,
+                MTMVPropertyUtil.getIvmMinMaxTopK(this.mvProperties).orElse(null));
+        return (minMaxTopKChanged && keepsMinMaxTopKState())
+                || unexcludesABaseTable(oldExcludedTriggerTables)
                 || widensPartitionWindowLimit(oldWindowLimits)
                 || widensSyncWindow(oldSyncWindow);
+    }
+
+    /**
+     * Whether this MV keeps a MIN/MAX top-K state, i.e. it is an aggregate MV containing MIN or MAX
+     * that IVM normalized. The state lives in hidden columns named after its state key, so the MV's
+     * own schema answers the question without re-analyzing the query; a detail MV and an aggregate
+     * MV without MIN/MAX have none of them.
+     */
+    private boolean keepsMinMaxTopKState() {
+        for (Column column : getColumns()) {
+            if (IvmUtil.isIvmAggStateColumn(column.getName(), IvmAggStateKey.MIN_TOPK.name())
+                    || IvmUtil.isIvmAggStateColumn(column.getName(),
+                            IvmAggStateKey.MAX_TOPK.name())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -617,6 +699,24 @@ public class MTMV extends OlapTable {
         }
     }
 
+    /**
+     * The compute group explicitly declared on this MV, empty when the user did not declare one.
+     * An empty result keeps the existing implicit resolution (admin's group for auto refresh,
+     * the session's group for a manual REFRESH).
+     */
+    public Optional<String> getComputeGroup() {
+        readMvLock();
+        try {
+            if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP) && !StringUtils
+                    .isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP))) {
+                return Optional.of(mvProperties.get(PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP));
+            }
+            return Optional.empty();
+        } finally {
+            readMvUnlock();
+        }
+    }
+
     public boolean isUseForRewrite() {
         readMvLock();
         try {
@@ -687,11 +787,11 @@ public class MTMV extends OlapTable {
             MTMVCache cached;
             readMvLock();
             try {
+                cacheGeneration = rewriteCacheGeneration;
                 cached = manager.isEnabled() ? manager.getIfPresent(this.id, guarded) : null;
                 if (cached == null && statementContext != null) {
-                    cached = statementContext.getQueryLocalMtmvCache(this.id, guarded);
+                    cached = statementContext.getQueryLocalMtmvCache(this.id, guarded, cacheGeneration);
                 }
-                cacheGeneration = rewriteCacheGeneration;
             } finally {
                 readMvUnlock();
             }
@@ -705,23 +805,24 @@ public class MTMV extends OlapTable {
                     // Someone invalidated between our snapshot and now; drop the stale build and retry.
                     continue;
                 }
+                MTMVCache published = cacheWithValidOutputPredicates(generated);
                 if (manager.isEnabled()) {
                     MTMVCache existing = manager.getIfPresent(this.id, guarded);
                     if (existing != null) {
                         return existing;
                     }
                     if (!isDropped) {
-                        manager.put(this.id, guarded, generated);
+                        manager.put(this.id, guarded, published);
                     }
                 } else if (statementContext != null && !isDropped) {
                     // Global cache is disabled (maximumSize=0); keep one copy for this statement only.
-                    MTMVCache existing = statementContext.getQueryLocalMtmvCache(this.id, guarded);
+                    MTMVCache existing = statementContext.getQueryLocalMtmvCache(this.id, guarded, cacheGeneration);
                     if (existing != null) {
                         return existing;
                     }
-                    statementContext.putQueryLocalMtmvCache(this.id, guarded, generated);
+                    statementContext.putQueryLocalMtmvCache(this.id, guarded, cacheGeneration, published);
                 }
-                return generated;
+                return published;
             } finally {
                 readMvUnlock();
             }
@@ -757,16 +858,21 @@ public class MTMV extends OlapTable {
         }
     }
 
+    /**
+     * The MV's IVM metadata, readable without the MV lock.
+     *
+     * <p>{@code isIvm()} is on the query path, and what it reads is fixed for the MV's lifetime:
+     * {@code enableIvm} is decided at CREATE and no ALTER path changes it. The rest of the payload is
+     * touched only by the refresh of this MV -- the sequence prefix is read when a refresh plans and
+     * advanced when its transaction commits, and the refresh publishes the layout signature after
+     * writing data. One MV's tasks run one at a time under its job's write lock (see
+     * {@code MTMVTask#runTask}).
+     *
+     * <p>Never null: the field is created with the MV, and {@link #gsonPostProcess} covers an image
+     * that carries it as null.
+     */
     public IvmInfo getIvmInfo() {
-        writeMvLock();
-        try {
-            if (ivmInfo == null) {
-                ivmInfo = new IvmInfo();
-            }
-            return ivmInfo;
-        } finally {
-            writeMvUnlock();
-        }
+        return ivmInfo;
     }
 
     // ALTER_IVM_INFO replay applies a detached snapshot here. Live IVM changes submit their journal
@@ -1116,7 +1222,7 @@ public class MTMV extends OlapTable {
         }
         if (!affectedMvPartitions.isPresent()) {
             // A narrower rebuild could leave a partition holding rows of the changed base partition
-            // untouched, and those rows cannot be repaired later: the change emitted no row binlog. The
+            // untouched, and those rows cannot be repaired later: the change emitted no changelog. The
             // whole MV is invalidated instead, which says "every partition, including the ones partition
             // sync has not created yet" -- what a per-partition requirement cannot express.
             invalidateWholeMv(reason).await();
@@ -1184,7 +1290,7 @@ public class MTMV extends OlapTable {
      * bound that is allowed to lag: a base partition that was added after the snapshot was captured never
      * appears in it, so it can report "this partition never read the changed base partition" about a
      * partition that does hold its rows. Missing a partition here is not repaired by a later refresh --
-     * dropping or truncating a base partition emits no row binlog, so the incremental path never learns
+     * dropping or truncating a base partition emits no changelog, so the incremental path never learns
      * about those orphan rows and they stay in the MV forever.
      *
      * <p>Three cases have no answer in the mapping, and each of them must rebuild the whole MV instead:
@@ -1250,7 +1356,7 @@ public class MTMV extends OlapTable {
             // PARTITION reports the recycled partition under its old name, and a partition added after
             // the drop may be live under that name again, with a different range. Matching on the name
             // alone would accept that replacement, select the MV partitions of its range, and leave the
-            // recovered range -- whose rows no row binlog can repair -- without a barrier. The lookup is
+            // recovered range -- whose rows no changelog can repair -- without a barrier. The lookup is
             // by exact name, so a name that only differs in case takes the whole-MV path too. Base tables
             // that do not implement getPartition -- the external ones -- answer null for every name, so a
             // partition change on them always rebuilds the whole MV. That matches what the
@@ -1361,6 +1467,33 @@ public class MTMV extends OlapTable {
             return null;
         }
         return null;
+    }
+
+    /**
+     * Pins the layout on the first committed write. Publish it before any subsequent partition batch
+     * or delta attempt, since successful writes survive a later failure in the same refresh task.
+     */
+    public void initializeIvmPlanSignature(IvmPlanSignature signature, long expectedSchemaChangeVersion,
+            long taskId, IvmRefreshMethod method) {
+        EditLogItem editLogItem;
+        writeMvLock();
+        try {
+            if (schemaChangeVersion != expectedSchemaChangeVersion || ivmInfo.getPlanSignature() != null) {
+                return;
+            }
+            updateIvmPlanSignature(signature, taskId, method);
+            editLogItem = submitIvmInfoChange();
+        } finally {
+            writeMvUnlock();
+        }
+        editLogItem.await();
+    }
+
+    private void updateIvmPlanSignature(IvmPlanSignature signature, long taskId, IvmRefreshMethod method) {
+        ivmInfo.setPlanSignature(signature.getSha256());
+        LOG.info("Updated IVM layout signature, mv={}, taskId={}, method={}, plan={}, canonicalString={}, sha256={}",
+                getName(), taskId, method, signature.getPlanTree(), signature.getCanonicalString(),
+                signature.getSha256());
     }
 
     private EditLogItem submitIvmInfoChange() {
@@ -1725,6 +1858,16 @@ public class MTMV extends OlapTable {
         this.mvRwLock.writeLock().unlock();
     }
 
+    private MTMVCache cacheWithValidOutputPredicates(MTMVCache cache) {
+        // A cache built from the current definition can prove facts about stored rows only after
+        // every partition has been refreshed. Callers hold the MV lock while publishing it.
+        if (status.getState() == MTMVState.SCHEMA_CHANGE
+                || !refreshSnapshot.getPartitionSnapshots().keySet().containsAll(getPartitionNames())) {
+            return cache.withoutOutputPredicates();
+        }
+        return cache;
+    }
+
     // toString() is not easy to find where to call the method
     public String toInfoString() {
         final StringBuilder sb = new StringBuilder("MTMV{");
@@ -1762,8 +1905,8 @@ public class MTMV extends OlapTable {
             Env.getCurrentEnv().getMtmvService().registerMTMV(this, this.getDatabase().getId());
         } catch (Throwable e) {
             LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getDBName(), name, e.getMessage());
-            status.setState(MTMVState.SCHEMA_CHANGE);
-            status.setSchemaChangeDetail("compatible failed, please refresh or recreate it, reason: " + e.getMessage());
+            alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE,
+                    "compatible failed, please refresh or recreate it, reason: " + e.getMessage()));
         }
     }
 
@@ -1796,8 +1939,8 @@ public class MTMV extends OlapTable {
         }
         if (refreshInfo != null && refreshInfo.getRefreshMethod() == null) {
             LOG.warn("MTMV {} has unknown refresh method, marking as schema change", name);
-            status.setState(MTMVState.SCHEMA_CHANGE);
-            status.setSchemaChangeDetail("Unknown refresh method detected during deserialization");
+            alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE,
+                    "Unknown refresh method detected during deserialization"));
         }
         Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = refreshSnapshot.getPartitionSnapshots();
         compatiblePctSnapshot(partitionSnapshots);

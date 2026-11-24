@@ -42,14 +42,14 @@ CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteReques
 
 CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteRequest& group_build_req,
                                    const WriteRequest& sub_data_req,
-                                   const WriteRequest& sub_row_binlog_req, RuntimeProfile* profile,
+                                   const WriteRequest& sub_changelog_req, RuntimeProfile* profile,
                                    const UniqueId& load_id)
         : BaseDeltaWriter(group_build_req, profile, load_id) {
     DCHECK(group_build_req.write_req_type == WriteRequestType::GROUP &&
            sub_data_req.write_req_type == WriteRequestType::DATA &&
-           sub_row_binlog_req.write_req_type == WriteRequestType::ROW_BINLOG);
+           sub_changelog_req.write_req_type == WriteRequestType::CHANGELOG);
     _rowset_builder = std::make_unique<CloudGroupRowsetBuilder>(
-            engine, group_build_req, sub_data_req, sub_row_binlog_req, profile);
+            engine, group_build_req, sub_data_req, sub_changelog_req, profile);
     _resource_ctx = thread_context()->resource_ctx();
 }
 
@@ -101,13 +101,14 @@ Status CloudDeltaWriter::write(const Block* block, const TabletAddRowsPayload& r
     CHECK(_is_init || _is_cancelled);
     {
         SCOPED_TIMER(_wait_flush_limit_timer);
-        auto* s3_file_upload_pool = rowset_builder()->is_s3_storage()
-                                            ? ExecEnv::GetInstance()->s3_file_upload_thread_pool()
-                                            : nullptr;
-        const auto need_backpressure = [this, s3_file_upload_pool] {
-            if (s3_file_upload_pool != nullptr) {
-                return s3_file_upload_pool->get_queue_size() >
-                       AdaptiveThreadPoolController::kS3QueueBusyThreshold;
+        auto* obj_storage_upload_pool =
+                rowset_builder()->uses_object_storage()
+                        ? ExecEnv::GetInstance()->obj_storage_upload_thread_pool()
+                        : nullptr;
+        const auto need_backpressure = [this, obj_storage_upload_pool] {
+            if (obj_storage_upload_pool != nullptr) {
+                return obj_storage_upload_pool->get_queue_size() >
+                       AdaptiveThreadPoolController::kUploadQueueBusyThreshold;
             }
             const auto effective_flush_running_count_limit =
                     config::memtable_flush_running_count_limit *

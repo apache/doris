@@ -21,8 +21,12 @@
 #include <cstdlib>
 #include <future>
 #include <limits>
+#include <list>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -44,6 +48,7 @@ namespace doris::snii::reader {
 
 struct LogicalIndexReader::NormsCacheState {
     struct Data {
+        // The dense section as read, or the sparse norms expanded to one byte per row.
         std::vector<uint8_t> bytes;
         format::NormsPodReader reader;
     };
@@ -51,6 +56,15 @@ struct LogicalIndexReader::NormsCacheState {
     std::mutex mutex;
     std::unique_ptr<Data> ready;
     std::shared_future<Status> in_flight;
+};
+
+// Exact lookup results of an on-demand dictionary, least recently used last.
+struct LogicalIndexReader::TermLookupCache {
+    using Kept = std::pair<std::string, BatchLookupResult>;
+
+    std::mutex mutex;
+    std::list<Kept> order;
+    std::unordered_map<std::string_view, std::list<Kept>::iterator> index;
 };
 
 using format::BlockRef;
@@ -70,9 +84,21 @@ constexpr uint64_t kDefaultDictResidentMaxBytes = 256ULL * 1024;
 constexpr size_t kMaxDictLookupBatchRuns = 16;
 constexpr uint64_t kMaxDictLookupBatchBytes = 4ULL * 1024 * 1024;
 // Conservatively covers make_shared's control block and allocator bookkeeping
-// for the state/data/vector allocations. The framed norms bytes are charged
-// separately at their exact validated length.
+// for the state/data/vector allocations. The loaded norms bytes are charged
+// separately: a dense section at its validated length, sparse norms at one
+// byte per row, the size they are expanded to.
 constexpr size_t kNormsAllocationOverheadCharge = 128;
+// The term lookup cache keeps at most this many terms per reader, each at most this long and with
+// at most this many bytes of inline postings, so its footprint has a fixed bound.
+constexpr size_t kTermLookupCacheTerms = 32;
+constexpr size_t kTermLookupMaxTermBytes = 64;
+constexpr size_t kTermLookupMaxInlineBytes = 256;
+// One kept term at those bounds: its list node (links and the key/result pair), its hash node and
+// bucket, the heap of the key and of the entry's term, the inline postings, and allocator
+// bookkeeping for each of those allocations.
+constexpr size_t kTermLookupEntryCharge =
+        sizeof(std::pair<std::string, LogicalIndexReader::BatchLookupResult>) + 2 * sizeof(void*) +
+        64 + 2 * (kTermLookupMaxTermBytes + 1) + kTermLookupMaxInlineBytes + 6 * 16;
 
 // L0/L1 tiering threshold (bytes). Defaults to kBsbfResidentMaxBytes; the env
 // SNII_BSBF_RESIDENT_MAX overrides it for tuning and for exercising the
@@ -124,10 +150,7 @@ Status validate_norms_region(io::FileReader* reader, const RegionRef& norms, uin
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "logical_index: norms doc count exceeds uint32");
     }
-    const uint64_t payload_length = varint_len(doc_count) + doc_count;
-    const uint64_t expected_length =
-            1 + varint_len(payload_length) + payload_length + sizeof(uint32_t);
-    if (norms.length != expected_length) {
+    if (norms.length != format::NormsPodWriter::dense_section_size(doc_count)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "logical_index: norms region length mismatch");
     }
@@ -136,6 +159,36 @@ Status validate_norms_region(io::FileReader* reader, const RegionRef& norms, uin
                 "logical_index: norms region exceeds cache charge bounds");
     }
     *length = static_cast<size_t>(norms.length);
+    return Status::OK();
+}
+
+// Opening an index reads no norm bytes, so this checks only what the core metadata fixes: a sparse
+// section holds one byte per non-NULL row, or one byte that all of them share.
+Status validate_sparse_norms_region(io::FileReader* reader, const RegionRef& norms,
+                                    uint64_t doc_count, uint64_t null_count) {
+    if (norms.length == 0) {
+        return Status::OK();
+    }
+    const uint64_t file_size = reader->size();
+    if (norms.offset > file_size || norms.length > file_size - norms.offset) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: sparse norms region past end of file");
+    }
+    if (doc_count > std::numeric_limits<uint32_t>::max() || null_count > doc_count) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: sparse norms doc count {} with {} NULL rows", doc_count,
+                null_count);
+    }
+    const uint64_t value_count = doc_count - null_count;
+    const bool one_byte_per_row = norms.length == format::NormsPodWriter::sparse_section_size(
+                                                          doc_count, value_count, false);
+    const bool shared_byte =
+            value_count != 0 && norms.length == format::NormsPodWriter::sparse_section_size(
+                                                        doc_count, value_count, true);
+    if (!one_byte_per_row && !shared_byte) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: sparse norms region length mismatch");
+    }
     return Status::OK();
 }
 
@@ -382,19 +435,7 @@ Status LogicalIndexReader::dict_block_reader_for_ordinal(
 }
 
 Status LogicalIndexReader::load_resident_bsbf() {
-    // Block-split bloom XFilter -- gated on RESIDENCY (P1 cold-read fix, see
-    // docs/perf/P1-cold-read-amplification.md). The bloom is set up and used ONLY
-    // when the whole (small) filter fits under the resident cap: it is read in
-    // full, verified, and kept in memory so probes are in-memory and enter the
-    // Doris searcher cache with the rest of the logical-index metadata.
-    //
-    // When NON-resident (the common case for a real text column, where the filter
-    // is many MB) the bloom is skipped ENTIRELY: not even the 28B header is read,
-    // and has_bsbf_ stays false. Every term then falls through to sti -> dict,
-    // which yields the true found/absent. At 1 MiB cache-block granularity a
-    // non-resident bloom never saves a physical block (an absent term still costs
-    // one dict block either way), so its 28B header + per-term 32B probes were pure
-    // cold read amplification.
+    // Load and use the bloom filter only when it fits the resident metadata cap. Larger filters are skipped so cold lookups proceed directly through the sampled term index and DICT blocks.
     const RegionRef& bsbf = core_.section_refs.bsbf;
     if (open_mode_ != LogicalIndexOpenMode::kQuery || bsbf.length == 0 ||
         bsbf.length > bsbf_resident_max_bytes()) {
@@ -453,14 +494,22 @@ Status LogicalIndexReader::open(io::FileReader* file_reader, Slice core_frame, S
     size_t norms_length = 0;
     RETURN_IF_ERROR(validate_norms_region(file_reader, candidate.core_.section_refs.norms,
                                           candidate.core_.stats.doc_count, &norms_length));
-    if (norms_length != 0) {
+    RETURN_IF_ERROR(validate_sparse_norms_region(
+            file_reader, candidate.core_.section_refs.sparse_norms, candidate.core_.stats.doc_count,
+            candidate.core_.stats.null_count));
+    if (candidate.has_norms()) {
+        // Dense norms stay in memory as the section read; sparse norms are expanded to one byte
+        // per row, which can be far more than their section on disk.
+        const size_t loaded_bytes = norms_length != 0
+                                            ? norms_length
+                                            : static_cast<size_t>(candidate.core_.stats.doc_count);
         constexpr size_t fixed_charge = sizeof(NormsCacheState) + sizeof(NormsCacheState::Data) +
                                         kNormsAllocationOverheadCharge;
-        if (norms_length > std::numeric_limits<size_t>::max() - fixed_charge) {
+        if (loaded_bytes > std::numeric_limits<size_t>::max() - fixed_charge) {
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                     "logical_index: norms cache charge overflow");
         }
-        candidate.norms_reserved_charge_ = fixed_charge + norms_length;
+        candidate.norms_reserved_charge_ = fixed_charge + loaded_bytes;
         candidate.norms_cache_ = std::make_shared<NormsCacheState>();
     }
     // Raw frames alias the group read and compressed carriers materialize into
@@ -500,6 +549,10 @@ size_t LogicalIndexReader::memory_usage() const {
     for (const auto& block : resident_dict_blocks_) {
         bytes += sizeof(block) + block.bytes.capacity() + block.reader.heap_bytes();
     }
+    // The term lookup cache fills lazily as well, so its bounded footprint is reserved in full.
+    if (term_lookups_ != nullptr) {
+        bytes += sizeof(TermLookupCache) + kTermLookupCacheTerms * kTermLookupEntryCharge;
+    }
     // Norms are loaded lazily, but the searcher-cache charge is fixed when this
     // reader is inserted. Reserve their complete framed size and heap state up
     // front so later allocation is already accounted for. Saturation prevents
@@ -520,6 +573,12 @@ size_t LogicalIndexReader::memory_usage() const {
     return bytes;
 }
 
+void LogicalIndexReader::enable_term_lookup_cache() {
+    if (resident_dict_blocks_.empty() && dbd_.n_blocks() != 0) {
+        term_lookups_ = std::make_shared<TermLookupCache>();
+    }
+}
+
 Status LogicalIndexReader::open_norms(format::NormsPodReader* out) const {
     if (out == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
@@ -528,8 +587,7 @@ Status LogicalIndexReader::open_norms(format::NormsPodReader* out) const {
     if (reader_ == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("logical_index: not opened");
     }
-    const RegionRef& norms = section_refs().norms;
-    if (norms.length == 0) {
+    if (!has_norms()) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "logical_index: index has no norms");
     }
@@ -562,15 +620,9 @@ Status LogicalIndexReader::open_norms(format::NormsPodReader* out) const {
     }
 
     auto data = std::make_unique<NormsCacheState::Data>();
-    const size_t read_len = static_cast<size_t>(norms.length);
-    Status status = reader_->read_at(norms.offset, read_len, &data->bytes);
-    if (status.ok() && data->bytes.size() != read_len) {
-        status = Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "logical_index: short norms read");
-    }
-    if (status.ok()) {
-        status = format::NormsPodReader::open(Slice(data->bytes), &data->reader);
-    }
+    Status status = section_refs().sparse_norms.length != 0
+                            ? read_sparse_norms(&data->bytes, &data->reader)
+                            : read_dense_norms(&data->bytes, &data->reader);
     {
         std::lock_guard lock(norms_cache_->mutex);
         if (status.ok()) {
@@ -581,6 +633,37 @@ Status LogicalIndexReader::open_norms(format::NormsPodReader* out) const {
     }
     completion->set_value(status);
     return status;
+}
+
+Status LogicalIndexReader::read_dense_norms(std::vector<uint8_t>* bytes,
+                                            format::NormsPodReader* out) const {
+    const RegionRef& norms = section_refs().norms;
+    const auto read_len = static_cast<size_t>(norms.length);
+    RETURN_IF_ERROR(reader_->read_at(norms.offset, read_len, bytes));
+    if (bytes->size() != read_len) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: short norms read");
+    }
+    return format::NormsPodReader::open(Slice(*bytes), out);
+}
+
+Status LogicalIndexReader::read_sparse_norms(std::vector<uint8_t>* dense,
+                                             format::NormsPodReader* out) const {
+    const RegionRef& norms = section_refs().sparse_norms;
+    const auto read_len = static_cast<size_t>(norms.length);
+    std::vector<uint8_t> section;
+    RETURN_IF_ERROR(reader_->read_at(norms.offset, read_len, &section));
+    if (section.size() != read_len) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: short sparse norms read");
+    }
+    format::NullBitmapReader nulls;
+    bool has_nulls = false;
+    RETURN_IF_ERROR(open_null_bitmap(NullDocidsDecodeReservation(), &nulls, &has_nulls));
+    // Validated against uint32 when the index was opened.
+    const auto doc_count = static_cast<uint32_t>(stats().doc_count);
+    return format::NormsPodReader::open_sparse(Slice(section), doc_count,
+                                               has_nulls ? &nulls : nullptr, dense, out);
 }
 
 void LogicalIndexReader::release_compaction_norms() const {
@@ -602,6 +685,27 @@ Status LogicalIndexReader::read_null_docids(
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("logical_index: not opened");
     }
 
+    format::NullBitmapReader null_bitmap_reader;
+    bool present = false;
+    RETURN_IF_ERROR(open_null_bitmap(reserve_decode, &null_bitmap_reader, &present));
+    if (!present) {
+        return Status::OK();
+    }
+    out->reserve(null_bitmap_reader.null_count());
+    null_bitmap_reader.append_docids(*out);
+    for (uint32_t docid : *out) {
+        if (docid >= stats().doc_count) {
+            out->clear();
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "logical_index: null docid outside document domain");
+        }
+    }
+    return Status::OK();
+}
+
+Status LogicalIndexReader::open_null_bitmap(const NullDocidsDecodeReservation& reserve_decode,
+                                            format::NullBitmapReader* out, bool* present) const {
+    *present = false;
     const RegionRef& ref = section_refs().null_bitmap;
     if (ref.length == 0) {
         if (stats().null_count != 0) {
@@ -634,26 +738,16 @@ Status LogicalIndexReader::read_null_docids(
         RETURN_IF_ERROR(reserve_decode(decoded_memory_bytes));
     }
 
-    format::NullBitmapReader null_bitmap_reader;
-    RETURN_IF_ERROR(format::NullBitmapReader::open(Slice(bytes), &null_bitmap_reader));
-    if (null_bitmap_reader.doc_count() != stats().doc_count) {
+    RETURN_IF_ERROR(format::NullBitmapReader::open(Slice(bytes), out));
+    if (out->doc_count() != stats().doc_count) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "logical_index: null bitmap doc count mismatch");
     }
-    if (null_bitmap_reader.null_count() != stats().null_count) {
+    if (out->null_count() != stats().null_count) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "logical_index: null bitmap cardinality mismatch");
     }
-
-    out->reserve(null_bitmap_reader.null_count());
-    null_bitmap_reader.append_docids(*out);
-    for (uint32_t docid : *out) {
-        if (docid >= stats().doc_count) {
-            out->clear();
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                    "logical_index: null docid outside document domain");
-        }
-    }
+    *present = true;
     return Status::OK();
 }
 
@@ -704,6 +798,18 @@ Status LogicalIndexReader::lookup(std::string_view term, bool* found, DictEntry*
     if (!maybe) {
         return Status::OK();
     }
+    if (term_lookups_ != nullptr) {
+        BatchLookupResult kept;
+        if (find_kept_lookup(term, &kept)) {
+            *found = kept.found;
+            if (kept.found) {
+                *entry = std::move(kept.entry);
+                *frq_base = kept.frq_base;
+                *prx_base = kept.prx_base;
+            }
+            return Status::OK();
+        }
+    }
 
     // Use a resident small-DICT block when present; otherwise read the DICT
     // block on demand and parse it with the same validation path used at open.
@@ -714,14 +820,66 @@ Status LogicalIndexReader::lookup(std::string_view term, bool* found, DictEntry*
 
     bool hit = false;
     RETURN_IF_ERROR(br->find_term(term, &hit, entry));
-    if (!hit) {
-        return Status::OK();
+    if (hit) {
+        *found = true;
+        *frq_base = br->frq_base();
+        *prx_base = br->prx_base();
     }
-
-    *found = true;
-    *frq_base = br->frq_base();
-    *prx_base = br->prx_base();
+    keep_lookup(term, hit, *entry, br->frq_base(), br->prx_base());
     return Status::OK();
+}
+
+bool LogicalIndexReader::find_kept_lookup(std::string_view term, BatchLookupResult* out) const {
+    TermLookupCache& cache = *term_lookups_;
+    std::lock_guard lock(cache.mutex);
+    const auto it = cache.index.find(term);
+    if (it == cache.index.end()) {
+        return false;
+    }
+    cache.order.splice(cache.order.begin(), cache.order, it->second);
+    *out = it->second->second;
+    return true;
+}
+
+void LogicalIndexReader::keep_lookup(std::string_view term, bool found, const DictEntry& entry,
+                                     uint64_t frq_base, uint64_t prx_base) const {
+    // Within these bounds the charge memory_usage() reserved covers the cache at its fullest.
+    if (term_lookups_ == nullptr || term.size() > kTermLookupMaxTermBytes ||
+        (found && (entry.term.size() > kTermLookupMaxTermBytes ||
+                   entry.frq_bytes.size() + entry.prx_bytes.size() > kTermLookupMaxInlineBytes))) {
+        return;
+    }
+    BatchLookupResult result;
+    if (found) {
+        result.found = true;
+        result.entry = entry;
+        result.frq_base = frq_base;
+        result.prx_base = prx_base;
+    }
+    TermLookupCache& cache = *term_lookups_;
+    std::lock_guard lock(cache.mutex);
+    if (cache.index.contains(term)) {
+        return;
+    }
+    cache.order.emplace_front(std::string(term), std::move(result));
+    cache.index.emplace(cache.order.front().first, cache.order.begin());
+    if (cache.order.size() > kTermLookupCacheTerms) {
+        cache.index.erase(cache.order.back().first);
+        cache.order.pop_back();
+    }
+}
+
+void LogicalIndexReader::keep_group_lookups(const BatchLookupState& state,
+                                            const BatchLookupGroup& group) const {
+    if (term_lookups_ == nullptr) {
+        return;
+    }
+    for (size_t i = group.begin; i < group.end; ++i) {
+        const size_t term_index = state.candidates_[i].term_index;
+        const BatchLookupResult& result = (*state.results_)[term_index];
+        keep_lookup((*state.terms_)[term_index], result.found, result.entry, result.frq_base,
+                    result.prx_base);
+    }
 }
 
 Status LogicalIndexReader::may_contain(std::string_view term, bool* maybe_present) const {
@@ -752,14 +910,15 @@ Status LogicalIndexReader::locate_candidate_dict_block(std::string_view term, bo
 
 Status LogicalIndexReader::collect_batch_lookup_groups(
         const std::vector<std::string>& terms, std::vector<BatchLookupCandidate>* candidates,
-        std::vector<BatchLookupGroup>* groups) const {
+        std::vector<BatchLookupGroup>* groups, std::vector<BatchLookupResult>* kept_results) const {
     candidates->clear();
     candidates->reserve(terms.size());
     for (size_t i = 0; i < terms.size(); ++i) {
         bool maybe = false;
         uint32_t ordinal = 0;
         RETURN_IF_ERROR(locate_candidate_dict_block(terms[i], &maybe, &ordinal));
-        if (maybe) {
+        if (maybe &&
+            (kept_results == nullptr || !find_kept_lookup(terms[i], &(*kept_results)[i]))) {
             candidates->push_back({i, ordinal});
         }
     }
@@ -804,7 +963,8 @@ Status LogicalIndexReader::prepare_lookup_batch(const std::vector<std::string>& 
         return lookup(terms.front(), &result.found, &result.entry, &result.frq_base,
                       &result.prx_base);
     }
-    RETURN_IF_ERROR(collect_batch_lookup_groups(terms, &state->candidates_, &state->groups_));
+    RETURN_IF_ERROR(collect_batch_lookup_groups(terms, &state->candidates_, &state->groups_,
+                                                term_lookups_ != nullptr ? results : nullptr));
     if (!resident_dict_blocks_.empty()) {
         for (const BatchLookupGroup& group : state->groups_) {
             const DictBlockReader* block_reader = nullptr;
@@ -905,6 +1065,7 @@ Status LogicalIndexReader::consume_lookup_wave(BatchLookupState* state,
         RETURN_IF_ERROR(resolve_batch_lookup_entries(*state->terms_, state->candidates_,
                                                      state->groups_[block.group_index],
                                                      block_reader, state->results_));
+        keep_group_lookups(*state, state->groups_[block.group_index]);
     }
     if (!state->pending_.empty()) {
         state->next_group_ = state->pending_.back().group_index + 1;
@@ -928,8 +1089,10 @@ Status LogicalIndexReader::lookup_batch(const std::vector<std::string>& terms,
         std::shared_ptr<const DecodedDictBlock> pin;
         RETURN_IF_ERROR(dict_block_reader_for_ordinal(group.ordinal, /*cache=*/nullptr, &pin,
                                                       &block_reader));
-        return resolve_batch_lookup_entries(terms, state.candidates_, group, *block_reader,
-                                            results);
+        RETURN_IF_ERROR(resolve_batch_lookup_entries(terms, state.candidates_, group, *block_reader,
+                                                     results));
+        keep_group_lookups(state, group);
+        return Status::OK();
     }
     while (!state.done()) {
         io::BatchRangeFetcher fetcher(reader_, /*coalesce_gap=*/0);
@@ -1007,9 +1170,9 @@ Status LogicalIndexReader::dict_block_scan_memory(uint32_t ordinal,
     return Status::OK();
 }
 
-Status LogicalIndexReader::visit_prefix_terms(std::string_view prefix,
-                                              const PrefixHitVisitor& visitor,
-                                              DictBlockCache* cache) const {
+Status LogicalIndexReader::visit_prefix_terms(
+        std::string_view prefix, const PrefixHitVisitor& visitor, DictBlockCache* cache,
+        const std::function<bool(std::string_view term)>& accept_key) const {
     if (!visitor) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "logical_index: null prefix visitor");
@@ -1039,12 +1202,12 @@ Status LogicalIndexReader::visit_prefix_terms(std::string_view prefix,
         // Stream this block's prefix range: anchor-jump past pre-prefix segments,
         // decode only the bodies we keep, and stop at the first term past the
         // range (decode_all materialized every entry of every scanned block).
-        // The visitor still owns final term acceptance, so results are identical;
-        // `br`/`pin` stay alive across this synchronous call.
+        // `accept_key` rejects a term before its body is decoded; the visitor sees only accepted
+        // terms. `br`/`pin` stay alive across this synchronous call.
         bool prefix_exhausted = false;
         bool visitor_stopped = false;
         RETURN_IF_ERROR(br->visit_prefix_range(
-                prefix, /*accept_key=*/ {},
+                prefix, accept_key,
                 [&](DictEntry&& e, bool* stop) -> Status {
                     PrefixHit hit;
                     hit.term = e.term;

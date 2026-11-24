@@ -382,7 +382,11 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         this.strictMode = task.isStrictMode();
         this.timezone = task.getTimezone();
         this.formatType = task.getFormatType();
+        this.enclose = task.getEnclose();
+        this.escape = task.getEscape();
         this.stripOuterArray = task.isStripOuterArray();
+        this.numAsString = task.isNumAsString();
+        this.jsonPaths = task.getJsonPaths();
         this.jsonRoot = task.getJsonRoot();
         this.sendBatchParallelism = task.getSendBatchParallelism();
         this.loadToSingleTablet = task.isLoadToSingleTablet();

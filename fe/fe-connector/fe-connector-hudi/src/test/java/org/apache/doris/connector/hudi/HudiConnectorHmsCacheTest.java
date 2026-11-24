@@ -130,7 +130,8 @@ public class HudiConnectorHmsCacheTest {
         cache.listPartitionNames("db", "t", -1);
         cache.listPartitionNames("db", "t", -1);
         Assertions.assertEquals(1, delegate.cachedCalls);
-        Assertions.assertEquals(0L, entry.metrics().getEstimatedWeight());
+        // An entry without a weight limit has no weight to report.
+        Assertions.assertEquals(-1L, entry.metrics().getEstimatedWeight());
     }
 
     // ── wrap ─────────────────────────────────────────────────────────────────────────────────────────────

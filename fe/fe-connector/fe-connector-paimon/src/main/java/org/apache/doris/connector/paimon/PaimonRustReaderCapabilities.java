@@ -212,7 +212,7 @@ final class PaimonRustReaderCapabilities {
             return oldPrecision > newPrecision || (oldPrecision <= 6 && newPrecision > 6);
         }
         // Only established cast equivalence may use Rust. Java's temporal casts use the
-        // default zone and truncate negative epochs; its string casts format/pad values.
+        // default zone; its string casts format/pad values.
         // Arrow differs there, in numeric narrowing/decimal rounding, and in supported
         // constructed casts. This allowlist applies at every nested leaf and map key.
         return true;
@@ -281,7 +281,7 @@ final class PaimonRustReaderCapabilities {
         DataTypeRoot root = type.getTypeRoot();
         switch (function) {
             case "sum":
-                // Java wraps integer arithmetic and retains compact-decimal intermediate
+                // Java wraps integer aggregates by default and retains compact-decimal intermediate
                 // sums beyond declared precision. Rust errors or resets the accumulator.
                 return root == DataTypeRoot.FLOAT || root == DataTypeRoot.DOUBLE
                         || (type instanceof DecimalType && ((DecimalType) type).getPrecision() > 18);

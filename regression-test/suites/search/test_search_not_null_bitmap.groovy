@@ -16,8 +16,11 @@
 // under the License.
 
 suite("test_search_not_null_bitmap", "p0") {
-    // A NOT clause inside search() keeps rows whose field is NULL, while SQL NOT around search() drops them.
-// Each query is paired with its SQL NOT form.
+    // SEARCH uses two-valued matching; SQL comparisons and MATCH retain three-valued logic.
+    // Regression test for DORIS-24681:
+    // A NULL field is non-matching inside SEARCH. Internal NOT and SQL
+    // NOT SEARCH complement that two-valued result and include NULL rows.
+    // NOT MATCH still excludes UNKNOWN and is covered separately below.
 
     def tableName = "search_not_null_bitmap"
 
@@ -49,7 +52,7 @@ suite("test_search_not_null_bitmap", "p0") {
     Thread.sleep(5000)
 
     // ---------------------------------------------------------------
-    // NOT over a field that is NULL in one row
+    // Internal and external NOT SEARCH include NULL rows
     // ---------------------------------------------------------------
 
     // NOT in the DSL keeps the NULL row.
@@ -59,7 +62,7 @@ suite("test_search_not_null_bitmap", "p0") {
         ORDER BY id
     """
 
-    // A SQL NOT drops it.
+    // SQL NOT consumes SEARCH's non-nullable match result
     qt_not_external_ids """
         SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName}
         WHERE NOT search('msg:omega')
@@ -74,6 +77,12 @@ suite("test_search_not_null_bitmap", "p0") {
     qt_not_external_count """
         SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE NOT search('msg:omega')
+    """
+
+    qt_not_match_ids """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName}
+        WHERE NOT (msg MATCH_ANY 'omega')
+        ORDER BY id
     """
 
     // ---------------------------------------------------------------
@@ -106,7 +115,7 @@ suite("test_search_not_null_bitmap", "p0") {
 
     Thread.sleep(5000)
 
-    // NOT in the DSL keeps every NULL row; a SQL NOT drops them.
+    // All NULL rows are non-matching leaves, so NOT SEARCH includes every row
     qt_all_null_internal """
         SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${allNullTable}
         WHERE search('NOT msg:anything')
@@ -115,6 +124,11 @@ suite("test_search_not_null_bitmap", "p0") {
     qt_all_null_external """
         SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${allNullTable}
         WHERE NOT search('msg:anything')
+    """
+
+    qt_all_null_not_match_count """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${allNullTable}
+        WHERE NOT (msg MATCH_ANY 'anything')
     """
 
     // ---------------------------------------------------------------
@@ -153,7 +167,7 @@ suite("test_search_not_null_bitmap", "p0") {
 
     Thread.sleep(5000)
 
-    // NOT on title: the DSL keeps the NULL title rows (id=2,4), a SQL NOT drops them.
+    // NOT on title includes the NULL title rows (id=2,4)
     qt_mixed_not_title_search """
         SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${mixedTable}
         WHERE search('NOT title:hello')
@@ -166,7 +180,7 @@ suite("test_search_not_null_bitmap", "p0") {
         ORDER BY id
     """
 
-    // NOT on content: the DSL keeps the NULL content rows (id=3,4), a SQL NOT drops them.
+    // NOT on content includes the NULL content rows (id=3,4)
     qt_mixed_not_content_search """
         SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${mixedTable}
         WHERE search('NOT content:morning')

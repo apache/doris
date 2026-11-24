@@ -91,7 +91,7 @@ protected:
 };
 
 TEST_F(VIcebergTableWriterLifecycleTest, RejectsCoordinatorWithoutExternalFileReportAck) {
-    VIcebergTableWriter writer(make_sink(), {}, nullptr, nullptr);
+    VIcebergTableWriter writer(make_sink(), {});
     RuntimeState state;
     RuntimeProfile profile("test");
 
@@ -102,7 +102,7 @@ TEST_F(VIcebergTableWriterLifecycleTest, RejectsCoordinatorWithoutExternalFileRe
 }
 
 TEST_F(VIcebergTableWriterLifecycleTest, SelectBlockUsesRowPermutation) {
-    VIcebergTableWriter writer(make_sink(), {}, nullptr, nullptr);
+    VIcebergTableWriter writer(make_sink(), {});
     auto values = ColumnInt32::create();
     values->insert_value(10);
     values->insert_value(20);
@@ -121,7 +121,7 @@ TEST_F(VIcebergTableWriterLifecycleTest, SelectBlockUsesRowPermutation) {
 }
 
 TEST_F(VIcebergTableWriterLifecycleTest, ColdReserveCoversManyRealPartitionSelections) {
-    VIcebergTableWriter writer(make_sink(), {}, nullptr, nullptr);
+    VIcebergTableWriter writer(make_sink(), {});
     auto values = ColumnString::create();
     for (size_t i = 0; i < 128; ++i) {
         const std::string value(256 + i, static_cast<char>('a' + i % 26));
@@ -142,7 +142,7 @@ TEST_F(VIcebergTableWriterLifecycleTest, ColdReserveCoversManyRealPartitionSelec
 }
 
 TEST_F(VIcebergTableWriterLifecycleTest, ActiveWriterSnapshotContainsEveryOpenPartition) {
-    VIcebergTableWriter writer(make_sink(), {}, nullptr, nullptr);
+    VIcebergTableWriter writer(make_sink(), {});
     add_writer(&writer, "p=1");
     add_writer(&writer, "p=2");
 
@@ -153,7 +153,7 @@ TEST_F(VIcebergTableWriterLifecycleTest, ActiveWriterSnapshotContainsEveryOpenPa
 }
 
 TEST_F(VIcebergTableWriterLifecycleTest, LoadedSnapshotRetainsWritersDuringConcurrentPublication) {
-    VIcebergTableWriter writer(make_sink(), {}, nullptr, nullptr);
+    VIcebergTableWriter writer(make_sink(), {});
     std::atomic<int> destroyed = 0;
     add_writer(&writer, "p=1", std::make_shared<FakePartitionWriter>(&destroyed));
     publish_active_writers(&writer);

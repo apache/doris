@@ -109,10 +109,19 @@
  * <li>The {@code Optional<ConnectorExpression> filter} handed to {@code ConnectorScanPlanProvider.planScan}
  *     and {@code getScanNodePropertiesResult} comes from {@code PluginDrivenScanNode.buildRemainingFilter},
  *     which DOES drop conjuncts containing a CAST when
- *     {@link org.apache.doris.connector.spi.ConnectorPushdownOps#supportsCastPredicatePushdown} is false.</li>
+ *     {@link org.apache.doris.connector.spi.ConnectorPushdownOps#supportsCastPredicatePushdown} is false, and
+ *     always drops a conjunct holding a TIMESTAMPTZ cast or a complex-kind cast (below).</li>
  * </ul>
  *
- * <p><b>Literal value domain.</b> {@link ConnectorLiteral#getValue()} is one of exactly eight Java shapes.
+ * <p><b>Complex-kind casts.</b> A CAST into or out of ARRAY, MAP or STRUCT, other than one between two types of
+ * the same kind, changes the shape of the value, so the operand that arrives in its place is not what the cast
+ * yields: {@code CAST([true] AS STRING)} is the text {@code [1]} in Doris, but its operand is the element list
+ * {@code [true]}. Of the two paths, only {@code applyFilter} receives such a conjunct. There a literal of type
+ * ARRAY, MAP or STRUCT can face a column of a scalar type, as in {@code p = [true]} or {@code p IN ([true], 'x')}:
+ * it is not a value of that column, so do not render it as text, and do not skip it alone in an IN list, which
+ * would narrow the list. Leave such a predicate to Doris.</p>
+ *
+ * <p><b>Literal value domain.</b> {@link ConnectorLiteral#getValue()} is one of exactly nine Java shapes.
  * Note that {@code Integer} is never produced and that {@code LARGEINT} arrives as a decimal
  * {@code String}:</p>
  * <table border="1">
@@ -126,7 +135,9 @@
  * <tr><td>CHAR / VARCHAR / STRING</td><td>{@code String}</td></tr>
  * <tr><td>DATE / DATEV2</td><td>{@code LocalDate}</td></tr>
  * <tr><td>DATETIME / DATETIMEV2</td><td>{@code LocalDateTime}</td></tr>
- * <tr><td>anything else, incl. LARGEINT, IPV4/IPV6, JSON</td>
+ * <tr><td>ARRAY</td><td>an unmodifiable {@code List} of the element values, each in the shape this table gives
+ *     its element type: {@code null} for a NULL element, a nested {@code List} for a nested array</td></tr>
+ * <tr><td>anything else, incl. LARGEINT, IPV4/IPV6, JSON, MAP, STRUCT</td>
  *     <td>{@code String} from {@code Expr.getStringValue()}</td></tr>
  * </table>
  *
@@ -152,14 +163,22 @@
  * original expression as the residual, so their predicates are also evaluated on BE. That is correct but not
  * free — and it is the reason a slightly-too-wide pushdown is survivable today.</p>
  *
- * <h2>Rule 6 — {@link ConnectorFunctionCall} is also the fallback carrier. Do not match it by name</h2>
+ * <h2>Rule 6 — {@link ConnectorFunctionCall} is also the fallback carrier and the user-defined function.
+ * Match it by name only when it is a builtin</h2>
  *
- * <p>{@code ExprToConnectorExpressionConverter.fallback} turns any expression it does not model into a
- * {@link ConnectorFunctionCall} whose <b>name is the rendered Doris SQL text</b> and whose argument list is
- * <b>empty</b>. It is not a function call at all. Matching function names blindly will make a connector
- * translate {@code my_udf(a, b) = 1} as a call to a function literally named {@code "my_udf(a, b) = 1"}.
- * jdbc handles this deliberately: an argument-less call whose name is not a plain identifier is emitted as a
- * pre-rendered SQL fragment ({@code JdbcQueryBuilder}).</p>
+ * <p>{@code ExprToConnectorExpressionConverter.fallback} turns any expression it does not model, such as a
+ * {@code CASE} expression, into a {@link ConnectorFunctionCall} whose <b>name is the rendered Doris SQL text</b>
+ * and whose argument list is <b>empty</b>. It is not a function call at all. Matching function names blindly
+ * will make a connector translate {@code CASE WHEN a > 0 THEN b END} as a call to a function literally named
+ * by that text. jdbc handles this deliberately: an argument-less call whose name is not a plain identifier is
+ * emitted as a pre-rendered SQL fragment ({@code JdbcQueryBuilder}).</p>
+ *
+ * <p>A user-defined function (a Java or Python UDF) arrives with its own name and real arguments, exactly like
+ * a builtin, but with {@link ConnectorFunctionCall#isBuiltin()} false
+ * ({@code ExprToConnectorExpressionConverter.convertFunctionCall}). Its name says nothing about what it
+ * computes: a UDF may be named {@code starts_with} or {@code esquery}, and no remote system runs it. Never
+ * translate such a call. A fallback whose rendered expression calls one is not a builtin either, so a
+ * connector that emits fallbacks as SQL must check it too.</p>
  *
  * <p>Two related shapes to expect:</p>
  * <ul>
@@ -168,8 +187,8 @@
  *     {@code ConnectorFunctionCall} named {@code like} with three arguments. A connector that only handles
  *     {@link ConnectorLike} therefore never sees a custom escape character, and may assume the fixed
  *     backslash escape documented on {@link ConnectorLike}.</li>
- * <li>Arithmetic and genuine scalar functions arrive as {@link ConnectorFunctionCall} with real arguments;
- *     those are safe to match by name.</li>
+ * <li>Arithmetic and builtin scalar functions arrive as {@link ConnectorFunctionCall} with real arguments and
+ *     {@link ConnectorFunctionCall#isBuiltin()} true; those are safe to match by name.</li>
  * </ul>
  *
  * <p>Anything you cannot interpret confidently falls under Rule 1: drop the conjunct.</p>

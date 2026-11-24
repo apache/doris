@@ -37,8 +37,7 @@ suite("test_ivm_agg_1") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -70,7 +69,7 @@ suite("test_ivm_agg_1") {
     def descResult = sql """desc test_ivm_agg_mtmv_mv all"""
     assertTrue(descResult.toString().contains("UNIQUE_KEYS"))
 
-    // 6. Initial INCREMENTAL refresh consumes the historical binlog and establishes the stream offset.
+    // 6. Initial INCREMENTAL refresh consumes the historical changelog and establishes the stream offset.
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_mv")
 
@@ -84,7 +83,7 @@ suite("test_ivm_agg_1") {
             (1, 15);
     """
 
-    // 8. INCREMENTAL refresh consumes only the binlog records written after the initial refresh.
+    // 8. INCREMENTAL refresh consumes only the changelog records written after the initial refresh.
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_mv")
 
@@ -124,8 +123,7 @@ suite("test_ivm_agg_1") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -211,8 +209,7 @@ suite("test_ivm_agg_1") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -286,10 +283,10 @@ suite("test_ivm_agg_1") {
     """
 
     // =========================================================
-    // Part 4: Agg MV with MIN + binlog_op=delete hitting MIN boundary
+    // Part 4: Agg MV with MIN + changelog_op=delete hitting MIN boundary
     //         → INCREMENTAL should fail (assert_true guard), then COMPLETE recovers
     // =========================================================
-    // When an INCREMENTAL refresh encounters a delete (binlog_op=1) whose value equals
+    // When an INCREMENTAL refresh encounters a delete (changelog_op=1) whose value equals
     // the current MIN, the assert_true guard fires:
     //   assert_true(deltaDelMin IS NULL OR old_min IS NULL OR deltaDelMin > old_min)
     // Because deltaDelMin == old_min, the guard fails and the execution throws an exception.
@@ -308,8 +305,7 @@ suite("test_ivm_agg_1") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -378,16 +374,15 @@ suite("test_ivm_agg_1") {
     def taskStatus = taskResult[0][1].toString()
     logger.info("MIN boundary delete INCREMENTAL task status: " + taskStatus
             + ", error: " + taskResult[0][2])
-    // The task should be FAILED because assert_true guard detected MIN boundary deletion
-    assertTrue(taskStatus == "FAILED",
-            "Expected INCREMENTAL to fail when deleting MIN value, but got: " + taskStatus)
-    def errorMsg = taskResult[0][2].toString()
-    assertTrue(errorMsg.contains("MIN_MAX_BOUNDARY") || errorMsg.contains("IVM")
-                    || errorMsg.contains("assert_true") || errorMsg.contains("fallback"),
-            "Error should mention MIN_MAX_BOUNDARY/IVM/assert_true/fallback but got: " + errorMsg)
+    // The hidden top-K state holds the values around the current MIN, so deleting the MIN value
+    // itself is merged incrementally: MIN moves to the next value (20) and the refresh succeeds.
+    assertTrue(taskStatus == "SUCCESS",
+            "Deleting the current MIN should be maintained incrementally, but got: " + taskStatus)
+    order_qt_minmax_op_after_min_delete """
+        SELECT min_v1, max_v1, cnt FROM test_ivm_agg_mtmv_minmax_op_mv
+    """
 
-    // Step 4: COMPLETE refresh recovers from the failed task. The snapshot excludes deleted k1=1,
-    // so min=20, max=35, cnt=4.
+    // Step 4: A COMPLETE refresh must produce the same state as the incremental merge.
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
 
@@ -407,7 +402,7 @@ suite("test_ivm_agg_1") {
     """
 
     // =========================================================
-    // Part 5: Grouped agg MV with NULL values + binlog_op
+    // Part 5: Grouped agg MV with NULL values + changelog_op
     //         Tests that SUM/AVG/COUNT(expr)/MIN/MAX handle NULLs correctly
     // =========================================================
 
@@ -424,8 +419,7 @@ suite("test_ivm_agg_1") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -499,7 +493,7 @@ suite("test_ivm_agg_1") {
         FROM test_ivm_agg_mtmv_null_mv ORDER BY grp
     """
 
-    // Step 4: Delete a NULL value row (binlog_op=1) — tests caseWhenExprNotNull with delete+NULL
+    // Step 4: Delete a NULL value row (changelog_op=1) — tests caseWhenExprNotNull with delete+NULL
     // Mark k1=6 (grp=1, v1=NULL) as deleted
     sql """DELETE FROM test_ivm_agg_mtmv_null_base WHERE k1 = 6;"""
     // Dirty partition for INCREMENTAL
@@ -543,8 +537,7 @@ suite("test_ivm_agg_1") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """

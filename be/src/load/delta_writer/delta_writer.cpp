@@ -21,6 +21,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <chrono>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -70,14 +71,14 @@ DeltaWriter::DeltaWriter(StorageEngine& engine, const WriteRequest& req, Runtime
 }
 
 DeltaWriter::DeltaWriter(StorageEngine& engine, const WriteRequest& group_build_req,
-                         const WriteRequest& sub_data_req, const WriteRequest& sub_row_binlog_req,
+                         const WriteRequest& sub_data_req, const WriteRequest& sub_changelog_req,
                          RuntimeProfile* profile, const UniqueId& load_id)
         : BaseDeltaWriter(group_build_req, profile, load_id), _engine(engine) {
     DCHECK(group_build_req.write_req_type == WriteRequestType::GROUP &&
            sub_data_req.write_req_type == WriteRequestType::DATA &&
-           sub_row_binlog_req.write_req_type == WriteRequestType::ROW_BINLOG);
+           sub_changelog_req.write_req_type == WriteRequestType::CHANGELOG);
     _rowset_builder = std::make_unique<GroupRowsetBuilder>(_engine, group_build_req, sub_data_req,
-                                                           sub_row_binlog_req, profile);
+                                                           sub_changelog_req, profile);
 }
 
 void BaseDeltaWriter::_init_profile(RuntimeProfile* profile) {
@@ -107,10 +108,43 @@ BaseDeltaWriter::~BaseDeltaWriter() {
         return;
     }
 
-    if (_rowset_builder->tablet() != nullptr) {
+    // tablet_sptr(), not tablet(): tablet() is non-virtual and reads this builder's own
+    // _tablet, while the grouped builders override only tablet_sptr() to delegate to the member
+    // holding the data. Local GroupRowsetBuilder::init() never assigns _tablet, so through
+    // tablet() a local ROW-binlog load skipped this whole block and recorded nothing at all.
+    // CloudGroupRowsetBuilder::init() does assign it (to the data builder's tablet), so on that
+    // path the two accessors already agreed -- as they do for every non-grouped builder.
+    const BaseTabletSPtr& flushed_tablet = _rowset_builder->tablet_sptr();
+    if (flushed_tablet != nullptr) {
         const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();
-        _rowset_builder->tablet()->flush_bytes->increment(stat.flush_size_bytes);
-        _rowset_builder->tablet()->flush_finish_count->increment(stat.flush_finish_count);
+        flushed_tablet->flush_bytes->increment(stat.flush_size_bytes);
+        // Stamped here and nowhere else, so the load timestamp and the counter it
+        // accompanies always move together: a non-zero flush delta always comes with a
+        // fresh timestamp, and the active-window filter can only ever retire a stale
+        // delta, never invent one. Timestamp first, for the same reason as the query
+        // path -- the report walk reads both without a lock.
+        //
+        // Known limitation: DeltaWriterV2 (enable_memtable_on_sink_node, local mode only)
+        // commits through LoadStreamWriter and never reaches this destructor, so those loads
+        // are missing from SHOW TABLET / PROC. Not fixed: the only scheduling consumer is the
+        // cloud rebalancer, and V2 is excluded from cloud.
+        //
+        // Known limitation: a grouped writer's DATA and ROW_BINLOG flush tasks share one
+        // FlushToken, so the count below is the pair's combined total and is credited entirely
+        // to the data tablet that tablet_sptr() resolves to, on both the cloud and the local
+        // path. The binlog tablet gets no activity of its own and stays eligible for cold-first
+        // migration. Not fixed: splitting the count needs per-tablet completion accounting
+        // inside the flush token.
+        //
+        // Only when this writer actually flushed something. close() initializes an
+        // empty-rowset writer for every tablet of a touched partition, and those flush
+        // nothing. Stamping unconditionally would let such a writer refresh the timestamp
+        // of a delta that is still uncommitted because reports have been failing, and the
+        // next successful report would then resurrect that whole stale delta as fresh heat.
+        if (stat.flush_finish_count > 0) {
+            flushed_tablet->last_load_flush_time_ms.store(UnixMillis(), std::memory_order_relaxed);
+            flushed_tablet->flush_finish_count->increment(stat.flush_finish_count);
+        }
     }
 }
 

@@ -73,6 +73,7 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "io/fs/read_io_trace.h"
 #include "load/stream_load/stream_load_recorder_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
@@ -534,7 +535,9 @@ int main(int argc, char** argv) {
             ++it;
         }
     }
-    if (spill_paths.empty()) {
+    // With spill_storage_type=s3 query spill goes to object storage (validated by
+    // SpillFileManager::init()), so local spill paths are optional.
+    if (doris::config::spill_storage_type != "s3" && spill_paths.empty()) {
         LOG(ERROR) << "All spill disks are broken, exit.";
         exit(-1);
     }
@@ -824,6 +827,7 @@ int main(int argc, char** argv) {
         // If not in memleak check mode, no need to wait all objects de-constructed normally, just exit.
         // It will make sure that graceful shutdown can be done definitely.
         LOG(INFO) << "Doris main exited.";
+        doris::io::ReadIOTrace::shutdown();
         google::FlushLogFiles(google::GLOG_INFO);
         _exit(0); // Do not call exit(0), it will wait for all objects de-constructed normally
         return 0;

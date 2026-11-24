@@ -146,7 +146,7 @@ public class AddColumnOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
+    public boolean allowOnChangelogTable() {
         return true;
     }
 

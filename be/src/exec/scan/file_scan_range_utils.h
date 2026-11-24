@@ -17,9 +17,78 @@
 
 #pragma once
 
+#include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
+
+// Return only static classifications: malformed wire payloads must not enter error messages.
+inline const char* file_encryption_validation_error(const TFileEncryptionInfo& info) {
+    if (!info.__isset.version) {
+        return "File encryption [INVALID_DESCRIPTOR]";
+    }
+    if (info.version != 1) {
+        return "File encryption [UNSUPPORTED_VERSION]";
+    }
+    const auto length = info.key.size();
+    if (!info.__isset.key || (length != 16 && length != 24 && length != 32) ||
+        !info.__isset.aad_prefix) {
+        return "File encryption [INVALID_DESCRIPTOR]";
+    }
+    return nullptr;
+}
+
+inline Status validate_file_scan_support(const TFileScanRangeParams& params,
+                                         const TFileRangeDesc* range = nullptr) {
+    // Deprecated table markers must never fall through to plain file reads: that would lose
+    // Hive transaction visibility and LakeSoul merge semantics, including in metadata counts.
+    auto validate_table = [](const TTableFormatFileDesc& table) -> Status {
+        if (table.table_format_type == "transactional_hive") {
+            return Status::NotSupported("Hive transactional table reads are no longer supported");
+        }
+        if (table.table_format_type == "lakesoul") {
+            return Status::NotSupported("LakeSoul reads are no longer supported");
+        }
+        if (table.__isset.iceberg_params) {
+            const auto& iceberg = table.iceberg_params;
+            bool encrypted = iceberg.__isset.encryption_info;
+            if (encrypted) {
+                if (const auto* error = file_encryption_validation_error(iceberg.encryption_info)) {
+                    return Status::InvalidArgument(error);
+                }
+            }
+            if (iceberg.__isset.delete_files) {
+                for (const auto& file : iceberg.delete_files) {
+                    if (file.__isset.encryption_info) {
+                        if (const auto* error =
+                                    file_encryption_validation_error(file.encryption_info)) {
+                            return Status::InvalidArgument(error);
+                        }
+                        encrypted = true;
+                    }
+                }
+            }
+            // A plain data file can still have encrypted deletes. Reject before reader selection,
+            // caches or metadata COUNT shortcuts until native decryption is implemented.
+            if (encrypted) {
+                return Status::NotSupported("File encryption [READ_UNAVAILABLE]");
+            }
+        }
+        return Status::OK();
+    };
+    if (params.__isset.table_format_params) {
+        RETURN_IF_ERROR(validate_table(params.table_format_params));
+    }
+    if (range != nullptr && range->__isset.table_format_params) {
+        RETURN_IF_ERROR(validate_table(range->table_format_params));
+    }
+    const auto format = range != nullptr && range->__isset.format_type ? range->format_type
+                                                                       : params.format_type;
+    if (format == TFileFormatType::FORMAT_AVRO) {
+        return Status::NotSupported("Avro file reads are no longer supported");
+    }
+    return Status::OK();
+}
 
 inline bool can_ignore_not_found_file(const TFileRangeDesc& range, bool ignore_not_found) {
     // Iceberg ranges belong to a committed snapshot, not a stale directory listing. Skipping a

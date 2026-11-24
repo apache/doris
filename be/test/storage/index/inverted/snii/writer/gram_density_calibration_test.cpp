@@ -37,6 +37,7 @@
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/inverted/analysis/gram/gram_density.h"
 #include "storage/index/inverted/analysis/gram/gram_extractor.h"
+#include "storage/index/inverted/analysis/tokenizer/ngram/gram_tokenizer.h"
 #include "storage/index/inverted/snii/snii_index_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/defer_op.h"
@@ -171,7 +172,7 @@ TEST(GramDensityCalibrationTest, RowsAreHeldBackUntilTheRateIsSolvedAndThenAllIn
         ASSERT_TRUE(writer.init().ok());
         const std::vector<std::string> first = rows(4);
         const std::vector<doris::Slice> s = slices_of(first);
-        ASSERT_TRUE(writer.add_values("c", s.data(), s.size()).ok());
+        ASSERT_TRUE(writer.add_values(reinterpret_cast<const uint8_t*>(s.data()), s.size()).ok());
         EXPECT_EQ(term_count(&writer), 0U)
                 << "a row cut before the rate is known could not be cut at the rate the "
                    "segment will record";
@@ -181,7 +182,7 @@ TEST(GramDensityCalibrationTest, RowsAreHeldBackUntilTheRateIsSolvedAndThenAllIn
         ASSERT_TRUE(writer.init().ok());
         const std::vector<std::string> data = rows(200);
         const std::vector<doris::Slice> s = slices_of(data);
-        ASSERT_TRUE(writer.add_values("c", s.data(), s.size()).ok());
+        ASSERT_TRUE(writer.add_values(reinterpret_cast<const uint8_t*>(s.data()), s.size()).ok());
         EXPECT_GT(term_count(&writer), 0U) << "the held-back rows must be indexed, not dropped";
     }
 }
@@ -209,13 +210,19 @@ TEST(GramDensityCalibrationTest, TheRecordedSchemeCarriesTheSolvedRate) {
 
     const std::vector<std::string> data = rows(200);
     const std::vector<doris::Slice> s = slices_of(data);
-    ASSERT_TRUE(writer.add_values("c", s.data(), s.size()).ok());
+    ASSERT_TRUE(writer.add_values(reinterpret_cast<const uint8_t*>(s.data()), s.size()).ok());
 
     EXPECT_NE(writer.gram_scheme_for_test()->density_permille, 500)
             << "this corpus does not need a rate of 0.5 to find 12-byte literals; a scheme "
                "still holding the configured one means the solve never reached it";
     EXPECT_GE(writer.gram_scheme_for_test()->density_permille, gram::kMinSolvedDensityPermille);
     EXPECT_LE(writer.gram_scheme_for_test()->density_permille, gram::kMaxSolvedDensityPermille);
+    // The rate is on the one stream the writer cuts every row with.
+    const auto* tokenizer = dynamic_cast<const doris::segment_v2::inverted_index::GramTokenizer*>(
+            writer.stream_for_test());
+    ASSERT_NE(tokenizer, nullptr);
+    EXPECT_EQ(tokenizer->scheme().density_permille,
+              writer.gram_scheme_for_test()->density_permille);
 }
 
 // With the feature off nothing is held back and the configured rate stands, so an index built
@@ -231,7 +238,7 @@ TEST(GramDensityCalibrationTest, TheConfiguredRateStandsWhenTheSolveIsOff) {
     ASSERT_TRUE(writer.init().ok());
     const std::vector<std::string> data = rows(4);
     const std::vector<doris::Slice> s = slices_of(data);
-    ASSERT_TRUE(writer.add_values("c", s.data(), s.size()).ok());
+    ASSERT_TRUE(writer.add_values(reinterpret_cast<const uint8_t*>(s.data()), s.size()).ok());
 
     EXPECT_GT(term_count(&writer), 0U) << "nothing is held back when there is nothing to solve";
     EXPECT_EQ(writer.gram_scheme_for_test()->density_permille, 500);
@@ -252,7 +259,7 @@ TEST(GramDensityCalibrationTest, DenseSchemesAreNotCalibrated) {
     EXPECT_FALSE(writer.density_calibrating_for_test());
     const std::vector<std::string> data = rows(4);
     const std::vector<doris::Slice> s = slices_of(data);
-    ASSERT_TRUE(writer.add_values("c", s.data(), s.size()).ok());
+    ASSERT_TRUE(writer.add_values(reinterpret_cast<const uint8_t*>(s.data()), s.size()).ok());
     EXPECT_GT(term_count(&writer), 0U) << "dense rows are cut as they arrive";
     EXPECT_EQ(writer.density_sample_bytes_for_test(), 0);
 }
@@ -293,7 +300,7 @@ TEST(GramDensityCalibrationTest, DefaultsCollectEvidenceAndALongMaxGramRaisesThe
         ASSERT_GE(gram::boundary_hash16(b, b), 32768U);
         const std::vector<std::string> flat(200, std::string(40, static_cast<char>(b)));
         const std::vector<doris::Slice> s = slices_of(flat);
-        ASSERT_TRUE(writer.add_values("c", s.data(), s.size()).ok());
+        ASSERT_TRUE(writer.add_values(reinterpret_cast<const uint8_t*>(s.data()), s.size()).ok());
         EXPECT_FALSE(writer.density_calibrating_for_test());
         EXPECT_EQ(writer.gram_scheme_for_test()->density_permille, gram::kMaxSolvedDensityPermille)
                 << "the solve ran on the defaults and reached the ceiling this corpus demands";
@@ -327,7 +334,7 @@ TEST(GramDensityCalibrationTest, EmptyRowsStillReachTheSampleCap) {
     ASSERT_TRUE(writer.density_calibrating_for_test());
     const std::vector<std::string> empty(400, "");
     const std::vector<doris::Slice> s = slices_of(empty);
-    ASSERT_TRUE(writer.add_values("c", s.data(), s.size()).ok());
+    ASSERT_TRUE(writer.add_values(reinterpret_cast<const uint8_t*>(s.data()), s.size()).ok());
     EXPECT_FALSE(writer.density_calibrating_for_test())
             << "400 empty rows retain more than 4096 bytes of vector state";
     EXPECT_EQ(writer.gram_scheme_for_test()->density_permille, 500)
@@ -349,7 +356,7 @@ TEST(GramDensityCalibrationTest, CharPaddingIsNeitherEvidenceNorRetained) {
     const auto logical = static_cast<int64_t>(padded.size());
     padded.resize(64, '\0');
     const doris::Slice slice(padded.data(), padded.size());
-    ASSERT_TRUE(writer.add_values("c", &slice, 1).ok());
+    ASSERT_TRUE(writer.add_values(reinterpret_cast<const uint8_t*>(&slice), 1).ok());
     EXPECT_EQ(writer.density_sample_bytes_for_test(),
               logical + static_cast<int64_t>(sizeof(std::pair<uint32_t, std::string>)));
 }
@@ -387,13 +394,13 @@ TEST(GramDensityCalibrationTest, FoldingSchemesFoldTheEvidence) {
     SniiIndexColumnWriter folding(nullptr, &folding_meta, FieldType::OLAP_FIELD_TYPE_VARCHAR);
     ASSERT_TRUE(folding.init().ok());
     const std::vector<doris::Slice> u = slices_of(upper);
-    ASSERT_TRUE(folding.add_values("c", u.data(), u.size()).ok());
+    ASSERT_TRUE(folding.add_values(reinterpret_cast<const uint8_t*>(u.data()), u.size()).ok());
 
     TabletIndex plain_meta = make_index_meta();
     SniiIndexColumnWriter plain(nullptr, &plain_meta, FieldType::OLAP_FIELD_TYPE_VARCHAR);
     ASSERT_TRUE(plain.init().ok());
     const std::vector<doris::Slice> l = slices_of(lower);
-    ASSERT_TRUE(plain.add_values("c", l.data(), l.size()).ok());
+    ASSERT_TRUE(plain.add_values(reinterpret_cast<const uint8_t*>(l.data()), l.size()).ok());
 
     ASSERT_FALSE(folding.density_calibrating_for_test());
     ASSERT_FALSE(plain.density_calibrating_for_test());

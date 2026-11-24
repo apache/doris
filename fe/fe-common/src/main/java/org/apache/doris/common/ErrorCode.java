@@ -60,6 +60,8 @@ public enum ErrorCode {
             + "table '%s'"),
     ERR_NOT_ALLOWED_COMMAND(1148, new byte[]{'4', '2', '0', '0', '0'}, "The used command is not allowed"
             + " with this MySQL version"),
+    ERR_NET_PACKET_TOO_LARGE(1153, new byte[]{'0', '8', 'S', '0', '1'},
+            "Got a packet bigger than 'max_allowed_packet' bytes"),
     ERR_WRONG_COLUMN_NAME(1166, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect column name '%s'. Column regex is '%s'"),
     ERR_UNKNOWN_SYSTEM_VARIABLE(1193, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown system variable '%s',"
                     + "the similar variables are %s"),

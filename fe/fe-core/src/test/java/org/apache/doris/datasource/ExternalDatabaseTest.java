@@ -55,12 +55,61 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
+import java.util.function.BiPredicate;
 
 public class ExternalDatabaseTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
         createDefaultCtx().setThreadLocalInfo();
+    }
+
+    @Test
+    public void testExplicitRefreshInvalidatesNamesObjectAndId() {
+        NameMissTableCatalogProvider.reset();
+        try {
+            NameMissTableCatalogProvider.putTable("db1", "Foo");
+            NameMissTableCatalog catalog = new NameMissTableCatalog(0);
+            InspectableDatabase db = new InspectableDatabase(catalog, 200L, "db1", "db1");
+            db.setInitializedForTest(true);
+            TestExternalTable oldTable = db.getTableNullable("Foo");
+            Assertions.assertNotNull(oldTable);
+
+            NameMissTableCatalogProvider.MOCKED_META.get("db1").remove("Foo");
+            db.invalidateTableLookup("Foo");
+
+            Assertions.assertNull(db.getCachedTableForTest("Foo"));
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(oldTable.getId()));
+            Assertions.assertTrue(db.getTableNamesWithLock().isEmpty());
+        } finally {
+            NameMissTableCatalogProvider.reset();
+        }
+    }
+
+    @Test
+    public void testExplicitRefreshFencesCaseEquivalentOldObject() {
+        NameMissTableCatalogProvider.reset();
+        try {
+            NameMissTableCatalogProvider.putTable("db_ci", "Dest");
+            CaseInsensitiveCatalog catalog = new CaseInsensitiveCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 210L, "db_ci", "db_ci");
+            db.setInitializedForTest(true);
+            TestExternalTable oldTable = db.getTableNullable("Dest");
+            Assertions.assertNotNull(oldTable);
+
+            NameMissTableCatalogProvider.MOCKED_META.get("db_ci").remove("Dest");
+            NameMissTableCatalogProvider.putTable("db_ci", "DEST");
+            db.resetMetaCacheNames();
+            Assertions.assertTrue(db.getTableNamesWithLock().contains("DEST"));
+            db.invalidateTableLookup("DEST");
+
+            Assertions.assertNull(db.getCachedTableForTest("Dest"));
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(oldTable.getId()));
+            Assertions.assertNotSame(oldTable, db.getTableNullable("DEST"));
+        } finally {
+            NameMissTableCatalogProvider.reset();
+        }
     }
 
     @Test
@@ -257,6 +306,62 @@ public class ExternalDatabaseTest extends TestWithFeService {
             Assertions.assertNull(db.getCachedTableNameByIdForTest(table.getId()));
         } finally {
             releaseAction.countDown();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testNumericLookupAfterRefreshPublishesReplacementId() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch nameCaptured = new CountDownLatch(1);
+        CountDownLatch releaseLookup = new CountDownLatch(1);
+        try {
+            InspectableCatalog catalog = new InspectableCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 245L, "db1", "db1");
+            db.setInitializedForTest(true);
+            TestExternalTable oldTable = db.getTableNullable("tbl_base");
+            Assertions.assertNotNull(oldTable);
+
+            FeMetaCacheEntry<String, TestExternalTable> objectEntry =
+                    new FeMetaCacheEntry<String, TestExternalTable>(
+                            "numeric_lookup_refresh_race",
+                            ignored -> new TestExternalTable(oldTable.getId(), oldTable.getName(),
+                                    oldTable.getRemoteName(), catalog, db),
+                            CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                            refreshExecutor,
+                            false) {
+                        @Override
+                        public TestExternalTable get(String key) {
+                            nameCaptured.countDown();
+                            awaitLatch(releaseLookup);
+                            return super.get(key);
+                        }
+
+                        @Override
+                        public TestExternalTable getAndRunIfCurrent(String key,
+                                BiPredicate<String, TestExternalTable> actionRequired,
+                                BiConsumer<String, TestExternalTable> currentValueAction) {
+                            nameCaptured.countDown();
+                            awaitLatch(releaseLookup);
+                            return super.getAndRunIfCurrent(key, actionRequired, currentValueAction);
+                        }
+                    };
+            setTablesEntryForTest(db, objectEntry);
+
+            Future<TestExternalTable> lookup = queryExecutor.submit(() -> db.getTableNullable(oldTable.getId()));
+            Assertions.assertTrue(nameCaptured.await(3L, TimeUnit.SECONDS));
+            db.invalidateTableLookup(oldTable.getName());
+            releaseLookup.countDown();
+
+            TestExternalTable replacement = lookup.get(3L, TimeUnit.SECONDS);
+            Assertions.assertNotNull(replacement);
+            Assertions.assertNotSame(oldTable, replacement);
+            Assertions.assertSame(replacement, objectEntry.getIfPresent(oldTable.getName()));
+            Assertions.assertEquals(oldTable.getName(), db.getCachedTableNameByIdForTest(oldTable.getId()));
+        } finally {
+            releaseLookup.countDown();
             queryExecutor.shutdownNow();
             refreshExecutor.shutdownNow();
         }

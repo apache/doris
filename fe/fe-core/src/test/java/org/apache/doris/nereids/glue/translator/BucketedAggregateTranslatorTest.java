@@ -25,11 +25,13 @@ import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.BucketedAggregationNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
+import org.apache.doris.planner.LocalExchangeNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TBucketedAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -243,12 +245,12 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
             Planner planner = planAggregate("stddev_pop(distinct kint), sum(kbint)");
             Assertions.assertTrue(collectNodes(planner, BucketedAggregationNode.class).isEmpty());
             for (ExchangeNode exchange : collectNodes(planner, ExchangeNode.class)) {
-                Assertions.assertFalse(exchange.getChild(0) instanceof OlapScanNode,
+                Assertions.assertFalse(inputOf(exchange) instanceof OlapScanNode,
                         "raw scan rows must not be exchanged: "
                                 + planner.getExplainString(new ExplainOptions(false, false, false)));
             }
             Assertions.assertTrue(collectNodes(planner, AggregationNode.class).stream()
-                    .anyMatch(node -> node.getChild(0) instanceof OlapScanNode));
+                    .anyMatch(node -> inputOf(node) instanceof OlapScanNode));
 
             // A fusible aggregate on the same shape is still fused.
             Assertions.assertFalse(collectBucketedAggregationNodes("sum(kint)").isEmpty());
@@ -345,7 +347,7 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
             Assertions.assertEquals(1, joinNodes.size(), explain);
             // The aggregate output is consumed in the join's fragment: no extra exchange between them.
             Assertions.assertSame(joinNodes.get(0).getFragment(), aggregationNodes.get(0).getFragment(), explain);
-            Assertions.assertSame(aggregationNodes.get(0), joinNodes.get(0).getChild(0), explain);
+            Assertions.assertSame(aggregationNodes.get(0), inputOf(joinNodes.get(0)), explain);
             assertAtMostOneOlapScanPerFragment(planner);
         } finally {
             sessionVariable.aggPhase = oldAggPhase;
@@ -493,7 +495,7 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
             String explain = explain(planner);
             List<BucketedAggregationNode> bucketedNodes = collectNodes(planner, BucketedAggregationNode.class);
             Assertions.assertEquals(1, bucketedNodes.size(), explain);
-            Assertions.assertTrue(bucketedNodes.get(0).getChild(0) instanceof OlapScanNode, explain);
+            Assertions.assertTrue(inputOf(bucketedNodes.get(0)) instanceof OlapScanNode, explain);
         } finally {
             sessionVariable.aggPhase = oldAggPhase;
             sessionVariable.setBeNumberForTest(oldBeNumberForTest);
@@ -610,8 +612,8 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
         Assertions.assertEquals(2, aggregationNodes.size(), explain);
         // The global phase reads the local phase through the exchange.
         Assertions.assertEquals(1, aggregationNodes.stream()
-                .filter(node -> node.getChild(0) instanceof ExchangeNode
-                        && node.getChild(0).getChild(0) instanceof AggregationNode).count(), explain);
+                .filter(node -> inputOf(node) instanceof ExchangeNode
+                        && inputOf(inputOf(node)) instanceof AggregationNode).count(), explain);
     }
 
     /**
@@ -622,8 +624,8 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
      */
     private void assertNoOnePhaseAggregateOverExchange(Planner planner) {
         for (AggregationNode aggregationNode : collectNodes(planner, AggregationNode.class)) {
-            if (aggregationNode.getChild(0) instanceof ExchangeNode) {
-                Assertions.assertTrue(aggregationNode.getChild(0).getChild(0) instanceof AggregationNode,
+            if (inputOf(aggregationNode) instanceof ExchangeNode) {
+                Assertions.assertTrue(inputOf(inputOf(aggregationNode)) instanceof AggregationNode,
                         "one-phase aggregate over an exchange: " + explain(planner));
             }
         }
@@ -641,13 +643,13 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
         List<BucketedAggregationNode> bucketedNodes = collectNodes(planner, BucketedAggregationNode.class);
         Assertions.assertEquals(1, bucketedNodes.size(), explain);
         Assertions.assertTrue(collectNodes(planner, AggregationNode.class).isEmpty(), explain);
-        Assertions.assertTrue(bucketedNodes.get(0).getChild(0) instanceof OlapScanNode, explain);
+        Assertions.assertTrue(inputOf(bucketedNodes.get(0)) instanceof OlapScanNode, explain);
         Assertions.assertTrue(bucketedNodes.get(0).getFragment().getDestNode() instanceof ExchangeNode, explain);
     }
 
     private void assertNoRawScanExchange(Planner planner) {
         for (ExchangeNode exchange : collectNodes(planner, ExchangeNode.class)) {
-            Assertions.assertFalse(exchange.getChild(0) instanceof OlapScanNode,
+            Assertions.assertFalse(inputOf(exchange) instanceof OlapScanNode,
                     "raw scan rows must not be exchanged: " + explain(planner));
         }
     }
@@ -678,10 +680,66 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
         return count;
     }
 
+    // Local exchanges change parallelism within a fragment, not the aggregate/scan shape under test.
+    private static PlanNode inputOf(PlanNode node) {
+        PlanNode input = node.getChild(0);
+        while (input instanceof LocalExchangeNode) {
+            input = input.getChild(0);
+        }
+        return input;
+    }
+
     private String explain(Planner planner) {
         return planner.getFragments().stream()
                 .map(fragment -> fragment.getExplainString(TExplainLevel.NORMAL))
                 .collect(Collectors.joining("\n"));
+    }
+
+    @Test
+    public void testConfiguredBucketCountIsCapturedInPlan() throws Exception {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        int oldAggPhase = sessionVariable.aggPhase;
+        int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
+        int oldParallelPipelineTaskNum = sessionVariable.parallelPipelineTaskNum;
+        int oldBucketedAggNumBuckets = sessionVariable.bucketedAggNumBuckets;
+        long oldBucketedAggMinInputRows = sessionVariable.bucketedAggMinInputRows;
+        long oldBucketedAggMaxGroupKeys = sessionVariable.bucketedAggMaxGroupKeys;
+        double oldBucketedAggHighCardThreshold = sessionVariable.bucketedAggHighCardThreshold;
+        boolean oldEnableBucketedHashAgg = sessionVariable.enableBucketedHashAgg;
+        try {
+            sessionVariable.aggPhase = 1;
+            sessionVariable.setBeNumberForTest(1);
+            sessionVariable.bucketedAggMinInputRows = 0;
+            sessionVariable.bucketedAggMaxGroupKeys = 0;
+            sessionVariable.bucketedAggHighCardThreshold = 1.0;
+            sessionVariable.enableBucketedHashAgg = true;
+            for (int parallelism : new int[] {1, 4}) {
+                sessionVariable.parallelPipelineTaskNum = parallelism;
+                for (int numBuckets : new int[] {0, 1, 16, 256}) {
+                    sessionVariable.bucketedAggNumBuckets = numBuckets;
+                    List<BucketedAggregationNode> nodes = collectBucketedAggregationNodes("sum(kint)");
+                    Assertions.assertEquals(1, nodes.size());
+                    BucketedAggregationNode node = nodes.get(0);
+                    // Serialization must use the plan's captured value, even if the session changes later.
+                    sessionVariable.bucketedAggNumBuckets = numBuckets == 256 ? 0 : 256;
+                    TBucketedAggregationNode thriftNode = node.treeToThrift().getNodes().get(0).getBucketedAggNode();
+                    Assertions.assertTrue(thriftNode.isSetNumBuckets());
+                    Assertions.assertEquals(numBuckets, thriftNode.getNumBuckets());
+                    String expected = "buckets: " + (numBuckets == 0 ? "auto" : Integer.toString(numBuckets)) + "\n";
+                    Assertions.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL).contains(expected));
+                    Assertions.assertTrue(node.getNodeExplainString("", TExplainLevel.BRIEF).contains(expected));
+                }
+            }
+        } finally {
+            sessionVariable.aggPhase = oldAggPhase;
+            sessionVariable.setBeNumberForTest(oldBeNumberForTest);
+            sessionVariable.parallelPipelineTaskNum = oldParallelPipelineTaskNum;
+            sessionVariable.bucketedAggNumBuckets = oldBucketedAggNumBuckets;
+            sessionVariable.bucketedAggMinInputRows = oldBucketedAggMinInputRows;
+            sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
+            sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
+        }
     }
 
     private void assertUsesRegularAggregation(String aggregateFunction) throws Exception {

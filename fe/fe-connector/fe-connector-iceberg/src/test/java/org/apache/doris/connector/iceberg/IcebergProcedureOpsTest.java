@@ -77,6 +77,22 @@ public class IcebergProcedureOpsTest {
     }
 
     @Test
+    public void rewriteRejectsUnknownBeforeEmptyTableShortcut() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        catalog.createTable(TableIdentifier.of("db1", "t"),
+                new Schema(Types.NestedField.optional(1, "u", Types.UnknownType.get())),
+                PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "3"));
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        IcebergProcedureOps procedures = new IcebergProcedureOps(Collections.emptyMap(), ops, null);
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> procedures.planRewrite(SESSION, new IcebergTableHandle("db1", "t"),
+                        "rewrite_data_files", Collections.emptyMap(), null, Collections.emptyList()));
+    }
+
+    @Test
     public void getSupportedProceduresExportsFactoryNamesInLegacyOrder() {
         Assertions.assertEquals(
                 ImmutableList.of(
@@ -171,6 +187,34 @@ public class IcebergProcedureOpsTest {
         // MUTATION: planning outside auth scope -> authCount 0 -> red.
         Assertions.assertEquals(1, ctx.authCount, "planning runs in one auth scope");
         Assertions.assertEquals(1, ops.tableCleanupCount, "rewrite planning releases its operation-owned table");
+    }
+
+    @Test
+    public void planRewriteKeepsOneOversizedFileBelowGroupLimit() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        catalog.createTable(TableIdentifier.of("db1", "t"), schema, PartitionSpec.unpartitioned());
+        append(catalog, "oversized", 100L);
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        IcebergProcedureOps procOps = new IcebergProcedureOps(Collections.emptyMap(), ops, ctx);
+
+        List<ConnectorRewriteGroup> groups = procOps.planRewrite(SESSION, new IcebergTableHandle("db1", "t"),
+                "rewrite_data_files", ImmutableMap.of("target-file-size-bytes", "512",
+                        "min-file-size-bytes", "384", "max-file-size-bytes", "900",
+                        "max-file-group-size-bytes", "100000"), null, Collections.emptyList());
+
+        Assertions.assertEquals(1, groups.size());
+        ConnectorRewriteGroup group = groups.get(0);
+        Assertions.assertEquals(ImmutableSet.of("s3://b/db1/oversized.parquet"), group.getDataFilePaths());
+        Assertions.assertEquals(1, group.getDataFileCount());
+        Assertions.assertEquals(1024L, group.getTotalSizeBytes());
+        Assertions.assertEquals(0, group.getDeleteFileCount());
+        Assertions.assertEquals(1, ctx.authCount);
+        Assertions.assertEquals(1, ops.tableCleanupCount);
     }
 
     @Test

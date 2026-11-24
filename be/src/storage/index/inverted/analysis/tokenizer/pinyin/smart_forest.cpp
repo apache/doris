@@ -58,18 +58,18 @@ SmartForest* SmartForest::add(std::unique_ptr<SmartForest> branch_node) {
     auto it = branches.find(c);
     if (it != branches.end()) {
         SmartForest* existing = it->second.get();
-        uint8_t new_status = branch_node->getStatus();
-        uint8_t existing_status = existing->getStatus();
+        Status new_status = branch_node->getStatus();
+        Status existing_status = existing->getStatus();
 
         switch (new_status) {
-        case CONTINUE:
-            if (existing_status == WORD_END) {
-                existing->setStatus(WORD_CONTINUE);
+        case Status::CONTINUE:
+            if (existing_status == Status::WORD_END) {
+                existing->setStatus(Status::WORD_CONTINUE);
             }
             break;
-        case WORD_END:
-            if (existing_status != WORD_END) {
-                existing->setStatus(WORD_CONTINUE);
+        case Status::WORD_END:
+            if (existing_status != Status::WORD_END) {
+                existing->setStatus(Status::WORD_CONTINUE);
             }
             existing->setParam(branch_node->getParam());
             break;
@@ -116,10 +116,10 @@ void SmartForest::add(const std::vector<Rune>& runes, const ParamType& param) {
         UChar32 cp = runes[i].cp;
 
         if (i == runes.size() - 1) {
-            auto new_node = std::make_unique<SmartForest>(cp, WORD_END, param);
+            auto new_node = std::make_unique<SmartForest>(cp, Status::WORD_END, param);
             tempBranch->add(std::move(new_node));
         } else {
-            auto new_node = std::make_unique<SmartForest>(cp, CONTINUE, ParamType {});
+            auto new_node = std::make_unique<SmartForest>(cp, Status::CONTINUE, ParamType {});
             tempBranch->add(std::move(new_node));
         }
 
@@ -165,7 +165,7 @@ std::unique_ptr<SmartGetWord> SmartForest::getWord(const std::vector<Rune>& rune
 void SmartForest::remove(const std::string& word) {
     SmartForest* node = getBranch(word);
     if (node) {
-        node->setStatus(CONTINUE);
+        node->setStatus(Status::CONTINUE);
         node->setParam(ParamType {});
     }
 }

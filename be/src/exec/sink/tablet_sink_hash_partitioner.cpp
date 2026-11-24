@@ -65,6 +65,8 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_tablet_sink_tuple_desc);
     _block_convertor->init_autoinc_info(_schema->db_id(), _schema->table_id(), state->batch_size());
     _location = state->obj_pool()->add(new OlapTableLocationParam(_tablet_sink_location));
+    // Remote INSERT SELECT creates missing partitions at the exchange before the tablet writer.
+    // Only remote insert partition metadata supplies a master address for this external callback.
     _row_distribution.init(
             {.state = state,
              .block_convertor = _block_convertor.get(),
@@ -72,6 +74,7 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
              .vpartition = _vpartition.get(),
              .add_partition_request_timer = _local_state->add_partition_request_timer(),
              .txn_id = _txn_id,
+             .remote_endpoint = _tablet_sink_partition.__isset.master_address,
              .pool = state->obj_pool(),
              .location = _location,
              .vec_output_expr_ctxs = &_tablet_sink_expr_ctxs,

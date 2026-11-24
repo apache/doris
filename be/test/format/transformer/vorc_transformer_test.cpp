@@ -17,6 +17,7 @@
 
 #include "format/transformer/vorc_transformer.h"
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
 #include <orc/OrcFile.hh>
@@ -31,6 +32,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -42,12 +44,13 @@
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/value/uuid_value.h"
-#include "format/orc/vorc_reader.h"
 #include "format/table/iceberg/schema_parser.h"
+#include "format_v2/orc/orc_file_input_stream.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "util/slice.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
 
@@ -243,6 +246,153 @@ TEST_F(VOrcTransformerTest, CollectsBoundsForTopLevelFieldAfterStruct) {
     EXPECT_EQ("hello", stats.upper_bounds.at(3));
 }
 
+TEST_F(VOrcTransformerTest, DecimalBoundsUseMinimalTwosComplement) {
+    struct TestCase {
+        const char* value;
+        int32_t footer_scale;
+        int32_t column_scale;
+        std::string expected;
+    };
+    const std::vector<TestCase> cases = {
+            {"-99999999999999999999999999999999999999", 0, 0,
+             std::string("\xb4\xc4\xb3\x57\xa5\x79\x3b\x85\xf6\x75\xdd\xc0\x00\x00\x00\x01", 16)},
+            {"-18446744073709551616", 0, 0, std::string("\xff\x00\x00\x00\x00\x00\x00\x00\x00", 9)},
+            {"-9223372036854775808", 0, 0, std::string("\x80\x00\x00\x00\x00\x00\x00\x00", 8)},
+            {"-32769", 0, 0, std::string("\xff\x7f\xff", 3)},
+            {"-32768", 0, 0, std::string("\x80\x00", 2)},
+            {"-256", 0, 0, std::string("\xff\x00", 2)},
+            {"-255", 0, 0, std::string("\xff\x01", 2)},
+            {"-129", 0, 0, std::string("\xff\x7f", 2)},
+            {"-128", 0, 0, std::string("\x80", 1)},
+            {"-100", 0, 0, std::string("\x9c", 1)},
+            {"-1", 0, 0, std::string("\xff", 1)},
+            {"0", 0, 0, std::string("\x00", 1)},
+            {"1", 0, 0, std::string("\x01", 1)},
+            {"127", 0, 0, std::string("\x7f", 1)},
+            {"128", 0, 0, std::string("\x00\x80", 2)},
+            {"255", 0, 0, std::string("\x00\xff", 2)},
+            {"256", 0, 0, std::string("\x01\x00", 2)},
+            {"9223372036854775807", 0, 0, std::string("\x7f\xff\xff\xff\xff\xff\xff\xff", 8)},
+            {"18446744073709551616", 0, 0, std::string("\x01\x00\x00\x00\x00\x00\x00\x00\x00", 9)},
+            {"99999999999999999999999999999999999999", 0, 0,
+             std::string("\x4b\x3b\x4c\xa8\x5a\x86\xc4\x7a\x09\x8a\x22\x3f\xff\xff\xff\xff", 16)},
+            {"-1", 0, 1, std::string("\xf6", 1)},
+            {"-1", 0, 2, std::string("\x9c", 1)},
+            {"-10", 1, 2, std::string("\x9c", 1)},
+            {"1", 0, 2, std::string("\x64", 1)},
+            {"128", 0, 2, std::string("\x32\x00", 2)},
+            {"0", 0, 38, std::string("\x00", 1)},
+            {"-1", 1, 38,
+             std::string("\xf8\x7a\x11\xef\x2a\x25\xb9\x26\xff\x0b\xc9\x60\x00\x00\x00\x00", 16)},
+            {"1", 38, 38, std::string("\x01", 1)},
+            {"-1", 38, 38, std::string("\xff", 1)},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(test.value);
+        SCOPED_TRACE(test.footer_scale);
+        SCOPED_TRACE(test.column_scale);
+        const orc::Decimal decimal(orc::Int128(test.value), test.footer_scale);
+        EXPECT_EQ(test.expected, VOrcTransformer::_decimal_to_bytes(decimal, test.column_scale));
+    }
+}
+
+TEST_F(VOrcTransformerTest, CollectsDecimalBoundsAtColumnScale) {
+    struct TestCase {
+        int precision;
+        int scale;
+        std::vector<std::string> values;
+        std::string lower;
+        std::string upper;
+    };
+    const std::vector<TestCase> cases = {
+            {1, 0, {"-9", "9"}, std::string("\xf7", 1), std::string("\x09", 1)},
+            {9, 0, {"-100", "-1"}, std::string("\x9c", 1), std::string("\xff", 1)},
+            {9, 0, {"-100", "128"}, std::string("\x9c", 1), std::string("\x00\x80", 2)},
+            {9, 2, {"-100.00", "-1.00"}, std::string("\xd8\xf0", 2), std::string("\x9c", 1)},
+            {18, 2, {"-100.00", "1.28"}, std::string("\xd8\xf0", 2), std::string("\x00\x80", 2)},
+            {18, 2, {"1.00", "128.00"}, std::string("\x64", 1), std::string("\x32\x00", 2)},
+            {38,
+             0,
+             {"-99999999999999999999999999999999999999", "99999999999999999999999999999999999999"},
+             std::string("\xb4\xc4\xb3\x57\xa5\x79\x3b\x85\xf6\x75\xdd\xc0\x00\x00\x00\x01", 16),
+             std::string("\x4b\x3b\x4c\xa8\x5a\x86\xc4\x7a\x09\x8a\x22\x3f\xff\xff\xff\xff", 16)},
+            {38,
+             38,
+             {"-0.10000000000000000000000000000000000000",
+              "0.00000000000000000000000000000000000001"},
+             std::string("\xf8\x7a\x11\xef\x2a\x25\xb9\x26\xff\x0b\xc9\x60\x00\x00\x00\x00", 16),
+             std::string("\x01", 1)},
+            {38,
+             38,
+             {"0.00000000000000000000000000000000000000"},
+             std::string("\x00", 1),
+             std::string("\x00", 1)},
+    };
+    for (const auto& test : cases) {
+        for (bool nullable : {false, true}) {
+            SCOPED_TRACE(test.precision);
+            SCOPED_TRACE(test.scale);
+            SCOPED_TRACE(nullable);
+            auto decimal_type = create_decimal(test.precision, test.scale, false);
+            auto type = nullable ? make_nullable(decimal_type) : decimal_type;
+            auto column = type->create_column();
+            auto serde = type->get_serde();
+            DataTypeSerDe::FormatOptions options;
+            for (const auto& value : test.values) {
+                Slice slice(value);
+                ASSERT_TRUE(serde->deserialize_one_cell_from_json(*column, slice, options).ok());
+            }
+            // A null beside the extrema must not change either decimal bound.
+            if (nullable) {
+                column->insert_default();
+            }
+            auto exprs = MockSlotRef::create_mock_contexts(DataTypes {type});
+            const auto json = fmt::format(
+                    R"json({{"type":"struct","fields":[{{"id":1,"name":"d","required":false,"type":"decimal({},{})"}}]}})json",
+                    test.precision, test.scale);
+            auto schema = iceberg::SchemaParser::from_json(json);
+            io::FileWriterPtr file_writer;
+            ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+            RuntimeState state;
+            VOrcTransformer transformer(&state, file_writer.get(), exprs, "", {"d"}, false,
+                                        TFileCompressType::PLAIN, schema.get(), _fs);
+            ASSERT_TRUE(transformer.open().ok());
+            ASSERT_TRUE(transformer.write(Block({{std::move(column), type, "d"}})).ok());
+            ASSERT_TRUE(transformer.close().ok());
+            TIcebergColumnStats stats;
+            ASSERT_TRUE(transformer.collect_file_statistics_after_close(&stats).ok());
+            ASSERT_TRUE(stats.lower_bounds.contains(1));
+            ASSERT_TRUE(stats.upper_bounds.contains(1));
+            EXPECT_EQ(test.lower, stats.lower_bounds.at(1));
+            EXPECT_EQ(test.upper, stats.upper_bounds.at(1));
+        }
+    }
+}
+
+TEST_F(VOrcTransformerTest, AllNullDecimalsHaveNoBounds) {
+    auto type = make_nullable(create_decimal(38, 2, false));
+    auto column = type->create_column();
+    column->insert_default();
+    column->insert_default();
+    auto exprs = MockSlotRef::create_mock_contexts(DataTypes {type});
+    const std::string json =
+            R"json({"type":"struct","fields":[{"id":1,"name":"d","required":false,"type":"decimal(38,2)"}]})json";
+    auto schema = iceberg::SchemaParser::from_json(json);
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    VOrcTransformer transformer(&state, file_writer.get(), exprs, "", {"d"}, false,
+                                TFileCompressType::PLAIN, schema.get(), _fs);
+    ASSERT_TRUE(transformer.open().ok());
+    ASSERT_TRUE(transformer.write(Block({{std::move(column), type, "d"}})).ok());
+    ASSERT_TRUE(transformer.close().ok());
+    TIcebergColumnStats stats;
+    ASSERT_TRUE(transformer.collect_file_statistics_after_close(&stats).ok());
+    EXPECT_FALSE(stats.lower_bounds.contains(1));
+    EXPECT_FALSE(stats.upper_bounds.contains(1));
+    EXPECT_EQ(2, stats.null_value_counts.at(1));
+}
+
 TEST_F(VOrcTransformerTest, IcebergBinaryTypesOverrideLegacyStringCarrier) {
     const std::string schema_json = R"({
         "type": "struct",
@@ -401,8 +551,8 @@ TEST_F(VOrcTransformerTest, ConvertsNestedLegacyUuidAndValidatesFixedBeforeOrcWr
 
     io::FileReaderSPtr file_reader;
     ASSERT_TRUE(_fs->open_file(_file_path, &file_reader).ok());
-    auto input_stream = std::make_unique<ORCFileInputStream>(
-            _file_path, file_reader, nullptr, nullptr, 8L * 1024L * 1024L, 1L * 1024L * 1024L);
+    auto input_stream = std::make_unique<format::orc::OrcFileInputStream>(
+            _file_path, file_reader, nullptr, nullptr, format::orc::OrcFileInputStreamOptions {});
     auto reader = orc::createReader(std::move(input_stream), orc::ReaderOptions());
     auto row_reader = reader->createRowReader();
     auto row_batch = row_reader->createRowBatch(1);
@@ -450,8 +600,8 @@ TEST_F(VOrcTransformerTest, PreservesVarbinaryUuidCarrierBeforeOrcWrite) {
 
     io::FileReaderSPtr file_reader;
     ASSERT_TRUE(_fs->open_file(_file_path, &file_reader).ok());
-    auto input_stream = std::make_unique<ORCFileInputStream>(
-            _file_path, file_reader, nullptr, nullptr, 8L * 1024L * 1024L, 1L * 1024L * 1024L);
+    auto input_stream = std::make_unique<format::orc::OrcFileInputStream>(
+            _file_path, file_reader, nullptr, nullptr, format::orc::OrcFileInputStreamOptions {});
     auto reader = orc::createReader(std::move(input_stream), orc::ReaderOptions());
     auto row_reader = reader->createRowReader();
     auto row_batch = row_reader->createRowBatch(1);
@@ -492,8 +642,8 @@ TEST_F(VOrcTransformerTest, PreservesNativeUuidCarrierBeforeIcebergOrcWrite) {
 
     io::FileReaderSPtr file_reader;
     ASSERT_TRUE(_fs->open_file(_file_path, &file_reader).ok());
-    auto input_stream = std::make_unique<ORCFileInputStream>(
-            _file_path, file_reader, nullptr, nullptr, 8L * 1024L * 1024L, 1L * 1024L * 1024L);
+    auto input_stream = std::make_unique<format::orc::OrcFileInputStream>(
+            _file_path, file_reader, nullptr, nullptr, format::orc::OrcFileInputStreamOptions {});
     auto reader = orc::createReader(std::move(input_stream), orc::ReaderOptions());
     auto row_reader = reader->createRowReader();
     auto row_batch = row_reader->createRowBatch(1);
@@ -631,7 +781,83 @@ TEST_F(VOrcTransformerTest, SkipsInvalidBinaryChildrenHiddenByNullableCollection
     block.insert({std::move(nullable_array), nullable_array_type, "uuid_array"});
     block.insert({std::move(nullable_map), nullable_map_type, "binary_map"});
     ASSERT_TRUE(transformer.write(block).ok());
+
+    auto make_visible_block = [&](const std::string& array_uuid, const std::string& map_uuid,
+                                  const std::string& map_fixed) {
+        auto visible_array_elements = ColumnString::create();
+        visible_array_elements->insert_data(array_uuid.data(), array_uuid.size());
+        auto visible_array_offsets = ColumnArray::ColumnOffsets::create();
+        visible_array_offsets->get_data().push_back(1);
+        auto visible_array = ColumnNullable::create(
+                ColumnArray::create(ColumnNullable::create(std::move(visible_array_elements),
+                                                           ColumnUInt8::create(1, 0)),
+                                    std::move(visible_array_offsets)),
+                ColumnUInt8::create(1, 0));
+
+        auto visible_map_keys = ColumnString::create();
+        visible_map_keys->insert_data(map_uuid.data(), map_uuid.size());
+        auto visible_map_values = ColumnString::create();
+        visible_map_values->insert_data(map_fixed.data(), map_fixed.size());
+        auto visible_map_offsets = ColumnArray::ColumnOffsets::create();
+        visible_map_offsets->get_data().push_back(1);
+        auto visible_map = ColumnNullable::create(
+                ColumnMap::create(std::move(visible_map_keys), std::move(visible_map_values),
+                                  std::move(visible_map_offsets)),
+                ColumnUInt8::create(1, 0));
+
+        Block visible_block;
+        visible_block.insert({std::move(visible_array), nullable_array_type, "uuid_array"});
+        visible_block.insert({std::move(visible_map), nullable_map_type, "binary_map"});
+        return visible_block;
+    };
+
+    const std::string valid_uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    Block invalid_uuid_block = make_visible_block("invalid-visible-uuid", valid_uuid, "ABCD");
+    Status invalid_uuid = transformer.write(invalid_uuid_block);
+    ASSERT_FALSE(invalid_uuid.ok());
+    EXPECT_NE(invalid_uuid.to_string().find("Invalid UUID string length"), std::string::npos);
+
+    Block invalid_fixed_block = make_visible_block(valid_uuid, valid_uuid, "BAD");
+    Status invalid_fixed = transformer.write(invalid_fixed_block);
+    ASSERT_FALSE(invalid_fixed.ok());
+    EXPECT_NE(invalid_fixed.to_string().find("FIXED[4]"), std::string::npos);
     ASSERT_TRUE(transformer.close().ok());
+
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(_fs->open_file(_file_path, &file_reader).ok());
+    auto input_stream = std::make_unique<format::orc::OrcFileInputStream>(
+            _file_path, file_reader, nullptr, nullptr, format::orc::OrcFileInputStreamOptions {});
+    auto reader = orc::createReader(std::move(input_stream), orc::ReaderOptions());
+    auto row_reader = reader->createRowReader();
+    auto row_batch = row_reader->createRowBatch(2);
+    ASSERT_TRUE(row_reader->next(*row_batch));
+    const auto& root = assert_cast<const orc::StructVectorBatch&>(*row_batch);
+    ASSERT_EQ(root.numElements, 2);
+    const auto& array_batch = assert_cast<const orc::ListVectorBatch&>(*root.fields[0]);
+    const auto& array_values = assert_cast<const orc::StringVectorBatch&>(*array_batch.elements);
+    const auto& map_batch = assert_cast<const orc::MapVectorBatch&>(*root.fields[1]);
+    const auto& map_keys_batch = assert_cast<const orc::StringVectorBatch&>(*map_batch.keys);
+    const auto& map_values_batch = assert_cast<const orc::StringVectorBatch&>(*map_batch.elements);
+    ASSERT_TRUE(array_batch.hasNulls);
+    EXPECT_FALSE(array_batch.notNull[0]);
+    EXPECT_TRUE(array_batch.notNull[1]);
+    EXPECT_EQ(array_batch.offsets[0], 0);
+    EXPECT_EQ(array_batch.offsets[1], 0);
+    EXPECT_EQ(array_batch.offsets[2], 1);
+    ASSERT_TRUE(map_batch.hasNulls);
+    EXPECT_FALSE(map_batch.notNull[0]);
+    EXPECT_TRUE(map_batch.notNull[1]);
+    EXPECT_EQ(map_batch.offsets[0], 0);
+    EXPECT_EQ(map_batch.offsets[1], 0);
+    EXPECT_EQ(map_batch.offsets[2], 1);
+
+    const std::array<uint8_t, 16> expected_uuid = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                                   0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    ASSERT_EQ(array_values.length[0], expected_uuid.size());
+    EXPECT_EQ(0, std::memcmp(array_values.data[0], expected_uuid.data(), expected_uuid.size()));
+    ASSERT_EQ(map_keys_batch.length[0], expected_uuid.size());
+    EXPECT_EQ(0, std::memcmp(map_keys_batch.data[0], expected_uuid.data(), expected_uuid.size()));
+    EXPECT_EQ(std::string_view(map_values_batch.data[0], map_values_batch.length[0]), "ABCD");
 }
 
 TEST_F(VOrcTransformerTest, DetectsOnlyFieldsThatNeedIcebergBinaryNormalization) {

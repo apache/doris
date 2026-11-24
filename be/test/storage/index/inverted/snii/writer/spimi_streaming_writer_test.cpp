@@ -31,6 +31,7 @@
 #include "storage/index/inverted/snii/writer/posting_window_emitter.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using namespace doris::snii::format;
@@ -39,9 +40,10 @@ using namespace doris::snii::writer;
 namespace {
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("spimi_streaming_writer_test");
     static int counter = 0;
-    return "/tmp/snii_stream_test_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
-           ".idx";
+    return (temp_dir.path() / "snii_stream_test_").string() + std::to_string(getpid()) + "_" +
+           std::to_string(counter++) + ".idx";
 }
 
 std::vector<uint8_t> ReadAll(const std::string& path) {
@@ -209,7 +211,7 @@ TEST(SniiSpimiStreamingWriter, StreamingConsumesSource) {
 
     SniiIndexInput in = BaseInput(50);
     in.term_source = &buf;
-    LogicalIndexWriter writer(in);
+    LogicalIndexWriter writer(in, TrackedNullDocids(std::move(in.null_docids)));
     // build() streams the posting region straight into a FileWriter sink; this test
     // only asserts the source is drained, so a throwaway temp sink suffices.
     const std::string post_path = TempPath();

@@ -25,6 +25,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/coding.h"
 
 namespace doris::io {
@@ -32,16 +33,6 @@ namespace doris::io {
 using doris::Status;
 
 namespace {
-std::string unique_temp_file() {
-    auto dir = std::filesystem::temp_directory_path();
-    std::string pattern = (dir / "packed_file_XXXXXX").string();
-    int fd = mkstemp(pattern.data());
-    if (fd != -1) {
-        close(fd);
-    }
-    return pattern;
-}
-
 void write_file(const std::string& path, const std::string& data) {
     std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
     ofs.write(data.data(), data.size());
@@ -68,7 +59,8 @@ TEST(PackedFileTrailerTest, ReadNewFormatTrailer) {
     put_fixed32_le(&file_content, static_cast<uint32_t>(serialized_footer.size()));
     put_fixed32_le(&file_content, kPackedFileTrailerVersion);
 
-    auto path = unique_temp_file();
+    const doris::test::ScopedTempDirectory temp_dir("packed_file_trailer");
+    const auto path = (temp_dir.path() / "packed_file").string();
     write_file(path, file_content);
 
     cloud::PackedFileFooterPB parsed;
@@ -98,7 +90,8 @@ TEST(PackedFileTrailerTest, ReadLegacyTrailer) {
     file_content.append(serialized_info);
     put_fixed32_le(&file_content, static_cast<uint32_t>(serialized_info.size()));
 
-    auto path = unique_temp_file();
+    const doris::test::ScopedTempDirectory temp_dir("packed_file_trailer");
+    const auto path = (temp_dir.path() / "packed_file").string();
     write_file(path, file_content);
 
     cloud::PackedFileFooterPB parsed;

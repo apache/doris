@@ -21,7 +21,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.mtmv.ivm.IvmNormalizeDupKeysMTMV;
 import org.apache.doris.mtmv.ivm.IvmNormalizeUniqKeysMTMV;
-import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.nereids.StatementContext;
@@ -29,15 +28,13 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.SupportChangelog;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.util.List;
 
 /**
  * Normalizes an IVM MV's query: settles which table model the MV is built with, and hands the query
@@ -80,22 +77,16 @@ public class IvmNormalizeMTMV implements CustomRewriter {
             // pin down.
             result = new IvmNormalizeDupKeysMTMV().normalize(plan, statementContext.getExcludedTriggerTables());
         } else {
-            result = new IvmNormalizeUniqKeysMTMV().normalize(plan, jobContext);
+            result = new IvmNormalizeUniqKeysMTMV().normalizeRoot(plan, jobContext);
         }
         // Whichever normalizer built it, the normalized plan is published here, and only here, so
         // that a statement downstream of this rewrite reads the plan of the model that was chosen.
         rewriteResult.setNormalizeRewritten(true);
         rewriteResult.setNormalizedPlan(result);
-        if (rewriteContext.getMode() == IvmRewriteContext.Mode.CREATE) {
-            // The normalized plan is what an incremental refresh is built against, so CREATE logs it
-            // whole, together with the signature the unique-key model pins it down by. A detail MV has
-            // no signature: it holds the query's own rows, and its refresh reads no layout.
-            IvmPlanSignature planSignature = rewriteResult.getPlanSignature();
-            LOG.info("IVM normalized plan, mtmvName={}, keysType={}, detailModel={}, inputRoot={}, plan={}, "
-                            + "canonicalString={}, signature={}",
+        if (rewriteContext.isCreate()) {
+            LOG.info("IVM normalized plan, mtmvName={}, keysType={}, detailModel={}, inputRoot={}, plan={}",
                     rewriteContext.getMtmvName(), keysType, detailModel, plan.getClass().getSimpleName(),
-                    result.treeString(), planSignature == null ? null : planSignature.getCanonicalString(),
-                    planSignature == null ? null : planSignature.getSha256());
+                    result.treeString());
         }
         return result;
     }
@@ -111,8 +102,7 @@ public class IvmNormalizeMTMV implements CustomRewriter {
             return mtmv.isIvmAppendOnlyDupTable() ? KeysType.DUP_KEYS : KeysType.UNIQUE_KEYS;
         }
         Preconditions.checkState(rewriteContext.isCreate(),
-                "an IVM rewrite without an MV can only be CREATE, but its mode is: %s",
-                rewriteContext.getMode());
+                "only CREATE can rewrite an IVM query without an MV");
         return judgeKeysType(plan, rewriteContext);
     }
 
@@ -122,7 +112,7 @@ public class IvmNormalizeMTMV implements CustomRewriter {
      *
      * <p>{@link KeysType#DUP_KEYS} means the MV is a detail table a refresh only ever appends to,
      * and it needs both halves of "no refresh can undo or rewrite a row the MV already holds": every
-     * base table is an append-only detail table, whose row binlog carries APPEND events only, and no
+     * base table is an append-only detail table, whose changelog carries APPEND events only, and no
      * operator of the query corrects a row already materialized. Of the operators the normalize
      * supports, exactly two do correct one -- an aggregate, whose delta changes the row of a group
      * (DISTINCT included, and GROUPING SETS, which is a repeat of aggregates), and an outer join,
@@ -144,19 +134,13 @@ public class IvmNormalizeMTMV implements CustomRewriter {
         if (rewriteContext.isForceMow()) {
             return KeysType.UNIQUE_KEYS;
         }
-        boolean needsRowIdMaintenance = plan.anyMatch(node -> node instanceof LogicalAggregate
-                || node instanceof LogicalRepeat
-                || (node instanceof LogicalJoin
-                        && ((LogicalJoin<?, ?>) node).getJoinType().isOuterJoin()));
-        if (needsRowIdMaintenance) {
-            return KeysType.UNIQUE_KEYS;
-        }
-        List<LogicalOlapScan> scans = plan.collectToList(LogicalOlapScan.class::isInstance);
-        for (LogicalOlapScan scan : scans) {
-            if (scan.getTable().getKeysType() != KeysType.DUP_KEYS) {
-                return KeysType.UNIQUE_KEYS;
-            }
-        }
-        return KeysType.DUP_KEYS;
+        boolean needsRowIdMaintenance = plan.anyMatch(node ->
+                node instanceof LogicalAggregate
+                        || node instanceof LogicalRepeat
+                        || (node instanceof LogicalJoin
+                                && ((LogicalJoin<?, ?>) node).getJoinType().isOuterJoin())
+                        || (node instanceof SupportChangelog
+                                && !((SupportChangelog) node).isChangelogAppendOnly()));
+        return needsRowIdMaintenance ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
     }
 }

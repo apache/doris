@@ -29,7 +29,7 @@ namespace doris {
 class BucketedAggSinkOperatorX;
 
 /// Sink-side local state for bucketed hash aggregation.
-/// Each pipeline instance builds 256 per-bucket hash tables (two-level hash table).
+/// Each pipeline instance builds a configurable number of per-bucket hash tables.
 /// No locking: each instance writes to per_instance_data[_instance_idx].
 class BucketedAggSinkLocalState : public PipelineXSinkLocalState<BucketedAggSharedState> {
 public:
@@ -59,8 +59,9 @@ private:
     void _update_memusage();
 
     int _instance_idx = 0;
+    int _num_buckets = 0;
     /// Pointers into shared_state->per_instance_data[_instance_idx].
-    std::vector<BucketedAggDataVariants*> _bucket_agg_data; // [256]
+    std::vector<BucketedAggDataVariants*> _bucket_agg_data;
     Arena* _arena = nullptr;
 
     /// Per-instance clones of probe expression contexts. Required because
@@ -83,6 +84,7 @@ private:
 
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
+    RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
@@ -98,7 +100,7 @@ private:
 
 /// Bucketed hash aggregation sink operator.
 /// Fuses local + global aggregation for single-BE deployments.
-/// Each pipeline instance builds 256 per-bucket hash tables from raw input.
+/// Each pipeline instance builds per-bucket hash tables from raw input.
 /// The source operator then merges across instances per-bucket (second-phase agg).
 class BucketedAggSinkOperatorX final : public DataSinkOperatorX<BucketedAggSinkLocalState> {
 public:
@@ -136,6 +138,8 @@ public:
 private:
     friend class BucketedAggSinkLocalState;
 
+    // Missing Thrift field preserves the behavior of an older FE. Zero selects auto.
+    int _num_buckets = BUCKETED_AGG_NUM_BUCKETS;
     std::vector<AggFnEvaluator*> _aggregate_evaluators;
 
     // Bucketed agg is one-phase: intermediate and output tuples are identical.

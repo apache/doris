@@ -52,6 +52,7 @@
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h" //for VecDateTime
 #include "io/fs/file_reader.h"
+#include "storage/cache/page_cache.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/bloom_filter/bloom_filter_index_reader.h"
@@ -75,6 +76,7 @@
 #include "storage/segment/page_handle.h" // for PageHandle
 #include "storage/segment/page_io.h"
 #include "storage/segment/page_pointer.h" // for PagePointer
+#include "storage/segment/read_ahead_file_column_iterator.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_prefetcher.h"
@@ -543,7 +545,7 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
           _opts(opts),
           _num_rows(num_rows),
           _file_reader(std::move(file_reader)),
-          _dict_encoding_type(UNKNOWN_DICT_ENCODING) {
+          _dict_encoding_type(DictEncodingType::UNKNOWN_DICT_ENCODING) {
     _meta_length = meta.length();
     _meta_type = (FieldType)meta.type();
     if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
@@ -680,7 +682,8 @@ Status ColumnReader::new_index_iterator(const std::shared_ptr<IndexFileReader>& 
 
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                               BlockCompressionCodec* codec) const {
+                               BlockCompressionCodec* codec,
+                               io::ReadAheadRangeBuffer* read_ahead) const {
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().column_reader_read_page);
     iter_opts.sanity_check();
     PageReadOptions opts(iter_opts.io_ctx);
@@ -693,6 +696,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.codec = codec;
     opts.stats = iter_opts.stats;
     opts.encoding_info = _encoding_info;
+    opts.read_ahead = read_ahead;
 
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
@@ -1065,16 +1069,24 @@ Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColu
 }
 
 Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column,
-                                  const StorageReadOptions* opt) {
+                                  const StorageReadOptions* opt, bool enable_read_ahead) {
     if (is_empty()) {
         *iterator = std::make_unique<EmptyFileColumnIterator>();
         return Status::OK();
     }
     if (is_scalar_type(_meta_type)) {
         if (is_string_type(_meta_type)) {
-            *iterator = std::make_unique<StringFileColumnIterator>(shared_from_this());
+            if (enable_read_ahead) {
+                *iterator = std::make_unique<ReadAheadStringColumnIterator>(shared_from_this());
+            } else {
+                *iterator = std::make_unique<StringFileColumnIterator>(shared_from_this());
+            }
         } else {
-            *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
+            if (enable_read_ahead) {
+                *iterator = std::make_unique<ReadAheadFileColumnIterator>(shared_from_this());
+            } else {
+                *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
+            }
         }
         (*iterator)->set_column_name(tablet_column ? tablet_column->name() : "");
         return Status::OK();
@@ -2736,7 +2748,7 @@ Status StringFileColumnIterator::set_access_paths(
     RETURN_IF_ERROR(FileColumnIterator::set_access_paths(all_access_paths, predicate_access_paths));
     // OFFSET_ONLY mode is fundamentally incompatible with CHAR columns:
     // CHAR is stored padded to its declared length (see
-    // OlapColumnDataConvertorChar::clone_and_padding), so the per-row length
+    // StorageLayout<CHAR>::column_to_storage), so the per-row length
     // recorded in dict word info / page headers is always the padded length
     // (e.g. 25 for CHAR(25)) — never the logical length expected by length().
     // Recovering the logical length requires scanning the chars buffer with
@@ -2817,12 +2829,12 @@ Status ColumnIterator::_check_and_set_meta_read_mode(ReadRequirement requirement
 }
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
+    _opts = opts;
     if (_read_requirement == ReadRequirement::SKIP) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
         return Status::OK();
     }
 
-    _opts = opts;
     if (!_opts.use_page_cache) {
         _reader->disable_index_meta_cache();
     }
@@ -2837,14 +2849,16 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
         // because it will load the column's ordinal index and zonemap index and maybe other indices.
         // it has bad impact on primary key query. For example, select * from table where pk = 1, and
         // the table has 2000 columns.
-        if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING && opts.is_predicate_column) {
+        if (dict_encoding_type == ColumnReader::DictEncodingType::UNKNOWN_DICT_ENCODING &&
+            opts.is_predicate_column) {
             RETURN_IF_ERROR(seek_to_ordinal(_reader->num_rows() - 1));
             _is_all_dict_encoding = _page.is_dict_encoding;
-            _reader->set_dict_encoding_type(_is_all_dict_encoding
-                                                    ? ColumnReader::ALL_DICT_ENCODING
-                                                    : ColumnReader::PARTIAL_DICT_ENCODING);
+            _reader->set_dict_encoding_type(
+                    _is_all_dict_encoding ? ColumnReader::DictEncodingType::ALL_DICT_ENCODING
+                                          : ColumnReader::DictEncodingType::PARTIAL_DICT_ENCODING);
         } else {
-            _is_all_dict_encoding = dict_encoding_type == ColumnReader::ALL_DICT_ENCODING;
+            _is_all_dict_encoding =
+                    dict_encoding_type == ColumnReader::DictEncodingType::ALL_DICT_ENCODING;
         }
     }
     return Status::OK();
@@ -2921,6 +2935,34 @@ Status FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offs
 Status FileColumnIterator::next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) {
     return _reader->next_batch_of_zone_map(n, dst);
 }
+
+namespace {
+
+// Runs `decode`, a page decoder call that appends values to the column it is given. The decoders
+// append to the column of the type, as ScalarColumnWriter::append peels the Nullable off before
+// the values reach a page, so a Nullable dst lends them its nested column and the rows they
+// append are marked not NULL here. A dictionary page decoder may replace the column it appends to
+// (a ColumnDictI32 becomes a ColumnString when a page falls back to plain encoding), and the
+// replacement goes back into dst.
+template <typename Decode>
+Status decode_values(MutableColumnPtr& dst, const Decode& decode) {
+    if (!is_column_nullable(*dst)) {
+        return decode(dst);
+    }
+    auto& nullable = static_cast<ColumnNullable&>(*dst);
+    MutableColumnPtr nested = nullable.get_nested_column_ptr();
+    const IColumn* const lent = nested.get();
+    const size_t rows = lent->size();
+    Status st = decode(nested);
+    nullable.push_false_to_nullmap(nested->size() - rows);
+    if (nested.get() != lent) {
+        ColumnPtr replacement = std::move(nested);
+        nullable.change_nested_column(replacement);
+    }
+    return st;
+}
+
+} // namespace
 
 Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     if (!need_to_read()) {
@@ -3002,7 +3044,9 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
                 // we use num_rows only for CHECK
                 size_t num_rows = this_run;
                 if (!is_null) {
-                    RETURN_IF_ERROR(_page.data_decoder->next_batch(&num_rows, dst));
+                    RETURN_IF_ERROR(decode_values(dst, [&](MutableColumnPtr& values) {
+                        return _page.data_decoder->next_batch(&num_rows, values);
+                    }));
                     DCHECK_EQ(this_run, num_rows);
                 } else {
                     *has_null = true;
@@ -3019,7 +3063,9 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
                 _current_ordinal += this_run;
             }
         } else {
-            RETURN_IF_ERROR(_page.data_decoder->next_batch(&nrows_to_read, dst));
+            RETURN_IF_ERROR(decode_values(dst, [&](MutableColumnPtr& values) {
+                return _page.data_decoder->next_batch(&nrows_to_read, values);
+            }));
             DCHECK_EQ(nrows_to_read, nrows_in_page);
 
             _page.offset_in_page += nrows_to_read;
@@ -3166,8 +3212,11 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                         // so we need use `page_start_off_in_decoder` to calculate the actual offset in `data_decoder`
                         size_t page_start_off_in_decoder =
                                 _page.first_ordinal + _page.offset_in_page - origin_index;
-                        RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
-                                &rowids[offset], page_start_off_in_decoder, &read_count, dst));
+                        RETURN_IF_ERROR(decode_values(dst, [&](MutableColumnPtr& values) {
+                            return _page.data_decoder->read_by_rowids(&rowids[offset],
+                                                                      page_start_off_in_decoder,
+                                                                      &read_count, values);
+                        }));
                         DCHECK_EQ(read_count, this_read_count);
                     }
                 }
@@ -3186,8 +3235,10 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         } else {
-            RETURN_IF_ERROR(_page.data_decoder->read_by_rowids(
-                    &rowids[total_read_count], _page.first_ordinal, &nrows_to_read, dst));
+            RETURN_IF_ERROR(decode_values(dst, [&](MutableColumnPtr& values) {
+                return _page.data_decoder->read_by_rowids(
+                        &rowids[total_read_count], _page.first_ordinal, &nrows_to_read, values);
+            }));
             total_read_count += nrows_to_read;
             remaining -= nrows_to_read;
         }
@@ -3209,18 +3260,56 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
 }
 
 Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter) {
+    const auto context = _before_page_read(iter.page_index());
+    Defer finish_page_read {[&] { _after_page_read(iter.page_index(), iter.page()); }};
     PageHandle handle;
     Slice page_body;
     PageFooterPB footer;
     _opts.type = DATA_PAGE;
     PageDecoderOptions decoder_opts;
     decoder_opts.only_read_offsets = _opts.only_read_offsets;
-    RETURN_IF_ERROR(
-            _reader->read_page(_opts, iter.page(), &handle, &page_body, &footer, _compress_codec));
-    // parse data page
-    auto st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
-                                 _reader->encoding_info(), iter.page(), iter.page_index(), &_page,
-                                 decoder_opts);
+    auto read_page = [&](const ColumnIteratorOptions& options, io::ReadAheadRangeBuffer* source) {
+        return _reader->read_page(options, iter.page(), &handle, &page_body, &footer,
+                                  _compress_codec, source);
+    };
+    auto retry_original = [&](const Status& status) {
+        if (!context.retry_on_error) {
+            return status;
+        }
+        LOG(WARNING) << "failed to decode page, retrying original reader, file="
+                     << _opts.file_reader->path().native() << ", page_offset=" << iter.page().offset
+                     << ", page_size=" << iter.page().size << ", page_index=" << iter.page_index()
+                     << ", error=" << status;
+        if (auto* cache = StoragePageCache::instance(); cache != nullptr) {
+            StoragePageCache::CacheKey key(_opts.file_reader->path().native(),
+                                           _opts.file_reader->size(), iter.page().offset);
+            cache->erase(key, DATA_PAGE);
+        }
+        handle = PageHandle {};
+        page_body = Slice {};
+        footer.Clear();
+        ColumnIteratorOptions fallback_options = _opts;
+        fallback_options.use_page_cache = false;
+        return read_page(fallback_options, nullptr);
+    };
+
+    auto st = read_page(_opts, context.buffer);
+    if (!st.ok()) {
+        st = retry_original(st);
+    }
+    RETURN_IF_ERROR(st);
+
+    st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
+                            _reader->encoding_info(), iter.page(), iter.page_index(), &_page,
+                            decoder_opts);
+    if (!st.ok() && context.retry_on_error) {
+        st = retry_original(st);
+        if (st.ok()) {
+            st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
+                                    _reader->encoding_info(), iter.page(), iter.page_index(),
+                                    &_page, decoder_opts);
+        }
+    }
     if (!st.ok()) {
         LOG(WARNING) << "failed to create ParsedPage, file=" << _opts.file_reader->path().native()
                      << ", page_offset=" << iter.page().offset << ", page_size=" << iter.page().size

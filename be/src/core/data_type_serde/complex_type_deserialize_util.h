@@ -78,32 +78,13 @@ struct ComplexTypeDeserializeUtil {
         return elements;
     }
 
-    static bool is_null_string(const StringRef& str) {
-        if (str.size == 4) {
-            // null
-            return str.data[0] == 'n' && str.data[1] == 'u' && str.data[2] == 'l' &&
-                   str.data[3] == 'l';
-        }
-        return false;
-    }
-
     template <bool is_strict_mode>
     static Status process_column(const DataTypeSerDeSPtr& serde, IColumn& column, StringRef& str,
                                  const DataTypeSerDe::FormatOptions& options) {
         DCHECK(column.is_nullable()) << "Column must be nullable but got " << column.get_name();
-        if (is_null_string(str)) {
-            auto& column_nullable = assert_cast<ColumnNullable&>(column);
-            column_nullable.insert_default();
-            return Status::OK();
-        }
-        auto str_without_quote = str.trim_quote();
-        if constexpr (is_strict_mode) {
-            return serde->from_string_strict_mode(str_without_quote, column, options);
-        } else {
-            auto st = serde->from_string(str_without_quote, column, options);
-            DCHECK(st.ok()) << "no strict mode, so should not return error";
-            return st;
-        }
+        auto status = serde->from_string_as_nested(str, column, options, is_strict_mode);
+        DCHECK(is_strict_mode || status.ok()) << "no strict mode, so should not return error";
+        return status;
     }
 };
 

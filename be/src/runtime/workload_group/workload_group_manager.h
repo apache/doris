@@ -19,12 +19,17 @@
 #include <stdint.h>
 
 #include <map>
+#include <memory>
+#include <mutex>
 #include <set>
 #include <shared_mutex>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "common/be_mock_util.h"
-#include "runtime/workload_group/workload_group.h"
+#include "common/status.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "util/time.h"
 
 namespace doris {
@@ -35,6 +40,8 @@ class Block;
 
 class TaskScheduler;
 class MultiCoreTaskQueue;
+class ResourceContext;
+struct WorkloadGroupInfo;
 
 // In doris, query includes all tasks such as query, load, compaction, schemachange, etc.
 class PausedQuery {

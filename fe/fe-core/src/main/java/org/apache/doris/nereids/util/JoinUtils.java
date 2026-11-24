@@ -123,12 +123,6 @@ public class JoinUtils {
             if (equal.containsVolatileExpression()) {
                 return false;
             }
-            if (TypeCoercionUtils.isTimeStampNsAndDateTimeV2Pair(
-                    equal.left().getDataType(), equal.right().getDataType())) {
-                // Scalar comparison has an exact mixed-type kernel, but the two types have
-                // different physical encodings and therefore cannot share a hash key.
-                return false;
-            }
 
             Set<ExprId> equalLeftExprIds = equal.left().getInputSlotExprIds();
             if (equalLeftExprIds.isEmpty()) {
@@ -207,8 +201,7 @@ public class JoinUtils {
     public static boolean shouldBucketShuffleJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
         if (isStorageBucketed(join.right().getPhysicalProperties())) {
             return true;
-        } else if (SessionVariable.canUseNereidsDistributePlanner()
-                && isStorageBucketed(join.left().getPhysicalProperties())) {
+        } else if (isStorageBucketed(join.left().getPhysicalProperties())) {
             return true;
         }
         return false;

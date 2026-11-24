@@ -24,7 +24,7 @@ every translation unit, so one stray include can multiply rebuild cost by an ord
 of magnitude and does so silently: the code still compiles, only the build slows
 down. This script turns that into a build error instead.
 
-Four kinds of guard, all on the same text include graph (be/src + be/test, all
+Five kinds of guard, all on the same text include graph (be/src + be/test, all
 ifdef branches -- not comparable to ninja-measured radii, each baseline compares
 only with itself):
 
@@ -41,6 +41,9 @@ only with itself):
   PCH whitelist            pch/pch.h's quoted project includes are pinned
                            exactly; the PCH is the single most leveraged
                            regression surface in the repo.
+  CLucene-free roots       SNII, the analysis layer, the query engine, the
+                           shared inverted index code and ANN must not include
+                           CLucene through any chain, nor name its symbols.
 
 Usage:
     build-support/check-header-deps.py                  # enforce everything
@@ -262,11 +265,11 @@ RULES = [
     ),
     (
         "runtime/runtime_state.h",
-        "io/fs/s3_file_system.h",
+        "io/fs/obj_storage_file_system.h",
         set(),
-        "RuntimeState holds the error-log S3 filesystem only behind a shared_ptr "
-        "(forward-declared, dereferenced in runtime_state.cpp); s3_file_system.h "
-        "carries util/s3_util.h, the AWS SDK surface and gen_cpp/cloud.pb.h, "
+        "RuntimeState holds the error-log object storage filesystem only behind a shared_ptr "
+        "(forward-declared, dereferenced in runtime_state.cpp); obj_storage_file_system.h "
+        "carries object storage client configuration and generated headers, "
         "which must not ride into the ~1060 TUs that include RuntimeState",
     ),
     (
@@ -326,20 +329,10 @@ RULES = [
         "util/hash_util.hpp, a separate pre-existing wart)",
     ),
     (
-        "format/parquet/decoder.h",
-        "util/rle_encoding.h",
-        set(),
-        "BaseDictDecoder holds RleBatchDecoder<uint32_t> behind a unique_ptr "
-        "(forward-declared; the dtor and every member that dereferences it are "
-        "defined in decoder.cpp); the old include made every one of ~530 TUs "
-        "that transitively see a parquet decoder instantiate the whole "
-        "RLE/BitPacking decode chain at ~0.4 CPU s each",
-    ),
-    (
         "format_v2/parquet/reader/native/decoder.h",
         "util/rle_encoding.h",
         set(),
-        "same contract as format/parquet/decoder.h: the dictionary index "
+        "the native dictionary index "
         "decoder is forward-declared and only decoder.cpp needs the complete "
         "RleBatchDecoder type; keeping rle_encoding.h (and the unrolled "
         "bit_packing.inline.h it carries) out of this header keeps the RLE "
@@ -466,16 +459,6 @@ RULES = [
 # every header under it; a banned spelling ending in "/" bans the whole subtree.
 ANGLE_BANS = [
     (
-        "storage/index/inverted/query/",
-        "CLucene/",
-        "query algorithms use the format SPI and do not include CLucene headers",
-    ),
-    (
-        "storage/index/inverted/query/",
-        "CLucene.h",
-        "query algorithms use the format SPI and do not include CLucene headers",
-    ),
-    (
         "core/uint24.h",
         "fmt/",
         "to_string/to_buffer bodies live in uint24.cpp precisely so the "
@@ -520,12 +503,6 @@ ANGLE_BANS = [
         "breaks the -fno-access-control UT build on libc++",
     ),
     (
-        "format/table/iceberg_reader_mixin.h",
-        "ranges",
-        "rides the table-reader stack; <ranges> is heavy and breaks the "
-        "-fno-access-control UT build on libc++",
-    ),
-    (
         "storage/index/inverted/query/engine/collect/top_k_collector.h",
         "ranges",
         "rides the inverted-index query stack; <ranges> is heavy and breaks "
@@ -567,7 +544,7 @@ FORWARD_CLOSURE_BUDGETS = {
     "core/column/column.h": 66,
     "exprs/function/function.h": 106,
     # This dependency hub includes the shared read SPI and SNII gram metadata.
-    "exec/pipeline/dependency.h": 359,
+    "exec/pipeline/dependency.h": 248,
     "pch/pch.h": 8,
 }
 
@@ -583,23 +560,23 @@ REVERSE_REACH_BASELINES = {
     "gen_cpp/Status_types.h": 37,
     # Still carried legitimately by util/uid_util.h (PUniqueId by value) and
     # the profile family; the status.h cut brought these down from 2458/2091.
-    "gen_cpp/types.pb.h": 1791,
+    "gen_cpp/types.pb.h": 1250,
     "gen_cpp/Types_types.h": 1993,
-    "gen_cpp/segment_v2.pb.h": 1234,
-    "gen_cpp/PaloInternalService_types.h": 1133,
-    "util/threadpool.h": 988,
+    "gen_cpp/segment_v2.pb.h": 1200,
+    "gen_cpp/PaloInternalService_types.h": 1150,
+    "util/threadpool.h": 600,
     # parsed_page.h holds RleDecoder<bool> by value and constructs it in the
     # header, so the whole storage read stack sees the RLE machinery; a live
     # dependency, budgeted as-is (trimming it is a refactor, not a gate).
-    "util/rle_encoding.h": 823,
-    "gen_cpp/internal_service.pb.h": 741,
-    "gen_cpp/FrontendService_types.h": 576,
-    "storage/options.h": 464,
-    "gen_cpp/cloud.pb.h": 342,
-    "gen_cpp/BackendService_types.h": 222,
-    "gen_cpp/data.pb.h": 220,
-    "io/fs/s3_file_system.h": 109,  # the AWS SDK surface
-    "util/brpc_closure.h": 61,
+    "util/rle_encoding.h": 250,
+    "gen_cpp/internal_service.pb.h": 600,
+    "gen_cpp/FrontendService_types.h": 350,
+    "storage/options.h": 350,
+    "gen_cpp/cloud.pb.h": 50,
+    "gen_cpp/BackendService_types.h": 150,
+    "gen_cpp/data.pb.h": 120,
+    "io/fs/obj_storage_file_system.h": 50,  # object storage configuration
+    "util/brpc_closure.h": 50,
     "runtime/workload_group/workload_group.h": 42,  # thrift type universe carrier
 }
 REVERSE_SLACK = 0.10
@@ -621,6 +598,39 @@ PCH_QUOTED_WHITELIST = {
 # declarations only, so they cost nothing to include.
 FWD_SUFFIX = "_fwd.h"
 
+# CLucene-free roots. The code under these roots does not use CLucene, and the other guards cannot
+# keep it so: ANGLE_BANS reads only a header's own includes, load_includes() keeps no angle
+# includes while most CLucene edges are angle includes, and the PCH hands CLucene to every
+# translation unit without any include at all. So two rules of their own, neither with an
+# exception table:
+#   closure  no file under a root, sources included, and no project header a root reaches
+#            includes a CLucene header;
+#   symbols  the code under a root, with comments, string literals and includes stripped, names
+#            no CLucene symbol.
+CLUCENE_FREE_ROOTS = [
+    "storage/index/inverted/snii/",
+    "storage/index/inverted/analysis/",
+    "storage/index/inverted/query/",
+    "storage/index/inverted/common/",
+    "storage/index/ann/",
+]
+CLUCENE_INCLUDE = re.compile(r'^\s*#\s*include\s+[<"](CLucene(?:\.h|/[^>"]*))[>"]')
+CLUCENE_SYMBOLS = re.compile(
+    r"\b(lucene::|CL_NS\w*|CLuceneError|_CL[A-Z]\w*|CL_ERR_\w+|LUCENE_\w+|TCHAR|StringUtil)"
+)
+# Comments, raw and plain string literals, character literals and include lines, which the symbol
+# rule ignores: a word in a log message or a comment is no dependency.
+CODE_NOISE = re.compile(
+    r'//[^\n]*|/\*.*?\*/|R"([^(\s]*)\(.*?\)\1"|"(?:\\.|[^"\\\n])*"|'
+    r"'(?:\\.|[^'\\\n])*'|^[ \t]*#[ \t]*include[^\n]*",
+    re.S | re.M,
+)
+CLUCENE_WHY = (
+    "SNII, the analysis layer, the query engine, the shared inverted index code and ANN do not "
+    "use CLucene, and an include anywhere in the closure of a root, or a symbol the PCH makes "
+    "visible, ties them back to it"
+)
+
 
 def load_includes():
     """Maps each repo file to the list of project headers it includes."""
@@ -641,6 +651,30 @@ def load_includes():
                         if match
                     ]
     return includes
+
+
+def load_clucene_includes(includes):
+    """Maps each repo file that includes a CLucene header to those include spellings."""
+    clucene = {}
+    for path in includes:
+        with open(path, encoding="utf-8", errors="ignore") as handle:
+            spellings = [m.group(1) for m in map(CLUCENE_INCLUDE.match, handle) if m]
+        if spellings:
+            clucene[path] = spellings
+    return clucene
+
+
+def clucene_free_files(includes):
+    """Every header and source under the CLucene-free roots, spelled from be/src."""
+    return sorted(
+        path[len(INCLUDE_ROOT) + 1 :]
+        for path in includes
+        if path.startswith(INCLUDE_ROOT + "/")
+        and path.endswith((".h", ".hpp", ".cpp", ".cc"))
+        and any(
+            path[len(INCLUDE_ROOT) + 1 :].startswith(root) for root in CLUCENE_FREE_ROOTS
+        )
+    )
 
 
 def hub_headers(hub, includes):
@@ -780,6 +814,54 @@ def enforce_angle_ban(headers, banned, why):
                 "message",
                 file=sys.stderr,
             )
+    return failures
+
+
+def enforce_clucene_closure(includes, clucene):
+    """No file under a root, and no project header it reaches, includes CLucene."""
+    failures = 0
+    offenders = {}
+    for root in clucene_free_files(includes):
+        for header, chain in reachable(root, includes).items():
+            path = resolve(header, includes)
+            if path in clucene and (header not in offenders or len(chain) < len(offenders[header])):
+                offenders[header] = chain
+    for header, chain in sorted(offenders.items()):
+        failures += 1
+        include = clucene[resolve(header, includes)][0]
+        if len(chain) == 1:
+            print(f"error: {header} includes <{include}>", file=sys.stderr)
+        else:
+            print(f"error: {chain[0]} reaches CLucene through {header}", file=sys.stderr)
+        print(f"  reason: {CLUCENE_WHY}", file=sys.stderr)
+        print("  chain:  " + "\n       -> ".join(chain + [f"<{include}>"]), file=sys.stderr)
+        print(
+            "  fix:    keep the CLucene type out of the header (forward-declare it, or put "
+            "the code behind an interface the root does not see)",
+            file=sys.stderr,
+        )
+    return failures
+
+
+def enforce_clucene_symbols(includes):
+    """The code under a root names no CLucene symbol."""
+    failures = 0
+    for name in clucene_free_files(includes):
+        with open(os.path.join(INCLUDE_ROOT, name), encoding="utf-8", errors="ignore") as handle:
+            # Every stripped piece becomes the newlines it held, so line numbers stay right.
+            code = CODE_NOISE.sub(lambda m: "\n" * m.group(0).count("\n"), handle.read())
+        match = CLUCENE_SYMBOLS.search(code)
+        if not match:
+            continue
+        failures += 1
+        line = code.count("\n", 0, match.start()) + 1
+        print(f"error: {name}:{line} names the CLucene symbol {match.group(0)}", file=sys.stderr)
+        print(f"  reason: {CLUCENE_WHY}", file=sys.stderr)
+        print(
+            "  fix:    use the Doris type or error instead; the PCH makes CLucene visible "
+            "without an include, so the compiler does not catch this",
+            file=sys.stderr,
+        )
     return failures
 
 
@@ -1002,6 +1084,8 @@ def main():
             + enforce_angle_bans(includes)
             + enforce_budgets(includes)
             + enforce_pch(includes)
+            + enforce_clucene_closure(includes, load_clucene_includes(includes))
+            + enforce_clucene_symbols(includes)
         )
     if failures:
         print(f"\n{failures} header hygiene violation(s)", file=sys.stderr)
@@ -1016,7 +1100,8 @@ def main():
             f"header hygiene: {len(RULES)} layering rule(s), "
             f"{len(ANGLE_BANS)} third-party ban(s), "
             f"{len(FORWARD_CLOSURE_BUDGETS)}+{len(REVERSE_REACH_BASELINES)} "
-            "budget(s), pch whitelist: all satisfied"
+            f"budget(s), pch whitelist, {len(CLUCENE_FREE_ROOTS)} CLucene-free root(s): "
+            "all satisfied"
         )
     return 0
 

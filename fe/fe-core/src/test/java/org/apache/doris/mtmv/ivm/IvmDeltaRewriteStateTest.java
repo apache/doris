@@ -155,7 +155,7 @@ class IvmDeltaRewriteStateTest extends IvmDeltaTestBase {
                     new RandomDistributionInfo(1));
             table.addPartition(partition);
         }
-        enableRowBinlog(table);
+        enableChangelog(table);
         table.setQualifiedDbName("test_db");
         return table;
     }

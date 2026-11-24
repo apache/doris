@@ -103,6 +103,10 @@ public:
 
     bool is_trivial() const override { return true; }
 
+    WindowSpillStrategy window_spill_strategy() const override {
+        return WindowSpillStrategy::PARTITION_REDUCE;
+    }
+
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         const auto& column =

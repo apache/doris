@@ -18,10 +18,12 @@
 package org.apache.doris.catalog.stream;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -32,29 +34,192 @@ import org.apache.doris.thrift.TRow;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
 public class OlapTableStream extends BaseTableStream {
 
-    @SerializedName("po")
-    private Map<Long, Long> partitionOffset;
+    @SerializedName("ps")
+    private Map<Long, PartitionStreamState> partitionStates = new HashMap<>();
 
-    @SerializedName("pct")
-    private Map<Long, Long> partitionConsumptionTime;
+    // This monitor protects only the state map. Never acquire a metadata lock or call MS while holding it.
+    private final transient Object partitionStatesLock = new Object();
 
-    @SerializedName("hpt")
-    private Map<Long, Long> historicalPartitionTSO;
+    /** One committed consumption state; offsets and counts are persisted and replaced together. */
+    public static class PartitionStreamState {
+        @SerializedName("o")
+        private final Long offset;
+        @SerializedName("ct")
+        private final long consumptionTime;
+        @SerializedName("ht")
+        private final Long historicalTso;
+        @SerializedName("brc")
+        private final long baseRowCount;
+        @SerializedName("crc")
+        private final long changelogRowCount;
+
+        private static final PartitionStreamState INITIAL_STATE = new PartitionStreamState(
+                null, -1, null, StreamRowCountEstimator.UNKNOWN_ROW_COUNT,
+                StreamRowCountEstimator.UNKNOWN_ROW_COUNT);
+
+        public static PartitionStreamState initial() {
+            return INITIAL_STATE;
+        }
+
+        public static PartitionStreamState restored(Long offset, long consumptionTime, Long historicalTso,
+                long baseRowCount, long changelogRowCount) {
+            return new PartitionStreamState(offset, consumptionTime, historicalTso,
+                    baseRowCount, changelogRowCount);
+        }
+
+        private PartitionStreamState(Long offset, long consumptionTime, Long historicalTso,
+                long baseRowCount, long changelogRowCount) {
+            this.offset = offset;
+            this.consumptionTime = consumptionTime;
+            this.historicalTso = historicalTso;
+            this.baseRowCount = baseRowCount;
+            this.changelogRowCount = changelogRowCount;
+        }
+
+        public Long getOffset() {
+            return offset;
+        }
+
+        public long getConsumptionTime() {
+            return consumptionTime;
+        }
+
+        public Long getHistoricalTso() {
+            return historicalTso;
+        }
+
+        public Long getBaselineOffset() {
+            return historicalTso != null ? historicalTso : offset;
+        }
+
+        public long getBaseRowCount() {
+            return baseRowCount;
+        }
+
+        public long getChangelogRowCount() {
+            return changelogRowCount;
+        }
+
+        static PartitionStreamState fromCloudReadState(Cloud.TableStreamPartitionReadStatePB state) {
+            boolean history = state.getOffsetState()
+                    == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING;
+            return new PartitionStreamState(history ? null : state.getOffsetTso(),
+                    state.hasLastConsumptionTimeMs() ? state.getLastConsumptionTimeMs() : -1,
+                    history ? state.getOffsetTso() : null,
+                    state.hasBaseRowCount() ? state.getBaseRowCount() : StreamRowCountEstimator.UNKNOWN_ROW_COUNT,
+                    state.hasChangelogRowCount() ? state.getChangelogRowCount()
+                            : StreamRowCountEstimator.UNKNOWN_ROW_COUNT);
+        }
+
+        /** Sample while holding the source read lock, before journaling the pending update. */
+        public PartitionStreamState withRowCounts(OlapTable table, long partitionId) {
+            Partition partition = table.getPartition(partitionId);
+            MaterializedIndex base = partition.getIndex(table.getBaseIndexId());
+            MaterializedIndex changelog = table.hasChangelog()
+                    ? partition.getIndex(table.getChangelogIndexMeta().getIndexId()) : null;
+            return new PartitionStreamState(offset, consumptionTime, historicalTso,
+                    StreamRowCountEstimator.rowCount(base), StreamRowCountEstimator.rowCount(changelog));
+        }
+
+        public PartitionStreamState atOffset(Long nextOffset) {
+            return new PartitionStreamState(nextOffset, consumptionTime, null,
+                    baseRowCount, changelogRowCount);
+        }
+
+        public PartitionStreamState atHistoricalTso(Long tso) {
+            return new PartitionStreamState(null, consumptionTime, tso,
+                    baseRowCount, changelogRowCount);
+        }
+
+        public PartitionStreamState committedAt(long timestamp) {
+            return new PartitionStreamState(offset, timestamp, historicalTso,
+                    baseRowCount, changelogRowCount);
+        }
+
+        public boolean matchesOffset(Long expectedOffset) {
+            return Objects.equals(getBaselineOffset(), expectedOffset);
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (!(other instanceof PartitionStreamState)) {
+                return false;
+            }
+            PartitionStreamState state = (PartitionStreamState) other;
+            return Objects.equals(offset, state.offset) && consumptionTime == state.consumptionTime
+                    && Objects.equals(historicalTso, state.historicalTso)
+                    && baseRowCount == state.baseRowCount && changelogRowCount == state.changelogRowCount;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(offset, consumptionTime, historicalTso, baseRowCount, changelogRowCount);
+        }
+    }
+
+    public PartitionStreamState getPartitionState(long partitionId) {
+        synchronized (partitionStatesLock) {
+            return partitionStates.get(partitionId);
+        }
+    }
+
+    Map<Long, PartitionStreamState> snapshotPartitionStates(Collection<Long> partitionIds) {
+        Map<Long, PartitionStreamState> snapshot = Maps.newHashMapWithExpectedSize(partitionIds.size());
+        synchronized (partitionStatesLock) {
+            for (long id : partitionIds) {
+                PartitionStreamState state = partitionStates.get(id);
+                if (state != null) {
+                    snapshot.put(id, state);
+                }
+            }
+        }
+        return snapshot;
+    }
+
+    /** Capture the next consumption state before its transaction is journaled. */
+    public void unprotectedPrepareStreamUpdate(OlapTableStreamUpdate update) {
+        if (!tryReadLock(0, TimeUnit.MILLISECONDS)) {
+            return;
+        }
+        try {
+            Map<Long, PartitionStreamState> current = snapshotPartitionStates(update.getPartitionUpdates().keySet());
+            update.retainUnchangedCounts(current);
+            OlapTable table = getBaseTableNullable();
+            // The transaction may own sink/stream locks. Optional statistics cannot wait for source DDL.
+            if (table == null || !table.tryReadLock(0, TimeUnit.MILLISECONDS)) {
+                return;
+            }
+            try {
+                if (table.isDropped) {
+                    return;
+                }
+                update.captureRowCounts(table, current);
+            } finally {
+                table.readUnlock();
+            }
+        } finally {
+            readUnlock();
+        }
+    }
 
     // for persist
     public OlapTableStream() {
@@ -64,9 +229,6 @@ public class OlapTableStream extends BaseTableStream {
     public OlapTableStream(long id, String streamName, TableIf baseTable) {
         super(id, streamName, baseTable);
         Preconditions.checkArgument(baseTable instanceof OlapTable);
-        this.partitionOffset = new HashMap<>();
-        this.partitionConsumptionTime = new HashMap<>();
-        this.historicalPartitionTSO = new HashMap<>();
     }
 
     public OlapTableStream(String streamName, TableIf baseTable) {
@@ -107,7 +269,7 @@ public class OlapTableStream extends BaseTableStream {
         Column changeTypeColumn = new Column(Column.STREAM_CHANGE_TYPE_COL, Type.VARCHAR);
         changeTypeColumn.setIsVisible(false);
         builder.add(changeTypeColumn);
-        // Only expose stream LSN when the base table stores row LSN, e.g. dup table with binlog.
+        // Only expose stream LSN when the base table stores row LSN, e.g. dup table with changelog.
         if (baseTable.hasRowLsnColumn()) {
             Column lsnColumn = new Column(Column.STREAM_LSN_COL, Type.BIGINT);
             lsnColumn.setIsVisible(false);
@@ -134,18 +296,21 @@ public class OlapTableStream extends BaseTableStream {
         if (baseTable == null) {
             return;
         }
+        Map<Long, PartitionStreamState> initial = new HashMap<>();
         if (!showInitialRows) {
             // set partition offset
             baseTable.getPartitions()
-                    .forEach(p -> partitionOffset.put(p.getId(), p.getTso()));
+                    .forEach(p -> initial.put(p.getId(), PartitionStreamState.initial().atOffset(p.getTso())));
         } else {
             baseTable.getPartitions()
                     .stream()
                     .filter(p -> p.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
-                    .forEach(p -> {
-                                historicalPartitionTSO.put(p.getId(), p.getTso());
-                                }
-                    );
+                    .forEach(p -> initial.put(p.getId(),
+                            PartitionStreamState.initial().atHistoricalTso(p.getTso())));
+        }
+        initial.replaceAll((id, state) -> state.withRowCounts(baseTable, id));
+        synchronized (partitionStatesLock) {
+            partitionStates.putAll(initial);
         }
     }
 
@@ -167,13 +332,7 @@ public class OlapTableStream extends BaseTableStream {
         if (table.readLockIfExist()) {
             try {
                 for (Partition partition : table.getPartitions()) {
-                    long partitionId = partition.getId();
-                    boolean hasOffset = partitionOffset.containsKey(partitionId);
-                    appendConsumptionRow(dataBatch, qualifiedDbName, name, id, partition.getName(), hasOffset,
-                            hasOffset ? partitionOffset.get(partitionId) : 0,
-                            hasOffset ? partition.getTso() : 0,
-                            !hasOffset && partition.hasData(),
-                            partitionConsumptionTime.getOrDefault(partitionId, -1L));
+                    snapshotPartition(partition).appendRow(dataBatch, qualifiedDbName, name, id);
                 }
             } finally {
                 table.readUnlock();
@@ -211,13 +370,14 @@ public class OlapTableStream extends BaseTableStream {
 
     private StreamConsumptionUnitSnapshot snapshotPartition(Partition partition) {
         long partitionId = partition.getId();
-        boolean hasOffset = partitionOffset.containsKey(partitionId);
+        PartitionStreamState state = getPartitionState(partitionId);
+        boolean hasOffset = state != null && state.getOffset() != null;
         return new StreamConsumptionUnitSnapshot(
                 partition.getName(), hasOffset,
-                hasOffset ? partitionOffset.get(partitionId) : 0,
+                hasOffset ? state.getOffset() : 0,
                 hasOffset ? partition.getTso() : 0,
                 !hasOffset && partition.hasData(),
-                partitionConsumptionTime.getOrDefault(partitionId, -1L));
+                hasOffset ? state.getConsumptionTime() : -1);
     }
 
     private static void appendConsumptionRow(List<TRow> dataBatch, String dbName, String streamName,
@@ -270,33 +430,29 @@ public class OlapTableStream extends BaseTableStream {
 
     public boolean hasData(Partition partition) {
         // if all available visible data has been consumed, return false
-        return  (!partitionOffset.containsKey(partition.getId())
-                || !partitionOffset.get(partition.getId()).equals(partition.getTso()))
+        PartitionStreamState state = getPartitionState(partition.getId());
+        return (state == null || state.getOffset() == null || !state.getOffset().equals(partition.getTso()))
                 && partition.hasData();
     }
 
     public boolean hasHistoricalData(long partitionId) {
-        return historicalPartitionTSO.containsKey(partitionId);
+        PartitionStreamState state = getPartitionState(partitionId);
+        return state != null && state.getHistoricalTso() != null;
     }
 
     public boolean hasConsumedData(long partitionId) {
-        // A partition that was empty at stream creation is recorded with the sentinel offset -1
-        // (see initializeLocalOffsets); a real committed TSO is always positive (its physical part
-        // is non-zero). So only a positive recorded offset counts as a real consumption baseline.
-        // This keeps empty partitions out of the snapshot scan instead of letting them fall back to
-        // the live partition TSO and leak post-snapshot rows.
-        Long offset = partitionOffset.get(partitionId);
-        return offset != null && offset > 0;
+        // An empty partition has the sentinel offset -1; only a positive committed TSO
+        // counts as a consumption baseline for snapshot reads.
+        PartitionStreamState state = getPartitionState(partitionId);
+        return state != null && state.getOffset() != null && state.getOffset() > 0;
     }
 
     public Pair<Long, Long> getStreamUpdate(Long partitionId) {
-        // if partition has historical data, return <historical tso, current tso>
-        // otherwise, return <current consumed tso, current tso>
-        Long left = partitionOffset.get(partitionId);
-        if (historicalPartitionTSO.containsKey(partitionId)) {
-            left = historicalPartitionTSO.get(partitionId);
-        }
-        return Pair.of(left, getBaseTableNullable().getPartition(partitionId).getTso());
+        // Historical data takes precedence over the consumed offset until it is consumed.
+        PartitionStreamState state = getPartitionState(partitionId);
+        Long startTso = state == null ? null
+                : state.getHistoricalTso() != null ? state.getHistoricalTso() : state.getOffset();
+        return Pair.of(startTso, getBaseTableNullable().getPartition(partitionId).getTso());
     }
 
     @Override
@@ -304,19 +460,16 @@ public class OlapTableStream extends BaseTableStream {
             throws UserException {
         Preconditions.checkArgument(update instanceof OlapTableStreamUpdate);
         // check valid
-        ((OlapTableStreamUpdate) update).checkPartitionOffset(getDBName(), getName(), historicalPartitionTSO,
-                partitionOffset);
+        OlapTableStreamUpdate olapUpdate = (OlapTableStreamUpdate) update;
+        olapUpdate.checkPartitionOffset(getDBName(), getName(),
+                snapshotPartitionStates(olapUpdate.getPartitionUpdates().keySet()));
     }
 
     @Override
     public void unprotectedUpdateStreamUpdate(AbstractTableStreamUpdate update, Long ts) {
-        Map<Long, Long> next = ((OlapTableStreamUpdate) update).getNext();
-        for (Map.Entry<Long, Long> entry : next.entrySet()) {
-            if (historicalPartitionTSO.containsKey(entry.getKey())) {
-                historicalPartitionTSO.remove(entry.getKey());
-            }
-            partitionOffset.put(entry.getKey(), entry.getValue());
-            partitionConsumptionTime.put(entry.getKey(), ts);
+        synchronized (partitionStatesLock) {
+            ((OlapTableStreamUpdate) update).getPartitionUpdates().forEach((id, state) ->
+                    partitionStates.put(id, state.getNextState().committedAt(ts)));
         }
     }
 
@@ -324,18 +477,8 @@ public class OlapTableStream extends BaseTableStream {
         Preconditions.checkState(isWriteLockHeldByCurrentThread(),
                 "unprotectedCollectStalePartitionOffsetIds must be called with write lock held");
         Set<Long> stalePartitionIds = new HashSet<>();
-        for (Long partitionId : partitionOffset.keySet()) {
-            if (!validPartitionIds.contains(partitionId)) {
-                stalePartitionIds.add(partitionId);
-            }
-        }
-        for (Long partitionId : partitionConsumptionTime.keySet()) {
-            if (!validPartitionIds.contains(partitionId)) {
-                stalePartitionIds.add(partitionId);
-            }
-        }
-        if (historicalPartitionTSO != null) {
-            for (Long partitionId : historicalPartitionTSO.keySet()) {
+        synchronized (partitionStatesLock) {
+            for (Long partitionId : partitionStates.keySet()) {
                 if (!validPartitionIds.contains(partitionId)) {
                     stalePartitionIds.add(partitionId);
                 }
@@ -347,12 +490,8 @@ public class OlapTableStream extends BaseTableStream {
     void unprotectedPrunePartitionOffsets(Set<Long> partitionIds) {
         Preconditions.checkState(isWriteLockHeldByCurrentThread(),
                 "unprotectedPrunePartitionOffsets must be called with write lock held");
-        for (Long partitionId : partitionIds) {
-            partitionOffset.remove(partitionId);
-            partitionConsumptionTime.remove(partitionId);
-            if (historicalPartitionTSO != null) {
-                historicalPartitionTSO.remove(partitionId);
-            }
+        synchronized (partitionStatesLock) {
+            partitionIds.forEach(partitionStates::remove);
         }
     }
 }

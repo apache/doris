@@ -116,6 +116,29 @@ Status decode_region_ref(const doris::snii::SniiRegionRefPB& input, RegionRef* o
     return Status::OK();
 }
 
+// An index has dense norms, sparse norms or none. Norms encode BM25 document lengths in one byte
+// and require positions for term frequencies.
+Status decode_norms_refs(const doris::snii::SniiSectionRefsPB& refs, IndexConfig index_config,
+                         SectionRefs* out) {
+    out->norms = {};
+    out->sparse_norms = {};
+    if (refs.has_norms()) {
+        RETURN_IF_ERROR(decode_region_ref(refs.norms(), &out->norms));
+    }
+    if (refs.has_sparse_norms()) {
+        RETURN_IF_ERROR(decode_region_ref(refs.sparse_norms(), &out->sparse_norms));
+    }
+    const bool dense_norms = out->norms.length != 0;
+    const bool sparse_norms = out->sparse_norms.length != 0;
+    if (dense_norms && sparse_norms) {
+        return corrupted("core metadata: an index has dense or sparse norms, not both");
+    }
+    if ((dense_norms || sparse_norms) && !has_positions(index_config)) {
+        return corrupted("core metadata: norms require positions");
+    }
+    return Status::OK();
+}
+
 Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata* out) {
     if (!input.has_index_config() || !input.has_stats() || !input.has_section_refs()) {
         return corrupted("core metadata: missing required field");
@@ -127,9 +150,7 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
         !stats.has_null_count()) {
         return corrupted("core metadata: missing statistics field");
     }
-    // sum_total_term_freq (stats field 5) and norms (section_refs field 5) are optional additions
-    // absent from the deployed 3.1-series writer. Missing fields mean no scoring statistics or
-    // norms, affecting BM25 availability but not filtering queries.
+    // Missing optional fields default to zero or empty; filtering remains available.
     out->stats = {.doc_count = stats.doc_count(),
                   .indexed_doc_count = stats.indexed_doc_count(),
                   .term_count = stats.term_count(),
@@ -144,11 +165,7 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
     }
     RETURN_IF_ERROR(decode_region_ref(refs.dict_region(), &out->section_refs.dict_region));
     RETURN_IF_ERROR(decode_region_ref(refs.posting_region(), &out->section_refs.posting_region));
-    if (refs.has_norms()) {
-        RETURN_IF_ERROR(decode_region_ref(refs.norms(), &out->section_refs.norms));
-    } else {
-        out->section_refs.norms = {};
-    }
+    RETURN_IF_ERROR(decode_norms_refs(refs, out->index_config, &out->section_refs));
     RETURN_IF_ERROR(decode_region_ref(refs.null_bitmap(), &out->section_refs.null_bitmap));
     RETURN_IF_ERROR(decode_region_ref(refs.bsbf(), &out->section_refs.bsbf));
 
@@ -187,11 +204,6 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
                     "core metadata: high-df digest hashes are not ascending");
         }
     }
-
-    // Norms encode BM25 document lengths in one byte and require positions for term frequencies.
-    if (out->section_refs.norms.length != 0 && !has_positions(out->index_config)) {
-        return corrupted("core metadata: norms require positions");
-    }
     return Status::OK();
 }
 
@@ -219,6 +231,10 @@ Status encode_core_metadata(const CoreMetadata& metadata, ByteSink* out) {
     }
     encode_region_ref(metadata.section_refs.null_bitmap, refs->mutable_null_bitmap());
     encode_region_ref(metadata.section_refs.bsbf, refs->mutable_bsbf());
+    // Field 6 is written only for sparse norms, so every other index keeps its bytes.
+    if (metadata.section_refs.sparse_norms.length != 0) {
+        encode_region_ref(metadata.section_refs.sparse_norms, refs->mutable_sparse_norms());
+    }
     if (metadata.gram_scheme.has_value()) {
         core_metadata_detail::encode_gram_scheme(*metadata.gram_scheme, core.mutable_gram_scheme());
     }

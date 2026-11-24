@@ -1336,6 +1336,25 @@ bool can_emit_timestamp_sarg(const OrcSargColumn& column, const cctz::time_zone&
     return TimezoneUtils::try_get_fixed_offset_seconds(timezone, &offset_seconds);
 }
 
+OrcSargNode make_in_node(OrcSargColumn column, std::vector<::orc::Literal> literals) {
+    DORIS_CHECK(!literals.empty());
+    // SQL equates signed zeros, but ORC Bloom filters hash their different bit patterns.
+    // Keep both in one IN leaf: separate x = +0 and x = -0 leaves are merged by ORC.
+    if (column.predicate_type == ::orc::PredicateDataType::FLOAT) {
+        const auto zero = std::ranges::find_if(
+                literals, [](const auto& literal) { return literal.getFloat() == 0.0; });
+        if (zero != literals.end()) {
+            literals.emplace_back(-zero->getFloat());
+        }
+    }
+    return OrcSargNode {
+            .kind = literals.size() == 1 ? OrcSargNodeKind::EQUALS : OrcSargNodeKind::IN,
+            .column = column,
+            .literals = std::move(literals),
+            .children = {},
+    };
+}
+
 OrcSargNode make_comparison_node(OrcSargComparison comparison) {
     OrcSargNodeKind kind;
     bool negate = false;
@@ -1367,21 +1386,13 @@ OrcSargNode make_comparison_node(OrcSargComparison comparison) {
         __builtin_unreachable();
     }
 
-    auto node = make_literal_node(kind, comparison.column, std::move(comparison.literal));
+    auto node = kind == OrcSargNodeKind::EQUALS
+                        ? make_in_node(comparison.column, {comparison.literal})
+                        : make_literal_node(kind, comparison.column, comparison.literal);
     if (negate) {
         return make_not_node(std::move(node));
     }
     return node;
-}
-
-OrcSargNode make_in_node(OrcSargColumn column, std::vector<::orc::Literal> literals) {
-    DORIS_CHECK(!literals.empty());
-    return OrcSargNode {
-            .kind = literals.size() == 1 ? OrcSargNodeKind::EQUALS : OrcSargNodeKind::IN,
-            .column = column,
-            .literals = std::move(literals),
-            .children = {},
-    };
 }
 
 OrcSargNode make_is_null_node(OrcSargColumn column) {

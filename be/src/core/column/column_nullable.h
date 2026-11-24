@@ -161,11 +161,6 @@ public:
         _null_map->insert_from(src_concrete.get_null_map_column(), n);
     }
 
-    void insert_many_fix_len_data(const char* pos, size_t num) override {
-        push_false_to_nullmap(num);
-        get_nested_column().insert_many_fix_len_data(pos, num);
-    }
-
     void insert_many_raw_data(const char* pos, size_t num) override {
         DCHECK(pos);
         push_false_to_nullmap(num);
@@ -385,11 +380,6 @@ public:
 
     void finalize() override { get_nested_column().finalize(); }
 
-    void erase(size_t start, size_t length) override {
-        get_nested_column().erase(start, length);
-        get_null_map_column().erase(start, length);
-    }
-
     size_t serialize_impl(char* pos, const size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override {
@@ -427,4 +417,8 @@ private:
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
+
+// Return the nested column if nullable, otherwise the column itself.
+// Set null_map to the flags at row_pos, or nullptr for a non-nullable column.
+const IColumn& peel_nullable(const IColumn& column, size_t row_pos, const uint8_t** null_map);
 } // namespace doris

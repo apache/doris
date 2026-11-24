@@ -286,6 +286,87 @@ public class CacheSpecTest {
     }
 
     @Test
+    public void submittedEngineKeysMustNameAKnownOptionWithAValueOfItsType() {
+        IllegalArgumentException misspelled = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.checkSubmittedEngineProperties(
+                        Collections.singletonMap("meta.cache.iceberg.table.max-weigth", "16MB"), "iceberg"));
+        Assertions.assertEquals("Unknown external meta cache property: meta.cache.iceberg.table.max-weigth",
+                misspelled.getMessage());
+        for (String key : new String[] {"meta.cache.iceberg.max-weight", "meta.cache.iceberg.enable",
+                "meta.cache.iceberg..enable", "meta.cache.iceberg.table."}) {
+            Assertions.assertThrows(IllegalArgumentException.class, () -> CacheSpec.checkSubmittedEngineProperties(
+                    Collections.singletonMap(key, "1"), "iceberg"), key);
+        }
+        IllegalArgumentException enable = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.checkSubmittedEngineProperties(
+                        Collections.singletonMap("meta.cache.iceberg.table.enable", "1"), "iceberg"));
+        Assertions.assertEquals("The parameter meta.cache.iceberg.table.enable is wrong, value is 1",
+                enable.getMessage());
+        IllegalArgumentException ttl = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.checkSubmittedEngineProperties(
+                        Collections.singletonMap("meta.cache.iceberg.table.ttl-second", "-2"), "iceberg"));
+        Assertions.assertEquals("The parameter meta.cache.iceberg.table.ttl-second is wrong, value is -2",
+                ttl.getMessage());
+        Assertions.assertThrows(IllegalArgumentException.class, () -> CacheSpec.checkSubmittedEngineProperties(
+                Collections.singletonMap("meta.cache.iceberg.manifest.capacity", "-1"), "iceberg"));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> CacheSpec.checkSubmittedEngineProperties(
+                Collections.singletonMap("meta.cache.iceberg.manifest.max-weight", "0"), "iceberg"));
+
+        // Entries are not checked: a newer connector may read one this version does not know. Other engines'
+        // keys, the catalog weight and plain properties belong to other validators.
+        Map<String, String> accepted = new HashMap<>();
+        accepted.put("meta.cache.iceberg.schema.ttl-second", "0");
+        accepted.put("meta.cache.iceberg.future_entry.enable", "TRUE");
+        accepted.put("meta.cache.iceberg.table.ttl-second", "-1");
+        accepted.put("meta.cache.iceberg.table.capacity", "0");
+        accepted.put("meta.cache.iceberg.table.max-weight", "64MB");
+        accepted.put("meta.cache.paimon.table.enable", "1");
+        accepted.put("meta.cache.max-weight", "1GB");
+        accepted.put("comment", "x");
+        CacheSpec.checkSubmittedEngineProperties(accepted, "iceberg");
+    }
+
+    @Test
+    public void checkWeightPropertiesValidatesOnlyTheSubmittedEngineKeys() {
+        Map<String, String> stored = new HashMap<>();
+        stored.put("meta.cache.iceberg.table.max-weigth", "16MB");
+        stored.put("meta.cache.iceberg.table.enable", "1");
+        Assertions.assertDoesNotThrow(() -> CacheSpec.checkWeightProperties(
+                stored, Collections.singletonMap("comment", "updated"), "iceberg", "table"));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> CacheSpec.checkWeightProperties(
+                stored, Collections.singletonMap("meta.cache.iceberg.table.enable", "yes"), "iceberg", "table"));
+    }
+
+    @Test
+    public void submittedWeightsMayNotExceedTheGlobalLimit() {
+        OptionalLong global = OptionalLong.of(1024L * 1024 * 1024);
+        Map<String, String> catalogAbove = Collections.singletonMap("meta.cache.max-weight", "2GB");
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.checkWeightProperties(catalogAbove, catalogAbove, global, "iceberg", "table"));
+        Assertions.assertEquals("meta.cache.max-weight (2147483648 bytes) can not exceed the FE global max weight"
+                + " external_meta_cache_max_weight (1073741824 bytes)", e.getMessage());
+        Map<String, String> catalogAtLimit = Collections.singletonMap("meta.cache.max-weight", "1GB");
+        CacheSpec.checkWeightProperties(catalogAtLimit, catalogAtLimit, global, "iceberg", "table");
+
+        // Without a catalog weight the global limit bounds an entry weight; with one the catalog weight does.
+        Map<String, String> entryAbove = Collections.singletonMap("meta.cache.iceberg.table.max-weight", "2GB");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.checkWeightProperties(entryAbove, entryAbove, global, "iceberg", "table"));
+        Map<String, String> limitedCatalog = new HashMap<>(entryAbove);
+        limitedCatalog.put("meta.cache.max-weight", "1GB");
+        IllegalArgumentException parent = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CacheSpec.checkWeightProperties(limitedCatalog, entryAbove, global, "iceberg", "table"));
+        Assertions.assertEquals("meta.cache.iceberg.table.max-weight can not exceed meta.cache.max-weight",
+                parent.getMessage());
+
+        // A stored weight is not compared again, e.g. after the limit was lowered, and no limit bounds nothing.
+        CacheSpec.checkWeightProperties(catalogAbove, Collections.singletonMap("comment", "updated"), global,
+                "iceberg", "table");
+        CacheSpec.checkWeightProperties(catalogAbove, catalogAbove, OptionalLong.empty(), "iceberg", "table");
+        CacheSpec.checkSubmittedWeightsAgainstGlobal(entryAbove, entryAbove, global, "paimon");
+    }
+
+    @Test
     public void invalidPersistedEntryWeightFallsBackToUnbounded() {
         Map<String, String> properties = new HashMap<>();
         properties.put("meta.cache.hive.file.max-weight", "invalid");

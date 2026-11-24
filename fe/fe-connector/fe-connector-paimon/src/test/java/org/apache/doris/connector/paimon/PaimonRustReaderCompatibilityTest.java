@@ -27,9 +27,9 @@ import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.sink.BatchTableCommit;
@@ -133,9 +133,9 @@ public class PaimonRustReaderCompatibilityTest {
 
     @Test
     public void testPersistedTimestampToDateBeforeEpoch() throws Exception {
-        // Java divides toward zero; Arrow takes the preceding calendar date before the epoch.
+        // Paimon 2.1 uses the preceding calendar date for timestamps before the epoch.
         assertPersistedEvolution(DataTypes.TIMESTAMP(3), DataTypes.DATE(), Timestamp.fromEpochMillis(-1),
-                false, row -> row.getInt(1), 0);
+                false, row -> row.getInt(1), -1);
     }
 
     @Test
@@ -369,20 +369,28 @@ public class PaimonRustReaderCompatibilityTest {
     public void testPersistedIntegerSumAndProductOverflow() throws Exception {
         DataType[] types = {DataTypes.TINYINT(), DataTypes.SMALLINT(), DataTypes.INT(), DataTypes.BIGINT()};
         Object[] maximums = {(byte) 127, (short) 32767, Integer.MAX_VALUE, Long.MAX_VALUE};
+        Object[] minimums = {(byte) -128, (short) -32768, Integer.MIN_VALUE, Long.MIN_VALUE};
         Object[] ones = {(byte) 1, (short) 1, 1, 1L};
         Object[] halves = {(byte) 64, (short) 16384, 1073741824, 4611686018427387904L};
         Object[] twos = {(byte) 2, (short) 2, 2, 2L};
         for (String function : Arrays.asList("sum", "product")) {
             for (int i = 0; i < types.length; i++) {
-                FileStoreTable table = table(types[i], aggregate(function));
-                commit(table, GenericRow.of(1, "sum".equals(function) ? maximums[i] : halves[i]));
-                commit(table, GenericRow.of(1, "sum".equals(function) ? ones[i] : twos[i]));
-                InternalRow.FieldGetter getter = InternalRow.createFieldGetter(types[i], 1);
-                Object minimum = i == 0 ? (byte) -128 : i == 1 ? (short) -32768
-                        : i == 2 ? Integer.MIN_VALUE : Long.MIN_VALUE;
-                // Compare decimal strings to avoid Java's conditional numeric promotion.
-                assertRead(table, false, row -> getter.getFieldOrNull(row).toString(),
-                        Collections.singletonList(minimum.toString()));
+                for (boolean failOnOverflow : new boolean[] {false, true}) {
+                    Map<String, String> options = new HashMap<>(aggregate(function));
+                    if (failOnOverflow) {
+                        options.put("fields.v." + function + ".fail-on-overflow", "true");
+                    }
+                    FileStoreTable table = table(types[i], options);
+                    commit(table, GenericRow.of(1, "sum".equals(function) ? maximums[i] : halves[i]));
+                    commit(table, GenericRow.of(1, "sum".equals(function) ? ones[i] : twos[i]));
+                    if (failOnOverflow) {
+                        assertReadOverflows(table);
+                    } else {
+                        InternalRow.FieldGetter getter = InternalRow.createFieldGetter(types[i], 1);
+                        assertRead(table, false, row -> getter.getFieldOrNull(row).toString(),
+                                Collections.singletonList(minimums[i].toString()));
+                    }
+                }
             }
         }
     }
@@ -458,7 +466,7 @@ public class PaimonRustReaderCompatibilityTest {
                 .option("file.format", "parquet").option("deletion-vectors.enabled", "false")
                 .option("read.batch-size", "16").option("scan.manifest.parallelism", "1");
         options.forEach(schema::option);
-        new SchemaManager(fileIO, path).createTable(schema.build());
+        new FileSystemSchemaManager(fileIO, path).createTable(schema.build());
         return FileStoreTableFactory.create(fileIO, path);
     }
 
@@ -471,6 +479,13 @@ public class PaimonRustReaderCompatibilityTest {
             }
             commit.commit(write.prepareCommit());
         }
+    }
+
+    private static void assertReadOverflows(FileStoreTable table) {
+        // Paimon 2.1 checks integer sum/product overflow when explicitly enabled per field.
+        ArithmeticException overflow = Assertions.assertThrows(ArithmeticException.class,
+                () -> assertRead(table, false, row -> row.getInt(0), Collections.emptyList()));
+        Assertions.assertTrue(overflow.getMessage().contains("overflow"));
     }
 
     private static <T> void assertRead(FileStoreTable table, boolean rustExpected,

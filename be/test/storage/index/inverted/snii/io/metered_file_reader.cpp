@@ -131,7 +131,7 @@ Status MeteredFileReader::read_batch(const std::vector<Range>& ranges,
     if (any_miss) ++metrics_.serial_rounds;
 
     // Delegate the actual byte fetch to the inner reader's batch path, so a backend
-    // that fetches a batch concurrently (e.g. S3FileReader) realizes the planned
+    // that fetches a batch concurrently (e.g. ObjStorageFileReader) realizes the planned
     // round as parallel GETs (matching the single serial round accounted above).
     return inner_->read_batch(ranges, outs);
 }

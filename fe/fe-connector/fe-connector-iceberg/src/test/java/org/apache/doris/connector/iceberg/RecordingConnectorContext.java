@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileType;
@@ -31,6 +32,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.RunnableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.UnaryOperator;
 
 /**
@@ -52,6 +56,37 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
     @Override
     public ConnectorStorageContext getStorageContext() {
         return this;
+    }
+
+    final AtomicInteger metadataSubmissions = new AtomicInteger();
+
+    @Override
+    public <T> RunnableFuture<T> submitMetadataTask(Callable<T> task) {
+        metadataSubmissions.incrementAndGet();
+        return new FutureTask<>(task);
+    }
+
+    @Override
+    public ConnectorTaskScheduler getMetadataTaskScheduler(ConnectorSession session) {
+        ConnectorTaskScheduler delegate = ConnectorContext.super.getMetadataTaskScheduler(session);
+        return new ConnectorTaskScheduler() {
+            @Override
+            public boolean tryExecute(Runnable task, java.util.function.Consumer<Throwable> onFailure,
+                    Runnable onSpace) {
+                metadataSubmissions.incrementAndGet();
+                return delegate.tryExecute(task, onFailure, onSpace);
+            }
+
+            @Override
+            public void removeSpaceListener(Runnable onSpace) {
+                delegate.removeSpaceListener(onSpace);
+            }
+
+            @Override
+            public void execute(Runnable task) {
+                delegate.execute(task);
+            }
+        };
     }
 
     int authCount;

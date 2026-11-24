@@ -24,6 +24,7 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.datasource.scan.NodeSelectionStrategy;
 import org.apache.doris.datasource.split.FileSplit;
+import org.apache.doris.datasource.split.SplitWeight;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -46,12 +48,14 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class FederationBackendPolicyTest {
     private Env env = Mockito.mock(Env.class);
@@ -67,6 +71,106 @@ public class FederationBackendPolicyTest {
     @AfterEach
     public void tearDown() {
         mockedEnvStatic.close();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"ROUND_ROBIN, 1, false", "RANDOM, 1, false", "CONSISTENT_HASHING, 1, false",
+            "CONSISTENT_HASHING, 0, true", "CONSISTENT_HASHING, 3, true", "RANDOM, 0, true"})
+    public void testSingleBackendRemoteBatchesSkipHashing(NodeSelectionStrategy strategy,
+            int candidates, boolean spread) throws UserException {
+        Backend backend = new Backend(13001L, "192.0.2.1", 9050);
+        SystemInfoService service = new SystemInfoService();
+        backend.setAlive(true);
+        service.addBackend(backend);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(new ComputeGroupMgr(service));
+        FederationBackendPolicy policy = new FederationBackendPolicy(strategy, candidates);
+        policy.init();
+        AtomicInteger identityReads = new AtomicInteger();
+        long expectedWeight = 0;
+        for (int size : List.of(0, 1, 8, 128, 3)) {
+            List<Split> splits = new ArrayList<>();
+            for (int i = 0; i < size; i++) {
+                long weight = i + 1;
+                FileSplit split = new FileSplit(LocationPath.of("s3://bucket/part-" + i),
+                        0, 1, 1, 0, new String[]{"another-host"}, Collections.emptyList()) {
+                    @Override
+                    public String getSplitIdentity() {
+                        identityReads.incrementAndGet();
+                        return getPathString();
+                    }
+
+                    @Override
+                    public SplitWeight getSplitWeight() {
+                        return SplitWeight.fromRawValue(weight);
+                    }
+                };
+                split.setAlternativeHosts(List.of("previous-alternative"));
+                splits.add(split);
+                expectedWeight += weight;
+            }
+            Multimap<Backend, Split> assigned = policy.computeScanRangeAssignment(splits);
+            Assertions.assertEquals(splits, new ArrayList<>(assigned.get(backend)));
+            Assertions.assertEquals(size, assigned.size());
+            Assertions.assertEquals(expectedWeight, policy.getAssignedWeightPerBackend().get(backend));
+            for (Split split : splits) {
+                Assertions.assertEquals(spread ? List.of("previous-alternative") : Collections.emptyList(),
+                        split.getAlternativeHosts());
+            }
+        }
+        Assertions.assertEquals(0, identityReads.get(), "One eligible backend does not need split hashing");
+    }
+
+    @Test
+    public void testSingleBackendPreservesLocalOnlyRestrictions() throws UserException {
+        Backend backend = new Backend(13002L, "192.0.2.2", 9050);
+        SystemInfoService service = new SystemInfoService();
+        backend.setAlive(true);
+        service.addBackend(backend);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(new ComputeGroupMgr(service));
+        FederationBackendPolicy policy = new FederationBackendPolicy();
+        policy.init();
+        FileSplit local = new FileSplit(LocationPath.of("file:///tmp/local"),
+                0, 1, 1, 0, new String[]{backend.getHost()}, Collections.emptyList()) {
+            @Override
+            public boolean isRemotelyAccessible() {
+                return false;
+            }
+        };
+        FileSplit remote = new FileSplit(LocationPath.of("s3://bucket/remote"),
+                0, 1, 1, 0, new String[]{"another-host"}, Collections.emptyList());
+        Multimap<Backend, Split> assigned = policy.computeScanRangeAssignment(
+                new ArrayList<>(List.of(local, remote)));
+        Assertions.assertEquals(2, assigned.get(backend).size());
+        Assertions.assertEquals(2 * SplitWeight.standard().getRawValue(),
+                policy.getAssignedWeightPerBackend().get(backend));
+        local.setHosts(new String[]{"another-host"});
+        Assertions.assertThrows(UserException.class,
+                () -> policy.computeScanRangeAssignment(new ArrayList<>(List.of(local))));
+    }
+
+    @Test
+    public void testSingleBackendRejectsWeightOverflow() throws UserException {
+        Backend backend = new Backend(13003L, "192.0.2.3", 9050);
+        SystemInfoService service = new SystemInfoService();
+        backend.setAlive(true);
+        service.addBackend(backend);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(new ComputeGroupMgr(service));
+        FederationBackendPolicy policy = new FederationBackendPolicy();
+        policy.init();
+        FileSplit heavy = new FileSplit(LocationPath.of("s3://bucket/heavy"),
+                0, 1, 1, 0, null, Collections.emptyList()) {
+            @Override
+            public SplitWeight getSplitWeight() {
+                return SplitWeight.fromRawValue(Long.MAX_VALUE);
+            }
+        };
+        FileSplit extra = new FileSplit(LocationPath.of("s3://bucket/extra"),
+                0, 1, 1, 0, null, Collections.emptyList());
+        Assertions.assertThrows(ArithmeticException.class,
+                () -> policy.computeScanRangeAssignment(new ArrayList<>(List.of(heavy, extra))));
     }
 
     @Test
@@ -104,6 +208,52 @@ public class FederationBackendPolicyTest {
                     new ArrayList<>(List.of(excludedLocalSplit)));
             Assertions.assertTrue(assignment.keySet().stream()
                     .allMatch(backend -> backend.equals(first) || backend.equals(second)));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 3})
+    public void testRedistributionAcrossStreamingBatches(int variance) throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        List<Backend> backends = List.of(new Backend(12001L, "192.0.2.1", 9050),
+                new Backend(12002L, "192.0.2.2", 9050), new Backend(12003L, "192.0.2.3", 9050));
+        for (Backend backend : backends) {
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(new ComputeGroupMgr(service));
+        int previousVariance = Config.split_assigner_max_split_num_variance;
+        Config.split_assigner_max_split_num_variance = variance;
+        try {
+            FederationBackendPolicy policy = new FederationBackendPolicy();
+            policy.init();
+            Map<Backend, Long> expectedWeights = new HashMap<>();
+            backends.forEach(backend -> expectedWeights.put(backend, 0L));
+            Set<Split> assigned = Collections.newSetFromMap(new IdentityHashMap<>());
+            int splitCount = 0;
+            // Locality initially sends every split to the same BE. Repeated small batches cross the
+            // variance boundary in both directions; a larger batch also exercises repeated heap updates.
+            for (int batchSize : List.of(1, 1, 1, 1, 3, 128, 1, 1, 1)) {
+                List<Split> splits = new ArrayList<>();
+                for (int i = 0; i < batchSize; i++) {
+                    splits.add(new FileSplit(LocationPath.of("hdfs://example/streaming/" + splitCount++),
+                            0, 1, 1, 0, new String[]{backends.get(0).getHost()}, Collections.emptyList()));
+                }
+                Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
+                Assertions.assertEquals(batchSize, assignment.size());
+                for (Map.Entry<Backend, Split> entry : assignment.entries()) {
+                    Assertions.assertTrue(assigned.add(entry.getValue()));
+                    expectedWeights.merge(entry.getKey(), entry.getValue().getSplitWeight().getRawValue(), Long::sum);
+                }
+                Assertions.assertEquals(expectedWeights, policy.getAssignedWeightPerBackend());
+                long min = Collections.min(expectedWeights.values());
+                long max = Collections.max(expectedWeights.values());
+                Assertions.assertTrue(max - min <= SplitWeight.rawValueForStandardSplitCount(variance));
+            }
+            Assertions.assertEquals(splitCount, assigned.size());
+        } finally {
+            Config.split_assigner_max_split_num_variance = previousVariance;
         }
     }
 
@@ -362,6 +512,74 @@ public class FederationBackendPolicyTest {
                     () -> consistentHashPolicy.replaceBackendOrder(List.of(backend1, backend2)));
         } finally {
             Config.split_assigner_min_consistent_hash_candidate_num = originalCandidateNum;
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 3, 8, 32, 128})
+    public void testConsistentHashCandidateLimit(int backendCount) throws UserException {
+        checkConsistentHashCandidateLimit(backendCount);
+    }
+
+    private void checkConsistentHashCandidateLimit(int backendCount) throws UserException {
+        int originalCandidates = Config.split_assigner_min_consistent_hash_candidate_num;
+        int originalVirtualNodes = Config.split_assigner_virtual_node_number;
+        try {
+            Config.split_assigner_virtual_node_number = 256;
+            SystemInfoService service = new SystemInfoService();
+            List<HashCountingBackend> backends = new ArrayList<>();
+            for (int i = 0; i < backendCount; i++) {
+                HashCountingBackend backend = new HashCountingBackend(80000L + backendCount * 10 + i,
+                        "172.30.1." + i, 9050);
+                backend.setAlive(true);
+                service.addBackend(backend);
+                backends.add(backend);
+            }
+            mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+            Mockito.when(env.getComputeGroupMgr()).thenReturn(new ComputeGroupMgr(service));
+            List<Split> splits = new ArrayList<>();
+            for (int i = 0; i < 16; i++) {
+                splits.add(new FileSplit(LocationPath.of("s3://bucket/part-" + i + ".parquet"),
+                        0, 1024, 1024, 0, null, Collections.emptyList()));
+            }
+
+            Config.split_assigner_min_consistent_hash_candidate_num = backendCount;
+            FederationBackendPolicy expectedPolicy = new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING);
+            expectedPolicy.init();
+            backends.forEach(backend -> backend.hashCalls = 0);
+            Multimap<Backend, Split> expected = expectedPolicy.computeScanRangeAssignment(new ArrayList<>(splits));
+            int expectedHashCalls = backends.stream().mapToInt(backend -> backend.hashCalls).sum();
+
+            Config.split_assigner_min_consistent_hash_candidate_num = backendCount + 1;
+            FederationBackendPolicy actualPolicy = new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING);
+            actualPolicy.init();
+            backends.forEach(backend -> backend.hashCalls = 0);
+            Multimap<Backend, Split> actual = actualPolicy.computeScanRangeAssignment(new ArrayList<>(splits));
+            int actualHashCalls = backends.stream().mapToInt(backend -> backend.hashCalls).sum();
+
+            Assertions.assertEquals(expected, actual);
+            Assertions.assertEquals(splits.size(), actual.size());
+            // Count operations rather than elapsed time so the regression test is deterministic.
+            Assertions.assertTrue(actualHashCalls <= expectedHashCalls * 2,
+                    "Excess candidates must not trigger a full virtual-node traversal: " + actualHashCalls
+                            + " hash calls versus " + expectedHashCalls);
+        } finally {
+            Config.split_assigner_min_consistent_hash_candidate_num = originalCandidates;
+            Config.split_assigner_virtual_node_number = originalVirtualNodes;
+        }
+    }
+
+    private static class HashCountingBackend extends Backend {
+        private int hashCalls;
+
+        HashCountingBackend(long id, String host, int heartbeatPort) {
+            super(id, host, heartbeatPort);
+        }
+
+        @Override
+        public int hashCode() {
+            hashCalls++;
+            return super.hashCode();
         }
     }
 

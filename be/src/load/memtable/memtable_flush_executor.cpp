@@ -33,7 +33,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/resource_context.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/storage_engine.h"
@@ -137,7 +137,7 @@ Status FlushToken::_submit_sub_tasks(ThreadPool* pool,
             std::shared_lock rdlk(_flush_status_lock);
             DBUG_EXECUTE_IF("FlushToken.submit_sub_task_error", {
                 if (i != 0) {
-                    // only affect flush binlog task
+                    // only affect flush changelog task
                     _flush_status = Status::IOError<false>("dbug_be_memtable_submit_flush_error");
                 }
             });
@@ -186,23 +186,23 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
     std::vector<std::shared_ptr<Runnable>> tasks;
     if (group_rowset_writer != nullptr) {
         auto data_writer = group_rowset_writer->data_writer();
-        auto binlog_writer = group_rowset_writer->row_binlog_writer();
+        auto changelog_writer = group_rowset_writer->changelog_writer();
         DCHECK(data_writer != nullptr);
-        DCHECK(binlog_writer != nullptr);
+        DCHECK(changelog_writer != nullptr);
 
         shared_memtable = std::make_shared<SharedMemtable>();
         shared_memtable->memtable = mem_table;
         shared_memtable->allocated_lsn_map = group_rowset_writer->context().allocated_lsn_map;
-        // Keep data/binlog segment_id allocators in sync.
+        // Keep data/changelog segment_id allocators in sync.
         auto segment_id = DORIS_TRY(data_writer->allocate_segment_id());
-        auto binlog_segment_id = DORIS_TRY(binlog_writer->allocate_segment_id());
-        DCHECK_EQ(segment_id, binlog_segment_id);
+        auto changelog_segment_id = DORIS_TRY(changelog_writer->allocate_segment_id());
+        DCHECK_EQ(segment_id, changelog_segment_id);
         shared_memtable->segment_id = segment_id;
 
         tasks.emplace_back(PartOfGroupMemtableFlushTask::create_shared(
                 shared_from_this(), shared_memtable, WriteRequestType::DATA, submit_task_time));
         tasks.emplace_back(PartOfGroupMemtableFlushTask::create_shared(
-                shared_from_this(), shared_memtable, WriteRequestType::ROW_BINLOG,
+                shared_from_this(), shared_memtable, WriteRequestType::CHANGELOG,
                 submit_task_time));
     } else {
         auto segment_id = DORIS_TRY(_rowset_writer->allocate_segment_id());
@@ -227,13 +227,13 @@ void FlushToken::_flush_group_memtable(std::shared_ptr<SharedMemtable> shared_me
     DCHECK(shared_memtable != nullptr);
     DCHECK(shared_memtable->memtable != nullptr);
     DCHECK(write_req_type == WriteRequestType::DATA ||
-           write_req_type == WriteRequestType::ROW_BINLOG);
+           write_req_type == WriteRequestType::CHANGELOG);
 
     auto* group_rowset_writer = typeid_cast<GroupRowsetWriter*>(_rowset_writer.get());
     DCHECK(group_rowset_writer != nullptr);
     auto flush_writer = write_req_type == WriteRequestType::DATA
                                 ? group_rowset_writer->data_writer()
-                                : group_rowset_writer->row_binlog_writer();
+                                : group_rowset_writer->changelog_writer();
     DCHECK(flush_writer != nullptr);
     _flush_memtable_impl(flush_writer.get(), shared_memtable->memtable.get(),
                          shared_memtable->segment_id, submit_task_time, shared_memtable.get());

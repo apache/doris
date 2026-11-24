@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DateLiteralUtils;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -27,11 +28,14 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.AnalysisException;
@@ -64,12 +68,16 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.DateTimeException;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -147,9 +155,16 @@ public class PropertyAnalyzer {
     // This is common prefix for function column
     public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
     public static final String PROPERTIES_SEQUENCE_TYPE = "sequence_type";
+    public static final String PROPERTIES_ENABLE_ROW_TTL =
+            PROPERTIES_FUNCTION_COLUMN + ".enable_row_ttl";
+    public static final String PROPERTIES_TTL_COL = "ttl_col";
+    public static final String PROPERTIES_TTL = "ttl";
+    public static final String PROPERTIES_TTL_TIME_ZONE = "ttl_time_zone";
     public static final String PROPERTIES_SEQUENCE_COL = "sequence_col";
 
     public static final String PROPERTIES_SEQUENCE_MAPPING = "sequence_mapping";
+    public static final String ROW_TTL_SEQUENCE_COLUMN_CONFLICT =
+            "row ttl and sequence column cannot be enabled at the same time";
 
     public static final String PROPERTIES_SWAP_TABLE = "swap";
 
@@ -208,8 +223,20 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_BINLOG_TTL_SECONDS = "binlog.ttl_seconds";
     public static final String PROPERTIES_BINLOG_MAX_BYTES = "binlog.max_bytes";
     public static final String PROPERTIES_BINLOG_MAX_HISTORY_NUMS = "binlog.max_history_nums";
-    public static final String PROPERTIES_BINLOG_FORMAT = "binlog.format";
-    public static final String PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE = "binlog.need_historical_value";
+    // The binlog keys the changelog.* properties replaced. A statement that sets them is rejected, and
+    // metadata written before the change drops them, see removeLegacyBinlogProperties.
+    public static final String PROPERTIES_LEGACY_BINLOG_FORMAT = "binlog.format";
+    public static final String PROPERTIES_LEGACY_BINLOG_NEED_HISTORICAL_VALUE = "binlog.need_historical_value";
+    public static final String PROPERTIES_LEGACY_BINLOG_CONFIG_VERSION = "__binlog_config_version";
+
+    // changelog.*
+    public static final String PROPERTIES_CHANGELOG_PREFIX = "changelog.";
+    // ATTN(changelog-rename): formerly "binlog.enable"="true" + "binlog.format"="ROW"
+    public static final String PROPERTIES_CHANGELOG_ENABLE = "changelog.enable";
+    // ATTN(changelog-rename): formerly "binlog.ttl_seconds" (on ROW tables)
+    public static final String PROPERTIES_CHANGELOG_TTL_SECONDS = "changelog.ttl_seconds";
+    // ATTN(changelog-rename): formerly "binlog.need_historical_value"
+    public static final String PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE = "changelog.need_historical_value";
     public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
             "enable_duplicate_without_keys_by_default";
     public static final String PROPERTIES_GRACE_PERIOD = "grace_period";
@@ -245,11 +272,22 @@ public class PropertyAnalyzer {
      */
     public static final String PROPERTIES_IVM_PARTITION_WINDOW_LIMIT =
             "ivm_partition_window_limit";
+    /**
+     * How many distinct values a MIN/MAX aggregate keeps per group in its incremental state.
+     *
+     * <p>0 is the extreme-only mode: the state keeps just the current extreme, which is enough
+     * when the changelog is append-only and joins cannot retract rows. Values above 0 make
+     * deleting the current extreme derivable without a complete refresh; the range is
+     * {@code 0 <= K <= IvmUtil.MAX_IVM_MINMAX_TOP_K}. Changing the property requires a complete refresh, because
+     * the persisted state was built for the old capacity.
+     */
+    public static final String PROPERTIES_IVM_MINMAX_TOPK = "ivm_minmax_top_k";
 
     public static final String ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES =
             "async_mv.query_rewrite.consistency_relaxed_tables";
     public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
     public static final String PROPERTIES_WORKLOAD_GROUP = "workload_group";
+    public static final String PROPERTIES_COMPUTE_GROUP = "compute_group";
     public static final String PROPERTIES_PARTITION_SYNC_LIMIT = "partition_sync_limit";
     public static final String PROPERTIES_PARTITION_TIME_UNIT = "partition_sync_time_unit";
     public static final String PROPERTIES_PARTITION_DATE_FORMAT = "partition_date_format";
@@ -295,7 +333,8 @@ public class PropertyAnalyzer {
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
     public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
-    public static final String BINLOG_COMPACTION_POLICY = "binlog";
+    // ATTN(changelog-rename): formerly "binlog"
+    public static final String CHANGELOG_COMPACTION_POLICY = "changelog";
     public static final long TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE = 1024;
     public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 1000;
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
@@ -1471,6 +1510,154 @@ public class PropertyAnalyzer {
         return sequenceCol;
     }
 
+    public static boolean analyzeEnableRowTtl(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
+        if (properties == null) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_ROW_TTL);
+        String colProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL_COL;
+        String ttlProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL;
+        String timeZoneProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL_TIME_ZONE;
+        if (value == null) {
+            if (properties.containsKey(colProperty) || properties.containsKey(ttlProperty)
+                    || properties.containsKey(timeZoneProperty)) {
+                throw new AnalysisException(
+                        PROPERTIES_ENABLE_ROW_TTL + " must be true when row ttl properties are specified");
+            }
+            return false;
+        }
+        if (!value.equalsIgnoreCase("true") && !value.equalsIgnoreCase("false")) {
+            throw new AnalysisException(PROPERTIES_ENABLE_ROW_TTL + " must be true or false");
+        }
+        boolean enabled = Boolean.parseBoolean(value);
+        if (!enabled && (properties.containsKey(colProperty) || properties.containsKey(ttlProperty)
+                || properties.containsKey(timeZoneProperty))) {
+            throw new AnalysisException(
+                    PROPERTIES_ENABLE_ROW_TTL + " must be true when row ttl properties are specified");
+        }
+        if (enabled) {
+            boolean hasTtlCol = properties.containsKey(colProperty);
+            boolean hasTtl = properties.containsKey(ttlProperty);
+            if (hasTtlCol != hasTtl) {
+                throw new AnalysisException("function_column.ttl_col and function_column.ttl must be set together");
+            }
+            if (!hasTtlCol && properties.containsKey(timeZoneProperty)) {
+                throw new AnalysisException(timeZoneProperty + " requires function_column.ttl_col");
+            }
+        }
+        if (enabled && keysType == KeysType.AGG_KEYS) {
+            throw new AnalysisException("row ttl does not support AGG_KEYS");
+        }
+        String sequenceColProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_COL;
+        String sequenceTypeProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_TYPE;
+        if (enabled && (properties.containsKey(sequenceColProperty)
+                || properties.containsKey(sequenceTypeProperty) || hasSeqMapping(properties))) {
+            throw new AnalysisException(ROW_TTL_SEQUENCE_COLUMN_CONFLICT);
+        }
+        return enabled;
+    }
+
+    /** Parse and canonicalize the fixed UTC offset used by a temporal row TTL column. */
+    public static String analyzeRowTtlTimeZone(Map<String, String> properties) throws AnalysisException {
+        if (properties == null) {
+            return null;
+        }
+        String property = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL_TIME_ZONE;
+        String value = properties.get(property);
+        if (value == null) {
+            return null;
+        }
+
+        int totalSeconds = parseRowTtlTimeZoneOffsetSeconds(value);
+        int absoluteMinutes = Math.abs(totalSeconds) / 60;
+        String canonical = String.format(Locale.ROOT, "%s%02d:%02d", totalSeconds < 0 ? "-" : "+",
+                absoluteMinutes / 60, absoluteMinutes % 60);
+        properties.put(property, canonical);
+        return canonical;
+    }
+
+    /** Parse UTC/Z or a strict minute-precision offset in the range supported by Doris. */
+    public static int parseRowTtlTimeZoneOffsetSeconds(String value) throws AnalysisException {
+        String property = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL_TIME_ZONE;
+        if (value.equalsIgnoreCase("UTC") || value.equalsIgnoreCase("Z")) {
+            return 0;
+        }
+        if (!value.matches("[+-]\\d{2}:\\d{2}")) {
+            throw new AnalysisException(property
+                    + " must be UTC, Z, or a fixed UTC offset in the form +HH:MM or -HH:MM");
+        }
+        int totalSeconds;
+        try {
+            totalSeconds = ZoneOffset.of(value).getTotalSeconds();
+        } catch (DateTimeException e) {
+            throw new AnalysisException(property
+                    + " must be a fixed UTC offset between -12:00 and +14:00", e);
+        }
+        if (totalSeconds < -12 * 60 * 60 || totalSeconds > 14 * 60 * 60) {
+            throw new AnalysisException(property
+                    + " must be a fixed UTC offset between -12:00 and +14:00");
+        }
+        return totalSeconds;
+    }
+
+    public static long parseRowTtlDurationMicros(String ttl) throws AnalysisException {
+        String normalized = ttl.trim().toLowerCase();
+        long multiplier = 1_000_000L;
+        if (normalized.endsWith("weeks")) {
+            normalized = normalized.substring(0, normalized.length() - 5).trim();
+            multiplier = 7L * 24 * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("week")) {
+            normalized = normalized.substring(0, normalized.length() - 4).trim();
+            multiplier = 7L * 24 * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("days")) {
+            normalized = normalized.substring(0, normalized.length() - 4).trim();
+            multiplier = 24L * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("day")) {
+            normalized = normalized.substring(0, normalized.length() - 3).trim();
+            multiplier = 24L * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("hours")) {
+            normalized = normalized.substring(0, normalized.length() - 5).trim();
+            multiplier = 60L * 60 * 1_000_000;
+        } else if (normalized.endsWith("hour")) {
+            normalized = normalized.substring(0, normalized.length() - 4).trim();
+            multiplier = 60L * 60 * 1_000_000;
+        } else if (normalized.endsWith("minutes")) {
+            normalized = normalized.substring(0, normalized.length() - 7).trim();
+            multiplier = 60L * 1_000_000;
+        } else if (normalized.endsWith("minute")) {
+            normalized = normalized.substring(0, normalized.length() - 6).trim();
+            multiplier = 60L * 1_000_000;
+        } else if (normalized.endsWith("seconds")) {
+            normalized = normalized.substring(0, normalized.length() - 7).trim();
+            multiplier = 1_000_000L;
+        } else if (normalized.endsWith("second")) {
+            normalized = normalized.substring(0, normalized.length() - 6).trim();
+            multiplier = 1_000_000L;
+        } else if (normalized.endsWith("d")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+            multiplier = 24L * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("h")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+            multiplier = 60L * 60 * 1_000_000;
+        } else if (normalized.endsWith("m")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+            multiplier = 60L * 1_000_000;
+        } else if (normalized.endsWith("s")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+            multiplier = 1_000_000L;
+        }
+        try {
+            long value = Long.parseLong(normalized);
+            if (value < 0) {
+                throw new AnalysisException("row ttl duration must not be negative");
+            }
+            return Math.multiplyExact(value, multiplier);
+        } catch (NumberFormatException | ArithmeticException e) {
+            throw new AnalysisException("invalid or overflowing row ttl duration: " + ttl);
+        }
+    }
+
     public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key,
             Boolean defaultValue) {
         if (properties.containsKey(key)) {
@@ -1516,34 +1703,27 @@ public class PropertyAnalyzer {
         return tagMap;
     }
 
-    public static boolean hasBinlogConfig(Map<String, String> properties) {
-        if (properties == null || properties.isEmpty()) {
-            return false;
-        }
-
-        for (String key : properties.keySet()) {
-            if (key.startsWith(PROPERTIES_BINLOG_PREFIX)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     public static Map<String, String> analyzeBinlogConfig(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return null;
+        }
+        checkLegacyBinlogProperties(properties);
+        for (String key : properties.keySet()) {
+            if (key.startsWith(PROPERTIES_BINLOG_PREFIX) && !key.equals(PROPERTIES_BINLOG_ENABLE)
+                    && !key.equals(PROPERTIES_BINLOG_TTL_SECONDS) && !key.equals(PROPERTIES_BINLOG_MAX_BYTES)
+                    && !key.equals(PROPERTIES_BINLOG_MAX_HISTORY_NUMS)) {
+                throw new AnalysisException("Unknown binlog property: " + key);
+            }
         }
 
         Map<String, String> binlogConfigMap = Maps.newHashMap();
         // check PROPERTIES_BINLOG_ENABLE = "binlog.enable";
         if (properties.containsKey(PROPERTIES_BINLOG_ENABLE)) {
-            String enable = properties.get(PROPERTIES_BINLOG_ENABLE);
-            try {
-                binlogConfigMap.put(PROPERTIES_BINLOG_ENABLE, String.valueOf(Boolean.parseBoolean(enable)));
-                properties.remove(PROPERTIES_BINLOG_ENABLE);
-            } catch (Exception e) {
+            String enable = properties.remove(PROPERTIES_BINLOG_ENABLE);
+            if (!StringUtils.equalsAnyIgnoreCase(enable, "true", "false")) {
                 throw new AnalysisException("Invalid binlog enable value: " + enable);
             }
+            binlogConfigMap.put(PROPERTIES_BINLOG_ENABLE, String.valueOf(Boolean.parseBoolean(enable)));
         }
         // check PROPERTIES_BINLOG_TTL_SECONDS = "binlog.ttl_seconds";
         if (properties.containsKey(PROPERTIES_BINLOG_TTL_SECONDS)) {
@@ -1580,40 +1760,77 @@ public class PropertyAnalyzer {
             }
         }
 
-        // check PROPERTIES_BINLOG_FORMAT = "binlog.format";
-        if (properties.containsKey(PROPERTIES_BINLOG_FORMAT)) {
-            String format = properties.get(PROPERTIES_BINLOG_FORMAT);
-            try {
-                binlogConfigMap.put(PROPERTIES_BINLOG_FORMAT, BinlogConfig.BinlogFormat.fromString(format).name());
-                properties.remove(PROPERTIES_BINLOG_FORMAT);
-            } catch (Exception e) {
-                throw new AnalysisException("Invalid binlog format value: " + format);
-            }
-        }
-
-        // check PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE = "binlog.need_historical_value"
-        if (properties.containsKey(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)) {
-            String needHistoricalValue = properties.get(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE);
-            if (!StringUtils.equalsAnyIgnoreCase(needHistoricalValue, "true", "false")) {
-                throw new AnalysisException("Invalid binlog need_historical_value value: " + needHistoricalValue);
-            }
-            binlogConfigMap.put(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE,
-                    String.valueOf(Boolean.parseBoolean(needHistoricalValue)));
-            properties.remove(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE);
-        }
-
-
         return binlogConfigMap;
     }
 
     /**
-     * Rewrite binlog.format to its canonical name, for properties persisted as written (database
-     * properties): they are parsed again on replay, and an FE that predates case-insensitive parsing
-     * only accepts the canonical name. The value must already be validated by analyzeBinlogConfig.
+     * Rejects the binlog keys the changelog.* properties replaced, whatever their value is.
      */
-    public static void normalizeBinlogFormat(Map<String, String> properties) {
-        properties.computeIfPresent(PROPERTIES_BINLOG_FORMAT,
-                (key, format) -> BinlogConfig.BinlogFormat.fromString(format).name());
+    private static void checkLegacyBinlogProperties(Map<String, String> properties) throws AnalysisException {
+        if (properties.containsKey(PROPERTIES_LEGACY_BINLOG_FORMAT)) {
+            throw new AnalysisException("Property " + PROPERTIES_LEGACY_BINLOG_FORMAT
+                    + " is no longer supported, use \"" + PROPERTIES_CHANGELOG_ENABLE
+                    + "\" = \"true\" to enable changelog, or remove it for CCR binlog");
+        }
+        if (properties.containsKey(PROPERTIES_LEGACY_BINLOG_NEED_HISTORICAL_VALUE)) {
+            throw new AnalysisException("Property " + PROPERTIES_LEGACY_BINLOG_NEED_HISTORICAL_VALUE
+                    + " is no longer supported, use " + PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE + " instead");
+        }
+    }
+
+    /**
+     * Whether the properties persisted for a table or a database enable changelog the way the changelog.*
+     * properties replaced: "binlog.enable" = "true" with "binlog.format" = "ROW".
+     */
+    public static boolean isLegacyChangelog(Map<String, String> properties) {
+        return "ROW".equalsIgnoreCase(properties.get(PROPERTIES_LEGACY_BINLOG_FORMAT))
+                && Boolean.parseBoolean(properties.get(PROPERTIES_BINLOG_ENABLE));
+    }
+
+    // Drops the binlog keys the changelog.* properties replaced from the properties persisted for a table or a
+    // database: every table and every database that set a binlog property has them.
+    // ATTN(changelog-rename): formerly "binlog.format", "binlog.need_historical_value" and "__binlog_config_version"
+    public static void removeLegacyBinlogProperties(Map<String, String> properties) {
+        properties.remove(PROPERTIES_LEGACY_BINLOG_FORMAT);
+        properties.remove(PROPERTIES_LEGACY_BINLOG_NEED_HISTORICAL_VALUE);
+        properties.remove(PROPERTIES_LEGACY_BINLOG_CONFIG_VERSION);
+    }
+
+    public static Map<String, String> analyzeChangelogConfig(Map<String, String> properties)
+            throws AnalysisException {
+        Map<String, String> changelogConfigMap = Maps.newHashMap();
+        for (String key : properties.keySet()) {
+            if (key.startsWith(PROPERTIES_CHANGELOG_PREFIX) && !key.equals(PROPERTIES_CHANGELOG_ENABLE)
+                    && !key.equals(PROPERTIES_CHANGELOG_TTL_SECONDS)
+                    && !key.equals(PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE)) {
+                throw new AnalysisException("Unknown changelog property: " + key);
+            }
+        }
+        if (properties.containsKey(PROPERTIES_CHANGELOG_ENABLE)) {
+            String enable = properties.remove(PROPERTIES_CHANGELOG_ENABLE);
+            if (!StringUtils.equalsAnyIgnoreCase(enable, "true", "false")) {
+                throw new AnalysisException("Invalid " + PROPERTIES_CHANGELOG_ENABLE + " value: " + enable);
+            }
+            changelogConfigMap.put(PROPERTIES_CHANGELOG_ENABLE, String.valueOf(Boolean.parseBoolean(enable)));
+        }
+        if (properties.containsKey(PROPERTIES_CHANGELOG_TTL_SECONDS)) {
+            String ttlSeconds = properties.remove(PROPERTIES_CHANGELOG_TTL_SECONDS);
+            try {
+                changelogConfigMap.put(PROPERTIES_CHANGELOG_TTL_SECONDS, String.valueOf(Long.parseLong(ttlSeconds)));
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid " + PROPERTIES_CHANGELOG_TTL_SECONDS + " value: " + ttlSeconds);
+            }
+        }
+        if (properties.containsKey(PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE)) {
+            String needHistoricalValue = properties.remove(PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE);
+            if (!StringUtils.equalsAnyIgnoreCase(needHistoricalValue, "true", "false")) {
+                throw new AnalysisException("Invalid " + PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE + " value: "
+                        + needHistoricalValue);
+            }
+            changelogConfigMap.put(PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE,
+                    String.valueOf(Boolean.parseBoolean(needHistoricalValue)));
+        }
+        return changelogConfigMap;
     }
 
     public static boolean analyzeIsBeingSynced(Map<String, String> properties, boolean defaultValue) {
@@ -2296,6 +2513,132 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
         }
         return shardCount;
+    }
+
+    public static final String PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS = "variant_escape_dots_in_keys";
+
+    public static boolean analyzeVariantEscapeDotsInKeys(Map<String, String> properties)
+            throws AnalysisException {
+        String value = properties.remove(PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS);
+        if (value == null) {
+            return false;
+        }
+        if (!value.equalsIgnoreCase("true") && !value.equalsIgnoreCase("false")) {
+            throw new AnalysisException("variant_escape_dots_in_keys must be true or false");
+        }
+        return Boolean.parseBoolean(value);
+    }
+
+    /** CTAS inherits any escaped OLAP source; async MVs require matching Variant storage policies. */
+    public static Map<String, String> inheritVariantEscapeDotsInKeys(Map<String, String> properties,
+            Collection<TableIf> sourceTables, boolean requireConsistentSources) throws AnalysisException {
+        Map<String, String> result = properties == null ? Maps.newHashMap() : Maps.newHashMap(properties);
+        boolean explicit = result.containsKey(PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS);
+        boolean escaped = explicit && analyzeVariantEscapeDotsInKeys(result);
+        boolean escapedSource = false;
+        boolean legacySource = false;
+        for (TableIf table : sourceTables) {
+            if (!(table instanceof OlapTable)) {
+                continue;
+            }
+            OlapTable source = (OlapTable) table;
+            if (requireConsistentSources && source.getBaseSchema().stream()
+                    .noneMatch(column -> column.getType().isVariantType())) {
+                continue;
+            }
+            if (source.getVariantEscapeDotsInKeys()) {
+                escapedSource = true;
+            } else {
+                legacySource = true;
+            }
+        }
+        if (requireConsistentSources && ((escapedSource && legacySource)
+                || (explicit && (escaped ? legacySource : escapedSource)))) {
+            throw new AnalysisException("An async MV must use the same value of variant_escape_dots_in_keys "
+                    + "as its OLAP base tables with VARIANT columns");
+        }
+        if (!explicit) {
+            escaped = escapedSource;
+        }
+        if (escaped) {
+            result.put(PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "true");
+        }
+        return result;
+    }
+
+    public static void rejectVariantEscapeDotsInKeysAlter(Map<String, String> properties) {
+        try {
+            rejectVariantEscapeDotsInKeys(properties,
+                    "variant_escape_dots_in_keys can only be specified when creating a table");
+        } catch (AnalysisException e) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(e.getMessage(), e);
+        }
+    }
+
+    public static void rejectVariantEscapeDotsInKeysExternal(Map<String, String> properties) throws AnalysisException {
+        rejectVariantEscapeDotsInKeys(properties, "variant_escape_dots_in_keys requires an OLAP table");
+    }
+
+    private static void rejectVariantEscapeDotsInKeys(Map<String, String> properties, String message)
+            throws AnalysisException {
+        if (properties != null && properties.keySet().stream().anyMatch(
+                PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS::equalsIgnoreCase)) {
+            throw new AnalysisException(message);
+        }
+    }
+
+    /** Validate the final catalog columns and indexes before publishing an escaped table schema. */
+    public static void validateVariantTable(boolean escaped, Collection<Column> columns, Collection<Index> indexes)
+            throws AnalysisException {
+        if (!escaped) {
+            return;
+        }
+        for (Column column : columns) {
+            if (!column.getType().isVariantType()) {
+                continue;
+            }
+            if (column.getVariantEnableNestedGroup()) {
+                throw new AnalysisException("Escaped tables do not support NestedGroup; set "
+                        + "variant_enable_nested_group=false");
+            }
+            if (column.getChildren() != null) {
+                for (Column child : column.getChildren()) {
+                    validateVariantStoragePath(child.getName());
+                }
+            }
+        }
+        for (Index index : indexes) {
+            validateVariantStoragePath(InvertedIndexUtil.getInvertedIndexFieldPattern(index.getProperties()));
+        }
+    }
+
+    public static String encodeVariantPathComponent(String key) {
+        return key.replace("%", "%25").replace(".", "%2E");
+    }
+
+    public static String decodeVariantPathComponent(String key) throws AnalysisException {
+        StringBuilder result = new StringBuilder();
+        for (int i = 0; i < key.length(); i++) {
+            char ch = key.charAt(i);
+            if (ch != '%') {
+                result.append(ch);
+            } else if (key.startsWith("%25", i)) {
+                result.append('%');
+                i += 2;
+            } else if (key.startsWith("%2E", i)) {
+                result.append('.');
+                i += 2;
+            } else {
+                throw new AnalysisException("Invalid escaped Variant path component: " + key);
+            }
+        }
+        return result.toString();
+    }
+
+    public static void validateVariantStoragePath(String path) throws AnalysisException {
+        for (String component : path.split("\\.", -1)) {
+            decodeVariantPathComponent(component);
+        }
     }
 
     public static void validateVariantProperties(Map<String, String> properties) throws AnalysisException {

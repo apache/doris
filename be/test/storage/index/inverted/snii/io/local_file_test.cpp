@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using doris::snii::io::LocalFileReader;
@@ -33,8 +34,9 @@ using doris::snii::io::LocalFileWriter;
 namespace {
 
 std::string TempPath(const char* name) {
-    return "/tmp/snii_io_test_" + std::to_string(geteuid()) + "_" + std::to_string(getpid()) + "_" +
-           name + ".bin";
+    static const doris::test::ScopedTempDirectory temp_dir("local_file_test");
+    return (temp_dir.path() / "snii_io_test_").string() + std::to_string(geteuid()) + "_" +
+           std::to_string(getpid()) + "_" + name + ".bin";
 }
 
 } // namespace
@@ -106,16 +108,16 @@ TEST(SniiLocalFile, BufferedAppendsByteIdentical) {
         LocalFileWriter w;
         ASSERT_TRUE(w.open(path).ok());
         size_t off = 0;
-        // Phase 1: many small appends (700 B) -> repeated buffer overflow/flush.
+        // Repeated small appends flush the buffer.
         while (off + 700 <= 600U * 1024) {
             ASSERT_TRUE(w.append(Slice(expected.data() + off, 700)).ok());
             off += 700;
         }
-        // Phase 2: one append larger than the buffer (direct-to-fd path).
+        // An append larger than the buffer writes directly.
         const size_t big = 300U * 1024;
         ASSERT_TRUE(w.append(Slice(expected.data() + off, big)).ok());
         off += big;
-        // Phase 3: drain the remainder in a final small append.
+        // Flush the remaining bytes on the final append.
         ASSERT_TRUE(w.append(Slice(expected.data() + off, expected.size() - off)).ok());
         EXPECT_EQ(w.bytes_written(), expected.size());
         ASSERT_TRUE(w.finalize().ok());

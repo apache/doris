@@ -33,6 +33,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <set>
 #include <string>
 #include <string_view>
@@ -45,6 +46,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_dictionary.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -61,11 +63,11 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/olap_common.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_writer.h"
 #include "storage/segment/encoding_info.h"
+#include "storage/storage_layout.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "util/coding.h"
@@ -759,26 +761,18 @@ Result<WrittenColumn> write_column(const PageFormatCase& page_case, const CaseIn
     options.data_page_size = page_case.encoding == RLE ? kRlePageSize : kDataPageSize;
     options.dict_page_size = kDictPageSize;
     auto column = std::make_shared<TabletColumn>(input.column);
-    std::unique_ptr<ScalarColumnWriter> writer;
+    std::unique_ptr<ColumnWriter> writer;
     if (input.column.type() == FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT) {
         writer = std::make_unique<OffsetColumnWriter>(options, column, &file_writer);
     } else {
-        writer = std::make_unique<ScalarColumnWriter>(options, column, &file_writer);
+        RETURN_IF_ERROR_RESULT(ColumnWriter::create(options, column.get(), &file_writer, &writer));
     }
     RETURN_IF_ERROR_RESULT(writer->init());
 
-    OlapBlockDataConvertor convertor;
-    convertor.add_column_data_convertor(input.column);
     const size_t rows = input.rows();
     for (size_t row_pos = 0, block = 0; row_pos < rows; ++block) {
         const size_t block_rows = std::min(kBlockRows[block % kBlockRows.size()], rows - row_pos);
-        RETURN_IF_ERROR_RESULT(convertor.set_source_content_with_specifid_column(
-                input.data, row_pos, block_rows, 0));
-        auto [status, accessor] = convertor.convert_column_data(0);
-        RETURN_IF_ERROR_RESULT(status);
-        RETURN_IF_ERROR_RESULT(
-                writer->append(accessor->get_nullmap(), accessor->get_data(), block_rows));
-        convertor.clear_source_content();
+        RETURN_IF_ERROR_RESULT(writer->append(*input.data.column, row_pos, block_rows));
         row_pos += block_rows;
     }
     RETURN_IF_ERROR_RESULT(writer->finish());
@@ -795,64 +789,137 @@ Result<WrittenColumn> write_column(const PageFormatCase& page_case, const CaseIn
     return written;
 }
 
-bool is_slice_cell(FieldType type) {
+// A row's stored value: what the column writer stores for it.
+std::string storage_value(FieldType type, const IColumn& column, size_t row,
+                          StorageBuffers& buffers) {
     switch (type) {
-    case FieldType::OLAP_FIELD_TYPE_CHAR:
-    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
-    case FieldType::OLAP_FIELD_TYPE_STRING:
-    case FieldType::OLAP_FIELD_TYPE_JSONB:
-    case FieldType::OLAP_FIELD_TYPE_HLL:
-    case FieldType::OLAP_FIELD_TYPE_BITMAP:
-    case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
-    case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
-        return true;
+#define M(FT)                                                                             \
+    case FieldType::FT: {                                                                 \
+        using Column = typename PrimitiveTypeTraits<storage_field_type_to_primitive_type( \
+                FieldType::FT)>::ColumnType;                                              \
+        const auto& data = assert_cast<const Column&>(column).get_data();                 \
+        const auto value = StorageLayout<FieldType::FT>::to_storage(data[row]);           \
+        return {reinterpret_cast<const char*>(&value), sizeof(value)};                    \
+    }
+        DORIS_APPLY_FOR_FIXED_WIDTH_STORAGE_LAYOUT_TYPES(M)
+#undef M
+#define M(FT)                                                                              \
+    case FieldType::FT: {                                                                  \
+        const auto* cell = reinterpret_cast<const Slice*>(                                 \
+                StorageLayout<FieldType::FT>::column_to_storage(column, row, 1, buffers)); \
+        return cell->to_string();                                                          \
+    }
+        M(OLAP_FIELD_TYPE_CHAR)
+        M(OLAP_FIELD_TYPE_VARCHAR)
+        M(OLAP_FIELD_TYPE_STRING)
+        M(OLAP_FIELD_TYPE_JSONB)
+        M(OLAP_FIELD_TYPE_HLL)
+        M(OLAP_FIELD_TYPE_BITMAP)
+        M(OLAP_FIELD_TYPE_QUANTILE_STATE)
+#undef M
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
+        // The writer stores the states the way the function serialises them; the column holding
+        // them says which.
+        if (check_and_get_column<ColumnString>(column) != nullptr) {
+            return storage_value(FieldType::OLAP_FIELD_TYPE_VARCHAR, column, row, buffers);
+        }
+        if (check_and_get_column<ColumnBitmap>(column) != nullptr) {
+            return storage_value(FieldType::OLAP_FIELD_TYPE_BITMAP, column, row, buffers);
+        }
+        const auto* cell = reinterpret_cast<const Slice*>(
+                StorageLayout<FieldType::OLAP_FIELD_TYPE_AGG_STATE>::column_to_storage(column, row,
+                                                                                       1, buffers));
+        return cell->to_string();
+    }
     default:
-        return false;
+        throw Exception(ErrorCode::INTERNAL_ERROR, "no storage layout for type {}", int(type));
     }
 }
 
-// The values the column writer receives for these rows; NULL rows are left empty.
-Result<std::vector<std::string>> storage_cells(const TabletColumn& column,
-                                               const ColumnWithTypeAndName& data) {
-    OlapBlockDataConvertor convertor;
-    convertor.add_column_data_convertor(column);
-    const size_t rows = data.column->size();
-    RETURN_IF_ERROR_RESULT(convertor.set_source_content_with_specifid_column(data, 0, rows, 0));
-    auto [status, accessor] = convertor.convert_column_data(0);
-    RETURN_IF_ERROR_RESULT(status);
-    const UInt8* null_map = accessor->get_nullmap();
-    const size_t cell_size = field_type_size(column.type());
-    std::vector<std::string> cells(rows);
-    for (size_t row = 0; row < rows; ++row) {
-        if (null_map != nullptr && null_map[row]) {
-            continue;
-        }
-        if (is_slice_cell(column.type())) {
-            const auto& slice = static_cast<const Slice*>(accessor->get_data())[row];
-            cells[row].assign(slice.data, slice.size);
-        } else {
-            cells[row].assign(static_cast<const char*>(accessor->get_data()) + row * cell_size,
-                              cell_size);
+// The stored values of these rows; NULL rows are left empty.
+std::vector<std::string> storage_cells(FieldType type, const IColumn& data) {
+    const auto* nullable = check_and_get_column<ColumnNullable>(data);
+    const IColumn& values = nullable != nullptr ? nullable->get_nested_column() : data;
+    StorageBuffers buffers;
+    std::vector<std::string> cells(data.size());
+    for (size_t row = 0; row < data.size(); ++row) {
+        if (nullable == nullptr || !nullable->is_null_at(row)) {
+            cells[row] = storage_value(type, values, row, buffers);
         }
     }
     return cells;
 }
 
-// The strings a nullable string column holds; NULL rows are left empty.
-std::vector<std::string> string_cells(const IColumn& column) {
-    const auto& nullable = assert_cast<const ColumnNullable&>(column);
-    std::vector<std::string> cells(nullable.size());
-    for (size_t row = 0; row < cells.size(); ++row) {
-        if (!nullable.is_null_at(row)) {
-            cells[row] = nullable.get_nested_column().get_data_at(row).to_string();
+// Checks that `read` holds the rows written at `rowids`.
+Status check_rows_read(const CaseInput& input, const WrittenColumn& written,
+                       const std::vector<rowid_t>& rowids, const IColumn& read) {
+    if (read.size() != rowids.size()) {
+        return Status::InternalError("read {} rows back, wanted {}", read.size(), rowids.size());
+    }
+    if (input.column.is_nullable()) {
+        const auto& read_null_map = assert_cast<const ColumnNullable&>(read).get_null_map_data();
+        const auto& null_map =
+                assert_cast<const ColumnNullable&>(*input.data.column).get_null_map_data();
+        for (size_t i = 0; i < rowids.size(); ++i) {
+            if (read_null_map[i] != null_map[rowids[i]]) {
+                return Status::InternalError("row {} reads back as {}NULL", rowids[i],
+                                             read_null_map[i] != 0 ? "" : "not ");
+            }
         }
     }
-    return cells;
+    const auto written_cells = storage_cells(input.column.type(), *input.data.column);
+    std::vector<std::string> expected;
+    expected.reserve(rowids.size());
+    for (const auto row : rowids) {
+        expected.push_back(written_cells[row]);
+    }
+    auto actual = storage_cells(input.column.type(), read);
+    // Reading turns a single-value bitmap into a one-value set, which is written differently, so
+    // bitmaps are compared by value.
+    if (check_and_get_column<ColumnBitmap>(*remove_nullable(input.data.column)) != nullptr) {
+        for (auto* cells : {&expected, &actual}) {
+            for (auto& cell : *cells) {
+                if (!cell.empty()) {
+                    cell = BitmapValue(cell.data()).to_string();
+                }
+            }
+        }
+    }
+    // CHAR is written padded to its length and read back without the padding, which loading a page
+    // strips, except from a PREFIX page, which no writer writes for CHAR: its rows read back
+    // padded.
+    if (input.column.type() == FieldType::OLAP_FIELD_TYPE_CHAR &&
+        written.meta.encoding() == PREFIX_ENCODING) {
+        const auto& null_map =
+                assert_cast<const ColumnNullable&>(*input.data.column).get_null_map_data();
+        for (size_t i = 0; i < rowids.size(); ++i) {
+            if (null_map[rowids[i]] == 0) {
+                expected[i].resize(input.column.length(), '\0');
+            }
+        }
+    }
+    const auto [actual_cell, expected_cell] =
+            std::mismatch(actual.begin(), actual.end(), expected.begin());
+    if (actual_cell != actual.end()) {
+        auto hex = [](const std::string& cell) {
+            std::string text;
+            for (const char byte : cell.substr(0, 64)) {
+                text += fmt::format("{:02x}", static_cast<uint8_t>(byte));
+            }
+            return text;
+        };
+        return Status::InternalError("row {} reads back as {} instead of {}",
+                                     rowids[std::distance(actual.begin(), actual_cell)],
+                                     hex(*actual_cell), hex(*expected_cell));
+    }
+    return Status::OK();
 }
 
-// Reads the column back the way a Segment reads it and checks that it holds the rows written.
+// Reads the column back the way a Segment reads it, into columns like `prototype`: every row by
+// batch, then two rows of every three by row id, so that the reads start and stop inside NULL
+// runs. Checks that both hold the rows written.
 Status verify_read_back(const CaseInput& input, const WrittenColumn& written,
-                        const std::string& path) {
+                        const std::string& path, const IColumn& prototype) {
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(path, &file_reader));
     ColumnReaderOptions reader_options;
@@ -868,67 +935,38 @@ Status verify_read_back(const CaseInput& input, const WrittenColumn& written,
     iterator_options.file_reader = file_reader.get();
     RETURN_IF_ERROR(iterator->init(iterator_options));
     RETURN_IF_ERROR(iterator->seek_to_ordinal(0));
-    MutableColumnPtr read = input.data.column->clone_empty();
+    std::vector<rowid_t> rowids(input.rows());
+    std::iota(rowids.begin(), rowids.end(), rowid_t {0});
+    MutableColumnPtr read = prototype.clone_empty();
     size_t rows = written.meta.num_rows();
     bool has_null = false;
     RETURN_IF_ERROR(iterator->next_batch(&rows, read, &has_null));
-    if (read->size() != input.rows()) {
-        return Status::InternalError("read {} rows back, wrote {}", read->size(), input.rows());
-    }
+    // A ColumnDictI32 holds codes: compare the strings they stand for.
+    read = read->convert_to_predicate_column_if_dictionary();
+    RETURN_IF_ERROR(check_rows_read(input, written, rowids, *read));
 
+    // BinaryPrefixPageDecoder does not read by row id.
+    if (written.meta.encoding() == PREFIX_ENCODING) {
+        return Status::OK();
+    }
+    std::erase_if(rowids, [](rowid_t row) { return row % 3 == 1; });
+    MutableColumnPtr picked = prototype.clone_empty();
+    // A ColumnDictI32 appends codes only into room reserved beforehand, as SegmentIterator
+    // reserves the columns it reads into.
+    picked->reserve(rowids.size());
+    RETURN_IF_ERROR(iterator->read_by_rowids(rowids.data(), rowids.size(), picked));
+    picked = picked->convert_to_predicate_column_if_dictionary();
+    return check_rows_read(input, written, rowids, *picked);
+}
+
+// The column a query that filters a string column reads it into, as
+// ReadSchema::get_predicate_column_ptr makes it.
+MutableColumnPtr dictionary_column(const CaseInput& input) {
+    MutableColumnPtr column = ColumnDictI32::create();
     if (input.column.is_nullable()) {
-        const auto& read_null_map = assert_cast<const ColumnNullable&>(*read).get_null_map_data();
-        const auto& null_map =
-                assert_cast<const ColumnNullable&>(*input.data.column).get_null_map_data();
-        if (!std::equal(read_null_map.begin(), read_null_map.end(), null_map.begin())) {
-            return Status::InternalError("the NULL rows read back differ from the ones written");
-        }
+        column = ColumnNullable::create(std::move(column), ColumnUInt8::create());
     }
-    ColumnWithTypeAndName read_data = input.data;
-    read_data.column = std::move(read);
-    auto expected = storage_cells(input.column, input.data);
-    if (!expected.has_value()) {
-        return expected.error();
-    }
-    auto actual = storage_cells(input.column, read_data);
-    if (!actual.has_value()) {
-        return actual.error();
-    }
-    // Reading turns a single-value bitmap into a one-value set, which is written differently, so
-    // bitmaps are compared by value.
-    if (check_and_get_column<ColumnBitmap>(*remove_nullable(input.data.column)) != nullptr) {
-        for (auto* cells : {&expected.value(), &actual.value()}) {
-            for (auto& cell : *cells) {
-                if (!cell.empty()) {
-                    cell = BitmapValue(cell.data()).to_string();
-                }
-            }
-        }
-    }
-    // CHAR is written padded to its length and read back without the padding, which loading a page
-    // strips, except from a PREFIX page, which no writer writes for CHAR. storage_cells() would pad
-    // the rows read back again, so CHAR is compared as it reads back.
-    if (input.column.type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-        actual.value() = string_cells(*read_data.column);
-        if (written.meta.encoding() != PREFIX_ENCODING) {
-            expected.value() = string_cells(*input.data.column);
-        }
-    }
-    const auto [actual_cell, expected_cell] =
-            std::mismatch(actual.value().begin(), actual.value().end(), expected.value().begin());
-    if (actual_cell != actual.value().end()) {
-        auto hex = [](const std::string& cell) {
-            std::string text;
-            for (const char byte : cell.substr(0, 64)) {
-                text += fmt::format("{:02x}", static_cast<uint8_t>(byte));
-            }
-            return text;
-        };
-        return Status::InternalError("row {} reads back as {} instead of {}",
-                                     std::distance(actual.value().begin(), actual_cell),
-                                     hex(*actual_cell), hex(*expected_cell));
-    }
-    return Status::OK();
+    return column;
 }
 
 // A page ends with its PageFooterPB, the footer length and the checksum.
@@ -1149,8 +1187,16 @@ TEST_F(PageFormatTest, RegisteredEncodingsKeepTheirPageBytes) {
             EXPECT_TRUE(written.value().data_pages == rewritten.value().data_pages &&
                         written.value().dict_page == rewritten.value().dict_page)
                     << "page bytes are not deterministic";
-            const auto read_back = verify_read_back(input.value(), written.value(), path);
+            const auto read_back = verify_read_back(input.value(), written.value(), path,
+                                                    *input.value().data.column);
             EXPECT_TRUE(read_back.ok()) << read_back;
+            if (page_case.encoding == DICT_ENCODING) {
+                // The pages that fall back to plain encoding make the dictionary page decoder
+                // replace the ColumnDictI32 it appends to with a ColumnString.
+                const auto dictionary_read_back = verify_read_back(
+                        input.value(), written.value(), path, *dictionary_column(input.value()));
+                EXPECT_TRUE(dictionary_read_back.ok()) << dictionary_read_back;
+            }
             add_goldens(&goldens, page_case, written.value());
         }
     }

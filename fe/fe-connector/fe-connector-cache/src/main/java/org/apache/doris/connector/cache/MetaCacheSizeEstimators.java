@@ -17,6 +17,10 @@
 
 package org.apache.doris.connector.cache;
 
+import java.util.Collection;
+import java.util.Collections;
+import java.util.function.Function;
+
 /** Shared estimators for small or structurally unknown metadata-cache entries. */
 public final class MetaCacheSizeEstimators {
     private MetaCacheSizeEstimators() {
@@ -31,5 +35,23 @@ public final class MetaCacheSizeEstimators {
         return (key, value) -> MetaCacheSizeEstimate.complete(JvmSizeUtils.saturatedAdd(
                 ReflectiveObjectSizeEstimator.estimateComplete(key),
                 ReflectiveObjectSizeEstimator.estimateComplete(value)));
+    }
+
+    /**
+     * Returns a {@link #reflective()} estimator that walks the long lists {@code perElementCollections} picks from
+     * a value element by element (see {@link ReflectiveObjectSizeEstimator#estimateCompletePerElement}), for values
+     * that grow with one list, such as a wide table's schema.
+     */
+    public static <K, V> MetaCacheSizeEstimator<K, V> reflectivePerElement(
+            Function<? super V, ? extends Collection<? extends Collection<?>>> perElementCollections) {
+        return (key, value) -> MetaCacheSizeEstimate.complete(JvmSizeUtils.saturatedAdd(
+                ReflectiveObjectSizeEstimator.estimateComplete(key),
+                ReflectiveObjectSizeEstimator.estimateCompletePerElement(value,
+                        perElementCollections.apply(value).toArray(new Collection<?>[0]))));
+    }
+
+    /** {@link #reflectivePerElement} for a value that is itself the long list, such as a partition list. */
+    public static <K, V extends Collection<?>> MetaCacheSizeEstimator<K, V> reflectiveEachElement() {
+        return reflectivePerElement(value -> Collections.singletonList(value));
     }
 }

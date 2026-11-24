@@ -94,8 +94,8 @@ public class TransactionUtil {
         if (!anyEnableTso) {
             return tso;
         }
-        // ROW binlog tables must obtain a TSO even when the feature is disabled. Let the service
-        // reject the commit instead of publishing ROW binlog with an invalid timestamp.
+        // Changelog tables must obtain a TSO even when the feature is disabled. Let the service
+        // reject the commit instead of publishing changelog with an invalid timestamp.
         try {
             Env env = Env.getCurrentEnv();
             if (env == null || env.getTSOService() == null) {

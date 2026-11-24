@@ -49,7 +49,8 @@ CoreMetadata sample_core(IndexConfig index_config = IndexConfig::kDocsOnly) {
                              .posting_region = {.offset = 21, .length = 22},
                              .norms = {},
                              .null_bitmap = {.offset = 41, .length = 42},
-                             .bsbf = {.offset = 51, .length = 52}};
+                             .bsbf = {.offset = 51, .length = 52},
+                             .sparse_norms = {}};
     // Norms require positions for BM25 frequencies; docs-only samples omit them.
     if (has_positions(index_config)) {
         metadata.section_refs.norms = {.offset = 31, .length = 32};
@@ -111,7 +112,17 @@ void expect_core_eq(const CoreMetadata& expected, const CoreMetadata& actual) {
     EXPECT_EQ(expected.section_refs.null_bitmap.length, actual.section_refs.null_bitmap.length);
     EXPECT_EQ(expected.section_refs.bsbf.offset, actual.section_refs.bsbf.offset);
     EXPECT_EQ(expected.section_refs.bsbf.length, actual.section_refs.bsbf.length);
+    EXPECT_EQ(expected.section_refs.sparse_norms.offset, actual.section_refs.sparse_norms.offset);
+    EXPECT_EQ(expected.section_refs.sparse_norms.length, actual.section_refs.sparse_norms.length);
     EXPECT_EQ(expected.gram_scheme, actual.gram_scheme);
+}
+
+// A positions sample whose norms cover only its non-NULL rows.
+CoreMetadata sample_sparse_core() {
+    auto metadata = sample_core(IndexConfig::kDocsPositions);
+    metadata.section_refs.norms = {};
+    metadata.section_refs.sparse_norms = {.offset = 61, .length = 62};
+    return metadata;
 }
 
 // Since A2, core metadata forbids norms on docs-only segments: norms require positions.
@@ -198,9 +209,7 @@ TEST(SniiCoreMetadata, RejectsUnsupportedIndexConfig) {
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
 }
 
-// During development on master, index_config=2 denoted a scoring tier. The norms region now
-// determines scoring capability, so reject this obsolete value. It was never deployed to
-// production and has no compatibility requirements.
+// Index config 2 is obsolete; norms determine scoring support.
 TEST(SniiCoreMetadata, RejectsLegacyScoringIndexConfigAsUnsupported) {
     auto payload = payload_of(encode(sample_core()));
     ByteSink field;
@@ -213,9 +222,8 @@ TEST(SniiCoreMetadata, RejectsLegacyScoringIndexConfigAsUnsupported) {
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
 }
 
-// The deployed 3.1-series writer omits stats.sum_total_term_freq and section_refs.norms. Such
-// segments must remain readable, with missing statistics set to 0 and an empty norms region.
-TEST(SniiCoreMetadata, AcceptsProductionShapeWithoutNormsAndTotalTermFreq) {
+// Segments without total term frequency and norms remain readable.
+TEST(SniiCoreMetadata, AcceptsMissingNormsAndTotalTermFreq) {
     const auto metadata = sample_core(IndexConfig::kDocsPositions);
     const auto payload = mutate_core_payload(metadata, [](auto* core) {
         core->mutable_stats()->clear_sum_total_term_freq();
@@ -232,7 +240,7 @@ TEST(SniiCoreMetadata, AcceptsProductionShapeWithoutNormsAndTotalTermFreq) {
     EXPECT_EQ(actual.section_refs.bsbf.length, metadata.section_refs.bsbf.length);
 }
 
-// Segments without norms omit section_refs.norms, matching the production writer's bytes.
+// Segments without norms omit section_refs.norms.
 TEST(SniiCoreMetadata, OmitsEmptyNormsRefOnEncode) {
     auto metadata = sample_core(IndexConfig::kDocsPositions);
     metadata.section_refs.norms = {};
@@ -246,6 +254,70 @@ TEST(SniiCoreMetadata, OmitsEmptyNormsRefOnEncode) {
     ASSERT_TRUE(decode_core_metadata(Slice(framed), &decoded).ok());
     EXPECT_EQ(decoded.section_refs.norms.length, 0U);
     expect_core_eq(metadata, decoded);
+}
+
+// Sparse norms travel in field 6 and leave field 5 out, so a reader that predates field 6 sees
+// an index without norms instead of misreading the sparse bytes as one byte per row.
+TEST(SniiCoreMetadata, RoundTripsSparseNormsInTheirOwnField) {
+    const auto expected = sample_sparse_core();
+    const auto framed = encode(expected);
+    const auto payload = payload_of(framed);
+    doris::snii::SniiCoreMetadataPB core;
+    ASSERT_TRUE(core.ParseFromArray(payload.data(), static_cast<int>(payload.size())));
+    EXPECT_FALSE(core.section_refs().has_norms());
+    ASSERT_TRUE(core.section_refs().has_sparse_norms());
+    EXPECT_EQ(core.section_refs().sparse_norms().offset(), 61U);
+    EXPECT_EQ(core.section_refs().sparse_norms().length(), 62U);
+
+    CoreMetadata actual;
+    ASSERT_TRUE(decode_core_metadata(Slice(framed), &actual).ok());
+    expect_core_eq(expected, actual);
+}
+
+TEST(SniiCoreMetadata, OmitsEmptySparseNormsRefOnEncode) {
+    const auto payload = payload_of(encode(sample_core(IndexConfig::kDocsPositions)));
+    doris::snii::SniiCoreMetadataPB core;
+    ASSERT_TRUE(core.ParseFromArray(payload.data(), static_cast<int>(payload.size())));
+    EXPECT_TRUE(core.section_refs().has_norms());
+    EXPECT_FALSE(core.section_refs().has_sparse_norms());
+}
+
+TEST(SniiCoreMetadata, RejectsDenseAndSparseNormsTogether) {
+    auto metadata = sample_sparse_core();
+    metadata.section_refs.norms = {.offset = 31, .length = 32};
+    ByteSink sink;
+    const auto encoded = encode_core_metadata(metadata, &sink);
+    EXPECT_TRUE(encoded.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << encoded;
+
+    const auto payload = mutate_core_payload(sample_sparse_core(), [](auto* core) {
+        auto* norms = core->mutable_section_refs()->mutable_norms();
+        norms->set_offset(31);
+        norms->set_length(32);
+    });
+    CoreMetadata actual;
+    const auto decoded = decode_core_metadata(Slice(frame_payload(payload)), &actual);
+    EXPECT_TRUE(decoded.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << decoded;
+}
+
+TEST(SniiCoreMetadata, RejectsSparseNormsOnDocsOnlyIndex) {
+    auto metadata = sample_core();
+    metadata.section_refs.sparse_norms = {.offset = 61, .length = 62};
+    ByteSink sink;
+    const auto status = encode_core_metadata(metadata, &sink);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+}
+
+TEST(SniiCoreMetadata, RejectsSparseNormsRefMissingOffsetOrLength) {
+    for (const auto clear : std::array<void (doris::snii::SniiRegionRefPB::*)(), 2> {
+                 &doris::snii::SniiRegionRefPB::clear_offset,
+                 &doris::snii::SniiRegionRefPB::clear_length}) {
+        const auto payload = mutate_core_payload(sample_sparse_core(), [clear](auto* core) {
+            (core->mutable_section_refs()->mutable_sparse_norms()->*clear)();
+        });
+        CoreMetadata actual;
+        const auto status = decode_core_metadata(Slice(frame_payload(payload)), &actual);
+        EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+    }
 }
 
 TEST(SniiCoreMetadata, RejectsMissingEachStatsField) {

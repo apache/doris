@@ -260,7 +260,8 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         break;
     case PGenericType::VARIANT:
         nested = std::make_shared<DataTypeVariantV2>(pcolumn.variant_max_subcolumns_count(),
-                                                     pcolumn.variant_enable_doc_mode());
+                                                     pcolumn.variant_enable_doc_mode(),
+                                                     pcolumn.variant_is_v2());
         break;
     case PGenericType::JSONB:
         nested = std::make_shared<DataTypeJsonb>();

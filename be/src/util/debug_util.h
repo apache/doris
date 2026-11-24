@@ -26,6 +26,11 @@
 
 namespace doris {
 
+class TPipelineFragmentParams;
+
+// Only format fixed identifiers and counts. Scan properties and descriptors may contain credentials.
+std::string print_fragment_params_summary(const TPipelineFragmentParams& params);
+
 std::string print_plan_node_type(const TPlanNodeType::type& type);
 std::string print_query_state(const QueryState::type& type);
 std::string PrintTUnit(const TUnit::type& type);

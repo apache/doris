@@ -19,32 +19,37 @@
 
 #include <unicode/uchar.h>
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
-#include "CLucene/_ApiHeader.h"
-#include "CLucene/analysis/jieba/Unicode.hpp"
+#include "storage/index/inverted/analysis/common/rune.h"
 
 namespace doris::segment_v2 {
 
 class CharacterUtil {
 public:
-    static constexpr int32_t CHAR_USELESS = 0;            // Useless character
-    static constexpr int32_t CHAR_ARABIC = 0x00000001;    // Arabic number
-    static constexpr int32_t CHAR_ENGLISH = 0x00000002;   // English letter
-    static constexpr int32_t CHAR_CHINESE = 0x00000004;   // Chinese character
-    static constexpr int32_t CHAR_OTHER_CJK = 0x00000008; // Other CJK character
-    static constexpr int32_t CHAR_SURROGATE = 0x00000016; // Surrogate pair character
+    enum class CharType : int32_t {
+        USELESS = 0,
+        ARABIC = 0x00000001,
+        ENGLISH = 0x00000002,
+        CHINESE = 0x00000004,
+        OTHER_CJK = 0x00000008,
+        SURROGATE = 0x00000016,
+    };
 
-    using RuneStrLite = cppjieba::RuneStrLite;
-    using RuneStr = cppjieba::RuneStr;
-    using RuneStrArray = cppjieba::RuneStrArray;
+    using RuneStrLite = inverted_index::RuneStrLite;
+    using RuneStr = inverted_index::RuneStr;
+    using RuneStrArray = inverted_index::RuneStrArray;
 
     class TypedRune : public RuneStr {
     public:
-        int32_t char_type;
-        TypedRune() : RuneStr(), char_type(0) {}
+        CharType char_type;
+        TypedRune() : RuneStr(), char_type(CharType::USELESS) {}
         TypedRune(int32_t in_rune, size_t in_offset, size_t in_len, size_t in_unicode_offset,
                   size_t in_unicode_length)
                 : RuneStr(in_rune, static_cast<uint32_t>(in_offset), static_cast<uint32_t>(in_len),
@@ -72,7 +77,18 @@ public:
 
     using TypedRuneArray = std::vector<TypedRune>;
 
-    static int32_t identifyCharType(int32_t rune);
+    // The type of `rune`: identifyCharTypeByBlock(), read from a table for the first plane, where
+    // nearly every character of a text is.
+    static CharType identifyCharType(int32_t rune) {
+        if (rune >= 0 && rune < BmpCharTypes::kSize) {
+            return static_cast<CharType>(BmpCharTypes::instance().types[rune]);
+        }
+        return identifyCharTypeByBlock(rune);
+    }
+
+    // The type of `rune` by its ASCII class or Unicode block: a binary search of ICU's blocks for
+    // anything but an ASCII digit or letter.
+    static CharType identifyCharTypeByBlock(int32_t rune);
 
     static void decodeStringToRunes(char* str, size_t length, TypedRuneArray& typed_runes,
                                     bool use_lowercase);
@@ -84,7 +100,31 @@ public:
 
     static void regularizeCharInfo(TypedRune& type_rune, bool use_lowercase);
 
-    static void regularizeString(std::string& input, bool use_lowercase = true);
+    // Folds U+3000 to a space and U+FF01 to U+FF5E to ASCII, and with `use_lowercase` lowercases
+    // ASCII capitals, in place; returns the new length, which is at most `length`. A lead byte
+    // from E0 to EF takes the next two bytes whatever they are, so E3 C0 80 folds to a space too.
+    static size_t regularizeInPlace(char* data, size_t length, bool use_lowercase);
+
+    // regularizeInPlace() of `input`.
+    static void regularizeString(std::string& input, bool use_lowercase = true) {
+        input.resize(regularizeInPlace(input.data(), input.size(), use_lowercase));
+    }
+
+private:
+    // identifyCharTypeByBlock() of every first-plane character, built in place on first use, so
+    // that its 64 KiB never land on a small stack.
+    struct BmpCharTypes {
+        static constexpr int32_t kSize = 0x10000;
+
+        BmpCharTypes();
+
+        static const BmpCharTypes& instance() {
+            static const BmpCharTypes kInstance;
+            return kInstance;
+        }
+
+        std::array<uint8_t, kSize> types;
+    };
 };
 
 } // namespace doris::segment_v2

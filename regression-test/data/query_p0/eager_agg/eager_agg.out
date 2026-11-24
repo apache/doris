@@ -5,12 +5,8 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
 --------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
-----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[store_sales(ss)]
-----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[web_sales(ws)]
+----------PhysicalOlapScan[store_sales(ss)]
+----------PhysicalOlapScan[web_sales(ws)]
 --------PhysicalOlapScan[date_dim(dt)]
 
 Hint log:
@@ -47,12 +43,8 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
 --------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
-----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[store_sales(ss)]
-----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[web_sales(ws)]
+----------PhysicalOlapScan[store_sales(ss)]
+----------PhysicalOlapScan[web_sales(ws)]
 --------PhysicalOlapScan[date_dim(dt)]
 
 Hint log:
@@ -131,12 +123,8 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
 --------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
-----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[store_sales(ss)]
-----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[web_sales(ws)]
+----------PhysicalOlapScan[store_sales(ss)]
+----------PhysicalOlapScan[web_sales(ws)]
 --------PhysicalOlapScan[date_dim(dt)]
 
 Hint log:

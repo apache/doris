@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <orc/Reader.hh>
@@ -37,6 +38,24 @@ namespace doris::format::orc {
 
 struct OrcReaderScanState;
 
+struct OrcStripeMetadata {
+    uint64_t offset = 0;
+    uint64_t length = 0;
+    uint64_t rows = 0;
+    uint64_t first_row = 0;
+};
+
+// ORC readers keep independent row/stripe execution state. Only the immutable parsed tail,
+// row prefixes, stripe layout and lazy stripe statistics cross physical children. Streams and
+// SARG appliers remain reader-local, so concurrent scanners never share an ORC RowReader.
+struct OrcSharedFileContext final : public FileContext {
+    std::string file_identity;
+    bool has_stable_identity = false;
+    std::shared_ptr<const ::orc::SharedFileTail> file_tail;
+    std::shared_ptr<::orc::SharedStripeStatistics> stripe_statistics;
+    std::vector<OrcStripeMetadata> stripes;
+};
+
 namespace detail {
 bool valid_statistics_bounds(const Field& min_value, const Field& max_value);
 } // namespace detail
@@ -49,12 +68,17 @@ public:
               std::unique_ptr<io::FileDescription>& file_description,
               std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
               std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
-              bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false);
+              bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
+              std::shared_ptr<const FileContext> file_context = nullptr,
+              int64_t format_split_id = -1, int64_t format_split_id_end = -1);
     ~OrcReader() override;
 
     static format::ColumnDefinition row_position_column_definition();
 
     Status init(RuntimeState* state) override;
+    void set_batch_size(size_t batch_size) override;
+    Status build_physical_splits(std::vector<PhysicalFileSplit>* splits,
+                                 bool* was_split) const override;
     Status get_schema(std::vector<format::ColumnDefinition>* const file_schema) const override;
     std::unique_ptr<format::TableColumnMapper> create_column_mapper(
             format::TableColumnMapperOptions options) const override;
@@ -63,6 +87,10 @@ public:
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
     Status get_aggregate_result(const format::FileAggregateRequest& request,
                                 format::FileAggregateResult* result) override;
+    Status get_metadata_aggregate_result(const format::FileAggregateRequest& request,
+                                         format::FileAggregateResult* result) override {
+        return get_aggregate_result(request, result);
+    }
     void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override;
     int64_t get_total_rows() const override;
     Status close() override;
@@ -74,6 +102,15 @@ public:
 private:
     struct OrcProfile {
         RuntimeProfile::Counter* row_readers_created = nullptr;
+        RuntimeProfile::Counter* dictionary_stripes_filtered = nullptr;
+        RuntimeProfile::Counter* dictionary_values_evaluated = nullptr;
+        RuntimeProfile::Counter* file_footer_read_calls = nullptr;
+        RuntimeProfile::Counter* file_footer_cache_hits = nullptr;
+        RuntimeProfile::Counter* stripe_statistics_parses = nullptr;
+        RuntimeProfile::Counter* stripe_statistics_evaluations = nullptr;
+        RuntimeProfile::Counter* file_tail_parses = nullptr;
+        RuntimeProfile::Counter* stripe_directory_entries = nullptr;
+        RuntimeProfile::Counter* row_reader_stripe_visits = nullptr;
         RuntimeProfile::Counter* total_time = nullptr;
         RuntimeProfile::Counter* reader_call = nullptr;                 // ReaderCall
         RuntimeProfile::Counter* reader_inclusive_latency_us = nullptr; // ReaderInclusiveLatencyUs
@@ -98,6 +135,7 @@ private:
     };
 
     class OrcFilterImpl;
+    class StringDictFilterImpl;
 
     void _init_profile() override;
     void _collect_profile() const;
@@ -127,6 +165,7 @@ private:
     // Collect stripes whose offset falls in the current split window, matching ORC
     // RowReader's own range inclusion test.
     Status _collect_split_stripes(std::vector<uint64_t>* stripe_indices) const;
+    Status _collect_selected_stripes(std::vector<uint64_t>* stripe_indices) const;
     // Seed row_reader_options with the split byte window so each split only reads its own
     // stripes. Skips the call for a whole-file window to keep ORC library defaults.
     void _apply_split_range();
@@ -135,9 +174,16 @@ private:
     Status _apply_current_stripe_range();
     Status _advance_to_next_stripe_range(bool* advanced);
     Status _create_row_reader();
+    size_t _read_batch_size() const;
 
+    Status _init_lazy_predicate_block();
     Status _filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
                              void* arg);
+
+    Status _materialize_dictionary_selection(const ::orc::StructVectorBatch& batch,
+                                             size_t physical_rows,
+                                             const std::vector<size_t>& candidates, Block* block,
+                                             size_t* rows);
 
     Status _decode_column(const ::orc::Type& file_type, const ::orc::Type& selected_type,
                           const ::orc::ColumnVectorBatch& batch, MutableColumnPtr& column,
@@ -180,11 +226,20 @@ private:
                                    size_t selected_rows) const;
 
     std::unique_ptr<OrcFilterImpl> _orc_filter;
+    std::unique_ptr<StringDictFilterImpl> _string_dict_filter;
     std::unique_ptr<OrcReaderScanState> _state;
     OrcProfile _orc_profile; // RuntimeProfile counters
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     bool _enable_mapping_timestamp_tz = false;
     bool _enable_mapping_varbinary = false;
+    size_t _batch_size = 0;
+    std::shared_ptr<const FileContext> _file_context;
+    int64_t _format_split_id = -1;
+    int64_t _format_split_id_end = -1;
+#ifdef BE_TEST
+    mutable size_t _stripe_ownership_visits = 0;
+    size_t _timestamp_stripe_visits = 0;
+#endif
 };
 
 } // namespace doris::format::orc

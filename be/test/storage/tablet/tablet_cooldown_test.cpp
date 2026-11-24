@@ -201,8 +201,8 @@ private:
 class TabletCooldownTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
-        s_fs.reset(
-                new RemoteFileSystemMock("", std::to_string(kResourceId), io::FileSystemType::S3));
+        s_fs.reset(new RemoteFileSystemMock("", std::to_string(kResourceId),
+                                            io::FileSystemType::OBJECT_STORAGE));
         StorageResource resource {s_fs};
         put_storage_resource(kResourceId, resource, 1);
         auto storage_policy = std::make_shared<StoragePolicy>();
@@ -242,6 +242,8 @@ public:
         engine_ref = nullptr;
         exec_env->set_storage_engine(nullptr);
         exec_env->set_memtable_memory_limiter(nullptr);
+        delete_storage_policy(kStoragePolicyId);
+        delete_storage_resource(kResourceId);
     }
 };
 

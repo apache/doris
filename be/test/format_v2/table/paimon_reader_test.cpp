@@ -29,6 +29,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -48,6 +49,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/field.h"
+#include "cpp/sync_point.h"
 #include "exec/common/endian.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
@@ -55,7 +57,7 @@
 #include "exprs/vslot_ref.h"
 #include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
-#include "format/table/paimon_reader.h"
+#include "format/table/paimon_deletion_vector.h"
 #include "format_v2/column_data.h"
 #include "format_v2/jni/paimon_jni_reader.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
@@ -66,6 +68,9 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/options.h"
+#include "testutil/scoped_temp_dir.h"
+#include "util/defer_op.h"
+#include "util/hash_util.hpp"
 #include "util/timezone_utils.h"
 
 namespace doris::format {
@@ -92,9 +97,15 @@ class RefreshTrackingTableReader final : public TableReader {
 public:
     Status prepare_split(const SplitReadOptions&) override { return Status::OK(); }
 
-    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override {
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts,
+                             std::optional<uint64_t> condition_cache_digest = std::nullopt,
+                             bool all_runtime_filters_applied = false,
+                             std::shared_ptr<const format::PredicateSnapshot> predicate_snapshot =
+                                     nullptr) override {
         ++refresh_count;
-        return TableReader::refresh_conjuncts(std::move(conjuncts));
+        return TableReader::refresh_conjuncts(std::move(conjuncts), condition_cache_digest,
+                                              all_runtime_filters_applied,
+                                              std::move(predicate_snapshot));
     }
 
     int refresh_count = 0;
@@ -264,6 +275,13 @@ std::vector<char> build_paimon_deletion_vector_buffer(
     rows.write(blob.data() + 8);
     return blob;
 }
+
+// Paimon 2.1.0 Bitmap64DeletionVector from the HMS reproduction, with row position 1 deleted.
+constexpr char PAIMON_BITMAP64_DV[] =
+        "\x00\x00\x00\x22\xd1\xd3\x39\x64\x01\x00\x00\x00\x00\x00\x00\x00"
+        "\x00\x00\x00\x00\x3a\x30\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00"
+        "\x10\x00\x00\x00\x01\x00\xee\xbd\x85\xf4";
+constexpr int64_t PAIMON_BITMAP64_DV_SIZE = sizeof(PAIMON_BITMAP64_DV) - 1;
 
 int64_t write_paimon_deletion_vector_file(const std::string& file_path,
                                           const std::vector<uint32_t>& deleted_positions) {
@@ -705,6 +723,65 @@ TEST(PaimonReaderTest, DecodeDeletionVectorBufferRejectsCorruptRoaringBitmap) {
                     .ok());
 }
 
+TEST(PaimonReaderTest, DecodeBitmap64DeletionVectorRejectsInvalidChecksum) {
+    std::string buffer(PAIMON_BITMAP64_DV, PAIMON_BITMAP64_DV_SIZE);
+    buffer.back() ^= 1;
+    DeletionVector deletion_vector;
+
+    auto status =
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector);
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("CRC32 mismatch"), std::string::npos);
+    EXPECT_TRUE(deletion_vector.isEmpty());
+}
+
+TEST(PaimonReaderTest, ReadsEachDeletionVectorFormatAtEofInOneRead) {
+    const doris::test::ScopedTempDirectory scoped_path("paimon_reader_test");
+    const auto path = scoped_path.path() / "doris_paimon_dv_single_read_test";
+    Defer cleanup([&] { std::filesystem::remove(path); });
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    const auto scan_params = make_local_parquet_scan_params();
+
+    size_t reads = 0;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "LocalFileReader::pread", [&](auto&&) { ++reads; }, &guard);
+    sync_point->enable_processing();
+    Defer stop_sync([&] { sync_point->disable_processing(); });
+
+    const auto bitmap32 = build_paimon_deletion_vector_buffer({1});
+    const struct {
+        std::string_view bytes;
+        int64_t descriptor_size;
+    } cases[] = {
+            {.bytes = {bitmap32.data(), bitmap32.size()},
+             .descriptor_size = static_cast<int64_t>(bitmap32.size()) - 4},
+            {.bytes = {PAIMON_BITMAP64_DV, PAIMON_BITMAP64_DV_SIZE},
+             .descriptor_size = PAIMON_BITMAP64_DV_SIZE},
+    };
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.descriptor_size);
+        {
+            std::ofstream output(path, std::ios::binary);
+            output.put(1); // Paimon index file version.
+            output.write(test_case.bytes.data(), test_case.bytes.size());
+            ASSERT_TRUE(output.good());
+        }
+        const DeleteFileDesc desc {
+                .path = path.string(), .start_offset = 1, .size = test_case.descriptor_size};
+        DeletionVectorReader reader(&state, nullptr, scan_params, desc, nullptr);
+        ASSERT_TRUE(reader.open().ok());
+
+        reads = 0;
+        std::vector<char> buffer;
+        const auto status = read_paimon_deletion_vector_buffer(reader, desc, buffer);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(reads, 1);
+        EXPECT_EQ(std::string_view(buffer.data(), buffer.size()), test_case.bytes);
+    }
+}
+
 // Scenario: PaimonReader must clear the previous split schema id before reading a new split. A
 // schema-evolved split must not force the following split without schema id to keep BY_FIELD_ID.
 TEST(PaimonReaderTest, ResetsSplitSchemaIdBeforePreparingNextSplit) {
@@ -753,8 +830,8 @@ TEST(PaimonReaderTest, NativeDataFilesAreMarkedImmutableForPageCache) {
 // NOLINTNEXTLINE(readability-function-cognitive-complexity): exercise one file across mapping and projection combinations.
 TEST(PaimonReaderTest, ReadsInt96HistorySemanticsThroughTableMapper) {
     TimezoneUtils::load_timezones_to_cache();
-    const auto path =
-            (std::filesystem::temp_directory_path() / "paimon_int96_history.parquet").string();
+    const doris::test::ScopedTempDirectory scoped_path("paimon_reader_test");
+    const auto path = (scoped_path.path() / "paimon_int96_history.parquet").string();
     const auto arrow_ts = arrow::timestamp(arrow::TimeUnit::MICRO);
     arrow::TimestampBuilder builder(arrow_ts, arrow::default_memory_pool());
     ASSERT_TRUE(builder.Append(0).ok());
@@ -935,11 +1012,32 @@ TEST(PaimonReaderTest, ReadsInt96HistorySemanticsThroughTableMapper) {
     std::filesystem::remove(path);
 }
 
-// Scenario: Paimon reader should parse its bitmap deletion vector and let TableReader apply the
-// generated row-position delete predicate before returning table rows.
-TEST(PaimonReaderTest, AppliesBitmapDeletionVectorFile) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_paimon_deletion_vector_file_test";
+void check_paimon_split_ids(paimon::PaimonReader& reader, const SplitReadOptions& split_options,
+                            const std::vector<ColumnDefinition>& projected_columns,
+                            const std::vector<int32_t>& expected) {
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    std::vector<int32_t> ids;
+    bool eos = false;
+    while (!eos) {
+        Block block = build_table_block(projected_columns);
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (block.rows() == 0) {
+            continue;
+        }
+        const auto& id_column =
+                assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+        for (size_t row = 0; row < block.rows(); ++row) {
+            ids.push_back(id_column.get_element(row));
+        }
+    }
+    EXPECT_EQ(ids, expected);
+}
+
+// Paimon can write both bitmap versions into the same index file. The last entry ends at EOF.
+TEST(PaimonReaderTest, AppliesMixedBitmapDeletionVectorFile) {
+    const doris::test::ScopedTempDirectory scoped_test_dir("paimon_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_paimon_deletion_vector_file_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -947,7 +1045,90 @@ TEST(PaimonReaderTest, AppliesBitmapDeletionVectorFile) {
     const auto dv_path = (test_dir / "delete-vector.bin").string();
     write_int_pair_parquet_file(file_path, {1, 2, 3, 4, 5}, {10, 20, 30, 40, 50},
                                 {"one", "two", "three", "four", "five"});
-    const auto dv_length = write_paimon_deletion_vector_file(dv_path, {0, 4});
+    const auto bitmap32 = build_paimon_deletion_vector_buffer({0, 4});
+    const auto bitmap32_length = static_cast<uint32_t>(bitmap32.size() - 4);
+    const uint32_t bitmap32_crc = HashUtil::zlib_crc_hash(bitmap32.data() + 4, bitmap32_length, 0);
+    char crc_bytes[4];
+    BigEndian::Store32(crc_bytes, bitmap32_crc);
+    {
+        std::ofstream output(dv_path, std::ios::binary);
+        output.put(1); // Paimon index file version.
+        output.write(bitmap32.data(), static_cast<std::streamsize>(bitmap32.size()));
+        output.write(crc_bytes, sizeof(crc_bytes));
+        output.write(PAIMON_BITMAP64_DV, PAIMON_BITMAP64_DV_SIZE);
+        output.write(PAIMON_BITMAP64_DV, PAIMON_BITMAP64_DV_SIZE);
+        ASSERT_TRUE(output.good());
+    }
+    const int64_t bitmap64_offset = 1 + bitmap32.size() + sizeof(crc_bytes);
+    const int64_t bitmap64_eof_offset = bitmap64_offset + PAIMON_BITMAP64_DV_SIZE;
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    paimon::PaimonReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    const struct {
+        int64_t offset;
+        int64_t length;
+        std::vector<int32_t> expected;
+    } cases[] = {
+            {.offset = 1, .length = bitmap32_length, .expected = {2, 3, 4}},
+            {.offset = bitmap64_offset,
+             .length = PAIMON_BITMAP64_DV_SIZE,
+             .expected = {1, 3, 4, 5}},
+            {.offset = bitmap64_eof_offset,
+             .length = PAIMON_BITMAP64_DV_SIZE,
+             .expected = {1, 3, 4, 5}},
+            // Repeat the first split through the decoded cache.
+            {.offset = 1, .length = bitmap32_length, .expected = {2, 3, 4}},
+    };
+    for (const auto& test_case : cases) {
+        split_options.current_range.__set_table_format_params(
+                make_paimon_table_format_desc(dv_path, test_case.offset, test_case.length));
+        ASSERT_NO_FATAL_FAILURE(check_paimon_split_ids(reader, split_options, projected_columns,
+                                                       test_case.expected));
+    }
+
+    split_options.current_range.__set_table_format_params(make_paimon_table_format_desc(
+            dv_path, bitmap64_eof_offset, PAIMON_BITMAP64_DV_SIZE - 1));
+    const auto status = reader.prepare_split(split_options);
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("descriptor length mismatch"), std::string::npos);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+// A missing deletion vector must not report NOT_FOUND: FileScannerV2 would take it for a missing data
+// file and skip the whole split, surviving rows included.
+TEST(PaimonReaderTest, MissingDeletionVectorFileFailsSplit) {
+    const doris::test::ScopedTempDirectory scoped_test_dir("paimon_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_paimon_missing_deletion_vector_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto dv_path = (test_dir / "missing-delete-vector.bin").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
 
     std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
@@ -974,25 +1155,62 @@ TEST(PaimonReaderTest, AppliesBitmapDeletionVectorFile) {
     auto split_options = build_split_options(file_path);
     split_options.cache = &cache;
     split_options.current_range.__set_table_format_params(
+            make_paimon_table_format_desc(dv_path, 0, 16));
+    const auto status = reader.prepare_split(split_options);
+
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find(dv_path), std::string::npos) << status;
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+// Only the deletion vector is snapshot metadata here: a missing data file still reports NOT_FOUND,
+// which FileScannerV2 skips under ignore_not_found_file_in_external_table.
+TEST(PaimonReaderTest, MissingDataFileWithDeletionVectorStillReportsNotFound) {
+    const doris::test::ScopedTempDirectory scoped_test_dir("paimon_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_paimon_missing_data_file_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "missing-split.parquet").string();
+    const auto dv_path = (test_dir / "delete-vector.bin").string();
+    const auto dv_length = write_paimon_deletion_vector_file(dv_path, {0});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    paimon::PaimonReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path(file_path);
+    split_options.current_range.__set_file_size(1024);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
             make_paimon_table_format_desc(dv_path, 0, dv_length));
     ASSERT_TRUE(reader.prepare_split(split_options).ok());
 
-    std::vector<int32_t> ids;
+    Block block = build_table_block(projected_columns);
     bool eos = false;
-    while (!eos) {
-        Block block = build_table_block(projected_columns);
-        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
-        if (block.rows() == 0) {
-            continue;
-        }
-        const auto& id_column =
-                assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
-        for (size_t row = 0; row < block.rows(); ++row) {
-            ids.push_back(id_column.get_element(row));
-        }
-    }
-    EXPECT_EQ(ids, std::vector<int32_t>({2, 3, 4}));
+    const auto status = reader.get_block(&block, &eos);
 
+    EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>()) << status;
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
 }
@@ -1130,13 +1348,17 @@ TEST(PaimonHybridReaderTest, ForwardsLatePredicatesToActiveChild) {
     split.current_range = make_paimon_native_range(TFileFormatType::FORMAT_PARQUET);
     ASSERT_TRUE(reader.prepare_split(split).ok());
     ASSERT_NE(child, nullptr);
-    ASSERT_TRUE(reader.refresh_conjuncts({}).ok());
+    const auto snapshot = reader._predicate_snapshot;
+    ASSERT_NE(snapshot, nullptr);
+    EXPECT_EQ(child->_predicate_snapshot, snapshot);
+    ASSERT_TRUE(reader.refresh_conjuncts({}, std::nullopt, false, snapshot).ok());
+    EXPECT_EQ(child->_predicate_snapshot, snapshot);
     EXPECT_EQ(child->refresh_count, 1);
 }
 
 TEST(PaimonHybridReaderTest, NativeCountColumnReportsMetadataRowsThroughHybridReader) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_paimon_hybrid_count_column_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("paimon_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_paimon_hybrid_count_column_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto file_path = (test_dir / "data-file.parquet").string();

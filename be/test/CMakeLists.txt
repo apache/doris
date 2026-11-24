@@ -84,6 +84,8 @@ endif()
 
 if (OS_MACOSX)
     list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/util/system_metrics_test.cpp)
+else ()
+    list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/util/perf_counters_mac_test.cpp)
 endif()
 
 list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark_tool.cpp)
@@ -139,11 +141,20 @@ if (TARGET phdr_cache_test_dso)
     add_dependencies(doris_be_test phdr_cache_test_dso)
 endif()
 
+# The headers of clucene-contribs-lib, which TEST_LINK_LIBS links for the jieba live differential
+# alone: the main library's include path leaves them out, so no be/src source can use them.
+target_include_directories(doris_be_test PRIVATE ${CONTRIB_PATH}/clucene/src/contribs-lib)
+
 # run-be-ut.sh resets DORIS_HOME to the test binary dir before launching the
 # tests, so the real-IPADIC dictionary test can't find the repo dictionary via
 # DORIS_HOME.
 target_compile_definitions(doris_be_test PRIVATE
     KUROMOJI_SOURCE_DICT_DIR="${BASE_DIR}/dict/kuromoji")
+
+# The unit-test runner sets DORIS_HOME to the build directory, outside the source corpus.
+set_property(SOURCE storage/index/inverted/snii/snii_golden_corpus_test.cpp APPEND PROPERTY
+    COMPILE_DEFINITIONS
+    SNII_GOLDEN_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/storage/index/inverted/snii/testdata/compatibility_corpus")
 
 # -force_load takes a file path rather than a target, so unlike --whole-archive <target> below it
 # propagates no usage requirements. Link ann_index explicitly: it exports the faiss include

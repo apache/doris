@@ -28,6 +28,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "core/arena.h"
@@ -214,6 +215,49 @@ std::unique_ptr<arrow::StructBuilder> binary_variant_arrow_builder() {
             std::vector<std::shared_ptr<arrow::ArrayBuilder>> {
                     std::make_shared<arrow::BinaryBuilder>(arrow::default_memory_pool()),
                     std::make_shared<arrow::BinaryBuilder>(arrow::default_memory_pool())});
+}
+
+// The struct<metadata, value> storage that Iceberg writes into Parquet.
+std::unique_ptr<arrow::StructBuilder> parquet_variant_arrow_builder() {
+    return std::make_unique<arrow::StructBuilder>(
+            arrow::struct_({arrow::field("metadata", arrow::binary(), false),
+                            arrow::field("value", arrow::binary(), false)}),
+            arrow::default_memory_pool(),
+            std::vector<std::shared_ptr<arrow::ArrayBuilder>> {
+                    std::make_shared<arrow::BinaryBuilder>(arrow::default_memory_pool()),
+                    std::make_shared<arrow::BinaryBuilder>(arrow::default_memory_pool())});
+}
+
+// The Variant rows that the Iceberg and the Paimon writer produce for `column`, as they write them.
+std::vector<std::vector<std::pair<std::string, std::string>>> table_variant_rows(
+        const IColumn& column) {
+    DataTypeVariantV2SerDe serde;
+    auto iceberg = parquet_variant_arrow_builder();
+    Status status =
+            serde.write_column_to_iceberg_arrow(nullptr, column, nullptr, nullptr, iceberg.get(), 0,
+                                                column.size(), cctz::utc_time_zone());
+    EXPECT_TRUE(status.ok()) << status;
+    auto paimon = binary_variant_arrow_builder();
+    status = serde.write_column_to_paimon_arrow(nullptr, column, nullptr, nullptr, paimon.get(), 0,
+                                                column.size(), cctz::utc_time_zone());
+    EXPECT_TRUE(status.ok()) << status;
+
+    std::vector<std::vector<std::pair<std::string, std::string>>> writers;
+    const std::array<std::pair<arrow::StructBuilder*, int>, 2> builders {
+            {{iceberg.get(), 0}, {paimon.get(), 1}}};
+    for (const auto& [builder, metadata_field] : builders) {
+        std::shared_ptr<arrow::Array> output;
+        EXPECT_TRUE(builder->Finish(&output).ok());
+        const auto& array = assert_cast<const arrow::StructArray&>(*output);
+        const auto& metadata = assert_cast<const arrow::BinaryArray&>(*array.field(metadata_field));
+        const auto& values =
+                assert_cast<const arrow::BinaryArray&>(*array.field(1 - metadata_field));
+        auto& rows = writers.emplace_back();
+        for (int64_t row = 0; row < array.length(); ++row) {
+            rows.emplace_back(std::string(metadata.GetView(row)), std::string(values.GetView(row)));
+        }
+    }
+    return writers;
 }
 
 void expect_binary_variant_bytes(const DataTypeVariantV2SerDe& serde, const IColumn& column,
@@ -507,6 +551,71 @@ TEST(DataTypeVariantV2SerdeOutputTest, PaimonKeepsItsOwnBinaryLayout) {
     const auto& binary = assert_cast<const arrow::BinaryArray&>(*storage.field(0));
     auto expected = values->get_value_ref(0).value;
     EXPECT_EQ(binary.GetView(0), std::string_view(expected.data, expected.size));
+}
+
+TEST(DataTypeVariantV2SerdeOutputTest, TableWritersGiveRowsTheirOwnKeysInsteadOfALargeDictionary) {
+    // parse_json() encodes a batch with one dictionary of all its keys: 256 rows with a distinct
+    // 200-byte key share a 52 KiB dictionary. Copied into every row it would cost 13 MiB for 2 KiB of
+    // values, and 4064 such rows overflow an Arrow binary array, so the Iceberg and the Paimon writer
+    // give each row a dictionary of its own key; the row still decodes to its key and value. Row 0
+    // holds a 64 KiB string, which the shared dictionary does not exceed by more than 1 KiB, so it
+    // keeps that dictionary. MUTATION: keeping every shared dictionary, or giving row 0 its own key
+    // -> red.
+    constexpr size_t ROWS = 256;
+    JsonStringToVariantEncoder encoder(
+            {.max_json_key_length = 1024, .throw_on_invalid_json = true});
+    std::vector<std::string> keys;
+    for (size_t row = 0; row < ROWS; ++row) {
+        keys.push_back("k" + std::to_string(row) + std::string(200, 'x'));
+        const std::string value =
+                row == 0 ? "\"" + std::string(64 * 1024, 'v') + "\"" : std::to_string(row);
+        const std::string document = "{\"" + keys.back() + "\":" + value + "}";
+        encoder.add_json({document.data(), document.size()});
+    }
+    VariantBatchBuilder batch = encoder.finish_batch();
+    auto column = ColumnVariantV2::create();
+    column->insert_encoded_batch(batch);
+    const VariantRef shared = column->get_value_ref(1);
+    ASSERT_EQ(shared.metadata.dict_size(), ROWS);
+
+    for (const auto& rows : table_variant_rows(*column)) {
+        ASSERT_EQ(rows.size(), ROWS);
+        EXPECT_EQ(rows[0].first, std::string_view(shared.metadata.data, shared.metadata.size));
+        for (size_t row = 0; row < ROWS; ++row) {
+            const VariantRef value {
+                    .metadata = {.data = rows[row].first.data(), .size = rows[row].first.size()},
+                    .value = {rows[row].second.data(), rows[row].second.size()}};
+            if (row != 0) {
+                EXPECT_EQ(value.metadata.dict_size(), 1U) << row;
+            }
+            ASSERT_EQ(value.basic_type(), VariantBasicType::OBJECT) << row;
+            ASSERT_EQ(value.num_elements(), 1U) << row;
+            uint32_t field_id = 0;
+            const VariantRef child = value.object_view().value_at(0, &field_id);
+            EXPECT_EQ(value.metadata.key_at(field_id).to_string(), keys[row]);
+            if (row == 0) {
+                EXPECT_EQ(child.get_string().size, size_t {64 * 1024});
+            } else {
+                EXPECT_EQ(child.get_int(), static_cast<int64_t>(row));
+            }
+        }
+    }
+}
+
+TEST(DataTypeVariantV2SerdeOutputTest, TableWritersKeepASmallSharedDictionary) {
+    // A dictionary that exceeds a row's value by at most 1 KiB is written as the batch shares it:
+    // Parquet dictionary-encodes the metadata the rows then have in common, and the row is not
+    // re-encoded. MUTATION: giving every row its own keys, as Flight does -> red.
+    auto column = encoded_json({R"({"a":1})", R"({"b":[true,"x"]})", R"({"a":{"b":2}})"});
+    for (const auto& rows : table_variant_rows(*column)) {
+        ASSERT_EQ(rows.size(), column->size());
+        for (size_t row = 0; row < column->size(); ++row) {
+            const VariantRef expected = column->get_value_ref(row);
+            EXPECT_EQ(rows[row].first,
+                      std::string_view(expected.metadata.data, expected.metadata.size));
+            EXPECT_EQ(rows[row].second, std::string_view(expected.value.data, expected.value.size));
+        }
+    }
 }
 
 TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructRejectsUnsupportedPrimitive) {

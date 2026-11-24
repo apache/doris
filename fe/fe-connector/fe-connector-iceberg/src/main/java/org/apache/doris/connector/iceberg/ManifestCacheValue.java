@@ -20,32 +20,51 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimator;
 
+import com.google.common.collect.Lists;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.PartitionData;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.types.Types;
 
 import java.util.Collections;
 import java.util.List;
 
 /**
- * Cached manifest payload containing the parsed files of one iceberg manifest.
+ * Immutable parsed files of one Iceberg manifest, optionally retained in the manifest cache.
  *
  * <p>Ported verbatim from the legacy fe-core {@code org.apache.doris.datasource.iceberg.cache.ManifestCacheValue}
- * (references only iceberg-SDK types, so no fe-core dependency). A DATA manifest yields data files; a DELETES
+ * (references only iceberg-SDK types, so no fe-core dependency). Parsed partition types reflect the schema used
+ * by the first loader; scans must use {@link #forScan} before interpreting partition values.
+ * A DATA manifest yields data files; a DELETES
  * manifest yields delete files (T08, mirrors {@link IcebergManifestCache}).
  */
 public class ManifestCacheValue {
     private final List<DataFile> dataFiles;
     private final List<DeleteFile> deleteFiles;
     private final MetaCacheSizeEstimate sizeEstimate;
+    private final boolean cacheable;
 
     private ManifestCacheValue(List<DataFile> dataFiles, List<DeleteFile> deleteFiles, boolean estimateWeight) {
         this.dataFiles = dataFiles == null ? Collections.emptyList() : dataFiles;
         this.deleteFiles = deleteFiles == null ? Collections.emptyList() : deleteFiles;
+        // SDK file-key metadata contains the plaintext key, even when the enclosing manifest is plaintext.
+        this.cacheable = this.dataFiles.stream().noneMatch(file -> file.keyMetadata() != null)
+                && this.deleteFiles.stream().noneMatch(file -> file.keyMetadata() != null);
         this.sizeEstimate = estimateWeight
                 ? MetaCacheSizeEstimator.estimateSafely("iceberg_manifest_estimator_failure",
                         () -> MetaCacheSizeEstimate.complete(
                                 IcebergCacheSizeEstimator.estimateManifestValue(this)))
                 : MetaCacheSizeEstimate.complete(0L);
+    }
+
+    private ManifestCacheValue(ManifestCacheValue source, IcebergPartitionValueAdapter adapter) {
+        dataFiles = Lists.transform(source.dataFiles, adapter::adapt);
+        deleteFiles = Lists.transform(source.deleteFiles, adapter::adapt);
+        // Partition views preserve key metadata. Reclassifying them would eagerly adapt the entire
+        // manifest before a streaming scan can consume even its first file.
+        cacheable = source.cacheable;
+        sizeEstimate = MetaCacheSizeEstimate.complete(0L);
     }
 
     public static ManifestCacheValue forDataFiles(List<DataFile> dataFiles) {
@@ -64,6 +83,21 @@ public class ManifestCacheValue {
         return new ManifestCacheValue(Collections.emptyList(), deleteFiles, estimateWeight);
     }
 
+    /** Adapt lazily at the cache/scan boundary, before predicates or delete matching inspect partitions. */
+    ManifestCacheValue forScan(PartitionSpec spec) {
+        if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
+            return this;
+        }
+        PartitionData partition = (PartitionData) (dataFiles.isEmpty()
+                ? deleteFiles.get(0).partition() : dataFiles.get(0).partition());
+        Types.StructType target = spec.rawPartitionType();
+        if (partition.getPartitionType().equals(target)) {
+            return this;
+        }
+        IcebergPartitionValueAdapter adapter = new IcebergPartitionValueAdapter(partition.getPartitionType(), target);
+        return new ManifestCacheValue(this, adapter);
+    }
+
     public List<DataFile> getDataFiles() {
         return dataFiles;
     }
@@ -74,5 +108,9 @@ public class ManifestCacheValue {
 
     MetaCacheSizeEstimate getSizeEstimate() {
         return sizeEstimate;
+    }
+
+    boolean isCacheable() {
+        return cacheable;
     }
 }

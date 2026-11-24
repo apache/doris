@@ -36,6 +36,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CorrWelford;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
@@ -56,9 +58,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Kurt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Median;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MinTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
@@ -186,6 +190,14 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitCount(Count count, C context) {
         return visitAggregateFunction(count, context);
+    }
+
+    default R visitCountAtMin(CountAtMin countAtMin, C context) {
+        return visitAggregateFunction(countAtMin, context);
+    }
+
+    default R visitCountAtMax(CountAtMax countAtMax, C context) {
+        return visitAggregateFunction(countAtMax, context);
     }
 
     default R visitCountByEnum(CountByEnum count, C context) {
@@ -410,6 +422,14 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitSum0(Sum0 sum0, C context) {
         return visitAggregateFunction(sum0, context);
+    }
+
+    default R visitMaxTopK(MaxTopK maxTopK, C context) {
+        return visitAggregateFunction(maxTopK, context);
+    }
+
+    default R visitMinTopK(MinTopK minTopK, C context) {
+        return visitAggregateFunction(minTopK, context);
     }
 
     default R visitTopN(TopN topN, C context) {

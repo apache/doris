@@ -92,6 +92,11 @@ public class DropColumnOp extends AlterTableOp {
                 .getTableOrDdlException(tableName.getTbl());
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
+            if (olapTable.hasRowTtl()
+                    && (colName.equalsIgnoreCase(olapTable.getRowTtlCol())
+                    || colName.equalsIgnoreCase(Column.TTL_COL))) {
+                throw new AnalysisException("Can not drop a row ttl source or hidden column");
+            }
             if (!Strings.isNullOrEmpty(rollupName)) {
                 Long indexId = olapTable.getIndexIdByName(rollupName);
                 if (indexId != null) {
@@ -187,8 +192,8 @@ public class DropColumnOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Drop column is considered safe for row binlog tables after whitelist
+    public boolean allowOnChangelogTable() {
+        // Drop column is considered safe for changelog tables after whitelist
         // check in schema change job.
         return true;
     }

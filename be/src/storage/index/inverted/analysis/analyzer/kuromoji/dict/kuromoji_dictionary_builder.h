@@ -53,7 +53,7 @@ struct MatrixInput {
 
 // Character definitions: each BMP code point -> category ordinal; per-category flags.
 struct CharDefInput {
-    std::array<uint8_t, 0x10000> catmap {};
+    std::array<CharCategory, 0x10000> catmap {};
     std::vector<CategoryDef> defs; // indexed by category ordinal
 };
 

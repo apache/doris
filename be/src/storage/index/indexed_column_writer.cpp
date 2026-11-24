@@ -84,15 +84,14 @@ Status IndexedColumnWriter::init() {
     return Status::OK();
 }
 
-Status IndexedColumnWriter::add(const void* value) {
+Status IndexedColumnWriter::add(const uint8_t* value) {
     if (_options.write_value_index && _data_page_builder->count() == 0) {
         // remember page's first value encoded key because it's used to build value index
         _first_value_string.clear();
         _value_key_coder->full_encode_ascending(value, &_first_value_string);
     }
     size_t num_to_write = 1;
-    RETURN_IF_ERROR(
-            _data_page_builder->add(reinterpret_cast<const uint8_t*>(value), &num_to_write));
+    RETURN_IF_ERROR(_data_page_builder->add(value, &num_to_write));
     CHECK(num_to_write == 1 || num_to_write == 0);
     if (num_to_write == 0) {
         CHECK(_data_page_builder->is_page_full());

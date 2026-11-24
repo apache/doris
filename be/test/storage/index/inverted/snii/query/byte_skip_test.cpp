@@ -44,6 +44,7 @@
 #include "storage/index/inverted/snii/stats/snii_stats_provider.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 
 // Checks term and phrase results against an independent oracle.
 // Document-only queries skip frequency bytes; scored queries read them and verify top-k results.
@@ -58,9 +59,10 @@ using doris::snii::stats::SniiStatsProvider;
 namespace {
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("byte_skip_test");
     static int counter = 0;
-    return "/tmp/snii_byte_skip_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
-           ".idx";
+    return (temp_dir.path() / "snii_byte_skip_").string() + std::to_string(getpid()) + "_" +
+           std::to_string(counter++) + ".idx";
 }
 
 constexpr uint32_t kDocCount = 4000;
@@ -214,9 +216,7 @@ void WriteCorpus(const Corpus& c, const std::string& path) {
     ASSERT_TRUE(cw.finish().ok());
 }
 
-// Grouped-block byte totals of a windowed term (design 1.6): docs = dd-block
-// length (sum of per-window dd_disk_len). Also returns prelude_len and window
-// count.
+// Sum dd-block lengths across windows and return the prelude length and window count.
 struct FrqByteTotals {
     uint64_t docs = 0; // dd-block on-disk bytes (the contiguous docs-only run)
     uint64_t prelude_len = 0;

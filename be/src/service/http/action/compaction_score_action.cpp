@@ -123,7 +123,7 @@ struct CloudCompactionScoresAccessor final : CompactionScoresAccessor {
         tablets.reserve(weak_tablets.size());
         for (auto& weak_tablet : weak_tablets) {
             if (auto tablet = weak_tablet.lock();
-                tablet != nullptr and tablet->tablet_state() == TABLET_RUNNING) {
+                tablet != nullptr and tablet->tablet_state() == TabletState::TABLET_RUNNING) {
                 tablets.push_back(std::move(tablet));
             }
         }

@@ -131,6 +131,7 @@ kafka_port=19193
 iceberg_rest_uri_port=18181
 iceberg_scan_planning_rest_uri_port=18182
 iceberg_minio_port=19001
+lance_rest_port=19102
 iceberg_rest_uri_port_s3=19181
 iceberg_rest_uri_port_oss=19182
 iceberg_rest_uri_port_cos=19183
@@ -165,3 +166,44 @@ externalEnvIp="127.0.0.1"
 
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
+
+// Temporary exclusions for CI using the unmodified framework with rootless containers and STS.
+// CI exclusions describe environment prerequisites only. Product assertions,
+// timeouts and historical failures of removed adapters must execute normally.
+if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
+    // Suite-name filtering also selects same-named export_p0 outfile suites.
+    excludeSuites += "," + [
+        // Requires the shared parent-database fixture; restore when that initializer runs in this lane.
+        "test_nested_types_insert_into_with_s3",
+        // Requires the shared parent-database fixture; restore when that initializer runs in this lane.
+        "test_nestedtypes_csv_insert_into_with_s3",
+        // Requires the shared parent-database fixture; restore when that initializer runs in this lane.
+        "test_nestedtypes_json_insert_into_with_s3",
+        // Requires root SSH/SCP or remote filesystem access; restore with the rootless filesystem contract.
+        "test_export_view",
+        // Requires sudo/Docker fixtures; restore after the original suite supports rootless CI.
+        "test_single_hive_kerberos",
+        // Requires sudo/Docker fixtures; restore after the original suite supports rootless CI.
+        "test_two_hive_kerberos",
+        // Requires root SSH/SCP or remote filesystem access; restore with the rootless filesystem contract.
+        "test_parquet_meta_tvf",
+        // Requires a mysqldump client with compatible column-statistics options; restore after the client probe passes.
+        "test_mysqldump",
+        // Requires root SSH/SCP or remote filesystem access; restore with the rootless filesystem contract.
+        "test_outfile",
+        // Requires root SSH/SCP or remote filesystem access; restore with the rootless filesystem contract.
+        "test_outfile_expr",
+        // Requires root SSH/SCP or remote filesystem access; restore with the rootless filesystem contract.
+        "test_outfile_parquet",
+        // Requires root SSH/SCP or remote filesystem access; restore with the rootless filesystem contract.
+        "test_install_plugin_command",
+        // Requires regressionAliyunStsRegion, regressionAliyunStsRoleArn and AssumeRole access; restore once supplied.
+        "test_s3_load_with_tmp_token"
+    ].join(",")
+    // Preserve the Hong Kong regression fixtures and their public HTTPS endpoint.
+    s3BucketName = "doris-regression-hk"
+    s3Endpoint = "oss-cn-hongkong.aliyuncs.com"
+    s3Region = "oss-cn-hongkong"
+    // OSS requires its hostname addressing; CI must not silently replace the S3 provider.
+    s3Provider = "OSS"
+}

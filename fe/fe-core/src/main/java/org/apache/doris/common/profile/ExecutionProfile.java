@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -58,6 +59,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class ExecutionProfile {
     private static final Logger LOG = LogManager.getLogger(ExecutionProfile.class);
+
+    private static final String FRAGMENT_LEVEL_PROFILE_PREFIX = "FragmentLevelProfile:";
 
     private final TUniqueId queryId;
     private long queryFinishTime = 0L;
@@ -188,6 +191,34 @@ public class ExecutionProfile {
         }
     }
 
+    // Fragment-level profiles are cumulative snapshots, replaced by backend address on each report.
+    // Sum only their root counters: traversing pipeline tasks would multiply the same AI work.
+    void addAIFunctionSummaryCounters(RuntimeProfile summary) {
+        multiBeProfileLock.readLock().lock();
+        try {
+            for (RuntimeProfile fragment : fragmentProfiles.values()) {
+                for (RuntimeProfile backend : fragment.getChildMap().values()) {
+                    if (!backend.getName().startsWith(FRAGMENT_LEVEL_PROFILE_PREFIX)) {
+                        continue;
+                    }
+                    for (Entry<String, Counter> entry : backend.getCounterMap().entrySet()) {
+                        if (entry.getKey().startsWith("AIFunction")) {
+                            Counter source = entry.getValue();
+                            Counter total = summary.addCounter(entry.getKey(), source.getType(),
+                                    RuntimeProfile.ROOT_COUNTER);
+                            Preconditions.checkState(total.getType() == source.getType(),
+                                    "Inconsistent units for AI counter %s", entry.getKey());
+                            total.setLevel(source.getLevel());
+                            total.addValue(source);
+                        }
+                    }
+                }
+            }
+        } finally {
+            multiBeProfileLock.readLock().unlock();
+        }
+    }
+
     private boolean areAllBackendProfilesDone(int fragmentId, int expectedBackendNum) {
         if (expectedBackendNum == 0) {
             return false;
@@ -286,7 +317,7 @@ public class ExecutionProfile {
                 boolean isFragmentLevel = (pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level);
                 if (isFragmentLevel) {
                     // Fragment Level profile is also represented by TDetailedReportParams.
-                    name = "FragmentLevelProfile:" + suffix;
+                    name = FRAGMENT_LEVEL_PROFILE_PREFIX + suffix;
                 } else {
                     name = "Pipeline " + pipelineIdx + suffix;
                     pipelineIdx++;

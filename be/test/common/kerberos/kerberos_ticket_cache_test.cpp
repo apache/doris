@@ -26,6 +26,8 @@
 #include <memory>
 #include <thread>
 
+#include "testutil/scoped_temp_dir.h"
+
 namespace doris::kerberos {
 
 using testing::_;
@@ -66,12 +68,14 @@ public:
 
 class KerberosTicketCacheTest : public testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"kerberos_ticket_cache_test"};
+
     void SetUp() override {
         _mock_krb5 = std::make_unique<testing::StrictMock<MockKrb5Interface>>();
         _mock_krb5_ptr = _mock_krb5.get();
 
         // Create a temporary directory for testing
-        _test_dir = std::filesystem::temp_directory_path() / "kerberos_test";
+        _test_dir = scoped_temp_dir_.path() / "kerberos_test";
         std::filesystem::create_directories(_test_dir);
 
         _config.set_principal_and_keytab("test_principal", "/path/to/keytab");

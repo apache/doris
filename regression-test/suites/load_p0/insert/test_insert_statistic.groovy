@@ -109,6 +109,38 @@ suite("test_insert_statistic", "p0") {
     def cancelledJob = result.find { it[2] == "CANCELLED" }
     assertNotNull(cancelledJob, "Expected a CANCELLED load job for failed insert")
 
+    // insert into select whose source is planned as an empty set → job should be FINISHED, not left PENDING
+    sql """ DROP TABLE IF EXISTS ${insert_tbl}_empty_src"""
+    sql """
+     CREATE TABLE ${insert_tbl}_empty_src (
+       `k1` varchar(16) NOT NULL,
+       `k2` int NULL
+     ) ENGINE=OLAP
+     DUPLICATE KEY(`k1`)
+     AUTO PARTITION BY LIST (`k1`) ()
+     DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+     PROPERTIES ("replication_num"="1");
+    """
+    sql """ INSERT INTO ${insert_tbl}_empty_src VALUES ('a', 1) """
+    explain {
+        sql """ SELECT * FROM ${insert_tbl}_empty_src WHERE k1 = 'b' """
+        contains "VEMPTYSET"
+    }
+    def emptyLabels = []
+    ["k1 = 'b'", "1 = 0"].each { predicate ->
+        def emptyLabel = "label_insert_empty_select_" + emptyLabels.size() + "_" + System.currentTimeMillis()
+        sql """ INSERT INTO ${insert_tbl}_2 WITH LABEL ${emptyLabel}
+                SELECT k2, k2, k2, k2 FROM ${insert_tbl}_empty_src WHERE ${predicate} """
+        emptyLabels.add(emptyLabel)
+    }
+    emptyLabels.each { emptyLabel ->
+        result = sql "SHOW LOAD FROM ${dbName} WHERE LABEL = '${emptyLabel}'"
+        assertEquals(1, result.size())
+        assertEquals("FINISHED", result[0][2])
+    }
+    result = sql "SHOW LOAD FROM ${dbName}"
+    assertNull(result.find { it[2] == "PENDING" }, "No insert load job should be left PENDING")
+
     // insert into s3 tvf
     String ak = getS3AK()
     String sk = getS3SK()

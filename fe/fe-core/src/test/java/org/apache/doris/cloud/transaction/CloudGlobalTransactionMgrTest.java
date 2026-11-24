@@ -17,20 +17,29 @@
 
 package org.apache.doris.cloud.transaction;
 
-import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.ChangelogConfig;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudFEVersionSynchronizer;
@@ -53,10 +62,13 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
+import org.apache.doris.load.DeleteJob;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -69,11 +81,13 @@ import org.apache.doris.thrift.TCloudVersionInfo;
 import org.apache.doris.thrift.TFrontendSyncCloudVersionRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionCommitFailedException;
+import org.apache.doris.transaction.TransactionNotFoundException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnStateChangeCallback;
@@ -87,6 +101,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
@@ -288,11 +303,11 @@ public class CloudGlobalTransactionMgrTest {
             "normal,TXN_STATUS_COMMITTED,12345,success", "normal,TXN_STATUS_VISIBLE,-1,success",
             "normal,TXN_STATUS_VISIBLE,,success",
             "subtxn,TXN_STATUS_VISIBLE,12345,success", "2pc,TXN_STATUS_VISIBLE,12345,2pc_error"})
-    public void testDisabledRowBinlogCommitRetry(String mode, String status, Long persistedTso, String outcome)
+    public void testDisabledChangelogCommitRetry(String mode, String status, Long persistedTso, String outcome)
             throws Exception {
         long expectedTso = persistedTso == null ? -1 : persistedTso;
         boolean streamingJob = mode.equals("streaming");
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
         OlapTable plainTable = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
         OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId2);
@@ -301,7 +316,6 @@ public class CloudGlobalTransactionMgrTest {
             table.addPartition(new CloudPartition(partition.getId(), partition.getName(), partition.getBaseIndex(),
                     partition.getDistributionInfo(), db.getId(), table.getId()));
         }
-        BinlogConfig originalBinlogConfig = new BinlogConfig(table.getBinlogConfig());
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         ReentrantReadWriteLock jobLock = new ReentrantReadWriteLock(true);
         StreamingTaskTxnCommitAttachment attachment = streamingJob
@@ -321,11 +335,8 @@ public class CloudGlobalTransactionMgrTest {
         }
         masterTransMgr.getCallbackFactory().addCallback(callback);
         try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
-            Config.enable_feature_binlog = false;
-            BinlogConfig binlogConfig = new BinlogConfig(originalBinlogConfig);
-            binlogConfig.setEnable(true);
-            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
-            table.setBinlogConfig(binlogConfig);
+            Config.enable_feature_changelog = false;
+            table.setChangelogConfig(new ChangelogConfig(true, ChangelogConfig.TTL_SECONDS, false));
             Mockito.doReturn(new TSOService()).when(masterEnv).getTSOService();
             mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
             if (status.equals("rpc_error")) {
@@ -373,7 +384,7 @@ public class CloudGlobalTransactionMgrTest {
                 } else {
                     TransactionCommitFailedException exception = Assertions.assertThrows(
                             TransactionCommitFailedException.class, commit);
-                    Assertions.assertTrue(exception.getCause().getMessage().contains("enable_feature_binlog"));
+                    Assertions.assertTrue(exception.getCause().getMessage().contains("enable_feature_changelog"));
                 }
                 Assertions.assertEquals(0, jobLock.getWriteHoldCount());
                 Assertions.assertNull(plainTable.getCommitLockOwner());
@@ -404,25 +415,27 @@ public class CloudGlobalTransactionMgrTest {
             while (jobLock.isWriteLockedByCurrentThread()) {
                 jobLock.writeLock().unlock();
             }
-            table.setBinlogConfig(originalBinlogConfig);
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            disableChangelog(table);
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
+    }
+
+    // Turns a fixture table that a test gave changelog back into a table without changelog.
+    private static void disableChangelog(OlapTable table) {
+        table.getTableProperty().modifyTableProperties(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE, "false");
+        table.getTableProperty().buildBinlogConfig();
     }
 
     @Test
     public void testCommitTransactionRetriesWithTsoAboveFence() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
                 .getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        BinlogConfig originalBinlogConfig = new BinlogConfig(table.getBinlogConfig());
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             FakeEnv.setEnv(masterEnv);
-            BinlogConfig binlogConfig = new BinlogConfig(originalBinlogConfig);
-            binlogConfig.setEnable(true);
-            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
-            table.setBinlogConfig(binlogConfig);
+            table.setChangelogConfig(new ChangelogConfig(true, ChangelogConfig.TTL_SECONDS, false));
 
             TSOService tsoService = Mockito.mock(TSOService.class);
             Mockito.when(tsoService.getCommitTSO(Mockito.eq(CatalogTestUtil.testDbId1),
@@ -466,8 +479,8 @@ public class CloudGlobalTransactionMgrTest {
             Mockito.verify(proxy, Mockito.never()).getTxn(Mockito.any());
             Mockito.verify(tsoService).markTxnFinished(CatalogTestUtil.testDbId1, 123533L);
         } finally {
-            table.setBinlogConfig(originalBinlogConfig);
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            disableChangelog(table);
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
@@ -533,13 +546,89 @@ public class CloudGlobalTransactionMgrTest {
             Mockito.verify(mockProxy).commitTxn(requestCaptor.capture());
             Assertions.assertEquals(2, requestCaptor.getValue().getTableStreamUpdatesCount());
             Assertions.assertEquals(identity, requestCaptor.getValue().getTableStreamUpdates(0).getIdentity());
-            Assertions.assertEquals(partitionUpdate,
+            Assertions.assertEquals(partitionUpdate.toBuilder().setBaseRowCount(-1).setChangelogRowCount(-1).build(),
                     requestCaptor.getValue().getTableStreamUpdates(0).getPartitionUpdates(0));
             Assertions.assertEquals(secondIdentity,
                     requestCaptor.getValue().getTableStreamUpdates(1).getIdentity());
-            Assertions.assertEquals(secondPartitionUpdate,
+            Assertions.assertEquals(secondPartitionUpdate.toBuilder()
+                            .setBaseRowCount(-1).setChangelogRowCount(-1).build(),
                     requestCaptor.getValue().getTableStreamUpdates(1).getPartitionUpdates(0));
         }
+    }
+
+    @Test
+    public void testStreamBaselineUsesAcceptedCountsAfterLostCommitResponse() throws Exception {
+        Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        Column key = new Column("k", PrimitiveType.INT);
+        key.setIsKey(true);
+        List<Column> schema = List.of(key);
+        OlapTable source = new OlapTable(1000L, "row_count_source", schema, KeysType.DUP_KEYS,
+                new PartitionInfo(), new RandomDistributionInfo(1));
+        source.setChangelogConfig(new ChangelogConfig(true, ChangelogConfig.TTL_SECONDS, false));
+        source.getPartitionInfo().addPartition(1003L, DataProperty.DEFAULT_HDD_DATA_PROPERTY,
+                new ReplicaAllocation((short) 1), false, true);
+        source.setBaseIndexId(1001L);
+        source.setIndexMeta(1001L, "row_count_source", schema, 1, 1,
+                (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS);
+        source.setChangelogIndexMeta(new MaterializedIndexMeta(1002L, source.generateTableChangelogSchema(), 1, 1,
+                (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS, null), "changelog");
+        MaterializedIndex base = new MaterializedIndex(1001L, MaterializedIndex.IndexState.NORMAL);
+        MaterializedIndex changelog = new MaterializedIndex(1002L, MaterializedIndex.IndexState.NORMAL);
+        base.setRowCount(50L);
+        changelog.setRowCount(100L);
+        CloudPartition partition = new CloudPartition(1003L, "p1", base, new RandomDistributionInfo(1),
+                db.getId(), source.getId());
+        partition.createRollupIndex(changelog);
+        source.addPartition(partition);
+        db.registerTable(source);
+        OlapTableStream stream = new OlapTableStream(1004L, "row_count_stream", source);
+        db.registerTable(stream);
+        Cloud.TableStreamIdentityPB identity = Cloud.TableStreamIdentityPB.newBuilder()
+                .setBaseDbId(db.getId()).setBaseTableId(source.getId())
+                .setStreamDbId(db.getId()).setStreamId(stream.getId()).build();
+        Cloud.TableStreamPartitionUpdatePB offset = Cloud.TableStreamPartitionUpdatePB.newBuilder()
+                .setPartitionId(1003L).setExpectedState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
+                .setExpectedOffsetTso(100L).setNextOffsetTso(200L).build();
+        TableStreamUpdateInfo update = new TableStreamUpdateInfo(db.getId(), stream.getId(),
+                new CloudOlapTableStreamUpdate(identity, Map.of(1003L, offset)));
+        Table sink = db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        AtomicReference<Cloud.TableStreamPartitionUpdatePB> accepted = new AtomicReference<>();
+        Mockito.when(proxy.commitTxn(Mockito.any())).thenAnswer(invocation -> {
+            CommitTxnRequest request = invocation.getArgument(0);
+            Cloud.TableStreamPartitionUpdatePB sample = request.getTableStreamUpdates(0).getPartitionUpdates(0);
+            if (accepted.compareAndSet(null, sample)) {
+                Assertions.assertEquals(50L, sample.getBaseRowCount());
+                Assertions.assertEquals(100L, sample.getChangelogRowCount());
+                base.setRowCount(70L);
+                changelog.setRowCount(130L);
+                throw new RpcException("MS", "response lost after commit");
+            }
+            Assertions.assertEquals(70L, sample.getBaseRowCount());
+            Assertions.assertEquals(130L, sample.getChangelogRowCount());
+            return CommitTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
+                    .setTxnInfo(TxnInfoPB.newBuilder().setDbId(db.getId()).addTableIds(sink.getId())
+                            .setTxnId(123533L).setListenerId(-1)).build();
+        });
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Executable commit = () -> masterTransMgr.commitAndPublishTransaction(db, List.of(sink), 123533L,
+                    List.of(), 10_000L, null, List.of(update));
+            Assertions.assertThrows(UserException.class, commit);
+            Assertions.assertDoesNotThrow(commit);
+        }
+        Mockito.verify(proxy, Mockito.times(2)).commitTxn(Mockito.any());
+        Assertions.assertNull(stream.getPartitionState(1003L));
+        Cloud.TableStreamPartitionUpdatePB first = accepted.get();
+        Cloud.TableStreamPartitionReadStatePB read = Cloud.TableStreamPartitionReadStatePB.newBuilder()
+                .setPartitionId(1003L).setOffsetState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
+                .setOffsetTso(200L).setEndTso(300L).setVisibleVersion(3L)
+                .setBaseRowCount(first.getBaseRowCount()).setChangelogRowCount(first.getChangelogRowCount()).build();
+        OlapTableStreamWrapper wrapper = new OlapTableStreamWrapper(stream, source, List.of());
+        wrapper.installCloudReadStates(Map.of(1003L, read));
+        Assertions.assertEquals(30L, wrapper.estimateChangelogRead(List.of(1003L),
+                Map.of(1003L, Pair.of(201L, 301L)), BaseTableStream.StreamScanType.APPEND_ONLY).get(1003L));
     }
 
     @Test
@@ -716,6 +805,52 @@ public class CloudGlobalTransactionMgrTest {
             Mockito.doReturn(getTxnResponse).when(mockProxy).getTxn(Mockito.any());
             Mockito.doReturn(abortTxnResponse).when(mockProxy).abortTxn(Mockito.any());
             masterTransMgr.abortTransaction(CatalogTestUtil.testDbId1, transactionId, "User Cancelled");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testAbortDeleteTransactionRemovesCallback(boolean alreadyAborted) throws Exception {
+        long transactionId = 123535;
+        long jobId = 1002;
+        DeleteJob job = Mockito.spy(new DeleteJob(jobId, transactionId, "delete_abort", Map.of(), null));
+        masterTransMgr.getCallbackFactory().addCallback(job);
+
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            TxnInfoPB txnInfo = buildTxnInfo(transactionId).toBuilder()
+                    .setListenerId(jobId)
+                    .setStatus(alreadyAborted ? Cloud.TxnStatusPB.TXN_STATUS_ABORTED
+                            : Cloud.TxnStatusPB.TXN_STATUS_PREPARED)
+                    .build();
+            Mockito.when(proxy.getTxn(Mockito.any())).thenReturn(Cloud.GetTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
+                    .setTxnInfo(txnInfo).build());
+            AbortTxnResponse.Builder response = AbortTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(alreadyAborted ? MetaServiceCode.TXN_ALREADY_ABORTED : MetaServiceCode.OK));
+            if (!alreadyAborted) {
+                response.setTxnInfo(txnInfo.toBuilder().setStatus(Cloud.TxnStatusPB.TXN_STATUS_ABORTED)
+                        .setReason("User Cancelled"));
+            }
+            Mockito.when(proxy.abortTxn(Mockito.any())).thenReturn(response.build());
+
+            if (alreadyAborted) {
+                TransactionNotFoundException exception = Assertions.assertThrows(TransactionNotFoundException.class,
+                        () -> masterTransMgr.abortTransaction(CatalogTestUtil.testDbId1, transactionId,
+                                "User Cancelled"));
+                Assertions.assertTrue(exception.getMessage().contains("is already aborted"), exception.getMessage());
+            } else {
+                masterTransMgr.abortTransaction(CatalogTestUtil.testDbId1, transactionId, "User Cancelled");
+            }
+
+            Mockito.verify(job).beforeAborted(Mockito.any());
+            Mockito.verify(job).afterAborted(Mockito.any(), Mockito.eq(!alreadyAborted), Mockito.anyString());
+            Assertions.assertNull(masterTransMgr.getCallbackFactory().getCallback(jobId),
+                    "an aborted cloud DELETE must release its callback even when MS aborted it first");
+        } finally {
+            masterTransMgr.getCallbackFactory().removeCallback(jobId);
         }
     }
 
@@ -899,6 +1034,81 @@ public class CloudGlobalTransactionMgrTest {
 
             Assertions.assertEquals(1001, result);
         }
+    }
+
+    @Test
+    public void testChangelogCommitCountsAreSeparateAndIdempotent() throws Exception {
+        CloudPartition first = addCloudPartition(1000);
+        CloudPartition second = addCloudPartition(2000);
+        MaterializedIndex firstIndex = addChangelogIndex(first, 11, 101);
+        MaterializedIndex secondIndex = addChangelogIndex(second, 12, 102);
+        firstIndex.appendTablets(List.of(new LocalTablet(103)));
+        Cloud.ChangelogStatsPB firstStats = changelogStats(first, firstIndex, 3, 9);
+        CommitTxnResponse response = visibleRetry(List.of(first.getTableId(), second.getTableId())).toBuilder()
+                .addChangelogStats(firstStats).addChangelogStats(changelogStats(second, secondIndex, 3, 15)).build();
+        masterTransMgr.afterCommitTxnResp(response, null, List.of());
+        Assertions.assertEquals(9, firstIndex.getRowCount());
+        Assertions.assertEquals(15, secondIndex.getRowCount());
+        Assertions.assertFalse(firstIndex.getRowCountReported());
+        masterTransMgr.afterCommitTxnResp(response, null, List.of());
+        Assertions.assertEquals(9, firstIndex.getRowCount());
+        Assertions.assertEquals(15, secondIndex.getRowCount());
+        ((CloudGlobalTransactionMgr) masterTransMgr).updateChangelogRowCounts(response.toBuilder()
+                .clearChangelogStats().addChangelogStats(changelogStats(first, firstIndex, 5, 4)).build());
+        ((CloudGlobalTransactionMgr) masterTransMgr).updateChangelogRowCounts(response.toBuilder()
+                .clearChangelogStats().addChangelogStats(changelogStats(first, firstIndex, 4, 2)).build());
+        Assertions.assertEquals(15, firstIndex.getRowCount());
+        firstIndex.setReportedRowCount(1, true, 5);
+        masterTransMgr.afterCommitTxnResp(response, null, List.of());
+        Assertions.assertEquals(1, firstIndex.getRowCount());
+        // The changelog path never creates base-table analysis statistics.
+        Assertions.assertNull(masterEnv.getAnalysisManager().findTableStatsStatus(first.getTableId()));
+    }
+
+    @Test
+    public void testChangelogIgnoresIncompleteAndReplacedData() throws Exception {
+        CloudPartition partition = addCloudPartition(1000);
+        MaterializedIndex index = addChangelogIndex(partition, 11, 101);
+        CommitTxnResponse response = visibleRetry(List.of(partition.getTableId())).toBuilder()
+                .addChangelogStats(changelogStats(partition, index, 3, 8)).build();
+        CloudGlobalTransactionMgr manager = (CloudGlobalTransactionMgr) masterTransMgr;
+        manager.updateChangelogRowCounts(response.toBuilder().setIsLazyCommitIncomplete(true).build());
+        manager.updateChangelogRowCounts(response.toBuilder().setTxnInfo(response.getTxnInfo().toBuilder()
+                .setStatus(Cloud.TxnStatusPB.TXN_STATUS_COMMITTED)).build());
+        manager.updateChangelogRowCounts(response.toBuilder().setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                .setCode(MetaServiceCode.KV_TXN_CONFLICT)).build());
+        manager.updateChangelogRowCounts(response.toBuilder().clearChangelogStats()
+                .addChangelogStats(changelogStats(partition, index, 2, 0)).build());
+        Assertions.assertEquals(-1, index.getRowCount());
+        Assertions.assertFalse(index.getRowCountReported());
+        index.clearTabletsForRestore();
+        index.appendTablets(List.of(new LocalTablet(102)));
+        manager.updateChangelogRowCounts(response);
+        Assertions.assertEquals(-1, index.getRowCount());
+        MaterializedIndex replacement = addChangelogIndex(partition, 11, 103);
+        manager.updateChangelogRowCounts(response);
+        Assertions.assertEquals(-1, replacement.getRowCount());
+        getCloudTable(partition).getPartitionInfo().addPartition(partition.getId(),
+                new DataProperty(org.apache.doris.thrift.TStorageMedium.HDD),
+                ReplicaAllocation.DEFAULT_ALLOCATION, false, true);
+        getCloudTable(partition).dropPartitionAndReserveTablet(partition.getName());
+        manager.updateChangelogRowCounts(response);
+        Assertions.assertEquals(-1, replacement.getRowCount());
+    }
+
+    private MaterializedIndex addChangelogIndex(CloudPartition partition, long indexId, long tabletId) {
+        MaterializedIndex index = new MaterializedIndex(indexId, MaterializedIndex.IndexState.NORMAL);
+        index.setIsChangelog(true);
+        index.appendTablets(List.of(new LocalTablet(tabletId)));
+        partition.createRollupIndex(index);
+        return index;
+    }
+
+    private Cloud.ChangelogStatsPB changelogStats(CloudPartition partition, MaterializedIndex index,
+            long version, long rows) {
+        return Cloud.ChangelogStatsPB.newBuilder().setTableId(partition.getTableId())
+                .setPartitionId(partition.getId()).setIndexId(index.getId()).setVersion(version)
+                .addAllTabletIds(index.getTabletIdsInOrder()).setUpdatedRowCount(rows).build();
     }
 
     @Test
@@ -1110,7 +1320,8 @@ public class CloudGlobalTransactionMgrTest {
         AtomicReference<CompletableFuture<Void>> snapshotReader = new AtomicReference<>();
         try (MockedStatic<VersionHelper> versions = mockVersionHelper()) {
             versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenReturn(
-                    partitionVersion(4).toBuilder().addVersions(4).addVersionUpdateTimeMs(40).addCommitTsos(400).build());
+                    partitionVersion(4).toBuilder().addVersions(4).addVersionUpdateTimeMs(40).addCommitTsos(400)
+                            .addHasPendingTxns(false).build());
             Mockito.doAnswer(invocation -> {
                 CountDownLatch started = new CountDownLatch(1);
                 CompletableFuture<Void> reader = CompletableFuture.runAsync(() -> {
@@ -1214,6 +1425,37 @@ public class CloudGlobalTransactionMgrTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testNonBatchPartitionVersionsBypassCache(boolean waitForPendingTxns) throws Exception {
+        boolean previousBatch = Config.calc_delete_bitmap_get_versions_in_batch;
+        boolean previousWait = Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns;
+        useVersionCaches();
+        CloudPartition partition = addCloudPartition(1000);
+        try (MockedStatic<VersionHelper> versions = mockVersionHelper()) {
+            Config.calc_delete_bitmap_get_versions_in_batch = false;
+            Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns = waitForPendingTxns;
+            Assertions.assertEquals(2, partition.getVisibleVersion());
+            versions.verifyNoInteractions();
+            versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenAnswer(invocation -> {
+                Cloud.GetVersionRequest request = invocation.getArgument(0);
+                Assertions.assertFalse(request.getBatchMode());
+                Assertions.assertEquals(partition.getId(), request.getPartitionId());
+                Assertions.assertEquals(waitForPendingTxns, request.getWaitForPendingTxn());
+                return partitionVersion(4);
+            });
+            Method getVersions = CloudGlobalTransactionMgr.class.getDeclaredMethod("getPartitionVersions", Map.class);
+            getVersions.setAccessible(true);
+            Assertions.assertEquals(Map.of(partition.getId(), 5L),
+                    getVersions.invoke(masterTransMgr, Map.of(partition.getId(), partition)));
+            Assertions.assertEquals(4, partition.getCachedVisibleVersion());
+            versions.verify(() -> VersionHelper.getVersionFromMeta(Mockito.any()));
+        } finally {
+            Config.calc_delete_bitmap_get_versions_in_batch = previousBatch;
+            Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns = previousWait;
+        }
+    }
+
     private CloudPartition addCloudPartition(long tableId) throws Exception {
         OlapTable table = new OlapTable(tableId, "version_cache_" + tableId, List.of(), KeysType.DUP_KEYS,
                 new PartitionInfo(), new RandomDistributionInfo(1));
@@ -1243,7 +1485,7 @@ public class CloudGlobalTransactionMgrTest {
 
     private Cloud.GetVersionResponse partitionVersion(long version) {
         return Cloud.GetVersionResponse.newBuilder().setVersion(version).addVersions(version)
-                .addVersionUpdateTimeMs(version * 10).addCommitTsos(version * 100).build();
+                .addVersionUpdateTimeMs(version * 10).addCommitTsos(version * 100).addHasPendingTxns(false).build();
     }
 
     private OlapTable getCloudTable(CloudPartition partition) throws Exception {

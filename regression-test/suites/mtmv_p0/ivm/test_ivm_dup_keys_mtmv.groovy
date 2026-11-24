@@ -20,7 +20,7 @@ suite("test_ivm_dup_keys_mtmv") {
     sql """drop table if exists test_ivm_dup_keys_mtmv_base;"""
 
     // 1. Create base table (DUPLICATE KEY)
-    //    For DUP_KEYS base tables, IVM uses the row-binlog lsn column
+    //    For DUP_KEYS base tables, IVM uses the changelog lsn column
     //    (__DORIS_ROW_LSN_COL__) as the deterministic row-id.
     //    This case validates COMPLETE refresh on a simple scan MV, where INSERT OVERWRITE
     //    replaces all MV data and preserves the correct DUP_KEYS rows.
@@ -34,8 +34,7 @@ suite("test_ivm_dup_keys_mtmv") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
 
@@ -49,7 +48,7 @@ suite("test_ivm_dup_keys_mtmv") {
 
     // 3. Create IVM MV. The aggregate is what keeps it on the unique-key model, which is the model the
     //    row-id assertions below are about; the base table stays an append-only detail table, whose scan
-    //    row-id is its row-binlog lsn.
+    //    row-id is its changelog lsn.
     sql """
         CREATE MATERIALIZED VIEW test_ivm_dup_keys_mtmv_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL

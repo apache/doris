@@ -170,6 +170,13 @@ suite("test_iceberg_position_delete", "p0,external") {
             explain {
                 sql ("select name from iceberg_position_gen_data where id != 5;")
                 verbose (true)
+                contains "(approximate)inputSplitNum"
+            }
+            explain {
+                // Full per-backend delete-file counts require complete, synchronous split planning.
+                sql ("select /*+ SET_VAR(enable_external_table_batch_mode=false) */ name "
+                        + "from iceberg_position_gen_data where id != 5;")
+                verbose (true)
                 contains "deleteFileNum"
             }
         }

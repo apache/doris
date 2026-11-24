@@ -298,7 +298,9 @@ void CloudWarmUpManager::handle_jobs() {
                 }
 
                 int64_t expiration_time = tablet_meta->file_cache_ttl_expiration_time();
-                if (!tablet->add_rowset_warmup_state(*rs, WarmUpTriggerSource::JOB)) {
+                const auto generation =
+                        tablet->add_rowset_warmup_state(*rs, WarmUpTriggerSource::JOB);
+                if (!generation) {
                     LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
                               << ", skip it";
                     continue;
@@ -313,12 +315,12 @@ void CloudWarmUpManager::handle_jobs() {
                         submit_download_tasks(
                                 storage_resource.value()->remote_segment_path(*rs, segment_id),
                                 seg.file_size(), rs->fs(), expiration_time, wait, false,
-                                [tablet, rs, segment_id](Status st) {
+                                [tablet, rs, segment_id, generation](Status st) {
                                     VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
                                                << segment_id << " completed";
                                     if (tablet->complete_rowset_segment_warmup(
                                                       WarmUpTriggerSource::JOB, rs->rowset_id(), st,
-                                                      1, 0)
+                                                      1, 0, *generation)
                                                 .trigger_source == WarmUpTriggerSource::JOB) {
                                         VLOG_DEBUG << "warmup rowset " << rs->version()
                                                    << " completed";
@@ -356,7 +358,7 @@ void CloudWarmUpManager::handle_jobs() {
                                 }
                             }
                             tablet->update_rowset_warmup_state_inverted_idx_num(
-                                    WarmUpTriggerSource::JOB, rs->rowset_id(), 1);
+                                    WarmUpTriggerSource::JOB, rs->rowset_id(), 1, *generation);
                             submit_download_tasks(
                                     idx_path, file_size, rs->fs(), expiration_time, wait, true,
                                     [=](Status st) {
@@ -365,7 +367,7 @@ void CloudWarmUpManager::handle_jobs() {
                                                    << "inverted idx:" << idx_path << " completed";
                                         if (tablet->complete_rowset_segment_warmup(
                                                           WarmUpTriggerSource::JOB, rs->rowset_id(),
-                                                          st, 0, 1)
+                                                          st, 0, 1, *generation)
                                                     .trigger_source == WarmUpTriggerSource::JOB) {
                                             VLOG_DEBUG << "warmup rowset " << rs->version()
                                                        << " completed";
@@ -380,7 +382,7 @@ void CloudWarmUpManager::handle_jobs() {
                             file_size = idx_file_info.has_index_size() ? idx_file_info.index_size()
                                                                        : -1;
                             tablet->update_rowset_warmup_state_inverted_idx_num(
-                                    WarmUpTriggerSource::JOB, rs->rowset_id(), 1);
+                                    WarmUpTriggerSource::JOB, rs->rowset_id(), 1, *generation);
                             submit_download_tasks(
                                     idx_path, file_size, rs->fs(), expiration_time, wait, true,
                                     [=](Status st) {
@@ -389,7 +391,7 @@ void CloudWarmUpManager::handle_jobs() {
                                                    << "inverted idx:" << idx_path << " completed";
                                         if (tablet->complete_rowset_segment_warmup(
                                                           WarmUpTriggerSource::JOB, rs->rowset_id(),
-                                                          st, 0, 1)
+                                                          st, 0, 1, *generation)
                                                     .trigger_source == WarmUpTriggerSource::JOB) {
                                             VLOG_DEBUG << "warmup rowset " << rs->version()
                                                        << " completed";
@@ -1389,20 +1391,29 @@ void CloudWarmUpManager::rotate_peer_candidate_on_cache_miss(int64_t tablet_id,
     }
 }
 
-bool CloudWarmUpManager::is_peer_cooldown(int64_t tablet_id) const {
-    const auto& shard = get_shard(tablet_id);
-    std::unique_lock<bthread::Mutex> lock(shard.mtx);
-    auto it = shard.tablets.find(tablet_id);
-    if (it == shard.tablets.end()) {
-        return false;
-    }
-    if (it->second.cooldown_until_ms <= 0) {
+bool CloudWarmUpManager::is_cooling_down(const TabletPeerCandidates& tpc) {
+    if (tpc.cooldown_until_ms <= 0) {
         return false;
     }
     int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
-    return now_ms < it->second.cooldown_until_ms;
+    return now_ms < tpc.cooldown_until_ms;
+}
+
+bool CloudWarmUpManager::is_peer_cooldown(int64_t tablet_id) const {
+    const auto& shard = get_shard(tablet_id);
+    std::unique_lock<bthread::Mutex> lock(shard.mtx);
+    auto it = shard.tablets.find(tablet_id);
+    return it != shard.tablets.end() && is_cooling_down(it->second);
+}
+
+bool CloudWarmUpManager::has_peer_candidates(int64_t tablet_id) const {
+    const auto& shard = get_shard(tablet_id);
+    std::unique_lock<bthread::Mutex> lock(shard.mtx);
+    auto it = shard.tablets.find(tablet_id);
+    return it != shard.tablets.end() && !it->second.candidates.empty() &&
+           !is_cooling_down(it->second);
 }
 
 void CloudWarmUpManager::record_peer_all_miss(int64_t tablet_id) {

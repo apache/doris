@@ -40,7 +40,7 @@ public class CreateTableStreamTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         Config.enable_table_stream = true;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
     }
 
     @Test
@@ -49,8 +49,8 @@ public class CreateTableStreamTest extends TestWithFeService {
         // create base sql
         String sql = "create table if not exists test_stream.tbl1\n" + "(k1 int, k2 int)\n" + "unique key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
-                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
-                + "'binlog.need_historical_value' = 'true'); ";
+                + "properties('replication_num' = '1', 'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'true'); ";
         createTable(sql);
         // create default stream
         ExceptionChecker
@@ -83,8 +83,8 @@ public class CreateTableStreamTest extends TestWithFeService {
                 + "unique key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
-                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
-                + "'binlog.need_historical_value' = 'false'); ";
+                + "'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'false'); ";
         createTable(sql);
 
         ExceptionChecker.expectThrowsNoException(() ->
@@ -104,7 +104,7 @@ public class CreateTableStreamTest extends TestWithFeService {
         Assertions.assertEquals(BaseTableStream.StreamScanType.DETAIL, detailStream.getStreamScanType());
 
         String minDeltaError = "MIN_DELTA table stream requires base mow table to enable "
-                + "binlog.need_historical_value=true";
+                + "changelog.need_historical_value=true";
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, minDeltaError,
                 () -> createTable("create stream test_stream_type_validation.default_stream "
                         + "on table test_stream_type_validation.base_table\n"
@@ -125,8 +125,8 @@ public class CreateTableStreamTest extends TestWithFeService {
         createDatabase("test_stream_boolean_validation");
         createTable("create table test_stream_boolean_validation.base_table (k1 int, k2 int) "
                 + "unique key(k1) distributed by hash(k1) buckets 1 "
-                + "properties('replication_num' = '1', 'binlog.enable' = 'true', "
-                + "'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true')");
+                + "properties('replication_num' = '1', 'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'true')");
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test_stream_boolean_validation");
 
         for (String value : new String[] {"garbage", "yes", "1", "", " true "}) {
@@ -158,8 +158,8 @@ public class CreateTableStreamTest extends TestWithFeService {
         // create base sql
         String sql = "create table if not exists test_stream.tbl1\n" + "(k1 int, k2 int)\n" + "unique key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
-                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
-                + "'binlog.need_historical_value' = 'true'); ";
+                + "properties('replication_num' = '1', 'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'true'); ";
         createTable(sql);
         // create default stream
         ExceptionChecker

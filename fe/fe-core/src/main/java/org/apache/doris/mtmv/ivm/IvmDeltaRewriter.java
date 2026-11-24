@@ -25,15 +25,12 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -136,35 +133,6 @@ public class IvmDeltaRewriter {
             }
         }
         return false;
-    }
-
-    static Pair<Plan, Map<Slot, Slot>> preSnapshot(Plan plan, IvmDeltaRewriteState rewriteState) {
-        return rewriteSnapshot(plan, rewriteState, true);
-    }
-
-    static Pair<Plan, Map<Slot, Slot>> postSnapshot(Plan plan, IvmDeltaRewriteState rewriteState) {
-        return rewriteSnapshot(plan, rewriteState, false);
-    }
-
-    private static Pair<Plan, Map<Slot, Slot>> rewriteSnapshot(Plan plan, IvmDeltaRewriteState rewriteState,
-            boolean preSnapshot) {
-        Plan rewritten = plan.rewriteDownShortCircuit(node -> {
-            if (!(node instanceof LogicalOlapScan)) {
-                return node;
-            }
-            LogicalOlapScan scan = (LogicalOlapScan) node;
-            if (rewriteState.isExcluded(scan)) {
-                // Excluded tables produce no delta, but their snapshot side still joins
-                // the delta side; apply the window so the property also saves their scan.
-                return rewriteState.restrictWindow(scan);
-            }
-            scan = rewriteState.restrictWindow(scan);
-            LogicalPlan snapshotScan = preSnapshot
-                    ? scan.withPreSnapshot(Optional.of(rewriteState.getStream(scan)))
-                    : scan.withPostSnapshot();
-            return IvmDeltaRewriteHelper.INSTANCE.remapOlapScanToPlan(scan, snapshotScan);
-        });
-        return IvmDeltaRewriteHelper.INSTANCE.freshPlan(rewritten);
     }
 
 }

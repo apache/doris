@@ -38,8 +38,7 @@ suite("test_olap_table_stream_mixed_history_incremental") {
         DISTRIBUTED BY HASH(sid) BUCKETS 1
         PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         )
     """
 

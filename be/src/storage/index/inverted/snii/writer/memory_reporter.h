@@ -23,8 +23,10 @@
 #include <functional>
 #include <limits>
 #include <utility>
+#include <vector>
 
 #include "common/check.h"
+#include "common/compiler_util.h"
 #include "common/logging.h"
 #include "common/status.h"
 
@@ -325,6 +327,39 @@ inline void MemoryReporter::release(uint64_t bytes, bool postings) {
     if (consume_release_) {
         consume_release_(-delta);
     }
+}
+
+// Grows the vector for reserve_docids_for_append. Out of line: growth is geometric, so it runs
+// O(log n) times, and keeping it out of the callers leaves them only the capacity check.
+NO_INLINE inline Status grow_docids_for_append(MemoryReporter* reporter,
+                                               MemoryReporter::Reservation* reservation,
+                                               std::vector<uint32_t>* docids, size_t need) {
+    const size_t target_capacity = std::max(need, docids->capacity() * 2);
+    if (reporter == nullptr) {
+        docids->reserve(target_capacity);
+        return Status::OK();
+    }
+    MemoryReporter::Reservation replacement;
+    RETURN_IF_ERROR(reservation->prepare_replacement(
+            static_cast<uint64_t>(target_capacity) * sizeof(uint32_t), &replacement));
+    docids->reserve(target_capacity);
+    *reservation = std::move(replacement);
+    return Status::OK();
+}
+
+// Makes room for `count` more docids in a vector whose capacity is charged to `reservation`; a null
+// `reporter` (unit tests) charges nothing. Capacity grows geometrically, so a long sequence of small
+// NULL runs does not reallocate and copy the whole array on every call. The larger capacity is
+// charged BEFORE it is allocated and the old charge is returned only after the move, which is the
+// transient double residency of a vector growth.
+inline Status reserve_docids_for_append(MemoryReporter* reporter,
+                                        MemoryReporter::Reservation* reservation,
+                                        std::vector<uint32_t>* docids, size_t count) {
+    const size_t need = docids->size() + count;
+    if (need <= docids->capacity()) {
+        return Status::OK();
+    }
+    return grow_docids_for_append(reporter, reservation, docids, need);
 }
 
 } // namespace doris::snii::writer

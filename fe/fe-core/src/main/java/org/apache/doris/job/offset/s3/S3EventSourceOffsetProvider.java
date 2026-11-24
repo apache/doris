@@ -573,10 +573,10 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
             if (isCommitted(key, message.messageId(), message.receiptHandle())) {
                 continue;
             }
+            String path = "s3://" + bucket + "/" + key;
             files.add(key);
-            // The object must remain unchanged until ingestion completes; notifications identify keys, not versions.
-            fileStatuses.add(new TBrokerFileStatus("s3://" + bucket + "/" + key, false,
-                    record.s3.object.size, true));
+            fileStatuses.add(new TBrokerFileStatus(path, false, record.s3.object.size, true)
+                    .setModificationTime(System.currentTimeMillis()));
             if (record.eventTime != null) {
                 eventTimestampSeconds = Math.max(eventTimestampSeconds, record.eventTime.getMillis() / 1000);
             }

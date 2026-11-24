@@ -79,11 +79,11 @@ public class IcebergSchemaUtilsTest {
     }
 
     /** Build the dictionary for the given requested column names and return the single (-1) entry. */
-    private static TSchema dict(Table table, String... requestedLowerNames) {
+    private static TSchema dict(Table table, String... requestedColumnNames) {
         // Mirror the production path (encodeSchemaEvolutionProp): thread the PRECISE isPresent() as
         // hasNameMapping (#65784), so a present-but-empty mapping is still authoritative.
         Optional<Map<Integer, List<String>>> nameMapping = IcebergSchemaUtils.extractNameMapping(table);
-        return IcebergSchemaUtils.buildCurrentSchema(table.schema(), Arrays.asList(requestedLowerNames),
+        return IcebergSchemaUtils.buildCurrentSchema(table.schema(), Arrays.asList(requestedColumnNames),
                 nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(), false);
     }
 
@@ -180,6 +180,46 @@ public class IcebergSchemaUtilsTest {
         // case-preserving Doris slot lookup misses -> red.
         Assertions.assertFalse(fields.containsKey("id"));
         Assertions.assertFalse(fields.containsKey("name"));
+    }
+
+    @Test
+    public void fullSchemaFallbackPreservesMixedCaseTopLevelNamesOnly() {
+        Schema schema = new Schema(
+                Types.NestedField.required(7, "ID", Types.IntegerType.get()),
+                Types.NestedField.optional(9, "Name", Types.StringType.get()),
+                Types.NestedField.optional(11, "Payload", Types.StructType.of(
+                        Types.NestedField.optional(12, "Child", Types.IntegerType.get()))));
+
+        Map<String, TField> fields = topFields(IcebergSchemaUtils.buildCurrentSchema(
+                schema, Collections.emptyList(), Collections.emptyMap()));
+
+        // Snapshot-pin, Top-N lazy materialization and count-only scans have no pruned requested list and use
+        // this fallback. Its top-level keys must equal the case-preserving Doris scan slots.
+        Assertions.assertTrue(fields.containsKey("ID"));
+        Assertions.assertTrue(fields.containsKey("Name"));
+        Assertions.assertTrue(fields.containsKey("Payload"));
+        Assertions.assertFalse(fields.containsKey("id"));
+        Assertions.assertFalse(fields.containsKey("name"));
+        Assertions.assertFalse(fields.containsKey("payload"));
+
+        // Nested struct lookup remains lowercased by the Doris StructField contract. The top-level fix must
+        // not leak into nested fields.
+        Assertions.assertEquals(12, childByName(fields.get("Payload"), "child").getId());
+    }
+
+    @Test
+    public void equalityDeleteCarrierPreservesMixedCaseTopLevelNames() throws Exception {
+        Schema schema = new Schema(
+                Types.NestedField.required(7, "ID", Types.IntegerType.get()),
+                Types.NestedField.optional(9, "Name", Types.StringType.get()));
+        Table table = createTable("mixed_equality", schema);
+
+        TFileScanRangeParams params = decode(IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
+                table, schema, schema.columns(), false, false, false));
+        List<TFieldPtr> fields = params.getHistorySchemaInfo().get(0).getRootField().getFields();
+
+        Assertions.assertEquals("ID", fields.get(0).getFieldPtr().getName());
+        Assertions.assertEquals("Name", fields.get(1).getFieldPtr().getName());
     }
 
     @Test
@@ -323,6 +363,24 @@ public class IcebergSchemaUtilsTest {
     }
 
     @Test
+    public void dictCarriesInitialDefaultRatherThanWriteDefault() {
+        // Old files are read with the initial default; the write default only fills omitted columns of new rows.
+        // A timestamptz default keeps its UTC offset so every session zone reads the same instant.
+        Schema schema = new Schema(
+                Types.NestedField.optional("added_column").withId(1).ofType(Types.IntegerType.get())
+                        .withInitialDefault(7).withWriteDefault(9).build(),
+                Types.NestedField.optional("added_timestamptz").withId(2).ofType(Types.TimestampType.withZone())
+                        .withInitialDefault(1_704_067_200_123_456L).build());
+
+        Map<String, TField> fields = topFields(IcebergSchemaUtils.buildCurrentSchema(schema,
+                Arrays.asList("added_column", "added_timestamptz"), Collections.emptyMap()));
+
+        Assertions.assertEquals("7", fields.get("added_column").getInitialDefaultValue());
+        Assertions.assertEquals("2024-01-01 00:00:00.123456+00:00",
+                fields.get("added_timestamptz").getInitialDefaultValue());
+    }
+
+    @Test
     public void complexInitialDefaultsUseIcebergJsonAndMarkBinaryLeaves() {
         Types.StructType structType = Types.StructType.of(
                 Types.NestedField.optional(11, "bytes", Types.BinaryType.get()),
@@ -373,6 +431,38 @@ public class IcebergSchemaUtilsTest {
     }
 
     @Test
+    public void structChildrenCarryTheirOwnInitialDefaultsAndRequiredness() {
+        // BE fills a struct child that an old file lacks from the child's own entry, and rejects the file only when
+        // that entry is required without a default. Each child therefore carries its own initial default and
+        // Iceberg requiredness, independently of its parent and siblings.
+        Schema schema = new Schema(Types.NestedField.required(1, "payload", Types.StructType.of(
+                Types.NestedField.required("nested_int").withId(2).ofType(Types.IntegerType.get())
+                        .withInitialDefault(17).build(),
+                Types.NestedField.optional("nested_binary").withId(3).ofType(Types.BinaryType.get())
+                        .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF})).build(),
+                Types.NestedField.optional(4, "nested_uuid", Types.UUIDType.get()))));
+
+        TField payload = topFields(IcebergSchemaUtils.buildCurrentSchema(
+                schema, Collections.singletonList("payload"), Collections.emptyMap())).get("payload");
+
+        Assertions.assertFalse(payload.isIsOptional());
+        Assertions.assertFalse(payload.isSetInitialDefaultValue());
+        TField nestedInt = childByName(payload, "nested_int");
+        Assertions.assertEquals("17", nestedInt.getInitialDefaultValue());
+        Assertions.assertFalse(nestedInt.isSetInitialDefaultValueIsBase64());
+        Assertions.assertFalse(nestedInt.isIsOptional());
+        TField nestedBinary = childByName(payload, "nested_binary");
+        Assertions.assertEquals(3, nestedBinary.getId());
+        Assertions.assertEquals("AAEC/w==", nestedBinary.getInitialDefaultValue());
+        Assertions.assertTrue(nestedBinary.isInitialDefaultValueIsBase64());
+        Assertions.assertTrue(nestedBinary.isIsOptional());
+        TField nestedUuid = childByName(payload, "nested_uuid");
+        Assertions.assertFalse(nestedUuid.isSetInitialDefaultValue());
+        Assertions.assertFalse(nestedUuid.isSetInitialDefaultValueIsBase64());
+        Assertions.assertTrue(nestedUuid.isIsOptional());
+    }
+
+    @Test
     public void equalityCarrierAllowsDropAndReaddNamesAtEveryLevel() throws Exception {
         Types.StructType nestedDuplicateNames = Types.StructType.of(
                 Types.NestedField.optional(31, "key", Types.IntegerType.get()),
@@ -384,7 +474,7 @@ public class IcebergSchemaUtilsTest {
         Table table = createTable("carrier", SCHEMA);
 
         TStructField root = decode(IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
-                table, fields, false, false, false)).getHistorySchemaInfo().get(0).getRootField();
+                table, table.schema(), fields, false, false, false)).getHistorySchemaInfo().get(0).getRootField();
 
         Assertions.assertEquals(Arrays.asList(10, 20, 30), root.getFields().stream()
                 .map(field -> field.getFieldPtr().getId()).collect(java.util.stream.Collectors.toList()));
@@ -527,6 +617,74 @@ public class IcebergSchemaUtilsTest {
     }
 
     @Test
+    public void unknownUsesNullCarrierAndConcreteEvolutionRebinds() {
+        Schema unknown = new Schema(Types.NestedField.optional(1, "u", Types.UnknownType.get()));
+        Schema concrete = new Schema(Types.NestedField.optional(1, "u", Types.LongType.get()));
+        TField oldField = topFields(IcebergSchemaUtils.buildCurrentSchema(unknown,
+                Collections.singletonList("u"), Collections.emptyMap())).get("u");
+        TField newField = topFields(IcebergSchemaUtils.buildCurrentSchema(concrete,
+                Collections.singletonList("u"), Collections.emptyMap())).get("u");
+        Assertions.assertEquals(TPrimitiveType.NULL_TYPE, oldField.getType().getType());
+        Assertions.assertEquals(TPrimitiveType.BIGINT, newField.getType().getType());
+        Assertions.assertEquals(oldField.getId(), newField.getId());
+        Assertions.assertEquals(TPrimitiveType.NULL_TYPE, oldField.getType().getType(),
+                "rebinding must not mutate an already bound schema");
+    }
+
+    @Test
+    public void nestedUnknownLeavesUseNullCarriersWithoutLosingFieldIds() {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "s", Types.StructType.of(
+                        Types.NestedField.optional(2, "u", Types.UnknownType.get()))),
+                Types.NestedField.optional(3, "a", Types.ListType.ofOptional(4, Types.UnknownType.get())),
+                Types.NestedField.optional(5, "m", Types.MapType.ofOptional(6, 7,
+                        Types.StringType.get(), Types.UnknownType.get())));
+        Map<String, TField> fields = topFields(IcebergSchemaUtils.buildCurrentSchema(schema,
+                Arrays.asList("s", "a", "m"), Collections.emptyMap()));
+        TField structChild = childByName(fields.get("s"), "u");
+        TField arrayChild = fields.get("a").getNestedField().getArrayField().getItemField().getFieldPtr();
+        TField mapChild = fields.get("m").getNestedField().getMapField().getValueField().getFieldPtr();
+        Assertions.assertEquals(2, structChild.getId());
+        Assertions.assertEquals(4, arrayChild.getId());
+        Assertions.assertEquals(7, mapChild.getId());
+        for (TField field : Arrays.asList(structChild, arrayChild, mapChild)) {
+            Assertions.assertEquals(TPrimitiveType.NULL_TYPE, field.getType().getType());
+            Assertions.assertTrue(field.isIsOptional());
+        }
+    }
+
+    @Test
+    public void droppedUnknownEqualityCarrierKeepsPhysicalTypeResolution() throws Exception {
+        Schema current = new Schema(Types.NestedField.optional(1, "u", Types.UnknownType.get()));
+        Table table = createTable("unknown_equality_carrier", current,
+                Collections.singletonMap("format-version", "3"));
+        List<Types.NestedField> fields = Arrays.asList(current.columns().get(0),
+                Types.NestedField.optional(2, "dropped_u", Types.UnknownType.get()));
+        TSchema schema = decode(IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
+                table, current, fields, false, false, false)).getHistorySchemaInfo().get(0);
+        Assertions.assertEquals(TPrimitiveType.NULL_TYPE, topFields(schema).get("u").getType().getType());
+        Assertions.assertEquals(TPrimitiveType.STRING, topFields(schema).get("dropped_u").getType().getType());
+    }
+
+    @Test
+    public void unknownWriteGuardVisitsNestedLeavesAndCreateRejectsUnknown() {
+        for (org.apache.iceberg.types.Type type : Arrays.asList(
+                Types.UnknownType.get(),
+                Types.StructType.of(Types.NestedField.optional(2, "u", Types.UnknownType.get())),
+                Types.ListType.ofOptional(3, Types.UnknownType.get()),
+                Types.MapType.ofOptional(4, 5, Types.StringType.get(), Types.UnknownType.get()))) {
+            Schema schema = new Schema(Types.NestedField.optional(1, "payload", type));
+            Assertions.assertThrows(org.apache.doris.connector.spi.DorisConnectorException.class,
+                    () -> IcebergSchemaUtils.validateNoUnknownForWrite(schema));
+        }
+        Assertions.assertDoesNotThrow(() -> IcebergSchemaUtils.validateNoUnknownForWrite(
+                new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()))));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergTypeMapping.toIcebergPrimitive(
+                        org.apache.doris.connector.spi.ConnectorType.of("UNKNOWN")));
+    }
+
+    @Test
     public void unsupportedPrimitiveKeepsSafeScalarCarrier() {
         Schema schema = new Schema(
                 Types.NestedField.optional(1, "time_col", Types.TimeType.get()));
@@ -584,6 +742,48 @@ public class IcebergSchemaUtilsTest {
                 props.getNestedField().getMapField().getKeyField().getFieldPtr().getId());
         Assertions.assertEquals(propsType.valueId(),
                 props.getNestedField().getMapField().getValueField().getFieldPtr().getId());
+    }
+
+    @Test
+    public void timestamptzFieldsCarryInstantMarkerAtEveryLevel() {
+        // Spark and Hive write timestamptz as INT96 without an instant annotation, so BE reads it as an instant only
+        // when the field says so. timestamp and timestamp_ns stay unmarked whatever the catalog mapping flag is.
+        // MUTATION: drop the marker -> red; also mark timestamp fields -> red.
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "tz", Types.TimestampType.withZone()),
+                Types.NestedField.optional(2, "wall", Types.TimestampType.withoutZone()),
+                Types.NestedField.optional(3, "wall_ns", Types.TimestampNanoType.withoutZone()),
+                Types.NestedField.optional(4, "info", Types.StructType.of(
+                        Types.NestedField.optional(5, "tz", Types.TimestampType.withZone()),
+                        Types.NestedField.optional(6, "wall", Types.TimestampType.withoutZone()))),
+                Types.NestedField.optional(7, "tzs",
+                        Types.ListType.ofOptional(8, Types.TimestampType.withZone())),
+                Types.NestedField.optional(9, "by_tz", Types.MapType.ofOptional(10, 11,
+                        Types.TimestampType.withZone(), Types.TimestampType.withoutZone())));
+
+        for (boolean enableTimestampTz : new boolean[] {false, true}) {
+            Map<String, TField> fields = topFields(IcebergSchemaUtils.buildCurrentSchema(schema,
+                    Arrays.asList("tz", "wall", "wall_ns", "info", "tzs", "by_tz"), Collections.emptyMap(),
+                    false, false, enableTimestampTz));
+
+            assertInstantMarker(fields.get("tz"));
+            Assertions.assertFalse(fields.get("wall").isSetTimestampIsAdjustedToUtc());
+            Assertions.assertFalse(fields.get("wall_ns").isSetTimestampIsAdjustedToUtc());
+            TField info = fields.get("info");
+            Assertions.assertFalse(info.isSetTimestampIsAdjustedToUtc());
+            assertInstantMarker(childByName(info, "tz"));
+            Assertions.assertFalse(childByName(info, "wall").isSetTimestampIsAdjustedToUtc());
+            assertInstantMarker(fields.get("tzs").getNestedField().getArrayField().getItemField().getFieldPtr());
+            TField byTz = fields.get("by_tz");
+            assertInstantMarker(byTz.getNestedField().getMapField().getKeyField().getFieldPtr());
+            Assertions.assertFalse(byTz.getNestedField().getMapField().getValueField().getFieldPtr()
+                    .isSetTimestampIsAdjustedToUtc());
+        }
+    }
+
+    private static void assertInstantMarker(TField field) {
+        Assertions.assertTrue(field.isSetTimestampIsAdjustedToUtc(), field.getName());
+        Assertions.assertTrue(field.isTimestampIsAdjustedToUtc(), field.getName());
     }
 
     @Test

@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -44,6 +45,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -555,6 +557,15 @@ public abstract class DataType {
         return this;
     }
 
+    /**
+     * The non-null zero value of this type: the value a NOT NULL column of the type is
+     * initialized with when no value is supplied, and what a slot of this type holds when the
+     * plan has no producer for it (e.g. an IVM hidden slot a source scan does not carry).
+     * The expression must be deterministic, have no slot references, and produce this type.
+     * Empty for types that have no such value (state types, lambda, unsupported).
+     */
+    public abstract Optional<Expression> zeroValue();
+
     public boolean acceptsType(DataType other) {
         return sameType(other);
     }
@@ -860,6 +871,17 @@ public abstract class DataType {
      */
     public boolean isInjectiveCastTo(DataType target) {
         return this.equals(target);
+    }
+
+    /**
+     * Whether grouping and null-safe equality can be used to replace a value by its group
+     * representative in deterministic expressions. Both operations must identify the same
+     * values, and expressions must observe the same value for all members of a group.
+     * For example, {@code signbit(CAST('+0.0' AS DOUBLE))} is false and
+     * {@code signbit(CAST('-0.0' AS DOUBLE))} is true, even though both zeros belong to the same group.
+     */
+    public boolean supportsValuePreservingGrouping() {
+        return false;
     }
 
     public static List<DataType> trivialTypes() {

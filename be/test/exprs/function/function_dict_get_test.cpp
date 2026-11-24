@@ -40,8 +40,8 @@ TEST(FunctionDictGetTest, test_without_dict_function) {
 
     FunctionContext fn_context {};
     fn_context._arg_types.resize(3);
-    std::vector<std::shared_ptr<doris::ColumnPtrWrapper>> constant_cols {
-            std::make_shared<doris::ColumnPtrWrapper>(
+    std::vector<std::shared_ptr<doris::ConstantExprResult>> constant_cols {
+            std::make_shared<doris::ConstantExprResult>(
                     ColumnHelper::create_column<DataTypeString>({"test"})),
     };
 
@@ -64,8 +64,8 @@ TEST(FunctionDictGetTest, test_without_dict_id) {
 
     FunctionContext fn_context {};
     fn_context._arg_types.resize(3);
-    std::vector<std::shared_ptr<doris::ColumnPtrWrapper>> constant_cols {
-            std::make_shared<doris::ColumnPtrWrapper>(
+    std::vector<std::shared_ptr<doris::ConstantExprResult>> constant_cols {
+            std::make_shared<doris::ConstantExprResult>(
                     ColumnHelper::create_column<DataTypeString>({"test"})),
     };
 

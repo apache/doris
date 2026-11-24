@@ -49,6 +49,20 @@ options { tokenVocab = DorisLexer; }
                 ctx.getParent().getText(), ctx);
     }
 
+    private void validateQuotedTableSuffix(Token tableEnd, TableAliasContext alias) {
+        Token aliasStart = alias.getStart();
+        // A suffix attached to a quoted table name otherwise becomes a base-table scan alias.
+        // Keep separated or explicit dollar-prefixed aliases valid.
+        if (tableEnd.getType() == BACKQUOTED_IDENTIFIER
+                && aliasStart.getType() == IDENTIFIER
+                && aliasStart.getText().startsWith("$")
+                && tableEnd.getStopIndex() + 1 == aliasStart.getStartIndex()) {
+            throw new org.apache.doris.nereids.exceptions.ParseException(
+                    "A '$' suffix cannot be attached outside a quoted table name. "
+                    + "Quote the full table name or separate an alias with AS or whitespace.", alias);
+        }
+    }
+
     private boolean isQueryOrganizationStart() {
         int tokenType = _input.LA(1);
         return tokenType == ORDER || tokenType == LIMIT;
@@ -136,6 +150,51 @@ statementBase
     | analyzeStatsStatement
     | transactionStatement
     | grantRevokeStatement
+    | hboStatement
+    ;
+
+// HBO manual statistics management. 'HBO' is a lexer keyword which is also listed in nonReserved,
+// so it stays usable as an identifier everywhere else; the statement has to start with that token
+// rather than with a plain identifier, otherwise a statement which matches no alternative at all
+// (e.g. 'abcdefg') would enter these alternatives, consume the identifier and be reported as
+// "no viable alternative" instead of as the plain syntax error of an unknown statement. The
+// remaining words are not reserved: 'STATISTICS' and 'EXPANSION' are matched as identifiers and
+// validated in the logical plan builder. The more specific STATISTICS forms come first:
+// 'HBO DELETE EXPANSION <fp>' can only match the expansion alternative because the statistics
+// alternative would require an extra identifier token after the scope.
+hboStatement
+    // 'VALUE' / 'TYPE' / 'STRUCT' are non reserved words, i.e. they are also valid identifiers, so
+    // the parameter names are matched with hboWord (plain identifiers only) to keep
+    // 'SET STATISTICS VALUE=1 TYPE=EXACT' distinguishable from 'SET STATISTICS VALUE=1 FINGERPRINT=..'
+    : HBO SET scope=identifier? statistics=identifier
+          hboSetParam+                                                 #hboSetStatistics
+    | HBO DELETE staleWord=identifier statistics=identifier
+          (olderWord=identifier olderThan=INTEGER_VALUE)?               #hboDeleteStaleStatistics
+    | HBO DELETE scope=identifier? statistics=identifier
+          fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL      #hboDeleteStatistics
+    | HBO SHOW scope=identifier? statistics=identifier (FULL)?
+          (LIKE likePattern=STRING_LITERAL)?                           #hboShowStatistics
+    ;
+
+// one named parameter of HBO SET STATISTICS: they are collected in any order and validated in the
+// logical plan builder, so a wrong, repeated or unknown parameter gives a readable error
+hboSetParam
+    : VALUE EQ value=(INTEGER_VALUE | DECIMAL_VALUE)                   #hboSetValue
+    | TYPE EQ typeName=identifier                                      #hboSetType
+    | STRUCT EQ structCanonical=STRING_LITERAL                         #hboSetStruct
+    | fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL            #hboSetFingerprint
+    | valueWord=hboWord EQ valueName=identifier                        #hboSetWord
+    // a parameter name which is not one of the words above, with any value shape, so that a typo
+    // like FOO=1 is reported as an unknown parameter instead of as a parser error
+    | unknownWord=hboWord EQ unknownString=STRING_LITERAL              #hboSetUnknown
+    | unknownWord=hboWord EQ unknownNumber=(INTEGER_VALUE | DECIMAL_VALUE)   #hboSetUnknown
+    | unknownWord=hboWord EQ unknownName=identifier                    #hboSetUnknown
+    ;
+
+// hbo parameter name: deliberately not 'identifier' (which includes the non reserved keywords)
+hboWord
+    : IDENTIFIER
+    | quotedIdentifier
     ;
 
 queryOrDmlStatement
@@ -535,6 +594,7 @@ alterStatement
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
+        (retainCurrent=RETAIN CURRENT PASSWORD | discardOld=DISCARD OLD PASSWORD)?
         passwordOption requireClause? commentSpec?                                          #alterUser
     ;
 
@@ -590,7 +650,7 @@ showStatement
     | SHOW EXPORT ((FROM | IN) database=multipartIdentifier)? wildWhere?
         sortClause? limitClause?                                                    #showExport
     | SHOW LAST INSERT                                                              #showLastInsert
-    | SHOW ((CHAR SET) | CHARSET)                                                   #showCharset
+    | SHOW ((CHAR SET) | CHARSET) wildWhere?                                        #showCharset
     | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
     | SHOW CREATE statementScope? FUNCTION functionIdentifier
         LEFT_PAREN functionArguments? RIGHT_PAREN
@@ -1224,7 +1284,8 @@ optionWithoutType
     | NAMES (charsetName=identifierOrText | DEFAULT)
         (COLLATE collateName=identifierOrText | DEFAULT)?               #setCollate
     | PASSWORD (FOR userIdentify)? EQ (pwd=STRING_LITERAL
-        | (isPlain=PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN)) #setPassword
+        | (isPlain=PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN))
+        (retainCurrent=RETAIN CURRENT PASSWORD)?                        #setPassword
     | LDAP_ADMIN_PASSWORD EQ (pwd=STRING_LITERAL
         | (PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN))         #setLdapAdminPassword
     | variable                                                          #setVariableWithoutType
@@ -1721,7 +1782,8 @@ optScanParams
 
 relationPrimary
     : multipartIdentifier optScanParams? materializedViewName? tableSnapshot? specifiedPartition?
-       tabletList? tableAlias sample? relationHint? lateralView*                           #tableName
+       tabletList? tableAlias {validateQuotedTableSuffix($multipartIdentifier.stop, $tableAlias.ctx);}
+       sample? relationHint? lateralView*                                                 #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
@@ -2360,6 +2422,7 @@ nonReserved
     | DIAGNOSIS
     | DICTIONARIES
     | DICTIONARY
+    | DISCARD
     | DISTINCTPC
     | DISTINCTPCSA
     | DO
@@ -2500,6 +2563,7 @@ nonReserved
     | OF
     | OFF
     | OFFSET
+    | OLD
     | ONLY
     | OPEN
     | OPTIMIZE
@@ -2653,4 +2717,5 @@ nonReserved
     | YEAR
     | YEAR_MONTH
 //--DEFAULT-NON-RESERVED-END
+    | HBO
     ;

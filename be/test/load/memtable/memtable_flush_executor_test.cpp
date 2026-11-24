@@ -72,7 +72,7 @@ public:
 
     Status init(const RowsetWriterContext& ctx) override {
         _context = ctx;
-        _context._need_allocate_lsn = _context.write_binlog_opt().enable ||
+        _context._need_allocate_lsn = _context.write_changelog_opt().enable ||
                                       (_context.tablet_schema != nullptr &&
                                        _context.tablet_schema->row_lsn_col_idx() >= 0);
         return Status::OK();
@@ -206,7 +206,7 @@ protected:
 
     Status create_group_rowset_writer(const GroupFlushTestContext& ctx, int64_t load_id,
                                       const std::shared_ptr<RowsetWriter>& data_writer,
-                                      const std::shared_ptr<RowsetWriter>& binlog_writer,
+                                      const std::shared_ptr<RowsetWriter>& changelog_writer,
                                       std::shared_ptr<GroupRowsetWriter>* group_writer) {
         RowsetWriterContext data_ctx;
         data_ctx.tablet_schema = ctx.tablet->tablet_schema();
@@ -214,13 +214,13 @@ protected:
         data_ctx.load_id.set_lo(load_id);
         RETURN_IF_ERROR(data_writer->init(data_ctx));
 
-        RowsetWriterContext binlog_ctx = data_ctx;
-        binlog_ctx.write_binlog_opt().enable = true;
-        RETURN_IF_ERROR(binlog_writer->init(binlog_ctx));
+        RowsetWriterContext changelog_ctx = data_ctx;
+        changelog_ctx.write_changelog_opt().enable = true;
+        RETURN_IF_ERROR(changelog_writer->init(changelog_ctx));
 
         auto writer = std::make_shared<GroupRowsetWriter>();
         writer->set_data_writer(data_writer);
-        writer->set_row_binlog_writer(binlog_writer);
+        writer->set_changelog_writer(changelog_writer);
         RETURN_IF_ERROR(writer->init(data_ctx));
         *group_writer = std::move(writer);
         return Status::OK();
@@ -257,7 +257,7 @@ protected:
                                                         {"k2", TPrimitiveType::SMALLINT, true},
                                                         {"k3", TPrimitiveType::INT, true}});
         ctx->request.__set_enable_unique_key_merge_on_write(true);
-        testutil::enable_row_binlog(&ctx->request);
+        testutil::enable_changelog(&ctx->request);
         auto profile = std::make_unique<RuntimeProfile>("CreateTablet");
         ASSERT_TRUE(storage_engine()->create_tablet(ctx->request, profile.get()).ok());
 
@@ -482,21 +482,21 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
         prepare_group_flush_test_context(10001, 270068373, {1000, 1001}, &ctx);
 
         std::atomic<int> data_flush_cnt = 0;
-        std::atomic<int> binlog_flush_cnt = 0;
+        std::atomic<int> changelog_flush_cnt = 0;
         auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt);
-        auto binlog_writer = std::make_shared<MockRowsetWriter>(&binlog_flush_cnt);
+        auto changelog_writer = std::make_shared<MockRowsetWriter>(&changelog_flush_cnt);
         std::shared_ptr<GroupRowsetWriter> group_writer;
-        ASSERT_TRUE(
-                create_group_rowset_writer(ctx, 1, data_writer, binlog_writer, &group_writer).ok());
+        ASSERT_TRUE(create_group_rowset_writer(ctx, 1, data_writer, changelog_writer, &group_writer)
+                            .ok());
 
         std::shared_ptr<FlushToken> flush_token;
         ASSERT_TRUE(create_group_flush_token(ctx, group_writer, &flush_token).ok());
         ASSERT_TRUE(flush_token->submit(ctx.memtable).ok());
         ASSERT_TRUE(flush_token->wait().ok());
         EXPECT_EQ(1, data_flush_cnt.load());
-        EXPECT_EQ(1, binlog_flush_cnt.load());
-        EXPECT_EQ(data_writer->last_segment_id(), binlog_writer->last_segment_id());
-        auto seg_lsn = binlog_writer->last_seg_lsn();
+        EXPECT_EQ(1, changelog_flush_cnt.load());
+        EXPECT_EQ(data_writer->last_segment_id(), changelog_writer->last_segment_id());
+        auto seg_lsn = changelog_writer->last_seg_lsn();
         ASSERT_NE(seg_lsn, nullptr);
         ASSERT_EQ(ctx.memtable->raw_rows(), seg_lsn->size());
         EXPECT_EQ(1000, (*seg_lsn)[0]);
@@ -512,13 +512,13 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
         prepare_group_flush_test_context(10002, 270068374, {2000, 2001}, &ctx);
 
         std::atomic<int> data_flush_cnt = 0;
-        std::atomic<int> binlog_flush_cnt = 0;
+        std::atomic<int> changelog_flush_cnt = 0;
         auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt);
-        auto binlog_writer =
-                std::make_shared<MockRowsetWriter>(&binlog_flush_cnt, true, "binlog flush failed");
+        auto changelog_writer = std::make_shared<MockRowsetWriter>(&changelog_flush_cnt, true,
+                                                                   "changelog flush failed");
         std::shared_ptr<GroupRowsetWriter> group_writer;
-        ASSERT_TRUE(
-                create_group_rowset_writer(ctx, 2, data_writer, binlog_writer, &group_writer).ok());
+        ASSERT_TRUE(create_group_rowset_writer(ctx, 2, data_writer, changelog_writer, &group_writer)
+                            .ok());
 
         std::shared_ptr<FlushToken> flush_token;
         ASSERT_TRUE(create_group_flush_token(ctx, group_writer, &flush_token).ok());
@@ -526,9 +526,9 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
 
         Status wait_st = flush_token->wait();
         EXPECT_FALSE(wait_st.ok());
-        EXPECT_NE(wait_st.to_string().find("binlog flush failed"), std::string::npos);
-        EXPECT_EQ(1, binlog_flush_cnt.load());
-        // Data and binlog flush tasks run concurrently. If binlog fails first,
+        EXPECT_NE(wait_st.to_string().find("changelog flush failed"), std::string::npos);
+        EXPECT_EQ(1, changelog_flush_cnt.load());
+        // Data and changelog flush tasks run concurrently. If changelog fails first,
         // data flush may be skipped by the failed flush status.
         EXPECT_LE(flush_token->get_stats().flush_finish_count.load(), 1);
         EXPECT_EQ(0, flush_token->get_stats().flush_submit_count.load());
@@ -544,12 +544,13 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushTokenPartialSuccess) {
     prepare_group_flush_test_context(10003, 270068375, {3000, 3001}, &ctx);
 
     std::atomic<int> data_flush_cnt = 0;
-    std::atomic<int> binlog_flush_cnt = 0;
+    std::atomic<int> changelog_flush_cnt = 0;
     auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt);
-    auto binlog_writer =
-            std::make_shared<MockRowsetWriter>(&binlog_flush_cnt, true, "binlog flush failed", 100);
+    auto changelog_writer = std::make_shared<MockRowsetWriter>(&changelog_flush_cnt, true,
+                                                               "changelog flush failed", 100);
     std::shared_ptr<GroupRowsetWriter> group_writer;
-    ASSERT_TRUE(create_group_rowset_writer(ctx, 3, data_writer, binlog_writer, &group_writer).ok());
+    ASSERT_TRUE(
+            create_group_rowset_writer(ctx, 3, data_writer, changelog_writer, &group_writer).ok());
 
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("MemTableGroupFlushTestPool")
@@ -564,14 +565,14 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushTokenPartialSuccess) {
 
     Status wait_st = flush_token->wait();
     EXPECT_FALSE(wait_st.ok());
-    EXPECT_NE(wait_st.to_string().find("binlog flush failed"), std::string::npos);
+    EXPECT_NE(wait_st.to_string().find("changelog flush failed"), std::string::npos);
     EXPECT_EQ(1, data_flush_cnt.load());
-    EXPECT_EQ(1, binlog_flush_cnt.load());
+    EXPECT_EQ(1, changelog_flush_cnt.load());
     EXPECT_EQ(1, flush_token->get_stats().flush_finish_count.load());
     EXPECT_EQ(0, flush_token->get_stats().flush_submit_count.load());
 
     // Flush-error path: the LSN entry inserted by the data subtask (whose _memtable2block ran
-    // call_once before the binlog flush failed) must still be cleaned up when the shared
+    // call_once before the changelog flush failed) must still be cleaned up when the shared
     // memtable is destroyed. wait() only observes the in-run() deferred counters, so give the
     // pool a moment to destroy the finished task objects first.
     auto lsn_map = group_writer->context().allocated_lsn_map;
@@ -596,13 +597,14 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushTaskOutlivesToken) {
     prepare_group_flush_test_context(10004, 270068376, {4000, 4001}, &ctx);
 
     std::atomic<int> data_flush_cnt = 0;
-    std::atomic<int> binlog_flush_cnt = 0;
-    std::atomic<int> binlog_flush_enter_cnt = 0;
+    std::atomic<int> changelog_flush_cnt = 0;
+    std::atomic<int> changelog_flush_enter_cnt = 0;
     auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt);
-    auto binlog_writer = std::make_shared<MockRowsetWriter>(&binlog_flush_cnt, false, "", 500,
-                                                            &binlog_flush_enter_cnt);
+    auto changelog_writer = std::make_shared<MockRowsetWriter>(&changelog_flush_cnt, false, "", 500,
+                                                               &changelog_flush_enter_cnt);
     std::shared_ptr<GroupRowsetWriter> group_writer;
-    ASSERT_TRUE(create_group_rowset_writer(ctx, 4, data_writer, binlog_writer, &group_writer).ok());
+    ASSERT_TRUE(
+            create_group_rowset_writer(ctx, 4, data_writer, changelog_writer, &group_writer).ok());
 
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("MemTableGroupFlushTestPool")
@@ -616,23 +618,23 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushTaskOutlivesToken) {
     ASSERT_TRUE(flush_token->submit(ctx.memtable).ok());
 
     // Capture the LSN map and segment id while the writer is still alive, then drop every
-    // external reference to the token and the group writer while the binlog subtask is parked
+    // external reference to the token and the group writer while the changelog subtask is parked
     // inside its delayed flush_memtable() and the data subtask has fully finished.
     auto lsn_map = group_writer->context().allocated_lsn_map;
     ASSERT_NE(lsn_map, nullptr);
-    while (binlog_flush_enter_cnt.load() == 0 || data_flush_cnt.load() == 0) {
+    while (changelog_flush_enter_cnt.load() == 0 || data_flush_cnt.load() == 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     flush_token.reset();
     group_writer.reset();
 
-    // The binlog subtask finishes run(): its local token shared_ptr is now the LAST reference,
+    // The changelog subtask finishes run(): its local token shared_ptr is now the LAST reference,
     // so the FlushToken and the GroupRowsetWriter (with RowsetWriterContext) die at the end of
     // run(), before the thread pool destroys the task and ~SharedMemtable() runs. Before the
     // fix this read freed memory (ASAN heap-use-after-free); after the fix SharedMemtable owns
     // the LSN map and the cleanup below is safe.
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    EXPECT_EQ(1, binlog_flush_cnt.load());
+    EXPECT_EQ(1, changelog_flush_cnt.load());
     EXPECT_FALSE(lsn_map->contains_segment(data_writer->last_segment_id()));
 
     drop_tablet(ctx.request);
@@ -650,15 +652,16 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushQueuedSubtaskAfterToke
     prepare_group_flush_test_context(10005, 270068377, {5000, 5001}, &ctx);
 
     std::atomic<int> data_flush_cnt = 0;
-    std::atomic<int> binlog_flush_cnt = 0;
+    std::atomic<int> changelog_flush_cnt = 0;
     std::atomic<int> data_flush_enter_cnt = 0;
     // Single-threaded pool: the data subtask runs first (parked in its delayed flush), the
-    // binlog subtask stays queued until the data subtask's run() has returned.
+    // changelog subtask stays queued until the data subtask's run() has returned.
     auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt, false, "", 500,
                                                           &data_flush_enter_cnt);
-    auto binlog_writer = std::make_shared<MockRowsetWriter>(&binlog_flush_cnt);
+    auto changelog_writer = std::make_shared<MockRowsetWriter>(&changelog_flush_cnt);
     std::shared_ptr<GroupRowsetWriter> group_writer;
-    ASSERT_TRUE(create_group_rowset_writer(ctx, 5, data_writer, binlog_writer, &group_writer).ok());
+    ASSERT_TRUE(
+            create_group_rowset_writer(ctx, 5, data_writer, changelog_writer, &group_writer).ok());
 
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("MemTableGroupFlushTestPool")
@@ -677,7 +680,7 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushQueuedSubtaskAfterToke
     // inserted by _memtable2block at this point), then drop the external references while the
     // data subtask's run() still holds the token alive. When its run() returns, the local
     // token shared_ptr is the last reference and the FlushToken/GroupRowsetWriter die; the
-    // queued binlog subtask then runs with an expired weak token.
+    // queued changelog subtask then runs with an expired weak token.
     while (data_flush_enter_cnt.load() == 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -686,9 +689,9 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushQueuedSubtaskAfterToke
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     EXPECT_EQ(1, data_flush_cnt.load());
-    // The binlog subtask observed the expired token and skipped its flush.
-    EXPECT_EQ(0, binlog_flush_cnt.load());
-    // The shared memtable was destroyed by the binlog task's destruction and removed the
+    // The changelog subtask observed the expired token and skipped its flush.
+    EXPECT_EQ(0, changelog_flush_cnt.load());
+    // The shared memtable was destroyed by the changelog task's destruction and removed the
     // segment's LSN entry through its OWNED map (no dangling RowsetWriterContext access).
     EXPECT_FALSE(lsn_map->contains_segment(data_writer->last_segment_id()));
 
@@ -704,11 +707,12 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushTokenCancelledCleanup)
     prepare_group_flush_test_context(10006, 270068378, {6000, 6001}, &ctx);
 
     std::atomic<int> data_flush_cnt = 0;
-    std::atomic<int> binlog_flush_cnt = 0;
+    std::atomic<int> changelog_flush_cnt = 0;
     auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt);
-    auto binlog_writer = std::make_shared<MockRowsetWriter>(&binlog_flush_cnt);
+    auto changelog_writer = std::make_shared<MockRowsetWriter>(&changelog_flush_cnt);
     std::shared_ptr<GroupRowsetWriter> group_writer;
-    ASSERT_TRUE(create_group_rowset_writer(ctx, 6, data_writer, binlog_writer, &group_writer).ok());
+    ASSERT_TRUE(
+            create_group_rowset_writer(ctx, 6, data_writer, changelog_writer, &group_writer).ok());
 
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("MemTableGroupFlushTestPool")
@@ -728,7 +732,7 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushTokenCancelledCleanup)
     // No flush ran, so no LSN entry was inserted and there is nothing stale to leak.
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     EXPECT_EQ(0, data_flush_cnt.load());
-    EXPECT_EQ(0, binlog_flush_cnt.load());
+    EXPECT_EQ(0, changelog_flush_cnt.load());
 
     drop_tablet(ctx.request);
 }
@@ -750,11 +754,12 @@ TEST_P(MemTableFlushCancellationTest, SharedCancellationSkipsQueuedFlushes) {
     prepare_group_flush_test_context(10007 + group_flush, 270068379 + group_flush, {7000, 7001},
                                      &ctx);
     std::atomic<int> data_flush_cnt = 0;
-    std::atomic<int> binlog_flush_cnt = 0;
+    std::atomic<int> changelog_flush_cnt = 0;
     auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt);
-    auto binlog_writer = std::make_shared<MockRowsetWriter>(&binlog_flush_cnt);
+    auto changelog_writer = std::make_shared<MockRowsetWriter>(&changelog_flush_cnt);
     std::shared_ptr<GroupRowsetWriter> group_writer;
-    ASSERT_TRUE(create_group_rowset_writer(ctx, 7, data_writer, binlog_writer, &group_writer).ok());
+    ASSERT_TRUE(
+            create_group_rowset_writer(ctx, 7, data_writer, changelog_writer, &group_writer).ok());
 
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("CancelledFlushTest")
@@ -787,7 +792,7 @@ TEST_P(MemTableFlushCancellationTest, SharedCancellationSkipsQueuedFlushes) {
     EXPECT_TRUE(token->wait().is<ErrorCode::CANCELLED>());
     pool->wait();
     EXPECT_EQ(data_flush_cnt.load(), 0);
-    EXPECT_EQ(binlog_flush_cnt.load(), 0);
+    EXPECT_EQ(changelog_flush_cnt.load(), 0);
     expect_skipped_flush(token->get_stats());
     EXPECT_FALSE(group_writer->context().allocated_lsn_map->contains_segment(0));
     drop_tablet(ctx.request);
@@ -800,9 +805,9 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, SharedCancellationDuringGroupFlush) 
     GroupFlushTestContext ctx;
     prepare_group_flush_test_context(10009, 270068381, {9000, 9001}, &ctx);
     std::atomic<int> data_flush_cnt = 0;
-    std::atomic<int> binlog_flush_cnt = 0;
+    std::atomic<int> changelog_flush_cnt = 0;
     auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt);
-    auto binlog_writer = std::make_shared<MockRowsetWriter>(&binlog_flush_cnt);
+    auto changelog_writer = std::make_shared<MockRowsetWriter>(&changelog_flush_cnt);
     CountDownLatch entered(1);
     CountDownLatch release(1);
     data_writer->set_flush_hook([&] {
@@ -810,7 +815,8 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, SharedCancellationDuringGroupFlush) 
         release.wait();
     });
     std::shared_ptr<GroupRowsetWriter> group_writer;
-    ASSERT_TRUE(create_group_rowset_writer(ctx, 9, data_writer, binlog_writer, &group_writer).ok());
+    ASSERT_TRUE(
+            create_group_rowset_writer(ctx, 9, data_writer, changelog_writer, &group_writer).ok());
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("RunningFlushCancellationTest")
                         .set_min_threads(1)
@@ -834,7 +840,7 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, SharedCancellationDuringGroupFlush) 
     EXPECT_TRUE(waiter.get().is<ErrorCode::CANCELLED>());
     pool->wait();
     EXPECT_EQ(data_flush_cnt.load(), 1);
-    EXPECT_EQ(binlog_flush_cnt.load(), 0);
+    EXPECT_EQ(changelog_flush_cnt.load(), 0);
     EXPECT_EQ(token->get_stats().flush_submit_count.load(), 0);
     EXPECT_EQ(token->get_stats().flush_running_count.load(), 0);
     EXPECT_FALSE(group_writer->context().allocated_lsn_map->contains_segment(

@@ -20,7 +20,9 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.persist.EditLog.EditLogItem;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
@@ -57,6 +59,37 @@ public class MTMVRelationManagerTest {
         Mockito.when(t4.getCtlName()).thenReturn("ctl1");
         Mockito.when(t4.getDbName()).thenReturn("db1");
         Mockito.when(t4.getTableName()).thenReturn("t4");
+    }
+
+    @Test
+    public void noEligibleCandidateDoesNotCollectQueryPartitions() {
+        MTMVRelationManager manager = new MTMVRelationManager();
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        Assertions.assertTrue(manager.getAvailableMTMVs(Set.of(), context, false, (ctx, mv) -> false).isEmpty());
+        MTMV disabled = Mockito.mock(MTMV.class);
+        MTMV excluded = Mockito.mock(MTMV.class);
+        Assertions.assertTrue(manager.getAvailableMTMVs(Set.of(disabled, excluded), context, false,
+                (ctx, mv) -> mv == excluded).isEmpty());
+        Mockito.verifyNoInteractions(context);
+    }
+
+    @Test
+    public void eligibleCandidatesShareOneQueryPartitionCollection() {
+        MTMVRelationManager manager = Mockito.spy(new MTMVRelationManager());
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        StatementContext statement = new StatementContext();
+        Mockito.when(context.getStatementContext()).thenReturn(statement);
+        MTMV first = Mockito.mock(MTMV.class);
+        MTMV second = Mockito.mock(MTMV.class);
+        Mockito.when(first.isUseForRewrite()).thenReturn(true);
+        Mockito.when(second.isUseForRewrite()).thenReturn(true);
+        Mockito.doReturn(true).when(manager).isMVPartitionValid(
+                Mockito.any(), Mockito.eq(context), Mockito.eq(false), Mockito.anyMap());
+        Assertions.assertEquals(Set.of(first, second), manager.getAvailableMTMVs(
+                Set.of(first, second), context, false, (ctx, mv) -> false));
+        Mockito.verify(context, Mockito.times(1)).getStatementContext();
+        Mockito.verify(manager, Mockito.times(2)).isMVPartitionValid(
+                Mockito.any(), Mockito.eq(context), Mockito.eq(false), Mockito.anyMap());
     }
 
     @Test

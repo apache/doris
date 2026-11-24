@@ -416,7 +416,7 @@ public:
             return Status::InvalidArgument(
                     "character argument to convert function must be constant.");
         }
-        const auto& character_data = context->get_constant_col(1)->column_ptr->get_data_at(0);
+        const auto& character_data = context->get_constant_col(1)->column().get_data_at(0);
         if (!iequal(character_data.to_string(), "gbk")) {
             return Status::RuntimeError(
                     "Illegal second argument column of function convert. now only support "
@@ -969,14 +969,23 @@ public:
         const auto* col_from = assert_cast<const ColumnString*>(argument_columns[1].get());
         const auto* col_to = assert_cast<const ColumnString*>(argument_columns[2].get());
 
-        bool is_ascii = col_source->is_ascii() && col_from->is_ascii() && col_to->is_ascii();
         auto impl_vectors = impl_vectors_utf8<false>;
-        if (col_const[1] && col_const[2] && is_ascii) {
-            impl_vectors = impl_vectors_ascii<true>;
-        } else if (col_const[1] && col_const[2]) {
-            impl_vectors = impl_vectors_utf8<true>;
-        } else if (is_ascii) {
-            impl_vectors = impl_vectors_ascii<false>;
+        if (col_const[1] && col_const[2]) {
+            // Non-ASCII mappings require UTF-8 processing regardless of the source.
+            const bool mapping_ascii = col_from->is_ascii() && col_to->is_ascii();
+            if (mapping_ascii) {
+                const bool source_ascii = col_source->is_ascii();
+                impl_vectors = source_ascii ? impl_vectors_ascii<true> : impl_vectors_mixed<true>;
+            } else {
+                impl_vectors = impl_vectors_utf8<true>;
+            }
+        } else {
+            // A non-ASCII source needs no mapping scans when the mappings vary by row.
+            const bool all_ascii =
+                    col_source->is_ascii() && col_from->is_ascii() && col_to->is_ascii();
+            if (all_ascii) {
+                impl_vectors = impl_vectors_ascii<false>;
+            }
         }
         impl_vectors(col_source, col_from, col_to, col_res.get());
         block.get_by_position(result).column = std::move(col_res);
@@ -984,6 +993,69 @@ public:
     }
 
 private:
+    static bool bytes_is_ascii(const char* data, size_t size) {
+        return simd::VStringFunctions::is_ascii({data, size});
+    }
+
+    // Per-row dispatch: ASCII source rows use the 128-byte table; only non-ASCII
+    // rows fall back to the UTF-8 map. Requires from/to to be ASCII.
+    template <bool IsConst>
+    static void impl_vectors_mixed(const ColumnString* col_source, const ColumnString* col_from,
+                                   const ColumnString* col_to, ColumnString* col_res) {
+        auto& res_chars = col_res->get_chars();
+        auto& res_offsets = col_res->get_offsets();
+        res_chars.reserve(col_source->get_chars().size());
+        res_offsets.reserve(col_source->get_offsets().size());
+        DCHECK_EQ(col_res->size(), 0);
+        AsciiMap map;
+        std::unordered_map<std::string_view, std::string_view> translate_map;
+        if (IsConst) {
+            const auto& from_str = col_from->get_data_at(0);
+            const auto& to_str = col_to->get_data_at(0);
+            if (!build_translate_map_ascii(map, from_str, to_str)) {
+                // No deletes: whole-column table translate; high bytes (>=128) are
+                // identity in the map so multi-byte UTF-8 sequences are preserved.
+                res_offsets.insert(col_source->get_offsets().begin(),
+                                   col_source->get_offsets().end());
+                res_chars.insert(col_source->get_chars().begin(), col_source->get_chars().end());
+                for (size_t i = 0; i < res_chars.size(); ++i) {
+                    auto c = static_cast<UInt8>(res_chars[i]);
+                    if (c < 128) {
+                        res_chars[i] = static_cast<char>(map[c]);
+                    }
+                }
+                return;
+            }
+            translate_map =
+                    build_translate_map_utf8(from_str.to_string_view(), to_str.to_string_view());
+        }
+
+        std::string row_buf;
+        for (size_t i = 0; i < col_source->size(); ++i) {
+            const auto& source_str = col_source->get_data_at(i);
+            if (!IsConst) {
+                const auto& from_str = col_from->get_data_at(i);
+                const auto& to_str = col_to->get_data_at(i);
+                build_translate_map_ascii(map, from_str, to_str);
+                translate_map = build_translate_map_utf8(from_str.to_string_view(),
+                                                         to_str.to_string_view());
+            }
+            if (bytes_is_ascii(source_str.data, source_str.size)) {
+                // ASCII row: O(n) table lookup, no hashing
+                row_buf.clear();
+                row_buf.resize(source_str.size);
+                auto written =
+                        translate_ascii(source_str, map, reinterpret_cast<UInt8*>(row_buf.data()));
+                row_buf.resize(written);
+                col_res->insert_data(row_buf.data(), row_buf.size());
+            } else {
+                // Non-ASCII row: UTF-8 map (built once when IsConst)
+                auto translated_str = translate_utf8(source_str.to_string_view(), translate_map);
+                col_res->insert_data(translated_str.data(), translated_str.size());
+            }
+        }
+    }
+
     template <bool IsConst>
     static void impl_vectors_ascii(const ColumnString* col_source, const ColumnString* col_from,
                                    const ColumnString* col_to, ColumnString* col_res) {
@@ -1118,9 +1190,10 @@ private:
         for (size_t i = 0, char_size = 0; i < source_str.size(); i += char_size) {
             char_size = get_utf8_byte_length(source_str[i]);
             auto c = source_str.substr(i, char_size);
-            if (translate_map.find(c) != translate_map.end()) {
-                if (!translate_map[c].empty()) {
-                    result.append(translate_map[c]);
+            auto it = translate_map.find(c);
+            if (it != translate_map.end()) {
+                if (!it->second.empty()) {
+                    result.append(it->second);
                 }
             } else {
                 result.append(c);
@@ -1548,7 +1621,7 @@ public:
         }
 
         auto* const_col = context->get_constant_col(1);
-        auto mode_ref = const_col->column_ptr->get_data_at(0);
+        auto mode_ref = const_col->column().get_data_at(0);
         std::string lower_mode = doris::to_lower(std::string(doris::trim(mode_ref.to_string())));
 
         UErrorCode status = U_ZERO_ERROR;

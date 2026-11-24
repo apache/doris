@@ -76,18 +76,20 @@ class OssFileSystemPropertiesTest {
         Assertions.assertFalse(rendered.contains("oss-token-plain"), rendered);
         Assertions.assertTrue(rendered.contains("secretKey=***"), rendered);
         Assertions.assertTrue(rendered.contains("sessionToken=***"), rendered);
-        Assertions.assertTrue(rendered.contains("accessKey=oss-ak-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("oss-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("accessKey=***"), rendered);
+        Assertions.assertEquals("oss-ak-plain", properties.getAccessKey());
         Assertions.assertTrue(rendered.contains("https://oss-cn-hangzhou.aliyuncs.com"), rendered);
     }
 
     @Test
-    void provider_sensitivePropertyKeysCoverSecretsButNotAccessKey() {
+    void provider_sensitivePropertyKeysCoverAllCredentials() {
         Set<String> keys = new OssFileSystemProvider().sensitivePropertyKeys();
 
         Assertions.assertTrue(keys.contains("oss.secret_key"), keys.toString());
         Assertions.assertTrue(keys.contains("OSS_SECRET_KEY"), keys.toString());
-        Assertions.assertFalse(keys.contains("OSS_ACCESS_KEY"), keys.toString());
-        Assertions.assertFalse(keys.contains("oss.access_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("OSS_ACCESS_KEY"), keys.toString());
+        Assertions.assertTrue(keys.contains("oss.access_key"), keys.toString());
     }
 
     @Test

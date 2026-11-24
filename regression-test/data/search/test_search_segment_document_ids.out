@@ -8,6 +8,7 @@
 
 -- !V2_not_or --
 1
+2
 
 -- !V2_missing_or --
 0
@@ -16,8 +17,10 @@
 -- !V2_missing_and --
 
 -- !V2_missing_not_and --
+0
 1
 2
+3
 
 -- !V2_phrase --
 3
@@ -34,6 +37,7 @@
 
 -- !SNII_not_or --
 1
+2
 
 -- !SNII_missing_or --
 0
@@ -42,8 +46,10 @@
 -- !SNII_missing_and --
 
 -- !SNII_missing_not_and --
+0
 1
 2
+3
 
 -- !SNII_phrase --
 3

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.InternalCatalog;
@@ -33,7 +34,6 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -68,6 +68,8 @@ import java.util.Set;
  * Column name constants are defined in {@link Column}.
  */
 public class IvmUtil {
+    public static final StreamScanType IVM_STREAM_SCAN_TYPE = StreamScanType.MIN_DELTA;
+
     // Exceptional hidden-column defaults. Numeric and string-like hidden columns use zero and
     // empty string by default; add an entry here only when a hidden column requires a different
     // value.
@@ -83,14 +85,22 @@ public class IvmUtil {
     }
 
     /**
-     * A base scan's own storage column that must not be carried into an IVM plan, because its name
-     * collides with a column the delta rewrite binds by name and it is read by the plan above.
+     * A base scan's own storage column that must not be carried into an IVM plan.
      * <p>
-     * The base table's sequence column ({@code Column.SEQUENCE_COL}) is exactly such a column: IVM owns
-     * the MV's sequence and binds it by name, so a base sequence surviving normalization shadows the
-     * delta-allocated one and the merge-on-write merge retracts an updated row. The base delete sign,
-     * version and commit tso are recomputed by the plan and pruned when unused, and the base row lsn is
-     * the row identity IVM reads for DUP detail tables, so none of them is masked here.
+     * The criterion is not "hidden column": it is a column whose name matches a column IVM owns and
+     * that the delta rewrite reads back from the plan output by name. The base table's sequence
+     * column ({@code Column.SEQUENCE_COL}) is the only such column today: IVM owns the MV's sequence
+     * and several handlers select it with {@code findSlotByName}, so a base sequence surviving
+     * normalization shadows the delta-allocated one. The two can even have different types (a base
+     * DATETIME sequence against the MV's BIGINT), which turns the mistake into a rejected write.
+     * <p>
+     * The other hidden columns stay in place, deliberately. The base delete sign is referenced by the
+     * {@code __DORIS_DELETE_SIGN__ = 0} filter directly above the scan, by ExprId; masking it would
+     * leave that filter with a dangling slot. The MV's own delete sign is computed from the delta
+     * factor rather than looked up, and for a merge-on-write base table a visible row's delete sign is
+     * always 0. Version and commit tso are not read by name either -- the sink maps its hidden columns
+     * positionally and defaults the missing ones -- and they are pruned when unused. The row lsn is
+     * the row identity IVM reads for DUP detail tables.
      */
     public static boolean isBaseScanStorageColumnToMask(String columnName) {
         return Column.SEQUENCE_COL.equalsIgnoreCase(columnName);
@@ -122,14 +132,16 @@ public class IvmUtil {
     }
 
     public static boolean isCommonHiddenSlot(String columnName) {
+        // A changelog before column ends with its user column's name, which may itself end with "_COL".
         return columnName != null && (columnName.equals(Column.DELETE_SIGN)
                 || (columnName.startsWith(Column.HIDDEN_COLUMN_PREFIX)
-                && columnName.endsWith("_COL__") && !isIvmHiddenColumn(columnName)));
+                && columnName.endsWith("_COL__") && !isIvmHiddenColumn(columnName)
+                && !Column.isChangelogBeforeColumn(columnName)));
     }
 
     /**
      * The default a hidden slot takes when the plan writing an append-only detail MV does not produce it.
-     * That model keeps no row identity in the row lsn column: the column is the MV's own binlog
+     * That model keeps no row identity in the row lsn column: the column is the MV's own changelog
      * bookkeeping, which the storage layer fills in as it writes the row, so a refresh appending a value
      * for it is not what makes the MV correct. The unique-key model is the opposite, which is why its
      * default is refused outright.
@@ -140,6 +152,12 @@ public class IvmUtil {
                 : getCommonHiddenSlotDefault(columnName, targetType);
     }
 
+    /**
+     * The value a common hidden slot takes when the plan writing it does not produce it. The data
+     * type owns that value ({@link DataType#zeroValue()}), so a hidden slot of any type -- a
+     * base table's sequence column can be a DATE/DATETIME, for example -- gets a non-null
+     * placeholder instead of failing the rewrite; a type without one still fails loudly.
+     */
     public static Expression getCommonHiddenSlotDefault(String columnName, DataType targetType) {
         if (!isCommonHiddenSlot(columnName)) {
             throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
@@ -159,17 +177,9 @@ public class IvmUtil {
         if (defaultValue != null) {
             return defaultValue.castTo(targetType);
         }
-        if (targetType.isNumericType()) {
-            return new IntegerLiteral(0).castTo(targetType);
-        } else if (targetType.isStringLikeType()) {
-            return new VarcharLiteral("").castTo(targetType);
-        } else if (targetType.isBitmapType()) {
-            // Column.SKIP_BITMAP_COL is a bitmap type and uses bitmap_empty() as its default.
-            return new BitmapEmpty();
-        } else {
-            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
-                    "no default value for IVM hidden slot: " + columnName + ", type=" + targetType);
-        }
+        return targetType.zeroValue().orElseThrow(() -> new IvmException(
+                IvmFailureReason.PLAN_REWRITE_FAILED,
+                "no default value for IVM hidden slot: " + columnName + ", type=" + targetType));
     }
 
     /**
@@ -232,6 +242,38 @@ public class IvmUtil {
     public static String ivmAggHiddenColumnName(int ordinal, String stateType) {
         return Column.IVM_HIDDEN_COLUMN_PREFIX + "AGG_" + ordinal + "_" + stateType + "_COL__";
     }
+
+    /**
+     * Whether {@code columnName} is a hidden aggregate state column of the given {@code stateType},
+     * e.g. {@code __DORIS_IVM_AGG_1_MIN_TOPK_COL__}.
+     *
+     * <p>The state key is matched exactly: {@code MIN_TOPK} does not match
+     * {@code MIN_TOPK_BOUND}, {@code SUM}, or {@code COUNT}.
+     */
+    public static boolean isIvmAggStateColumn(String columnName, String stateType) {
+        return columnName != null
+                && columnName.startsWith(Column.IVM_HIDDEN_COLUMN_PREFIX + "AGG_")
+                && columnName.endsWith("_" + stateType + "_COL__");
+    }
+
+    /**
+     * Default MIN/MAX top-K capacity when the MV does not configure {@code ivm_minmax_top_k}.
+     *
+     * <p>8 absorbs the common case (a batch retracting a handful of the smallest values) while
+     * keeping the state column and the delta outputs small; users raise it per MV when their
+     * delete pattern exhausts the range more often.
+     */
+    public static final long DEFAULT_MINMAX_TOP_K = 8;
+
+    /**
+     * Upper bound of the {@code ivm_minmax_top_k} property.
+     *
+     * <p>This bound belongs to the IVM state, not to the {@code min_topk}/{@code max_topk}
+     * aggregate: the aggregate has no upper bound, because its list is bounded by the group's
+     * distinct values. Here the list is a persisted hidden state of every group row and is
+     * rewritten on each refresh, so an unbounded K is not acceptable.
+     */
+    public static final long MAX_IVM_MINMAX_TOP_K = 65536;
 
     /**
      * Creates a hidden ColumnDefinition for the IVM row-id column. */
@@ -366,20 +408,20 @@ public class IvmUtil {
     }
 
     /**
-     * Checks that this base table can produce the changes a refresh reads: it must have row binlog
+     * Checks that this base table can produce the changes a refresh reads: it must have changelog
      * enabled, and it must not be a base table whose own refresh is a partition overwrite. An
      * excluded trigger table produces no delta at all, so it is exempt from the first.
      */
-    public static void validateBinlogEnabled(Set<TableNameInfo> excludedTriggerTables, LogicalOlapScan scan) {
+    public static void validateChangelogEnabled(Set<TableNameInfo> excludedTriggerTables, LogicalOlapScan scan) {
         if (isExcludedTriggerTable(excludedTriggerTables, scan)) {
             return;
         }
         OlapTable table = scan.getTable();
-        if (!table.getBinlogConfig().isEnableForStreaming()) {
-            throw new IvmException(IvmFailureReason.BINLOG_NOT_ENABLED,
-                    "SQL can be incrementally refreshed, but row binlog is not enabled for table: "
+        if (!scan.isChangelogEnabled()) {
+            throw new IvmException(IvmFailureReason.CHANGELOG_NOT_ENABLED,
+                    "SQL can be incrementally refreshed, but changelog is not enabled for table: "
                             + table.getName()
-                            + ". Please set 'binlog.enable' = 'true' and 'binlog.format' = 'ROW'.");
+                            + ". Please set 'changelog.enable' = 'true'.");
         }
         if (table instanceof MTMV && !((MTMV) table).isIvm()) {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,

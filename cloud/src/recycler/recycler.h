@@ -160,12 +160,22 @@ public:
         start();
     }
 
-    ~RecyclerMetricsContext() = default;
+    ~RecyclerMetricsContext() {
+        // Clear the current-round gauges once this round is over. The tablet/segment contexts use
+        // the shared "global_recycler" label across all instances, so skip them here to avoid
+        // zeroing values that other instances are still updating.
+        if (instance_id != "global_recycler") {
+            reset();
+            report();
+        }
+    }
 
     std::atomic_ullong total_need_recycle_data_size = 0;
     std::atomic_ullong total_need_recycle_num = 0;
 
     std::atomic_ullong total_recycled_data_size = 0;
+    std::atomic_ullong total_scanned_num = 0;
+    std::atomic_ullong total_expired_num = 0;
     std::atomic_ullong total_recycled_num = 0;
 
     std::string operation_type;
@@ -190,6 +200,8 @@ public:
         total_need_recycle_data_size = 0;
         total_need_recycle_num = 0;
         total_recycled_data_size = 0;
+        total_scanned_num = 0;
+        total_expired_num = 0;
         total_recycled_num = 0;
         start_time = duration_cast<std::chrono::milliseconds>(
                              std::chrono::system_clock::now().time_since_epoch())
@@ -206,9 +218,15 @@ public:
                     {instance_id, operation_type}, total_recycled_data_size.load());
             g_bvar_recycler_instance_recycle_total_num_since_started.put(
                     {instance_id, operation_type}, total_recycled_num.load());
+            g_bvar_recycler_instance_last_round_recycled_bytes.put({instance_id, operation_type},
+                                                                   total_recycled_data_size.load());
+            g_bvar_recycler_instance_last_round_recycled_num.put({instance_id, operation_type},
+                                                                 total_recycled_num.load());
             LOG(INFO) << "recycle instance: " << instance_id
                       << ", operation type: " << operation_type << ", cost: " << cost
-                      << " ms, total recycled num: " << total_recycled_num.load()
+                      << " ms, total scanned num: " << total_scanned_num.load()
+                      << ", total expired num: " << total_expired_num.load()
+                      << ", total recycled num: " << total_recycled_num.load()
                       << ", total recycled data size: " << total_recycled_data_size.load()
                       << " bytes";
             if (cost != 0) {
@@ -234,10 +252,12 @@ public:
                 g_bvar_recycler_instance_last_round_to_recycle_num.put(
                         {instance_id, operation_type}, value);
             } else {
-                g_bvar_recycler_instance_last_round_recycled_bytes.put(
-                        {instance_id, operation_type}, total_recycled_data_size.load());
-                g_bvar_recycler_instance_last_round_recycled_num.put({instance_id, operation_type},
-                                                                     total_recycled_num.load());
+                g_bvar_recycler_instance_current_round_kv_scanned.put({instance_id, operation_type},
+                                                                      total_scanned_num.load());
+                g_bvar_recycler_instance_current_round_kv_expired.put({instance_id, operation_type},
+                                                                      total_expired_num.load());
+                g_bvar_recycler_instance_current_round_kv_recycled.put(
+                        {instance_id, operation_type}, total_recycled_num.load());
             }
         }
     }
@@ -517,7 +537,7 @@ private:
     // Return 1 if the versioned delete bitmap should be deleted,
     // Return 0 if it can be skipped,
     // negative on error.
-    int should_delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id);
+    int may_have_versioned_delete_bitmap(int64_t partition_id, int64_t tablet_id);
 
     int delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id,
                                            const std::string& rowset_id);
@@ -673,7 +693,8 @@ private:
 
     void submit_recycle_prepare_rowsets_job(SimpleThreadPool& worker_pool,
                                             std::vector<std::string> rowset_keys_to_abort,
-                                            std::atomic_long* num_recycled);
+                                            std::atomic_long* num_recycled,
+                                            RecyclerMetricsContext* metrics_context);
 
     void submit_recycle_tmp_rowsets_job(SimpleThreadPool& worker_pool,
                                         std::vector<std::string> rowset_keys_to_abort,
@@ -713,7 +734,7 @@ private:
     SegmentRecyclerMetricsContext segment_metrics_context_;
 
     // Data tablets in the same partition have the same MoW setting. Cache both true and false so
-    // subsequent rowsets can avoid reading the tablet index and tablet meta. Row-binlog tablets
+    // subsequent rowsets can avoid reading the tablet index and tablet meta. Changelog tablets
     // must not populate this cache because their MoW flag is deliberately false.
     std::mutex partition_mow_cache_mutex;
     std::map<int64_t, bool> partition_mow_cache;

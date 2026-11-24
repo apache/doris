@@ -40,6 +40,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
@@ -60,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.SupportChangelog;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.LargeIntType;
@@ -67,17 +71,18 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -131,7 +136,7 @@ import java.util.stream.Collectors;
  *   <li>MOW (UNIQUE_KEYS + merge-on-write): hash(uk columns) → deterministic
  *   <li>Excluded AGG_KEYS table: hash(agg key columns) → deterministic
  *   <li>DUP_KEYS: row lsn column (__DORIS_ROW_LSN_COL__) is the identity key → deterministic.
- *       DUP tables with row binlog always carry this hidden column at create time, so it is
+ *       DUP tables with changelog always carry this hidden column at create time, so it is
  *       treated like a UNIQUE table's key columns.
  *   <li>Other key types: not supported, throws.
  * </ul>
@@ -198,6 +203,12 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     // The IVM rewrite context of this statement; normalize only runs when it is present, so it needs no
     // presence checks of its own.
     private IvmRewriteContext ivmRewriteContext;
+    // The query plan as it entered normalize; the MIN/MAX capacity auto-detection reads its leaves
+    // and joins before any row-id columns are injected.
+    private Plan inputPlan;
+    // MIN/MAX capacity resolved once per statement (explicit property, or auto 0 for an
+    // append-only plan, or the default).
+    private Long resolvedMinMaxTopK;
     private Set<TableNameInfo> excludedTriggerTables = ImmutableSet.of();
     private final IdentityHashMap<Plan, List<Slot>> identityKeysByNode = new IdentityHashMap<>();
     private int sinkKeyCounter;
@@ -205,14 +216,51 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     private int baseTableRowIdRenameCounter;
 
     /**
+     * Normalizes a unique-key MV statement after {@link IvmNormalizeMTMV} selects its model.
+     * Computes the write plan's signature and checks the existing baseline for incremental and partition refresh.
+     */
+    public Plan normalizeRoot(Plan plan, JobContext jobContext) {
+        Plan result = normalize(plan, jobContext);
+        if (result instanceof LogicalResultSink) {
+            return result;
+        }
+        if (!(result instanceof LogicalOlapTableSink)) {
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                    "IVM MOW normalization requires a table or result sink, but found "
+                            + result.getClass().getSimpleName());
+        }
+
+        IvmPlanSignature signature = new IvmPlanSignatureGenerator().generate(result);
+        if (ivmRewriteContext.isIncrementalRefresh() || ivmRewriteContext.isPartitionsRefresh()) {
+            validatePlanSignature(ivmRewriteContext.getMtmv(), signature);
+        }
+        rewriteResult.setPlanSignature(signature);
+        return result;
+    }
+
+    private void validatePlanSignature(MTMV mtmv, IvmPlanSignature currentSignature) {
+        String storedSignature = mtmv.getIvmInfo().getPlanSignature();
+        if (storedSignature == null || storedSignature.equals(currentSignature.getSha256())) {
+            return;
+        }
+        String detail = IvmFailureClassifier.PLAN_SIGNATURE_MISMATCH_MSG_PREFIX + mtmv.getName()
+                + ", storedSignature=" + storedSignature
+                + ", currentSignature=" + currentSignature.getSha256()
+                + ", currentCanonical=" + currentSignature.getCanonicalString()
+                + ", currentPlan=" + currentSignature.getPlanTree()
+                + ". Run REFRESH MATERIALIZED VIEW " + mtmv.getName()
+                + " COMPLETE to rebuild the IVM layout baseline and publish its matching signature.";
+        throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
+    }
+
+    /**
      * Rewrites {@code plan} into the hidden layout a unique-key IVM MV is maintained through.
      *
      * <p>The table model has already been settled and recorded by {@link IvmNormalizeMTMV}, which is
      * the only production caller: what is left here is the layout itself, which is why this rewriter
-     * knows nothing about any other model. The caller publishes the returned plan as the statement's
-     * normalized plan, as it does for the detail model too; this rewriter publishes the signature that
-     * pins the layout down, which is what its model adds to the plan and no other model has.
+     * knows nothing about any other model.
      */
+    @VisibleForTesting
     public Plan normalize(Plan plan, JobContext jobContext) {
         StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
         ivmRewriteContext = statementContext.getIvmRewriteContext().orElse(null);
@@ -227,38 +275,97 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             return plan;
         }
         this.rewriteResult = rewriteResult;
+        this.inputPlan = plan;
         excludedTriggerTables = statementContext.getExcludedTriggerTables();
         this.useFullKeys = resolveUseFullKeys();
         Plan result = plan.accept(this, NormalizeContext.ROOT);
         validateAggStateColumnsPersisted(result);
-        // The plan is not published here: the caller publishes it, and does so for both table models.
-        // What this model adds to a normalized plan is the layout its refresh reads, which is published
-        // as the signature that pins the layout down.
-        IvmPlanSignature planSignature = new IvmPlanSignatureGenerator().generate(result);
-        rewriteResult.setPlanSignature(planSignature);
-        IvmRewriteContext.Mode mode = ivmRewriteContext.getMode();
-        if (mode == IvmRewriteContext.Mode.INCREMENTAL) {
-            // Incremental refresh relies on the stored IVM layout: a drift in the normalized
-            // plan (row-id generation path) would produce an unmatchable delta. Check the
-            // signature as soon as normalization completes so every incremental path fails
-            // fast instead of attempting a delta rewrite against a stale layout baseline.
-            validatePlanSignature(ivmRewriteContext.getMtmv(), planSignature, result);
-        }
         return result;
     }
 
-    private void validatePlanSignature(MTMV mtmv, IvmPlanSignature currentSignature, Plan currentPlan) {
-        String storedSignature = mtmv.getIvmInfo().getPlanSignature();
-        if (Objects.equals(storedSignature, currentSignature.getSha256())) {
-            return;
+    /**
+     * The MIN/MAX top-K capacity of this MV, resolved once per statement.
+     *
+     * <p>An explicit {@code ivm_minmax_top_k} always wins, including an explicit 0. Otherwise the
+     * plan shape decides: an append-only changelog whose joins only produce appends can never
+     * retract a non-NULL value, so the extreme alone is enough (0). Any other plan keeps the
+     * default capacity so deleting the current extreme stays derivable.
+     *
+     * <p>The resolved value is recorded on the rewrite context so CREATE can persist it; later
+     * refreshes read the persisted property instead of re-deriving it.
+     */
+    private long resolveMinMaxTopK(List<Alias> aggAliases) {
+        boolean hasExtremal = aggAliases.stream()
+                .anyMatch(alias -> alias.child() instanceof Min || alias.child() instanceof Max);
+        if (!hasExtremal) {
+            return 0;
         }
-        String detail = "IVM layout signature mismatch for mv=" + mtmv.getName()
-                + ", storedSignature=" + storedSignature
-                + ", currentSignature=" + currentSignature.getSha256()
-                + ", currentCanonical=" + currentSignature.getCanonicalString()
-                + ", currentPlan=" + currentPlan.treeString()
-                + ". Run a full refresh to rebuild IVM layout baseline.";
-        throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
+        if (resolvedMinMaxTopK != null) {
+            return resolvedMinMaxTopK;
+        }
+        Long explicit = ivmRewriteContext.getMinMaxTopK();
+        if (explicit == null) {
+            // CREATE has no MV yet, so its capacity can only come from the context. Later
+            // statements (incremental refresh, EXPLAIN) read it from the MV's own properties,
+            // which are what CREATE persisted; otherwise the delta would re-resolve a different K
+            // and fail the layout signature check.
+            MTMV mtmv = ivmRewriteContext.getMtmv();
+            if (mtmv != null) {
+                explicit = MTMVPropertyUtil.getIvmMinMaxTopK(mtmv.getMvProperties()).orElse(null);
+            }
+        }
+        long topK = explicit != null
+                ? explicit
+                : (isAppendOnlyInnerJoinPlan(inputPlan) ? 0 : IvmUtil.DEFAULT_MINMAX_TOP_K);
+        // The bounded top-K state is built on min_topk/max_topk, which accept a fixed set of value
+        // types. A MIN/MAX over anything else keeps the extreme-plus-count state that a capacity of
+        // one describes, so the capacity resolves to 1 the same way an append-only plan resolves to
+        // 0. Like that one, the answer is persisted, so the property and the state agree.
+        if (topK > 1 && !extremalArgumentsSupportTopK(aggAliases)) {
+            topK = 1;
+        }
+        resolvedMinMaxTopK = topK;
+        ivmRewriteContext.setResolvedMinMaxTopK(topK);
+        return topK;
+    }
+
+    /**
+     * Whether every MIN/MAX argument can be maintained by the bounded top-K state.
+     *
+     * <p>A value type the top-K aggregate does not accept (ARRAY, VARBINARY, ...) is still
+     * maintainable by the extreme-plus-count state, which is what a capacity of one means.
+     */
+    private static boolean extremalArgumentsSupportTopK(List<Alias> aggAliases) {
+        for (Alias alias : aggAliases) {
+            Expression function = alias.child();
+            if ((function instanceof Min || function instanceof Max)
+                    && !TopKFunction.isSupportedValueType(
+                            TopKFunction.normalizeValueType(function.child(0).getDataType()))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * True when every leaf scan reads an append-only changelog and every join is INNER/CROSS.
+     *
+     * <p>Both halves are premises, not guarantees: an append-only changelog can still carry a
+     * DELETE (a DUP table with changelog accepts one), which is why the extreme-only mode falls
+     * back when the delete side sees a non-NULL value. The scan half is answered by
+     * {@link SupportChangelog#isChangelogAppendOnly()}, the same contract the append-only detail
+     * model uses in {@link org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV#judgeKeysType},
+     * so external connectors answer for themselves.
+     */
+    private static boolean isAppendOnlyInnerJoinPlan(Plan plan) {
+        return !plan.anyMatch(node -> {
+            if (node instanceof LogicalJoin) {
+                JoinType joinType = ((LogicalJoin<?, ?>) node).getJoinType();
+                return joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN;
+            }
+            return node instanceof SupportChangelog
+                    && !((SupportChangelog) node).isChangelogAppendOnly();
+        });
     }
 
     private boolean resolveUseFullKeys() {
@@ -285,7 +392,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     public Plan visitLogicalOlapScan(LogicalOlapScan scan, NormalizeContext context) {
         OlapTable table = scan.getTable();
         ScanRowId scanRowId = computeScanRowIdAndKeys(table, scan);
-        IvmUtil.validateBinlogEnabled(excludedTriggerTables, scan);
+        IvmUtil.validateChangelogEnabled(excludedTriggerTables, scan);
         Alias rowIdAlias = new Alias(scanRowId.mergedRowIdExpr, Column.IVM_ROW_ID_COL);
         rewriteResult.addRowId(rowIdAlias.toSlot(), scanRowId.deterministic);
         // When the scanned table's only key column is its own IVM row-id (a cascading MV
@@ -763,6 +870,10 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
 
         List<NamedExpression> hiddenAggOutputs = new ArrayList<>();
         hiddenAggOutputs.add(groupCountAlias);
+        // Aggregate outputs that only derive another state column (K <= 1's COUNT_AT_MIN) are kept
+        // apart and appended last: the delta apply rebuilds the aggregate output positionally and
+        // skips them, which only stays aligned when they trail every other column.
+        List<NamedExpression> internalAggOutputs = new ArrayList<>();
 
         // Pass 1: register every visible aggregate output into the unified column pool, so a later
         // target can reuse an existing visible column as its hidden state (e.g. AVG(x) reuses the
@@ -778,14 +889,18 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         }
 
         // Pass 2: build targets, reusing pooled columns where the hidden state expression matches.
+        long minMaxTopK = resolveMinMaxTopK(aggAliases);
         List<IvmAggTarget> aggTargets = new ArrayList<>();
+        List<IvmAggTargetSpec> aggTargetSpecs = new ArrayList<>();
         for (int i = 0; i < aggAliases.size(); i++) {
             Alias origAlias = aggAliases.get(i);
             AggregateFunction aggFunc = (AggregateFunction) origAlias.child();
             // The registry chooses the aggregate processor. The processor owns the hidden state set for its
             // function, so adding a new aggregate function should only require a new processor registration.
             IvmAggTargetSpec aggTargetSpec = aggFunctionRegistry.buildTargetSpec(
-                    i, aggFunc, origAlias, aggColumnPool, hiddenAggOutputs);
+                    i, aggFunc, origAlias, aggColumnPool, hiddenAggOutputs, internalAggOutputs,
+                    minMaxTopK);
+            aggTargetSpecs.add(aggTargetSpec);
             aggTargets.add(aggTargetSpec.toPlaceholderTarget());
         }
 
@@ -793,6 +908,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         ImmutableList.Builder<NamedExpression> newAggOutputs = ImmutableList.builder();
         newAggOutputs.addAll(origOutputs);
         newAggOutputs.addAll(hiddenAggOutputs);
+        newAggOutputs.addAll(internalAggOutputs);
         LogicalAggregate<Plan> newAgg = agg.withAggOutputChild(newAggOutputs.build(), newChild);
         if (agg.getSourceRepeat().isPresent()) {
             Optional<LogicalRepeat<?>> sourceRepeat = newChild.collectFirst(LogicalRepeat.class::isInstance);
@@ -812,15 +928,36 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         // Add agg-level row-id to IvmRewriteResult (child entries are kept for strategy lookup)
         rewriteResult.addRowId(rowIdAlias.toSlot(), !scalarAgg);
 
-        // Project output: row_id first, then all Aggregate output slots (original + hidden)
+        // Derived hidden state is computed here, above the aggregate, because it is a projection of
+        // another state column rather than an aggregate of its own (MIN/MAX's bound column).
+        List<NamedExpression> derivedHiddenOutputs = new ArrayList<>();
+        for (IvmAggTargetSpec spec : aggTargetSpecs) {
+            derivedHiddenOutputs.addAll(spec.getDerivedStateOutputs());
+        }
+
+        // Aggregate outputs computed only to derive another state column (K <= 1's COUNT_AT_MIN/MAX)
+        // stay in the aggregate but are not projected, so they never become MV columns.
+        Set<String> internalAggOutputNames = new HashSet<>();
+        for (IvmAggTargetSpec spec : aggTargetSpecs) {
+            internalAggOutputNames.addAll(spec.getInternalAggregateOutputNames());
+        }
+
+        // Project output: row_id first, then all Aggregate output slots (original + hidden),
+        // then the derived hidden states.
         ImmutableList.Builder<NamedExpression> projectOutputs = ImmutableList.builder();
         projectOutputs.add(rowIdAlias);
         for (NamedExpression aggOutput : newAgg.getOutputExpressions()) {
-            projectOutputs.add(aggOutput.toSlot());
+            if (!internalAggOutputNames.contains(aggOutput.getName())) {
+                projectOutputs.add(aggOutput.toSlot());
+            }
         }
+        projectOutputs.addAll(derivedHiddenOutputs);
 
-        // Resolve IvmAggTarget slots from the new Aggregate output
-        List<Slot> newAggSlots = newAgg.getOutput();
+        // Resolve IvmAggTarget slots from the new Aggregate output and the derived project outputs
+        List<Slot> newAggSlots = new ArrayList<>(newAgg.getOutput());
+        for (NamedExpression derivedOutput : derivedHiddenOutputs) {
+            newAggSlots.add(derivedOutput.toSlot());
+        }
         // groupCountSlot is at origOutputs.size() (first hidden output after original outputs)
         Slot groupCountSlot = newAggSlots.get(origOutputs.size());
         List<IvmAggTarget> resolvedTargets = resolveAggTargetSlots(aggTargets, newAggSlots);
@@ -831,7 +968,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
                 .collect(ImmutableList.toImmutableList());
 
         IvmAggMeta aggMeta = new IvmAggMeta(scalarAgg, resolvedGroupKeys,
-                groupCountSlot, resolvedTargets);
+                groupCountSlot, resolvedTargets, internalAggOutputNames);
         rewriteResult.setAggMeta(aggMeta);
 
         LogicalProject<?> result = new LogicalProject<>(projectOutputs.build(), newAgg);
@@ -900,7 +1037,8 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
 
             resolved.add(new IvmAggTarget(target.getOrdinal(), target.getFunctionKind(),
                     resolvedVisible, resolvedHidden.build(), target.getValueStateSlot(),
-                    target.visibleColumnNameIsGenerated(), target.getExprArgs()));
+                    target.visibleColumnNameIsGenerated(), target.getExprArgs(),
+                    target.getMinMaxTopK()));
         }
         return resolved;
     }
@@ -1193,11 +1331,10 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         // The layout is only defined where the view is created or where an incremental refresh reads the
         // old state, and those are the two places this check runs: at CREATE it reports early that the
         // layout being defined cannot be maintained incrementally, and on an incremental refresh it
-        // reports the state a merge would read. NORMALIZE and FULL only re-analyze the layout of an
+        // reports the state a merge would read. NORMALIZE and partition rebuilds re-analyze the layout of an
         // existing view, where a state column can be absent for reasons this check cannot judge -- the
         // view then still completes a full refresh, which is how such a layout is rebuilt.
-        IvmRewriteContext.Mode mode = ivmRewriteContext.getMode();
-        if (mode != IvmRewriteContext.Mode.CREATE && mode != IvmRewriteContext.Mode.INCREMENTAL) {
+        if (!ivmRewriteContext.isCreate() && !ivmRewriteContext.isIncrementalRefresh()) {
             return;
         }
         Set<String> persistedColumns = normalizedPlan.getOutput().stream()
@@ -1278,10 +1415,10 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
      * Computes the scan-level IVM row-id expression, the remaining identity key slots, and
      * whether the row-id is deterministic:
      * - UNIQUE_KEYS (MOW or excluded): (row-id over the uk slots, uk slots minus row-id, true)
-     * - DUP_KEYS with row binlog: (row-id over the row lsn column, [row lsn slot], true).
+     * - DUP_KEYS with changelog: (row-id over the row lsn column, [row lsn slot], true).
      *   The row lsn slot is the identity key, exactly like a UNIQUE table's key columns.
-     * - DUP_KEYS without row binlog: (uuid_numeric(), empty, false) — legacy fallback;
-     *   validateBinlogEnabled rejects such tables unless they are excluded trigger tables.
+     * - DUP_KEYS without changelog: (uuid_numeric(), empty, false) — legacy fallback;
+     *   validateChangelogEnabled rejects such tables unless they are excluded trigger tables.
      * - Excluded AGG_KEYS: (row-id over the agg-key slots, agg-key slots, true)
      * - Other key types: throws IvmException
      *
@@ -1306,14 +1443,14 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             }
             keyColNames = baseSchemaKeyColNames(table);
         } else if (keysType == KeysType.DUP_KEYS) {
-            if (!table.getBinlogConfig().isEnableForStreaming()) {
-                // A DUP table without row binlog has no __DORIS_ROW_LSN_COL__ column.
-                // Keep the legacy non-deterministic uuid row-id; validateBinlogEnabled
+            if (!table.hasChangelog()) {
+                // A DUP table without changelog has no __DORIS_ROW_LSN_COL__ column.
+                // Keep the legacy non-deterministic uuid row-id; validateChangelogEnabled
                 // rejects such tables right after this.
                 return new ScanRowId(new UuidNumeric(), ImmutableList.of(), false, Optional.empty());
             }
-            // DUP_KEYS with row binlog always carries __DORIS_ROW_LSN_COL__ at create time
-            // (binlog is not yet released, so no legacy table lacks it). The row lsn is the
+            // DUP_KEYS with changelog always carries __DORIS_ROW_LSN_COL__ at create time
+            // (changelog is not yet released, so no legacy table lacks it). The row lsn is the
             // stable per-row identity of a detail table, equivalent to a UNIQUE table's key
             // columns, and flows through the same deterministic row-id construction.
             keyColNames = ImmutableSet.of(Column.ROW_LSN_COL);

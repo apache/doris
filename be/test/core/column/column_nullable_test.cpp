@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable_test.h"
 #include "core/column/column_vector.h"
@@ -407,89 +408,48 @@ TEST(ColumnNullableTest, append_data_by_selector) {
     EXPECT_TRUE(ColumnHelper::column_equal(std::move(dst_column), expected_column));
 }
 
-TEST(ColumnNullableTest, ScalaTypeNullInt32Testerase) {
-    auto datetype_int32 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
-    auto column = datetype_int32->create_column();
-    auto column_res = datetype_int32->create_column();
-    std::vector<int32_t> data = {1, 2, 3, 4, 5};
-    for (auto d : data) {
-        column->insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
-    }
-    column_res->insert_range_from(*column, 0, data.size());
-    column->erase(0, 2);
-    EXPECT_EQ(column->size(), 3);
+// The null bits come back offset to row_pos, so a batch reads its own rows' flags from
+// index 0; a column that is not Nullable has none.
+TEST(ColumnNullableTest, PeelNullableOffsetsTheNullBitsToTheBatch) {
+    auto values = ColumnInt32::create();
+    values->insert_value(1);
+    values->insert_value(2);
+    values->insert_value(3);
+    auto nulls = ColumnUInt8::create();
+    nulls->insert_value(0);
+    nulls->insert_value(1);
+    nulls->insert_value(0);
+    const auto nullable = ColumnNullable::create(std::move(values), std::move(nulls));
 
-    for (int i = 0; i < column->size(); ++i) {
-        EXPECT_EQ(column->get_data_at(i), column_res->get_data_at(i + 2));
-    }
+    const uint8_t* null_map = nullptr;
+    const IColumn& peeled = peel_nullable(*nullable, 1, &null_map);
+    EXPECT_EQ(&peeled, &nullable->get_nested_column());
+    ASSERT_NE(null_map, nullptr);
+    EXPECT_EQ(null_map[0], 1);
+    EXPECT_EQ(null_map[1], 0);
+
+    auto plain = ColumnInt32::create();
+    plain->insert_value(1);
+    EXPECT_EQ(&peel_nullable(*plain, 0, &null_map), plain.get());
+    EXPECT_EQ(null_map, nullptr);
 }
 
-TEST(ColumnNullableTest, ScalaTypeNullInt32Test2erase) {
-    auto datetype_int32 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
-    auto column = datetype_int32->create_column();
-    auto column_res = datetype_int32->create_column();
-    std::vector<int32_t> data = {1, 2, 3, 4, 5};
-    std::vector<int32_t> res = {1, 2, 5};
-    for (auto d : data) {
-        column->insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
-    }
-    for (auto d : res) {
-        column_res->insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
-    }
-    column->erase(2, 2);
-    EXPECT_EQ(column->size(), 3);
+// A Const over a Nullable is not a ColumnNullable, so without the check it would come back as
+// itself, with no null bits for its NULL row.
+TEST(ColumnNullableTest, PeelNullableRejectsAConstColumn) {
+    auto values = ColumnInt32::create();
+    values->insert_value(0);
+    auto nulls = ColumnUInt8::create();
+    nulls->insert_value(1);
+    const auto constant =
+            ColumnConst::create(ColumnNullable::create(std::move(values), std::move(nulls)), 3);
 
-    for (int i = 0; i < column->size(); ++i) {
-        EXPECT_EQ(column->get_data_at(i), column_res->get_data_at(i));
-    }
-}
-
-TEST(ColumnNullableTest, ScalaTypeNullStringTesterase) {
-    auto datetype_string = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-    auto column = datetype_string->create_column();
-    auto column_res = datetype_string->create_column();
-    std::vector<StringRef> data = {StringRef("asd"), StringRef("1234567"), StringRef("3"),
-                                   StringRef("4"), StringRef("5")};
-    column->insert_default();
-    for (auto d : data) {
-        column->insert_data(d.data, d.size);
-    }
-    column->insert_default();
-    column_res->insert_range_from(*column, 0, data.size() + 2);
-    column->erase(0, 2);
-    EXPECT_EQ(column->size(), 5);
-    for (int i = 0; i < column->size(); ++i) {
-        std::cout << column->get_data_at(i).to_string() << std::endl;
-        EXPECT_EQ(column->get_data_at(i).to_string(), column_res->get_data_at(i + 2).to_string());
-    }
-}
-
-TEST(ColumnNullableTest, ScalaTypeNullStringTest2erase) {
-    auto datetype_string = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-    auto column = datetype_string->create_column();
-    auto column_res = datetype_string->create_column();
-    std::vector<StringRef> data = {StringRef("asd"), StringRef("1234567"), StringRef("3"),
-                                   StringRef("4"), StringRef("5")};
-    std::vector<StringRef> res = {StringRef("asd"), StringRef("4"), StringRef("5")};
-    column->insert_default();
-    for (auto d : data) {
-        column->insert_data(d.data, d.size);
-    }
-    column->insert_default();
-
-    column_res->insert_default();
-    for (auto d : res) {
-        column_res->insert_data(d.data, d.size);
-    }
-    column_res->insert_default();
-
-    column->erase(2, 2);
-    EXPECT_EQ(column->size(), 5);
-    for (int i = 0; i < column->size(); ++i) {
-        std::cout << column->get_data_at(i).to_string() << " , "
-                  << column_res->get_data_at(i).to_string() << std::endl;
-        // EXPECT_EQ(column->get_data_at(i).to_string(), column_res->get_data_at(i).to_string());
-    }
+    const uint8_t* null_map = nullptr;
+#ifndef NDEBUG
+    EXPECT_DEATH(peel_nullable(*constant, 0, &null_map), "Check failed: !is_column_const");
+#else
+    EXPECT_THROW(peel_nullable(*constant, 0, &null_map), doris::Exception);
+#endif
 }
 
 } // namespace doris

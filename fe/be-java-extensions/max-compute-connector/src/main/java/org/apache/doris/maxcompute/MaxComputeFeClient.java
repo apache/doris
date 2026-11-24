@@ -24,6 +24,9 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
+import io.netty.handler.ssl.JdkSslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.SslProvider;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
@@ -32,10 +35,15 @@ import org.apache.thrift.transport.layered.TFramedTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLSocket;
 
 /**
  * FE thrift client used by MaxCompute writer runtime code in BE's embedded JVM.
@@ -67,7 +75,7 @@ class MaxComputeFeClient implements AutoCloseable {
                 String.valueOf(DEFAULT_FE_RPC_TIMEOUT_MS)));
         String serverType = params.getOrDefault(FE_THRIFT_SERVER_TYPE, THREAD_POOL);
         return new MaxComputeFeClient(new TNetworkAddress(host, port), timeoutMs, serverType,
-                new ReusableRpcExecutor(),
+                new ReusableRpcExecutor(params),
                 FETCH_BLOCK_ID_RETRY_SLEEP_MS);
     }
 
@@ -203,12 +211,6 @@ class MaxComputeFeClient implements AutoCloseable {
         }
     }
 
-    private static TTransport createTransport(TNetworkAddress address, int timeoutMs,
-            boolean useFramedTransport) throws TTransportException {
-        TSocket socket = new TSocket(address.getHostname(), address.getPort(), timeoutMs);
-        return useFramedTransport ? new TFramedTransport(socket) : socket;
-    }
-
     private static void validateAddress(TNetworkAddress address) throws IOException {
         if (address.getHostname() == null || address.getHostname().isEmpty() || address.getPort() <= 0) {
             throw new IOException("invalid FE address for MaxCompute block_id allocation: "
@@ -266,10 +268,73 @@ class MaxComputeFeClient implements AutoCloseable {
     }
 
     private static class ReusableRpcExecutor implements RpcExecutor {
+        private final boolean tls;
+        private final String certificate;
+        private final String privateKey;
+        private final String ca;
+        private final String handshakeTimeout;
         private TNetworkAddress connectedAddress;
         private boolean connectedFramedTransport;
         private TTransport transport;
         private FrontendService.Client client;
+
+        ReusableRpcExecutor(Map<String, String> params) {
+            // The native writer supplies its own node policy; this plugin cannot load FE-core Config.
+            tls = Boolean.parseBoolean(params.getOrDefault("fe_rpc_tls_enabled", "false"));
+            certificate = params.get("fe_rpc_tls_certificate_path");
+            privateKey = params.get("fe_rpc_tls_private_key_path");
+            ca = params.get("fe_rpc_tls_ca_certificate_path");
+            handshakeTimeout = params.get("fe_rpc_connect_timeout_ms");
+        }
+
+        private TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean framed)
+                throws TTransportException {
+            if (!tls) {
+                TSocket socket = new TSocket(address.getHostname(), address.getPort(), timeoutMs);
+                return framed ? new TFramedTransport(socket) : socket;
+            }
+            Socket tcp = null;
+            SSLSocket ssl = null;
+            boolean opened = false;
+            try {
+                long configured = Long.parseLong(handshakeTimeout);
+                if (configured <= 0 || configured > Integer.MAX_VALUE || framed) {
+                    throw new IllegalArgumentException("Private Thrift TLS requires bounded blocking IO");
+                }
+                int bound = timeoutMs > 0 ? Math.min(timeoutMs, (int) configured) : (int) configured;
+                JdkSslContext context = (JdkSslContext) SslContextBuilder.forClient().sslProvider(SslProvider.JDK)
+                        .trustManager(new File(ca)).keyManager(new File(certificate), new File(privateKey)).build();
+                tcp = new Socket();
+                tcp.connect(new InetSocketAddress(address.getHostname(), address.getPort()), bound);
+                tcp.setTcpNoDelay(true);
+                ssl = (SSLSocket) context.context().getSocketFactory()
+                        .createSocket(tcp, address.getHostname(), address.getPort(), true);
+                ssl.setEnabledProtocols(new String[] {"TLSv1.2", "TLSv1.3"});
+                ssl.setSoTimeout(bound);
+                SSLParameters parameters = ssl.getSSLParameters();
+                parameters.setEndpointIdentificationAlgorithm("HTTPS");
+                ssl.setSSLParameters(parameters);
+                ssl.startHandshake();
+                ssl.setSoTimeout(timeoutMs);
+                TSocket socket = new TSocket(ssl);
+                opened = true;
+                return socket;
+            } catch (Exception failure) {
+                // Parser and handshake exceptions may include identity paths or PEM input.
+                throw new TTransportException(TTransportException.NOT_OPEN, "Private RPC TLS connection failed");
+            } finally {
+                if (!opened) {
+                    Socket failed = ssl == null ? tcp : ssl;
+                    if (failed != null) {
+                        try {
+                            failed.close();
+                        } catch (IOException ignored) {
+                            // Never publish an unauthenticated or partially initialized connection.
+                        }
+                    }
+                }
+            }
+        }
 
         @Override
         public synchronized <T> T call(TNetworkAddress address, int timeoutMs, boolean useFramedTransport,
@@ -304,7 +369,9 @@ class MaxComputeFeClient implements AutoCloseable {
             close();
             TTransport newTransport = createTransport(address, timeoutMs, useFramedTransport);
             try {
-                newTransport.open();
+                if (!newTransport.isOpen()) {
+                    newTransport.open();
+                }
                 transport = newTransport;
                 client = new FrontendService.Client(new TBinaryProtocol(transport));
                 connectedAddress = copyAddress(address);

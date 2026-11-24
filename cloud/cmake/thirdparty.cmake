@@ -72,6 +72,10 @@ add_thirdparty(brpc LIB64)
 add_thirdparty(rocksdb) # For local storage mocking
 add_thirdparty(libz LIBNAME "lib/libz.a") # Required by google::protobuf
 add_thirdparty(curl)
+add_thirdparty(google_cloud_cpp_oauth2)
+add_thirdparty(google_cloud_cpp_rest_internal)
+add_thirdparty(google_cloud_cpp_common)
+add_thirdparty(crc32c)
 add_thirdparty(zstd LIB64)
 add_thirdparty(fmt)
 # begin aws libs
@@ -91,7 +95,9 @@ add_thirdparty(aws-c-mqtt LIB64)
 add_thirdparty(aws-checksums LIB64)
 add_thirdparty(aws-c-s3 LIB64)
 add_thirdparty(aws-c-sdkutils LIB64)
-add_thirdparty(aws-s2n LIBNAME "lib/libs2n.a")
+if (NOT OS_MACOSX)
+    add_thirdparty(aws-s2n LIBNAME "lib/libs2n.a")
+endif()
 add_thirdparty(aws-cpp-sdk-identity-management LIB64)
 add_thirdparty(aws-cpp-sdk-sts LIB64)
 

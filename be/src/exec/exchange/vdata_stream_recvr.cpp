@@ -41,6 +41,19 @@
 #include "util/uid_util.h"
 
 namespace doris {
+VDataStreamRecvr::SenderQueue::BlockItem::BlockItem() = default;
+
+VDataStreamRecvr::SenderQueue::BlockItem::BlockItem(BlockUPtr&& block, size_t block_byte_size)
+        : _block(std::move(block)), _block_byte_size(block_byte_size) {}
+
+VDataStreamRecvr::SenderQueue::BlockItem::BlockItem(std::unique_ptr<PBlock>&& pblock,
+                                                    size_t block_byte_size)
+        : _block(nullptr), _pblock(std::move(pblock)), _block_byte_size(block_byte_size) {}
+
+VDataStreamRecvr::SenderQueue::BlockItem::BlockItem(BlockItem&&) noexcept = default;
+VDataStreamRecvr::SenderQueue::BlockItem& VDataStreamRecvr::SenderQueue::BlockItem::operator=(
+        BlockItem&&) noexcept = default;
+VDataStreamRecvr::SenderQueue::BlockItem::~BlockItem() = default;
 
 VDataStreamRecvr::SenderQueue::SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders,
                                            std::shared_ptr<Dependency> local_channel_dependency)

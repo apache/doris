@@ -304,13 +304,14 @@ public class CatalogBackedIcebergCatalogOpsDdlTest {
     @Test
     public void testCreateBranchAppliesRetentionOptions() {
         long snap = createTableWithSnapshots("t1", 1);
+        long maxRefAgeMs = 86400000L;
+        long maxSnapshotAgeMs = 172800000L;
         ops.createOrReplaceBranch("db1", "t1",
-                new BranchChange("b1", true, false, false, snap, 86400000L, 5, 172800000L));
+                new BranchChange("b1", true, false, false, snap, maxSnapshotAgeMs, 5, maxRefAgeMs));
         SnapshotRef r = ref("t1", "b1");
-        // retain -> maxSnapshotAgeMs, numSnapshots -> minSnapshotsToKeep, retention -> maxRefAgeMs (legacy mapping).
-        Assertions.assertEquals(86400000L, r.maxSnapshotAgeMs());
+        Assertions.assertEquals(maxSnapshotAgeMs, r.maxSnapshotAgeMs());
         Assertions.assertEquals(5, r.minSnapshotsToKeep());
-        Assertions.assertEquals(172800000L, r.maxRefAgeMs());
+        Assertions.assertEquals(maxRefAgeMs, r.maxRefAgeMs());
     }
 
     @Test

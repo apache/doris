@@ -80,22 +80,103 @@ public class MaterializedIndexTest {
     }
 
     @Test
-    public void testRowBinlogFlagGsonUpgradeCompatibility() {
-        MaterializedIndex rowBinlogIndex = new MaterializedIndex(1L, IndexState.NORMAL);
-        Assertions.assertFalse(rowBinlogIndex.isRowBinlog());
-        rowBinlogIndex.setIsRowBinlog(true);
+    public void testChangelogPartialCountsAndVisibleCommitIdempotence() {
+        Assertions.assertEquals(-1, index.getRowCount());
+        index.addChangelogRows(0);
+        Assertions.assertEquals(-1, index.getRowCount());
+        index.addChangelogRows(4, 7);
+        index.addChangelogRows(3, 5);
+        index.addChangelogRows(4, 7);
+        Assertions.assertEquals(12, index.getRowCount());
+        Assertions.assertFalse(index.getRowCountReported());
+        index.setReportedRowCount(2, false, 4);
+        index.addChangelogRows(3, 5);
+        Assertions.assertEquals(12, index.getRowCount());
+        index.setReportedRowCount(0, true, 4);
+        index.addChangelogRows(3, 5);
+        Assertions.assertEquals(0, index.getRowCount());
+        index.addChangelogRows(5, 3);
+        Assertions.assertEquals(3, index.getRowCount());
 
-        JsonObject currentJson = JsonParser.parseString(GsonUtils.GSON.toJson(rowBinlogIndex)).getAsJsonObject();
-        MaterializedIndex deserializedRowBinlogIndex = GsonUtils.GSON.fromJson(currentJson, MaterializedIndex.class);
-        Assertions.assertTrue(deserializedRowBinlogIndex.isRowBinlog());
-
-        currentJson.remove("isRowBinlog");
-        MaterializedIndex deserializedLegacyIndex = GsonUtils.GSON.fromJson(currentJson, MaterializedIndex.class);
-        Assertions.assertFalse(deserializedLegacyIndex.isRowBinlog());
+        // Restore can keep the index ID while replacing its data and resetting version numbers.
+        index.clearTabletsForRestore();
+        Assertions.assertEquals(-1, index.getRowCount());
+        index.addChangelogRows(2, 4);
+        Assertions.assertEquals(4, index.getRowCount());
+        MaterializedIndex restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(index), MaterializedIndex.class);
+        Assertions.assertFalse(restored.getRowCountReported());
+        restored.addChangelogRows(3, 2);
+        Assertions.assertEquals(6, restored.getRowCount());
     }
 
     @Test
-    public void testPartitionIncludesIndependentRowBinlogIndexForStats() {
+    public void testStaleReportPreservesVisibleChangelogDelta() {
+        index.setIsChangelog(true);
+        index.setReportedRowCount(0, true, 3);
+        index.addChangelogRows(4, 10);
+        index.setReportedRowCount(0, true, 3);
+        Assertions.assertEquals(10, index.getRowCount());
+        index.setReportedRowCount(0, false, 4);
+        Assertions.assertEquals(10, index.getRowCount());
+
+        index.setReportedRowCount(8, true, 4);
+        index.addChangelogRows(4, 10);
+        index.setReportedRowCount(0, true, 3);
+        Assertions.assertEquals(8, index.getRowCount());
+    }
+
+    @Test
+    public void testChangelogRangeLimitPausesUntilCompleteReport() {
+        int rangeLimit = 1_024;
+        long nextVersion = 2L * rangeLimit + 2;
+        for (long version = 2; version < nextVersion; version += 2) {
+            index.addChangelogRows(version, 1);
+        }
+        Assertions.assertEquals(rangeLimit, index.getRowCount());
+
+        index.addChangelogRows(3, 10);
+        index.addChangelogRows(nextVersion, 10);
+        Assertions.assertEquals(rangeLimit, index.getRowCount());
+
+        index.setReportedRowCount(rangeLimit, false, nextVersion);
+        index.addChangelogRows(nextVersion, 10);
+        Assertions.assertEquals(rangeLimit, index.getRowCount());
+
+        index.setReportedRowCount(rangeLimit, true, nextVersion - 2);
+        index.addChangelogRows(2, 10);
+        index.addChangelogRows(4, 10);
+        Assertions.assertEquals(rangeLimit, index.getRowCount());
+        index.addChangelogRows(nextVersion, 1);
+        Assertions.assertEquals(rangeLimit + 1, index.getRowCount());
+        index.addChangelogRows(nextVersion + 2, 10);
+        Assertions.assertEquals(rangeLimit + 11, index.getRowCount());
+    }
+
+    @Test
+    public void testConsecutiveChangelogVersionsFitInOneRange() {
+        for (long version = 2; version <= 1_026; version++) {
+            index.addChangelogRows(version, 1);
+        }
+        Assertions.assertEquals(1_025, index.getRowCount());
+    }
+
+    @Test
+    public void testChangelogFlagGsonUpgradeCompatibility() {
+        MaterializedIndex changelogIndex = new MaterializedIndex(1L, IndexState.NORMAL);
+        Assertions.assertFalse(changelogIndex.isChangelog());
+        changelogIndex.setIsChangelog(true);
+
+        JsonObject currentJson = JsonParser.parseString(GsonUtils.GSON.toJson(changelogIndex)).getAsJsonObject();
+        MaterializedIndex deserializedChangelogIndex = GsonUtils.GSON.fromJson(currentJson, MaterializedIndex.class);
+        Assertions.assertTrue(deserializedChangelogIndex.isChangelog());
+
+        currentJson.remove("isRowBinlog");
+        MaterializedIndex deserializedLegacyIndex = GsonUtils.GSON.fromJson(currentJson, MaterializedIndex.class);
+        Assertions.assertFalse(deserializedLegacyIndex.isChangelog());
+    }
+
+    @Test
+    public void testPartitionIncludesIndependentChangelogIndexForStats() {
         MaterializedIndex baseIndex = new MaterializedIndex(1L, IndexState.NORMAL);
         LocalTablet baseTablet = new LocalTablet(10L);
         LocalReplica baseReplica = new LocalReplica(100L, 1000L, 1L, 0, 100L, 0L, 1L,
@@ -103,34 +184,34 @@ public class MaterializedIndexTest {
         baseTablet.addReplica(baseReplica, true);
         baseIndex.addTablet(baseTablet, null, true);
         Partition partition = new Partition(1L, "p1", baseIndex, null);
-        String checksumWithoutRowBinlog = partition.getMetaChecksum();
+        String checksumWithoutChangelog = partition.getMetaChecksum();
 
-        MaterializedIndex rowBinlogIndex = new MaterializedIndex(2L, IndexState.NORMAL);
-        rowBinlogIndex.setIsRowBinlog(true);
-        LocalTablet rowBinlogTablet = new LocalTablet(20L);
-        rowBinlogTablet.addReplica(new LocalReplica(200L, 1000L, 1L, 0, 20L, 0L, 1L,
+        MaterializedIndex changelogIndex = new MaterializedIndex(2L, IndexState.NORMAL);
+        changelogIndex.setIsChangelog(true);
+        LocalTablet changelogTablet = new LocalTablet(20L);
+        changelogTablet.addReplica(new LocalReplica(200L, 1000L, 1L, 0, 20L, 0L, 1L,
                 Replica.ReplicaState.NORMAL, -1L, 1L), true);
-        rowBinlogIndex.addTablet(rowBinlogTablet, null, true);
-        partition.createRollupIndex(rowBinlogIndex);
+        changelogIndex.addTablet(changelogTablet, null, true);
+        partition.createRollupIndex(changelogIndex);
 
         Assertions.assertEquals(1, partition.getMaterializedIndices(IndexExtState.VISIBLE).size());
         Assertions.assertEquals(2, partition.getMaterializedIndices(IndexExtState.VISIBLE, true).size());
         Assertions.assertEquals(1, partition.getMaterializedIndices(IndexExtState.ALL).size());
         Assertions.assertEquals(2, partition.getMaterializedIndices(IndexExtState.ALL, true).size());
-        Assertions.assertEquals(0L, baseIndex.getBinlogSize());
-        Assertions.assertEquals(20L, rowBinlogIndex.getBinlogSize());
+        Assertions.assertEquals(0L, baseIndex.getChangelogSize());
+        Assertions.assertEquals(20L, changelogIndex.getChangelogSize());
         Assertions.assertEquals(120L, partition.getDataSize(false));
         Assertions.assertEquals(120L, partition.getDataSizeExcludeEmptyReplica(false));
-        Assertions.assertEquals(20L, partition.getBinlogDataSize());
+        Assertions.assertEquals(20L, partition.getChangelogDataSize());
         Assertions.assertEquals(2L, partition.getReplicaCount());
         Assertions.assertEquals(2L, partition.getAllReplicaCount());
-        Assertions.assertNotEquals(checksumWithoutRowBinlog, partition.getMetaChecksum());
+        Assertions.assertNotEquals(checksumWithoutChangelog, partition.getMetaChecksum());
     }
 
     @Test
     public void testGetTabletsReturnsImmutableSnapshot() {
         TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD,
-                false /* isRowBinlog */);
+                false /* isChangelog */);
         index.addTablet(new LocalTablet(1L), tabletMeta, true);
 
         List<Tablet> snapshot = index.getTablets();
@@ -285,7 +366,7 @@ public class MaterializedIndexTest {
         // adding tablets. Copy-on-write guarantees the reader never observes a partially
         // built list or throws ConcurrentModificationException.
         TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD,
-                false /* isRowBinlog */);
+                false /* isChangelog */);
         AtomicReference<Throwable> error = new AtomicReference<>();
         AtomicBoolean stop = new AtomicBoolean(false);
 

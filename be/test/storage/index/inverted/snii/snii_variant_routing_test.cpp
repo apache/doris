@@ -141,8 +141,9 @@ TEST_F(SniiVariantRoutingTest, StringAndNumericSubColumnsRouteAndCoexistInOneCon
     std::vector<const TabletIndex*> parent_indexes {&parent_index};
     TabletIndexes text_indexes;
     TabletIndexes numeric_indexes;
-    ASSERT_TRUE(variant_util::inherit_index(parent_indexes, text_indexes, text_column));
-    ASSERT_TRUE(variant_util::inherit_index(parent_indexes, numeric_indexes, numeric_column));
+    ASSERT_TRUE(variant_util::inherit_index(parent_indexes, text_indexes, text_column, false));
+    ASSERT_TRUE(
+            variant_util::inherit_index(parent_indexes, numeric_indexes, numeric_column, false));
     ASSERT_EQ(1u, text_indexes.size());
     ASSERT_EQ(1u, numeric_indexes.size());
     const TabletIndex* text_index = text_indexes[0].get();
@@ -171,7 +172,10 @@ TEST_F(SniiVariantRoutingTest, StringAndNumericSubColumnsRouteAndCoexistInOneCon
     EXPECT_NE(nullptr, dynamic_cast<SniiIndexColumnWriter*>(text_writer.get()));
     EXPECT_EQ(nullptr, dynamic_cast<SniiBkdIndexColumnWriter*>(text_writer.get()));
     std::vector<Slice> text_values {Slice("alpha"), Slice("beta")};
-    ASSERT_TRUE(text_writer->add_values("v.title", text_values.data(), text_values.size()).ok());
+    ASSERT_TRUE(text_writer
+                        ->add_values(reinterpret_cast<const uint8_t*>(text_values.data()),
+                                     text_values.size())
+                        .ok());
     ASSERT_TRUE(text_writer->finish().ok());
 
     std::unique_ptr<IndexColumnWriter> numeric_writer;
@@ -182,7 +186,9 @@ TEST_F(SniiVariantRoutingTest, StringAndNumericSubColumnsRouteAndCoexistInOneCon
     EXPECT_NE(nullptr, dynamic_cast<SniiBkdIndexColumnWriter*>(numeric_writer.get()));
     EXPECT_EQ(nullptr, dynamic_cast<SniiIndexColumnWriter*>(numeric_writer.get()));
     std::vector<int32_t> numeric_values {7, 42};
-    ASSERT_TRUE(numeric_writer->add_values("v.score", numeric_values.data(), numeric_values.size())
+    ASSERT_TRUE(numeric_writer
+                        ->add_values(reinterpret_cast<const uint8_t*>(numeric_values.data()),
+                                     numeric_values.size())
                         .ok());
     ASSERT_TRUE(numeric_writer->finish().ok());
 

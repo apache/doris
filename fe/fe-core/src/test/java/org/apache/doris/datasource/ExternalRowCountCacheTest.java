@@ -304,11 +304,8 @@ public class ExternalRowCountCacheTest {
         Mockito.when(catalog.getName()).thenReturn("catalog1");
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
         Mockito.doReturn(catalog).when(catalogMgr).getCatalog(1L);
-        NereidsSortedPartitionsCacheManager sortedPartitionsCacheManager =
-                Mockito.mock(NereidsSortedPartitionsCacheManager.class);
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
-        Mockito.when(env.getSortedPartitionsCacheManager()).thenReturn(sortedPartitionsCacheManager);
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
@@ -317,12 +314,12 @@ public class ExternalRowCountCacheTest {
                             1L, 11L, "db1", 22L, "tbl1", 23L, "tbl2"));
         }
 
-        InOrder inOrder = Mockito.inOrder(engineCache, sortedPartitionsCacheManager, rowCountCache);
+        InOrder inOrder = Mockito.inOrder(engineCache, env, rowCountCache);
         inOrder.verify(engineCache).invalidateTable(1L, "db1", "tbl1");
-        inOrder.verify(sortedPartitionsCacheManager).invalidateTable("catalog1", "db1", "tbl1");
+        inOrder.verify(env).onTableChanged("catalog1", "db1", "tbl1");
         inOrder.verify(rowCountCache).invalidateTable(1L, 11L, 22L);
         inOrder.verify(engineCache).invalidateTable(1L, "db1", "tbl2");
-        inOrder.verify(sortedPartitionsCacheManager).invalidateTable("catalog1", "db1", "tbl2");
+        inOrder.verify(env).onTableChanged("catalog1", "db1", "tbl2");
         inOrder.verify(rowCountCache).invalidateTable(1L, 11L, 23L);
     }
 

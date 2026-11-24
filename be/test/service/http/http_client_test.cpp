@@ -61,10 +61,46 @@
 #include "service/http/utils.h"
 #include "service/http_service.h"
 #include "testutil/http_utils.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/defer_op.h"
 #include "util/md5.h"
 
 namespace doris {
+
+// GTest assertion macro expansion inflates the complexity of this two-transfer check.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST(HttpClientMetricsTest, reports_new_and_reused_connections_including_http_errors) {
+    class MetricsHandler : public HttpHandler {
+    public:
+        void handle(HttpRequest* req) override {
+            HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, "error");
+        }
+    } handler;
+    EvHttpServer server {0};
+    ASSERT_TRUE(server.register_handler(GET, "/metrics", &handler));
+    server.start();
+    ASSERT_GT(server.get_real_port(), 0);
+    const auto url = "http://127.0.0.1:" + std::to_string(server.get_real_port()) + "/metrics";
+    HttpClient client;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        ASSERT_TRUE(client.init(url, false).ok());
+        client.set_timeout_ms(5000);
+        std::string response;
+        ASSERT_TRUE(client.execute(&response).ok());
+        EXPECT_EQ(client.get_http_status(), 500);
+        EXPECT_EQ(response, "error");
+        const auto metrics = client.get_transfer_metrics();
+        EXPECT_EQ(metrics.new_connections, attempt == 0 ? 1 : 0);
+        EXPECT_GE(metrics.dns_time_ns, 0);
+        EXPECT_GE(metrics.connect_time_ns, 0);
+        EXPECT_EQ(metrics.tls_time_ns, 0);
+        EXPECT_GT(metrics.first_byte_time_ns, 0);
+        EXPECT_GE(metrics.total_time_ns, metrics.first_byte_time_ns);
+        if (attempt == 1) {
+            EXPECT_EQ(metrics.connect_time_ns, 0);
+        }
+    }
+}
 
 TEST(HttpClientResetTest, ReleasesCopiedPayloadWithoutDestroyingHandle) {
     HttpClient client;
@@ -93,6 +129,8 @@ TEST(HttpClientResetTest, ReleasesCopiedPayloadWithoutDestroyingHandle) {
 
 class HttpClientTlsTest : public testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"http_client_tls"};
+
     void SetUp() override {
         {
             std::scoped_lock lock(*config::get_mutable_string_config_lock());
@@ -147,8 +185,8 @@ protected:
         ASSERT_EQ(PEM_write_bio_X509(cert_bio.get(), certificate), 1);
         BUF_MEM* cert_pem = nullptr;
         BIO_get_mem_ptr(cert_bio.get(), &cert_pem);
-        char ca_path[] = "/tmp/doris-http-client-ca-XXXXXX";
-        const int fd = mkstemp(ca_path);
+        std::string ca_path = (scoped_temp_dir_.path() / "ca_XXXXXX").string();
+        const int fd = mkstemp(ca_path.data());
         ASSERT_GE(fd, 0);
         _ca_path = ca_path;
         Defer close_file {[fd] { close(fd); }};
@@ -348,6 +386,22 @@ TEST_F(HttpClientTlsTest, tls_configured_ca_survives_reinit) {
     }
 }
 
+TEST_F(HttpClientTlsTest, reports_tls_transfer_metrics) {
+    set_ca_paths(_ca_path);
+    HttpClient client;
+    ASSERT_TRUE(client.init(https_url()).ok());
+    client.set_timeout_ms(5000);
+    ASSERT_TRUE(client.execute().ok());
+    const auto metrics = client.get_transfer_metrics();
+    EXPECT_EQ(metrics.new_connections, 1);
+    EXPECT_GE(metrics.dns_time_ns, 0);
+    EXPECT_GE(metrics.connect_time_ns, 0);
+    EXPECT_GT(metrics.tls_time_ns, 0);
+    EXPECT_GE(metrics.first_byte_time_ns,
+              metrics.dns_time_ns + metrics.connect_time_ns + metrics.tls_time_ns);
+    EXPECT_GE(metrics.total_time_ns, metrics.first_byte_time_ns);
+}
+
 TEST_F(HttpClientTlsTest, tls_ca_path_probe_is_cached_and_configuration_invalidates_it) {
     const auto paths = _ca_path + ".missing;/tmp;" + _ca_path;
     EXPECT_EQ(HttpClient::_get_ca_certificate_path(paths), _ca_path);
@@ -479,6 +533,14 @@ public:
     }
 };
 
+class ExternalAuthHandler : public HttpHandler {
+public:
+    void handle(HttpRequest* req) override {
+        HttpChannel::send_reply(req, req->header(HttpHeaders::AUTH_TOKEN) + "|" +
+                                             req->header(HttpHeaders::AUTHORIZATION));
+    }
+};
+
 class HttpNotFoundHandler : public HttpHandler {
 public:
     void handle(HttpRequest* req) override {
@@ -516,6 +578,7 @@ static std::string address = "";
 static HttpClientTestSimpleGetHandler s_simple_get_handler;
 static HttpClientTestSimplePostHandler s_simple_post_handler;
 static HttpNotFoundHandler s_not_found_handler;
+static ExternalAuthHandler s_external_auth_handler;
 static HttpDownloadFileHandler s_download_file_handler;
 static HttpBatchDownloadFileHandler s_batch_download_file_handler;
 
@@ -564,6 +627,7 @@ public:
         s_server->register_handler(HEAD, "/simple_get", &s_simple_get_handler);
         s_server->register_handler(POST, "/simple_post", &s_simple_post_handler);
         s_server->register_handler(GET, "/not_found", &s_not_found_handler);
+        s_server->register_handler(GET, "/external_auth", &s_external_auth_handler);
         s_server->register_handler(HEAD, "/download_file", &s_download_file_handler);
         s_server->register_handler(HEAD, "/api/_tablet/_batch_download",
                                    &s_batch_download_file_handler);
@@ -603,6 +667,18 @@ TEST_F(HttpClientTest, get_normal) {
     st = client.get_content_length(&len);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(5, len);
+}
+
+TEST_F(HttpClientTest, external_request_omits_cluster_token) {
+    HttpClient client;
+    ASSERT_TRUE(client.init(hostname + "/external_auth").ok());
+    client.set_auth_token("previous-cluster-token");
+    ASSERT_TRUE(
+            client.init(hostname + "/external_auth", false, HttpClient::AuthTokenMode::NONE).ok());
+    client.set_authorization("Bearer google-token");
+    std::string response;
+    ASSERT_TRUE(client.execute(&response).ok());
+    EXPECT_EQ(response, "|Bearer google-token");
 }
 
 TEST_F(HttpClientTest, download) {
@@ -1055,9 +1131,8 @@ TEST_F(HttpClientTest, enable_http_auth) {
 }
 
 TEST_F(HttpClientTest, batch_download) {
-    char temporary_directory[] = "/tmp/doris-http-batch-XXXXXX";
-    ASSERT_NE(mkdtemp(temporary_directory), nullptr);
-    std::string root_dir(temporary_directory);
+    const doris::test::ScopedTempDirectory temporary_directory("http_batch_download");
+    std::string root_dir = temporary_directory.path().string();
     Defer cleanup([&root_dir] {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(root_dir).ok());
     });

@@ -118,14 +118,8 @@ suite("test_cross_field_or_with_null") {
 
     // Test 4: NOT with cross-field OR
     // NOT (title MATCH "Philosophy" OR content MATCH "Disney+ Hotstar")
-    // Standard mode (SQL three-valued logic):
-    //   Rows 1-16: OR = TRUE -> NOT TRUE = FALSE (excluded)
-    //   Rows 17-20: FALSE OR NULL = NULL -> NOT NULL = NULL (excluded)
-    //   Expected: 0 rows
-    // Lucene mode (two-valued logic):
-    //   Rows 1-16: OR = TRUE -> NOT TRUE = FALSE (excluded)
-    //   Rows 17-20: no match -> NOT no_match = TRUE (included)
-    //   Expected: 4 rows
+    // Both SEARCH modes complement the match set: rows 17-20 match NOT.
+    // SQL NOT MATCH retains UNKNOWN and excludes those NULL content rows.
     def result4_match = sql """
         SELECT COUNT(*) FROM ${tableName}
         WHERE NOT (title MATCH_ALL 'Philosophy' OR content MATCH_ALL 'Disney+ Hotstar')
@@ -137,13 +131,33 @@ suite("test_cross_field_or_with_null") {
     """
 
     assertEquals(0, result4_match[0][0])  // All rows excluded due to NULL semantics
-    assertEquals(result4_match[0][0], result4_search_standard[0][0])
+    assertEquals(4, result4_search_standard[0][0], "Standard SEARCH includes non-matching NULL rows")
 
     def result4_search_lucene = sql """
         SELECT COUNT(*) FROM ${tableName}
-        WHERE SEARCH('NOT (title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar"))')
+        WHERE SEARCH('NOT (title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar"))', '{"mode":"lucene"}')
     """
     assertEquals(4, result4_search_lucene[0][0])  // Lucene mode: rows 17-20 included
+    qt_standard_not_ids """
+        SELECT id FROM ${tableName}
+        WHERE SEARCH('NOT (title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar"))', '{"mode":"standard"}')
+        ORDER BY id
+    """
+    qt_lucene_not_ids """
+        SELECT id FROM ${tableName}
+        WHERE SEARCH('NOT (title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar"))', '{"mode":"lucene"}')
+        ORDER BY id
+    """
+    qt_external_not_search_ids """
+        SELECT id FROM ${tableName}
+        WHERE NOT SEARCH('title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar")', '{"mode":"standard"}')
+        ORDER BY id
+    """
+    qt_sql_not_match_ids """
+        SELECT id FROM ${tableName}
+        WHERE NOT (title MATCH_ALL 'Philosophy' OR content MATCH_ALL 'Disney+ Hotstar')
+        ORDER BY id
+    """
     logger.info("Test 4 passed: NOT with cross-field OR works correctly in both modes")
 
     // Test 5: AND with cross-field OR containing NULL
@@ -199,5 +213,4 @@ suite("test_cross_field_or_with_null") {
     assertEquals(19, result8_content_null[0][0])  // Rows 1-15, 17-20
     logger.info("Test 8 passed: Individual field queries return expected counts")
 
-    sql "DROP TABLE IF EXISTS ${tableName}"
 }

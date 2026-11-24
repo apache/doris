@@ -37,51 +37,14 @@ namespace doris::snii::reader {
 class SniiRewriteSnapshot;
 } // namespace doris::snii::reader
 
-// SniiCompoundWriter -- orchestrates a single-segment SNII container for one or
-// more logical indexes, written front-to-back through an append-only
-// io::FileWriter (no seek-back). It resolves all back-references by writing the
-// metadata groups, raw directory, and fixed tail pointer LAST.
+// Writes one SNII container through an append-only FileWriter:
 //
-// CONTAINER LAYOUT PRODUCED (this is the on-disk contract the reader matches):
-//   [bootstrap_header]                          (kBootstrapHeaderSize bytes)
-//   for each logical index, in add order:
-//     [posting region]       interleaved [prx][frq] per pod_ref term, term order
-//                            (prx span empty when !has_prx)
-//     [DICT blocks region]   concatenated DICT blocks, split by
-//                            target_dict_block_bytes
-//   for each logical index, in add order:
-//     [norms POD]            NormsPodWriter::finish (scoring only; else absent)
-//     [null bitmap POD]      NullBitmapWriter::finish (when nulls exist)
-//   for each logical index, in add order:
-//     [Core metadata][SampledTermIndex blob][DICT block directory blob]
-//   [metadata directory]     raw SniiMetadataDirectoryPB bytes
-//   [block padding]          OPTIONAL run of zero bytes, see write_tail(). Written only in cloud
-//                            mode and only for containers of >= kMinPaddingLeverage cache blocks,
-//                            so that the container ends on a block boundary.
-//                            Referenced by nothing and read by nobody -- but it means the metadata
-//                            directory is NOT necessarily adjacent to the tail pointer, and that
-//                            container length is not a pure function of the indexed content (two
-//                            BEs with different file_cache_each_block_size produce different
-//                            lengths for identical input).
-//   [tail_pointer]           encode_tail_pointer at EOF
+//   [bootstrap header]
+//   [posting, DICT, norms, null bitmap, and BSBF per inverted index]
+//   [Core, sampled-term index, and DICT directory per inverted index]
+//   [metadata directory][optional cloud cache-block padding][tail pointer]
 //
-// (The posting region is streamed BEFORE the DICT region per index: postings are
-// the large append-only term-ordered stream; the DICT region is the compact
-// compressed trailer.)
-//
-// OFFSET CONVENTIONS (ABSOLUTE file offsets unless stated otherwise):
-//   - SectionRefs in each Core metadata record ABSOLUTE file offset+length of
-//     that index's posting, DICT, norms, null-bitmap, and BSBF regions. Absent
-//     regions are (0,0); a present-but-empty posting region (all-INLINE index)
-//     is (off, 0).
-//   - DictBlockDirectory entries record each DICT block's ABSOLUTE file offset +
-//     length.
-//   - A windowed/slim pod_ref entry's absolute .frq offset =
-//       section_refs.posting_region.offset + frq_base + frq_off_delta
-//     where frq_base is the posting-region-relative running offset captured at the
-//     block's open (see logical_index_writer.h). prx follows the identical rule
-//     against the SAME region (prx_base == frq_base).
-//   - tail_pointer.directory_offset/length point at the raw metadata directory.
+// SectionRefs and directory entries use absolute file offsets. DICT entry posting offsets are relative to their index's posting region; the tail pointer locates the metadata directory.
 namespace doris::snii::writer {
 
 // A container is padded up to a file-cache block boundary only when it spans at least this many
@@ -197,10 +160,11 @@ public:
     // holding a partial prefix.
     Status inherit(const reader::SniiRewriteSnapshot& snapshot, io::FileReader* source);
 
-    // Buffers one logical index: builds its section bytes and meta sub-sections.
-    // The actual file writing happens in finish() (single front-to-back pass).
-    // The key (index_id, suffix) must not collide with an inherited one.
+    // Builds one logical index synchronously. The convenience overload copies
+    // and charges in.null_docids; ingestion uses the tracked overload to transfer
+    // the already-charged allocation without a second resident vector.
     Status add_logical_index(const SniiIndexInput& in);
+    Status add_logical_index(const SniiIndexInput& in, TrackedNullDocids null_docids);
 
     // Registers one opaque BLOB logical index (kind must not be kInverted).
     // Registration is pure bookkeeping -- NOT A BYTE is written here, so it is
@@ -282,6 +246,7 @@ private:
     Status write_index_aux_sections(LogicalIndexWriter& writer, Placement& placement);
     Status write_tail();
     Status append(const std::vector<uint8_t>& bytes);
+    Status _add_logical_index(const SniiIndexInput& in, TrackedNullDocids null_docids);
     Status poison(Status status);
     // Argument validation for one add_blob_index call; see the .cpp.
     static Status validate_blob_registration(format::LogicalIndexKind kind,

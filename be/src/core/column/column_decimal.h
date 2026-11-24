@@ -128,8 +128,6 @@ public:
              data.data() + origin_size, indices_begin, indices_end);
     }
 
-    void insert_many_fix_len_data(const char* data_ptr, size_t num) override;
-
     void insert_many_raw_data(const char* pos, size_t num) override {
         DCHECK(pos);
         size_t old_size = data.size();
@@ -264,16 +262,6 @@ public:
     CppNativeType get_intergral_part(size_t n) const;
     CppNativeType get_fractional_part(size_t n) const;
 
-    void erase(size_t start, size_t length) override {
-        if (start >= data.size() || length == 0) {
-            return;
-        }
-        length = std::min(length, data.size() - start);
-        size_t elements_to_move = data.size() - start - length;
-        memmove(data.data() + start, data.data() + start + length,
-                elements_to_move * sizeof(value_type));
-        data.resize(data.size() - length);
-    }
     size_t serialize_impl(char* pos, const size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }

@@ -23,7 +23,10 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -138,6 +141,24 @@ public class ConnectorSessionImplTest {
                     "a statement whose version is not pinned yet");
         } finally {
             Config.be_exec_version = original;
+        }
+    }
+
+    @Test
+    public void testIcebergInternalPartitionPruningFollowsTheSessionVariable() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            ConnectorSession original = ConnectorSessionBuilder.from(ctx).build();
+            String key = SessionVariable.ENABLE_ICEBERG_INTERNAL_PARTITION_PRUNING;
+            Assertions.assertEquals("false", original.getSessionProperties().get(key));
+            ctx.getSessionVariable().enableIcebergInternalPartitionPruning = true;
+            Assertions.assertEquals("true", ConnectorSessionBuilder.from(ctx).build()
+                    .getSessionProperties().get(key));
+            Assertions.assertEquals("false", original.getSessionProperties().get(key),
+                    "changing the session must not change a captured connector session");
+        } finally {
+            ConnectContext.remove();
         }
     }
 
@@ -419,4 +440,111 @@ public class ConnectorSessionImplTest {
         public void close() {
         }
     }
+
+    @Test
+    public void testMongoDBPushdownSwitchesReachConnectorsAndForwardedStatements() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            var initial = ConnectorSessionBuilder.from(ctx).build().getSessionProperties();
+            for (String key : java.util.List.of("enable_mongodb_predicate_pushdown",
+                    "enable_mongodb_like_pushdown", "enable_mongodb_projection_pushdown")) {
+                Assertions.assertEquals("true", initial.get(key));
+            }
+            ctx.getSessionVariable().enableMongoDBPredicatePushdown = false;
+            ctx.getSessionVariable().enableMongoDBLikePushdown = false;
+            ctx.getSessionVariable().enableMongoDBProjectionPushdown = false;
+            SessionVariable forwarded = new SessionVariable();
+            forwarded.setForwardedSessionVariables(ctx.getSessionVariable().getForwardVariables());
+            ctx.setSessionVariable(forwarded);
+            var actual = ConnectorSessionBuilder.from(ctx).build().getSessionProperties();
+            for (String key : java.util.List.of("enable_mongodb_predicate_pushdown",
+                    "enable_mongodb_like_pushdown", "enable_mongodb_projection_pushdown")) {
+                Assertions.assertEquals("false", actual.get(key));
+            }
+            Assertions.assertEquals("true", initial.get("enable_mongodb_predicate_pushdown"));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void connectorPropertiesAreFrozenForOneExecutionAndResetForTheNext() {
+        ConnectContext ctx = new ConnectContext();
+        StatementContext statement = new StatementContext();
+        ctx.setStatementContext(statement);
+        ctx.getSessionVariable().enableExternalScanTaskReuse = false;
+        ConnectorSession first = ConnectorSessionBuilder.from(ctx).build();
+        ctx.getSessionVariable().enableExternalScanTaskReuse = true;
+        ConnectorSession sameExecution = ConnectorSessionBuilder.from(ctx).build();
+        Assertions.assertFalse(first.isExternalScanTaskReuseEnabled());
+        Assertions.assertSame(first.getSessionProperties(), sameExecution.getSessionProperties());
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> first.getSessionProperties().put("enable_external_scan_task_reuse", "true"));
+        statement.resetConnectorStatementScope();
+        ConnectorSession nextExecution = ConnectorSessionBuilder.from(ctx).build();
+        Assertions.assertTrue(nextExecution.isExternalScanTaskReuseEnabled());
+        Assertions.assertFalse(first.isExternalScanTaskReuseEnabled());
+    }
+
+    @Test
+    public void connectorPropertiesFollowHintsParsedAfterViewMetadataSession() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setStatementContext(new StatementContext(ctx, null));
+        ctx.getSessionVariable().setReadHiveJsonInOneColumn(false);
+        ctx.setThreadLocalInfo();
+        try {
+            // External view SQL is parsed only after its metadata lookup has captured a session.
+            ConnectorSession viewMetadata = ConnectorSessionBuilder.from(ctx).build();
+            String property = SessionVariable.READ_HIVE_JSON_IN_ONE_COLUMN;
+            Assertions.assertEquals("false", viewMetadata.getSessionProperties().get(property));
+
+            NereidsParser parser = new NereidsParser();
+            parser.parseSingle("SELECT /*+ SET_VAR(read_hive_json_in_one_column=true) */ payload FROM source_table");
+            Assertions.assertTrue(ctx.getSessionVariable().isReadHiveJsonInOneColumn());
+            ConnectorSession scan = ConnectorSessionBuilder.from(ctx).build();
+            Assertions.assertEquals("true", scan.getSessionProperties().get(property));
+            Assertions.assertEquals("false", viewMetadata.getSessionProperties().get(property));
+            Assertions.assertSame(viewMetadata.getStatementScope(), scan.getStatementScope());
+            Assertions.assertSame(scan.getSessionProperties(),
+                    ConnectorSessionBuilder.from(ctx).build().getSessionProperties());
+            Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> scan.getSessionProperties().put(property, "false"));
+
+            parser.parseSingle("SELECT /*+ SET_VAR(read_hive_json_in_one_column=false) */ payload FROM source_table");
+            ConnectorSession restored = ConnectorSessionBuilder.from(ctx).build();
+            Assertions.assertEquals("false", restored.getSessionProperties().get(property));
+            Assertions.assertEquals("true", scan.getSessionProperties().get(property));
+            Assertions.assertSame(scan.getStatementScope(), restored.getStatementScope());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void connectorPropertiesFollowScopedVariableReplacementAndRestoration() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setStatementContext(new StatementContext(ctx, null));
+        ctx.getSessionVariable().setSqlMode(0L);
+        ctx.setThreadLocalInfo();
+        try {
+            ConnectorSession before = ConnectorSessionBuilder.from(ctx).build();
+            ConnectorSession scoped;
+            try (AutoCloseSessionVariable ignored = new AutoCloseSessionVariable(
+                    ctx, Map.of(SessionVariable.SQL_MODE, "2"))) {
+                Assertions.assertEquals(2L, ctx.getSessionVariable().getSqlMode());
+                scoped = ConnectorSessionBuilder.from(ctx).build();
+                Assertions.assertEquals("2", scoped.getSessionProperties().get(SessionVariable.SQL_MODE));
+                Assertions.assertEquals("0", before.getSessionProperties().get(SessionVariable.SQL_MODE));
+            }
+
+            ConnectorSession restored = ConnectorSessionBuilder.from(ctx).build();
+            Assertions.assertEquals("0", restored.getSessionProperties().get(SessionVariable.SQL_MODE));
+            Assertions.assertEquals("2", scoped.getSessionProperties().get(SessionVariable.SQL_MODE));
+            Assertions.assertSame(before.getStatementScope(), restored.getStatementScope());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
 }

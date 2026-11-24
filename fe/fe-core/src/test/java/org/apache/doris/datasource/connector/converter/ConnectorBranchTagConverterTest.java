@@ -34,8 +34,8 @@ import java.util.Optional;
 
 /**
  * Unit tests for {@link ConnectorBranchTagConverter}: every nereids info/option field must land on the right
- * neutral carrier field (Rule 9), incl. the legacy {@code BranchOptions} naming (retain -> maxSnapshotAge,
- * numSnapshots -> minSnapshotsToKeep, retention -> maxRefAge), and absent options must become {@code null}.
+ * neutral carrier field (Rule 9), incl. the legacy {@code BranchOptions} naming (retain -> maxRefAge,
+ * numSnapshots -> minSnapshotsToKeep, retention -> maxSnapshotAge), and absent options must become {@code null}.
  */
 public class ConnectorBranchTagConverterTest {
 
@@ -50,9 +50,9 @@ public class ConnectorBranchTagConverterTest {
         Assertions.assertFalse(b.isReplace());
         Assertions.assertTrue(b.isIfNotExists());
         Assertions.assertEquals(42L, b.getSnapshotId().longValue());
-        Assertions.assertEquals(86400000L, b.getMaxSnapshotAgeMs().longValue());
+        Assertions.assertEquals(86400000L, b.getMaxRefAgeMs().longValue());
         Assertions.assertEquals(5, b.getMinSnapshotsToKeep().intValue());
-        Assertions.assertEquals(172800000L, b.getMaxRefAgeMs().longValue());
+        Assertions.assertEquals(172800000L, b.getMaxSnapshotAgeMs().longValue());
     }
 
     @Test

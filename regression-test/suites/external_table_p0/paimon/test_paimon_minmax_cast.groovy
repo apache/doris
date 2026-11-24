@@ -28,7 +28,8 @@ suite("test_paimon_minmax_cast", "p0,external,paimon,external_docker,external_do
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     def originalSettings = ["enable_file_scanner_v2", "force_jni_scanner",
             "enable_strict_cast", "enable_push_down_no_group_agg"].collectEntries { name ->
-        [(name): sql("show variables like '${name}'")[0][1]]
+        // Read session values directly because SHOW prefixes deprecated option names.
+        [(name): sql("SELECT @@${name}")[0][0]]
     }
 
     try {

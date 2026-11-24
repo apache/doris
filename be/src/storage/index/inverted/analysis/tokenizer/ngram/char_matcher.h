@@ -37,7 +37,7 @@ using CharMatcherPtr = std::shared_ptr<CharMatcher>;
 
 class BasicCharMatcher : public CharMatcher {
 public:
-    enum Type { LETTER, DIGIT, WHITESPACE, PUNCTUATION, SYMBOL };
+    enum class Type { LETTER, DIGIT, WHITESPACE, PUNCTUATION, SYMBOL };
 
     explicit BasicCharMatcher(Type type) : _type(type) {}
 

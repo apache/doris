@@ -42,6 +42,23 @@ under the License.
 
     <dependencies>
         <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-filesystem-gcs-common</artifactId>
+            <version>${revision}</version>
+        </dependency>
+        <!-- Share the serializable GCP FileIO factory with the BE metadata scanner. -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-iceberg-common</artifactId>
+            <version>${revision}</version>
+        </dependency>
+        <!-- HadoopCatalog namespace operations bypass FileIO and load the native GCS filesystem. -->
+        <dependency>
+            <groupId>com.google.cloud.bigdataoss</groupId>
+            <artifactId>gcs-connector</artifactId>
+            <classifier>shaded</classifier>
+        </dependency>
+        <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-spi</artifactId>
             <version>${project.version}</version>
@@ -110,6 +127,20 @@ under the License.
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
             <version>${iceberg.version}</version>
+        </dependency>
+
+        <!-- GoogleAuthManager and GCSFileIO are loaded by name inside the connector plugin. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-gcp</artifactId>
+            <version>${iceberg.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-storage</artifactId>
+            <version>${google-cloud-storage.version}</version>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- Caffeine: needed on the COMPILE classpath for the vendored split-package

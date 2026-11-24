@@ -63,7 +63,7 @@ struct BloomFilterTraits<int128_t> {
 template <FieldType field_type>
 class BloomFilterIndexWriterImpl : public BloomFilterIndexWriter {
 public:
-    using CppType = typename CppTypeTraits<field_type>::CppType;
+    using CppType = typename StorageTypeTraits<field_type>::StorageType;
     using ValueDict = typename BloomFilterTraits<CppType>::ValueDict;
 
     explicit BloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options)
@@ -71,7 +71,7 @@ public:
 
     ~BloomFilterIndexWriterImpl() override = default;
 
-    Status add_values(const void* values, size_t count) override {
+    Status add_values(const uint8_t* values, size_t count) override {
         const auto* v = (const CppType*)values;
         for (int i = 0; i < count; ++i) {
             if (_values.find(*v) == _values.end()) {
@@ -136,7 +136,7 @@ public:
         RETURN_IF_ERROR(bf_writer.init());
         for (auto& bf : _bfs) {
             Slice data(bf->data(), bf->size());
-            RETURN_IF_ERROR(bf_writer.add(&data));
+            RETURN_IF_ERROR(bf_writer.add(reinterpret_cast<const uint8_t*>(&data)));
         }
         RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
         return Status::OK();
@@ -171,7 +171,7 @@ private:
 
 } // namespace
 
-Status PrimaryKeyBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
+Status PrimaryKeyBloomFilterIndexWriterImpl::add_values(const uint8_t* values, size_t count) {
     const auto* v = (const Slice*)values;
     for (int i = 0; i < count; ++i) {
         Slice new_value;
@@ -227,7 +227,7 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
-        RETURN_IF_ERROR(bf_writer.add(&data));
+        RETURN_IF_ERROR(bf_writer.add(reinterpret_cast<const uint8_t*>(&data)));
     }
     RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
     return Status::OK();
@@ -249,7 +249,7 @@ NGramBloomFilterIndexWriterImpl::NGramBloomFilterIndexWriterImpl(
     static_cast<void>(BloomFilter::create(NGRAM_BLOOM_FILTER, &_bf, bf_size));
 }
 
-Status NGramBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
+Status NGramBloomFilterIndexWriterImpl::add_values(const uint8_t* values, size_t count) {
     const auto* src = reinterpret_cast<const Slice*>(values);
     for (int i = 0; i < count; ++i, ++src) {
         if (src->size < _gram_size) {
@@ -284,7 +284,7 @@ Status NGramBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
-        RETURN_IF_ERROR(bf_writer.add(&data));
+        RETURN_IF_ERROR(bf_writer.add(reinterpret_cast<const uint8_t*>(&data)));
     }
     RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
     return Status::OK();

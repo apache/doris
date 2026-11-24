@@ -264,17 +264,8 @@ public:
 
     ////////// =================== column data insert interface assert(16) =================== //////////
     // In storage layer such as segment_iterator to call these function
-    // insert_many_fix_len_data (const char *pos, size_t num);
     // insert_many_dict_data (const int32_t *data_array, size_t start_index, const StringRef *dict, size_t data_num, uint32_t dict_num=0)
     // insert_many_continuous_binary_data (const char *data, const uint32_t *offsets, const size_t num)
-    static void assert_insert_many_fix_len_data(
-            MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
-            std::function<void(MutableColumns& load_cols, DataTypeSerDeSPtrs serders)>
-                    assert_callback) {
-        // Create a column to verify `insert_many_fix_len_data` functionality
-        assert_callback(load_cols, serders);
-    }
-
     static void assert_insert_many_dict_data(
             MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
             std::function<void(MutableColumns& load_cols, DataTypeSerDeSPtrs serders)>
@@ -1427,7 +1418,7 @@ public:
 
     //virtual Ptr
     //shrink (size_t length) const final  shrink many has different ptr for the column, because of
-    // here has some improvement according the origin column which use_count is 1, we can just return the origin column to avoid the copy
+    // shrink can reuse the original outer column when it is exclusively owned
     // but we should make sure the column data is absolutely the same as expand or cut with the data
     static void assert_shrink_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
         // Create an empty column to verify `cut` functionality
@@ -1448,13 +1439,12 @@ public:
                 LOG(INFO) << "now we are in shrink column : " << load_cols[i]->get_name()
                           << " with check length: " << insert_size
                           << " for column size : " << source_column->size();
-                size_t cnt = source_column->use_count();
+                bool reuses_outer_column = source_column->IColumn::is_exclusive();
                 ptr = source_column->shrink(insert_size);
-                LOG(INFO) << "use_count : " << source_column->use_count();
                 // check size
                 EXPECT_EQ(ptr->size(), insert_size);
                 // check ptr is not the same
-                if (cnt == 1) {
+                if (reuses_outer_column) {
                     // just return the origin column to avoid the copy
                     EXPECT_EQ(ptr.get(), source_column.get());
                 } else {
@@ -2834,46 +2824,6 @@ auto assert_column_vector_insert_range_of_integer_callback = [](auto x, const Mu
             }
         }
     }
-};
-template <PrimitiveType PType>
-auto assert_column_vector_insert_many_fix_len_data_callback = [](auto x, const MutableColumnPtr&
-                                                                                 source_column) {
-    using T = decltype(x);
-    using ColumnVecType =
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<PType>, ColumnVector<PType>>;
-    std::vector<size_t> insert_vals_count = {0, 10, 1000};
-    auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
-    auto src_size = source_column->size();
-    std::vector<size_t> src_data_indices = {0, src_size - 1, (src_size + 1) >> 1};
-
-    auto test_func = [&](size_t clone_count) {
-        size_t actual_clone_count = std::min(clone_count, src_size);
-        auto target_column = source_column->clone_resized(actual_clone_count);
-        auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
-        for (auto pos = src_data_indices.begin(); pos < src_data_indices.end(); ++pos) {
-            if (*pos >= src_size) {
-                continue;
-            }
-            for (auto n : insert_vals_count) {
-                col_vec_target->resize(actual_clone_count);
-                size_t actual_insert_count = std::min(n, src_size - *pos);
-                col_vec_target->insert_many_fix_len_data(source_column->get_data_at(*pos).data,
-                                                         actual_insert_count);
-                auto target_size = col_vec_target->size();
-                EXPECT_EQ(target_size, actual_clone_count + actual_insert_count);
-                size_t i = 0;
-                for (; i < actual_clone_count; ++i) {
-                    EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
-                }
-                for (size_t j = *pos; i < target_size; ++i, ++j) {
-                    EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(j))
-                            << col_vec_src->get_name() << ' ' << col_vec_target->get_name();
-                }
-            }
-        }
-    };
-    test_func(0);
-    test_func(10);
 };
 template <PrimitiveType PType>
 auto assert_column_vector_insert_many_raw_data_callback = [](auto x, const MutableColumnPtr&

@@ -165,7 +165,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     } else if (_fn.binary_type == TFunctionBinaryType::PYTHON_UDF) {
         if (config::enable_python_udf_support) {
             _function = AggregatePythonUDAF::create(_fn, argument_types, _data_type);
-            RETURN_IF_ERROR(static_cast<AggregatePythonUDAF*>(_function.get())->open());
+            RETURN_IF_ERROR(static_cast<AggregatePythonUDAF*>(_function.get())->open(state));
             LOG(INFO) << fmt::format(
                     "Created Python UDAF: {}, runtime_version: {}, function_code: {}",
                     _fn.name.function_name, _fn.runtime_version, _fn.function_code);
@@ -296,6 +296,11 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     if (_fn.name.function_name == "ai_agg") {
         _function->set_query_context(state->get_query_ctx());
+        // Keep the shared request executor when profiling is off, without collecting usage.
+        _function->set_ai_statistics(
+                state->enable_profile()
+                        ? state->get_query_ctx()->get_ai_statistics(state->fragment_id())
+                        : nullptr);
     }
 
     // Foreachv2, like foreachv1, does not check the return type,

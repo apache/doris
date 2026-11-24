@@ -36,13 +36,10 @@ import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.SeekableInputStream;
 import org.apache.paimon.fs.local.LocalFileIO;
-import org.apache.paimon.privilege.PrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.table.ChainGroupReadTable;
-import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
@@ -57,7 +54,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -641,7 +637,7 @@ public class PaimonStatementSchemaTest {
     }
 
     @Test
-    public void stalePrivilegedFallbackKeepsBranchProvenance(@TempDir Path warehouse) throws Exception {
+    public void staleFallbackKeepsBranchProvenance(@TempDir Path warehouse) throws Exception {
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path(warehouse.toUri()))) {
             catalog.createDatabase("db", false);
@@ -657,37 +653,17 @@ public class PaimonStatementSchemaTest {
             catalog.alterTable(id, Collections.singletonList(SchemaChange.setOption("read.batch-size", "32")),
                     false);
             FileStoreTable latest = (FileStoreTable) catalog.getTable(id);
-            AtomicInteger selectChecks = new AtomicInteger();
-            AtomicBoolean denied = new AtomicBoolean();
-            PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
-                    PrivilegeChecker.class.getClassLoader(), new Class<?>[] {PrivilegeChecker.class},
-                    (proxy, method, args) -> {
-                        if (method.getName().equals("assertCanSelect")) {
-                            selectChecks.incrementAndGet();
-                            if (denied.get()) {
-                                throw new SecurityException("Select denied");
-                            }
-                        }
-                        return null;
-                    });
-            FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                    new FallbackReadFileStoreTable(warm, fallback, true), checker, id);
-            FileStoreTable pinned = PaimonScanParams.applyOptionsWithoutTimeTravel(privileged,
+            FileStoreTable pinned = PaimonScanParams.applyOptionsWithoutTimeTravel(
+                    new FallbackReadFileStoreTable(warm, fallback, true),
                     PaimonScanParams.withBoundSchema(
                             PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), 1), latest.schema().id()));
-            Assertions.assertInstanceOf(PrivilegedFileStoreTable.class, pinned);
-            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable)
-                    ((DelegatedFileStoreTable) pinned).wrapped();
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) pinned;
             Assertions.assertEquals("backup", pair.other().coreOptions().branch());
             Assertions.assertEquals(fallback.schema().id(), pair.other().schema().id());
             Assertions.assertEquals(latest.schema().id(), pair.wrapped().schema().id());
             List<Integer> ids = readIds(pinned);
             Collections.sort(ids);
             Assertions.assertEquals(Arrays.asList(1, 2), ids);
-            Assertions.assertTrue(selectChecks.get() >= 2);
-            denied.set(true);
-            Assertions.assertThrows(SecurityException.class, pinned::newScan);
-            Assertions.assertThrows(SecurityException.class, pinned::newRead);
         }
     }
 

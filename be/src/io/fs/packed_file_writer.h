@@ -57,10 +57,6 @@ public:
     // Returns empty index if file is not in merge file
     Status get_packed_slice_location(PackedSliceLocation* location) const override;
 
-#ifdef BE_TEST
-    size_t buffer_capacity_for_test() const { return _buffer.capacity(); }
-#endif
-
 private:
     void _release_buffer();
 

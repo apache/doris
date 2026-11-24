@@ -37,6 +37,7 @@
 #include "storage/index/inverted/snii/snii_query_test_util.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using namespace doris::snii::reader;
@@ -47,9 +48,10 @@ namespace snii_test = doris::snii::snii_test;
 namespace {
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("phrase_prefix_query_test");
     static int counter = 0;
-    return "/tmp/snii_phrase_prefix_query_" + std::to_string(getpid()) + "_" +
-           std::to_string(counter++) + ".idx";
+    return (temp_dir.path() / "snii_phrase_prefix_query_").string() + std::to_string(getpid()) +
+           "_" + std::to_string(counter++) + ".idx";
 }
 
 bool HasPrefix(const std::string& term, const std::string& prefix) {

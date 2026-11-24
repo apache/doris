@@ -17,6 +17,8 @@
 
 package org.apache.doris.mysql.protocol;
 
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
@@ -35,6 +37,7 @@ import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
+import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
@@ -74,6 +77,9 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
     private ByteBuffer prepareExecuteBuffer;
     // Whether the current COM_STMT_EXECUTE requested a server-side read-only cursor.
     private boolean cursorFetchRequested;
+    private boolean resultHasRows;
+    private boolean emptyCursorSupported = true;
+    private PreparedStatementContext executingPreparedStatement;
 
     public MysqlProtocolAdapter(MysqlChannel channel) {
         this.channel = channel;
@@ -146,7 +152,7 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
      */
     @Override
     public void beforeStatement(ConnectContext ctx) {
-        channel.reset();
+        resetResult();
     }
 
     @Override
@@ -183,6 +189,7 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
                 request.setPrepareExecuteBuffer(prepareExecuteBuffer);
             }
             request.setCursorFetchRequested(cursorFetchRequested);
+            request.setEmptyCursorSupported(true);
         }
         request.setClientDeprecatedEOF(channel.clientDeprecatedEOF());
         request.setMysqlCapability(capability.getFlags());
@@ -212,6 +219,7 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
             channel.setClientDeprecatedEOF();
         }
         cursorFetchRequested = request.isSetCursorFetchRequested() && request.isCursorFetchRequested();
+        emptyCursorSupported = request.isSetEmptyCursorSupported() && request.isEmptyCursorSupported();
     }
 
     /**
@@ -239,10 +247,13 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
     @Override
     public boolean finishStatement(ConnectContext ctx, StmtExecutor executor, int stmtIndex, int stmtCount)
             throws IOException {
+        // Decide cancellation before selecting the owner of the terminal response. An ERR
+        // belongs to finalizeCommand, not to both this intermediate statement and the command.
+        checkCancelledResult(ctx, executor);
         if (stmtIndex != stmtCount - 1) {
             ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
             if (ctx.getState().getStateType() != MysqlStateType.ERR && channel.clientMultiStatements()) {
-                finishCommand(ctx, executor);
+                sendResponse(ctx, executor);
             }
         }
         return true;
@@ -254,6 +265,20 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
      * produced. {@code executor} is null for a command that ran no statement.
      */
     public void finishCommand(ConnectContext ctx, StmtExecutor executor) throws IOException {
+        checkCancelledResult(ctx, executor);
+        sendResponse(ctx, executor);
+    }
+
+    private void checkCancelledResult(ConnectContext ctx, StmtExecutor executor) {
+        // The last batch may carry EOS, so cancellation need not pass through getNext again.
+        // Keep the connection when the cancellation error can be written normally.
+        Status cancelReason = executor == null ? null : executor.getPendingCancelReason();
+        if (cancelReason != null && ctx.getState().getStateType() == MysqlStateType.EOF) {
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, cancelReason.getErrorMsg());
+        }
+    }
+
+    private void sendResponse(ConnectContext ctx, StmtExecutor executor) throws IOException {
         LOG.debug("Finalize command for query {}", DebugUtil.printId(ctx.queryId()));
         ByteBuffer packet;
         if (executor != null && executor.hasForwardedToMaster()
@@ -277,6 +302,13 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
             return;
         }
 
+        if (executingPreparedStatement != null) {
+            // A forwarded EXECUTE's final packet was encoded by the master. Retain the cursor on
+            // the client-facing FE so its later FETCH can complete locally without another RPC.
+            boolean cursorOpen = Byte.toUnsignedInt(packet.get(packet.position())) == 0xFE
+                    && (packet.get(packet.position() + 3) & MysqlServerStatusFlag.SERVER_STATUS_CURSOR_EXISTS) != 0;
+            executingPreparedStatement.setEmptyCursorOpen(cursorOpen);
+        }
         LOG.debug("Send to mysql channel for query {}", DebugUtil.printId(ctx.queryId()));
         channel.sendAndFlush(packet);
         // note(wb) we should write profile after return result to mysql client
@@ -304,6 +336,11 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
         // instead of the traditional EOF packet. This is required by the MySQL protocol
         // and expected by MySQL Connector/J 9.5.0+.
         if (ctx.getState().getStateType() == MysqlStateType.EOF && channel.clientDeprecatedEOF()) {
+            if (emptyCursorSupported && cursorFetchRequested && !resultHasRows) {
+                // Both old and new drivers consume a cursor's opening terminator. An empty
+                // cursor needs no retained rows and its first FETCH sends LAST_ROW_SENT.
+                ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_STATUS_CURSOR_EXISTS;
+            }
             packet = new MysqlResultSetEndPacket(ctx.getState());
         } else {
             packet = ctx.getState().toResponsePacket();
@@ -323,7 +360,9 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
 
     @Override
     public void afterStatement(ConnectContext ctx) {
+        prepareExecuteBuffer = null;
         cursorFetchRequested = false;
+        executingPreparedStatement = null;
     }
 
     @Override
@@ -375,16 +414,29 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
         this.cursorFetchRequested = cursorFetchRequested;
     }
 
-    /**
-     * Whether the client will consume the first OK packet after the column definitions of the
-     * result it asked a cursor for. Connector/J before 9.5 does, while probing whether the cursor
-     * was created; Doris never creates one, so the result must carry one more end marker or an
-     * empty result would leave the client waiting.
-     */
+    /** Whether legacy buffered results need an extra terminator for this client. */
     public boolean clientConsumesCursorMetadataTerminator(ConnectContext ctx) {
         return cursorFetchRequested
                 && MysqlCursorFetchCompatibility.resolve(ctx.getConnectAttributes())
                         != MysqlCursorFetchCompatibility.Behavior.STANDARD;
+    }
+
+    public boolean isEmptyCursorSupported() {
+        return emptyCursorSupported;
+    }
+
+    public void beginPreparedExecute(PreparedStatementContext prepared) {
+        executingPreparedStatement = prepared;
+        prepared.setEmptyCursorOpen(false);
+    }
+
+    void recordResultRow() {
+        resultHasRows = true;
+    }
+
+    void resetResult() {
+        resultHasRows = false;
+        channel.reset();
     }
 
     // The xnio read loop. A command is read and processed while reads are suspended, which is what

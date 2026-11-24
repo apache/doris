@@ -35,6 +35,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.UuidLiteral;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -43,6 +44,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -54,6 +56,7 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
@@ -92,6 +95,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -156,11 +160,14 @@ public abstract class ConnectProcessor {
     }
 
     protected void handleStmtResetById(int stmtId) {
-        if (ctx.getPreparedStementContext(String.valueOf(stmtId)) == null) {
+        PreparedStatementContext prepared = ctx.getPreparedStementContext(String.valueOf(stmtId));
+        if (prepared == null) {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_STMT_HANDLER,
                     String.format("Unknown prepared statement handler (%s) given to mysqld_stmt_reset", stmtId));
             return;
         }
+        prepared.clearLongData();
+        prepared.setEmptyCursorOpen(false);
         ctx.getState().setOk();
     }
 
@@ -551,10 +558,10 @@ public abstract class ConnectProcessor {
             ctx.setForwardedStmtId(request.getStmtId());
         }
         if (request.isSetCurrentUserIdent()) {
-            UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
-            ctx.setCurrentUserIdentity(currentUserIdentity);
+            ctx.setCurrentUserIdentityFromRpc(request.getCurrentUserIdent());
         } else {
             ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.user, "%"));
+            ctx.setAuthenticatedRoles(Collections.emptySet());
         }
         if (request.isFoldConstantByBe()) {
             ctx.getSessionVariable().setEnableFoldConstantByBe(request.foldConstantByBe);
@@ -588,11 +595,28 @@ public abstract class ConnectProcessor {
                 CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalog(request.getDefaultCatalog());
                 if (catalog != null) {
                     ctx.getEnv().changeCatalog(ctx, request.getDefaultCatalog());
-                    // Set default db only when the default catalog is set and the dbname exists in default catalog.
+                    // Restore the selected database after its catalog, checking existence when metadata is available.
                     if (request.isSetDefaultDatabase()) {
-                        DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(request.getDefaultDatabase());
+                        DatabaseIf db = null;
+                        try {
+                            db = ctx.getCurrentCatalog().getDbNullable(request.getDefaultDatabase());
+                        } catch (RuntimeException e) {
+                            // Optional context restoration must not block catalog repair commands. Retain the name
+                            // so statements that actually use the database still resolve it and report failures.
+                            ctx.restoreDatabaseName(request.getDefaultDatabase());
+                            LOG.debug("Deferring lookup of forwarded default database {}.{}",
+                                    request.getDefaultCatalog(), request.getDefaultDatabase(), e);
+                        }
                         if (db != null) {
-                            ctx.getEnv().changeDb(ctx, request.getDefaultDatabase());
+                            if (!ctx.getEnv().getAccessManager().checkDbPriv(ctx, ctx.getDefaultCatalog(),
+                                    request.getDefaultDatabase(), PrivPredicate.SHOW)) {
+                                ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+                                        ctx.getQualifiedUser(), request.getDefaultDatabase());
+                            }
+                            // Reuse the resolved database: a concurrent refresh can make a second lookup fail
+                            // before a catalog repair statement gets a chance to execute.
+                            ctx.restoreNameSpaceContext(new NameSpaceContext(ctx.getDefaultCatalog(),
+                                    request.getDefaultDatabase(), db.getId()));
                         }
                     }
                 }
@@ -689,7 +713,7 @@ public abstract class ConnectProcessor {
         }
         if (executor != null) {
             List<Long> auditStatisticsBackendIds = Lists.newArrayList(
-                    AuditLogHelper.getExternalDmlAuditBackendIds(executor));
+                    AuditLogHelper.getAuditStatisticsBackendIds(executor));
             if (!auditStatisticsBackendIds.isEmpty()) {
                 result.setAuditStatisticsBackendIds(auditStatisticsBackendIds);
             }
@@ -751,9 +775,10 @@ public abstract class ConnectProcessor {
             case STRING_LITERAL: return new StringLiteral(node.string_literal.value);
             case JSON_LITERAL: return new JsonLiteral(node.json_literal.value);
             case DATE_LITERAL:
-                Type literalType = Type.fromThrift(node.type);
-                return DateLiteralUtils.createLiteral(node.date_literal.value,
-                        literalType.isTimeStampNs() ? literalType : null);
+                // Keep the sender's type and scale for all date literals.
+                // A DATETIME(6) value at midnight must not become DATE.
+                // The value .120000 must retain its declared scale of 6.
+                return DateLiteralUtils.createLiteral(node.date_literal.value, Type.fromThrift(node.type));
             case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
             case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
             case UUID_LITERAL: return new UuidLiteral(new UUID(node.uuid_literal.hi, node.uuid_literal.lo).toString());

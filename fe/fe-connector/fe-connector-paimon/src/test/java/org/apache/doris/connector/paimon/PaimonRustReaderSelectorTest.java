@@ -27,8 +27,8 @@ import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.manifest.FileSource;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.CatalogEnvironment;
@@ -63,7 +63,7 @@ public class PaimonRustReaderSelectorTest {
                 false, false, false).canRead(split));
         Assertions.assertFalse(selector(session(false, true), true, table, columns(), Collections.emptyMap(),
                 false, false, false).canRead(split));
-        Assertions.assertFalse(selector(session(true, false), true, table, columns(), Collections.emptyMap(),
+        Assertions.assertTrue(selector(session(true, false), true, table, columns(), Collections.emptyMap(),
                 false, false, false).canRead(split));
         Assertions.assertFalse(selector(session(true, true, true), true, table, columns(), Collections.emptyMap(),
                 false, false, false).canRead(split));
@@ -217,7 +217,7 @@ public class PaimonRustReaderSelectorTest {
     public void deduplicateMergeOnReadDoesNotRejectAnOtherwiseCompatibleSplit() throws Exception {
         Path location = new Path(fileLocation("deduplicate-mor"));
         LocalFileIO fileIO = LocalFileIO.create();
-        new SchemaManager(fileIO, location).createTable(Schema.newBuilder()
+        new FileSystemSchemaManager(fileIO, location).createTable(Schema.newBuilder()
                 .column("id", DataTypes.INT().notNull()).column("v", DataTypes.INT())
                 .primaryKey("id").option("bucket", "1").option("write-only", "true")
                 .option("file.format", "parquet").option("merge-engine", "deduplicate")

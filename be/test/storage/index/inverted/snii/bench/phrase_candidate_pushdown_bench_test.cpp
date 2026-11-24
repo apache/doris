@@ -430,12 +430,19 @@ protected:
         std::vector<Slice> values(docs.begin(), docs.end());
         const uint32_t null_every = env_or("PHRASE_CANDIDATE_BENCH_NULL_EVERY", 0);
         if (null_every == 0) {
-            EXPECT_TRUE(column_writer->add_values("c2", values.data(), values.size()).ok());
+            EXPECT_TRUE(column_writer
+                                ->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                             values.size())
+                                .ok());
         } else {
             for (size_t row = 0; row < values.size(); row += null_every) {
                 EXPECT_TRUE(column_writer->add_nulls(1).ok());
                 const size_t run = std::min<size_t>(null_every - 1, values.size() - row - 1);
-                EXPECT_TRUE(column_writer->add_values("c2", values.data() + row + 1, run).ok());
+                EXPECT_TRUE(column_writer
+                                    ->add_values(reinterpret_cast<const uint8_t*>(values.data() +
+                                                                                  row + 1),
+                                                 run)
+                                    .ok());
             }
         }
         EXPECT_TRUE(column_writer->finish().ok());

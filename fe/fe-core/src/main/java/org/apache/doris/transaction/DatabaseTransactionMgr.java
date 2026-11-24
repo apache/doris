@@ -37,6 +37,8 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -1741,13 +1743,13 @@ public class DatabaseTransactionMgr {
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
-            if (Config.enable_feature_binlog && table.enableTso()) {
+            if (Config.enable_feature_changelog && table.enableTso()) {
                 tableCommitInfo.setCommitTSO(commitTSO);
             }
 
             for (long partitionId : tableToPartition.get(tableId)) {
                 Partition partition = table.getPartition(partitionId);
-                if (Config.enable_feature_binlog && table.enableTso()) {
+                if (Config.enable_feature_changelog && table.enableTso()) {
                     tableCommitInfo.addPartitionCommitInfo(
                             generatePartitionCommitInfo(table, partitionId, partition.getNextVersion(), commitTSO));
                 } else {
@@ -1805,7 +1807,7 @@ public class DatabaseTransactionMgr {
                 TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
                 tableCommitInfo.setVersion(tableNextVersion);
                 tableCommitInfo.setVersionTime(System.currentTimeMillis());
-                if (Config.enable_feature_binlog && table.enableTso()) {
+                if (Config.enable_feature_changelog && table.enableTso()) {
                     tableCommitInfo.setCommitTSO(commitTSO);
                 }
 
@@ -1817,7 +1819,7 @@ public class DatabaseTransactionMgr {
                     partitionToVersion.put(partitionId, partitionNextVersion);
 
                     PartitionCommitInfo partitionCommitInfo;
-                    if (Config.enable_feature_binlog && table.enableTso()) {
+                    if (Config.enable_feature_changelog && table.enableTso()) {
                         partitionCommitInfo = generatePartitionCommitInfo(table, partitionId,
                                 partitionNextVersion, commitTSO);
                     } else {
@@ -1868,7 +1870,7 @@ public class DatabaseTransactionMgr {
                         transactionState);
                 continue;
             }
-            if (Config.enable_feature_binlog && table.enableTso()) {
+            if (Config.enable_feature_changelog && table.enableTso()) {
                 tableCommitInfo.setCommitTSO(commitTSO);
             }
             Iterator<PartitionCommitInfo> partitionCommitInfoIterator
@@ -1887,7 +1889,7 @@ public class DatabaseTransactionMgr {
                 }
                 partitionCommitInfo.setVersion(partition.getNextVersion());
                 partitionCommitInfo.setVersionTime(System.currentTimeMillis());
-                if (Config.enable_feature_binlog && table.enableTso()) {
+                if (Config.enable_feature_changelog && table.enableTso()) {
                     partitionCommitInfo.setTso(commitTSO);
                 }
             }
@@ -2050,17 +2052,26 @@ public class DatabaseTransactionMgr {
         transactionState.beforeStateTransform(TransactionStatus.ABORTED);
         boolean txnOperated = false;
         EditLog.EditLogItem logItem = null;
-        synchronized (transactionState) {
-            txnOperated = unprotectAbortTransaction(transactionId, reason);
-            if (txnOperated) {
-                if (Config.enable_txn_log_outside_lock) {
-                    logItem = enqueueTransactionState(transactionState);
-                } else {
-                    persistTransactionState(transactionState);
+        try {
+            synchronized (transactionState) {
+                txnOperated = unprotectAbortTransaction(transactionId, reason);
+                if (txnOperated) {
+                    if (Config.enable_txn_log_outside_lock) {
+                        logItem = enqueueTransactionState(transactionState);
+                    } else {
+                        persistTransactionState(transactionState);
+                    }
                 }
             }
+        } finally {
+            // Always pair a successful before callback outside the transaction monitor, also when the abort
+            // is rejected or its edit log fails: a routine load job releases the lock taken in beforeAborted here.
+            try {
+                transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
+            } catch (Throwable e) {
+                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            }
         }
-        transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
         if (txnOperated) {
             awaitTransactionState(logItem, transactionState);
         }
@@ -2100,17 +2111,25 @@ public class DatabaseTransactionMgr {
         transactionState.beforeStateTransform(TransactionStatus.ABORTED);
         boolean txnOperated = false;
         EditLog.EditLogItem logItem = null;
-        synchronized (transactionState) {
-            txnOperated = unprotectAbortTransaction(transactionId, "User Abort");
-            if (txnOperated) {
-                if (Config.enable_txn_log_outside_lock) {
-                    logItem = enqueueTransactionState(transactionState);
-                } else {
-                    persistTransactionState(transactionState);
+        try {
+            synchronized (transactionState) {
+                txnOperated = unprotectAbortTransaction(transactionId, "User Abort");
+                if (txnOperated) {
+                    if (Config.enable_txn_log_outside_lock) {
+                        logItem = enqueueTransactionState(transactionState);
+                    } else {
+                        persistTransactionState(transactionState);
+                    }
                 }
             }
+        } finally {
+            // Always pair a successful before callback outside the transaction monitor, as in abortTransaction().
+            try {
+                transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, "User Abort");
+            } catch (Throwable e) {
+                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            }
         }
-        transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, "User Abort");
         if (txnOperated) {
             awaitTransactionState(logItem, transactionState);
         }
@@ -3276,6 +3295,9 @@ public class DatabaseTransactionMgr {
             Database db = env.getInternalCatalog().getDbOrMetaException(info.getDbId());
             TableIf tableIf = db.getTableOrMetaException(info.getStreamId());
             ((BaseTableStream) tableIf).unprotectedCheckStreamUpdate(info.getUpdate());
+            if (tableIf instanceof OlapTableStream) {
+                ((OlapTableStream) tableIf).unprotectedPrepareStreamUpdate((OlapTableStreamUpdate) info.getUpdate());
+            }
         }
     }
 

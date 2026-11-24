@@ -65,6 +65,7 @@ import java.nio.charset.CodingErrorAction;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 public class AuditLogHelper {
@@ -86,8 +87,18 @@ public class AuditLogHelper {
      */
     public static void logAuditLog(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
             org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+        logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables, null);
+    }
+
+    /**
+     * Render internal structured statements with their format-aware redactor. The supplied redactor must mask
+     * every sensitive property; ordinary SQL callers retain the default parser-based redaction.
+     */
+    public static void logAuditLog(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
+            org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables,
+            UnaryOperator<String> auditSqlRedactor) {
         try {
-            logAuditLogImpl(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
+            logAuditLogImpl(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables, auditSqlRedactor);
         } catch (Throwable t) {
             LOG.warn("Failed to write audit log.", t);
         }
@@ -221,7 +232,8 @@ public class AuditLogHelper {
     }
 
     private static void logAuditLogImpl(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
-            org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+            org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables,
+            UnaryOperator<String> auditSqlRedactor) {
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
@@ -274,6 +286,10 @@ public class AuditLogHelper {
                         statistics.getSpillWriteBytesToLocalStorage())
                 .setSpillReadBytesFromLocalStorage(statistics == null ? 0 :
                         statistics.getSpillReadBytesFromLocalStorage())
+                // Remote spill totals arrive in final BE reports; WorkloadRuntimeStatusMgr
+                // waits for the participants, with a bounded fallback if a BE never reports.
+                .setSpillWriteBytesToRemoteStorage(0)
+                .setSpillReadBytesFromRemoteStorage(0)
                 .setScanBytesFromLocalStorage(statistics == null ? 0 :
                         statistics.getScanBytesFromLocalStorage())
                 .setScanBytesFromRemoteStorage(statistics == null ? 0 :
@@ -384,7 +400,10 @@ public class AuditLogHelper {
             auditEventBuilder.setErrorMessage("Syntax Error");
         }
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
-        if (parsedStmt instanceof LogicalPlanAdapter) {
+        if (auditSqlRedactor != null) {
+            // A resolved file batch has trusted structure that a generic URI parser cannot recover from SQL text.
+            encryptSql = isSyntaxErr ? "Syntax Error" : auditSqlRedactor.apply(origStmt);
+        } else if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
             if ((logicalPlan instanceof NeedAuditEncryption)) {
                 encryptSql = ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(origStmt);
@@ -410,20 +429,20 @@ public class AuditLogHelper {
             auditEventBuilder.setState(String.valueOf(MysqlStateType.OK));
         }
         AuditEvent event = auditEventBuilder.build();
-        Set<Long> externalDmlBackendIds = getExternalDmlAuditBackendIds(ctx.getExecutor());
-        if (externalDmlBackendIds.isEmpty()) {
+        Set<Long> auditBackendIds = getAuditStatisticsBackendIds(ctx.getExecutor());
+        if (auditBackendIds.isEmpty()) {
             Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(event);
         } else {
             Env.getCurrentEnv().getWorkloadRuntimeStatusMgr()
-                    .submitFinishQueryToAudit(event, externalDmlBackendIds);
+                    .submitFinishQueryToAudit(event, auditBackendIds);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("submit audit event: {}", event.queryId);
         }
     }
 
-    static Set<Long> getExternalDmlAuditBackendIds(StmtExecutor executor) {
-        return executor == null ? ImmutableSet.of() : executor.getExternalDmlAuditBackendIds();
+    static Set<Long> getAuditStatisticsBackendIds(StmtExecutor executor) {
+        return executor == null ? ImmutableSet.of() : executor.getAuditStatisticsBackendIds();
     }
 
     private static long getQueueTimeMs(ConnectContext ctx) {

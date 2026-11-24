@@ -102,6 +102,11 @@ suite("test_streaming_insert_job_s3_event_aksk") {
     }
     try {
         sql "DROP JOB IF EXISTS WHERE jobname='${jobName}'"
+        // Observe the invalid message before starting a consumer; PAUSE can leave a receive in flight.
+        sqsClient.sendMessage(SendMessageRequest.builder().queueUrl(queueUrl).messageBody("{}").build())
+        Awaitility.await().pollInSameThread().atMost(120, SECONDS).pollInterval(1, SECONDS).until {
+            queueCounts()[QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES].toLong() > 0
+        }
         sql "DROP TABLE IF EXISTS test_s3_event_aksk"
         sql """CREATE TABLE test_s3_event_aksk (id INT, value STRING)
                UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -131,6 +136,7 @@ suite("test_streaming_insert_job_s3_event_aksk") {
                )"""
         awaitRows(1)
         awaitOffsets(["z.csv"])
+        awaitQueueEmpty()
         order_qt_first "SELECT * FROM test_s3_event_aksk"
 
         // A smaller key uploaded after the first commit must still be discovered in NOTIFICATION mode.
@@ -190,21 +196,6 @@ suite("test_streaming_insert_job_s3_event_aksk") {
                 }
             }
             metricsReady
-        }
-
-        String committedOffset = sql("SELECT CurrentOffset FROM jobs(\"type\"=\"insert\") WHERE Name='${jobName}'")[0][0]
-        // A message without S3 records is acknowledged without advancing the job.
-        sql "PAUSE JOB WHERE jobname='${jobName}'"
-        sqsClient.sendMessage(SendMessageRequest.builder().queueUrl(queueUrl).messageBody("{}").build())
-        Awaitility.await().pollInSameThread().atMost(120, SECONDS).pollInterval(1, SECONDS).until {
-            queueCounts()[QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES].toLong() > 0
-        }
-        sql "RESUME JOB WHERE jobname='${jobName}'"
-        awaitQueueEmpty()
-        Awaitility.await().pollInSameThread().atMost(120, SECONDS).pollInterval(1, SECONDS).until {
-            def job = sql("SELECT Status, CurrentOffset FROM jobs(\"type\"=\"insert\") WHERE Name='${jobName}'")
-            job[0][0] == "RUNNING" && job[0][1] == committedOffset &&
-                    (sql("SELECT COUNT(*) FROM test_s3_event_aksk")[0][0] as long) == 5
         }
     } finally {
         try {

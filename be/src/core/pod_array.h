@@ -152,7 +152,7 @@ protected:
     }
 
     void alloc_for_num_elements(size_t num_elements) {
-        alloc(round_up_to_power_of_two_or_zero(minimum_memory_for_elements(num_elements)));
+        alloc(allocated_bytes_for_elements(num_elements));
     }
 
     template <typename... TAllocatorParams>
@@ -240,6 +240,11 @@ protected:
 #endif
 
 public:
+    /// Allocation size when creating storage for num_elements, including padding and rounding.
+    static size_t allocated_bytes_for_elements(size_t num_elements) {
+        return round_up_to_power_of_two_or_zero(minimum_memory_for_elements(num_elements));
+    }
+
     bool empty() const { return c_end == c_start; }
     size_t size() const { return (c_end - c_start) / ELEMENT_SIZE; }
     size_t capacity() const { return (c_end_of_storage - c_start) / ELEMENT_SIZE; }
@@ -257,7 +262,7 @@ public:
     template <typename... TAllocatorParams>
     void reserve(size_t n, TAllocatorParams&&... allocator_params) {
         if (n > capacity())
-            realloc(round_up_to_power_of_two_or_zero(minimum_memory_for_elements(n)),
+            realloc(allocated_bytes_for_elements(n),
                     std::forward<TAllocatorParams>(allocator_params)...);
     }
 

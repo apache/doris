@@ -26,6 +26,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.datasource.storage.CloudObjectStoreAdapter;
+import org.apache.doris.datasource.storage.S3ResourceCompat;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -145,16 +147,42 @@ public class StorageVaultMgr {
         }
     }
 
+    private Cloud.StorageVaultPB.Builder buildS3VaultRequest(Map<String, String> properties, String name)
+            throws Exception {
+        Cloud.StorageVaultPB.Builder builder = Cloud.StorageVaultPB.newBuilder()
+                .setName(name).setObjInfo(CloudObjectStoreAdapter.getObjStoreInfoPB(properties));
+        if (properties.containsKey(StorageVault.PropertyKey.VAULT_NAME)) {
+            builder.setAlterName(properties.get(StorageVault.PropertyKey.VAULT_NAME));
+        }
+        return builder;
+    }
+
     private Cloud.StorageVaultPB.Builder buildAlterS3VaultRequest(Map<String, String> properties, String name)
             throws Exception {
-        Cloud.ObjectStoreInfoPB.Builder objBuilder = CloudObjectStoreAdapter.getObjStoreInfoPB(properties);
-        Cloud.StorageVaultPB.Builder alterObjVaultBuilder = Cloud.StorageVaultPB.newBuilder();
-        alterObjVaultBuilder.setName(name);
-        alterObjVaultBuilder.setObjInfo(objBuilder.build());
-        if (properties.containsKey(StorageVault.PropertyKey.VAULT_NAME)) {
-            alterObjVaultBuilder.setAlterName(properties.get(StorageVault.PropertyKey.VAULT_NAME));
+        Cloud.StorageVaultPB.Builder builder = buildS3VaultRequest(properties, name);
+        Cloud.ObjectStoreInfoPB.Builder objBuilder = builder.getObjInfoBuilder();
+        CloudObjectStoreAdapter.applyCredentialPatch(objBuilder, properties);
+        // CREATE may infer GCP from native credentials. ALTER must not send an inferred
+        // provider because MS rejects changes to this immutable storage field.
+        if (!properties.containsKey("provider")) {
+            objBuilder.clearProvider();
         }
-        return alterObjVaultBuilder;
+        // getObjStoreInfoPB supplies INSTANCE_PROFILE as the create-time default
+        // when role_arn is present. ALTER is a patch operation, so only send the
+        // credential provider when the user explicitly changed it.
+        if (!properties.containsKey(S3ResourceCompat.CREDENTIALS_PROVIDER_TYPE)
+                && !properties.containsKey(S3ResourceCompat.Env.CREDENTIALS_PROVIDER_TYPE)) {
+            objBuilder.clearCredProviderType();
+        }
+        // Empty strings are meaningful for ALTER: they explicitly clear the
+        // stored role or external ID. The generic create builder omits them.
+        if (properties.containsKey(S3ResourceCompat.ROLE_ARN)) {
+            objBuilder.setRoleArn(properties.get(S3ResourceCompat.ROLE_ARN));
+        }
+        if (properties.containsKey(S3ResourceCompat.EXTERNAL_ID)) {
+            objBuilder.setExternalId(properties.get(S3ResourceCompat.EXTERNAL_ID));
+        }
+        return builder;
     }
 
     private Cloud.StorageVaultPB.Builder buildAlterHdfsVaultRequest(Map<String, String> properties, String name)
@@ -182,9 +210,15 @@ public class StorageVaultMgr {
         return builder;
     }
 
-    private Cloud.StorageVaultPB.Builder buildAlterStorageVaultRequest(StorageVault vault) throws Exception {
-        Cloud.StorageVaultPB.Builder builder = buildAlterStorageVaultRequest(vault.getType(),
-                vault.getCopiedProperties(), vault.getName());
+    private Cloud.StorageVaultPB.Builder buildCreateStorageVaultRequest(StorageVault vault) throws Exception {
+        Cloud.StorageVaultPB.Builder builder;
+        if (vault.getType() == StorageVaultType.S3) {
+            builder = buildS3VaultRequest(vault.getCopiedProperties(), vault.getName());
+        } else if (vault.getType() == StorageVaultType.HDFS) {
+            builder = buildAlterHdfsVaultRequest(vault.getCopiedProperties(), vault.getName());
+        } else {
+            throw new DdlException("Unknown storage vault type");
+        }
         Cloud.StorageVaultPB.PathFormat.Builder pathBuilder = Cloud.StorageVaultPB.PathFormat.newBuilder();
         pathBuilder.setShardNum(vault.getNumShard());
         pathBuilder.setPathVersion(vault.getPathVersion());
@@ -201,7 +235,8 @@ public class StorageVaultMgr {
                     .setRequestIp(FrontendOptions.getLocalHostAddressCached());
             if (type == StorageVaultType.S3) {
                 properties.keySet().stream()
-                        .filter(key -> !S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(key))
+                        .filter(key -> !S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(key)
+                                && !StorageAdapter.isModifiableCredentialProperty(key))
                         .findAny()
                         .ifPresent(key -> {
                             throw new IllegalArgumentException("Alter property " + key + " is not allowed.");
@@ -209,8 +244,8 @@ public class StorageVaultMgr {
                 request.setOp(Operation.ALTER_S3_VAULT);
             } else if (type == StorageVaultType.HDFS) {
                 properties.keySet().stream()
-                        // Exact literals of the legacy S3Properties.S3_PREFIX ("s3.") and
-                        // StorageProperties.FS_PROVIDER_KEY ("provider") constants.
+                        // Exact literals of the legacy S3ResourceCompat.S3_PREFIX ("s3.") and
+                        // "provider" ("provider") constants.
                         .filter(key -> HdfsStorageVault.FORBID_ALTER_PROPERTIES.contains(key)
                                 || key.toLowerCase().contains("s3.")
                                 || key.toLowerCase().contains("provider"))
@@ -321,7 +356,7 @@ public class StorageVaultMgr {
 
     @VisibleForTesting
     public void createHdfsVault(StorageVault vault) throws Exception {
-        Cloud.StorageVaultPB.Builder alterHdfsInfoBuilder = buildAlterStorageVaultRequest(vault);
+        Cloud.StorageVaultPB.Builder alterHdfsInfoBuilder = buildCreateStorageVaultRequest(vault);
         Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
                 = Cloud.AlterObjStoreInfoRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
         requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_HDFS_INFO);
@@ -371,7 +406,7 @@ public class StorageVaultMgr {
     }
 
     public void createS3Vault(StorageVault vault) throws Exception {
-        Cloud.StorageVaultPB.Builder s3StorageVaultBuilder = buildAlterStorageVaultRequest(vault);
+        Cloud.StorageVaultPB.Builder s3StorageVaultBuilder = buildCreateStorageVaultRequest(vault);
         Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
                 = Cloud.AlterObjStoreInfoRequest.newBuilder().setRequestIp(FrontendOptions.getLocalHostAddressCached());
         requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_S3_VAULT);

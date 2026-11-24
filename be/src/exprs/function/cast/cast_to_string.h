@@ -578,20 +578,17 @@ inline void CastToString::push_uuid(UUIDValueType value, BufferWritable& bw) {
 
 class CastToStringFunction {
 public:
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count,
+    static Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                               ColumnWithTypeAndName& target_column, size_t input_rows_count,
                                const NullMap::value_type* null_map = nullptr) {
-        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
-        const IDataType& type = *col_with_type_and_name.type;
-        const IColumn& col_from = *col_with_type_and_name.column;
+        const IDataType& type = *source_column.type;
+        const IColumn& col_from = *source_column.column;
 
         auto col_to = ColumnString::create();
 
         DataTypeSerDe::FormatOptions options;
         auto time_zone = cctz::utc_time_zone();
-        options.timezone =
-                (context && context->state()) ? &context->state()->timezone_obj() : &time_zone;
+        options.timezone = state != nullptr ? &state->timezone_obj() : &time_zone;
         ColumnPtr limited_col;
         const IColumn* col_to_serialize = &col_from;
         if (col_from.size() != input_rows_count) {
@@ -616,7 +613,7 @@ public:
             serde->to_string_batch(*col_to_serialize, *col_to, options);
         }
 
-        block.replace_by_position(result, std::move(col_to));
+        target_column.column = std::move(col_to);
         return Status::OK();
     }
 };
@@ -624,10 +621,10 @@ public:
 namespace CastWrapper {
 
 inline WrapperType create_string_wrapper(const DataTypePtr& from_type) {
-    return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-              uint32_t result, size_t input_rows_count,
+    return [](RuntimeState* state, const ColumnWithTypeAndName& source_column,
+              ColumnWithTypeAndName& target_column, size_t input_rows_count,
               const NullMap::value_type* null_map = nullptr) {
-        return CastToStringFunction::execute_impl(context, block, arguments, result,
+        return CastToStringFunction::execute_impl(state, source_column, target_column,
                                                   input_rows_count, null_map);
     };
 }

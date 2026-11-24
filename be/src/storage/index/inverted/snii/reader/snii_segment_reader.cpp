@@ -262,7 +262,7 @@ Status SniiSegmentReader::load_inherited_index(const LogicalIndexKey& key,
 
     for (const format::RegionRef& region :
          {core.section_refs.dict_region, core.section_refs.posting_region, core.section_refs.norms,
-          core.section_refs.null_bitmap, core.section_refs.bsbf}) {
+          core.section_refs.null_bitmap, core.section_refs.bsbf, core.section_refs.sparse_norms}) {
         if (region.offset > metadata_area_begin ||
             region.length > metadata_area_begin - region.offset) {
             return corrupted("segment: inherited section reference is outside the physical area");
@@ -354,6 +354,17 @@ Status SniiSegmentReader::section_refs_for_index(uint64_t index_id, std::string_
     if (out == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("segment: null section refs out");
     }
+    format::CoreMetadata core;
+    RETURN_IF_ERROR(core_metadata_for_index(index_id, suffix, &core));
+    *out = core.section_refs;
+    return Status::OK();
+}
+
+Status SniiSegmentReader::core_metadata_for_index(uint64_t index_id, std::string_view suffix,
+                                                  format::CoreMetadata* const out) const {
+    if (out == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("segment: null core metadata out");
+    }
     if (reader_ == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("segment: not opened");
     }
@@ -365,7 +376,7 @@ Status SniiSegmentReader::section_refs_for_index(uint64_t index_id, std::string_
                                      &core_bytes));
     format::CoreMetadata core;
     RETURN_IF_ERROR(format::decode_core_metadata(Slice(core_bytes), &core));
-    *out = core.section_refs;
+    *out = core;
     return Status::OK();
 }
 

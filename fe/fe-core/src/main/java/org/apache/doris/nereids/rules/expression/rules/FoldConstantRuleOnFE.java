@@ -571,12 +571,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         //     }
         // }
         try {
-            // TODO: support no throw exception in `checkedCastTo` and return Optional<Expression>
-            if ((dataType.isVariantType() && cast.child().getDataType().isTimeStampNsType())
+            // The NS representation in VARIANT is implemented only by the BE evaluator.
+            if ((child.getDataType().isTimeStampNsType() && dataType.isVariantType())
                     || (cast.child().getDataType().isStringLikeType() && dataType.isComplexType())) {
                 return cast;
             }
-            Expression castResult = child.checkedCastTo(dataType);
+            // TODO: support no throw exception in `checkedCastTo` and return Optional<Expression>
+            Expression castResult = ((Literal) child).checkedCastTo(dataType, strictCast);
             if (!Objects.equals(castResult, cast) && !Objects.equals(castResult, child)) {
                 castResult = rewrite(castResult, context);
             }

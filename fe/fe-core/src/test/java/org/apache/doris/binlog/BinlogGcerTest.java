@@ -40,31 +40,31 @@ public class BinlogGcerTest {
         field.setAccessible(true);
         AtomicReference<TMasterInfo> cache = (AtomicReference<TMasterInfo>) field.get(null);
         TMasterInfo previous = cache.get();
-        boolean enabled = Config.enable_feature_binlog;
+        boolean enabled = Config.enable_feature_changelog;
         TSOService tso = Mockito.mock(TSOService.class);
         try (MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             cache.set(new TMasterInfo(new TNetworkAddress("master", 9020), 1, 1));
             env.when(Env::getCurrentTSOService).thenReturn(tso);
             Mockito.when(tso.getTSO()).thenReturn(100L, 50L)
                     .thenThrow(new IllegalStateException("unavailable"));
             for (int i = 0; i < 3; i++) {
-                HeartbeatMgr.refreshRowBinlogTtlReferenceTso();
-                Assertions.assertEquals(100L, cache.get().getRowBinlogTtlReferenceTso());
+                HeartbeatMgr.refreshChangelogTtlReferenceTso();
+                Assertions.assertEquals(100L, cache.get().getChangelogTtlReferenceTso());
             }
             Mockito.doAnswer(invocation -> {
                 cache.set(new TMasterInfo(new TNetworkAddress("new-master", 9020), 1, 2));
                 return 200L;
             }).when(tso).getTSO();
-            HeartbeatMgr.refreshRowBinlogTtlReferenceTso();
-            Assertions.assertFalse(cache.get().isSetRowBinlogTtlReferenceTso());
-            Config.enable_feature_binlog = false;
+            HeartbeatMgr.refreshChangelogTtlReferenceTso();
+            Assertions.assertFalse(cache.get().isSetChangelogTtlReferenceTso());
+            Config.enable_feature_changelog = false;
             Mockito.clearInvocations(tso);
-            HeartbeatMgr.refreshRowBinlogTtlReferenceTso();
+            HeartbeatMgr.refreshChangelogTtlReferenceTso();
             Mockito.verifyNoInteractions(tso);
         } finally {
             cache.set(previous);
-            Config.enable_feature_binlog = enabled;
+            Config.enable_feature_changelog = enabled;
         }
     }
 }

@@ -26,13 +26,16 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_number.h"
 #include "core/value/jsonb_value.h"
-#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client_factory.h"
 #include "exprs/function/ai/ai_adapter.h"
 #include "exprs/function/simple_function_factory.h"
+#include "runtime/runtime_profile.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
@@ -103,7 +106,7 @@ public:
 
     io::ObjStoragePath last_opts;
     int64_t last_expiration_secs = 0;
-    S3ClientConf last_conf;
+    ObjStorageClientConfig last_conf;
 };
 
 class CountingMultimodalMockAdapter : public MockAdapter {
@@ -493,6 +496,7 @@ TEST(EMBED_TEST, embed_function_multimodal_direct_url) {
 
 TEST(EMBED_TEST, embed_function_partial_null_through_framework) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
+    runtime_state->_query_options.__set_enable_profile(true);
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
     std::vector<std::string> resources(5, "mock_resource");
@@ -520,6 +524,12 @@ TEST(EMBED_TEST, embed_function_partial_null_through_framework) {
     EXPECT_THAT(MockAdapter::get_embedding_inputs_for_test(),
                 ::testing::ElementsAre("text-a", "text-c"));
     assert_mock_nullable_embedding_column(*block.get_by_position(result_idx).column, null_map);
+    auto statistics =
+            runtime_state->get_query_ctx()->find_ai_statistics(runtime_state->fragment_id());
+    ASSERT_NE(statistics, nullptr);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 5);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 3);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
 }
 
 TEST(EMBED_TEST, embed_function_multimodal_partial_null_through_framework) {
@@ -554,6 +564,7 @@ TEST(EMBED_TEST, embed_function_multimodal_partial_null_through_framework) {
 
 TEST(EMBED_TEST, embed_function_all_null_const_nullable_through_framework) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
+    runtime_state->_query_options.__set_enable_profile(true);
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
     constexpr size_t row_count = 5;
@@ -582,6 +593,12 @@ TEST(EMBED_TEST, embed_function_all_null_const_nullable_through_framework) {
     EXPECT_TRUE(result_column->only_null());
     ColumnPtr full_result = result_column->convert_to_full_column_if_const();
     assert_mock_nullable_embedding_column(*full_result, std::vector<UInt8>(row_count, 1));
+    auto statistics =
+            runtime_state->get_query_ctx()->find_ai_statistics(runtime_state->fragment_id());
+    ASSERT_NE(statistics, nullptr);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 5);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 5);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
 }
 
 TEST(EMBED_TEST, embed_function_null_rows_across_batches_through_framework) {
@@ -759,8 +776,8 @@ TEST(EMBED_TEST, embed_function_multimodal_s3_presigned_url) {
     auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
 
     auto mock_client = std::make_shared<MockEmbedObjStorageClient>();
-    S3ClientFactory::instance().set_client_creator_for_test(
-            [mock_client](const S3ClientConf& conf) {
+    ObjStorageClientFactory::instance().set_client_creator_for_test(
+            [mock_client](const ObjStorageClientConfig& conf) {
                 mock_client->last_conf = conf;
                 return mock_client;
             });
@@ -795,7 +812,7 @@ TEST(EMBED_TEST, embed_function_multimodal_s3_presigned_url) {
     Status exec_status = embed_func->execute_impl(ctx.get(), block, arguments, result_idx,
                                                   file_json_rows.size());
 
-    S3ClientFactory::instance().clear_client_creator_for_test();
+    ObjStorageClientFactory::instance().clear_client_creator_for_test();
 
     ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
     const auto& col_array =
@@ -805,12 +822,14 @@ TEST(EMBED_TEST, embed_function_multimodal_s3_presigned_url) {
     ASSERT_EQ(mock_client->last_opts.bucket, "test-bucket");
     ASSERT_EQ(mock_client->last_opts.key, "path/to/image.png");
     ASSERT_EQ(mock_client->last_expiration_secs, 123);
-    ASSERT_EQ(mock_client->last_conf.endpoint, "cos.ap-beijing.myqcloud.com");
-    ASSERT_EQ(mock_client->last_conf.region, "ap-beijing");
-    ASSERT_EQ(mock_client->last_conf.ak, "test-ak");
-    ASSERT_EQ(mock_client->last_conf.sk, "test-sk");
-    ASSERT_EQ(mock_client->last_conf.role_arn, "test-role");
-    ASSERT_EQ(mock_client->last_conf.external_id, "test-external-id");
+    const auto& s3 = std::get<AwsObjStorageConfig>(mock_client->last_conf);
+    EXPECT_EQ(s3.connection.endpoint,
+              config::s3_client_http_scheme + "://cos.ap-beijing.myqcloud.com");
+    ASSERT_EQ(s3.region, "ap-beijing");
+    const auto& keys = std::get<AccessKeyObjStorageAuth>(s3.auth.source);
+    EXPECT_EQ(keys.access_key, "test-ak");
+    EXPECT_EQ(keys.secret_key, "test-sk");
+    EXPECT_FALSE(s3.auth.assume_role);
 }
 
 TEST(EMBED_TEST, embed_function_multimodal_s3_missing_endpoint) {

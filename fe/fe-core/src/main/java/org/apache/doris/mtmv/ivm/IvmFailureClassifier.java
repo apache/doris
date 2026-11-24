@@ -17,6 +17,8 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.changelog.ChangelogUtils;
+
 import java.util.Objects;
 import java.util.Optional;
 
@@ -25,19 +27,27 @@ import java.util.Optional;
  */
 public final class IvmFailureClassifier {
     public static final String MIN_MAX_BOUNDARY_MSG_PREFIX = "IVM fallback: min/max boundary hit";
+    public static final String NEGATIVE_AGGREGATE_COUNT_MSG_PREFIX = "IVM fallback: negative aggregate count: ";
     public static final String BITMAP_AGG_DELETE_MSG_PREFIX =
             "IVM: deleted row affects BITMAP aggregate, requires COMPLETE";
     public static final String NON_DETERMINISTIC_ROW_ID_MSG_PREFIX =
             "IVM fallback: delete on non-deterministic row_id";
     public static final String MV_PARTITION_NOT_FOUND_MSG = "no partition for this tuple";
+    public static final String PLAN_SIGNATURE_MISMATCH_MSG_PREFIX = "IVM layout signature mismatch for mv=";
 
     private IvmFailureClassifier() {
     }
 
     public static Optional<IvmFailureReason> classifyExecutionFailure(String detail) {
         Objects.requireNonNull(detail, "detail can not be null");
+        if (detail.contains(PLAN_SIGNATURE_MISMATCH_MSG_PREFIX)) {
+            return Optional.of(IvmFailureReason.PLAN_SIGNATURE_MISMATCH);
+        }
         if (detail.contains(MIN_MAX_BOUNDARY_MSG_PREFIX)) {
             return Optional.of(IvmFailureReason.MIN_MAX_BOUNDARY_HIT);
+        }
+        if (detail.contains(NEGATIVE_AGGREGATE_COUNT_MSG_PREFIX)) {
+            return Optional.of(IvmFailureReason.NEGATIVE_AGGREGATE_COUNT);
         }
         if (detail.contains(BITMAP_AGG_DELETE_MSG_PREFIX)) {
             return Optional.of(IvmFailureReason.BITMAP_AGG_DELETE);
@@ -47,6 +57,11 @@ public final class IvmFailureClassifier {
         }
         if (detail.contains(MV_PARTITION_NOT_FOUND_MSG)) {
             return Optional.of(IvmFailureReason.MV_PARTITION_NOT_FOUND);
+        }
+        // Planning a MIN_DELTA read refuses an offset that changelog.ttl_seconds has expired: the changelog
+        // the stream has to read from is gone, so no delta can catch the MV up.
+        if (detail.contains(ChangelogUtils.CHANGELOG_OFFSET_EXPIRED)) {
+            return Optional.of(IvmFailureReason.CHANGELOG_BROKEN);
         }
         return Optional.empty();
     }

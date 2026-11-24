@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
 #include "cloud/cloud_storage_engine.h"

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import com.google.common.collect.ImmutableList;
@@ -26,6 +27,7 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -131,6 +133,13 @@ public class VariantType extends PrimitiveType {
                                     variantDocShardCount, enableNestedGroup);
     }
 
+    /** CTAS infers values, not templates whose paths belong to the source table's storage namespace. */
+    public VariantType withoutPredefinedFields() {
+        return new VariantType(ImmutableList.of(), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
+                variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup);
+    }
+
     @Override
     public Type toCatalogDataType() {
         org.apache.doris.catalog.VariantType type = new org.apache.doris.catalog.VariantType(predefinedFields.stream()
@@ -167,7 +176,10 @@ public class VariantType extends PrimitiveType {
         }
 
         sb.append("PROPERTIES (");
-        if (enableVariantDocMode) {
+        if (enableNestedGroup) {
+            // A nested group column has no subcolumn or doc mode settings, the parser clears them.
+            sb.append("\"variant_enable_nested_group\" = \"true\"");
+        } else if (enableVariantDocMode) {
             sb.append("\"variant_enable_doc_mode\" = \"")
                                     .append(String.valueOf(enableVariantDocMode)).append("\"");
             sb.append(",");
@@ -191,11 +203,6 @@ public class VariantType extends PrimitiveType {
             sb.append("\"variant_sparse_hash_shard_count\" = \"")
                                     .append(String.valueOf(Math.max(1, variantSparseHashShardCount)))
                                     .append("\"");
-        }
-        if (enableNestedGroup) {
-            sb.append(",");
-            sb.append("\"variant_enable_nested_group\" = \"")
-                    .append(String.valueOf(enableNestedGroup)).append("\"");
         }
         sb.append(")>");
         return sb.toString();
@@ -331,4 +338,8 @@ public class VariantType extends PrimitiveType {
         return false;
     }
 
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.empty();
+    }
 }
