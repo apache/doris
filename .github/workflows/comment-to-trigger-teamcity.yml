@@ -36,6 +36,8 @@ jobs:
         github.event.issue.pull_request &&
         !startsWith(github.event.comment.body, '/review') &&
         (
+          (github.event.comment.user.id == 37901441 && github.event.sender.id == 37901441 &&
+           github.event.comment.user.login == 'shuke987' && contains(github.event.comment.body, 'run debug')) ||
           contains(github.event.comment.body, 'run buildall') ||
           contains(github.event.comment.body, 'run compile') ||
           contains(github.event.comment.body, 'run beut') ||
@@ -51,12 +53,20 @@ jobs:
         )
       }}
 
+    outputs:
+      lanes: ${{ steps.fc_lanes.outputs.lanes }}
+      pr: ${{ steps.parse.outputs.PULL_REQUEST_NUM }}
+      head: ${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}
+      base: ${{ steps.parse.outputs.TARGET_BRANCH }}
+      repeat: ${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}
     runs-on: ubuntu-latest
     env:
       COMMENT_BODY: ${{ github.event.comment.body }}
+      COMMENT_LOGIN: ${{ github.event.comment.user.login }}
+      COMMENT_SENDER_ID: ${{ github.event.sender.id }}
       COMMENT_USER_ID: ${{ github.event.comment.user.id }}
       TEAMCITY_CURRENT_URL: ${{ vars.TEAMCITY_CURRENT_URL }}
-      TEAMCITY_CURRENT_TOKEN: ${{ secrets.TEAMCITY_CURRENT_TOKEN }}
+      TEAMCITY_CURRENT_TOKEN: ${{ !contains(github.event.comment.body, 'debug') && secrets.TEAMCITY_CURRENT_TOKEN || '' }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
@@ -65,8 +75,26 @@ jobs:
       run: |
         COMMENT_BODY=$(echo "${COMMENT_BODY}" | xargs)
         PULL_REQUEST_NUM="$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')"
-        COMMIT_ID_FROM_TRIGGER="$(curl -s -H "Authorization:Bearer ${GITHUB_TOKEN}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.head.sha')"
-        TARGET_BRANCH="$(curl -s -H "Authorization:Bearer ${GITHUB_TOKEN}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.base.ref')"
+        pr_json=$(curl --fail --silent --show-error -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+          "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}")
+        COMMIT_ID_FROM_TRIGGER=$(jq -er '.head.sha' <<< "$pr_json")
+        TARGET_BRANCH=$(jq -er '.base.ref' <<< "$pr_json")
+        # Debug commands exercise the FC transport with the same production lane rules.
+        if [[ "$COMMENT_BODY" == 'run debug'* ]]; then
+          [[ "$COMMENT_LOGIN" == shuke987 && "$COMMENT_USER_ID" == 37901441 && "$COMMENT_SENDER_ID" == 37901441 ]] || exit 1
+          debug_command='^run debug(all|compile|p0|feut|beut|cloudut|external|cloud_p0|vault_p0|nonconcurrent|performance)( ([1-9][0-9]*))?$'
+          [[ "$COMMENT_BODY" =~ $debug_command ]] || { echo 'Unsupported FC debug command'; exit 1; }
+          lane=${BASH_REMATCH[1]}
+          repeat=${BASH_REMATCH[3]:-1}
+          [[ "$repeat" =~ ^([1-9]|1[0-9]|20)$ ]] || { echo 'Repeat must be between 1 and 20'; exit 1; }
+          [[ "$lane" != all ]] || lane=buildall
+          COMMENT_BODY="run $lane $repeat"
+          echo "fc=true" >> "$GITHUB_OUTPUT"
+          base_sha=$(jq -er '.base.sha' <<< "$pr_json")
+          file_count=$(jq -er '.changed_files' <<< "$pr_json")
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "file_count=$file_count" >> "$GITHUB_OUTPUT"
+        fi
         if [[ "${COMMENT_BODY}" == *'run buildall'* ||
             "${COMMENT_BODY}" == *'run compile'* ||
             "${COMMENT_BODY}" == *'run beut'* ||
@@ -149,7 +177,7 @@ jobs:
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) || fromJSON(steps.parse.outputs.comment_skip) }}
       uses: actions/checkout@v4
       with:
-        ref: ${{ github.event.repository.default_branch }}
+        ref: ${{ github.sha }}
         persist-credentials: false
 
     - name: "Check if pr need run build"
@@ -247,6 +275,23 @@ jobs:
           create_an_issue_comment "${PULL_REQUEST_NUM}" "${msg}"
           exit 1
         fi
+
+    - name: Prepare FC lane selection
+      if: steps.parse.outputs.fc == 'true'
+      env:
+        PR: ${{ steps.parse.outputs.PULL_REQUEST_NUM }}
+        HEAD_SHA: ${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}
+        BASE_SHA: ${{ steps.parse.outputs.base_sha }}
+        FILE_COUNT: ${{ steps.parse.outputs.file_count }}
+      run: |
+        # The file filters and the approval record must describe the same PR revision.
+        [[ "$FILE_COUNT" =~ ^[0-9]+$ && $(wc -l < all_files) -eq "$FILE_COUNT" ]]
+        curl --fail --silent --show-error -H "Authorization: Bearer $GITHUB_TOKEN" \
+          "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/$PR" |
+          jq -e --arg head "$HEAD_SHA" --arg base "$BASE_SHA" --arg branch "$TARGET_BRANCH" \
+            '.state == "open" and .head.sha == $head and .base.sha == $base and .base.ref == $branch' >/dev/null
+        : > "$RUNNER_TEMP/teamcity-fc-lanes"
+        echo "TEAMCITY_FC_PLAN=$RUNNER_TEMP/teamcity-fc-lanes" >> "$GITHUB_ENV"
 
     - name: "Trigger feut"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["feut", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
@@ -385,6 +430,13 @@ jobs:
           "performance" \
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
+    - name: Collect selected FC lanes
+      id: fc_lanes
+      if: steps.parse.outputs.fc == 'true'
+      run: |
+        lanes=$(jq -Rsc 'split("\n") | map(select(length > 0))' "$TEAMCITY_FC_PLAN")
+        echo "lanes=$lanes" >> "$GITHUB_OUTPUT"
+
     - name: "Skip buildall"
       if: ${{ fromJSON(steps.parse.outputs.comment_skip) }}
       run: |
@@ -401,3 +453,42 @@ jobs:
         skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" cloudut
         skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" vault_p0
         skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" nonconcurrent
+
+  approve-fc:
+    needs: check-comment-if-need-to-trigger-teamcity
+    if: needs.check-comment-if-need-to-trigger-teamcity.outputs.lanes != '' && needs.check-comment-if-need-to-trigger-teamcity.outputs.lanes != '[]'
+    strategy:
+      matrix:
+        lane: ${{ fromJSON(needs.check-comment-if-need-to-trigger-teamcity.outputs.lanes) }}
+    name: fc-approve/v1/${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.pr }}/${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.head }}/${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.base }}/${{ matrix.lane }}/${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.repeat }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - run: 'true'
+
+  submit-fc:
+    needs: [check-comment-if-need-to-trigger-teamcity, approve-fc]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: regression-test/pipeline/common
+      - name: Queue approved TeamCity builds
+        env:
+          TEAMCITY_FC_TRIGGER_URL: ${{ vars.TEAMCITY_FC_TRIGGER_URL }}
+          LANES: ${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.lanes }}
+          PR: ${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.pr }}
+          HEAD_SHA: ${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.head }}
+          BASE_BRANCH: ${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.base }}
+          REPEAT: ${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.repeat }}
+        run: |
+          source regression-test/pipeline/common/teamcity-utils.sh
+          lanes=$(jq -er '.[]' <<< "$LANES")
+          while IFS= read -r lane; do
+            teamcity_fc_submit "$lane" "$PR" "$HEAD_SHA" "$BASE_BRANCH" "$REPEAT"
+          done <<< "$lanes"
