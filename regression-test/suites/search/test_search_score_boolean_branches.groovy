@@ -102,4 +102,67 @@ suite("test_search_score_boolean_branches", "p0") {
         """
         exception "Cannot score a compound predicate with incomplete index evaluation"
     }
+
+    // Each INSERT writes its own segment, so some segments store only v.title or only v.content.
+    // Keep every path materialized and indexed; the fuzzy defaults may store paths in the sparse
+    // or doc-value column, where a segment cannot prove a path absent.
+    sql """ set debug_variant_enable_doc_mode = false """
+    sql """ set debug_variant_max_subcolumns_count = 0 """
+    sql "DROP TABLE IF EXISTS test_search_score_variant_absent_path"
+    sql """
+        CREATE TABLE test_search_score_variant_absent_path (
+            id INT NOT NULL,
+            v VARIANT NULL,
+            INDEX idx_v(v) USING INVERTED PROPERTIES("parser" = "english")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default:1",
+            "disable_auto_compaction" = "true"
+        )
+    """
+    sql """
+        INSERT INTO test_search_score_variant_absent_path VALUES
+            (1, parse_to_variant('{"title":"apple search guide","content":"search database engine"}')),
+            (2, parse_to_variant('{"title":"banana guide","content":"analytics engine"}'))
+    """
+    sql """
+        INSERT INTO test_search_score_variant_absent_path VALUES
+            (3, parse_to_variant('{"title":"apple archive"}')),
+            (4, parse_to_variant('{"title":"database manual"}'))
+    """
+    sql """
+        INSERT INTO test_search_score_variant_absent_path VALUES
+            (5, parse_to_variant('{"content":"apple search"}')),
+            (6, parse_to_variant('{"content":"database analytics"}'))
+    """
+    sql """
+        INSERT INTO test_search_score_variant_absent_path VALUES
+            (7, parse_to_variant('{"category":"apple search metadata"}')),
+            (8, parse_to_variant('{}')),
+            (9, parse_to_variant('{"title":"apple database","content":"search analytics"}'))
+    """
+
+    order_qt_variant_search """
+        SELECT id, ROUND(score(), 4) AS bm25_score
+        FROM test_search_score_variant_absent_path
+        WHERE search('v.title:apple OR v.content:search')
+        ORDER BY score() DESC LIMIT 100
+    """
+
+    order_qt_variant_match_or """
+        SELECT id, ROUND(score(), 4) AS bm25_score
+        FROM test_search_score_variant_absent_path
+        WHERE v['title'] MATCH_ANY 'apple' OR v['content'] MATCH_ANY 'search'
+        ORDER BY score() DESC LIMIT 100
+    """
+
+    // An absent v.content is NULL, so NOT keeps a row only when v.title matches.
+    order_qt_variant_not_absent """
+        SELECT id, ROUND(score(), 4) AS bm25_score
+        FROM test_search_score_variant_absent_path
+        WHERE NOT (v['content'] MATCH_ANY 'search') OR v['title'] MATCH_ANY 'apple'
+        ORDER BY score() DESC LIMIT 100
+    """
 }

@@ -27,6 +27,7 @@
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
 
 namespace doris {
+class IndexExecContext;
 class RowDescriptor;
 class RuntimeState;
 class TExprNode;
@@ -61,6 +62,9 @@ public:
     FunctionBasePtr function() { return _function; }
 
 private:
+    Status _evaluate_absent_variant_path(IndexExecContext& index_context,
+                                         uint32_t segment_num_rows);
+
     FunctionBasePtr _function;
     std::string _expr_name;
     std::string _function_name;
