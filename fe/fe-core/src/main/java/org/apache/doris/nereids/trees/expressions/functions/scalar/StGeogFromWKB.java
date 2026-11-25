@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -40,7 +41,9 @@ public class StGeogFromWKB extends ScalarFunction
             FunctionSignature.ret(new GeographyType("OGC:CRS84", "spherical"))
                     .args(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(new GeographyType("OGC:CRS84", "spherical"))
-                    .args(StringType.INSTANCE)
+                    .args(StringType.INSTANCE),
+            FunctionSignature.ret(new GeographyType("OGC:CRS84", "spherical"))
+                    .args(VarBinaryType.INSTANCE)
     );
 
     public StGeogFromWKB(Expression arg) {

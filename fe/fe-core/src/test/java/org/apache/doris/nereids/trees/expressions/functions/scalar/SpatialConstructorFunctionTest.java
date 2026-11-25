@@ -90,6 +90,17 @@ public class SpatialConstructorFunctionTest {
     }
 
     @Test
+    public void testRawWkbConstructorsKeepTheBinaryArgument() {
+        SlotReference raw = new SlotReference("wkb", VarBinaryType.INSTANCE);
+        Assertions.assertEquals(VarBinaryType.INSTANCE, new StGeogFromWKB(raw).expectedInputTypes().get(0));
+        Assertions.assertEquals(VarBinaryType.INSTANCE, new StGeometryFromWKBTyped(raw).expectedInputTypes().get(0));
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT,
+                new StGeogFromWKB(NullLiteral.INSTANCE).expectedInputTypes().get(0));
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT,
+                new StGeometryFromWKBTyped(NullLiteral.INSTANCE).expectedInputTypes().get(0));
+    }
+
+    @Test
     public void testAsTextAcceptsGeometry() {
         GeometryType defaultGeometry = new GeometryType("OGC:CRS84");
         StAstext asText = new StAstext(new StGeometryFromWKBTyped(

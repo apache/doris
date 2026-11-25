@@ -102,6 +102,10 @@ static void expect_spatial_byte_array(PrimitiveType primitive, bool annotated) {
     field.data_type = source_type;
     auto converter =
             PhysicalToLogicalConverter::get_converter(&field, source_type, target_type, nullptr);
+    if (!annotated) {
+        EXPECT_FALSE(converter->support());
+        return;
+    }
     ASSERT_TRUE(converter->support()) << converter->get_error_msg();
     auto strings = ColumnString::create();
     strings->insert_data(wkb.data(), wkb.size());

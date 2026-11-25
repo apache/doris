@@ -213,9 +213,7 @@ static void get_decimal_converter(const FieldSchema* field_schema, DataTypePtr s
 
 namespace {
 
-// V1 decodes an annotated spatial BYTE_ARRAY into ColumnString first. Materialize
-// its raw WKB into ColumnSpatial here; unannotated Iceberg binary fields instead
-// use BinaryToSpatialConverter after the consistent physical conversion.
+// Parquet metadata readers decode annotated BYTE_ARRAY statistics through ColumnString.
 class SpatialPhysicalConverter final : public PhysicalToLogicalConverter {
 public:
     explicit SpatialPhysicalConverter(DataTypePtr spatial_type)

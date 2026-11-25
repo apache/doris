@@ -90,7 +90,17 @@ suite("test_spatial_wkb_compatibility") {
     // Native spatial keys have no SQL equality/order contract; raw bytes remain accessible.
     [geometry: "ST_GeometryFromWKBTyped", geography: "ST_GeogFromWKB"].each { kind, constructor ->
         def point1 = "0101000000000000000000F03F0000000000000040"
+        "qt_raw_wkb_${kind}"("""select id, g, hex(ST_AsBinary(g))
+            from (select number id, ${constructor}(to_binary(case number
+                when 0 then '${point1}' when 1 then '00000000013FF00000000000004000000000000000'
+                when 2 then '00' else null end)) g from numbers("number" = "4")) t order by id""")
         def point2 = "010100000000000000000008400000000000001040"
+        for (def source : ["'${point1}'", "to_binary('${point1}')"]) {
+            test {
+                sql "select cast(${source} as ${kind})"
+                exception "cannot cast"
+            }
+        }
         def point3 = "010100000000000000000014400000000000001840"
         def nullableShapes = """select number as id, ${constructor}(case number % 3
             when 0 then null when 1 then '${point1}' else '${point2}' end) as shape

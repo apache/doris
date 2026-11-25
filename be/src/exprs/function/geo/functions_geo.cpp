@@ -929,26 +929,27 @@ struct StGeoFromWkb {
         const auto size = geo->size();
         const auto& spatial =
                 assert_cast<const DataTypeSpatial&>(*remove_nullable(block.get_data_type(result)));
+        const bool raw_wkb =
+                remove_nullable(block.get_data_type(arguments[0]))->get_primitive_type() ==
+                TYPE_VARBINARY;
         auto res = spatial.create_column();
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
-        GeoParseStatus status;
         std::string wkb;
         for (size_t row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
-            if (!decode_wkb_hex(value, &wkb)) {
-                null_map_data[row] = 1;
-                res->insert_default();
-                continue;
+            if (!raw_wkb) {
+                // A failed hex decode and an empty byte sequence are both invalid WKB.
+                value = decode_wkb_hex(value, &wkb) ? StringRef(wkb) : StringRef();
             }
-            status = WkbParse::validate_wkb_bytes(wkb.data(), wkb.size(),
-                                                  spatial.requires_geographic_coordinates());
+            const auto status = WkbParse::validate_wkb_bytes(
+                    value.data, value.size, spatial.requires_geographic_coordinates());
             if (status != GeoParseStatus::GEO_PARSE_OK) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
             }
-            res->insert_data(wkb.data(), wkb.size());
+            res->insert_data(value.data, value.size);
         }
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(res), std::move(null_map)));

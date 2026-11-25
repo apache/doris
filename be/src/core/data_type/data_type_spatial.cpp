@@ -30,6 +30,7 @@
 #include "core/data_type/data_type_binary_serialization.h"
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 #include "core/field.h"
+#include "core/string_buffer.hpp"
 #include "core/string_view.h"
 #include "exprs/function/geo/wkb_parse.h"
 #include "gen_cpp/data.pb.h"
@@ -67,10 +68,40 @@ auto with_spatial_column(PrimitiveType kind, const Action& action) {
 }
 
 template <typename Column>
-class SpatialParquetSerDe final : public DataTypeVarbinarySerDeBase<Column> {
+class SpatialSerDe final : public DataTypeVarbinarySerDeBase<Column> {
 public:
-    SpatialParquetSerDe(int nesting_level, bool geographic)
+    SpatialSerDe(int nesting_level, bool geographic)
             : DataTypeVarbinarySerDeBase<Column>(nesting_level), _geographic(geographic) {}
+
+    bool write_column_to_mysql_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
+                                    const DataTypeSerDe::FormatOptions& options) const override {
+        if (this->_nesting_level >= 2) {
+            return DataTypeSerDe::write_column_to_mysql_text(column, bw, row_idx, options);
+        }
+        const auto wkt = mysql_wkt(column, row_idx);
+        bw.write(wkt.data(), wkt.size());
+        return true;
+    }
+
+    bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
+                                     const DataTypeSerDe::FormatOptions& options) const override {
+        return write_column_to_mysql_text(column, bw, row_idx, options);
+    }
+
+    bool write_column_to_hive_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
+                                   const DataTypeSerDe::FormatOptions& options) const override {
+        return write_column_to_mysql_text(column, bw, row_idx, options);
+    }
+
+    Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& buffer,
+                                        int64_t row_idx, bool col_const,
+                                        const DataTypeSerDe::FormatOptions&) const override {
+        const auto wkt = mysql_wkt(column, index_check_const(row_idx, col_const));
+        if (buffer.push_string(wkt.data(), wkt.size()) != 0) {
+            return Status::InternalError("pack mysql buffer failed");
+        }
+        return Status::OK();
+    }
 
     Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
                                     const ParquetDecodeContext& context, size_t num_values,
@@ -90,6 +121,15 @@ public:
     }
 
 private:
+    static std::string mysql_wkt(const IColumn& column, size_t row) {
+        const auto value = column.get_data_at(row);
+        std::string wkt;
+        if (WkbParse::wkb_to_wkt(value.data, value.size, &wkt) != GeoParseStatus::GEO_PARSE_OK) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid WKB in MySQL spatial result");
+        }
+        return wkt;
+    }
+
     const bool _geographic;
 };
 
@@ -116,8 +156,8 @@ void DataTypeSpatial::to_pb_column_meta(PColumnMeta* col_meta) const {
 
 DataTypeSerDeSPtr DataTypeSpatial::get_serde(int nesting_level) const {
     return with_spatial_column(_primitive_type, [&]<typename Column>() -> DataTypeSerDeSPtr {
-        return std::make_shared<SpatialParquetSerDe<Column>>(nesting_level,
-                                                             requires_geographic_coordinates());
+        return std::make_shared<SpatialSerDe<Column>>(nesting_level,
+                                                      requires_geographic_coordinates());
     });
 }
 

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -41,7 +42,8 @@ public class StGeometryFromWKBTyped extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(new GeometryType("OGC:CRS84")).args(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(new GeometryType("OGC:CRS84")).args(StringType.INSTANCE)
+            FunctionSignature.ret(new GeometryType("OGC:CRS84")).args(StringType.INSTANCE),
+            FunctionSignature.ret(new GeometryType("OGC:CRS84")).args(VarBinaryType.INSTANCE)
     );
 
     /**

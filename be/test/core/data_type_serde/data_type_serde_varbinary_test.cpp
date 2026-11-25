@@ -142,12 +142,22 @@ static void expect_binary_serde_value(const DataTypeSerDe& serde, const IColumn&
     ASSERT_TRUE(serde.serialize_one_cell_to_json(column, row, writer, options).ok());
     writer.commit();
     EXPECT_EQ(text->get_data_at(0).to_string(), value);
+}
+
+static void expect_mysql_cell(const DataTypeSerDe& serde, const IColumn& column, size_t row,
+                              const std::string& value, bool col_const = false) {
+    auto options = DataTypeSerDe::get_default_format_options();
+    auto text = ColumnString::create();
+    VectorBufferWriter writer(*text);
+    ASSERT_TRUE(serde.write_column_to_mysql_text(column, writer, col_const ? 0 : row, options));
+    writer.commit();
+    EXPECT_EQ(text->get_data_at(0).to_string(), value);
     MysqlRowBinaryBuffer actual;
     MysqlRowBinaryBuffer expected;
     actual.start_binary_row(1);
     expected.start_binary_row(1);
     ASSERT_EQ(expected.push_string(value.data(), value.size()), 0);
-    ASSERT_TRUE(serde.write_column_to_mysql_binary(column, actual, row, false, options).ok());
+    ASSERT_TRUE(serde.write_column_to_mysql_binary(column, actual, row, col_const, options).ok());
     EXPECT_EQ(std::string(actual.buf(), actual.length()),
               std::string(expected.buf(), expected.length()));
 }
@@ -171,14 +181,30 @@ static void expect_binary_serde_cell(const DataTypePtr& type) {
     ASSERT_TRUE(serde->serialize_one_cell_to_json(*constant, 4, writer, options).ok());
     writer.commit();
     EXPECT_EQ(text->get_data_at(0).to_string(), values[2]);
-    MysqlRowBinaryBuffer actual;
-    MysqlRowBinaryBuffer expected;
-    actual.start_binary_row(1);
-    expected.start_binary_row(1);
-    ASSERT_EQ(expected.push_string(values[0].data(), values[0].size()), 0);
-    ASSERT_TRUE(serde->write_column_to_mysql_binary(*column, actual, 4, true, options).ok());
-    EXPECT_EQ(std::string(actual.buf(), actual.length()),
-              std::string(expected.buf(), expected.length()));
+    if (type->get_primitive_type() == TYPE_VARBINARY) {
+        for (size_t row = 0; row < values.size(); ++row) {
+            expect_mysql_cell(*serde, *column, row, values[row]);
+        }
+        expect_mysql_cell(*serde, *column, 4, values[0], true);
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, MysqlSpatialRowsPreserveDimensionsAndEmptyShapes) {
+    for (auto kind : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        DataTypeSpatial type(kind);
+        auto column = type.create_column();
+        const auto point = spatial_serde_point();
+        std::string point_zm = point;
+        point_zm.replace(1, 4, "\xb9\x0b\0\0", 4); // ISO Point ZM (3001)
+        point_zm.append("\0\0\0\0\0\0\x08\x40\0\0\0\0\0\0\x10\x40", 16);
+        column->insert_data(point.data(), point.size());
+        column->insert_data(point_zm.data(), point_zm.size());
+        column->insert_data("\0\0\0\0\x07\0\0\0\0", 9); // big-endian empty collection
+        auto serde = type.get_serde();
+        expect_mysql_cell(*serde, *column, 2, "POINT (1 2)", true);
+        expect_mysql_cell(*serde, *column, 1, "POINT ZM (1 2 3 4)");
+        expect_mysql_cell(*serde, *column, 2, "GEOMETRYCOLLECTION EMPTY");
+    }
 }
 
 static void expect_binary_serde_text(const DataTypePtr& type) {
@@ -193,6 +219,12 @@ static void expect_binary_serde_text(const DataTypePtr& type) {
     writer.commit();
     const auto encoded = text->get_data_at(0).to_string();
     EXPECT_EQ(encoded, "0x0101000000000000000000F03F0000000000000040");
+    ASSERT_TRUE(serde->write_column_to_presto_text(*column, writer, 0, options));
+    writer.commit();
+    ASSERT_TRUE(serde->write_column_to_hive_text(*column, writer, 0, options));
+    writer.commit();
+    EXPECT_EQ(text->get_data_at(1).to_string(), encoded);
+    EXPECT_EQ(text->get_data_at(2).to_string(), encoded);
     auto restored = type->create_column();
     StringRef input(encoded);
     ASSERT_TRUE(serde->from_string(input, *restored, options).ok());

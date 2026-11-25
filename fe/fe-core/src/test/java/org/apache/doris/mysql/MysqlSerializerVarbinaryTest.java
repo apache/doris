@@ -99,16 +99,16 @@ public class MysqlSerializerVarbinaryTest {
     }
 
     @Test
-    public void testSpatialFieldPacketsAdvertiseBinaryWkb() {
+    public void testSpatialFieldPacketsAdvertiseWktText() {
         for (Type type : new Type[] {ScalarType.createGeometryType(), ScalarType.createGeographyType()}) {
             MysqlSerializer serializer = MysqlSerializer.newInstance();
             serializer.writeField("shape", type);
             byte[] packet = serializer.toArray();
             int offset = skipFieldHeaderStrings(packet);
-            Assertions.assertEquals(63, leUInt2(packet, offset));
+            Assertions.assertEquals(33, leUInt2(packet, offset));
             offset += 6; // charset and display length
             Assertions.assertEquals(MysqlColType.MYSQL_TYPE_VARSTRING.getCode(), packet[offset] & 0xFF);
-            Assertions.assertEquals(128, leUInt2(packet, offset + 1));
+            Assertions.assertEquals(0, leUInt2(packet, offset + 1));
         }
     }
 
