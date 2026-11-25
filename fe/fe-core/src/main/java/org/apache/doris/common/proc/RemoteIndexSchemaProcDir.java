@@ -83,26 +83,27 @@ public class RemoteIndexSchemaProcDir implements ProcDirInterface {
         table.readLock();
         try {
             SchemaGeneration generation = getSchemaGeneration();
-            Collection<Partition> partitions = partitionNames.isEmpty()
+            boolean sampleByPartition = partitionNames.isEmpty();
+            Collection<Partition> partitions = sampleByPartition
                     ? table.getPartitions() : getNamedPartitions(partitionNames);
             List<Column> schema = table.getSchemaByIndexId(indexId);
             Set<String> bfColumns = IndexInfoProcDir.getBloomFilterColumns(table);
             ProcResult baseSchema = IndexSchemaProcNode.createResult(schema, bfColumns, List.of());
             List<PartitionTablets> partitionTablets = FetchRemoteTabletSchemaUtil.snapshotPartitions(partitions);
             return new RemoteIndexSchemaProcNode(
-                    baseSchema, bfColumns, () -> fetchRemoteSchema(partitionTablets, generation));
+                    baseSchema, bfColumns, () -> fetchRemoteSchema(partitionTablets, generation, sampleByPartition));
         } finally {
             table.readUnlock();
         }
     }
 
-    private List<Column> fetchRemoteSchema(List<PartitionTablets> partitions, SchemaGeneration generation)
-            throws AnalysisException {
+    private List<Column> fetchRemoteSchema(List<PartitionTablets> partitions, SchemaGeneration generation,
+            boolean sampleByPartition) throws AnalysisException {
         if (partitions.isEmpty()) {
             return List.of();
         }
         // Cloud partition visibility may require a Meta Service RPC.
-        List<VersionedTablet> tablets = FetchRemoteTabletSchemaUtil.collectTablets(partitions);
+        List<VersionedTablet> tablets = FetchRemoteTabletSchemaUtil.sampleTablets(partitions, sampleByPartition);
         FetchRemoteTabletSchemaUtil fetcher;
         table.readLock();
         try {

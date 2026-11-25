@@ -56,7 +56,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.util.AbstractList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -168,52 +167,59 @@ class FetchRemoteTabletSchemaUtilTest {
         Assertions.assertEquals(List.of(), new FetchRemoteTabletSchemaUtil(List.of()).fetch());
     }
 
-    @Test
-    void rejectsOversizedPartitionWithoutCopyingItsTablets() {
-        List<Tablet> oversizedTablets = new AbstractList<>() {
-            @Override
-            public Tablet get(int index) {
-                throw new AssertionError("Oversized tablet lists must only be counted");
-            }
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void samplesUnevenPartitionsWithLegacyBudgets(boolean sampleByPartition) throws Exception {
+        List<Tablet> wide = LongStream.rangeClosed(1, 500).mapToObj(id -> (Tablet) new LocalTablet(id)).toList();
+        Tablet narrow = new LocalTablet(501);
+        Partition widePartition = Mockito.mock(Partition.class);
+        Partition narrowPartition = Mockito.mock(Partition.class);
+        Mockito.when(widePartition.getId()).thenReturn(10L);
+        Mockito.when(narrowPartition.getId()).thenReturn(20L);
+        List<PartitionTablets> partitions = List.of(new PartitionTablets(widePartition, wide, 2L),
+                new PartitionTablets(narrowPartition, List.of(narrow), 3L));
 
-            @Override
-            public int size() {
-                return 2048;
-            }
-        };
-        List<PartitionTablets> partitions = List.of(
-                new PartitionTablets(Mockito.mock(Partition.class), List.of(tabletWithReplicas(101)), 2L),
-                new PartitionTablets(Mockito.mock(Partition.class), oversizedTablets, 2L));
         ConnectContext context = Mockito.mock(ConnectContext.class);
-        Mockito.when(context.getSessionVariable()).thenReturn(new SessionVariable());
+        SessionVariable session = new SessionVariable();
+        Mockito.when(context.getSessionVariable()).thenReturn(session);
         try (MockedStatic<ConnectContext> contextStatic = Mockito.mockStatic(ConnectContext.class);
                 MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class)) {
             contextStatic.when(ConnectContext::get).thenReturn(context);
             configStatic.when(Config::isCloudMode).thenReturn(false);
-            AnalysisException e = Assertions.assertThrows(AnalysisException.class,
-                    () -> FetchRemoteTabletSchemaUtil.collectTablets(partitions));
-            Assertions.assertTrue(e.getMessage().contains("needs to read 2049 tablets"), e.getMessage());
+            session.maxFetchRemoteTabletCount = 512;
+            List<VersionedTablet> result = FetchRemoteTabletSchemaUtil.sampleTablets(partitions, sampleByPartition);
+            Assertions.assertEquals(sampleByPartition ? 257 : 501, result.size());
+            Assertions.assertTrue(result.stream().anyMatch(
+                    entry -> entry.tablet() == narrow && entry.visibleVersion() == 3L));
+            Assertions.assertTrue(result.stream().filter(entry -> entry.tablet() != narrow)
+                    .allMatch(entry -> wide.contains(entry.tablet()) && entry.visibleVersion() == 2L));
+
+            session.maxFetchRemoteTabletCount = 1;
+            List<VersionedTablet> single = FetchRemoteTabletSchemaUtil.sampleTablets(partitions, sampleByPartition);
+            Assertions.assertEquals(1, single.size());
+            if (sampleByPartition) {
+                Assertions.assertSame(narrow, single.get(0).tablet());
+            }
         }
     }
 
-    @Test
-    void collectsEveryTabletAcrossUnevenPartitionsWithinTheLimit() throws Exception {
-        List<Tablet> large = LongStream.rangeClosed(1, 500).mapToObj(id -> (Tablet) new LocalTablet(id)).toList();
-        Tablet small = new LocalTablet(501);
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void skipsCloudVersionLookupWhenSamplingIsDisabled(boolean sampleByPartition) throws Exception {
+        CloudPartition partition = Mockito.mock(CloudPartition.class);
         List<PartitionTablets> partitions = List.of(
-                new PartitionTablets(Mockito.mock(Partition.class), large, 2L),
-                new PartitionTablets(Mockito.mock(Partition.class), List.of(small), 2L));
+                new PartitionTablets(partition, List.of(tabletWithReplicas(101)), -1L));
         ConnectContext context = Mockito.mock(ConnectContext.class);
-        Mockito.when(context.getSessionVariable()).thenReturn(new SessionVariable());
+        SessionVariable session = new SessionVariable();
+        session.maxFetchRemoteTabletCount = 0;
+        Mockito.when(context.getSessionVariable()).thenReturn(session);
         try (MockedStatic<ConnectContext> contextStatic = Mockito.mockStatic(ConnectContext.class);
-                MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class)) {
+                MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class);
+                MockedStatic<CloudPartition> cloudStatic = Mockito.mockStatic(CloudPartition.class)) {
             contextStatic.when(ConnectContext::get).thenReturn(context);
-            configStatic.when(Config::isCloudMode).thenReturn(false);
-            List<Tablet> tablets = FetchRemoteTabletSchemaUtil.collectTablets(partitions).stream()
-                    .map(VersionedTablet::tablet).toList();
-            Assertions.assertEquals(501, tablets.size());
-            Assertions.assertEquals(large, tablets.subList(0, 500));
-            Assertions.assertEquals(small, tablets.get(500));
+            configStatic.when(Config::isCloudMode).thenReturn(true);
+            Assertions.assertTrue(FetchRemoteTabletSchemaUtil.sampleTablets(partitions, sampleByPartition).isEmpty());
+            cloudStatic.verifyNoInteractions();
         }
     }
 
@@ -238,7 +244,7 @@ class FetchRemoteTabletSchemaUtilTest {
                     .thenReturn(List.of(initVersion + 1, initVersion, initVersion + 2));
             Assertions.assertEquals(List.of(new VersionedTablet(first, initVersion + 1),
                     new VersionedTablet(last, initVersion + 2)),
-                    FetchRemoteTabletSchemaUtil.collectTablets(partitions));
+                    FetchRemoteTabletSchemaUtil.sampleTablets(partitions, false));
             cloudStatic.verify(() -> CloudPartition.getSnapshotVisibleVersionFromMs(cloudPartitions));
         }
     }
@@ -260,7 +266,7 @@ class FetchRemoteTabletSchemaUtilTest {
                     .thenReturn(List.of(Partition.PARTITION_INIT_VERSION + 1L));
             List<PartitionTablets> partitions = List.of(new PartitionTablets(partition, List.of(tablet), -1L));
             Assertions.assertEquals(List.of(new VersionedTablet(tablet, Partition.PARTITION_INIT_VERSION + 1)),
-                    FetchRemoteTabletSchemaUtil.collectTablets(partitions));
+                    FetchRemoteTabletSchemaUtil.sampleTablets(partitions, false));
         }
     }
 
@@ -307,13 +313,17 @@ class FetchRemoteTabletSchemaUtilTest {
                 new PartitionTablets(cloudPartitions.get(0), List.of(tabletWithReplicas(101)), -1L),
                 new PartitionTablets(cloudPartitions.get(1), List.of(tabletWithReplicas(202)), -1L));
         RpcException unavailable = new RpcException("meta-service", "injected batch version failure");
-        try (MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        Mockito.when(context.getSessionVariable()).thenReturn(new SessionVariable());
+        try (MockedStatic<ConnectContext> contextStatic = Mockito.mockStatic(ConnectContext.class);
+                MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class);
                 MockedStatic<CloudPartition> cloudStatic = Mockito.mockStatic(CloudPartition.class)) {
+            contextStatic.when(ConnectContext::get).thenReturn(context);
             configStatic.when(Config::isCloudMode).thenReturn(true);
             cloudStatic.when(() -> CloudPartition.getSnapshotVisibleVersionFromMs(cloudPartitions))
                     .thenThrow(unavailable);
             AnalysisException error = Assertions.assertThrows(AnalysisException.class,
-                    () -> FetchRemoteTabletSchemaUtil.collectTablets(partitions));
+                    () -> FetchRemoteTabletSchemaUtil.sampleTablets(partitions, false));
             Assertions.assertTrue(error.getMessage().contains("could not fetch partition versions"));
             Assertions.assertSame(unavailable, error.getCause());
         }

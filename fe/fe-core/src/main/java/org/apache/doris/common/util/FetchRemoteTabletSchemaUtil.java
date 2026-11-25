@@ -68,7 +68,6 @@ import java.util.concurrent.TimeoutException;
 public class FetchRemoteTabletSchemaUtil {
     private static final Logger LOG = LogManager.getLogger(FetchRemoteTabletSchemaUtil.class);
 
-    private final int tabletCount;
     private final Map<Long, TabletReplicas> tabletReplicas = Maps.newLinkedHashMap();
 
     private record TabletReplicas(List<Replica> replicas, long visibleVersion) {
@@ -79,7 +78,6 @@ public class FetchRemoteTabletSchemaUtil {
 
     /** Capture the candidate replica lists under the table lock and resolve Cloud routes during fetch. */
     public FetchRemoteTabletSchemaUtil(List<VersionedTablet> tablets) {
-        tabletCount = tablets.size();
         for (VersionedTablet target : tablets) {
             Tablet tablet = target.tablet();
             tabletReplicas.put(tablet.getId(),
@@ -103,30 +101,67 @@ public class FetchRemoteTabletSchemaUtil {
         return snapshot;
     }
 
-    public static List<VersionedTablet> collectTablets(List<PartitionTablets> partitions) throws AnalysisException {
+    public static List<VersionedTablet> sampleTablets(List<PartitionTablets> partitions,
+            boolean sampleByPartition) throws AnalysisException {
         if (partitions.isEmpty()) {
             return Collections.emptyList();
         }
+        int maxTablets = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
+        if (maxTablets < 0) {
+            throw new AnalysisException("max_fetch_remote_schema_tablet_count must be non-negative");
+        }
+        if (maxTablets == 0) {
+            return Collections.emptyList();
+        }
+
         boolean cloudMode = Config.isCloudMode();
         List<Long> cloudVersions = cloudMode ? getCloudVisibleVersions(partitions) : List.of();
-        int maxTablets = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
-        List<VersionedTablet> tablets = Lists.newArrayList();
-        long tabletCount = 0;
+        List<PartitionTablets> visiblePartitions = Lists.newArrayList();
         for (int i = 0; i < partitions.size(); ++i) {
             PartitionTablets partition = partitions.get(i);
             long version = cloudMode ? cloudVersions.get(i) : partition.visibleVersion();
-            if (version <= Partition.PARTITION_INIT_VERSION) {
-                continue;
-            }
-            tabletCount += partition.tablets().size();
-            if (tabletCount <= maxTablets) {
-                for (Tablet tablet : partition.tablets()) {
-                    tablets.add(new VersionedTablet(tablet, version));
-                }
+            if (version > Partition.PARTITION_INIT_VERSION) {
+                visiblePartitions.add(new PartitionTablets(partition.partition(), partition.tablets(), version));
             }
         }
-        checkTabletCount(tabletCount, maxTablets);
-        return tablets;
+        if (sampleByPartition) {
+            return sampleWholeTable(visiblePartitions, maxTablets);
+        }
+
+        // Explicitly named partitions share a single sampling budget.
+        List<VersionedTablet> tablets = Lists.newArrayList();
+        for (PartitionTablets partition : visiblePartitions) {
+            addVersionedTablets(tablets, partition.tablets(), partition.visibleVersion());
+        }
+        return tablets.size() > maxTablets ? Util.sample(tablets, maxTablets) : tablets;
+    }
+
+    private static List<VersionedTablet> sampleWholeTable(List<PartitionTablets> partitions, int maxTablets) {
+        if (partitions.isEmpty()) {
+            return Collections.emptyList();
+        }
+        // Keep the original equal partition quotas and visit newer partitions first.
+        int partitionQuota = Math.max(maxTablets / partitions.size(), 1);
+        partitions.sort(Comparator.comparingLong((PartitionTablets p) -> p.partition().getId()).reversed());
+        List<VersionedTablet> sample = Lists.newArrayList();
+        for (PartitionTablets partition : partitions) {
+            int quota = Math.min(partitionQuota, maxTablets - sample.size());
+            List<Tablet> tablets = partition.tablets();
+            if (tablets.size() > quota) {
+                tablets = Util.sample(Lists.newArrayList(tablets), quota);
+            }
+            addVersionedTablets(sample, tablets, partition.visibleVersion());
+            if (sample.size() == maxTablets) {
+                break;
+            }
+        }
+        return sample;
+    }
+
+    private static void addVersionedTablets(List<VersionedTablet> result, List<Tablet> tablets, long version) {
+        for (Tablet tablet : tablets) {
+            result.add(new VersionedTablet(tablet, version));
+        }
     }
 
     private static List<Long> getCloudVisibleVersions(List<PartitionTablets> partitions) throws AnalysisException {
@@ -136,13 +171,6 @@ public class FetchRemoteTabletSchemaUtil {
                     partitions.stream().map(p -> (CloudPartition) p.partition()).toList());
         } catch (RpcException e) {
             throw new AnalysisException("Extended DESCRIBE could not fetch partition versions", e);
-        }
-    }
-
-    private static void checkTabletCount(long tabletCount, int maxTablets) throws AnalysisException {
-        if (tabletCount > 0 && tabletCount > maxTablets) {
-            throw new AnalysisException("Extended DESCRIBE needs to read " + tabletCount
-                    + " tablets, exceeding max_fetch_remote_schema_tablet_count=" + maxTablets);
         }
     }
 
@@ -201,8 +229,6 @@ public class FetchRemoteTabletSchemaUtil {
         if (tabletReplicas.isEmpty()) {
             return Collections.emptyList();
         }
-        int maxTablets = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
-        checkTabletCount(tabletCount, maxTablets);
         // Resolve a Cloud compute group at most once, after the table lock has been released.
         String clusterId = null;
         Map<Long, Set<Long>> beIdToTabletId = Maps.newHashMap();

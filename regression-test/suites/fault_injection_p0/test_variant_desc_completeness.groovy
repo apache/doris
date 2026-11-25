@@ -41,8 +41,6 @@ suite("test_variant_desc_completeness", "nonConcurrent") {
     def columns = sql("DESC variant_desc_completeness").collect { it[0] }
     assertTrue(columns.contains("payload.expected_key"), "Recovered DESC returned ${columns}")
     sql "SET max_fetch_remote_schema_tablet_count = 0"
-    test {
-        sql "DESC variant_desc_completeness"
-        exception "exceeding max_fetch_remote_schema_tablet_count"
-    }
+    def baseColumns = sql("DESC variant_desc_completeness").collect { it[0] }
+    assertEquals(["id", "payload"], baseColumns)
 }

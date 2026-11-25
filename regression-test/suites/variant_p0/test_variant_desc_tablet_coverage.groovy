@@ -37,7 +37,7 @@ suite("test_variant_desc_tablet_coverage", "p0") {
             (10, PARSE_TO_VARIANT('{"narrow":1}'))
     """
 
-    // Ensure every wide tablet holds a unique path, so the old per-partition sampling cannot pass.
+    // Give every wide tablet its own path so the result reveals the sample size.
     def wideTablets = sql_return_maparray("SHOW TABLETS FROM variant_desc_tablet_coverage PARTITIONS(p_wide)")
             .collect { it.TabletId }.unique()
     assertEquals(4, wideTablets.size())
@@ -57,26 +57,41 @@ suite("test_variant_desc_tablet_coverage", "p0") {
     def allPaths = ["payload.k0", "payload.k1", "payload.k2", "payload.k3", "payload.narrow"]
 
     sql "SET describe_extend_variant_column = true"
-    sql "SET max_fetch_remote_schema_tablet_count = 5"
+    sql "SET max_fetch_remote_schema_tablet_count = 8"
     assertEquals(allPaths, variantPaths("DESC variant_desc_tablet_coverage"))
     assertEquals(allPaths, variantPaths("SHOW PROC '${schemaPath}'"))
     assertEquals(["payload.narrow"], variantPaths("DESC variant_desc_tablet_coverage PARTITION (p_narrow)"))
     assertEquals(["payload.narrow"], variantPaths("SHOW PROC '${schemaPath}/p_narrow'"))
 
     sql "SET max_fetch_remote_schema_tablet_count = 4"
-    test {
-        sql "DESC variant_desc_tablet_coverage"
-        exception "Extended DESCRIBE needs to read 5 tablets"
+    def assertTableSample = { statement ->
+        def paths = variantPaths(statement)
+        assertEquals(3, paths.size())
+        assertTrue(paths.contains("payload.narrow"))
+        assertTrue(allPaths.containsAll(paths))
     }
+    assertTableSample("DESC variant_desc_tablet_coverage")
+    assertTableSample("SHOW PROC '${schemaPath}'")
+
+    def assertNamedSample = { statement ->
+        def paths = variantPaths(statement)
+        assertEquals(4, paths.size())
+        assertTrue(allPaths.containsAll(paths))
+    }
+    assertNamedSample("DESC variant_desc_tablet_coverage PARTITION (p_wide,p_narrow)")
+    assertNamedSample("SHOW PROC '${schemaPath}/p_wide,p_narrow'")
+
     sql "SET max_fetch_remote_schema_tablet_count = 1"
     assertEquals(["payload.narrow"], variantPaths("DESC variant_desc_tablet_coverage PARTITION (p_narrow,p_narrow)"))
     assertEquals(["payload.narrow"], variantPaths("SHOW PROC '${schemaPath}/p_narrow,p_narrow'"))
 
     sql "SET max_fetch_remote_schema_tablet_count = 0"
+    assertTrue(variantPaths("DESC variant_desc_tablet_coverage").isEmpty())
+    assertTrue(variantPaths("DESC variant_desc_tablet_coverage PARTITION (p_narrow)").isEmpty())
     assertTrue(variantPaths("DESC variant_desc_tablet_coverage PARTITION (p_empty)").isEmpty())
 
     sql """INSERT INTO variant_desc_tablet_coverage VALUES (11, PARSE_TO_VARIANT('{"later":1}'))"""
-    sql "SET max_fetch_remote_schema_tablet_count = 5"
+    sql "SET max_fetch_remote_schema_tablet_count = 8"
     def updatedPaths = allPaths + ["payload.later"]
     assertEquals(updatedPaths.sort(), variantPaths("DESC variant_desc_tablet_coverage"))
     assertEquals(["payload.later", "payload.narrow"],
