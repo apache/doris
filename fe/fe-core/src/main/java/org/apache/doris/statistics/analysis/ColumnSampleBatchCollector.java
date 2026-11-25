@@ -24,7 +24,6 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
-import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -42,6 +41,7 @@ import org.apache.doris.statistics.sampling.TabletSamplingMethod;
 import org.apache.doris.statistics.sampling.TabletSamplingRequest;
 import org.apache.doris.statistics.sampling.TabletSamplingScope;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
@@ -88,6 +88,7 @@ final class ColumnSampleBatchCollector {
     private record PlannedColumn(
             int ord,
             String name,
+            String sqlExpr,
             Column column,
             ColumnPhysicalLayout layout,
             boolean singleUniqueKey,
@@ -110,7 +111,7 @@ final class ColumnSampleBatchCollector {
             }
             Set<String> partNames = task.info.partitionNames == null ? Set.of() : Set.copyOf(task.info.partitionNames);
             Target target = new Target(task.info.jobId, task.info.indexId, partNames);
-            groups.computeIfAbsent(target, key -> new TreeMap<>(String.CASE_INSENSITIVE_ORDER))
+            groups.computeIfAbsent(target, key -> new TreeMap<>())
                     .computeIfAbsent(task.info.colName, key -> new ArrayList<>()).add(olapTask);
         }
         groups.forEach((target, byName) -> {
@@ -254,22 +255,22 @@ final class ColumnSampleBatchCollector {
                 keyColumnNames = meta.getKeysType() == KeysType.AGG_KEYS
                         ? meta.getSchema().stream().filter(Column::isKey).map(Column::getName).toList()
                         : List.of();
-                Set<String> liveNames = new TreeMap<>(String.CASE_INSENSITIVE_ORDER).keySet();
-                Map<String, Boolean> seen = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                Map<String, Boolean> seen = new TreeMap<>();
                 for (OlapAnalysisTask member : memberTasks) {
                     if (!member.killed && member.info != null) {
                         seen.put(member.info.colName, Boolean.TRUE);
                     }
                 }
-                liveNames = seen.keySet();
+                Set<String> liveNames = seen.keySet();
                 for (String name : columns) {
                     if (!liveNames.contains(name)) {
                         continue;
                     }
-                    Column col = OlapAnalysisTask.resolveColumn(meta, name);
+                    Column col = OlapAnalysisTask.resolveColumn(meta, table, name);
                     if (col == null) {
                         continue;
                     }
+                    String sqlExpr = SubcolumnStatisticsUtil.resolveSqlExpr(meta, table, name, col);
                     ColumnPhysicalLayout layout = OlapAnalysisTask.columnLayout(table, meta, col);
                     boolean singleUnique = layout.singleUniqueKey() && uniqueAcrossTablets;
                     boolean singleNonNullUnique = singleUnique && !col.isAllowNull();
@@ -278,7 +279,7 @@ final class ColumnSampleBatchCollector {
                     anyKey |= layout.key();
                     anyPartition |= layout.partition();
                     anyDistribution |= layout.distribution();
-                    planned.add(new PlannedColumn(planned.size(), name, col, layout,
+                    planned.add(new PlannedColumn(planned.size(), name, sqlExpr, col, layout,
                             singleUnique, singleNonNullUnique, inSampleBounds));
                 }
             } finally {
@@ -346,7 +347,7 @@ final class ColumnSampleBatchCollector {
             }
             Preconditions.checkState(resultRows.size() == planned.size(),
                     "Expected %s batched sample rows, got %s", planned.size(), resultRows.size());
-            Map<String, ColumnSampleOutcome> byCol = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+            Map<String, ColumnSampleOutcome> byCol = new TreeMap<>();
             for (ResultRow r : resultRows) {
                 Preconditions.checkState(r.getValues().size() == 18,
                         "Expected 18 columns in batched sample row, got %s", r.getValues().size());
@@ -388,7 +389,7 @@ final class ColumnSampleBatchCollector {
                         tblId,
                         idxId,
                         StatisticsUtil.escapeSQL(pc.name()),
-                        SqlUtils.getIdentSql(col.getName()),
+                        pc.sqlExpr(),
                         str,
                         col.getType().getSlotSize(),
                         pc.singleUniqueKey(),

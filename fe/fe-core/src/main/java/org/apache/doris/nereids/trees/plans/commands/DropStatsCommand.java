@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -33,8 +35,13 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -49,7 +56,7 @@ public class DropStatsCommand extends DropCommand {
 
     public static final int MAX_IN_ELEMENT_TO_DELETE = 100;
     private final TableNameInfo tableNameInfo;
-    private final Set<String> columnNames;
+    private Set<String> columnNames;
     private final PartitionNamesInfo opPartitionNamesInfo;
     private boolean isAllColumns;
     private long catalogId;
@@ -127,8 +134,25 @@ public class DropStatsCommand extends DropCommand {
                 throw new UserException("Can't delete more that " + MAX_IN_ELEMENT_TO_DELETE + " columns at one time.");
             }
             isAllColumns = false;
+            boolean escapeVariantDots = table instanceof OlapTable olap && olap.getVariantEscapeDotsInKeys();
+            LinkedHashSet<String> resolved = new LinkedHashSet<>();
             for (String cName : columnNames) {
-                if (table.getColumn(cName) == null) {
+                Column col = table.getColumn(cName);
+                if (col != null) {
+                    if (StatisticsUtil.isUnsupportedType(col.getType())) {
+                        List<SubcolumnStatisticsUtil.SubcolumnDescriptor> subcolumns =
+                                SubcolumnStatisticsUtil.discoverForColumn(col, escapeVariantDots);
+                        if (!subcolumns.isEmpty()) {
+                            subcolumns.forEach(d -> resolved.add(d.colId()));
+                            continue;
+                        }
+                    }
+                    resolved.add(col.getName());
+                    continue;
+                }
+                Optional<SubcolumnStatisticsUtil.SubcolumnDescriptor> subcolumn =
+                        SubcolumnStatisticsUtil.resolveAnyIndex(table, cName);
+                if (subcolumn.isEmpty()) {
                     ErrorReport.reportAnalysisException(
                             ErrorCode.ERR_WRONG_COLUMN_NAME,
                             "DROP",
@@ -136,7 +160,12 @@ public class DropStatsCommand extends DropCommand {
                             ConnectContext.get().getRemoteIP(),
                             cName);
                 }
+                resolved.add(subcolumn.get().colId());
             }
+            if (resolved.size() > MAX_IN_ELEMENT_TO_DELETE) {
+                throw new UserException("Can't delete more that " + MAX_IN_ELEMENT_TO_DELETE + " columns at one time.");
+            }
+            columnNames = resolved;
         } else {
             isAllColumns = true;
         }

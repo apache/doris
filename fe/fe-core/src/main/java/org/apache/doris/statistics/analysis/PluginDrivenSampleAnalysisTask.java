@@ -143,6 +143,7 @@ public class PluginDrivenSampleAnalysisTask extends ExternalAnalysisTask {
             params.put("ndvFunction", "ROUND(NDV(${colName}) * ${scaleFactor})");
             params.put("rowCount", "ROUND(COUNT(1) * ${scaleFactor})");
         } else {
+            params.put("colName", targetColumnSqlExpr());
             sb.append(DUJ1_ANALYZE_TEMPLATE);
             params.put("subStringColName", getStringTypeColName(col));
             params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));

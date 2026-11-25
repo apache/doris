@@ -101,7 +101,7 @@ public class HistogramTask extends BaseAnalysisTask {
         params.put("colId", StatisticsUtil.escapeSQL(String.valueOf(info.colName)));
         params.put("tableRef", tableRef());
         params.put("index", indexClause());
-        params.put("colName", SqlUtils.getIdentSql(String.valueOf(info.colName)));
+        params.put("colName", targetColumnSqlExpr());
         params.put("sampleRate", getSampleRateFunction());
         params.put("sampleHints", "");
         params.put("sampleWhere", "");
@@ -136,7 +136,7 @@ public class HistogramTask extends BaseAnalysisTask {
         table.readLock();
         try {
             MaterializedIndexMeta meta = table.getIndexMetaByIndexId(indexId);
-            Column physical = meta == null ? null : OlapAnalysisTask.resolveColumn(meta, info.colName);
+            Column physical = meta == null ? null : OlapAnalysisTask.resolveColumn(meta, table, info.colName);
             if (physical == null) {
                 throw new AnalyzeSkipException("Histogram target column or index was removed: " + info.colName);
             }

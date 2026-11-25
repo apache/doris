@@ -33,6 +33,7 @@ import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.analysis.AnalysisManager;
 import org.apache.doris.statistics.analysis.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
@@ -347,7 +348,9 @@ public class StatisticsCleaner extends MasterDaemon {
 
                     TableIf t = idToTbl.get(tblId);
                     String colId = statsId.colId;
-                    if (!StatisticsUtil.isMvColumn(t, colId) && t.getColumn(colId) == null) {
+                    if (!StatisticsUtil.isMvColumn(t, colId)
+                            && t.getColumn(colId) == null
+                            && SubcolumnStatisticsUtil.resolveAnyIndex(t, colId).isEmpty()) {
                         expiredStats.ids.add(id);
                         continue;
                     }

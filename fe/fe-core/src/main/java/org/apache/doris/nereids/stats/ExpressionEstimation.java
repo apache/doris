@@ -19,6 +19,9 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.NumericLiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -56,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfYear;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
@@ -92,13 +96,21 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.ColumnStatisticBuilder;
 import org.apache.doris.statistics.model.Statistics;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -110,9 +122,12 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Used to estimate for expressions that not producing boolean value.
@@ -267,6 +282,18 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                 return colStats;
             }
         }
+        // cast string to string-like, or cast where min/max already match the target catalog scalar type
+        // (for example CAST(v['city'] AS VARCHAR) or CAST(v['dt'] AS DATE) on predefined VARIANT subcolumns)
+        if (colStats.minExpr != null && colStats.maxExpr != null) {
+            if (colStats.minExpr instanceof StringLiteral && colStats.maxExpr instanceof StringLiteral
+                    && targetType.isStringLikeType()) {
+                return colStats;
+            }
+            if (colStats.minExpr.getType().equals(targetType.toCatalogDataType())
+                    && colStats.maxExpr.getType().equals(targetType.toCatalogDataType())) {
+                return colStats;
+            }
+        }
 
         // cast other date types, set min/max infinity
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
@@ -303,6 +330,97 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
             return ColumnStatistic.UNKNOWN;
         }
         return columnStatistic;
+    }
+
+    @Override
+    public ColumnStatistic visitElementAt(ElementAt elementAt, Statistics context) {
+        ColumnStatistic direct = context.findColumnStatistics(elementAt);
+        if (direct != null) {
+            return direct;
+        }
+        List<String> reversedSegments = new ArrayList<>();
+        Expression cur = elementAt;
+        while (cur instanceof ElementAt elem) {
+            Expression container = elem.child(0);
+            Expression selector = elem.child(1);
+            DataType containerType = container.getDataType();
+            if (containerType instanceof StructType structType) {
+                if (selector instanceof StringLikeLiteral strLit) {
+                    StructField field = structType.getField(strLit.getStringValue());
+                    if (field == null) {
+                        return ColumnStatistic.createUnknownByDataType(elementAt.getDataType());
+                    }
+                    reversedSegments.add(field.getName());
+                } else if (selector instanceof IntegerLikeLiteral intLit) {
+                    StructField field = structType.getFieldByOrdinal(intLit.getBigDecimalValue());
+                    if (field == null) {
+                        return ColumnStatistic.createUnknownByDataType(elementAt.getDataType());
+                    }
+                    reversedSegments.add(field.getName());
+                } else {
+                    return ColumnStatistic.createUnknownByDataType(elementAt.getDataType());
+                }
+            } else if (containerType instanceof VariantType && selector instanceof StringLikeLiteral strLit) {
+                String seg = strLit.getStringValue();
+                if (seg.isEmpty()) {
+                    return ColumnStatistic.createUnknownByDataType(elementAt.getDataType());
+                }
+                reversedSegments.add(seg);
+            } else {
+                return ColumnStatistic.createUnknownByDataType(elementAt.getDataType());
+            }
+            cur = container;
+        }
+        if (!(cur instanceof SlotReference baseSlot) || reversedSegments.isEmpty()) {
+            return ColumnStatistic.createUnknownByDataType(elementAt.getDataType());
+        }
+        Collections.reverse(reversedSegments);
+        List<String> fullPath = new ArrayList<>(baseSlot.getSubPath().size() + reversedSegments.size());
+        fullPath.addAll(baseSlot.getSubPath());
+        fullPath.addAll(reversedSegments);
+
+        for (Map.Entry<Expression, ColumnStatistic> entry : context.columnStatistics().entrySet()) {
+            if (entry.getKey() instanceof SlotReference candidate
+                    && candidate.getSubPath().equals(fullPath)
+                    && Objects.equals(candidate.getOriginalTable(), baseSlot.getOriginalTable())
+                    && Objects.equals(candidate.getOriginalColumn(), baseSlot.getOriginalColumn())) {
+                return entry.getValue();
+            }
+        }
+        if (baseSlot.getOriginalTable().isEmpty()) {
+            return ColumnStatistic.createUnknownByDataType(elementAt.getDataType());
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && (ctx.getState().isPlanWithUnKnownColumnStats()
+                || !ctx.getSessionVariable().enableStats)) {
+            return ColumnStatistic.createUnknownByDataType(elementAt.getDataType());
+        }
+        TableIf table = baseSlot.getOriginalTable().get();
+        if (StatisticConstants.isSystemTable(table) || table.getDatabase() == null
+                || table.getDatabase().getCatalog() == null) {
+            return ColumnStatistic.createUnknownByDataType(elementAt.getDataType());
+        }
+        String rootName = baseSlot.getOriginalColumn().map(Column::getName).orElse(baseSlot.getName());
+        String candidateColId = SubcolumnStatisticsUtil.formatSubcolumnId(rootName, fullPath);
+        String colId = SubcolumnStatisticsUtil.resolveAnyIndex(table, candidateColId)
+                .map(SubcolumnStatisticsUtil.SubcolumnDescriptor::colId)
+                .orElse(candidateColId);
+        long ctlId = table.getDatabase().getCatalog().getId();
+        long dbId = table.getDatabase().getId();
+        ColumnStatistic cached = Env.getCurrentEnv().getStatisticsCache()
+                .getColumnStatistics(ctlId, dbId, table.getId(), -1L, colId, ctx);
+        if (cached == null || cached.isUnKnown) {
+            return ColumnStatistic.createUnknownByDataType(elementAt.getDataType());
+        }
+        double rowCount = Math.max(0.0, context.getRowCount());
+        double scale = cached.count > 0 ? rowCount / cached.count : 1.0;
+        double scaledNulls = Math.min(rowCount, Math.max(0.0, cached.numNulls * scale));
+        double clampedNdv = Math.min(cached.ndv, Math.max(0.0, rowCount - scaledNulls));
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(cached, rowCount)
+                .setNumNulls(scaledNulls)
+                .setNdv(clampedNdv);
+        builder.normalizeAvgSizeByte(elementAt.getDataType());
+        return builder.build();
     }
 
     @Override

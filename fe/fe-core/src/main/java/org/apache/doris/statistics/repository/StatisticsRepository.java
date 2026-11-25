@@ -36,6 +36,7 @@ import org.apache.doris.statistics.model.Histogram;
 import org.apache.doris.statistics.model.StatsType;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -350,6 +351,9 @@ public class StatisticsRepository {
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(Double.parseDouble(rowCount));
         String colName = alterColumnStatsCommand.getColumnName();
         Column column = objects.table.getColumn(colName);
+        if (column == null) {
+            column = SubcolumnStatisticsUtil.resolveColumn(objects.table, indexId, colName);
+        }
         if (ndv != null) {
             double dNdv = Double.parseDouble(ndv);
             builder.setNdv(dNdv);

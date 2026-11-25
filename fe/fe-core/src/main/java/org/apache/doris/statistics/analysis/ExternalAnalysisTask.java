@@ -89,7 +89,12 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         params.put("dbId", String.valueOf(db.getId()));
         params.put("tblId", String.valueOf(tbl.getId()));
         params.put("idxId", "-1");
-        params.put("colName", SqlUtils.getIdentSql(info.colName));
+        String colIdent = SqlUtils.getIdentSql(info.colName);
+        String colExpr = targetColumnSqlExpr();
+        params.put("colName", colIdent);
+        if (!colExpr.equals(colIdent)) {
+            params.put("colPrefix", colExpr + " AS ");
+        }
         params.put("colId", StatisticsUtil.escapeSQL(info.colName));
         params.put("catalogName", SqlUtils.getIdentSql(catalog.getName()));
         params.put("dbName", SqlUtils.getIdentSql(db.getFullName()));

@@ -25,6 +25,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -132,6 +133,9 @@ public class FollowerColumnSender extends MasterDaemon {
                 continue;
             }
             Column col = table.getColumn(column.colName);
+            if (col == null) {
+                col = SubcolumnStatisticsUtil.resolveColumn(table, -1L, column.colName);
+            }
             if (col == null || StatisticsUtil.isUnsupportedType(col.getType())) {
                 continue;
             }

@@ -34,6 +34,7 @@ import org.apache.doris.statistics.analysis.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.sampling.IndexSamplingSnapshot;
 import org.apache.doris.statistics.sampling.IndexSamplingSnapshot.ReportState;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
@@ -174,7 +175,8 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .filter(c -> StatisticsUtil.needAnalyzeColumn(table, c)
                         || StatisticsUtil.isLongTimeColumn(table, c, olapTableVersion))
                 .filter(c -> olapTable == null || StatisticsUtil.canCollectColumn(
-                        olapTable.getIndexMetaByIndexId(olapTable.getIndexIdByName(c.first)).getColumnByName(c.second),
+                        StatisticsUtil.resolveIndexColumn(
+                                olapTable, olapTable.getIndexIdByName(c.first), c.second),
                         table, isSampleAnalyze, olapTable.getIndexIdByName(c.first)))
             .collect(Collectors.toSet());
         AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority, analysisMethod,
@@ -240,6 +242,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
                     .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                     .map(Column::getName)
                     .collect(Collectors.toSet());
+            allColumnPairs.addAll(SubcolumnStatisticsUtil.discoverSubcolumnIds(olapTable));
             columns.addAll(olapTable.getColumnIndexPairs(allColumnPairs));
         }
     }

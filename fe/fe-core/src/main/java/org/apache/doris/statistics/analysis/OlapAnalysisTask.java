@@ -57,6 +57,7 @@ import org.apache.doris.statistics.sampling.TabletSamplingMethod;
 import org.apache.doris.statistics.sampling.TabletSamplingRequest;
 import org.apache.doris.statistics.sampling.TabletSamplingScope;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -176,7 +177,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         table.readLock();
         try {
             MaterializedIndexMeta meta = table.getIndexMetaByIndexId(indexId);
-            Column physical = meta == null ? null : resolveColumn(meta, info.colName);
+            Column physical = meta == null ? null : resolveColumn(meta, table, info.colName);
             if (physical == null) {
                 throw new AnalyzeSkipException("Statistics target column or index was removed: " + info.colName);
             }
@@ -234,6 +235,11 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         boolean singleUniqueKey = layout.singleUniqueKey() && uniqueAcrossTablets;
         boolean singleNonNullUnique = singleUniqueKey && !col.isAllowNull();
         Map<String, String> params = buildSqlParams();
+        String colIdent = params.get("colName");
+        String colExpr = targetColumnSqlExpr();
+        if (!colExpr.equals(colIdent) && !singleNonNullUnique) {
+            params.put("colName", colExpr);
+        }
         params.put("limit", "");
         params.put("sampleHints", "");
         params.put("sampleWhere", "");
@@ -244,6 +250,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("preAggHint", "/*+PREAGGOPEN*/");
         }
         if (spec.scanClause() instanceof FullScanClause) {
+            params.put("colName", colIdent);
             fullScanOfNonNullUniqueKey = singleNonNullUnique;
             params.put("rowCount", "COUNT(1)");
             params.put("min", "MIN(${colName})");
@@ -282,6 +289,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("limit", legacy.limit() > 0 ? "limit " + legacy.limit() : "");
             params.put("scaleFactor", Double.toString(legacy.scaleFactor() * ((double) population / rows)));
             if (legacy.linear()) {
+                params.put("colName", colIdent);
                 params.put("ndvFunction", singleUniqueKey ? "${rowCount}"
                         : "ROUND(NDV(${colName}) * ${scaleFactor})");
             } else {
@@ -362,6 +370,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (!StatisticsUtil.enableFixedBlockStatsSampling() || meta == null || column == null) {
             return false;
         }
+        if (meta.getColumnByName(column.getName()) == null) {
+            return true;
+        }
         if (!column.isKey() && FixedBlockSampleSpec.supportsMergedSampling(table, resolvedIndexId)) {
             return true;
         }
@@ -412,12 +423,20 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     static Column resolveColumn(MaterializedIndexMeta meta, String colName) {
+        return resolveColumn(meta, null, colName);
+    }
+
+    static Column resolveColumn(MaterializedIndexMeta meta, OlapTable table, String colName) {
         Column column = meta.getColumnByName(colName);
-        if (column == null || column.getName().equalsIgnoreCase(colName)) {
-            return column;
+        if (column != null) {
+            if (column.getName().equalsIgnoreCase(colName)) {
+                return column;
+            }
+            // The catalog lookup strips embedded backticks. SQL reads the literal identifier.
+            return meta.getSchema().stream().filter(c -> c.getName().equalsIgnoreCase(colName))
+                    .findFirst().orElse(null);
         }
-        // The catalog lookup strips embedded backticks. SQL reads the literal identifier.
-        return meta.getSchema().stream().filter(c -> c.getName().equalsIgnoreCase(colName)).findFirst().orElse(null);
+        return SubcolumnStatisticsUtil.resolveColumn(meta, table, colName);
     }
 
     static ColumnPhysicalLayout columnLayout(OlapTable table, MaterializedIndexMeta meta, Column column) {
@@ -714,7 +733,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         table.readLock();
         try {
             MaterializedIndexMeta meta = table.getIndexMetaByIndexId(indexId);
-            Column physical = meta == null ? null : resolveColumn(meta, info.colName);
+            Column physical = meta == null ? null : resolveColumn(meta, table, info.colName);
             if (physical == null) {
                 throw new AnalyzeSkipException("Statistics target column or index was removed: " + info.colName);
             }
@@ -822,9 +841,10 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         String partName = partition.getName();
         long partId = partition.getId();
         String baseFromPrefix = partitionFromPrefix(partName);
+        String colSqlExpr = targetColumnSqlExpr();
         TableStatisticsSqlBuilder.BatchedPartitionColumnSpec measureSpec =
                 new TableStatisticsSqlBuilder.BatchedPartitionColumnSpec(
-                        0, StatisticsUtil.escapeSQL(info.colName), SqlUtils.getIdentSql(col.getName()),
+                        0, StatisticsUtil.escapeSQL(info.colName), colSqlExpr,
                         col.getType().isStringType(), col.getType().getSlotSize(), singleNonNullUnique,
                         0.00000000000000001);
         int baseSqlBytes = TableStatisticsSqlBuilder.batchedPartitionSampleInsertSql(
@@ -859,7 +879,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         double domRate = census ? 1.0 : subdomainRate(layout, singleUnique, sem);
         TableStatisticsSqlBuilder.BatchedPartitionColumnSpec finalSpec =
                 new TableStatisticsSqlBuilder.BatchedPartitionColumnSpec(
-                        0, StatisticsUtil.escapeSQL(info.colName), SqlUtils.getIdentSql(col.getName()),
+                        0, StatisticsUtil.escapeSQL(info.colName), colSqlExpr,
                         col.getType().isStringType(), col.getType().getSlotSize(), singleNonNullUnique,
                         domRate);
         String sql = SampledScanSqlRenderer.checked(
@@ -876,7 +896,10 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     protected ResultRow collectMinMax() {
         checkMinMaxCancelled();
         long startTime = System.currentTimeMillis();
-        String sql = buildMinMaxSql(qualifiedTableName(), getIndex(), Collections.singletonList(info.colName));
+        String colExpr = targetColumnSqlExpr();
+        String sql = "SELECT SUBSTRING(CAST(MIN(" + colExpr + ") AS STRING), 1, 1024), "
+                + "SUBSTRING(CAST(MAX(" + colExpr + ") AS STRING), 1, 1024) FROM "
+                + qualifiedTableName() + " " + getIndex();
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
             configureJobParallelism(r.connectContext.getSessionVariable(), info);
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
@@ -955,7 +978,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             table.readUnlock();
         }
         Set<Long> expiredPartition = Sets.newHashSet();
-        String columnCondition = "AND col_id = " + StatisticsUtil.quote(col.getName());
+        String columnCondition = "AND col_id = " + StatisticsUtil.quote(StatisticsUtil.escapeSQL(info.colName));
         for (long partId : dropped) {
             columnStats.partitionUpdateRows.remove(partId);
             tableStats.partitionUpdateRows.remove(partId);
@@ -1008,7 +1031,12 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         params.put("catalogName", SqlUtils.getIdentSql(catalog.getName()));
         params.put("dbName", SqlUtils.getIdentSql(db.getFullName()));
-        params.put("colName", SqlUtils.getIdentSql(String.valueOf(info.colName)));
+        String colIdent = SqlUtils.getIdentSql(String.valueOf(info.colName));
+        String colExpr = targetColumnSqlExpr();
+        params.put("colName", colIdent);
+        if (!colExpr.equals(colIdent)) {
+            params.put("colPrefix", colExpr + " AS ");
+        }
         params.put("tblName", SqlUtils.getIdentSql(String.valueOf(tbl.getName())));
         params.put("index", getIndex());
         params.put("preAggHint", "");

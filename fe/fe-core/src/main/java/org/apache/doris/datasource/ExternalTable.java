@@ -45,6 +45,7 @@ import org.apache.doris.statistics.analysis.AnalysisInfo;
 import org.apache.doris.statistics.analysis.BaseAnalysisTask;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Objects;
@@ -464,11 +465,18 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         Set<Pair<String, String>> ret = Sets.newHashSet();
         for (String column : columns) {
             Column col = getColumn(column);
-            if (col == null || StatisticsUtil.isUnsupportedType(col.getType())) {
+            if (col != null) {
+                if (!StatisticsUtil.isUnsupportedType(col.getType())) {
+                    // External table put table name as index name.
+                    ret.add(Pair.of(String.valueOf(name), column));
+                }
                 continue;
             }
-            // External table put table name as index name.
-            ret.add(Pair.of(String.valueOf(name), column));
+            Optional<SubcolumnStatisticsUtil.SubcolumnDescriptor> subcolumn =
+                    SubcolumnStatisticsUtil.resolve(this, -1L, column);
+            if (subcolumn.isPresent()) {
+                ret.add(Pair.of(String.valueOf(name), subcolumn.get().colId()));
+            }
         }
         return ret;
     }

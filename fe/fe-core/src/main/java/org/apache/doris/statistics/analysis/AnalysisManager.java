@@ -417,7 +417,8 @@ public class AnalysisManager implements Writable {
         boolean isSampleAnalyze = analysisMethod.equals(AnalysisMethod.SAMPLE);
         Set<Pair<String, String>> jobColumns = table.getColumnIndexPairs(columnNames).stream()
                 .filter(c -> olapTable == null || StatisticsUtil.canCollectColumn(
-                        olapTable.getIndexMetaByIndexId(olapTable.getIndexIdByName(c.first)).getColumnByName(c.second),
+                        StatisticsUtil.resolveIndexColumn(
+                                olapTable, olapTable.getIndexIdByName(c.first), c.second),
                         table, isSampleAnalyze, olapTable.getIndexIdByName(c.first)))
                 .collect(Collectors.toSet());
         infoBuilder.setJobColumns(jobColumns);

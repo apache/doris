@@ -40,6 +40,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.StatsType;
 import org.apache.doris.statistics.repository.StatisticsRepository;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -78,7 +79,7 @@ public class AlterColumnStatsCommand extends AlterCommand {
             .build();
     private final TableNameInfo tableNameInfo;
     private final String indexName;
-    private final String columnName;
+    private String columnName;
     private final PartitionNamesInfo opPartitionNamesInfo;
     private final Map<String, String> properties;
     private long indexId = -1;
@@ -182,6 +183,14 @@ public class AlterColumnStatsCommand extends AlterCommand {
         }
 
         Column column = table.getColumn(columnName);
+        if (column == null) {
+            Optional<SubcolumnStatisticsUtil.SubcolumnDescriptor> subcolumn =
+                    SubcolumnStatisticsUtil.resolve(table, indexId, columnName);
+            if (subcolumn.isPresent()) {
+                column = subcolumn.get().syntheticColumn();
+                columnName = subcolumn.get().colId();
+            }
+        }
         if (column == null || !column.getName().equals(columnName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
         }

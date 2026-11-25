@@ -25,7 +25,6 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Status;
-import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -43,6 +42,7 @@ import org.apache.doris.statistics.sampling.TabletSamplingMethod;
 import org.apache.doris.statistics.sampling.TabletSamplingRequest;
 import org.apache.doris.statistics.sampling.TabletSamplingScope;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
@@ -79,6 +79,7 @@ final class PartitionSampleBatchCollector {
     private record PlannedColumn(
             int ord,
             String name,
+            String sqlExpr,
             Column column,
             ColumnPhysicalLayout layout,
             boolean singleUniqueKey,
@@ -108,7 +109,7 @@ final class PartitionSampleBatchCollector {
             }
             Set<String> partNames = task.info.partitionNames == null ? Set.of() : Set.copyOf(task.info.partitionNames);
             Target target = new Target(task.info.jobId, task.info.indexId, partNames);
-            groups.computeIfAbsent(target, key -> new TreeMap<>(String.CASE_INSENSITIVE_ORDER))
+            groups.computeIfAbsent(target, key -> new TreeMap<>())
                     .computeIfAbsent(task.info.colName, key -> new ArrayList<>()).add(olapTask);
         }
         groups.forEach((target, byName) -> {
@@ -237,7 +238,7 @@ final class PartitionSampleBatchCollector {
                 keyColumnNames = meta.getKeysType() == KeysType.AGG_KEYS
                         ? meta.getSchema().stream().filter(Column::isKey).map(Column::getName).toList()
                         : List.of();
-                Map<String, Boolean> seen = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                Map<String, Boolean> seen = new TreeMap<>();
                 for (OlapAnalysisTask member : memberTasks) {
                     if (!member.killed && member.info != null) {
                         seen.put(member.info.colName, Boolean.TRUE);
@@ -248,17 +249,18 @@ final class PartitionSampleBatchCollector {
                     if (!liveNames.contains(name)) {
                         continue;
                     }
-                    Column col = OlapAnalysisTask.resolveColumn(meta, name);
+                    Column col = OlapAnalysisTask.resolveColumn(meta, table, name);
                     if (col == null) {
                         continue;
                     }
+                    String sqlExpr = SubcolumnStatisticsUtil.resolveSqlExpr(meta, table, name, col);
                     ColumnPhysicalLayout layout = OlapAnalysisTask.columnLayout(table, meta, col);
                     boolean singleUnique = layout.singleUniqueKey() && uniqueAcrossTablets;
                     boolean singleNonNullUnique = singleUnique && !col.isAllowNull();
                     anyKey |= layout.key();
                     anyPartition |= layout.partition();
                     anyDistribution |= layout.distribution();
-                    planned.add(new PlannedColumn(planned.size(), name, col, layout,
+                    planned.add(new PlannedColumn(planned.size(), name, sqlExpr, col, layout,
                             singleUnique, singleNonNullUnique));
                 }
             } finally {
@@ -353,7 +355,7 @@ final class PartitionSampleBatchCollector {
                 specs.add(new BatchedPartitionColumnSpec(
                         pc.ord(),
                         StatisticsUtil.escapeSQL(pc.name()),
-                        SqlUtils.getIdentSql(col.getName()),
+                        pc.sqlExpr(),
                         col.getType().isStringType(),
                         col.getType().getSlotSize(),
                         pc.singleNonNullUnique(),

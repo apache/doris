@@ -49,6 +49,8 @@ import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.PartitionColumnStatistic;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.repository.StatisticsRepository;
+import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -58,9 +60,11 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -108,7 +112,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
                     .build();
 
     private final TableNameInfo tableName;
-    private final List<String> columnNames;
+    private List<String> columnNames;
     private final PartitionNamesInfo partitionNames;
     private final boolean isCached;
     private TableIf table;
@@ -149,11 +153,30 @@ public class ShowColumnStatsCommand extends ShowCommand {
         }
 
         if (columnNames != null) {
+            boolean escapeVariantDots = table instanceof OlapTable olap && olap.getVariantEscapeDotsInKeys();
+            LinkedHashSet<String> resolved = new LinkedHashSet<>();
             for (String name : columnNames) {
-                if (table.getColumn(name) == null) {
+                Column col = table.getColumn(name);
+                if (col != null) {
+                    if (StatisticsUtil.isUnsupportedType(col.getType())) {
+                        List<SubcolumnStatisticsUtil.SubcolumnDescriptor> subcolumns =
+                                SubcolumnStatisticsUtil.discoverForColumn(col, escapeVariantDots);
+                        if (!subcolumns.isEmpty()) {
+                            subcolumns.forEach(d -> resolved.add(d.colId()));
+                            continue;
+                        }
+                    }
+                    resolved.add(col.getName());
+                    continue;
+                }
+                Optional<SubcolumnStatisticsUtil.SubcolumnDescriptor> subcolumn =
+                        SubcolumnStatisticsUtil.resolveAnyIndex(table, name);
+                if (subcolumn.isEmpty()) {
                     ErrorReport.reportAnalysisException("Column: %s not exists", name);
                 }
+                resolved.add(subcolumn.get().colId());
             }
+            columnNames = new ArrayList<>(resolved);
         }
     }
 
@@ -376,8 +399,10 @@ public class ShowColumnStatsCommand extends ShowCommand {
         if (columnNames != null) {
             return Sets.newHashSet(columnNames);
         }
-        return table.getColumns().stream()
+        Set<String> all = table.getColumns().stream()
                 .map(Column::getName).collect(Collectors.toSet());
+        all.addAll(SubcolumnStatisticsUtil.discoverSubcolumnIds(table));
+        return all;
     }
 
     private boolean isAllColumns() {

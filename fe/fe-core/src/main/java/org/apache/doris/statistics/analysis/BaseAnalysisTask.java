@@ -43,6 +43,7 @@ import org.apache.doris.statistics.repository.ColStatsData;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -79,7 +80,7 @@ public abstract class BaseAnalysisTask {
     public static final String ANALYZE_SKIP_LONG_STRING_COLUMN_MARKER = "ANALYZE_SKIP_LONG_STRING_COLUMN";
 
     protected static final String FULL_ANALYZE_TEMPLATE = "WITH cte1 AS ("
-            +     "SELECT ${colName}${lengthAssert} "
+            +     "SELECT ${colPrefix:-}${colName}${lengthAssert} "
             +     "FROM ${catalogName}.${dbName}.${tblName} ${index}), "
             + "cte2 AS ("
             +     "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
@@ -126,7 +127,7 @@ public abstract class BaseAnalysisTask {
             +     "${dataSizeFunction} AS `data_size`, "
             +     "NOW() AS `update_time`, "
             +     "null as `hot_value` "
-            + "FROM (SELECT ${colName}${lengthAssert} "
+            + "FROM (SELECT ${colPrefix:-}${colName}${lengthAssert} "
             +     "FROM ${catalogName}.${dbName}.${tblName} ${index}) __lc_t${lengthFilter:-}";
 
     // Hot values are intentionally NOT collected by the linear estimator. The extra
@@ -138,7 +139,7 @@ public abstract class BaseAnalysisTask {
     // still collected by DUJ1_ANALYZE_TEMPLATE, which derives them from the grouped sample
     // it already builds for the NDV estimate.
     protected static final String LINEAR_ANALYZE_TEMPLATE = "WITH cte1 AS ("
-            +     "SELECT ${colName}${lengthAssert} "
+            +     "SELECT ${colPrefix:-}${colName}${lengthAssert} "
             +     "FROM ${catalogName}.${dbName}.${tblName} ${index} ${sampleHints} ${limit} ${preAggHint}), "
             + "cte2 AS ("
             +     "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
@@ -299,6 +300,9 @@ public abstract class BaseAnalysisTask {
         if (info.analysisType != null && (info.analysisType.equals(AnalysisType.FUNDAMENTALS)
                 || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);
+            if (col == null) {
+                col = SubcolumnStatisticsUtil.resolveColumn(tbl, info.indexId, info.colName);
+            }
             if (col == null) {
                 throw new RuntimeException(String.format("Column with name %s not exists in table %s",
                         info.colName, tbl.getName()));
@@ -522,6 +526,7 @@ public abstract class BaseAnalysisTask {
 
         // 2. Get stats of each partition
         Map<String, String> params = buildSqlParams();
+        params.put("colName", targetColumnSqlExpr());
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         boolean isAllPartitions = info.partitionNames.isEmpty();
         Set<String> partitionNames = isAllPartitions ? tbl.getPartitionNames() : info.partitionNames;
@@ -714,10 +719,20 @@ public abstract class BaseAnalysisTask {
      * Note: the {@code IS NULL OR} guard is required because Doris's
      * {@code assert_true} BE function throws on NULL inputs.
      */
+    protected String targetColumnSqlExpr() {
+        String rawName = String.valueOf(info.colName);
+        if (tbl != null) {
+            return SubcolumnStatisticsUtil.resolve(tbl, info.indexId, rawName)
+                    .map(SubcolumnStatisticsUtil.SubcolumnDescriptor::sqlExpr)
+                    .orElseGet(() -> SqlUtils.getIdentSql(rawName));
+        }
+        return SqlUtils.getIdentSql(rawName);
+    }
+
     protected void addLengthAssertParam(Map<String, String> params) {
         long maxLen = org.apache.doris.common.Config.statistics_max_string_column_length;
         if (col != null && col.getType().isStringType() && maxLen > 0) {
-            String quotedColName = SqlUtils.getIdentSql(String.valueOf(info.colName));
+            String quotedColName = targetColumnSqlExpr();
             // The StringSubstitutor used by callers already has ${colName} populated,
             // so we inline the quoted column name directly here.
             String guard = configureLengthGuard(params);

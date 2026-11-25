@@ -30,6 +30,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.analysis.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.annotations.SerializedName;
@@ -290,14 +291,18 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
                 }
                 indexesRowCount.putAll(analyzedJob.indexesRowCount);
                 clearStaleIndexRowCount(olapTable);
+                Set<String> expectedCols = olapTable.getSchemaAllIndexes(false)
+                        .stream()
+                        .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                        .map(Column::getName)
+                        .collect(Collectors.toSet());
+                expectedCols.addAll(SubcolumnStatisticsUtil.discoverSubcolumnIds(olapTable));
                 if (analyzedJob.jobColumns.containsAll(
-                        olapTable.getColumnIndexPairs(olapTable.getSchemaAllIndexes(false)
-                                        .stream()
-                                        .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                                        .map(Column::getName).collect(Collectors.toSet()))
+                        olapTable.getColumnIndexPairs(expectedCols)
                                 .stream()
-                                .filter(c -> StatisticsUtil.canCollectColumn(olapTable.getIndexMetaByIndexId(
-                                        olapTable.getIndexIdByName(c.first)).getColumnByName(c.second),
+                                .filter(c -> StatisticsUtil.canCollectColumn(
+                                        StatisticsUtil.resolveIndexColumn(
+                                                olapTable, olapTable.getIndexIdByName(c.first), c.second),
                                         olapTable, true, olapTable.getIndexIdByName(c.first)))
                                 .collect(Collectors.toSet()))) {
                     partitionChanged.set(false);

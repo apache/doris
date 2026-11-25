@@ -77,6 +77,7 @@ import org.apache.doris.statistics.analysis.BaseAnalysisTask;
 import org.apache.doris.statistics.analysis.HistogramTask;
 import org.apache.doris.statistics.analysis.OlapAnalysisTask;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
@@ -803,7 +804,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         List<Long> ids = Lists.newArrayList();
         for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
             Column target = meta.getColumnByDefineName(columnName);
-            if (target != null) {
+            if (target != null || SubcolumnStatisticsUtil.resolve(meta, this, columnName).isPresent()) {
                 ids.add(meta.getIndexId() == baseIndexId ? -1 : meta.getIndexId());
             }
         }
@@ -1957,10 +1958,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         for (String column : columns) {
             for (MaterializedIndexMeta meta : getIndexIdToMeta().values()) {
                 Column col = meta.getColumnByName(column);
-                if (col == null || StatisticsUtil.isUnsupportedType(col.getType())) {
+                if (col != null) {
+                    if (!StatisticsUtil.isUnsupportedType(col.getType())) {
+                        ret.add(Pair.of(getIndexNameById(meta.getIndexId()), column));
+                    }
                     continue;
                 }
-                ret.add(Pair.of(getIndexNameById(meta.getIndexId()), column));
+                Optional<SubcolumnStatisticsUtil.SubcolumnDescriptor> subcolumn =
+                        SubcolumnStatisticsUtil.resolve(meta, this, column);
+                if (subcolumn.isPresent()) {
+                    ret.add(Pair.of(getIndexNameById(meta.getIndexId()), subcolumn.get().colId()));
+                }
             }
         }
         return ret;

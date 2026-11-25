@@ -20,7 +20,6 @@ package org.apache.doris.statistics.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
-import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -29,6 +28,7 @@ import org.apache.doris.statistics.analysis.PluginDrivenSampleAnalysisTask.Sampl
 import org.apache.doris.statistics.analysis.TableStatisticsSqlBuilder.BatchedExternalColumnSpec;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
@@ -65,7 +65,7 @@ final class ExternalSampleBatchCollector {
     record ExternalColumnOutcome(boolean overLimit, ResultRow row) {
     }
 
-    private record PlannedColumn(int ord, String name, Column column, boolean linearEstimator) {
+    private record PlannedColumn(int ord, String name, String sqlExpr, Column column, boolean linearEstimator) {
     }
 
     private final List<Batch> batches = new ArrayList<>();
@@ -82,7 +82,7 @@ final class ExternalSampleBatchCollector {
                 continue;
             }
             Target target = new Target(task.info.jobId, task.info.catalogId, task.info.dbId, task.info.tblId);
-            groups.computeIfAbsent(target, key -> new TreeMap<>(String.CASE_INSENSITIVE_ORDER))
+            groups.computeIfAbsent(target, key -> new TreeMap<>())
                     .computeIfAbsent(task.info.colName, key -> new ArrayList<>()).add(extTask);
         }
         groups.forEach((target, byName) -> {
@@ -189,7 +189,7 @@ final class ExternalSampleBatchCollector {
 
         private Map<String, ExternalColumnOutcome> runBatchQuery(PluginDrivenSampleAnalysisTask caller)
                 throws InterruptedException {
-            Map<String, Column> liveColumns = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+            Map<String, Column> liveColumns = new TreeMap<>();
             for (PluginDrivenSampleAnalysisTask member : memberTasks) {
                 if (!member.killed && member.info != null && member.col != null) {
                     liveColumns.putIfAbsent(member.info.colName, member.col);
@@ -203,8 +203,9 @@ final class ExternalSampleBatchCollector {
                 if (col == null) {
                     continue;
                 }
+                String sqlExpr = SubcolumnStatisticsUtil.resolveSqlExpr(caller.tbl, -1L, name, col);
                 boolean linear = singleDist && distColumns.contains(col.getName().toLowerCase());
-                planned.add(new PlannedColumn(planned.size(), name, col, linear));
+                planned.add(new PlannedColumn(planned.size(), name, sqlExpr, col, linear));
             }
             if (planned.size() < 2) {
                 return null;
@@ -226,7 +227,7 @@ final class ExternalSampleBatchCollector {
                         dbId,
                         tblId,
                         StatisticsUtil.escapeSQL(pc.name()),
-                        SqlUtils.getIdentSql(col.getName()),
+                        pc.sqlExpr(),
                         str,
                         col.getType().getSlotSize(),
                         pc.linearEstimator(),
@@ -252,7 +253,7 @@ final class ExternalSampleBatchCollector {
             }
             Preconditions.checkState(resultRows.size() == planned.size(),
                     "Expected %s batched external sample rows, got %s", planned.size(), resultRows.size());
-            Map<String, ExternalColumnOutcome> byCol = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+            Map<String, ExternalColumnOutcome> byCol = new TreeMap<>();
             for (ResultRow r : resultRows) {
                 Preconditions.checkState(r.getValues().size() == 17,
                         "Expected 17 columns in batched external sample row, got %s", r.getValues().size());

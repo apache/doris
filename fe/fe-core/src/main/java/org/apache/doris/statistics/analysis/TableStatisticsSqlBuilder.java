@@ -69,7 +69,7 @@ final class TableStatisticsSqlBuilder {
     }
 
     static final String FULL_ANALYZE_TEMPLATE = "WITH cte1 AS ("
-            +     "SELECT ${colName}${lengthAssert} "
+            +     "SELECT ${colPrefix:-}${colName}${lengthAssert} "
             +     "FROM ${catalogName}.${dbName}.${tblName} ${index}), "
             + "stats AS ("
             +     "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
@@ -136,7 +136,8 @@ final class TableStatisticsSqlBuilder {
             boolean inSampleBounds) {
         String ndv = singleNonNullUnique ? "${rowCount}" : DUJ1_NDV;
         String moments = singleNonNullUnique
-                ? "WITH sample_rows AS (SELECT ${colName}${lengthAssert} FROM ${catalogName}.${dbName}.${tblName} "
+                ? "WITH sample_rows AS (SELECT ${colPrefix:-}${colName}${lengthAssert} "
+                        + "FROM ${catalogName}.${dbName}.${tblName} "
                         + "${index} ${sampleHints}${sampleWhere:-}), moments AS (SELECT COUNT(1) AS n, 0 AS z, "
                         + "IFNULL(${rawDataSizeFunction}, 0) AS bytes"
                         + (inSampleBounds

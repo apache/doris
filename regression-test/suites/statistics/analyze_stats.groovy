@@ -1369,7 +1369,7 @@ PARTITION `p599` VALUES IN (599)
     // Test truncate table will drop table stats too.
     sql """ANALYZE TABLE ${tbl} WITH SYNC"""
     def result_before_truncate = sql """show column stats ${tbl}"""
-    assertEquals(14, result_before_truncate.size())
+    assertEquals(17, result_before_truncate.size())
     sql """TRUNCATE TABLE ${tbl}"""
     stats_dropped(tbl)
     def result_after_truncate = sql """show column stats ${tbl}"""
@@ -1403,7 +1403,7 @@ PARTITION `p599` VALUES IN (599)
     assertEquals(0, result_after_truncate.size())
     sql """ANALYZE TABLE ${tbl} WITH SYNC"""
     result_after_truncate = sql """show column stats ${tbl}"""
-    assertEquals(14, result_after_truncate.size())
+    assertEquals(17, result_after_truncate.size())
 
     result = sql """show column stats ${tbl}(analyzetestlimitedk0);"""
     logger.info("show column analyzetestlimitedk0 stats: " + result)

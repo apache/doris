@@ -40,16 +40,20 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.analysis.AnalysisInfo;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
@@ -121,18 +125,28 @@ public class AnalyzeTableCommand extends AnalyzeCommand {
         }
         checkAnalyzePrivilege(tableNameInfo);
         if (columnNames == null) {
-            columnNames = (table.getSchemaAllIndexes(false).stream()
-                    // Filter unsupported type columns.
-                    .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                    .map(Column::getName)
-                    .collect(Collectors.toList()));
+            table.readLock();
+            try {
+                LinkedHashSet<String> discovered = new LinkedHashSet<>();
+                table.getSchemaAllIndexes(false).stream()
+                        // Filter unsupported type columns.
+                        .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                        .map(Column::getName)
+                        .forEach(discovered::add);
+                discovered.addAll(SubcolumnStatisticsUtil.discoverSubcolumnIds(table));
+                columnNames = new ArrayList<>(discovered);
+            } finally {
+                table.readUnlock();
+            }
         } else {
             table.readLock();
             try {
                 List<String> baseSchema = table.getSchemaAllIndexes(false)
                         .stream().map(Column::getName).collect(Collectors.toList());
                 Optional<String> optional = columnNames.stream()
-                        .filter(entity -> !baseSchema.contains(entity)).findFirst();
+                        .filter(entity -> !baseSchema.contains(entity)
+                                && SubcolumnStatisticsUtil.resolveAnyIndex(table, entity).isEmpty())
+                        .findFirst();
                 if (optional.isPresent()) {
                     String columnName = optional.get();
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR,
@@ -211,35 +225,49 @@ public class AnalyzeTableCommand extends AnalyzeCommand {
     }
 
     private void checkColumn() throws AnalysisException {
-        boolean containsUnsupportedTytpe = false;
+        boolean containsUnsupportedType = false;
+        boolean escapeVariantDots = table instanceof OlapTable olap && olap.getVariantEscapeDotsInKeys();
+        Set<String> physicalNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        table.getSchemaAllIndexes(false).forEach(c -> physicalNames.add(c.getName()));
+        LinkedHashSet<String> resolvedColumns = new LinkedHashSet<>();
         for (String colName : columnNames) {
             Column column = table instanceof OlapTable
                     ? ((OlapTable) table).getVisibleColumn(colName)
                     : table.getColumn(colName);
             if (column == null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
-                        colName, FeNameFormat.getColumnNameRegex());
+                Optional<SubcolumnStatisticsUtil.SubcolumnDescriptor> subcolumn =
+                        SubcolumnStatisticsUtil.resolveAnyIndex(table, colName);
+                if (subcolumn.isEmpty()) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                            colName, FeNameFormat.getColumnNameRegex());
+                }
+                resolvedColumns.add(subcolumn.get().colId());
+                continue;
             }
             if (StatisticsUtil.isUnsupportedType(column.getType())) {
-                containsUnsupportedTytpe = true;
-            }
-        }
-        if (containsUnsupportedTytpe) {
-            if (ConnectContext.get() == null
-                    || !ConnectContext.get().getSessionVariable().enableAnalyzeComplexTypeColumn) {
-                columnNames = columnNames.stream()
-                        .filter(c -> !StatisticsUtil.isUnsupportedType(table instanceof OlapTable
-                                ? ((OlapTable) table).getVisibleColumn(c).getType()
-                                : table.getColumn(c).getType()))
-                        .collect(Collectors.toList());
+                List<SubcolumnStatisticsUtil.SubcolumnDescriptor> subcolumns =
+                        SubcolumnStatisticsUtil.discoverForColumn(column, escapeVariantDots).stream()
+                                .filter(d -> !physicalNames.contains(d.colId()))
+                                .collect(Collectors.toList());
+                if (!subcolumns.isEmpty()) {
+                    subcolumns.forEach(d -> resolvedColumns.add(d.colId()));
+                } else {
+                    containsUnsupportedType = true;
+                }
             } else {
-                throw new AnalysisException(
-                        "Contains unsupported column type"
-                                + "if you want to ignore them and analyze rest"
-                                + "columns, please set session variable "
-                                + "`ignore_column_with_complex_type` to true");
+                resolvedColumns.add(colName);
             }
         }
+        if (containsUnsupportedType
+                && ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().enableAnalyzeComplexTypeColumn) {
+            throw new AnalysisException(
+                    "Contains unsupported column type"
+                            + "if you want to ignore them and analyze rest"
+                            + "columns, please set session variable "
+                            + "`ignore_column_with_complex_type` to true");
+        }
+        columnNames = new ArrayList<>(resolvedColumns);
     }
 
     @Override

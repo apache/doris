@@ -418,10 +418,16 @@ public class StatisticsUtil {
         if (idxId != -1) {
             if (tblIf instanceof OlapTable) {
                 OlapTable olapTable = (OlapTable) tblIf;
-                return olapTable.getIndexIdToMeta().get(idxId).getColumnByName(columnName);
+                MaterializedIndexMeta meta = olapTable.getIndexIdToMeta().get(idxId);
+                if (meta == null) {
+                    return null;
+                }
+                Column col = meta.getColumnByName(columnName);
+                return col != null ? col : SubcolumnStatisticsUtil.resolveColumn(meta, olapTable, columnName);
             }
         }
-        return tblIf.getColumn(columnName);
+        Column col = tblIf.getColumn(columnName);
+        return col != null ? col : SubcolumnStatisticsUtil.resolveColumn(tblIf, idxId, columnName);
     }
 
     /**
@@ -554,7 +560,22 @@ public class StatisticsUtil {
                 || type instanceof AggStateType;
     }
 
+    public static Column resolveIndexColumn(OlapTable olapTable, long indexId, String colName) {
+        if (olapTable == null) {
+            return null;
+        }
+        MaterializedIndexMeta meta = olapTable.getIndexMetaByIndexId(indexId);
+        if (meta == null) {
+            return null;
+        }
+        Column col = meta.getColumnByName(colName);
+        return col != null ? col : SubcolumnStatisticsUtil.resolveColumn(meta, olapTable, colName);
+    }
+
     public static boolean canCollectColumn(Column c, TableIf table, boolean isSampleAnalyze, long indexId) {
+        if (c == null) {
+            return false;
+        }
         // Full analyze can collect all columns.
         if (!isSampleAnalyze) {
             return true;
@@ -809,8 +830,11 @@ public class StatisticsUtil {
      * @return True for mv column.
      */
     public static boolean isMvColumn(TableIf table, String columnName) {
-        return table instanceof OlapTable
-                && table.getColumn(columnName).isMaterializedViewColumn();
+        if (!(table instanceof OlapTable)) {
+            return false;
+        }
+        Column column = table.getColumn(columnName);
+        return column != null && column.isMaterializedViewColumn();
     }
 
     public static boolean isEmptyTable(TableIf table, AnalysisInfo.AnalysisMethod method) {

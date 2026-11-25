@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.analysis.ColumnAccessPath;
+import org.apache.doris.analysis.ColumnAccessPathType;
 import org.apache.doris.analysis.FixedBlockSampleSpec;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
@@ -140,6 +142,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
@@ -154,6 +157,7 @@ import org.apache.doris.statistics.model.StatisticRange;
 import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.statistics.model.StatisticsBuilder;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -166,6 +170,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -175,6 +180,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.DoubleSupplier;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -408,12 +414,20 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return deltaRowCount;
     }
 
+    static String statsColumnKey(SlotReference slot) {
+        if (!slot.getSubPath().isEmpty()) {
+            String rootName = slot.getOriginalColumn().map(Column::getName).orElse(slot.getName());
+            return SubcolumnStatisticsUtil.formatSubcolumnId(rootName, slot.getSubPath());
+        }
+        return slot.getName();
+    }
+
     private ColumnStatistic getColumnStatsFromTableCache(CatalogRelation catalogRelation, SlotReference slot) {
         long idxId = -1;
         if (catalogRelation instanceof OlapScan) {
             idxId = ((OlapScan) catalogRelation).getSelectedIndexId();
         }
-        return getColumnStatistic(catalogRelation.getTable(), slot.getName(), idxId);
+        return getColumnStatistic(catalogRelation.getTable(), statsColumnKey(slot), idxId);
     }
 
     private double getSelectedPartitionRowCount(OlapScan olapScan, DoubleSupplier tableFallback) {
@@ -452,18 +466,108 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
     }
 
-    private void checkIfUnknownStatsUsedAsKey(StatisticsBuilder builder) {
+    private void checkIfUnknownStatsUsedAsKey(OlapScan olapScan, StatisticsBuilder builder,
+            Function<String, ColumnStatistic> columnStatsLookup) {
+        Collection<Slot> operativeSlots = olapScan instanceof CatalogRelation rel
+                ? rel.getOperativeSlots() : Collections.emptyList();
+        checkIfUnknownStatsUsedAsKey(olapScan.getTable(), olapScan.getSelectedIndexId(),
+                operativeSlots, builder, columnStatsLookup);
+    }
+
+    private void checkIfUnknownStatsUsedAsKey(CatalogRelation relation, StatisticsBuilder builder,
+            Function<String, ColumnStatistic> columnStatsLookup) {
+        long indexId = relation instanceof OlapScan ? ((OlapScan) relation).getSelectedIndexId() : -1L;
+        checkIfUnknownStatsUsedAsKey(relation.getTable(), indexId,
+                relation.getOperativeSlots(), builder, columnStatsLookup);
+    }
+
+    private void checkIfUnknownStatsUsedAsKey(TableIf table, long indexId, Collection<Slot> operativeSlots,
+            StatisticsBuilder builder, Function<String, ColumnStatistic> columnStatsLookup) {
         if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
             for (Map.Entry<Expression, ColumnStatistic> entry : builder.getExpressionColumnStatsEntries()) {
-                if (entry.getKey() instanceof SlotReference
-                        && ConnectContext.get().getStatementContext().isKeySlot((SlotReference) entry.getKey())) {
-                    if (entry.getValue().isUnKnown) {
+                if (entry.getKey() instanceof SlotReference slot
+                        && ConnectContext.get().getStatementContext().isKeySlot(slot)) {
+                    if (entry.getValue().isUnKnown
+                            && !isContainerSlotCoveredBySubcolumnStats(
+                                    table, indexId, operativeSlots, slot, columnStatsLookup)) {
                         ConnectContext.get().getStatementContext().setHasUnknownColStats(true);
                         break;
                     }
                 }
             }
         }
+    }
+
+    /**
+     * Returns true when a root VARIANT or STRUCT container slot has unknown container-level
+     * statistics only because its statistics live on scalar subcolumns, and every subcolumn
+     * accessed through this slot has known statistics.
+     */
+    @VisibleForTesting
+    public static boolean isContainerSlotCoveredBySubcolumnStats(TableIf table, long indexId,
+            Collection<Slot> operativeSlots, SlotReference slot,
+            Function<String, ColumnStatistic> columnStatsLookup) {
+        if (!slot.getSubPath().isEmpty()
+                || !(slot.getDataType() instanceof StructType || slot.getDataType().isVariantType())) {
+            return false;
+        }
+        if (slot.getDataType().isVariantType() && !operativeSlots.isEmpty()
+                && !operativeSlots.contains(slot) && slot.getDisplayAllAccessPaths().isEmpty()) {
+            return true;
+        }
+        List<ColumnAccessPath> allPaths = slot.getDisplayAllAccessPaths().orElse(Collections.emptyList());
+        List<ColumnAccessPath> predPaths = slot.getDisplayPredicateAccessPaths().orElse(Collections.emptyList());
+        List<ColumnAccessPath> pathsToCheck = hasOnlySubcolumnAccessPaths(allPaths) ? allPaths
+                : (hasOnlySubcolumnAccessPaths(predPaths) ? predPaths : Collections.emptyList());
+        if (pathsToCheck.isEmpty()) {
+            return false;
+        }
+        String rootName = slot.getOriginalColumn().map(Column::getName).orElse(slot.getName());
+        for (ColumnAccessPath accessPath : pathsToCheck) {
+            List<String> subPath = extractSubcolumnAccessPath(accessPath);
+            if (subPath.isEmpty()) {
+                return false;
+            }
+            Optional<SubcolumnStatisticsUtil.SubcolumnDescriptor> desc = SubcolumnStatisticsUtil.resolve(
+                    table, indexId, SubcolumnStatisticsUtil.formatSubcolumnId(rootName, subPath));
+            if (desc.isEmpty()) {
+                return false;
+            }
+            ColumnStatistic subStats = columnStatsLookup.apply(desc.get().colId());
+            if (subStats == null || subStats.isUnKnown) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean hasOnlySubcolumnAccessPaths(List<ColumnAccessPath> paths) {
+        if (paths == null || paths.isEmpty()) {
+            return false;
+        }
+        for (ColumnAccessPath path : paths) {
+            if (extractSubcolumnAccessPath(path).isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static List<String> extractSubcolumnAccessPath(ColumnAccessPath accessPath) {
+        if (accessPath == null) {
+            return Collections.emptyList();
+        }
+        List<String> path = accessPath.getPath();
+        if (accessPath.getType() == ColumnAccessPathType.DATA && path.size() > 1) {
+            return path.subList(1, path.size());
+        }
+        if (accessPath.getType() == ColumnAccessPathType.META && path.size() >= 3) {
+            String tail = path.get(path.size() - 1);
+            if ("NULL".equalsIgnoreCase(tail) || "OFFSET".equalsIgnoreCase(tail)) {
+                return path.subList(1, path.size() - 1);
+            }
+        }
+        return Collections.emptyList();
     }
 
     private double getTableRowCount(CatalogRelation scan) {
@@ -525,14 +629,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         boolean explicitScanEstimate = hasScanRowCountEstimates(olapScan);
         for (Slot slot : ((Plan) olapScan).getOutput()) {
             if (isVisibleSlotReference(slot)) {
-                ColumnStatistic cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
+                String colKey = statsColumnKey((SlotReference) slot);
+                ColumnStatistic cache = olapTableStats.getColumnStatistics(colKey, connectContext);
                 if (!cache.isUnKnown) {
                     // Stream scan estimates cover a window or selected partitions. Cached column stats
                     // still describe the underlying index, so use the population stored with the NDV.
                     double columnPopulation = explicitScanEstimate ? cache.count : rowCount;
                     if ((cache.ndv == 0 && (cache.minExpr != null || cache.maxExpr != null))
                             || cache.ndv > columnPopulation * 10) {
-                        return Optional.of("slot " + slot.getName() + " has invalid column stats: " + cache);
+                        return Optional.of("slot " + colKey + " has invalid column stats: " + cache);
                     }
                 }
             }
@@ -683,23 +788,24 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             boolean enablePartitionStatics = connectContext != null
                     && connectContext.getSessionVariable().enablePartitionAnalyze;
             for (SlotReference slot : visibleOutputSlots) {
+                String colKey = statsColumnKey(slot);
                 ColumnStatistic cache;
                 // numNulls of the table level statistics covers the whole table, so it has to be scaled
                 // to the selected partitions. numNulls of the partition level statistics is already
                 // scoped to them and must not be scaled again.
                 boolean scaleNumNulls;
                 if (enablePartitionStatics) {
-                    cache = getPartitionColumnStatistic(olapTableStats, slot.getName(), selectedPartitionNames);
+                    cache = getPartitionColumnStatistic(olapTableStats, colKey, selectedPartitionNames);
                     scaleNumNulls = cache == null;
                     if (scaleNumNulls) {
                         // partition level statistics are unavailable, fall back to table level statistics
-                        cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
+                        cache = olapTableStats.getColumnStatistics(colKey, connectContext);
                     }
                 } else {
-                    cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
+                    cache = olapTableStats.getColumnStatistics(colKey, connectContext);
                     scaleNumNulls = true;
                 }
-                if (slot.getOriginalColumn().isPresent()) {
+                if (slot.getOriginalColumn().isPresent() && slot.getSubPath().isEmpty()) {
                     cache = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, cache);
                 }
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache,
@@ -711,17 +817,27 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
-            checkIfUnknownStatsUsedAsKey(builder);
+            checkIfUnknownStatsUsedAsKey(olapScan, builder, colKey -> {
+                if (enablePartitionStatics) {
+                    ColumnStatistic partStats = getPartitionColumnStatistic(
+                            olapTableStats, colKey, selectedPartitionNames);
+                    if (partStats != null) {
+                        return partStats;
+                    }
+                }
+                return olapTableStats.getColumnStatistics(colKey, connectContext);
+            });
             builder.setRowCount(selectedPartitionsRowCount);
         } else {
             // get table level stats
             for (SlotReference slot : visibleOutputSlots) {
-                ColumnStatistic cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
+                ColumnStatistic cache = olapTableStats.getColumnStatistics(statsColumnKey(slot), connectContext);
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
                 colStatsBuilder.normalizeAvgSizeByte(slot.getDataType());
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
-            checkIfUnknownStatsUsedAsKey(builder);
+            checkIfUnknownStatsUsedAsKey(olapScan, builder,
+                    colKey -> olapTableStats.getColumnStatistics(colKey, connectContext));
             builder.setRowCount(tableRowCount);
         }
         return computeVirtualColumnStats(olapScan, builder.build());
@@ -1400,7 +1516,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
             builder.putColumnStatistics(slot, colStatsBuilder.build());
         }
-        checkIfUnknownStatsUsedAsKey(builder);
+        boolean statsDisabled = ConnectContext.get() != null
+                && !ConnectContext.get().getSessionVariable().enableStats;
+        checkIfUnknownStatsUsedAsKey(catalogRelation, builder, colKey -> statsDisabled
+                ? ColumnStatistic.UNKNOWN
+                : getColumnStatistic(catalogRelation.getTable(), colKey, -1));
         return builder.setRowCount(tableRowCount).build();
     }
 

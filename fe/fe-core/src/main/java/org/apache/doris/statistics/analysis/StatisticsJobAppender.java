@@ -31,6 +31,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.statistics.util.SubcolumnStatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -118,6 +119,9 @@ public class StatisticsJobAppender extends MasterDaemon {
                 continue;
             }
             Column col = table.getColumn(column.colName);
+            if (col == null) {
+                col = SubcolumnStatisticsUtil.resolveColumn(table, -1L, column.colName);
+            }
             if (col == null || !col.isVisible() || StatisticsUtil.isUnsupportedType(col.getType())) {
                 continue;
             }
