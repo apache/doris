@@ -42,7 +42,11 @@ teamcity_fc_submit() (
     set +x
     local lane=$1 pr=$2 head=$3 branch=$4 repeat=$5 token body receipt
     local endpoint=${TEAMCITY_FC_TRIGGER_URL:?Set the repository variable TEAMCITY_FC_TRIGGER_URL}
-    [[ "$endpoint" =~ ^https://[A-Za-z0-9.-]+/trigger$ ]] || { echo 'Invalid FC HTTPS trigger URL' >&2; return 1; }
+    local expected_endpoint='https://doris-c-trigger-mtjzjrppvu.cn-hongkong.fcapp.run/trigger'
+    if [ "$endpoint" != "$expected_endpoint" ]; then
+        echo "TEAMCITY_FC_TRIGGER_URL must be $expected_endpoint" >&2
+        return 1
+    fi
     token=$(printf 'Authorization: Bearer %s\n' "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?}" |
         curl -q --proto '=https' --fail --silent --show-error --max-time 20 --header @- \
             --get --data-urlencode 'audience=urn:apache:doris:ci:teamcity-trigger' "${ACTIONS_ID_TOKEN_REQUEST_URL:?}" |

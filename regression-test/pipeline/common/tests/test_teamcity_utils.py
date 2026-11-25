@@ -28,6 +28,7 @@ import unittest
 
 HELPER = Path(__file__).parents[1] / 'teamcity-utils.sh'
 HEAD = 'a' * 40
+FC_TRIGGER_URL = 'https://doris-c-trigger-mtjzjrppvu.cn-hongkong.fcapp.run/trigger'
 
 
 class TeamCityUtilsTests(unittest.TestCase):
@@ -224,6 +225,20 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Missing FC lane plan', result.stderr)
 
+    def test_fc_submission_rejects_unexpected_url_before_requesting_oidc(self):
+        mock = 'curl() { echo "unexpected curl call" >&2; return 1; }\n'
+        for endpoint in ('', 'https://fc.example/trigger', FC_TRIGGER_URL + '/',
+                         FC_TRIGGER_URL + '?source=ci', FC_TRIGGER_URL.replace('https:', 'http:')):
+            with self.subTest(endpoint=endpoint):
+                result = self.run_shell(mock + 'teamcity_fc_submit p0 123 ' + HEAD + ' master 1',
+                                        mock=False, check=False, env={
+                                            'TEAMCITY_FC_TRIGGER_URL': endpoint,
+                                            'ACTIONS_ID_TOKEN_REQUEST_URL': 'https://oidc.example/token',
+                                            'ACTIONS_ID_TOKEN_REQUEST_TOKEN': 'job-token',
+                                        })
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn('unexpected curl call', result.stderr)
+
     def test_fc_submission_validates_receipts_and_never_reposts(self):
         mock = '''curl(){
     local header
@@ -232,7 +247,7 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
         [[ "$header" == 'Authorization: Bearer job-token' ]] || return 1
         echo '{"value":"fixture-oidc"}'
     else
-        [[ "${!#}" == 'https://fc.example/trigger' &&
+        [[ "${!#}" == "$TEAMCITY_FC_TRIGGER_URL" &&
            "$header" == 'Authorization: Bearer fixture-oidc' ]] || return 1
         while [[ $# -gt 0 && "$1" != --data-binary ]]; do shift; done
         echo "$2" >> "$FIXTURE_ROOT/fc-posts"
@@ -250,7 +265,7 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
                                                   ({}, 0, 28, False)]:
             posts = self.root / 'fc-posts'
             posts.unlink(missing_ok=True)
-            env = {'TEAMCITY_FC_TRIGGER_URL': 'https://fc.example/trigger',
+            env = {'TEAMCITY_FC_TRIGGER_URL': FC_TRIGGER_URL,
                    'ACTIONS_ID_TOKEN_REQUEST_URL': 'https://oidc.example/token',
                    'ACTIONS_ID_TOKEN_REQUEST_TOKEN': 'job-token',
                    'FC_REPLY': json.dumps(reply), 'FC_STATUS': str(status), 'FC_EXIT': str(exit_code)}
