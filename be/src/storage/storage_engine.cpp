@@ -1385,7 +1385,12 @@ Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetSt
                                                  bool force_use_only_cached, bool cache_on_miss) {
     BaseTabletSPtr tablet;
     std::string err;
-    tablet = _tablet_manager->get_tablet(tablet_id, true, &err);
+    bool missing = false;
+    tablet = _tablet_manager->get_tablet(tablet_id, true, &err, &missing);
+    if (missing) {
+        return unexpected(Status::Error<ErrorCode::TABLE_NOT_FOUND>(
+                "failed to get tablet: {}, reason: {}", tablet_id, err));
+    }
     if (tablet == nullptr) {
         return unexpected(
                 Status::InternalError("failed to get tablet: {}, reason: {}", tablet_id, err));

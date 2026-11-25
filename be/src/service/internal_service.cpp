@@ -1242,14 +1242,49 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
 
 namespace {
 
+struct SchemaRpc {
+    PFetchRemoteSchemaRequest request;
+    PFetchRemoteSchemaResponse response;
+    brpc::Controller controller;
+    std::optional<brpc::CallId> call_id;
+};
+
+Status check_remote_tablet_coverage(const std::vector<SchemaRpc>& rpcs) {
+    std::set<int64_t> uncovered;
+    for (const auto& rpc : rpcs) {
+        const auto& assigned = rpc.request.tablet_location(0).tablet_id();
+        for (int64_t tablet_id : rpc.response.tablet_coverage().missing_tablet_id()) {
+            if (std::find(assigned.begin(), assigned.end(), tablet_id) == assigned.end()) {
+                return Status::InternalError("Worker reported an unassigned tablet {}", tablet_id);
+            }
+            uncovered.insert(tablet_id);
+        }
+    }
+    if (uncovered.empty()) {
+        return Status::OK();
+    }
+    for (const auto& rpc : rpcs) {
+        // During a rolling upgrade, a legacy reply cannot prove that it read a tablet.
+        if (!rpc.response.has_tablet_coverage() || !rpc.response.has_merged_schema()) {
+            continue;
+        }
+        const auto& missing = rpc.response.tablet_coverage().missing_tablet_id();
+        for (int64_t tablet_id : rpc.request.tablet_location(0).tablet_id()) {
+            if (std::find(missing.begin(), missing.end(), tablet_id) == missing.end()) {
+                uncovered.erase(tablet_id);
+            }
+        }
+    }
+    if (!uncovered.empty()) {
+        return Status::Error<ErrorCode::TABLE_NOT_FOUND>(
+                "Extended DESCRIBE could not read tablet {} ({} uncovered tablets)",
+                *uncovered.begin(), uncovered.size());
+    }
+    return Status::OK();
+}
+
 Status collect_remote_variant_schemas(const PFetchRemoteSchemaRequest& request,
                                       std::vector<TabletSchemaSPtr>& schemas) {
-    struct SchemaRpc {
-        PFetchRemoteSchemaRequest request;
-        PFetchRemoteSchemaResponse response;
-        brpc::Controller controller;
-        std::optional<brpc::CallId> call_id;
-    };
     std::vector<SchemaRpc> rpcs(request.tablet_location_size());
     auto join_rpcs = [&] {
         for (auto& rpc : rpcs) {
@@ -1271,6 +1306,7 @@ Status collect_remote_variant_schemas(const PFetchRemoteSchemaRequest& request,
         }
         auto& rpc = rpcs[i];
         rpc.request.set_is_coordinator(false);
+        rpc.request.set_report_tablet_coverage(true);
         *rpc.request.add_tablet_location() = location;
         rpc.controller.set_timeout_ms(config::fetch_remote_schema_rpc_timeout_ms);
         stub->fetch_remote_tablet_schema(&rpc.controller, &rpc.request, &rpc.response,
@@ -1293,25 +1329,40 @@ Status collect_remote_variant_schemas(const PFetchRemoteSchemaRequest& request,
             return Status::create(rpc.response.status());
         }
         if (!rpc.response.has_merged_schema()) {
+            // A new worker with no local copies can still contribute a coverage report.
+            const int missing = rpc.response.tablet_coverage().missing_tablet_id_size();
+            if (missing > 0 && missing == rpc.request.tablet_location(0).tablet_id_size()) {
+                continue;
+            }
             return Status::InternalError("Remote schema RPC did not return a merged schema");
         }
         auto schema = std::make_shared<TabletSchema>();
         schema->init_from_pb(rpc.response.merged_schema());
         schemas.push_back(std::move(schema));
     }
-    return Status::OK();
+    return check_remote_tablet_coverage(rpcs);
 }
 
 Status collect_local_variant_schemas(const PFetchRemoteSchemaRequest& request,
+                                     PFetchRemoteSchemaResponse* response,
                                      std::vector<TabletSchemaSPtr>& schemas) {
     const auto backend = BackendOptions::get_local_backend();
     for (const auto& location : request.tablet_location()) {
         if (backend.host != location.host() || config::brpc_port != location.brpc_port()) {
             continue;
         }
+        auto* coverage =
+                request.report_tablet_coverage() ? response->mutable_tablet_coverage() : nullptr;
         for (auto tablet_id : location.tablet_id()) {
             auto tablet = ExecEnv::get_tablet(tablet_id);
             if (!tablet.has_value()) {
+                // Local placement can be stale while another replica still covers this tablet.
+                // A Cloud lookup or file-read failure does not establish that a replica is absent.
+                if (coverage != nullptr && !config::is_cloud_mode() &&
+                    tablet.error().is<ErrorCode::TABLE_NOT_FOUND>()) {
+                    coverage->add_missing_tablet_id(tablet_id);
+                    continue;
+                }
                 return tablet.error().prepend(
                         fmt::format("Extended DESCRIBE could not get tablet {}. ", tablet_id));
             }
@@ -1333,9 +1384,12 @@ Status fetch_variant_extended_schema(const PFetchRemoteSchemaRequest& request,
     if (request.is_coordinator()) {
         RETURN_IF_ERROR(collect_remote_variant_schemas(request, schemas));
     } else {
-        RETURN_IF_ERROR(collect_local_variant_schemas(request, schemas));
+        RETURN_IF_ERROR(collect_local_variant_schemas(request, response, schemas));
     }
     if (schemas.empty()) {
+        if (response->tablet_coverage().missing_tablet_id_size() > 0) {
+            return Status::OK();
+        }
         return Status::InternalError("No tablet schemas for extended DESCRIBE");
     }
     TabletSchemaSPtr merged_schema;
@@ -1357,6 +1411,9 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
         brpc::ClosureGuard closure_guard(done);
         Status st;
         try {
+            if (request->is_coordinator()) {
+                response->set_coordinator_accepted(true);
+            }
             auto mem_tracker = MemTrackerLimiter::create_shared(
                     MemTrackerLimiter::Type::OTHER, "InternalService::fetch_remote_tablet_schema");
             SCOPED_ATTACH_TASK(mem_tracker);
@@ -1371,6 +1428,7 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
         }
         if (!st.ok()) {
             response->clear_merged_schema();
+            response->clear_tablet_coverage();
         }
         st.to_protobuf(response->mutable_status());
     });

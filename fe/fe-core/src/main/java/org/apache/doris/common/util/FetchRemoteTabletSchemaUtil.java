@@ -253,18 +253,25 @@ public class FetchRemoteTabletSchemaUtil {
                 .addAllTabletLocation(locations)
                 .setIsCoordinator(true)
                 .build();
-        long timeoutSeconds = ConnectContext.get().getSessionVariable().fetchRemoteSchemaTimeoutSeconds;
+        long timeoutSeconds = Math.max(0L, ConnectContext.get().getSessionVariable().fetchRemoteSchemaTimeoutSeconds);
+        long timeoutNanos = TimeUnit.SECONDS.toNanos(timeoutSeconds);
+        long startNanos = System.nanoTime();
         Exception lastFailure = null;
         for (Backend be : coordinatorBackend.subList(0, Math.min(2, coordinatorBackend.size()))) {
+            // A second coordinator only gets the time left by the first attempt.
+            if (lastFailure != null && System.nanoTime() - startNanos >= timeoutNanos) {
+                break;
+            }
+            PFetchRemoteSchemaResponse response;
             try {
                 Future<PFetchRemoteSchemaResponse> future = BackendServiceProxy.getInstance()
                         .fetchRemoteTabletSchemaAsync(be.getBrpcAddress(), request);
-                PFetchRemoteSchemaResponse response;
                 try {
                     while (DebugPointUtil.isEnable("FetchRemoteTabletSchemaUtil.fetch.waitForResponse")) {
                         Thread.sleep(100);
                     }
-                    response = future.get(timeoutSeconds, TimeUnit.SECONDS);
+                    long remainingNanos = Math.max(0L, timeoutNanos - (System.nanoTime() - startNanos));
+                    response = future.get(remainingNanos, TimeUnit.NANOSECONDS);
                 } catch (TimeoutException e) {
                     future.cancel(true);
                     throw new AnalysisException("Remote schema RPC timed out on " + be.getBrpcAddress(), e);
@@ -272,21 +279,33 @@ public class FetchRemoteTabletSchemaUtil {
                     future.cancel(true);
                     throw e;
                 }
-                if (!response.hasStatus() || response.getStatus().getStatusCode() != TStatusCode.OK.getValue()) {
-                    throw new AnalysisException("Remote schema RPC failed on " + be.getBrpcAddress() + " "
-                            + response.getStatus().getErrorMsgsList());
-                }
-                if (!response.hasMergedSchema()) {
-                    throw new AnalysisException("Missing merged schema from " + be.getBrpcAddress());
-                }
-                return decodeColumns(response.getMergedSchema());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new AnalysisException("Extended DESCRIBE interrupted while fetching remote schema", e);
             } catch (AnalysisException | RpcException | ExecutionException e) {
                 lastFailure = e;
                 LOG.warn("Failed to fetch remote schema from {}", be.getBrpcAddress(), e);
+                continue;
             }
+            if (!response.hasStatus() || response.getStatus().getStatusCode() != TStatusCode.OK.getValue()) {
+                AnalysisException failure = new AnalysisException("Remote schema RPC failed on "
+                        + be.getBrpcAddress() + " " + response.getStatus().getErrorMsgsList());
+                // Worker RPCs already retry transport failures within their own deadline.
+                // Moving an accepted request to another coordinator repeats the worker fan-out.
+                if (response.hasStatus() && response.getCoordinatorAccepted()) {
+                    throw failure;
+                }
+                lastFailure = failure;
+            } else if (!response.hasMergedSchema()) {
+                lastFailure = new AnalysisException("Missing merged schema from " + be.getBrpcAddress());
+            } else {
+                try {
+                    return decodeColumns(response.getMergedSchema());
+                } catch (AnalysisException e) {
+                    lastFailure = e;
+                }
+            }
+            LOG.warn("Failed to fetch remote schema from {}", be.getBrpcAddress(), lastFailure);
         }
         throw new AnalysisException("Extended DESCRIBE failed to fetch a complete remote schema"
                 + (lastFailure == null ? "" : " (" + lastFailure.getMessage() + ")"), lastFailure);

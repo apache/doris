@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -60,6 +61,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.LongStream;
 
 class FetchRemoteTabletSchemaUtilTest {
     private static final PFetchRemoteSchemaResponse FAILED = PFetchRemoteSchemaResponse.newBuilder()
@@ -67,6 +69,16 @@ class FetchRemoteTabletSchemaUtilTest {
                     .addErrorMsgs("injected metadata read failure"))
             .build();
     private static final PStatus OK = PStatus.newBuilder().setStatusCode(TStatusCode.OK.getValue()).build();
+
+    @Test
+    void reportsWorkerFailureWithoutRepeatingFanOut() throws Exception {
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        Mockito.when(proxy.fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any())).thenReturn(
+                Futures.immediateFuture(FAILED.toBuilder().setCoordinatorAccepted(true).build()));
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class, () -> fetch(proxy, true, true));
+        Assertions.assertTrue(error.getMessage().contains("injected metadata read failure"));
+        Mockito.verify(proxy).fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any());
+    }
 
     @Test
     void failsWhenAllCoordinatorsFail() throws Exception {
@@ -135,6 +147,26 @@ class FetchRemoteTabletSchemaUtilTest {
             AnalysisException e = Assertions.assertThrows(AnalysisException.class,
                     () -> FetchRemoteTabletSchemaUtil.collectTablets(partitions));
             Assertions.assertTrue(e.getMessage().contains("needs to read 2049 tablets"), e.getMessage());
+        }
+    }
+
+    @Test
+    void collectsEveryTabletAcrossUnevenPartitionsWithinTheLimit() throws Exception {
+        List<Tablet> large = LongStream.rangeClosed(1, 500).mapToObj(id -> (Tablet) new LocalTablet(id)).toList();
+        Tablet small = new LocalTablet(501);
+        List<PartitionTablets> partitions = List.of(
+                new PartitionTablets(Mockito.mock(Partition.class), large),
+                new PartitionTablets(Mockito.mock(Partition.class), List.of(small)));
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        Mockito.when(context.getSessionVariable()).thenReturn(new SessionVariable());
+        try (MockedStatic<ConnectContext> contextStatic = Mockito.mockStatic(ConnectContext.class);
+                MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class)) {
+            contextStatic.when(ConnectContext::get).thenReturn(context);
+            configStatic.when(Config::isCloudMode).thenReturn(false);
+            List<Tablet> tablets = FetchRemoteTabletSchemaUtil.collectTablets(partitions);
+            Assertions.assertEquals(501, tablets.size());
+            Assertions.assertEquals(large, tablets.subList(0, 500));
+            Assertions.assertEquals(small, tablets.get(500));
         }
     }
 

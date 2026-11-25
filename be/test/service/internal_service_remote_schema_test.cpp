@@ -16,6 +16,7 @@
 // under the License.
 
 #include <brpc/callback.h>
+#include <brpc/closure_guard.h>
 #include <brpc/server.h>
 #include <bthread/id.h>
 #include <butil/endpoint.h>
@@ -35,12 +36,19 @@
 #include "runtime/exec_env.h"
 #include "service/internal_service.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug/leak_annotations.h"
 #include "util/defer_op.h"
 
 namespace doris {
 namespace {
 
 using namespace std::chrono_literals;
+
+int start_schema_worker(brpc::Server& server) {
+    // bRPC 1.4 retains its keytable pool after Join() for any remaining bthreads.
+    debug::ScopedLSANDisabler ignore_brpc_bootstrap;
+    return server.Start("127.0.0.1:0", nullptr);
+}
 
 template <typename T>
 class ScopedConfigValue {
@@ -120,6 +128,112 @@ private:
     const std::shared_future<void>& _first_completed;
 };
 
+class ScopedSchemaClientCache {
+public:
+    ScopedSchemaClientCache()
+            : _env(ExecEnv::GetInstance()), _previous(_env->brpc_internal_client_cache()) {
+        if (_previous == nullptr) {
+            _env->_internal_client_cache = &_owned.emplace();
+        }
+    }
+
+    ~ScopedSchemaClientCache() { _env->_internal_client_cache = _previous; }
+
+private:
+    ExecEnv* _env;
+    BrpcClientCache<PBackendService_Stub>* _previous;
+    std::optional<BrpcClientCache<PBackendService_Stub>> _owned;
+};
+
+enum class ReplicaReply { COVERED, MISSING, LEGACY, IO_ERROR };
+
+class CoverageSchemaWorker final : public PBackendService {
+public:
+    explicit CoverageSchemaWorker(ReplicaReply replica) : _replica(replica) {}
+
+    void fetch_remote_tablet_schema(google::protobuf::RpcController*,
+                                    const PFetchRemoteSchemaRequest* request,
+                                    PFetchRemoteSchemaResponse* response,
+                                    google::protobuf::Closure* done) override {
+        brpc::ClosureGuard reply(done);
+        EXPECT_TRUE(request->report_tablet_coverage());
+        ASSERT_EQ(1, request->tablet_location_size());
+        const auto& location = request->tablet_location(0);
+        if (location.tablet_id_size() == 1) {
+            if (_replica == ReplicaReply::IO_ERROR) {
+                Status::IOError("injected segment read failure")
+                        .to_protobuf(response->mutable_status());
+                return;
+            }
+            response->mutable_tablet_coverage()->add_missing_tablet_id(101);
+        } else {
+            // This worker always reads tablet 102. It may also cover tablet 101.
+            response->mutable_merged_schema();
+            if (_replica != ReplicaReply::LEGACY) {
+                auto* coverage = response->mutable_tablet_coverage();
+                if (_replica == ReplicaReply::MISSING) {
+                    coverage->add_missing_tablet_id(101);
+                }
+            }
+        }
+        Status::OK().to_protobuf(response->mutable_status());
+    }
+
+private:
+    ReplicaReply _replica;
+};
+
+void signal_schema_response(std::promise<void>* finished) {
+    finished->set_value();
+}
+
+void check_replica_coverage(ReplicaReply replica, int expected_status) {
+    ScopedConfigValue heavy_threads(config::brpc_heavy_work_pool_threads, 1);
+    ScopedConfigValue light_threads(config::brpc_light_work_pool_threads, 1);
+    ScopedConfigValue peer_threads(config::brpc_peer_fetch_pool_threads, 1);
+    ScopedConfigValue flight_threads(config::brpc_arrow_flight_work_pool_threads, 1);
+    ScopedConfigValue load_threads(config::brpc_load_light_work_pool_threads, 1);
+    ScopedConfigValue rpc_timeout(config::fetch_remote_schema_rpc_timeout_ms, int64_t {5000});
+    ScopedSchemaClientCache schema_cache;
+    CoverageSchemaWorker worker(replica);
+    brpc::Server server;
+    ASSERT_EQ(0, server.AddService(&worker, brpc::SERVER_DOESNT_OWN_SERVICE));
+    ASSERT_EQ(0, start_schema_worker(server));
+    Defer stop_server {[&] {
+        server.Stop(0);
+        server.Join();
+        ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(server.listen_address());
+    }};
+
+    PFetchRemoteSchemaRequest request;
+    request.set_is_coordinator(true);
+    for (int i = 0; i < 2; ++i) {
+        auto* location = request.add_tablet_location();
+        location->set_host("127.0.0.1");
+        location->set_brpc_port(server.listen_address().port);
+        location->add_tablet_id(101);
+    }
+    request.mutable_tablet_location(1)->add_tablet_id(102);
+
+    std::promise<void> finished;
+    auto reply = finished.get_future();
+    PFetchRemoteSchemaResponse response;
+    ExecEnv coordinator_env;
+    coordinator_env._load_stream_mgr = std::make_unique<LoadStreamMgr>(1);
+    PInternalService coordinator(&coordinator_env);
+    Defer drain {[&] {
+        coordinator._heavy_work_pool.shutdown();
+        coordinator._heavy_work_pool.join();
+        coordinator_env.load_stream_mgr()->set_heavy_work_pool(nullptr);
+    }};
+    coordinator.fetch_remote_tablet_schema(nullptr, &request, &response,
+                                           brpc::NewCallback(signal_schema_response, &finished));
+    ASSERT_EQ(std::future_status::ready, reply.wait_for(10s));
+    ASSERT_TRUE(response.has_status());
+    EXPECT_EQ(expected_status, response.status().status_code());
+    EXPECT_EQ(expected_status == 0, response.has_merged_schema());
+}
+
 void release_pending_schema_rpcs(std::future<google::protobuf::Closure*>& first_reply,
                                  const std::shared_future<brpc::CallId>& failed_id,
                                  const std::shared_future<bool>& completed) {
@@ -160,7 +274,7 @@ TEST(InternalServiceRemoteSchemaTest, DrainsFirstRpcWhenSecondFailsBeforeDispatc
     HeldSchemaWorker worker;
     brpc::Server server;
     ASSERT_EQ(server.AddService(&worker, brpc::SERVER_DOESNT_OWN_SERVICE), 0);
-    ASSERT_EQ(server.Start("127.0.0.1:0", nullptr), 0);
+    ASSERT_EQ(start_schema_worker(server), 0);
     Defer stop_server {[&] {
         server.Stop(0);
         server.Join();
@@ -169,14 +283,8 @@ TEST(InternalServiceRemoteSchemaTest, DrainsFirstRpcWhenSecondFailsBeforeDispatc
     SchemaDispatchChannel channel;
     ASSERT_EQ(channel.Init(server.listen_address(), nullptr), 0);
     auto stub = std::make_shared<PBackendService_Stub>(&channel);
-    auto* env = ExecEnv::GetInstance();
-    auto* previous_cache = env->brpc_internal_client_cache();
-    std::optional<BrpcClientCache<PBackendService_Stub>> owned_cache;
-    if (previous_cache == nullptr) {
-        env->_internal_client_cache = &owned_cache.emplace();
-    }
-    Defer restore_cache {[&] { env->_internal_client_cache = previous_cache; }};
-    auto* cache = env->brpc_internal_client_cache();
+    ScopedSchemaClientCache schema_cache;
+    auto* cache = ExecEnv::GetInstance()->brpc_internal_client_cache();
     const std::string endpoint = butil::endpoint2str(server.listen_address()).c_str();
     ASSERT_TRUE(cache->_stub_map
                         .try_emplace(endpoint, StubEntry<PBackendService_Stub> {"127.0.0.1", stub})
@@ -217,6 +325,13 @@ TEST(InternalServiceRemoteSchemaTest, DrainsFirstRpcWhenSecondFailsBeforeDispatc
     first_reply.get()->Run();
     ASSERT_EQ(first_completed.wait_for(5s), std::future_status::ready);
     expect_schema_allocation_error(completed, response);
+}
+
+TEST(InternalServiceRemoteSchemaTest, RecoversOnlyWhenAnotherWorkerProvesCoverage) {
+    check_replica_coverage(ReplicaReply::COVERED, 0);
+    check_replica_coverage(ReplicaReply::MISSING, ErrorCode::TABLE_NOT_FOUND);
+    check_replica_coverage(ReplicaReply::LEGACY, ErrorCode::TABLE_NOT_FOUND);
+    check_replica_coverage(ReplicaReply::IO_ERROR, ErrorCode::IO_ERROR);
 }
 
 } // namespace doris
