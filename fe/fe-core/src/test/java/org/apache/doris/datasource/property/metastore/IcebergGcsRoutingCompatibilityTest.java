@@ -57,7 +57,7 @@ class IcebergGcsRoutingCompatibilityTest {
 
     @ParameterizedTest
     @MethodSource("nativeStorageModes")
-    void preservesSdkIdentitySelectorsButNotOrphanSettings(String key, String value, boolean nativeIdentity) {
+    void preservesSdkStorageOptionsIndependentlyOfRestAuthentication(String key, String value, boolean nativeStorage) {
         for (boolean rest : new boolean[] {true, false}) {
             String[] ioKeys = rest ? new String[] {"", "io-impl", "iceberg.rest.io-impl"}
                     : new String[] {"io-impl"};
@@ -87,7 +87,7 @@ class IcebergGcsRoutingCompatibilityTest {
                 Configuration conf = new Configuration(false);
                 conf.set("fs.gs.impl", "example.GcsFileSystem");
                 properties.toFileIOProperties(ImmutableList.of(), options, conf);
-                String expected = nativeIdentity ? (ioKey.isEmpty() ? null : RESOLVER) : HADOOP_GCS_RESOLVER;
+                String expected = nativeStorage ? (ioKey.isEmpty() ? null : RESOLVER) : HADOOP_GCS_RESOLVER;
                 Assertions.assertEquals(expected, options.get(CatalogProperties.FILE_IO_IMPL), key + ": " + ioKey);
             }
         }
@@ -100,16 +100,16 @@ class IcebergGcsRoutingCompatibilityTest {
                 Arguments.of("gcs.oauth2.token", null, false),
                 Arguments.of("gcs.no-auth", "true", true),
                 Arguments.of("gcs.no-auth", "TRUE", true),
-                Arguments.of("gcs.no-auth", " true ", false),
-                Arguments.of("gcs.no-auth", "false", false),
+                Arguments.of("gcs.no-auth", " true ", true),
+                Arguments.of("gcs.no-auth", "false", true),
                 Arguments.of("gcs.no-auth", null, false),
                 Arguments.of("gcs.impersonate.service-account", "identity@example.invalid", true),
                 Arguments.of("gcs.impersonate.service-account", "", true),
                 Arguments.of("gcs.impersonate.service-account", null, false),
-                Arguments.of("gcs.oauth2.token-expires-at", "1700000000000", false),
-                Arguments.of("gcs.oauth2.refresh-credentials-endpoint", "https://catalog.example.com/refresh", false),
-                Arguments.of("gcs.project-id", "test-project", false),
-                Arguments.of("gcs.client-lib-token", "client-tag", false),
+                Arguments.of("gcs.oauth2.token-expires-at", "1700000000000", true),
+                Arguments.of("gcs.oauth2.refresh-credentials-endpoint", "https://catalog.example.com/refresh", true),
+                Arguments.of("gcs.project-id", "test-project", true),
+                Arguments.of("gcs.client-lib-token", "client-tag", true),
                 Arguments.of("gcp.auth.credentials-json", "{\"type\":\"service_account\"}", false));
     }
 

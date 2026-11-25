@@ -144,9 +144,6 @@ class IcebergRestGcsFileIOTest {
             options.putAll(properties.getIcebergRestCatalogProperties());
             Configuration configuration = new Configuration(false);
             properties.toFileIOProperties(ImmutableList.of(StorageProperties.createPrimary(raw)), options, configuration);
-            // Keep even an incorrect JSON-API route on the fixture instead of contacting a real bucket.
-            options.put("gcs.service.host", raw.get("gs.endpoint"));
-            options.put("gcs.no-auth", "true");
             configuration.set("fs.s3a.endpoint.region", "us-east-1");
             configuration.setBoolean("fs.s3a.connection.ssl.enabled", false);
             configuration.setInt("fs.s3a.retry.limit", 0);
@@ -154,14 +151,19 @@ class IcebergRestGcsFileIOTest {
             configuration.set("fs.s3a.bucket.probe", "0");
             String ioImpl = options.getOrDefault(CatalogProperties.FILE_IO_IMPL,
                     "org.apache.iceberg.io.ResolvingFileIO");
-            try (FileIO io = CatalogUtil.loadFileIO(ioImpl, options, configuration);
-                    SeekableInputStream input = io.newInputFile("gs://test-bucket/metadata.json", content.length)
-                            .newStream()) {
-                byte[] actual = new byte[content.length];
-                new DataInputStream(input).readFully(actual);
-                Assertions.assertArrayEquals(content, actual);
-                Assertions.assertNotNull(authorization.get());
-                Assertions.assertTrue(authorization.get().contains("Credential=test-access-key/"), authorization.get());
+            try (FileIO io = CatalogUtil.loadFileIO(ioImpl, options, configuration)) {
+                // Check the delegate before opening so an incorrect route cannot escape the local fixture.
+                Assertions.assertEquals("org.apache.iceberg.hadoop.HadoopFileIO",
+                        ((org.apache.iceberg.io.ResolvingFileIO) io).ioClass("gs://test-bucket/metadata.json").getName());
+                try (SeekableInputStream input = io.newInputFile("gs://test-bucket/metadata.json", content.length)
+                        .newStream()) {
+                    byte[] actual = new byte[content.length];
+                    new DataInputStream(input).readFully(actual);
+                    Assertions.assertArrayEquals(content, actual);
+                    Assertions.assertNotNull(authorization.get());
+                    Assertions.assertTrue(authorization.get().contains("Credential=test-access-key/"),
+                            authorization.get());
+                }
             }
         } finally {
             server.stop(0);

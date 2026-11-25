@@ -314,11 +314,9 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         if (rest && ((IcebergRestProperties) this).isIcebergRestVendedCredentialsEnabled()) {
             return;
         }
-        // An explicit SDK identity must not be replaced by Hadoop credentials from XML or defaults.
-        // A non-null bearer/impersonation value selects SDK authentication, including an invalid empty string.
-        if (fileIOProperties.get("gcs.oauth2.token") != null
-                || Boolean.parseBoolean(fileIOProperties.get("gcs.no-auth"))
-                || fileIOProperties.get("gcs.impersonate.service-account") != null) {
+        // SDK storage options (including encryption and billing) must retain their native semantics.
+        // REST-only gcp.auth.* options do not select a storage identity.
+        if (NativeGcsResolvingFileIO.hasSdkGcsProperties(fileIOProperties)) {
             return;
         }
         AbstractS3CompatibleProperties s3Target = null;
@@ -339,7 +337,7 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
             }
         }
         // The SDK generic resolver ignores Hadoop's credential source and impersonation settings.
-        // Preserve that identity unless SDK credentials or an explicit FileIO selected another path.
+        // Preserve that identity unless SDK storage options or an explicit FileIO selected another path.
         if (hadoopGcs) {
             fileIOProperties.put(CatalogProperties.FILE_IO_IMPL, NativeGcsResolvingFileIO.class.getName());
         }
