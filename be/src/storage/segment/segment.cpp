@@ -1332,6 +1332,33 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
             sought_key.get_data(),
             sought_key.get_size() - (segment_has_seq_col ? seq_col_length : 0) - rowid_length);
 
+    // On cluster-key MoW tables the PK index is not in physical row order, so the
+    // ordinal written above is not the delete-bitmap / read row id. Both OK and
+    // KEY_ALREADY_EXISTS must decode the physical id (and the found sequence) from
+    // the PK index key before returning, or BaseTablet::lookup_row_key's visibility
+    // check will look up the wrong bitmap entry (#70873 / F-01).
+    auto fill_physical_rowid_and_seq = [&]() -> Status {
+        if (has_rowid) {
+            Slice rowid_slice = Slice(sought_key.get_data() + sought_key_without_seq.get_size() +
+                                              (segment_has_seq_col ? seq_col_length : 0) + 1,
+                                      rowid_length - 1);
+            const auto* rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
+            RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
+                                                          (uint8_t*)&row_location->row_id));
+        }
+        if (encoded_seq_value) {
+            if (!segment_has_seq_col) {
+                *encoded_seq_value = std::string {};
+            } else {
+                // include marker
+                *encoded_seq_value = Slice(sought_key.get_data() + sought_key_without_seq.get_size(),
+                                           seq_col_length)
+                                             .to_string();
+            }
+        }
+        return Status::OK();
+    };
+
     if (has_seq_col) {
         // compare key
         if (key_without_seq.compare(sought_key_without_seq) != 0) {
@@ -1346,6 +1373,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
                     Slice(sought_key.get_data() + sought_key_without_seq.get_size() + 1,
                           seq_col_length - 1);
             if (sequence_id.compare(previous_sequence_id) < 0) {
+                RETURN_IF_ERROR(fill_physical_rowid_and_seq());
                 return Status::Error<ErrorCode::KEY_ALREADY_EXISTS>(
                         "key with higher sequence id exists");
             }
@@ -1358,26 +1386,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
             return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
         }
     }
-    // found the key, use rowid in pk index if necessary.
-    if (has_rowid) {
-        Slice rowid_slice = Slice(sought_key.get_data() + sought_key_without_seq.get_size() +
-                                          (segment_has_seq_col ? seq_col_length : 0) + 1,
-                                  rowid_length - 1);
-        const auto* rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
-        RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
-                                                      (uint8_t*)&row_location->row_id));
-    }
-
-    if (encoded_seq_value) {
-        if (!segment_has_seq_col) {
-            *encoded_seq_value = std::string {};
-        } else {
-            // include marker
-            *encoded_seq_value =
-                    Slice(sought_key.get_data() + sought_key_without_seq.get_size(), seq_col_length)
-                            .to_string();
-        }
-    }
+    RETURN_IF_ERROR(fill_physical_rowid_and_seq());
     return Status::OK();
 }
 

@@ -645,9 +645,10 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             if ((s.ok() || s.is<KEY_ALREADY_EXISTS>()) &&
                 tablet_delete_bitmap->contains_agg_with_cache_if_eligible(
                         {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
-                // Segment::lookup_row_key writes the sequence into encoded_seq_value before
-                // this visibility check. Drop it so a skipped deleted candidate cannot leak
-                // into KEY_NOT_FOUND / a later visible match.
+                // Segment::lookup_row_key fills loc.row_id (physical id on cluster-key tables)
+                // and encoded_seq_value for both OK and KEY_ALREADY_EXISTS before returning.
+                // Drop the sequence so a skipped deleted candidate cannot leak into
+                // KEY_NOT_FOUND / a later visible match.
                 if (encoded_seq_value != nullptr) {
                     encoded_seq_value->clear();
                 }
