@@ -113,6 +113,15 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitCreateCatalog(ctx);
     }
 
+    @Override
+    public LogicalPlan visitAlterCatalogProperties(DorisParser.AlterCatalogPropertiesContext ctx) {
+        // ALTER accepts the same secrets as CREATE and must mask them before audit logging.
+        DorisParser.PropertyItemListContext properties = ctx.propertyItemList();
+        encryptProperty(visitPropertyItemList(properties), properties.start.getStartIndex(),
+                properties.stop.getStopIndex());
+        return super.visitAlterCatalogProperties(ctx);
+    }
+
     // create table clause
     @Override
     public LogicalPlan visitCreateTable(DorisParser.CreateTableContext ctx) {

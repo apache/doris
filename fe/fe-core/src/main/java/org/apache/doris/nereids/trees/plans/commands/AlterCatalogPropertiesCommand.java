@@ -30,12 +30,17 @@ import java.util.Objects;
 /**
  * Represents the command for ALTER CATALOG ... SET PROPERTIES.
  */
-public class AlterCatalogPropertiesCommand extends AlterCatalogCommand {
+public class AlterCatalogPropertiesCommand extends AlterCatalogCommand implements NeedAuditEncryption {
     private final Map<String, String> newProperties;
 
     public AlterCatalogPropertiesCommand(String catalogName, Map<String, String> properties) {
         super(PlanType.ALTER_CATALOG_PROPERTIES_COMMAND, catalogName);
         this.newProperties = Objects.requireNonNull(properties, "Properties cannot be null");
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 
     @Override
