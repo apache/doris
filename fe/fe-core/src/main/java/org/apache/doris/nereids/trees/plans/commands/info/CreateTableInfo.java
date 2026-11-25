@@ -496,6 +496,12 @@ public class CreateTableInfo {
                 throw new AnalysisException("Disable to create table with `DECIMAL` type columns,"
                         + "please use `DECIMALV3`.");
             }
+            DataType type = columnDef.getType();
+            if (type instanceof VariantType && ((VariantType) type).isExecutionV2()
+                    && ((VariantType) type).hasDecimal256Template()) {
+                throw new AnalysisException("Decimal256 is not supported in VARIANT templates for column '"
+                        + columnDef.getName() + "'");
+            }
         }
         // check duplicated columns
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
