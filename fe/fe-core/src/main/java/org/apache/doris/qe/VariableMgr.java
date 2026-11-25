@@ -452,7 +452,7 @@ public class VariableMgr {
     }
 
     public static void setVarForNonMasterFE(SessionVariable sessionVariable, SetVar setVar,
-            boolean globalValidatedByMaster) throws DdlException {
+            boolean validatedByMaster) throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
             if (isRemovedSessionVar(setVar.getVariable())) {
@@ -467,9 +467,8 @@ public class VariableMgr {
             }
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
-        // A successful forwarded GLOBAL assignment already passed the master's checks. Preserve
-        // the order of a compound SET without rejecting an assignment after it committed.
-        if (!globalValidatedByMaster) {
+        // The master validated these settings. Keep the callback's legacy assignment order.
+        if (!validatedByMaster) {
             checkAuditVariableValue(varCtx, getValueToSet(setVar, varCtx));
         }
         setVarInternal(sessionVariable, setVar, varCtx);

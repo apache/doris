@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
@@ -163,6 +164,7 @@ public class TableQueryPlanActionForwardTest {
             Config.query_audit_always_on = true;
             Mockito.when(env.getCatalogMgr()).thenReturn(Mockito.mock(CatalogMgr.class));
             Mockito.when(env.getPluginMgr()).thenReturn(Mockito.mock(PluginMgr.class));
+            Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
             WorkloadRuntimeStatusMgr audit = Mockito.mock(WorkloadRuntimeStatusMgr.class);
             Mockito.when(env.getWorkloadRuntimeStatusMgr()).thenReturn(audit);
             Method handleQuery = TableQueryPlanAction.class.getDeclaredMethod(

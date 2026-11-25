@@ -83,14 +83,23 @@ public class SetOptionsCommand extends Command implements Forward, NeedAuditEncr
 
     @Override
     public void afterForwardToMaster(ConnectContext ctx) throws Exception {
-        for (SetVarOp varOp : setVarOpList) {
-            // Forwarding with sync has already replayed these values. Do not evaluate the expression again.
-            if (varOp instanceof SetSessionVarOp sessionOp && (sessionOp.applyForwardedAuditSession(ctx)
-                    || (setVarOpList.size() == 1 && sessionOp.applyReplayedAuditGlobal(ctx)))) {
-                continue;
+        boolean restorePreparedAudit = setVarOpList.stream().anyMatch(
+                op -> op instanceof SetSessionVarOp sessionOp && sessionOp.setsProtectedPreparedAuditValue());
+        try {
+            for (SetVarOp varOp : setVarOpList) {
+                // A single protected GLOBAL value has already been applied by journal replay.
+                if (setVarOpList.size() == 1 && varOp instanceof SetSessionVarOp sessionOp
+                        && sessionOp.applyReplayedAuditGlobal(ctx)) {
+                    continue;
+                }
+                varOp.validate(ctx);
+                varOp.afterForwardToMaster(ctx);
             }
-            varOp.validate(ctx);
-            varOp.afterForwardToMaster(ctx);
+        } finally {
+            // Preserve the legacy evaluation order for sibling assignments before restoring the permitted value.
+            if (restorePreparedAudit) {
+                SetSessionVarOp.restoreProtectedPreparedAuditValue(ctx);
+            }
         }
     }
 

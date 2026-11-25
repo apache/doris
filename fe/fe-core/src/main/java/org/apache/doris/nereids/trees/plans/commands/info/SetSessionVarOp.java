@@ -150,15 +150,15 @@ public class SetSessionVarOp extends SetVarOp {
         return sb.toString();
     }
 
-    /** Apply the only session value that an enabled master can have accepted for this audit variable. */
-    public boolean applyForwardedAuditSession(ConnectContext ctx) throws DdlException {
-        if (!QueryAuditPolicy.isAlwaysOn() || getType() == SetType.GLOBAL
-                || !SessionVariable.ENABLE_PREPARED_STMT_AUDIT_LOG.equalsIgnoreCase(name)) {
-            return false;
-        }
+    public boolean setsProtectedPreparedAuditValue() {
+        return QueryAuditPolicy.isAlwaysOn()
+                && SessionVariable.ENABLE_PREPARED_STMT_AUDIT_LOG.equalsIgnoreCase(name);
+    }
+
+    /** Restore the only value an enabled master could commit after ordered client session updates finish. */
+    public static void restoreProtectedPreparedAuditValue(ConnectContext ctx) throws DdlException {
         VariableMgr.setVarForNonMasterFE(ctx.getSessionVariable(),
-                new SetVar(SetType.SESSION, name, new BoolLiteral(true)));
-        return true;
+                new SetVar(SetType.SESSION, SessionVariable.ENABLE_PREPARED_STMT_AUDIT_LOG, new BoolLiteral(true)));
     }
 
     public boolean applyReplayedAuditGlobal(ConnectContext ctx) throws DdlException {
@@ -166,10 +166,10 @@ public class SetSessionVarOp extends SetVarOp {
     }
 
     public void afterForwardToMaster(ConnectContext ctx) throws Exception {
-        boolean globalValidatedByMaster = getType() == SetType.GLOBAL;
+        boolean validatedByMaster = getType() == SetType.GLOBAL || setsProtectedPreparedAuditValue();
         setType(SetType.SESSION);
         VariableMgr.setVarForNonMasterFE(ctx.getSessionVariable(), translateToLegacyVar(ctx),
-                globalValidatedByMaster);
+                validatedByMaster);
     }
 
     // TODO delete this method after removing dependence of SetVar in VariableMgr

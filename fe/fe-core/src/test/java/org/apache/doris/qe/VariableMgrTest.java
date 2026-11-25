@@ -371,20 +371,25 @@ public class VariableMgrTest extends TestWithFeService {
     public void testForwardedCompoundSetKeepsAcceptedAuditSessionValue() throws Throwable {
         withAuditVariablesRestored(true, () -> {
             boolean originalProfile = VariableMgr.getDefaultSessionVariable().enableProfile();
+            String originalJoinMethod = connectContext.getSessionVariable().getPreferJoinMethod();
             try {
                 runSet("SET GLOBAL enable_profile = true");
                 String sql = "SET enable_prepared_stmt_audit_log = @@GLOBAL.enable_profile,"
-                        + " GLOBAL enable_profile = false";
+                        + " prefer_join_method = IF(@@enable_prepared_stmt_audit_log = @@GLOBAL.enable_profile,"
+                        + " 'shuffle', 'invalid fixture method'), GLOBAL enable_profile = false";
                 runSet(sql);
                 Assertions.assertFalse(VariableMgr.getDefaultSessionVariable().enableProfile());
                 Assertions.assertTrue(connectContext.getSessionVariable().enablePreparedStmtAuditLog);
+                Assertions.assertEquals("shuffle", connectContext.getSessionVariable().getPreferJoinMethod());
 
                 connectContext.getSessionVariable().enablePreparedStmtAuditLog = false;
                 SetOptionsCommand forwarded = (SetOptionsCommand) UtFrameUtils.parseStmt(sql, connectContext);
                 forwarded.afterForwardToMaster(connectContext);
                 Assertions.assertTrue(connectContext.getSessionVariable().enablePreparedStmtAuditLog);
+                Assertions.assertEquals("shuffle", connectContext.getSessionVariable().getPreferJoinMethod());
             } finally {
                 runSet("SET GLOBAL enable_profile = " + originalProfile);
+                connectContext.getSessionVariable().setPreferJoinMethod(originalJoinMethod);
             }
         });
     }

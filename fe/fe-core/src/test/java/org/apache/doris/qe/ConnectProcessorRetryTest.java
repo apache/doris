@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.utframe.TestWithFeService;
@@ -150,6 +151,21 @@ public class ConnectProcessorRetryTest extends TestWithFeService {
         String batch = "EXPORT TABLE sample_db.items TO 'fixture' WITH BROKER fixture; SELECT 2";
         Assertions.assertEquals(NeedAuditEncryption.AUDIT_SQL_UNAVAILABLE + "; SELECT 2",
                 NeedAuditEncryption.maskSqlForAudit(batch));
+    }
+
+    @Test
+    public void testAuditBatchUsesIndependentStatementContext() {
+        StatementContext previous = connectContext.getStatementContext();
+        try (StatementContext callerStatement = new StatementContext(connectContext, null)) {
+            connectContext.setStatementContext(callerStatement);
+            int lastId = callerStatement.getNextPlaceholderId().asInt();
+            String sql = "INSERT INTO sample_db.items SELECT ?; SELECT 2";
+            Assertions.assertEquals(sql, NeedAuditEncryption.maskSqlForAudit(sql));
+            Assertions.assertSame(callerStatement, connectContext.getStatementContext());
+            Assertions.assertEquals(lastId + 1, callerStatement.getNextPlaceholderId().asInt());
+        } finally {
+            connectContext.setStatementContext(previous);
+        }
     }
 
     // tryRetryOriginalSql tests
