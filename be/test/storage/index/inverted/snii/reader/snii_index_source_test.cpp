@@ -470,6 +470,18 @@ protected:
         return input;
     }
 
+    // Rows that all hold no token, none of them NULL: the index has no term, so no bloom filter
+    // section, and every row has the norm of an empty document.
+    static writer::SniiIndexInput corpus_without_terms() {
+        writer::SniiIndexInput input;
+        input.index_id = 12;
+        input.index_suffix = "sparse";
+        input.config = format::IndexConfig::kDocsPositions;
+        input.doc_count = kDocCount;
+        input.encoded_norms.assign(kDocCount, format::kNullRowNorm);
+        return input;
+    }
+
     // Writes `input` and opens it for reading. With `sparse`, the writer chooses the form of the
     // norms with debug points off; without it, the writer is made to keep dense norms.
     static std::unique_ptr<Written> write(const writer::SniiIndexInput& input, bool sparse) {
@@ -588,6 +600,37 @@ TEST_F(SniiSparseNormsTest, IndexWithoutNullRowsStaysDense) {
     const auto written = write(corpus({}), /*sparse=*/true);
     EXPECT_NE(written->index.section_refs().norms.length, 0U);
     EXPECT_EQ(written->index.section_refs().sparse_norms.length, 0U);
+}
+
+// A BE that predates sparse norms rewrites a segment by copying it up to the end of the last section
+// it knows, so sparse norms must never end an index. Without NULL rows and without terms, no null
+// bitmap and no bloom filter follow the norms, so the index keeps dense norms although its rows
+// share one norm.
+TEST_F(SniiSparseNormsTest, NormsThatWouldEndTheIndexStayDense) {
+    const auto written = write(corpus_without_terms(), /*sparse=*/true);
+    const auto& refs = written->index.section_refs();
+    EXPECT_EQ(refs.null_bitmap.length, 0U);
+    EXPECT_EQ(refs.bsbf.length, 0U);
+    EXPECT_NE(refs.norms.length, 0U);
+    EXPECT_EQ(refs.sparse_norms.length, 0U);
+}
+
+// Wherever the writer keeps sparse norms, a section that every BE knows follows them, so the
+// prefix that an older BE copies on a rewrite holds them.
+TEST_F(SniiSparseNormsTest, OlderRewritersCopyTheSparseSection) {
+    const auto check = [](const writer::SniiIndexInput& input) {
+        const auto written = write(input, /*sparse=*/true);
+        const auto& refs = written->index.section_refs();
+        ASSERT_NE(refs.sparse_norms.length, 0U);
+        uint64_t known_end = 0;
+        for (const format::RegionRef& region :
+             {refs.dict_region, refs.posting_region, refs.norms, refs.null_bitmap, refs.bsbf}) {
+            known_end = std::max(known_end, region.offset + region.length);
+        }
+        EXPECT_GE(known_end, refs.sparse_norms.offset + refs.sparse_norms.length);
+    };
+    check(corpus(mostly_null_rows()));
+    check(corpus({}, /*shared_norm=*/true));
 }
 
 // The writer keeps the smaller form, and a tie keeps the dense one, which every reader of norms
