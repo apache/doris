@@ -66,8 +66,13 @@ public class LocalProperties extends StorageProperties {
     }
 
     @Override
-    public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
+    protected String validateAndGetLocation(Map<String, String> loadProps) throws UserException {
         return loadProps.get(PROP_FILE_PATH);
+    }
+
+    @Override
+    protected void requireMutuallyExclusive(Map<String, String> loadProps) throws UserException {
+        requireMutuallyExclusive(loadProps, PROP_FILE_PATH);
     }
 
     @Override

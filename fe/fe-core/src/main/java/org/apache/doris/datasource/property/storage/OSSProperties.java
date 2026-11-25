@@ -205,14 +205,17 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         if (isDlfMSType(origProps)) {
             return true;
         }
-        Optional<String> uriValue = origProps.entrySet().stream()
-                .filter(e -> URI_KEYWORDS.stream()
-                        .anyMatch(key -> key.equalsIgnoreCase(e.getKey())))
+        boolean uriForm = isSingleLocationForm(origProps, "uri");
+        String location = getPrimaryLocation(uriForm, origProps);
+        if (location != null && isKnownObjectStorage(location)) {
+            return true;
+        }
+        String warehouse = origProps.entrySet().stream()
+                .filter(e -> "warehouse".equalsIgnoreCase(e.getKey()))
                 .map(Map.Entry::getValue)
-                .filter(Objects::nonNull)
-                .filter(OSSProperties::isKnownObjectStorage)
-                .findFirst();
-        return uriValue.filter(OSSProperties::isKnownObjectStorage).isPresent();
+                .findFirst()
+                .orElse(null);
+        return warehouse != null && isKnownObjectStorage(warehouse);
     }
 
     private static boolean isKnownObjectStorage(String value) {

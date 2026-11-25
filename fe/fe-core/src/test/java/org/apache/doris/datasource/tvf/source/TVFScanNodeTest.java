@@ -31,6 +31,7 @@ import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.lance.metadata.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.metadata.LancePlannedDataset;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -161,10 +162,10 @@ public class TVFScanNodeTest {
         Mockito.when(table.getTvf()).thenReturn(tvf);
         Mockito.when(tvf.isLanceFormat()).thenReturn(true);
         Mockito.when(tvf.getFilePath()).thenReturn("s3://bucket/table.lance");
-        Mockito.when(tvf.getLanceDatasetVersion()).thenReturn(42L);
-        Mockito.when(tvf.getLanceFragments()).thenReturn(Arrays.asList(
-                new LanceFragmentInfo(7, 1000, 1000),
-                new LanceFragmentInfo(11, 250, 250)));
+        Mockito.when(tvf.getLancePlannedDatasets()).thenReturn(Collections.singletonList(
+                new LancePlannedDataset("s3://bucket/table.lance", 42L,
+                        Arrays.asList(new LanceFragmentInfo(7, 1000, 1000),
+                                new LanceFragmentInfo(11, 250, 250)))));
         desc.setTable(table);
 
         TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
@@ -343,6 +344,69 @@ public class TVFScanNodeTest {
 
         // Shared non-Lance files still allow distributed execution through the same wrapper.
         Mockito.when(delegate.isLanceFormat()).thenReturn(false);
+        node.initBackendPolicy();
+        Mockito.verify(policy).init();
+    }
+
+    @Test
+    public void testLanceMultiDatasetRejectsSmoothUpgradeSource() throws Exception {
+        // A multi-dataset Lance TVF (two planned datasets) must not be scheduled to a backend that
+        // is still the old smooth-upgrade source process, which cannot read more than one dataset.
+        ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
+        Mockito.when(tvf.isLanceFormat()).thenReturn(true);
+        Mockito.when(tvf.getBackendIdForExecution()).thenCallRealMethod();
+        Mockito.when(tvf.requiresCurrentLanceReader(Mockito.anyString())).thenReturn(false);
+        Mockito.when(tvf.getLancePlannedDatasets()).thenReturn(Arrays.asList(
+                Mockito.mock(LancePlannedDataset.class),
+                Mockito.mock(LancePlannedDataset.class)));
+
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+        Mockito.when(table.getTvf()).thenReturn(tvf);
+        desc.setTable(table);
+
+        Backend source = Mockito.mock(Backend.class);
+        Mockito.when(source.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(source.getId()).thenReturn(102L);
+        FederationBackendPolicy policy = Mockito.mock(FederationBackendPolicy.class);
+        Mockito.when(policy.getBackends()).thenReturn(Collections.singletonList(source));
+
+        TVFScanNode node = new TVFScanNode(
+                new PlanNodeId(0), desc, false, new SessionVariable(), ScanContext.EMPTY);
+        setBackendPolicy(node, policy);
+
+        UserException exception = Assert.assertThrows(UserException.class, node::initBackendPolicy);
+        Assert.assertTrue(exception.getMessage().contains("Multi-dataset"));
+        Assert.assertTrue(exception.getMessage().contains("102"));
+    }
+
+    @Test
+    public void testLanceMultiDatasetAllowsUpgradedBackends() throws Exception {
+        // The same multi-dataset plan is allowed once no candidate backend is a smooth-upgrade source.
+        ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
+        Mockito.when(tvf.isLanceFormat()).thenReturn(true);
+        Mockito.when(tvf.getBackendIdForExecution()).thenCallRealMethod();
+        Mockito.when(tvf.requiresCurrentLanceReader(Mockito.anyString())).thenReturn(false);
+        Mockito.when(tvf.getLancePlannedDatasets()).thenReturn(Arrays.asList(
+                Mockito.mock(LancePlannedDataset.class),
+                Mockito.mock(LancePlannedDataset.class)));
+
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+        Mockito.when(table.getTvf()).thenReturn(tvf);
+        desc.setTable(table);
+
+        Backend backend = Mockito.mock(Backend.class);
+        Mockito.when(backend.isSmoothUpgradeSrc()).thenReturn(false);
+        Mockito.when(backend.getId()).thenReturn(103L);
+        FederationBackendPolicy policy = Mockito.mock(FederationBackendPolicy.class);
+        Mockito.when(policy.getBackends()).thenReturn(Collections.singletonList(backend));
+
+        TVFScanNode node = new TVFScanNode(
+                new PlanNodeId(0), desc, false, new SessionVariable(), ScanContext.EMPTY);
+        setBackendPolicy(node, policy);
+
+        // Must not throw: planning proceeds past the compatibility gate.
         node.initBackendPolicy();
         Mockito.verify(policy).init();
     }

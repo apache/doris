@@ -1349,6 +1349,62 @@ TEST(LanceTableReaderSnapshotTest, ProfileShowsTheSnapshotRead) {
     EXPECT_TRUE(latest_reader.close().ok());
 }
 
+TEST(LanceTableReaderSnapshotTest, ReadsTwoDatasetsInOneScanAndNamesBoth) {
+    const std::filesystem::path first_uri = "./be/test/format_v2/table/lance/data/all_types.lance";
+    const std::filesystem::path second_uri =
+            "./be/test/format_v2/table/lance/data/multivector.lance";
+    LanceFixtureInfo first;
+    LanceFixtureInfo second;
+    ASSERT_TRUE(get_fixture_info(first_uri, &first).ok());
+    ASSERT_TRUE(get_fixture_info(second_uri, &second).ok());
+
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_two_datasets");
+    TFileScanRangeParams scan_params;
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+
+    // One reader serves several splits and the splits of one scan may name different datasets: every
+    // range carries the dataset it reads, so the reader opens that one instead of reusing the handle
+    // of the first. A "uris" scan is exactly this shape.
+    const auto read_dataset = [&](const std::filesystem::path& uri,
+                                  const LanceFixtureInfo& fixture) {
+        EXPECT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+        Block block;
+        add_output_columns(&block, columns);
+        int64_t rows = 0;
+        bool eos = false;
+        while (!eos) {
+            EXPECT_TRUE(reader.get_block(&block, &eos).ok());
+            if (eos) {
+                continue;
+            }
+            rows += block.rows();
+        }
+        return rows;
+    };
+    const int64_t first_rows = read_dataset(first_uri, first);
+    const int64_t second_rows = read_dataset(second_uri, second);
+    const int64_t first_again_rows = read_dataset(first_uri, first);
+
+    // The profile names every DISTINCT dataset the scan read exactly once: each open appends what it
+    // read instead of overwriting the previous one, and a reopen of an already-named dataset does not
+    // duplicate it.
+    const auto* uri = profile.get_info_string("LanceDatasetUri");
+    ASSERT_NE(nullptr, uri);
+    EXPECT_EQ(first_uri.string() + ", " + second_uri.string(), *uri);
+    const auto* version = profile.get_info_string("LanceDatasetVersion");
+    ASSERT_NE(nullptr, version);
+    EXPECT_EQ(std::to_string(first.version) + ", " + std::to_string(second.version), *version);
+
+    EXPECT_TRUE(reader.close().ok());
+    EXPECT_GT(first_rows, 0);
+    EXPECT_GT(second_rows, 0);
+    EXPECT_GT(first_again_rows, 0);
+}
+
 TEST(LanceTableReaderSnapshotTest, OpenErrorsNameTheVersionWithoutTheQueryString) {
     const std::filesystem::path dataset_uri =
             "./be/test/format_v2/table/lance/data/all_types.lance";

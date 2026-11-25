@@ -212,8 +212,13 @@ public class AzureProperties extends StorageProperties {
     }
 
     @Override
-    public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
+    protected String validateAndGetLocation(Map<String, String> loadProps) throws UserException {
         return AzurePropertyUtils.validateAndGetUri(loadProps);
+    }
+
+    @Override
+    protected void requireMutuallyExclusive(Map<String, String> loadProps) throws UserException {
+        requireMutuallyExclusive(loadProps, URI_KEY);
     }
 
     @Override
