@@ -25,6 +25,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from collections import Counter, deque
@@ -49,6 +50,7 @@ TC_STAGE = re.compile(r"^\[[\d:]+\][ EiW]:\s*Step (\d+)/(\d+): (.*?) \(Command L
 BUCKET = "doris-pipelines"
 REGION = "cn-hongkong"
 ENDPOINT = f"oss-{REGION}-internal.aliyuncs.com"
+MULTIPART_THRESHOLD = 64 * 1024**2
 
 
 def count(value):
@@ -199,7 +201,7 @@ def log_sections(path):
     return stages, excerpts
 
 
-def junit_results(path, counts):
+def junit_results(path, counts, problems):
     with path.open("rb") as stream:
         raw = stream.read(16 * 1024 * 1024 + 1)
     if len(raw) > 16 * 1024 * 1024 or b"<!DOCTYPE" in raw.upper() or b"\0" in raw:
@@ -212,6 +214,7 @@ def junit_results(path, counts):
     # Reconcile nested suite totals with visible cases. Some producers retain
     # only failing rows or omit case details for a whole shard.
     totals = {}
+    global_cases = set()
     for suite in reversed(list(root.iter())):
         if suite.tag not in ("testsuites", "testsuite"):
             continue
@@ -221,7 +224,14 @@ def junit_results(path, counts):
                 result.update(totals.pop(child))
             elif child.tag == "testcase":
                 failed = child.find("failure") is not None or child.find("error") is not None
-                state = "failed" if failed else ("ignored" if child.find("skipped") is not None else "passed")
+                if failed:
+                    state = "failed"
+                elif child.find("skipped") is not None:
+                    state = "ignored"
+                elif child.get("status") == "notrun" or child.get("result") == "suppressed":
+                    state = "notrun"
+                else:
+                    state = "passed"
                 result[state] += 1
                 result["total"] += 1
         if "tests" in suite.attrib:
@@ -229,15 +239,26 @@ def junit_results(path, counts):
             failed = (count(suite.get("failures")) + count(suite.get("errors", "0"))
                       if "failures" in suite.attrib else result["failed"])
             skipped = count(suite.get("skipped", str(result["ignored"])))
+            remaining = total - failed - skipped - result["notrun"] - result["passed"]
             if (total < result["total"] or failed < result["failed"] or skipped < result["ignored"]
-                    or total - failed - skipped < result["passed"]):
+                    or remaining < 0):
                 raise ValueError("Inconsistent JUnit counters")
-            remaining = total - failed - skipped - result["passed"]
+            # A disabled test can run explicitly. Without its row, the disabled
+            # count alone cannot establish that an omitted test passed or ran.
+            result["registered_disabled"] = count(suite.get("disabled", str(result["registered_disabled"])))
             # Without aggregate failure/skip counts, omitted cases have no known outcome.
             if "failures" in suite.attrib and ("skipped" in suite.attrib or result["total"] == total):
-                result["passed"] += remaining
-                remaining = 0
+                uncertain = min(remaining, max(0, result["registered_disabled"] - result["notrun"]))
+                result["passed"] += remaining - uncertain
+                remaining = uncertain
             result["total"], result["failed"], result["ignored"], result["unknown"] = total, failed, skipped, remaining
+        # GoogleTest's synthetic failure is a build problem, outside its root test counters.
+        if suite.tag == "testsuite" and suite.get("name") == "NonTestSuiteFailure":
+            cases = suite.findall("testcase")
+            if (len(cases) == 1 and cases[0].get("name") == "" and cases[0].get("classname") == ""
+                    and cases[0].find("failure") is not None and result["total"] == result["failed"] == 1):
+                global_cases.add(cases[0])
+                result = Counter()
         totals[suite] = result
     counts.update(totals[root])
     for case in root.iter("testcase"):
@@ -247,7 +268,11 @@ def junit_results(path, counts):
         name = case.get("name", "")
         fields = [value for failure in failures for value in
                   (failure.get("type"), failure.get("message"), "".join(failure.itertext()))]
-        yield name, case.get("classname", ""), "\n".join(v for v in fields if v is not None), False
+        details = "\n".join(v for v in fields if v is not None)
+        if case in global_cases:
+            problems.append(details)
+        else:
+            yield name, case.get("classname", ""), details, False
 
 
 DOWNLOAD_NAMES = {"build": "Build log", "cluster": "Doris logs", "core": "Coredump"}
@@ -402,11 +427,11 @@ def report(args):
     for row in tests.get("testOccurrence", []):
         if row.get("status") in ("FAILURE", "ERROR"):
             cases.append((row["name"], "", row.get("details", ""), row.get("muted", False)))
+    problems = [item.get("details", "") for item in build.get("problemOccurrences", {}).get("problemOccurrence", [])]
     junit = Counter()
     for path in args.junit:
-        cases.extend(junit_results(path, junit))
+        cases.extend(junit_results(path, junit, problems))
     stages, excerpts = log_sections(args.failure_log) if args.failure_log else ({}, [])
-    problems = build.get("problemOccurrences", {}).get("problemOccurrence", [])
     title, result = PIPELINES[args.pipeline], RESULTS[args.status]
     def facts(items):
         return "".join(f"<div><dt>{key}</dt><dd>{display(str(v))}</dd></div>" for key,v in items if v is not None)
@@ -426,13 +451,15 @@ def report(args):
     elif args.pipeline != "compile" and not args.junit and not build:
         sections.append('<h2>Test results</h2><p>Case counts were not recorded in this snapshot.</p>')
     if args.junit:
-        sections.append(f'<p>Supplied JUnit files: {junit["total"]} test executions · {junit["failed"]} failed · '
+        label = "tests" if junit["notrun"] or junit["unknown"] else "test executions"
+        sections.append(f'<p>Supplied JUnit files: {junit["total"]} {label} · {junit["failed"]} failed · '
                         f'{junit["passed"]} passed · {junit["ignored"]} skipped'
+                        + (f' · {junit["notrun"]} not run' if junit["notrun"] else '')
                         + (f' · {junit["unknown"]} without recorded outcome' if junit["unknown"] else '') + '.</p>')
     if problems:
         sections.append('<h2>Build problems</h2>')
-        for item in problems:
-            sections.append(f'<pre><code>{display(item.get("details", ""))}</code></pre>')
+        for problem in problems:
+            sections.append(f'<pre><code>{display(problem)}</code></pre>')
     if cases:
         sections.append('<h2>Failed tests</h2>')
         if args.junit:
@@ -530,16 +557,61 @@ def stage_diagnostic(kind, source, folder):
     return staged.rename(folder / f"{name}-{digest.hexdigest()}{extension}")
 
 
+def oss_api(operation, key, *options):
+    # ossutil bounds and retries individual requests. A transfer can take many minutes.
+    return subprocess.run(["ossutil", "api", operation, "--mode", "EcsRamRole", "--region", REGION,
+                           "--endpoint", f"https://{ENDPOINT}", "--bucket", BUCKET, "--key", key,
+                           *options], capture_output=True)
+
+
+def multipart_upload(file, key, size, metadata):
+    started = oss_api("initiate-multipart-upload", key, *metadata, "--forbid-overwrite", "true",
+                      "--output-query", "UploadId", "--output-format", "json", "--quiet")
+    if started.returncode:
+        return started
+    upload_id = json.loads(started.stdout)
+    if not isinstance(upload_id, str) or not upload_id:
+        raise ValueError("OSS did not return a multipart upload ID")
+    completed = False
+    try:
+        # OSS allows 10,000 parts per object. Stage only one part, using bounded memory.
+        part_size = max(MULTIPART_THRESHOLD, (size + 9999) // 10000)
+        with file.open("rb") as source, tempfile.NamedTemporaryFile(dir=file.parent) as part:
+            for number, offset in enumerate(range(0, size, part_size), 1):
+                part.seek(0)
+                part.truncate()
+                length = min(part_size, size - offset)
+                for pos in range(0, length, 1024**2):
+                    part.write(source.read(min(1024**2, length - pos)))
+                part.flush()
+                result = oss_api("upload-part", key, "--upload-id", upload_id, "--part-number",
+                                 str(number), "--body", f"file://{part.name}")
+                if result.returncode:
+                    raise ValueError(f"OSS multipart upload failed at part {number}; retry the report")
+        result = oss_api("complete-multipart-upload", key, "--upload-id", upload_id,
+                         "--complete-all", "yes", "--forbid-overwrite", "true")
+        completed = result.returncode == 0
+        return result
+    finally:
+        if not completed:
+            try:
+                aborted = oss_api("abort-multipart-upload", key, "--upload-id", upload_id)
+                if aborted.returncode:
+                    print("OSS could not abort the incomplete multipart upload", file=sys.stderr)
+            except OSError as exc:
+                print(f"OSS multipart cleanup failed: {exc}", file=sys.stderr)
+
+
 def upload(file, key):
-    # Always use the agent role and the Hong Kong private endpoint.
     attachment = file.suffix != ".html"
     mime = {".gz": "application/gzip", ".core": "application/octet-stream", ".html": "text/html"}[file.suffix]
-    result = subprocess.run([
-        "ossutil", "api", "put-object", "--mode", "EcsRamRole", "--region", REGION,
-        "--endpoint", f"https://{ENDPOINT}", "--bucket", BUCKET, "--key", key,
-        "--body", f"file://{file}", "--content-type", mime if attachment else mime + "; charset=utf-8",
-        "--content-disposition", "attachment" if attachment else "inline", "--forbid-overwrite",
-    ], capture_output=True, timeout=60)
+    metadata = ["--content-type", mime if attachment else mime + "; charset=utf-8",
+                "--content-disposition", "attachment" if attachment else "inline"]
+    size = file.stat().st_size
+    if attachment and size > MULTIPART_THRESHOLD:
+        result = multipart_upload(file, key, size, metadata)
+    else:
+        result = oss_api("put-object", key, "--body", f"file://{file}", *metadata, "--forbid-overwrite")
     if result.returncode:
         if b"FileAlreadyExists" not in result.stderr + result.stdout:
             raise ValueError("OSS upload failed; the same report can be retried")
