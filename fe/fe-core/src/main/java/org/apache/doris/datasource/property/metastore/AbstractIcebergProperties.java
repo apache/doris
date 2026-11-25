@@ -40,6 +40,7 @@ import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.io.NativeGcsResolvingFileIO;
+import org.apache.iceberg.io.ResolvingFileIO;
 
 import java.util.HashMap;
 import java.util.List;
@@ -240,8 +241,11 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
                 && !Boolean.parseBoolean(origProps.get("iceberg.rest.vended-credentials-enabled"))
                 && (s3Target instanceof GCSProperties
                         || origProps.keySet().stream().anyMatch(key -> key.startsWith("fs.gs.")))) {
-            // Adding iceberg-gcp must not route HMAC-backed gs:// files to GCSFileIO's ADC identity.
-            fileIOProperties.putIfAbsent(CatalogProperties.FILE_IO_IMPL, NativeGcsResolvingFileIO.class.getName());
+            String ioImpl = fileIOProperties.get(CatalogProperties.FILE_IO_IMPL);
+            // A generic resolver must retain Hadoop/HMAC routing when iceberg-gcp becomes available.
+            if (ioImpl == null || ResolvingFileIO.class.getName().equals(ioImpl)) {
+                fileIOProperties.put(CatalogProperties.FILE_IO_IMPL, NativeGcsResolvingFileIO.class.getName());
+            }
         }
     }
 
