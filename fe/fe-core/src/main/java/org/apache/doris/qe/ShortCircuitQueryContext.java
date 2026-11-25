@@ -151,6 +151,7 @@ public class ShortCircuitQueryContext {
         return ctx.getSessionVariable().isEnableShortCircuitQuery()
                 && this.enablePruneNestedColumns == ctx.getSessionVariable().enablePruneNestedColumns
                 && !this.tbl.isDropped && Objects.equals(this.tableName, this.tbl.getName())
+                && !this.tbl.isVariantValuesIndexExecutionDisabled()
                 && this.tbl.getBaseSchemaVersion() == this.schemaVersion
                 && this.fileCacheQueryLimitBytes == ctx.getSessionVariable().fileCacheQueryLimitBytes
                 && this.tbl.getPartitionTopologyVersion() == this.partitionTopologyVersion;

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_values_index_null_predicates", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET enable_sql_cache=false"
     sql "SET enable_query_cache=false"
     sql "SET enable_condition_cache=false"
@@ -70,4 +71,5 @@ suite("test_variant_values_index_null_predicates", "p0,nonConcurrent") {
         }
     }
     assertEquals([], differences)
+    }
 }

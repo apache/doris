@@ -17,6 +17,7 @@
 
 // BE configuration/debug points are global: run this suite with -parallel 1 when selected alone.
 suite("test_variant_values_index_compaction", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET enable_match_without_inverted_index=true"
     sql "SET enable_inverted_index_query=true"
     sql "SET enable_sql_cache=false"
@@ -131,5 +132,6 @@ suite("test_variant_values_index_compaction", "p0,nonConcurrent") {
                 }
             }
         }
+    }
     }
 }

@@ -18,6 +18,7 @@
 import org.apache.doris.regression.action.ProfileAction
 
 suite("test_variant_values_index_add_drop", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET enable_add_index_for_new_data=true"
     sql "SET enable_sql_cache=false"
     sql "SET enable_query_cache=false"
@@ -157,5 +158,6 @@ suite("test_variant_values_index_add_drop", "p0,nonConcurrent") {
             sql "SET enable_match_without_inverted_index=true"
             quickTest("${tag}_values", "SELECT id,v FROM vvi_add_drop ORDER BY id", true)
         }
+    }
     }
 }

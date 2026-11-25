@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_values_index_doc_alter", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET debug_variant_enable_nested_group=false"
     sql "SET enable_sql_cache=false"
     sql "SET enable_query_cache=false"
@@ -49,5 +50,6 @@ suite("test_variant_values_index_doc_alter", "p0,nonConcurrent") {
         sql "SET enable_match_without_inverted_index=${phase == 'altered'}"
         quickTest("${phase}_path", "SELECT id FROM vvi_doc_alter WHERE v['s'] MATCH_PHRASE 'hello world' ORDER BY id", true)
         sql "SET enable_match_without_inverted_index=false"
+    }
     }
 }

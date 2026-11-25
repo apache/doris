@@ -18,6 +18,7 @@
 import org.awaitility.Awaitility
 import java.util.concurrent.TimeUnit
 suite("test_variant_values_index_sc_concurrent", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET debug_variant_enable_doc_mode=false"
     sql "SET debug_variant_enable_nested_group=false"
     sql "SET debug_variant_max_subcolumns_count=10"
@@ -68,5 +69,6 @@ suite("test_variant_values_index_sc_concurrent", "p0,nonConcurrent") {
         quickTest("${phase}_path", "SELECT id FROM vvi_sc_concurrent WHERE v['s'] MATCH_ANY 'replacement' ORDER BY id", true)
         quickTest("${phase}_template", "SELECT id FROM vvi_sc_concurrent WHERE v['tagA'] MATCH_ANY 'delta' ORDER BY id", true)
         quickTest("${phase}_removed_template", "SELECT id FROM vvi_sc_concurrent WHERE v['tagA'] MATCH_ANY 'alpha' ORDER BY id", true)
+    }
     }
 }

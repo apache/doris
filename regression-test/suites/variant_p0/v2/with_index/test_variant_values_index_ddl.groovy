@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_variant_values_index_ddl", "p0") {
+suite("test_variant_values_index_ddl", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET enable_add_index_for_new_data=true"
     sql "SET enable_match_without_inverted_index=true"
     sql "SET enable_inverted_index_query=true"
@@ -169,5 +170,6 @@ suite("test_variant_values_index_ddl", "p0") {
             op "get"
             check { code, body -> assertEquals(200, code) }
         }
+    }
     }
 }

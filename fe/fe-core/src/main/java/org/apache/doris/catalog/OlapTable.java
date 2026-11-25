@@ -3895,6 +3895,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return indexes != null && getInvertedIndexes(column).stream().anyMatch(Index::isVariantValuesIndex);
     }
 
+    public boolean isVariantValuesIndexExecutionDisabled() {
+        return !Config.enable_variant_v2 && getIndexes().stream().anyMatch(Index::isVariantValuesIndex);
+    }
+
     /**
      * The VARIANT values index that serves whole-document MATCH for the given analyzer.
      */

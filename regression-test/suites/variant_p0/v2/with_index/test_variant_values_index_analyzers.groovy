@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_values_index_analyzers", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET enable_sql_cache=false"
     sql "SET enable_query_cache=false"
     sql "SET enable_condition_cache=false"
@@ -46,5 +47,6 @@ suite("test_variant_values_index_analyzers", "p0,nonConcurrent") {
             quickTest("${parser}_scan_${i}", query, true)
             assertEquals(indexed, sql(query))
         }
+    }
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.AggStateType;
@@ -230,14 +231,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
-    private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier,
+    private LogicalPlan makeOlapScan(OlapTable table, UnboundRelation unboundRelation, List<String> qualifier,
             CascadesContext cascadesContext) {
+        if (table.isVariantValuesIndexExecutionDisabled()) {
+            throw new AnalysisException(InvertedIndexUtil.VARIANT_VALUES_INDEX_REQUIRES_V2);
+        }
         LogicalOlapScan scan;
         List<Long> partIds = getPartitionIds(table, unboundRelation, qualifier);
         List<Long> tabletIds = unboundRelation.getTabletIds();
         if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, qualifier, partIds,
+                    table, qualifier, partIds,
                     tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample(),
                     ImmutableList.of());
@@ -245,23 +249,22 @@ public class BindRelation extends OneAnalysisRuleFactory {
             Optional<String> indexName = unboundRelation.getIndexName();
             // For direct mv scan.
             if (indexName.isPresent()) {
-                OlapTable olapTable = (OlapTable) table;
-                Long indexId = olapTable.getIndexIdByName(indexName.get());
+                Long indexId = table.getIndexIdByName(indexName.get());
                 if (indexId == null) {
-                    throw new AnalysisException("Table " + olapTable.getName()
+                    throw new AnalysisException("Table " + table.getName()
                         + " doesn't have materialized view " + indexName.get());
                 }
-                PreAggStatus preAggStatus = olapTable.isDupKeysOrMergeOnWrite() ? PreAggStatus.unset()
+                PreAggStatus preAggStatus = table.isDupKeysOrMergeOnWrite() ? PreAggStatus.unset()
                         : PreAggStatus.off("For direct index scan on mor/agg.");
 
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, qualifier, tabletIds,
-                    CollectionUtils.isEmpty(partIds) ? ((OlapTable) table).getPartitionIds() : partIds, indexId,
+                    table, qualifier, tabletIds,
+                    CollectionUtils.isEmpty(partIds) ? table.getPartitionIds() : partIds, indexId,
                     preAggStatus, CollectionUtils.isEmpty(partIds) ? ImmutableList.of() : partIds,
                     unboundRelation.getHints(), unboundRelation.getTableSample(), ImmutableList.of());
             } else {
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
+                    table, qualifier, tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample(), ImmutableList.of());
             }
         }
@@ -279,7 +282,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         } else {
             // it's a duplicate, unique or hash distribution agg table
             // add delete sign filter on olap scan if needed
-            return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), (OlapTable) table);
+            return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), table);
         }
     }
 
@@ -489,7 +492,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             switch (table.getType()) {
                 case OLAP:
                 case MATERIALIZED_VIEW:
-                    return makeOlapScan(table, unboundRelation, qualifierWithoutTableName, cascadesContext);
+                    return makeOlapScan((OlapTable) table, unboundRelation, qualifierWithoutTableName, cascadesContext);
                 case VIEW:
                     View view = (View) table;
                     isView = true;

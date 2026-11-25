@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.catalog.Env;
@@ -1016,7 +1017,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (left.getDataType().isVariantType()) {
             if (Match.hasVariantValuesIndex(left)) {
                 if (!Config.enable_variant_v2) {
-                    throw new AnalysisException("VARIANT values index requires enable_variant_v2=true");
+                    throw new AnalysisException(InvertedIndexUtil.VARIANT_VALUES_INDEX_REQUIRES_V2);
                 }
                 if (match.op() != MatchPredicate.Operator.MATCH_ANY
                         && match.op() != MatchPredicate.Operator.MATCH_ALL) {

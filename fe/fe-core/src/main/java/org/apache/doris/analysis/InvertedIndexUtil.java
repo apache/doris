@@ -104,6 +104,8 @@ public class InvertedIndexUtil {
     public static final String INVERTED_INDEX_DEFAULT_ANALYZER_KEY = "__default__";
 
     public static final String VARIANT_INDEX_SCOPE_KEY = InvertedIndexProperties.VARIANT_INDEX_SCOPE_KEY;
+    public static final String VARIANT_VALUES_INDEX_REQUIRES_V2 =
+            "VARIANT values index requires enable_variant_v2=true";
 
     public static String getInvertedIndexParser(Map<String, String> properties) {
         if (properties == null) {
@@ -634,7 +636,7 @@ public class InvertedIndexUtil {
             throw new AnalysisException("VARIANT values index does not support field_pattern");
         }
         if (!Config.enable_variant_v2) {
-            throw new AnalysisException("VARIANT values index requires enable_variant_v2=true");
+            throw new AnalysisException(VARIANT_VALUES_INDEX_REQUIRES_V2);
         }
         properties.putIfAbsent(INVERTED_INDEX_SUPPORT_PHRASE_KEY, "false");
     }

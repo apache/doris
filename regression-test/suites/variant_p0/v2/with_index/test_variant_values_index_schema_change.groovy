@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_values_index_schema_change", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET enable_sql_cache=false"
     sql "SET enable_query_cache=false"
     sql "SET enable_condition_cache=false"
@@ -196,5 +197,6 @@ suite("test_variant_values_index_schema_change", "p0,nonConcurrent") {
             sql "SELECT id FROM vvi_sc_shape WHERE payload MATCH_ANY 'hello' ORDER BY id"
             exception "VARIANT root column does not support MATCH predicates"
         }
+    }
     }
 }

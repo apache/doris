@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_values_index_query", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET enable_match_without_inverted_index=true"
     sql "SET enable_inverted_index_query=true"
     sql "SET enable_sql_cache=false"
@@ -242,4 +243,5 @@ suite("test_variant_values_index_query", "p0,nonConcurrent") {
     }
     assertEquals(sql("SELECT id,v MATCH_ANY 'hello' FROM vvi_query_column_case ORDER BY id"),
             sql("SELECT id,v MATCH_ANY concat('hel','lo') FROM vvi_query_column_case ORDER BY id"))
+    }
 }

@@ -458,6 +458,9 @@ public class NereidsSqlCacheManager {
             if (tableIf instanceof OlapTable) {
                 OlapTable olapTable = (OlapTable) tableIf;
                 long currentTableVersion = 0L;
+                if (olapTable.isVariantValuesIndexExecutionDisabled()) {
+                    return IsChanged.CHANGED_BUT_NOT_INVALIDATE_CACHE;
+                }
                 try {
                     currentTableVersion = olapTable.getVisibleVersion();
                 } catch (RpcException e) {

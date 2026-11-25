@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_values_index_add_drop_templates", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET enable_add_index_for_new_data=true"
     sql "SET enable_sql_cache=false"
     sql "SET enable_query_cache=false"
@@ -174,5 +175,6 @@ suite("test_variant_values_index_add_drop_templates", "p0,nonConcurrent") {
             }
             quickTest("${typedSparse}_values", "SELECT id,v,other FROM vvi_add_drop_templates ORDER BY id", true)
         }
+    }
     }
 }

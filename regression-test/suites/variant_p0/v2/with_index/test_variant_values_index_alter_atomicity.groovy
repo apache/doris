@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_values_index_alter_atomicity", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET enable_add_index_for_new_data=true"
     sql "SET debug_variant_enable_doc_mode=false"
     sql "SET debug_variant_enable_nested_group=false"
@@ -64,5 +65,6 @@ suite("test_variant_values_index_alter_atomicity", "p0,nonConcurrent") {
             quickTest("${tag}_path", "SELECT id FROM ${table} WHERE v['s'] MATCH_ANY 'hello world' ORDER BY id", true)
             quickTest("${tag}_absent", "SELECT id FROM ${table} WHERE v MATCH_ANY 'absent' ORDER BY id", true)
         }
+    }
     }
 }

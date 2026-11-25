@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_values_index_rejected_state", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET enable_add_index_for_new_data=true"
     sql "SET debug_variant_enable_nested_group=false"
     sql "SET debug_variant_enable_doc_mode=false"
@@ -101,4 +102,5 @@ suite("test_variant_values_index_rejected_state", "p0,nonConcurrent") {
         quickTest("${index}_dropped_partition_template", "SELECT id FROM vvi_rejected_state PARTITION(p1) WHERE v['tagA'] MATCH_ANY 'alpha' ORDER BY id", true)
     }
 
+    }
 }

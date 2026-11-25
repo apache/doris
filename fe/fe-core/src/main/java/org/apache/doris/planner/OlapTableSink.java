@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -154,6 +155,9 @@ public class OlapTableSink extends DataSink {
 
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism,
             boolean loadToSingleTablet, boolean isStrictMode, long txnExpirationS) throws AnalysisException {
+        if (dstTable.isVariantValuesIndexExecutionDisabled()) {
+            throw new AnalysisException(InvertedIndexUtil.VARIANT_VALUES_INDEX_REQUIRES_V2);
+        }
         PropertyAnalyzer.requireVariantV2ForEscape(dstTable.getVariantEscapeDotsInKeys());
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoadId(loadId);

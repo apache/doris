@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_values_index_without_values", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET debug_variant_enable_doc_mode=false"
     sql "SET debug_variant_enable_nested_group=false"
     sql "SET debug_variant_max_subcolumns_count=10"
@@ -58,5 +59,6 @@ suite("test_variant_values_index_without_values", "p0,nonConcurrent") {
                 }
             }
         }
+    }
     }
 }

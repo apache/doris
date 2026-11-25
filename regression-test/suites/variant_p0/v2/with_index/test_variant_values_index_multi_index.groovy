@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_values_index_multi_index", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: true]) {
     sql "SET enable_sql_cache=false"
     sql "SET enable_query_cache=false"
     sql "SET enable_condition_cache=false"
@@ -130,4 +131,5 @@ suite("test_variant_values_index_multi_index", "p0,nonConcurrent") {
     qt_dropped_index_root "SELECT id FROM vvi_multi_index WHERE v MATCH_ANY 'hello' ORDER BY id"
     qt_dropped_index_original_path "SELECT id FROM vvi_multi_index WHERE v['s'] MATCH_ANY 'HELLO' ORDER BY id"
 
+    }
 }

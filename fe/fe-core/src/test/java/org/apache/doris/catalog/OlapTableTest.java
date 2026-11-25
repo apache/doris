@@ -65,6 +65,27 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class OlapTableTest {
 
     @Test
+    public void testVariantValuesIndexExecutionRequiresV2() {
+        Index values = new Index(1, "values_idx", ImmutableList.of("v"), IndexDef.IndexType.INVERTED,
+                ImmutableMap.of("variant_index_scope", "values", "parser", "english"), "");
+        Index path = new Index(2, "path_idx", ImmutableList.of("v"), IndexDef.IndexType.INVERTED,
+                ImmutableMap.of("parser", "english"), "");
+        OlapTable table = new OlapTable();
+        boolean originalV2 = Config.enable_variant_v2;
+        try {
+            Config.enable_variant_v2 = false;
+            table.setIndexes(ImmutableList.of(path));
+            Assertions.assertFalse(table.isVariantValuesIndexExecutionDisabled());
+            table.setIndexes(ImmutableList.of(values, path));
+            Assertions.assertTrue(table.isVariantValuesIndexExecutionDisabled());
+            Config.enable_variant_v2 = true;
+            Assertions.assertFalse(table.isVariantValuesIndexExecutionDisabled());
+        } finally {
+            Config.enable_variant_v2 = originalV2;
+        }
+    }
+
+    @Test
     public void testInvertedIndexLookupIgnoresColumnNameCase() {
         Index values = new Index(1, "values_idx", ImmutableList.of("v"), IndexDef.IndexType.INVERTED,
                 ImmutableMap.of("variant_index_scope", "values", "parser", "english"), "");
