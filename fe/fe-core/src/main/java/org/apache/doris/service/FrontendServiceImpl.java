@@ -4790,7 +4790,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             boolean enableAdaptiveRandomBucket, String resultName) throws UserException {
         long partitionId = partition.getId();
         PartitionItem partitionItem = partitionInfo.getItem(partitionId);
-        if (partitionItem == null) {
+        // Unpartitioned temporary partitions have no partition item or boundary keys.
+        if (partitionItem == null && partitionInfo.getType() != PartitionType.UNPARTITIONED) {
             throw new UserException(String.format(
                     "partition item of %s was dropped concurrently while building %s result, please retry",
                     partitionLabel, resultName));

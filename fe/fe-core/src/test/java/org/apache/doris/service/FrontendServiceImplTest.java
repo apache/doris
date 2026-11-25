@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.CacheHotspotManager;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -29,10 +30,12 @@ import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
+import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -64,6 +67,7 @@ import org.apache.doris.thrift.TMaxComputeBlockIdResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNullableStringLiteral;
+import org.apache.doris.thrift.TOlapTablePartition;
 import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeType;
@@ -100,10 +104,12 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -573,6 +579,94 @@ public class FrontendServiceImplTest {
         } finally {
             db.unregisterTable(spyTable.getName());
             db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testReplacePartitionSnapshotAllowsUnpartitionedTempPartition() throws Exception {
+        createTable("CREATE TABLE test.replace_snapshot_unpartitioned (k INT) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\" = \"1\")");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("replace_snapshot_unpartitioned");
+        InsertOverwriteUtil.addTempPartitions(table, Collections.singletonList(table.getName()),
+                Collections.singletonList("replace_snapshot_temp"));
+        Partition tempPartition = table.getPartition("replace_snapshot_temp", true);
+        Assertions.assertNotNull(tempPartition);
+        Assertions.assertNull(table.getPartitionInfo().getItem(tempPartition.getId()));
+
+        TOlapTablePartition result = snapshotReplacePartition(table, tempPartition.getId());
+        Assertions.assertEquals(tempPartition.getId(), result.getId());
+        Assertions.assertEquals(1, result.getIndexesSize());
+        Assertions.assertEquals(1, result.getNumBuckets());
+        Assertions.assertFalse(result.isSetStartKeys());
+        Assertions.assertFalse(result.isSetEndKeys());
+        Assertions.assertFalse(result.isSetInKeys());
+    }
+
+    @Test
+    public void testReplacePartitionSnapshotPreservesPartitionItemChecks() throws Exception {
+        for (String partitionType : Arrays.asList("RANGE", "LIST")) {
+            String tableName = "replace_snapshot_" + partitionType.toLowerCase(Locale.ROOT);
+            String partitionClause = partitionType.equals("RANGE")
+                    ? "PARTITION BY RANGE(k) (PARTITION p1 VALUES LESS THAN (10)) "
+                    : "PARTITION BY LIST(k) (PARTITION p1 VALUES IN (1)) ";
+            createTable("CREATE TABLE test." + tableName + " (k INT) " + partitionClause
+                    + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\" = \"1\")");
+            Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+            OlapTable table = (OlapTable) db.getTableOrAnalysisException(tableName);
+            InsertOverwriteUtil.addTempPartitions(table, Collections.singletonList("p1"),
+                    Collections.singletonList("replace_snapshot_temp"));
+            Partition tempPartition = table.getPartition("replace_snapshot_temp", true);
+            Assertions.assertNotNull(tempPartition);
+            Assertions.assertNotNull(table.getPartitionInfo().getItem(tempPartition.getId()));
+            TOlapTablePartition result = snapshotReplacePartition(table, tempPartition.getId());
+            Assertions.assertEquals(tempPartition.getId(), result.getId());
+            if (partitionType.equals("RANGE")) {
+                Assertions.assertEquals(10, result.getEndKeys().get(0).getIntLiteral().getValue());
+            } else {
+                Assertions.assertEquals(1, result.getInKeys().get(0).get(0).getIntLiteral().getValue());
+            }
+
+            // Model a missing item without removing the temporary Partition object.
+            PartitionItem item = table.getPartitionInfo().getItem(tempPartition.getId());
+            table.writeLock();
+            try {
+                table.getPartitionInfo().setItem(tempPartition.getId(), true, null);
+            } finally {
+                table.writeUnlock();
+            }
+            try {
+                InvocationTargetException exception = Assertions.assertThrows(InvocationTargetException.class,
+                        () -> snapshotReplacePartition(table, tempPartition.getId()));
+                UserException cause = Assertions.assertInstanceOf(UserException.class, exception.getCause());
+                Assertions.assertEquals("partition item of " + tempPartition.getId()
+                        + " was dropped concurrently while building replace partition result, please retry",
+                        cause.getDetailMessage());
+            } finally {
+                table.writeLock();
+                try {
+                    table.getPartitionInfo().setItem(tempPartition.getId(), true, item);
+                } finally {
+                    table.writeUnlock();
+                }
+            }
+        }
+    }
+
+    private static TOlapTablePartition snapshotReplacePartition(OlapTable table, long partitionId) throws Exception {
+        Method method = FrontendServiceImpl.class.getDeclaredMethod("snapshotPartitionResultsById",
+                OlapTable.class, Collection.class, boolean.class, boolean.class, String.class);
+        method.setAccessible(true);
+        table.readLock();
+        try {
+            List<?> snapshots = (List<?>) method.invoke(null, table, Collections.singletonList(partitionId),
+                    false, false, "replace partition");
+            Assertions.assertEquals(1, snapshots.size());
+            Field field = snapshots.get(0).getClass().getDeclaredField("tPartition");
+            field.setAccessible(true);
+            return (TOlapTablePartition) field.get(snapshots.get(0));
+        } finally {
+            table.readUnlock();
         }
     }
 

@@ -68,6 +68,8 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
                                List<StorageProperties> storagePropertiesList) {
         try {
             Configuration conf = buildHiveConfiguration(storagePropertiesList);
+            // Hive builds its configuration separately and must preserve the same explicit GCS routing.
+            preserveHadoopGcsFileIO(storagePropertiesList, catalogProps, conf);
             return this.executionAuthenticator.execute(() ->
                     IcebergUtils.createIcebergHiveCatalog(catalogName, catalogProps, conf));
         } catch (Exception e) {
