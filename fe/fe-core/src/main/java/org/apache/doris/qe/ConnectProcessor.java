@@ -43,7 +43,6 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.NotImplementedException;
@@ -89,7 +88,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -479,7 +477,7 @@ public abstract class ConnectProcessor {
         try {
             return new NereidsParser().parseSQL(convertedStmt, sessionVariable);
         } catch (Exception e) {
-            if (isAuditPolicyRejection(e)) {
+            if (VariableMgr.isAuditPolicyRejection(e)) {
                 handleAuditPolicyParseRejection(e, convertedStmt, sessionVariable);
                 return null;
             }
@@ -506,21 +504,10 @@ public abstract class ConnectProcessor {
         }
     }
 
-    private static boolean isAuditPolicyRejection(Throwable error) {
-        return ExceptionUtils.indexOfType(error, VariableMgr.AuditPolicyException.class) >= 0;
-    }
-
     private void handleAuditPolicyParseRejection(Throwable error, String sql, SessionVariable session)
             throws ConnectionException {
         // The parser may already have applied SET_VAR values. No executor will run to restore them.
-        try {
-            VariableMgr.revertSessionValue(session);
-        } catch (DdlException e) {
-            LOG.warn("Failed to restore session values after audit policy rejected parsing", e);
-        } finally {
-            session.setIsSingleSetVar(false);
-            session.clearSessionOriginValue();
-        }
+        VariableMgr.restoreTemporaryAuditHintValues(session);
         executor = null;
         ctx.setExecutor(null);
         ctx.setEffectiveCloudCluster("");
@@ -542,7 +529,7 @@ public abstract class ConnectProcessor {
                 ctx.setSqlHash(originalSqlHash);
                 return stmts;
             } catch (Exception e) {
-                if (isAuditPolicyRejection(e)) {
+                if (VariableMgr.isAuditPolicyRejection(e)) {
                     throw new org.apache.doris.nereids.exceptions.AnalysisException(e.getMessage(), e);
                 }
                 if (LOG.isDebugEnabled()) {
@@ -588,7 +575,7 @@ public abstract class ConnectProcessor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Process one query failed because: {}", throwable.getMessage());
         }
-        if (parsedStmt == null && isAuditPolicyRejection(throwable)) {
+        if (parsedStmt == null && VariableMgr.isAuditPolicyRejection(throwable)) {
             auditAfterExec(origStmt, null, statistics, true, null, NeedAuditEncryption::maskSqlForAudit);
         } else {
             auditAfterExec(origStmt, parsedStmt, statistics, true);

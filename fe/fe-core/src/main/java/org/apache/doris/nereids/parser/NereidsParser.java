@@ -130,10 +130,12 @@ public class NereidsParser {
      * ParseSQL with logicalPlanBuilder.
      */
     public List<StatementBase> parseSQL(String originStr, @Nullable LogicalPlanBuilder logicalPlanBuilder) {
+        long parsingSqlMode = SqlModeHelper.readingMode();
         List<Pair<LogicalPlan, StatementContext>> logicalPlans = parseMultiple(originStr, logicalPlanBuilder);
         List<StatementBase> statementBases = Lists.newArrayList();
         for (Pair<LogicalPlan, StatementContext> parsedPlanToContext : logicalPlans) {
-            statementBases.add(new LogicalPlanAdapter(parsedPlanToContext.first, parsedPlanToContext.second));
+            statementBases.add(new LogicalPlanAdapter(
+                    parsedPlanToContext.first, parsedPlanToContext.second, parsingSqlMode));
         }
         return statementBases;
     }
@@ -382,6 +384,25 @@ public class NereidsParser {
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForEncryption(
                 ImmutableMap.of(), codePointRanges, preserveFormatting);
         LogicalPlan plan = (LogicalPlan) realLogicalPlanBuilder.visit(tree);
+        copyMaskRanges(sql, codePointRanges, indexInSqlToString);
+        return plan;
+    }
+
+    /** Collect masking ranges across an audit packet without applying its statement hints. */
+    public void parseAuditStatementsForEncryption(String sql, Map<Pair<Integer, Integer>, String> ranges) {
+        CommonTokenStream tokenStream = parseLeanTokens(sql);
+        DorisParser.MultiStatementsContext tree =
+                (DorisParser.MultiStatementsContext) toAst(tokenStream, DorisParser::multiStatements);
+        TreeMap<Pair<Integer, Integer>, String> codePointRanges = new TreeMap<>(new Pair.PairComparator<>());
+        for (DorisParser.StatementContext statement : tree.statement()) {
+            LogicalPlanBuilder builder = new LogicalPlanBuilderForEncryption(ImmutableMap.of(), codePointRanges);
+            ParserUtils.withOrigin(statement, () -> builder.visit(statement));
+        }
+        copyMaskRanges(sql, codePointRanges, ranges);
+    }
+
+    private static void copyMaskRanges(String sql, Map<Pair<Integer, Integer>, String> codePointRanges,
+            Map<Pair<Integer, Integer>, String> indexInSqlToString) {
         // ANTLR indexes code points, while SQL rewriting uses Java UTF-16 offsets. Normalize both
         // masking modes here so audit, FE logs and direct parser callers share the same contract.
         // Walk sorted ranges once rather than rescanning the prefix for every replacement.
@@ -395,7 +416,6 @@ public class NereidsParser {
             codePointOffset = range.second + 1;
             charOffset = end;
         }
-        return plan;
     }
 
     /** parseForSyncMv */

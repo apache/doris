@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DorisHttpException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
@@ -59,6 +60,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -197,6 +199,12 @@ public class TableQueryPlanAction extends RestBaseController {
                 }
                 stmts = new NereidsParser().parseSQL(sql, context.getSessionVariable());
             } catch (Exception e) {
+                if (VariableMgr.isAuditPolicyRejection(e)) {
+                    VariableMgr.restoreTemporaryAuditHintValues(sessionVariable);
+                    initAuditQuery(context, sql);
+                    context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
+                    addToAuditLog(context, sql, null);
+                }
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, e.getMessage());
             }
             // the parsed logical statement
@@ -250,11 +258,7 @@ public class TableQueryPlanAction extends RestBaseController {
                                     + "." + tableName + "]");
                 }
             }
-            UUID uuid = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-            context.setQueryId(queryId);
-            context.setStartTime();
-            context.setSqlHash(DigestUtils.md5Hex(sql));
+            TUniqueId queryId = initAuditQuery(context, sql);
 
             NereidsPlanner nereidsPlanner = new NereidsPlanner(context.getStatementContext());
             LogicalPlan rewrittenPlan = (LogicalPlan) nereidsPlanner.planWithLock(parsedPlan,
@@ -339,6 +343,15 @@ public class TableQueryPlanAction extends RestBaseController {
 
     }
 
+    private static TUniqueId initAuditQuery(ConnectContext ctx, String sql) {
+        UUID uuid = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        ctx.setQueryId(queryId);
+        ctx.setStartTime();
+        ctx.setSqlHash(DigestUtils.md5Hex(sql));
+        return queryId;
+    }
+
     private static void addToAuditLog(ConnectContext ctx, String origStmt, StatementBase parsedStmt) {
         // slow query
         long elapseMs = System.currentTimeMillis() - ctx.getStartTime();
@@ -408,9 +421,10 @@ public class TableQueryPlanAction extends RestBaseController {
             auditEventBuilder.setErrorMessage("Syntax Error");
         }
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
-        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-        if ((logicalPlan instanceof NeedAuditEncryption)) {
-            encryptSql = ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(origStmt);
+        if (parsedStmt == null) {
+            encryptSql = NeedAuditEncryption.maskSqlForAudit(origStmt);
+        } else if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof NeedAuditEncryption redactor) {
+            encryptSql = redactor.geneEncryptionSQL(origStmt);
         }
 
         auditEventBuilder.setStmt(AuditLogHelper.truncateStmt(encryptSql));

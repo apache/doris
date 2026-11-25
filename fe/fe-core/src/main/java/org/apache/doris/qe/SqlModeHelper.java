@@ -270,7 +270,7 @@ public class SqlModeHelper {
      * {@link #withSqlMode} put in force if one is, this session's otherwise, and the global one when there is
      * no session on the thread.
      */
-    private static long readingMode() {
+    public static long readingMode() {
         Long override = MODE_OVERRIDE.get();
         if (override != null) {
             return override;

@@ -42,7 +42,9 @@ public interface NeedAuditEncryption {
     /** Keep the audit event when SQL masking cannot safely recover the statement. */
     static String maskSqlForAudit(String sql) {
         try {
-            return maskSql(sql, false);
+            TreeMap<Pair<Integer, Integer>, String> ranges = new TreeMap<>(new Pair.PairComparator<>());
+            new NereidsParser().parseAuditStatementsForEncryption(sql, ranges);
+            return BaseViewInfo.rewriteSqlWithUtf16Offsets(ranges, sql);
         } catch (RuntimeException e) {
             return "/* audit SQL unavailable */";
         }

@@ -36,7 +36,6 @@ public class PreparedStatementContext {
     // Preserve the effective PREPARE hash, including SQL conversion fallback, across connection commands.
     private final String sqlHash;
     private final long auditSqlMode;
-    private final boolean maskAuditTemplate;
     public Optional<ShortCircuitQueryContext> shortCircuitQueryContext = Optional.empty();
     public Optional<GroupCommitPlanner> groupCommitPlanner = Optional.empty();
     // Long data belongs to a prepared statement and survives individual upload commands.
@@ -49,18 +48,22 @@ public class PreparedStatementContext {
 
     public PreparedStatementContext(PrepareCommand command,
                 ConnectContext ctx, StatementContext statementContext, String stmtString) {
+        this(command, ctx, statementContext, stmtString, SqlModeHelper.MODE_DEFAULT);
+    }
+
+    public PreparedStatementContext(PrepareCommand command, ConnectContext ctx,
+            StatementContext statementContext, String stmtString, long auditSqlMode) {
         this.command = command;
         this.ctx = ctx;
         this.statementContext = statementContext;
         this.stmtString = stmtString;
         this.sqlHash = ctx.getSqlHash();
-        this.auditSqlMode = ctx.getSessionVariable().getSqlMode();
-        this.maskAuditTemplate = command.getLogicalPlan() instanceof NeedAuditEncryption redactor
-                && redactor.needAuditEncryption();
+        this.auditSqlMode = auditSqlMode;
     }
 
     public boolean shouldMaskAuditTemplate() {
-        return maskAuditTemplate;
+        return command.getLogicalPlan() instanceof NeedAuditEncryption redactor
+                && redactor.needAuditEncryption();
     }
 
     public String maskAuditSql(String sql) {

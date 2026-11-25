@@ -35,6 +35,7 @@ import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
@@ -341,6 +342,28 @@ public class VariableMgrTest extends TestWithFeService {
             forwarded.afterForwardToMaster(connectContext);
             Assertions.assertEquals(65536, GlobalVariable.auditPluginMaxSqlLength);
             Assertions.assertEquals(2097152, QueryAuditPolicy.maxSqlLength());
+        });
+    }
+
+    @Test
+    public void testForwardedCompoundSetKeepsAssignmentOrder() throws Throwable {
+        withAuditVariablesRestored(false, () -> {
+            String sql = "SET GLOBAL audit_plugin_max_sql_length = 4096, GLOBAL audit_plugin_max_sql_length = 8192";
+            SetOptionsCommand statement = (SetOptionsCommand) UtFrameUtils.parseStmt(sql, connectContext);
+            statement.run(connectContext, null);
+            Assertions.assertEquals(8192, GlobalVariable.auditPluginMaxSqlLength);
+
+            SetOptionsCommand forwarded = (SetOptionsCommand) UtFrameUtils.parseStmt(sql, connectContext);
+            List<SetVarOp> globalOps = forwarded.getSetVarOps();
+            SetVarOp sessionOp = Mockito.mock(SetVarOp.class);
+            Mockito.doAnswer(invocation -> {
+                Assertions.assertEquals(4096, GlobalVariable.auditPluginMaxSqlLength);
+                return null;
+            }).when(sessionOp).afterForwardToMaster(connectContext);
+            new SetOptionsCommand(List.of(globalOps.get(0), sessionOp, globalOps.get(1)))
+                    .afterForwardToMaster(connectContext);
+            Mockito.verify(sessionOp).afterForwardToMaster(connectContext);
+            Assertions.assertEquals(8192, GlobalVariable.auditPluginMaxSqlLength);
         });
     }
 

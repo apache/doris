@@ -45,6 +45,7 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.text.similarity.JaroWinklerDistance;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -398,6 +399,21 @@ public class VariableMgr {
         }
     }
 
+    public static boolean isAuditPolicyRejection(Throwable error) {
+        return ExceptionUtils.indexOfType(error, AuditPolicyException.class) >= 0;
+    }
+
+    public static void restoreTemporaryAuditHintValues(SessionVariable session) {
+        try {
+            revertSessionValue(session);
+        } catch (DdlException e) {
+            LOG.warn("Failed to restore session values after audit policy rejected parsing", e);
+        } finally {
+            session.setIsSingleSetVar(false);
+            session.clearSessionOriginValue();
+        }
+    }
+
     private static String getName(VarContext ctx) {
         return ctx.getField().getAnnotation(VarAttrDef.VarAttr.class).name();
     }
@@ -432,6 +448,11 @@ public class VariableMgr {
 
     public static void setVarForNonMasterFE(SessionVariable sessionVariable, SetVar setVar)
             throws DdlException {
+        setVarForNonMasterFE(sessionVariable, setVar, false);
+    }
+
+    public static void setVarForNonMasterFE(SessionVariable sessionVariable, SetVar setVar,
+            boolean globalValidatedByMaster) throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
             if (isRemovedSessionVar(setVar.getVariable())) {
@@ -446,7 +467,11 @@ public class VariableMgr {
             }
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
-        checkAuditVariableValue(varCtx, getValueToSet(setVar, varCtx));
+        // A successful forwarded GLOBAL assignment already passed the master's checks. Preserve
+        // the order of a compound SET without rejecting an assignment after it committed.
+        if (!globalValidatedByMaster) {
+            checkAuditVariableValue(varCtx, getValueToSet(setVar, varCtx));
+        }
         setVarInternal(sessionVariable, setVar, varCtx);
     }
 

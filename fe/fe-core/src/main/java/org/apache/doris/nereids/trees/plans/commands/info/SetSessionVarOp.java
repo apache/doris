@@ -153,8 +153,10 @@ public class SetSessionVarOp extends SetVarOp {
     }
 
     public void afterForwardToMaster(ConnectContext ctx) throws Exception {
+        boolean globalValidatedByMaster = getType() == SetType.GLOBAL;
         setType(SetType.SESSION);
-        VariableMgr.setVarForNonMasterFE(ctx.getSessionVariable(), translateToLegacyVar(ctx));
+        VariableMgr.setVarForNonMasterFE(ctx.getSessionVariable(), translateToLegacyVar(ctx),
+                globalValidatedByMaster);
     }
 
     // TODO delete this method after removing dependence of SetVar in VariableMgr

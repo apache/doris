@@ -20,6 +20,8 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -117,6 +119,29 @@ public class ConnectProcessorRetryTest extends TestWithFeService {
         } finally {
             Config.query_audit_always_on = previous;
         }
+    }
+
+    @Test
+    public void testParseModeSnapshotPrecedesTemporaryHints() throws Exception {
+        SessionVariable session = connectContext.getSessionVariable();
+        long mode = session.getSqlMode();
+        String sql = "SELECT /*+ SET_VAR(sql_mode='NO_BACKSLASH_ESCAPES') */ 1";
+        try {
+            List<StatementBase> statements = testProcessor.parseWithFallback(sql, sql, session);
+            LogicalPlanAdapter parsed = (LogicalPlanAdapter) statements.get(0);
+            Assertions.assertEquals(mode, parsed.getParsingSqlMode(session.getSqlMode()));
+            Assertions.assertEquals(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES, session.getSqlMode());
+        } finally {
+            VariableMgr.revertSessionValue(session);
+            session.setIsSingleSetVar(false);
+            session.clearSessionOriginValue();
+        }
+    }
+
+    @Test
+    public void testAuditMaskingAcceptsOrdinaryStatementBatch() {
+        String sql = "SELECT 1; SELECT 2";
+        Assertions.assertEquals(sql, NeedAuditEncryption.maskSqlForAudit(sql));
     }
 
     // tryRetryOriginalSql tests

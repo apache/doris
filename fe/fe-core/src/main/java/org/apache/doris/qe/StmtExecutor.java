@@ -989,7 +989,8 @@ public class StmtExecutor {
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
         context.getState().setNereids(true);
-        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        LogicalPlanAdapter parsedPlan = (LogicalPlanAdapter) parsedStmt;
+        LogicalPlan logicalPlan = parsedPlan.getLogicalPlan();
         checkSqlBlocked(logicalPlan.getClass());
         if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             if (isForwardToMaster()) {
@@ -1002,7 +1003,8 @@ public class StmtExecutor {
             // But context.statementContext is created in LogicalPlanBuilder.
             List<Placeholder> placeholders = context == null
                     ? statementContext.getPlaceholders() : context.getStatementContext().getPlaceholders();
-            logicalPlan = new PrepareCommand(prepareStmtName, logicalPlan, placeholders, originStmt);
+            long sqlMode = parsedPlan.getParsingSqlMode(context.getSessionVariable().getSqlMode());
+            logicalPlan = new PrepareCommand(prepareStmtName, logicalPlan, placeholders, originStmt, sqlMode);
         }
         // when we in transaction mode, we only support insert into command and transaction command
         if (context.isTxnModel()) {

@@ -626,7 +626,8 @@ public class MysqlConnectProcessorLongDataTest {
             Mockito.when(channel.getSerializer()).thenReturn(MysqlSerializer.newInstance());
             context.getSessionVariable().enableServeSidePreparedStatement = true;
             PrepareCommand command = new PrepareCommand("7", plan, placeholders, new OriginStatement(sql, 0));
-            prepared = new PreparedStatementContext(command, context, new StatementContext(), sql);
+            prepared = new PreparedStatementContext(command, context, new StatementContext(), sql,
+                    context.getSessionVariable().getSqlMode());
             context.addPreparedStatementContext("7", prepared);
             // The query id the COM_STMT_PREPARE of the statement left on the connection; the mocked executors
             // below never execute, so they do not set one.

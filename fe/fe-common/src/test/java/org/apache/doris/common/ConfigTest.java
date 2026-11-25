@@ -192,26 +192,35 @@ public class ConfigTest {
     @Test
     public void testResetPersistKeepsStartupAuditOptIn() throws Exception {
         boolean previous = Config.query_audit_always_on;
+        long previousSlowLogMs = Config.qe_slow_log_ms;
         Field customConfFile = ConfigBase.class.getDeclaredField("customConfFile");
         customConfFile.setAccessible(true);
         Object oldCustomFile = customConfFile.get(null);
+        Field lastPolicy = ConfigBase.class.getDeclaredField("lastReadableCustomAuditPolicy");
+        lastPolicy.setAccessible(true);
+        Object oldPolicy = lastPolicy.get(null);
         try {
             Config config = new Config();
             Path custom = configFile("query_audit_always_on=true\nqe_slow_log_ms=1000\n");
-            customConfFile.set(null, custom.toString());
+            config.initCustom(custom.toString());
             ConfigBase.persistConfig(Map.of("qe_slow_log_ms", "2000"), true);
             Config.query_audit_always_on = false;
-            long previousSlowLogMs = Config.qe_slow_log_ms;
-            try {
-                config.initCustom(custom.toString());
-                Assertions.assertTrue(Config.query_audit_always_on);
-                Assertions.assertEquals(2000, Config.qe_slow_log_ms);
-            } finally {
-                Config.qe_slow_log_ms = previousSlowLogMs;
-            }
+            config.initCustom(custom.toString());
+            Assertions.assertTrue(Config.query_audit_always_on);
+            Assertions.assertEquals(2000, Config.qe_slow_log_ms);
+
+            // An operator can request a reset to repair a damaged overlay after the FE starts.
+            Files.writeString(custom, "invalid=\\" + "uZZZZ\n");
+            ConfigBase.persistConfig(Map.of("qe_slow_log_ms", "3000"), true);
+            Config.query_audit_always_on = false;
+            config.initCustom(custom.toString());
+            Assertions.assertTrue(Config.query_audit_always_on);
+            Assertions.assertEquals(3000, Config.qe_slow_log_ms);
         } finally {
             Config.query_audit_always_on = previous;
+            Config.qe_slow_log_ms = previousSlowLogMs;
             customConfFile.set(null, oldCustomFile);
+            lastPolicy.set(null, oldPolicy);
         }
     }
 
