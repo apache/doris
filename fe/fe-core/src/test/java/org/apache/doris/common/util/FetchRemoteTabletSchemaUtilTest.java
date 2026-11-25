@@ -151,15 +151,55 @@ class FetchRemoteTabletSchemaUtilTest {
         Mockito.verify(proxy, Mockito.times(2)).fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any());
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void acceptsCompatibleSchemaWhenVersionProofIsUnavailable(boolean coordinatorHasVersionField) throws Exception {
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        PFetchRemoteSchemaResponse.Builder compatibleReply = PFetchRemoteSchemaResponse.newBuilder()
+                .setStatus(OK).setMergedSchema(TabletSchemaPB.newBuilder().addColumn(
+                        ColumnPB.newBuilder().setUniqueId(-1).setName("v.legacy").setType("INT")));
+        if (coordinatorHasVersionField) {
+            compatibleReply.setTabletVersionsVerified(false);
+        }
+        Mockito.when(proxy.fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any()))
+                .thenReturn(Futures.immediateFuture(compatibleReply.build()));
+        Assertions.assertEquals(List.of("v.legacy"),
+                fetch(proxy, true, false).stream().map(Column::getName).toList());
+    }
+
     @Test
-    void refusesSchemaWithoutVerifiedTabletVersions() throws Exception {
+    void prefersVerifiedSchemaOverCompatibleSchema() throws Exception {
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        PFetchRemoteSchemaResponse legacyReply = PFetchRemoteSchemaResponse.newBuilder()
+                .setStatus(OK).setMergedSchema(TabletSchemaPB.newBuilder().addColumn(
+                        ColumnPB.newBuilder().setUniqueId(-1).setName("v.legacy").setType("INT"))).build();
+        PFetchRemoteSchemaResponse verifiedReply = PFetchRemoteSchemaResponse.newBuilder()
+                .setStatus(OK).setTabletVersionsVerified(true)
+                .setMergedSchema(TabletSchemaPB.newBuilder().addColumn(
+                        ColumnPB.newBuilder().setUniqueId(-1).setName("v.verified").setType("INT"))).build();
+        Mockito.when(proxy.fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any())).thenReturn(
+                Futures.immediateFuture(legacyReply), Futures.immediateFuture(verifiedReply));
+        Assertions.assertEquals(List.of("v.verified"),
+                fetch(proxy, true, true).stream().map(Column::getName).toList());
+        Mockito.verify(proxy, Mockito.times(2)).fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any());
+    }
+
+
+    @Test
+    void doesNotHideKnownWorkerFailureWithCompatibleSchema() throws Exception {
         BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
         PFetchRemoteSchemaResponse legacyReply = PFetchRemoteSchemaResponse.newBuilder()
                 .setStatus(OK).setMergedSchema(TabletSchemaPB.getDefaultInstance()).build();
-        Mockito.when(proxy.fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any()))
-                .thenReturn(Futures.immediateFuture(legacyReply));
-        AnalysisException error = Assertions.assertThrows(AnalysisException.class, () -> fetch(proxy, true, false));
-        Assertions.assertTrue(error.getMessage().contains("could not verify tablet versions"));
+        PFetchRemoteSchemaResponse workerFailure = PFetchRemoteSchemaResponse.newBuilder()
+                .setCoordinatorAccepted(true)
+                .setStatus(PStatus.newBuilder().setStatusCode(TStatusCode.INTERNAL_ERROR.getValue())
+                        .addErrorMsgs("worker read failed"))
+                .build();
+        Mockito.when(proxy.fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any())).thenReturn(
+                Futures.immediateFuture(legacyReply), Futures.immediateFuture(workerFailure));
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class, () -> fetch(proxy, true, true));
+        Assertions.assertTrue(error.getMessage().contains("worker read failed"), error.getMessage());
+        Mockito.verify(proxy, Mockito.times(2)).fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any());
     }
 
     @Test

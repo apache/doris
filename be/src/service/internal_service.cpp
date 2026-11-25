@@ -1259,7 +1259,14 @@ bool has_required_tablet_coverage(const SchemaRpc& rpc) {
            (rpc.response.has_tablet_coverage() && rpc.response.tablet_versions_verified());
 }
 
-Status check_remote_tablet_coverage(const std::vector<SchemaRpc>& rpcs) {
+bool has_legacy_remote_schema(const SchemaRpc& rpc) {
+    const auto& location = rpc.request.tablet_location(0);
+    return location.tablet_visible_version_size() > 0 &&
+           !rpc.response.has_tablet_versions_verified() && rpc.response.has_merged_schema();
+}
+
+Status check_remote_tablet_coverage(const std::vector<SchemaRpc>& rpcs,
+                                    std::unordered_set<int64_t>& legacy_tablets) {
     // Healthy requests do not need per-tablet sets.
     if (std::ranges::none_of(rpcs, [](const auto& rpc) {
             return !has_required_tablet_coverage(rpc) ||
@@ -1271,12 +1278,12 @@ Status check_remote_tablet_coverage(const std::vector<SchemaRpc>& rpcs) {
     std::unordered_set<int64_t> covered;
     for (const auto& rpc : rpcs) {
         const auto& assigned = rpc.request.tablet_location(0).tablet_id();
-        if (!has_required_tablet_coverage(rpc)) {
-            // An old worker may return a schema without proving the requested visible version.
+        const bool legacy = has_legacy_remote_schema(rpc);
+        if (!has_required_tablet_coverage(rpc) && !legacy) {
             uncovered.insert(assigned.begin(), assigned.end());
             continue;
         }
-        if (!rpc.response.has_tablet_coverage()) {
+        if (!rpc.response.has_tablet_coverage() && !legacy) {
             continue;
         }
         const auto& reported_missing = rpc.response.tablet_coverage().missing_tablet_id();
@@ -1288,6 +1295,8 @@ Status check_remote_tablet_coverage(const std::vector<SchemaRpc>& rpcs) {
             if (auto it = missing.find(tablet_id); it != missing.end()) {
                 it->second = true;
                 uncovered.insert(tablet_id);
+            } else if (legacy) {
+                legacy_tablets.insert(tablet_id);
             } else if (rpc.response.has_merged_schema()) {
                 covered.insert(tablet_id);
             }
@@ -1300,7 +1309,10 @@ Status check_remote_tablet_coverage(const std::vector<SchemaRpc>& rpcs) {
     }
     for (int64_t tablet_id : covered) {
         uncovered.erase(tablet_id);
+        legacy_tablets.erase(tablet_id);
     }
+    // A legacy reply can replace missing version support. Reported missing tablets or an
+    // explicit negative verification still require another worker to prove coverage.
     if (!uncovered.empty()) {
         return Status::Error<ErrorCode::TABLE_NOT_FOUND>(
                 "Extended DESCRIBE could not read tablet {} ({} uncovered tablets)",
@@ -1309,8 +1321,16 @@ Status check_remote_tablet_coverage(const std::vector<SchemaRpc>& rpcs) {
     return Status::OK();
 }
 
+void append_remote_variant_schema(const PFetchRemoteSchemaResponse& response,
+                                  std::vector<TabletSchemaSPtr>& schemas) {
+    auto schema = std::make_shared<TabletSchema>();
+    schema->init_from_pb(response.merged_schema());
+    schemas.push_back(std::move(schema));
+}
+
 Status collect_remote_variant_schemas(const PFetchRemoteSchemaRequest& request,
-                                      std::vector<TabletSchemaSPtr>& schemas) {
+                                      std::vector<TabletSchemaSPtr>& schemas,
+                                      bool& versions_verified) {
     std::vector<SchemaRpc> rpcs(request.tablet_location_size());
     auto join_rpcs = [&] {
         for (auto& rpc : rpcs) {
@@ -1364,11 +1384,21 @@ Status collect_remote_variant_schemas(const PFetchRemoteSchemaRequest& request,
             }
             return Status::InternalError("Remote schema RPC did not return a merged schema");
         }
-        auto schema = std::make_shared<TabletSchema>();
-        schema->init_from_pb(rpc.response.merged_schema());
-        schemas.push_back(std::move(schema));
+        append_remote_variant_schema(rpc.response, schemas);
     }
-    return check_remote_tablet_coverage(rpcs);
+    std::unordered_set<int64_t> legacy_tablets;
+    RETURN_IF_ERROR(check_remote_tablet_coverage(rpcs, legacy_tablets));
+    if (!legacy_tablets.empty()) {
+        versions_verified = false;
+        for (const auto& rpc : rpcs) {
+            if (has_legacy_remote_schema(rpc) &&
+                std::ranges::any_of(rpc.request.tablet_location(0).tablet_id(),
+                                    [&](int64_t id) { return legacy_tablets.contains(id); })) {
+                append_remote_variant_schema(rpc.response, schemas);
+            }
+        }
+    }
+    return Status::OK();
 }
 
 Result<std::vector<RowsetSharedPtr>> capture_desc_rowsets(const BaseTabletSPtr& tablet,
@@ -1461,12 +1491,13 @@ Status fetch_variant_extended_schema(const PFetchRemoteSchemaRequest& request,
         }
     }
     std::vector<TabletSchemaSPtr> schemas;
+    bool versions_verified = verify_versions;
     if (request.is_coordinator()) {
-        RETURN_IF_ERROR(collect_remote_variant_schemas(request, schemas));
+        RETURN_IF_ERROR(collect_remote_variant_schemas(request, schemas, versions_verified));
     } else {
         RETURN_IF_ERROR(collect_local_variant_schemas(request, response, schemas));
     }
-    response->set_tablet_versions_verified(verify_versions);
+    response->set_tablet_versions_verified(versions_verified);
     if (schemas.empty()) {
         if (response->tablet_coverage().missing_tablet_id_size() > 0) {
             return Status::OK();
