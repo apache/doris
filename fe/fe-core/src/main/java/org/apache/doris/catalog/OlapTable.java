@@ -3615,12 +3615,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // 2. Pick the partition sorted with id in desc order, greater id with the newest partition
     // 3. Truncate to sampleSize
     public List<Tablet> getSampleTablets(int sampleSize) {
-        List<Tablet> sampleTablets = new ArrayList<>();
-        // Filter partition with empty data
         Collection<Partition> partitions = getPartitions()
                 .stream()
                 .filter(partition -> partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
                 .collect(Collectors.toList());
+        return getSampleTablets(partitions, sampleSize);
+    }
+
+    public static List<Tablet> getSampleTablets(Collection<Partition> partitions, int sampleSize) {
+        List<Tablet> sampleTablets = new ArrayList<>();
         if (partitions.isEmpty()) {
             return sampleTablets;
         }
