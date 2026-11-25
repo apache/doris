@@ -159,6 +159,10 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         order_qt_test_array_null_desc """desc test_array_null;"""
         order_qt_test_array_null """select * from test_array_null order by id;"""
 
+        // test arrays whose values are all NULL or empty
+        order_qt_test_array_no_values_desc """desc test_array_no_values;"""
+        order_qt_test_array_no_values """select * from test_array_no_values order by id;"""
+
         // test test ctas
         sql """ drop table if exists internal.${internal_db_name}.${test_ctas} """
         sql """ create table internal.${internal_db_name}.${test_ctas}

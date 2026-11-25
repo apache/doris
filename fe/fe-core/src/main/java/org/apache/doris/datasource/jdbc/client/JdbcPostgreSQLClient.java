@@ -71,32 +71,8 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 int dataType = rs.getInt("DATA_TYPE");
                 int arrayDimensions = 0;
                 if (dataType == Types.ARRAY) {
-                    String columnName = rs.getString("COLUMN_NAME");
-                    PreparedStatement pstmt = null;
-                    ResultSet arrayRs = null;
-                    try {
-                        pstmt = conn.prepareStatement(
-                                String.format("SELECT array_ndims(\"%s\") FROM \"%s\".\"%s\""
-                                                + " WHERE \"%s\" IS NOT NULL LIMIT 1",
-                                        columnName, remoteDbName, remoteTableName,
-                                        columnName));
-                        arrayRs = pstmt.executeQuery();
-                        if (arrayRs.next()) {
-                            arrayDimensions = arrayRs.getInt(1);
-                        }
-                    } catch (SQLException ex) {
-                        LOG.warn("Failed to get array dimensions for column {}: {}",
-                                columnName, Util.getRootCauseMessage(ex));
-                    } finally {
-                        close(arrayRs, null);
-                        if (pstmt != null) {
-                            try {
-                                pstmt.close();
-                            } catch (SQLException ex) {
-                                LOG.warn("Failed to close prepared statement: {}", Util.getRootCauseMessage(ex));
-                            }
-                        }
-                    }
+                    arrayDimensions = getArrayDimensions(conn, remoteDbName, rs.getString("COLUMN_NAME"),
+                            remoteTableName);
                 }
                 tableSchema.add(new JdbcFieldSchema(rs, arrayDimensions));
             }
@@ -107,6 +83,29 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             close(rs, conn);
         }
         return tableSchema;
+    }
+
+    private int getArrayDimensions(Connection conn, String schemaName, String columnName, String tableName)
+            throws SQLException {
+        String query = "SELECT a.attndims FROM pg_attribute a "
+                + "JOIN pg_class c ON a.attrelid = c.oid "
+                + "JOIN pg_namespace n ON c.relnamespace = n.oid "
+                + "WHERE n.nspname = ? AND c.relname = ? AND a.attname = ?";
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        try {
+            pstmt = conn.prepareStatement(query);
+            pstmt.setString(1, schemaName);
+            pstmt.setString(2, tableName);
+            pstmt.setString(3, columnName);
+            rs = pstmt.executeQuery();
+            if (rs.next()) {
+                return rs.getInt("attndims");
+            }
+        } finally {
+            close(rs, pstmt);
+        }
+        return 1;
     }
 
     @Override
