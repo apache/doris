@@ -198,6 +198,8 @@ suite("test_all_prdefine_type_to_sparse", "p0,nonConcurrent") {
 
     check_table();
 
+    // JSON numbers are parsed as DOUBLE before conversion to the predefined Decimal256 type.
+    // The golden values include binary64 scaling error at scale 60, for scalars and arrays.
     sql """ insert into ${tableName}  values (87, ${variantV2Function}('{"decimal256_1": 1.12}')),(88, ${variantV2Function}('{"decimal256_1": 2.12}')),(89, ${variantV2Function}('{"decimal256_1": 3.12}')),(90, ${variantV2Function}('{"decimal256_1": 4.12}')),(91, ${variantV2Function}('{"decimal256_1": 5.12}')),
     (92, ${variantV2Function}('{"decimal256_1": 6.12}')),(93, ${variantV2Function}('{"decimal256_1": 7.12}')),(94, ${variantV2Function}('{"decimal256_1": 8.12}')),(95, ${variantV2Function}('{"decimal256_1": 9.12}')),(96, ${variantV2Function}('{"decimal256_1": 10.12}')),(97, ${variantV2Function}('{"decimal256_1": 11.12}')),
     (98, ${variantV2Function}('{"decimal256_1": 12.12}')),(99, ${variantV2Function}('{"decimal256_1": 13.12}')); """
