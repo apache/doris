@@ -95,6 +95,62 @@ suite("test_lance_runtime_filter_pushdown", "p0,external") {
         // int64_value is at least 10, so the intersection is exactly rows 7 and 9. In particular,
         // this catches an implementation that replaces the Substrait filter with the later RF.
         qt_runtime_filter_and_substrait "${query}"
+
+        // Compare Doris's dedicated two-phase row-id fetch with the equivalent SQL formulation:
+        // first produce narrow ANN candidates, then broadcast them and fetch payload columns from
+        // a normal Lance scan. Both queries must return the same ordered rows and distances.
+        String vectorTable = "${catalogName}.doris.vs_ivf_pq_f32"
+        String qualifiedVectorTable = "`${catalogName}`.`doris`.`vs_ivf_pq_f32`"
+        String headQuery = "[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]"
+        String vectorSearch = """vector_search(
+                "table"="${vectorTable}",
+                "column"="embedding",
+                "query_vector"="${headQuery}",
+                "top_k"="5",
+                "metric"="l2",
+                "nprobes"="4",
+                "refine_factor"="10",
+                "use_index"="true")"""
+        String twoPhaseQuery = """
+            SELECT row_id, category, label, _distance
+            FROM ${vectorSearch}
+            ORDER BY _distance, row_id
+        """
+
+        sql "SET topn_lazy_materialization_threshold = 1024"
+        sql "SET enable_lance_lazy_materialization = true"
+        explain {
+            sql "verbose ${twoPhaseQuery}"
+            contains "VMaterializeNode"
+            contains "__DORIS_GLOBAL_ROWID_COL__vector_search"
+        }
+        qt_two_phase_vector_search "${twoPhaseQuery}"
+
+        String explicitJoinQuery = """
+            WITH candidates AS (
+                SELECT row_id, _distance
+                FROM ${vectorSearch}
+                ORDER BY _distance, row_id
+                LIMIT 5
+            )
+            SELECT w.row_id, w.category, w.label, c._distance
+            FROM ${qualifiedVectorTable} w
+            JOIN [broadcast] candidates c ON w.row_id = c.row_id
+            ORDER BY c._distance, c.row_id
+        """
+
+        sql "SET topn_lazy_materialization_threshold = -1"
+        sql "SET enable_lance_lazy_materialization = false"
+        sql "SET disable_join_reorder = true"
+        explain {
+            sql "verbose ${explicitJoinQuery}"
+            contains "VHASH JOIN"
+            contains "JOIN(BROADCAST)"
+            contains "runtime filters: RF"
+            contains "-> row_id"
+            notContains "VMaterializeNode"
+        }
+        qt_explicit_join_vector_search "${explicitJoinQuery}"
     } finally {
         // sql "SWITCH internal"
         // sql "USE `${internalDb}`"
