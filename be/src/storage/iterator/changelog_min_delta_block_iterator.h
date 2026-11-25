@@ -24,53 +24,12 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
-#include "storage/changelog_types.h"
 #include "storage/iterator/block_iterator.h"
+#include "storage/iterator/changelog_iterator_utils.h"
 #include "storage/schema.h"
 
 namespace doris {
 class RuntimeProfile;
-
-// Parks the UPDATE_AFTER half of an UPDATE pair when UPDATE_BEFORE fills an output Block.
-class ChangelogPendingRow {
-public:
-    bool has_row() const { return _has_row; }
-
-    MutableColumns& park(const MutableColumns& target_columns);
-    bool emit(MutableColumns& target_columns);
-
-private:
-    MutableColumns _columns;
-    bool _has_row = false;
-};
-
-// Steps over a BlockIterator, reading its first Block lazily on first use.
-class ChangelogInputCursor {
-public:
-    ChangelogInputCursor(std::unique_ptr<BlockIterator> input, ReadSchemaSPtr read_schema);
-
-    Status ensure_started();
-    Status advance();
-    Status advance_to(size_t pos);
-
-    bool eof() const { return _eof; }
-    const Block& block() const { return _block; }
-    size_t row_pos() const { return _pos; }
-    uint64_t block_id() const { return _block_id; }
-
-    void update_profile(RuntimeProfile* profile) { _input->update_profile(profile); }
-
-private:
-    Status _refill();
-
-    const std::unique_ptr<BlockIterator> _input;
-    const ReadSchemaSPtr _read_schema;
-    Block _block;
-    size_t _pos = 0;
-    uint64_t _block_id = 0;
-    bool _started = false;
-    bool _eof = false;
-};
 
 // Folds consecutive (key, TSO)-ordered changelog rows of each primary key into its minimum net
 // change (SKIP, INSERT, DELETE, or UPDATE_BEFORE + UPDATE_AFTER) for MIN_DELTA scans. Only the
@@ -113,29 +72,6 @@ private:
     uint64_t _same_key_block_id = 0;
     ChangelogPendingRow _pending_row;
     bool _value_compare_unsupported = false;
-};
-
-// Emits every recorded changelog event in (key, TSO) order for DETAIL scans: APPEND -> INSERT,
-// DELETE -> DELETE (with before image), UPDATE -> UPDATE_BEFORE + UPDATE_AFTER.
-class ChangelogDetailBlockIterator final : public BlockIterator {
-public:
-    ChangelogDetailBlockIterator(std::unique_ptr<BlockIterator> input, size_t block_row_max,
-                                 ReadSchemaSPtr read_schema);
-
-    Status next_block(Block* block, bool* eof) override;
-
-    void update_profile(RuntimeProfile* profile) override { _cursor.update_profile(profile); }
-
-private:
-    Status _emit_change(ChangelogOp op, MutableColumns& target_columns, size_t* output_rows);
-    Status _append_change_row(MutableColumns& target_columns, changelog::StreamChangeOp output_op,
-                              bool use_before) const;
-
-    ChangelogInputCursor _cursor;
-    const size_t _block_row_max;
-    const ReadSchemaSPtr _read_schema;
-    const int32_t _op_col_idx;
-    ChangelogPendingRow _pending_row;
 };
 
 } // namespace doris

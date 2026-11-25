@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/iterator/changelog_block_iterator.h"
+#include "storage/iterator/changelog_min_delta_block_iterator.h"
 
 #include <glog/logging.h>
 
@@ -24,118 +24,12 @@
 
 #include "common/exception.h"
 #include "core/column/column_nullable.h"
-#include "core/column/column_vector.h"
 #include "storage/changelog.h"
+#include "storage/changelog_types.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
 #include "util/simd/bits.h"
 
 namespace doris {
-
-namespace {
-
-ChangelogOp read_changelog_op(const IColumn& col, size_t row) {
-    const IColumn* cur = &col;
-    if (const auto* nullable = check_and_get_column<ColumnNullable>(*cur)) {
-        if (nullable->is_null_at(row)) {
-            return ChangelogOp::UNKNOWN;
-        }
-        cur = &nullable->get_nested_column();
-    }
-    if (const auto* int64_col = check_and_get_column<ColumnInt64>(*cur)) {
-        return static_cast<ChangelogOp>(int64_col->get_element(row));
-    }
-    return ChangelogOp::UNKNOWN;
-}
-
-Status write_changelog_op(IColumn& col, changelog::StreamChangeOp op) {
-    IColumn* cur = &col;
-    ColumnNullable* nullable = nullptr;
-    if (auto* n = typeid_cast<ColumnNullable*>(cur)) {
-        nullable = n;
-        cur = &nullable->get_nested_column();
-    }
-    if (auto* int64_col = typeid_cast<ColumnInt64*>(cur)) {
-        int64_col->insert_value(static_cast<int64_t>(op));
-    } else {
-        return Status::InternalError("invalid column type");
-    }
-    if (nullable != nullptr) {
-        nullable->get_null_map_data().push_back(0);
-    }
-    return Status::OK();
-}
-
-} // namespace
-
-MutableColumns& ChangelogPendingRow::park(const MutableColumns& target_columns) {
-    DCHECK(!_has_row);
-    if (_columns.empty()) {
-        _columns.reserve(target_columns.size());
-        for (const auto& column : target_columns) {
-            _columns.push_back(column->clone_empty());
-        }
-    }
-    _has_row = true;
-    return _columns;
-}
-
-bool ChangelogPendingRow::emit(MutableColumns& target_columns) {
-    if (!_has_row) {
-        return false;
-    }
-    for (size_t i = 0; i < _columns.size(); ++i) {
-        target_columns[i]->insert_from(*_columns[i], 0);
-        _columns[i]->clear();
-    }
-    _has_row = false;
-    return true;
-}
-
-ChangelogInputCursor::ChangelogInputCursor(std::unique_ptr<BlockIterator> input,
-                                           ReadSchemaSPtr read_schema)
-        : _input(std::move(input)), _read_schema(std::move(read_schema)) {}
-
-Status ChangelogInputCursor::ensure_started() {
-    if (_started) {
-        return Status::OK();
-    }
-    _started = true;
-    _block = _read_schema->create_read_block();
-    return _refill();
-}
-
-Status ChangelogInputCursor::advance() {
-    return advance_to(_pos + 1);
-}
-
-Status ChangelogInputCursor::advance_to(size_t pos) {
-    if (_eof) {
-        return Status::OK();
-    }
-    if (pos < _block.rows()) {
-        _pos = pos;
-        return Status::OK();
-    }
-    return _refill();
-}
-
-Status ChangelogInputCursor::_refill() {
-    while (true) {
-        _block.clear_column_data();
-        bool input_eof = false;
-        RETURN_IF_ERROR(_input->next_block(&_block, &input_eof));
-        if (input_eof) {
-            _eof = true;
-            _pos = 0;
-            return Status::OK();
-        }
-        if (_block.rows() > 0) {
-            _pos = 0;
-            ++_block_id;
-            return Status::OK();
-        }
-    }
-}
 
 ChangelogMinDeltaBlockIterator::ChangelogMinDeltaBlockIterator(std::unique_ptr<BlockIterator> input,
                                                                size_t block_row_max,
@@ -379,92 +273,6 @@ Status ChangelogMinDeltaBlockIterator::_fill_block(MutableColumns& target_column
             column->clear();
         }
     }
-    return Status::OK();
-}
-
-ChangelogDetailBlockIterator::ChangelogDetailBlockIterator(std::unique_ptr<BlockIterator> input,
-                                                           size_t block_row_max,
-                                                           ReadSchemaSPtr read_schema)
-        : _cursor(std::move(input), read_schema),
-          _block_row_max(block_row_max),
-          _read_schema(std::move(read_schema)),
-          _op_col_idx(_read_schema->op_ordinal()) {
-    DORIS_CHECK_GT(_block_row_max, 0);
-    DORIS_CHECK_GE(_op_col_idx, 0);
-}
-
-Status ChangelogDetailBlockIterator::_append_change_row(MutableColumns& target_columns,
-                                                        changelog::StreamChangeOp output_op,
-                                                        bool use_before) const {
-    const Block& src_block = _cursor.block();
-    const size_t pos = _cursor.row_pos();
-    for (size_t col_idx = 0; col_idx < target_columns.size(); ++col_idx) {
-        if (std::cmp_equal(col_idx, _op_col_idx)) {
-            RETURN_IF_ERROR(write_changelog_op(*target_columns[col_idx], output_op));
-            continue;
-        }
-        const uint32_t src_col_idx =
-                use_before ? _read_schema->before_column_ordinal(static_cast<uint32_t>(col_idx))
-                           : static_cast<uint32_t>(col_idx);
-        target_columns[col_idx]->insert_from(*src_block.get_by_position(src_col_idx).column, pos);
-    }
-    return Status::OK();
-}
-
-Status ChangelogDetailBlockIterator::_emit_change(ChangelogOp op, MutableColumns& target_columns,
-                                                  size_t* output_rows) {
-    if (op == ChangelogOp::UPDATE) {
-        RETURN_IF_ERROR(
-                _append_change_row(target_columns, changelog::StreamChangeOp::UPDATE_BEFORE, true));
-        ++(*output_rows);
-        if (*output_rows >= _block_row_max) {
-            return _append_change_row(_pending_row.park(target_columns),
-                                      changelog::StreamChangeOp::UPDATE_AFTER, false);
-        }
-        RETURN_IF_ERROR(
-                _append_change_row(target_columns, changelog::StreamChangeOp::UPDATE_AFTER, false));
-        ++(*output_rows);
-    } else if (op == ChangelogOp::APPEND) {
-        RETURN_IF_ERROR(
-                _append_change_row(target_columns, changelog::StreamChangeOp::INSERT, false));
-        ++(*output_rows);
-    } else if (op == ChangelogOp::DELETE) {
-        RETURN_IF_ERROR(
-                _append_change_row(target_columns, changelog::StreamChangeOp::DELETE, true));
-        ++(*output_rows);
-    }
-    return Status::OK();
-}
-
-Status ChangelogDetailBlockIterator::next_block(Block* block, bool* eof) {
-    DCHECK_EQ(block->rows(), 0);
-    RETURN_IF_ERROR(_cursor.ensure_started());
-    if (_cursor.eof() && !_pending_row.has_row()) {
-        *eof = true;
-        return Status::OK();
-    }
-
-    auto target_columns_guard = block->mutate_columns_scoped();
-    auto& target_columns = target_columns_guard.mutable_columns();
-    size_t output_rows = 0;
-    RETURN_IF_ERROR_OR_CATCH_EXCEPTION([&]() -> Status {
-        while (output_rows < _block_row_max) {
-            if (_pending_row.emit(target_columns)) {
-                ++output_rows;
-                continue;
-            }
-            if (_cursor.eof()) {
-                break;
-            }
-            const ChangelogOp op = read_changelog_op(
-                    *_cursor.block().get_by_position(static_cast<size_t>(_op_col_idx)).column,
-                    _cursor.row_pos());
-            RETURN_IF_ERROR(_emit_change(op, target_columns, &output_rows));
-            RETURN_IF_ERROR(_cursor.advance());
-        }
-        return Status::OK();
-    }());
-    *eof = output_rows == 0 && _cursor.eof() && !_pending_row.has_row();
     return Status::OK();
 }
 

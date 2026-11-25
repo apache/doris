@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/iterator/changelog_block_iterator.h"
-
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
@@ -41,6 +39,8 @@
 #include "storage/changelog_types.h"
 #include "storage/iterator/block_reader.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
+#include "storage/iterator/changelog_detail_block_iterator.h"
+#include "storage/iterator/changelog_min_delta_block_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
@@ -454,6 +454,54 @@ TEST(ChangelogBlockIteratorUnitTest, MinDeltaSkipsIntermediateUpdatesWithinAndAc
     EXPECT_EQ((Row {out[1][0], out[1][1], out[1][5]}), (Row {1, 60, UA}));
     EXPECT_EQ((Row {out[2][0], out[2][1], out[2][5]}), (Row {2, 100, UB}));
     EXPECT_EQ((Row {out[3][0], out[3][1], out[3][5]}), (Row {2, 200, UA}));
+}
+
+namespace {
+
+std::vector<Row> collect_projected_detail(BlockIterator& iter, const ReadSchema& read_schema) {
+    std::vector<Row> out;
+    bool eof = false;
+    while (!eof) {
+        Block block = read_schema.create_read_block();
+        DORIS_CHECK(iter.next_block(&block, &eof).ok());
+        for (const auto& r : rows_of(block)) {
+            out.push_back({r[0], r[1], r[3], r[5]});
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+TEST(ChangelogBlockIteratorUnitTest, DetailExpandsChangesAndParksUpdateAfterAtRowLimit) {
+    auto tablet_schema = make_changelog_schema();
+    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns());
+    ASSERT_TRUE(read_schema
+                        ->init_from_tablet_schema(*tablet_schema, /*merge_by_seq_map=*/false,
+                                                  /*map_changelog_cols=*/true)
+                        .ok());
+
+    const auto A = static_cast<int64_t>(ChangelogOp::APPEND);
+    const auto U = static_cast<int64_t>(ChangelogOp::UPDATE);
+    const auto D = static_cast<int64_t>(ChangelogOp::DELETE);
+
+    auto input = std::make_unique<FakeBlockInput>(
+            read_schema,
+            std::vector<std::vector<Row>> {
+                    {{1, 10, kNull, 1, 1, A}, {1, 20, 10, 2, 2, U}, {1, kNull, 20, 3, 3, D}}});
+    ChangelogDetailBlockIterator iter(std::move(input), /*block_row_max=*/1, read_schema);
+
+    const auto INS = static_cast<int64_t>(changelog::StreamChangeOp::INSERT);
+    const auto UB = static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE);
+    const auto UA = static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER);
+    const auto DEL = static_cast<int64_t>(changelog::StreamChangeOp::DELETE);
+
+    EXPECT_EQ(collect_projected_detail(iter, *read_schema), (std::vector<Row> {
+                                                                    {1, 10, 1, INS},
+                                                                    {1, 10, 2, UB},
+                                                                    {1, 20, 2, UA},
+                                                                    {1, 20, 3, DEL},
+                                                            }));
 }
 
 } // namespace doris
