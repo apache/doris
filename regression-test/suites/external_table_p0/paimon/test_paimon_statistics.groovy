@@ -40,6 +40,18 @@ suite("test_paimon_statistics", "p0,external") {
             def s1 = """select col_id,count,ndv,null_count,min,max,data_size_in_bytes from internal.__internal_schema.column_statistics where tbl_id = ${table_id} order by id;"""
 
             qt_s1 s1
+
+            // TABLESAMPLE + ANALYZE TABLE ... WITH SAMPLE on Paimon
+            def fullRows = sql """select count(*) from all_table"""
+            def sampledRows = sql """select count(*) from all_table tablesample(10 rows) repeatable 7"""
+            def sampledPct = sql """select count(*) from all_table tablesample(50 percent) repeatable 7"""
+            assertTrue(sampledRows[0][0] <= fullRows[0][0])
+            assertTrue(sampledPct[0][0] <= fullRows[0][0])
+
+            sql """analyze table all_table with sample rows 100 with sync"""
+            def sampledStats = sql """select count(*), min(count) from internal.__internal_schema.column_statistics where tbl_id = ${table_id}"""
+            assertTrue((sampledStats[0][0] as long) > 0)
+            assertTrue((sampledStats[0][1] as long) >= 0)
         } finally {
         }
     }

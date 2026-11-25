@@ -17,6 +17,9 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorColumnStatistics;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 
@@ -33,7 +36,9 @@ import org.apache.paimon.types.RowType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -307,5 +312,79 @@ public class PaimonConnectorMetadataStatisticsTest {
         Assertions.assertEquals(2, context.authCount);
         Assertions.assertFalse(ops.log.contains("rowCount"),
                 "statistics planning must not continue after source authentication fails");
+    }
+
+    @Test
+    public void columnStatisticsDelegatesInsideAuthenticatorAndDegradesFailures() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FileStoreTable table = fileStoreTable("t_col_stats", Collections.emptyMap());
+        ops.table = table;
+        ops.columnStats.put("id", new ConnectorColumnStatistics(200L, 45L, 3L, -1.0));
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        ops.snapshotReadAuthentication = context::isAuthenticated;
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t_col_stats", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(table);
+
+        PaimonConnectorMetadata metadata = metadataWith(ops, context);
+        Optional<ConnectorColumnStatistics> colStats = metadata.getColumnStatistics(null, handle, "id");
+        Assertions.assertTrue(colStats.isPresent());
+        Assertions.assertEquals(200L, colStats.get().getRowCount());
+        Assertions.assertEquals(45L, colStats.get().getNdv());
+        Assertions.assertEquals(3L, colStats.get().getNumNulls());
+
+        PaimonTableHandle sysHandle = PaimonTableHandle.forSystemTable("db1", "t_col_stats", "snapshots", false);
+        Assertions.assertFalse(metadata.getColumnStatistics(null, sysHandle, "snapshot_id").isPresent());
+
+        ops.throwOnColumnStats = true;
+        Assertions.assertFalse(metadata.getColumnStatistics(null, handle, "id").isPresent());
+    }
+
+    @Test
+    public void listFileSizesEnumeratesDataFilesAndPropagatesFailures() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FileStoreTable table = fileStoreTable("t_file_sizes", Collections.emptyMap());
+        ops.table = table;
+        ops.fileSizes = Arrays.asList(512L, 1024L);
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        ops.snapshotReadAuthentication = context::isAuthenticated;
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t_file_sizes", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(table);
+
+        PaimonConnectorMetadata metadata = metadataWith(ops, context);
+        List<Long> sizes = metadata.listFileSizes(null, handle);
+        Assertions.assertEquals(Arrays.asList(512L, 1024L), sizes);
+
+        PaimonTableHandle sysHandle = PaimonTableHandle.forSystemTable("db1", "t_file_sizes", "snapshots", false);
+        Assertions.assertTrue(metadata.listFileSizes(null, sysHandle).isEmpty());
+
+        ops.throwOnListFileSizes = true;
+        Assertions.assertThrows(RuntimeException.class, () -> metadata.listFileSizes(null, handle));
+    }
+
+    @Test
+    public void sampleAnalyzeCapabilityEmittedForDataTableOnlyAndScanSupportsTableSample() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FileStoreTable dataTable = fileStoreTable("t_cap", Collections.emptyMap());
+        ops.table = dataTable;
+        PaimonTableHandle dataHandle = new PaimonTableHandle(
+                "db1", "t_cap", Collections.emptyList(), Collections.emptyList());
+        dataHandle.setPaimonTable(dataTable);
+
+        PaimonConnectorMetadata metadata = metadataWith(ops);
+        ConnectorTableSchema dataSchema = metadata.getTableSchema(null, dataHandle);
+        Assertions.assertTrue(dataSchema.getTableCapabilities().contains(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE));
+
+        FakePaimonTable sysFake = new FakePaimonTable(
+                "t_cap$snapshots", rowType("snapshot_id"), Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle sysHandle = PaimonTableHandle.forSystemTable("db1", "t_cap", "snapshots", false);
+        sysHandle.setPaimonTable(sysFake);
+        ConnectorTableSchema sysSchema = metadata.getTableSchema(null, sysHandle);
+        Assertions.assertFalse(sysSchema.getTableCapabilities().contains(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE));
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+        Assertions.assertTrue(provider.supportsTableSample());
     }
 }

@@ -19,16 +19,19 @@ package org.apache.doris.statistics.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.text.StringSubstitutor;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 
 /**
  * Sample-capable analyze task for a flipped plugin-driven file-scan table (plain-hive after the HMS cutover).
@@ -46,6 +49,11 @@ import java.util.Set;
  */
 public class PluginDrivenSampleAnalysisTask extends ExternalAnalysisTask {
 
+    record SamplePlan(double scaleFactor, String limitClause, boolean limited) {
+    }
+
+    ExternalSampleBatchCollector.Batch externalSampleBatch;
+
     public PluginDrivenSampleAnalysisTask() {
         super();
     }
@@ -55,34 +63,78 @@ public class PluginDrivenSampleAnalysisTask extends ExternalAnalysisTask {
     }
 
     @Override
-    protected void doSample() {
-        StringBuilder sb = new StringBuilder();
-        Map<String, String> params = buildSqlParams();
-        params.put("min", getMinFunction());
-        params.put("max", getMaxFunction());
-        params.put("dataSizeFunction", getDataSizeFunction(col, false));
-        Pair<Double, Long> sampleInfo = getSampleInfo();
-        params.put("scaleFactor", String.valueOf(sampleInfo.first));
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Will do sample collection for column {}", col.getName());
+    protected void cancelQueries() {
+        super.cancelQueries();
+        if (externalSampleBatch != null) {
+            externalSampleBatch.onTaskCancelled();
         }
+    }
+
+    void checkCancelled() {
+        if (killed || (job != null && job.isKilled())) {
+            throw new CancellationException("Analysis task cancelled");
+        }
+    }
+
+    SamplePlan planExternalSample() {
+        Pair<Double, Long> sampleInfo = getSampleInfo();
+        double scaleFactor = sampleInfo.first;
+        String limitClause = "";
         boolean limitFlag = false;
-        boolean bucketFlag = false;
-        // If sample size is too large, use limit to control the sample size.
         if (needLimit(sampleInfo.second, sampleInfo.first)) {
             limitFlag = true;
             long columnSize = 0;
             for (Column column : table.getFullSchema()) {
                 columnSize += column.getDataType().getSlotSize();
             }
-            double targetRows = (double) sampleInfo.second / columnSize;
-            // Estimate the new scaleFactor based on the schema.
-            if (targetRows > StatisticsUtil.getHugeTableSampleRows()) {
-                params.put("limit", "limit " + StatisticsUtil.getHugeTableSampleRows());
-                params.put("scaleFactor",
-                        String.valueOf(sampleInfo.first * targetRows / StatisticsUtil.getHugeTableSampleRows()));
+            if (columnSize > 0) {
+                double targetRows = (double) sampleInfo.second / columnSize;
+                long hugeSampleRows = StatisticsUtil.getHugeTableSampleRows();
+                if (targetRows > hugeSampleRows) {
+                    limitClause = "limit " + hugeSampleRows;
+                    scaleFactor = sampleInfo.first * targetRows / hugeSampleRows;
+                }
             }
         }
+        return new SamplePlan(scaleFactor, limitClause, limitFlag);
+    }
+
+    String qualifiedExternalFromClause(SamplePlan samplePlan) {
+        String sampleHint = getSampleHint();
+        return SqlUtils.getIdentSql(catalog.getName())
+                + "." + SqlUtils.getIdentSql(db.getFullName())
+                + "." + SqlUtils.getIdentSql(tbl.getName())
+                + (sampleHint.isEmpty() ? "" : " " + sampleHint)
+                + (samplePlan.limitClause().isEmpty() ? "" : " " + samplePlan.limitClause());
+    }
+
+    @Override
+    protected void doSample() throws Exception {
+        if (externalSampleBatch != null) {
+            ExternalSampleBatchCollector.ExternalColumnOutcome outcome = externalSampleBatch.collect(this);
+            if (outcome != null) {
+                if (outcome.overLimit()) {
+                    throw new AnalyzeSkipException(buildSkipMessage());
+                }
+                publishResultRow(outcome.row());
+                return;
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        Map<String, String> params = buildSqlParams();
+        params.put("min", getMinFunction());
+        params.put("max", getMaxFunction());
+        params.put("dataSizeFunction", getDataSizeFunction(col, false));
+        SamplePlan samplePlan = planExternalSample();
+        params.put("scaleFactor", String.valueOf(samplePlan.scaleFactor()));
+        if (!samplePlan.limitClause().isEmpty()) {
+            params.put("limit", samplePlan.limitClause());
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Will do sample collection for column {}", col.getName());
+        }
+        boolean limitFlag = samplePlan.limited();
+        boolean bucketFlag = false;
         // Single distribution column is not fit for DUJ1 estimator, use linear estimator.
         Set<String> distributionColumns = tbl.getDistributionColumnNames();
         if (distributionColumns.size() == 1 && distributionColumns.contains(col.getName().toLowerCase())) {
@@ -117,8 +169,9 @@ public class PluginDrivenSampleAnalysisTask extends ExternalAnalysisTask {
             return Pair.of(1.0, 0L);
         }
         long target;
-        // Get list of all files' size in this table (from the connector, via getChunkSizes()).
-        List<Long> chunkSizes = table.getChunkSizes();
+        // Reuse the job-scoped file-size listing across columns of the same table; copy before shuffling.
+        List<Long> chunkSizes = new ArrayList<>(
+                job != null ? job.externalChunkSizes(table) : table.getChunkSizes());
         Collections.shuffle(chunkSizes, new Random(tableSample.getSeek()));
         long total = 0;
         // Calculate the total size of this table.

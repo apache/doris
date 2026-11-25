@@ -1838,7 +1838,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     static Optional<ColumnStatistic> toColumnStatistic(ConnectorColumnStatistics stats, Column column) {
         long count = stats.getRowCount();
-        if (column == null || count <= 0) {
+        if (column == null || count <= 0 || stats.getNdv() < 0) {
             return Optional.empty();
         }
         double dataSize;
@@ -1848,9 +1848,12 @@ public class PluginDrivenExternalTable extends ExternalTable {
             // Long arithmetic (count * slotSize) exactly like legacy setStatData, then widened.
             dataSize = count * column.getType().getSlotSize();
         }
+        double numNulls = stats.getNumNulls() >= 0
+                ? stats.getNumNulls()
+                : (stats.getNdv() == 0 ? count : 0);
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(count);
         builder.setNdv(stats.getNdv());
-        builder.setNumNulls(stats.getNumNulls());
+        builder.setNumNulls(numNulls);
         builder.setDataSize(dataSize);
         builder.setAvgSizeByte(dataSize / count);
         return Optional.of(builder.build());

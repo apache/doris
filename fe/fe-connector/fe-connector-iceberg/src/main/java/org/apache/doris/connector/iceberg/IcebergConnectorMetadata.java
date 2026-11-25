@@ -19,7 +19,9 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.cache.ConnectorTableKey;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorColumnStatistics;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -64,6 +66,7 @@ import org.apache.doris.thrift.TTableType;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.BlobMetadata;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.DeleteFiles;
@@ -81,6 +84,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.StatisticsFile;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
@@ -113,6 +117,7 @@ import java.io.UncheckedIOException;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -675,8 +680,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
         // Capture the write identity from this exact Table object so the schema-cache generation and the
         // later beginWrite fence cannot straddle a drop/recreate or metadata commit.
+        Set<ConnectorCapability> capabilities = appendDataFileMetadataColumns
+                ? EnumSet.of(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE)
+                : Collections.emptySet();
         return new ConnectorTableSchema(tableName, columns, "ICEBERG", tableProps,
-                Collections.emptySet(), IcebergWritePlanProvider.writeMetadataIdentity(table));
+                capabilities, IcebergWritePlanProvider.writeMetadataIdentity(table));
     }
 
     /**
@@ -958,6 +966,129 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return Optional.of(new ConnectorTableStatistics(rowCount, -1));
         }
         return Optional.empty();
+    }
+
+    @Override
+    public Optional<ConnectorColumnStatistics> getColumnStatistics(
+            ConnectorSession session, ConnectorTableHandle handle, String columnName) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isSystemTable() || columnName == null) {
+            return Optional.empty();
+        }
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
+            Table table = loadTable(session, iceHandle);
+            return extractPuffinColumnStatistics(table, columnName);
+        } catch (ConnectorTableNotFoundException missing) {
+            throw missing;
+        } catch (Exception e) {
+            LOG.warn("Failed to read Iceberg column statistics for {}.{}.{}",
+                    iceHandle.getDbName(), iceHandle.getTableName(), columnName, e);
+            return Optional.empty();
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    private static Optional<ConnectorColumnStatistics> extractPuffinColumnStatistics(
+            Table table, String columnName) {
+        long rowCount = computeRowCount(table);
+        if (rowCount <= 0) {
+            return Optional.empty();
+        }
+        Types.NestedField field = table.schema().findField(columnName);
+        if (field == null) {
+            field = table.schema().caseInsensitiveFindField(columnName);
+        }
+        if (field == null) {
+            return Optional.empty();
+        }
+        List<StatisticsFile> statsFiles = table.statisticsFiles();
+        if (statsFiles == null || statsFiles.isEmpty()) {
+            return Optional.empty();
+        }
+        int fieldId = field.fieldId();
+        long currentSnapshotId = table.currentSnapshot().snapshotId();
+        for (int i = statsFiles.size() - 1; i >= 0; i--) {
+            StatisticsFile statsFile = statsFiles.get(i);
+            if (statsFile.snapshotId() == currentSnapshotId) {
+                OptionalLong ndv = findThetaSketchNdv(statsFile, fieldId);
+                if (ndv.isPresent()) {
+                    return Optional.of(new ConnectorColumnStatistics(
+                            rowCount, Math.min(ndv.getAsLong(), rowCount), -1L, -1.0));
+                }
+            }
+        }
+        for (int i = statsFiles.size() - 1; i >= 0; i--) {
+            OptionalLong ndv = findThetaSketchNdv(statsFiles.get(i), fieldId);
+            if (ndv.isPresent()) {
+                return Optional.of(new ConnectorColumnStatistics(
+                        rowCount, Math.min(ndv.getAsLong(), rowCount), -1L, -1.0));
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static OptionalLong findThetaSketchNdv(StatisticsFile statsFile, int fieldId) {
+        if (statsFile == null || statsFile.blobMetadata() == null) {
+            return OptionalLong.empty();
+        }
+        for (BlobMetadata blob : statsFile.blobMetadata()) {
+            if (!"apache-iceberg-theta-v1".equals(blob.type())
+                    || blob.fields() == null || blob.fields().size() != 1
+                    || blob.fields().get(0) == null || blob.fields().get(0) != fieldId
+                    || blob.properties() == null) {
+                continue;
+            }
+            String ndvStr = blob.properties().get("ndv");
+            if (ndvStr == null) {
+                continue;
+            }
+            try {
+                long ndv = Long.parseLong(ndvStr.trim());
+                if (ndv >= 0) {
+                    return OptionalLong.of(ndv);
+                }
+            } catch (NumberFormatException ignored) {
+                // ignore malformed Puffin property and keep scanning
+            }
+        }
+        return OptionalLong.empty();
+    }
+
+    @Override
+    public List<Long> listFileSizes(ConnectorSession session, ConnectorTableHandle handle) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isSystemTable()) {
+            return Collections.emptyList();
+        }
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
+            Table table = loadTable(session, iceHandle);
+            if (table.currentSnapshot() == null) {
+                return Collections.emptyList();
+            }
+            return executeAuthenticated(() -> {
+                List<Long> sizes = new ArrayList<>();
+                try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+                    for (FileScanTask task : tasks) {
+                        if (task.length() > 0) {
+                            sizes.add(task.length());
+                        }
+                    }
+                }
+                return sizes;
+            });
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw IcebergExceptionUtils.wrapTableLoadFailure(
+                    iceHandle, e, "Failed to list Iceberg file sizes, error message is:");
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
     }
 
     /**

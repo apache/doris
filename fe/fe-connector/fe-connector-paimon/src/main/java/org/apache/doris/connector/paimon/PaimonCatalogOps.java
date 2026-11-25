@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.ConnectorColumnStatistics;
+
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
@@ -24,21 +26,28 @@ import org.apache.paimon.catalog.CatalogUtils;
 import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.DelegateCatalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.rest.RESTCatalog;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.stats.ColStats;
+import org.apache.paimon.stats.Statistics;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.table.source.RawFile;
+import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.snapshot.TimeTravelUtil;
 import org.apache.paimon.tag.Tag;
 import org.apache.paimon.types.DataField;
 
 import java.io.FileNotFoundException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -178,6 +187,17 @@ public interface PaimonCatalogOps {
      * Like the former sum of split row counts, this is not an exact count for primary-key tables.
      */
     long rowCount(Table table);
+
+    /**
+     * Reads per-column statistics from Paimon's inline {@link Table#statistics()} metadata without
+     * scanning data files. Returns {@link Optional#empty()} when unavailable.
+     */
+    Optional<ConnectorColumnStatistics> columnStatistics(Table table, String columnName);
+
+    /**
+     * Enumerates data-file / split byte sizes across the latest snapshot for {@code ANALYZE ... WITH SAMPLE}.
+     */
+    List<Long> listFileSizes(Table table);
 
     void close() throws Exception;
 
@@ -478,6 +498,89 @@ public interface PaimonCatalogOps {
             Snapshot snapshot = TimeTravelUtil.tryTravelOrLatest(fileStoreTable);
             // An empty table has no snapshot. Paimon 1.4 exposes totalRecordCount as a primitive long.
             return snapshot == null ? -1 : snapshot.totalRecordCount();
+        }
+
+        @Override
+        public Optional<ConnectorColumnStatistics> columnStatistics(Table table, String columnName) {
+            if (!(table instanceof FileStoreTable) || columnName == null
+                    || PaimonTableDecorators.unwrapToFallbackOrBase((FileStoreTable) table)
+                            instanceof FallbackReadFileStoreTable) {
+                return Optional.empty();
+            }
+            FileStoreTable fileStoreTable = (FileStoreTable) table;
+            CoreOptions options = fileStoreTable.coreOptions();
+            if (options.queryAuthEnabled()) {
+                fileStoreTable.catalogEnvironment().tableQueryAuth(options).auth(null);
+            }
+            Optional<Statistics> statsOpt = fileStoreTable.statistics();
+            if (!statsOpt.isPresent()) {
+                return Optional.empty();
+            }
+            Statistics stats = statsOpt.get();
+            long rows = stats.mergedRecordCount().isPresent() && stats.mergedRecordCount().getAsLong() > 0
+                    ? stats.mergedRecordCount().getAsLong()
+                    : rowCount(fileStoreTable);
+            if (rows <= 0 || stats.colStats() == null || stats.colStats().isEmpty()) {
+                return Optional.empty();
+            }
+            ColStats<?> colStats = stats.colStats().get(columnName);
+            if (colStats == null) {
+                for (Map.Entry<String, ColStats<?>> entry : stats.colStats().entrySet()) {
+                    if (entry.getKey().equalsIgnoreCase(columnName)) {
+                        colStats = entry.getValue();
+                        break;
+                    }
+                }
+            }
+            if (colStats == null || !colStats.distinctCount().isPresent()) {
+                return Optional.empty();
+            }
+            long ndv = colStats.distinctCount().getAsLong();
+            if (ndv < 0) {
+                return Optional.empty();
+            }
+            long nulls = colStats.nullCount().isPresent() && colStats.nullCount().getAsLong() >= 0
+                    ? Math.min(colStats.nullCount().getAsLong(), rows)
+                    : -1L;
+            long maxNdv = nulls >= 0 ? Math.max(0L, rows - nulls) : rows;
+            double avgLen = colStats.avgLen().isPresent() && colStats.avgLen().getAsLong() >= 0
+                    ? (double) colStats.avgLen().getAsLong()
+                    : -1.0;
+            return Optional.of(new ConnectorColumnStatistics(rows, Math.min(ndv, maxNdv), nulls, avgLen));
+        }
+
+        @Override
+        public List<Long> listFileSizes(Table table) {
+            if (!(table instanceof FileStoreTable)
+                    || PaimonTableDecorators.unwrapToFallbackOrBase((FileStoreTable) table)
+                            instanceof FallbackReadFileStoreTable) {
+                return Collections.emptyList();
+            }
+            if (!table.latestSnapshot().isPresent()) {
+                return Collections.emptyList();
+            }
+            List<Split> splits = table.newReadBuilder().newScan().plan().splits();
+            List<Long> sizes = new ArrayList<>();
+            for (Split split : splits) {
+                if (!(split instanceof DataSplit)) {
+                    continue;
+                }
+                DataSplit dataSplit = (DataSplit) split;
+                Optional<List<RawFile>> rawFiles = dataSplit.convertToRawFiles();
+                if (rawFiles.isPresent()) {
+                    for (RawFile rawFile : rawFiles.get()) {
+                        if (rawFile.length() > 0) {
+                            sizes.add(rawFile.length());
+                        }
+                    }
+                } else {
+                    long weight = dataSplit.dataFiles().stream().mapToLong(DataFileMeta::fileSize).sum();
+                    if (weight > 0) {
+                        sizes.add(weight);
+                    }
+                }
+            }
+            return sizes;
         }
 
         @Override

@@ -82,4 +82,25 @@ public class PluginDrivenExternalTableColumnStatTest {
                 .toColumnStatistic(new ConnectorColumnStatistics(100, 1, 0, -1), null);
         Assertions.assertFalse(result.isPresent());
     }
+
+    @Test
+    public void unknownNdvOrUnknownNullCountNormalizedSafely() {
+        Column col = new Column("c", Type.BIGINT);
+        // Unknown NDV (-1) must return empty rather than poisoning CBO with ndv = -1.
+        Assertions.assertFalse(PluginDrivenExternalTable
+                .toColumnStatistic(new ConnectorColumnStatistics(100, -1, 5, -1), col)
+                .isPresent());
+
+        // Iceberg Puffin theta sketch reports positive NDV with unknown numNulls (-1) -> numNulls normalized to 0.
+        ColumnStatistic puffinStat = PluginDrivenExternalTable
+                .toColumnStatistic(new ConnectorColumnStatistics(100, 42, -1, -1), col).get();
+        Assertions.assertEquals(42.0, puffinStat.ndv, 0.0);
+        Assertions.assertEquals(0.0, puffinStat.numNulls, 0.0);
+
+        // Zero NDV with unknown numNulls (-1) implies all rows are null -> numNulls normalized to count.
+        ColumnStatistic allNullStat = PluginDrivenExternalTable
+                .toColumnStatistic(new ConnectorColumnStatistics(100, 0, -1, -1), col).get();
+        Assertions.assertEquals(0.0, allNullStat.ndv, 0.0);
+        Assertions.assertEquals(100.0, allNullStat.numNulls, 0.0);
+    }
 }

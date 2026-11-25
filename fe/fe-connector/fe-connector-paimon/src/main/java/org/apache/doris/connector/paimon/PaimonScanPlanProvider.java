@@ -437,6 +437,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
+    public boolean supportsTableSample() {
+        return true;
+    }
+
+    @Override
     public boolean applyColumnDefaultsOnRead() {
         // Paimon applies a field default when a later write omits that field. It does not reinterpret
         // rows in files written before the field existed; Spark/Paimon returns NULL for those rows.

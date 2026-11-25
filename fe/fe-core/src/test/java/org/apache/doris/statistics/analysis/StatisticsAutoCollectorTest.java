@@ -170,7 +170,36 @@ public class StatisticsAutoCollectorTest {
         Mockito.verify(collector).readyToSample(Mockito.eq(table), Mockito.anyLong(), Mockito.any(),
                 Mockito.any(), isSampleAnalyze.capture());
         Assertions.assertFalse(isSampleAnalyze.getValue(),
-                "plugin table with column-auto-analyze capability must use FULL analyze, not SAMPLE");
+                "plugin table without sample capability must use FULL analyze, not SAMPLE");
+    }
+
+    @Test
+    public void testProcessOneJobUsesSampleAnalyzeForSampleCapableHugePluginTable() {
+        StatisticsAutoCollector collector = Mockito.spy(new StatisticsAutoCollector());
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.supportsColumnAutoAnalyze()).thenReturn(true);
+        Mockito.when(table.supportsSampleAnalyze()).thenReturn(true);
+        Mockito.when(table.getDataSize(true)).thenReturn(Long.MAX_VALUE);
+        Mockito.when(table.isPartitionedTable()).thenReturn(false);
+        Mockito.when(table.getId()).thenReturn(2L);
+        Mockito.when(table.getRowCount()).thenReturn(1_000_000L);
+
+        AnalysisManager manager = Mockito.mock(AnalysisManager.class);
+        Env mockEnv = Mockito.mock(Env.class);
+        Mockito.when(mockEnv.getAnalysisManager()).thenReturn(manager);
+        ArgumentCaptor<Boolean> isSampleAnalyze = ArgumentCaptor.forClass(Boolean.class);
+        Mockito.doReturn(false).when(collector).readyToSample(Mockito.any(), Mockito.anyLong(),
+                Mockito.any(), Mockito.any(), Mockito.anyBoolean());
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getServingEnv).thenReturn(mockEnv);
+            collector.processOneJob(table, Sets.newHashSet(), JobPriority.HIGH);
+        }
+
+        Mockito.verify(collector).readyToSample(Mockito.eq(table), Mockito.anyLong(), Mockito.any(),
+                Mockito.any(), isSampleAnalyze.capture());
+        Assertions.assertTrue(isSampleAnalyze.getValue(),
+                "huge sample-capable plugin table (Hive/Iceberg/Paimon) must auto-analyze with SAMPLE");
     }
 
     @Test

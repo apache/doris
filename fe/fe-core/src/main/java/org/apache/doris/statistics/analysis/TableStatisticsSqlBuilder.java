@@ -486,4 +486,129 @@ final class TableStatisticsSqlBuilder {
         sql.append(" ").append(String.join(" UNION ALL ", branches));
         return sql.toString();
     }
+
+    record BatchedExternalColumnSpec(
+            int ord,
+            long catalogId,
+            long dbId,
+            long tblId,
+            String colId,
+            String ident,
+            boolean stringType,
+            int slotSize,
+            boolean linearEstimator,
+            long maxStringLen) {
+    }
+
+    static String batchedExternalSampleSql(String tableFromClause, List<BatchedExternalColumnSpec> columns,
+            double scaleFactor, int hotValueCollectCount) {
+        String baseProjection = columns.stream()
+                .map(c -> c.ident() + " AS `__s" + c.ord() + "`")
+                .collect(Collectors.joining(", "));
+        StringBuilder sql = new StringBuilder();
+        sql.append("WITH `sample_base` AS (SELECT ").append(baseProjection)
+                .append(" FROM ").append(tableFromClause).append(")");
+        List<String> branches = new ArrayList<>(columns.size());
+        for (BatchedExternalColumnSpec c : columns) {
+            int i = c.ord();
+            String rawCol = "`sample_base`.`__s" + i + "`";
+            String overExpr = c.maxStringLen() > 0
+                    ? "IF(" + rawCol + " IS NOT NULL AND LENGTH(" + rawCol + ") > " + c.maxStringLen() + ", 1, 0)"
+                    : "0";
+            String safeCol = c.maxStringLen() > 0
+                    ? "IF(" + rawCol + " IS NOT NULL AND LENGTH(" + rawCol + ") > " + c.maxStringLen() + ", NULL, "
+                            + rawCol + ")"
+                    : rawCol;
+            if (c.linearEstimator()) {
+                String bytesExpr = c.stringType()
+                        ? "IFNULL(SUM(LENGTH(" + safeCol + ")), 0)"
+                        : "COUNT(1) * " + c.slotSize();
+                sql.append(", `__m").append(i).append("` AS (SELECT COUNT(1) AS n, ")
+                        .append("IFNULL(SUM(CASE WHEN ").append(safeCol)
+                        .append(" IS NULL THEN 1 ELSE 0 END), 0) AS z, ")
+                        .append("NDV(").append(safeCol).append(") AS d, ")
+                        .append(bytesExpr).append(" AS bytes, ")
+                        .append("IFNULL(MAX(").append(overExpr).append("), 0) AS over_limit FROM `sample_base`)");
+                String scaledRows = "CAST(ROUND(n * " + scaleFactor + ") AS LARGEINT)";
+                String scaledNulls = "LEAST(" + scaledRows + ", GREATEST(0, CAST(ROUND(z * "
+                        + scaleFactor + ") AS LARGEINT)))";
+                String scaledNdv = "LEAST(GREATEST(0, " + scaledRows + " - (" + scaledNulls + ")), "
+                        + "GREATEST(0, CAST(ROUND(d * " + scaleFactor + ") AS LARGEINT)))";
+                String scaledSize = "GREATEST(0, CAST(ROUND(bytes * " + scaleFactor + ") AS LARGEINT))";
+                branches.add("SELECT " + i + " AS `__ord`, CAST(over_limit AS INT) AS `__over`, "
+                        + "CONCAT('" + c.tblId() + "', '--1-', '" + c.colId() + "') AS id, "
+                        + "CAST(" + c.catalogId() + " AS BIGINT) AS catalog_id, "
+                        + "CAST(" + c.dbId() + " AS BIGINT) AS db_id, "
+                        + "CAST(" + c.tblId() + " AS BIGINT) AS tbl_id, "
+                        + "CAST(-1 AS BIGINT) AS idx_id, "
+                        + "'" + c.colId() + "' AS col_id, CAST(NULL AS STRING) AS part_id, "
+                        + scaledRows + " AS row_count, " + scaledNdv + " AS ndv, "
+                        + scaledNulls + " AS null_count, CAST(NULL AS STRING) AS min, CAST(NULL AS STRING) AS max, "
+                        + scaledSize + " AS data_size, NOW() AS update_time, "
+                        + "CAST(NULL AS STRING) AS hot_value FROM `__m" + i + "`");
+            } else {
+                String hashExpr = c.stringType()
+                        ? "xxhash_64(SUBSTRING(CAST(" + safeCol + " AS STRING), 1, 1024))"
+                        : safeCol;
+                sql.append(", `__g").append(i).append("` AS (SELECT MAX(t0.`col_value`) AS `col_value`, ")
+                        .append("COUNT(1) AS `count`, ")
+                        .append(c.stringType() ? "SUM(t0.`len`) AS `column_length`, " : "")
+                        .append("MAX(t0.`over`) AS `over_limit` FROM (SELECT ")
+                        .append(hashExpr).append(" AS `hash_value`, ")
+                        .append(safeCol).append(" AS `col_value`, ")
+                        .append(c.stringType() ? "LENGTH(" + safeCol + ") AS `len`, " : "")
+                        .append(overExpr).append(" AS `over` FROM `sample_base`) t0 GROUP BY t0.`hash_value`)");
+                String dataSizeExpr = c.stringType()
+                        ? "IFNULL(SUM(t1.`column_length`), 0)"
+                        : "IFNULL(SUM(t1.`count`), 0) * " + c.slotSize();
+                sql.append(", `__m").append(i).append("` AS (SELECT IFNULL(SUM(t1.`count`), 0) AS n, ")
+                        .append("IFNULL(SUM(IF(t1.`col_value` IS NULL, t1.`count`, 0)), 0) AS z, ")
+                        .append("COUNT(t1.`col_value`) AS d, ")
+                        .append("IFNULL(SUM(IF(t1.`col_value` IS NOT NULL AND t1.`count` = 1, 1, 0)), 0) AS f1, ")
+                        .append(dataSizeExpr).append(" AS bytes, ")
+                        .append("IFNULL(MAX(t1.`over_limit`), 0) AS over_limit FROM `__g").append(i).append("` t1)");
+                String scaledRows = "CAST(ROUND(n * " + scaleFactor + ") AS LARGEINT)";
+                String scaledNulls = "LEAST(scaled_rows, GREATEST(0, CAST(ROUND(z * "
+                        + scaleFactor + ") AS LARGEINT)))";
+                String duj1Ndv = "LEAST(GREATEST(0, scaled_rows - scaled_nulls), "
+                        + "IF(d = 0, 0, GREATEST(d, CAST(ROUND(CAST(n - z AS DOUBLE) * d "
+                        + "/ NULLIF(n - z - f1 + CAST(f1 AS DOUBLE) * (n - z) "
+                        + "/ NULLIF(GREATEST(CAST(n - z AS DOUBLE), "
+                        + "CAST(GREATEST(0, scaled_rows - scaled_nulls) AS DOUBLE)), 0), 0)) AS LARGEINT))))";
+                String scaledSize = "GREATEST(0, CAST(ROUND(bytes * " + scaleFactor + ") AS LARGEINT))";
+                String fromSource = "(SELECT ms0.*, " + scaledNulls
+                        + " AS scaled_nulls FROM (SELECT m.*, " + scaledRows
+                        + " AS scaled_rows FROM `__m" + i + "` m) ms0) ms";
+                sql.append(", `__st").append(i).append("` AS (SELECT over_limit, ")
+                        .append("CONCAT('").append(c.tblId()).append("', '--1-', '").append(c.colId())
+                        .append("') AS id, ")
+                        .append("CAST(").append(c.catalogId()).append(" AS BIGINT) AS catalog_id, ")
+                        .append("CAST(").append(c.dbId()).append(" AS BIGINT) AS db_id, ")
+                        .append("CAST(").append(c.tblId()).append(" AS BIGINT) AS tbl_id, ")
+                        .append("CAST(-1 AS BIGINT) AS idx_id, ")
+                        .append("'").append(c.colId()).append("' AS col_id, CAST(NULL AS STRING) AS part_id, ")
+                        .append("scaled_rows AS row_count, ")
+                        .append("CAST(").append(duj1Ndv).append(" AS LARGEINT) AS ndv, ")
+                        .append("scaled_nulls AS null_count, ")
+                        .append("CAST(NULL AS STRING) AS min, CAST(NULL AS STRING) AS max, ")
+                        .append(scaledSize).append(" AS data_size, NOW() AS update_time, ")
+                        .append("n - z AS sampled_non_null_rows FROM ").append(fromSource).append(")")
+                        .append(", `__ht").append(i).append("` AS (SELECT CAST(`col_value` AS STRING) AS column_key, ")
+                        .append("`count` AS freq FROM `__g").append(i)
+                        .append("` WHERE `col_value` IS NOT NULL ORDER BY freq DESC LIMIT ")
+                        .append(hotValueCollectCount).append(")");
+                branches.add("SELECT " + i + " AS `__ord`, CAST(MAX(stats.over_limit) AS INT) AS `__over`, "
+                        + "stats.id, stats.catalog_id, stats.db_id, stats.tbl_id, stats.idx_id, "
+                        + "stats.col_id, stats.part_id, stats.row_count, stats.ndv, stats.null_count, "
+                        + "stats.min, stats.max, stats.data_size, stats.update_time, "
+                        + "IFNULL(GROUP_CONCAT(" + HOT_ENTRY + ", \" ;\"), '') AS `hot_value` "
+                        + "FROM `__st" + i + "` stats LEFT JOIN `__ht" + i + "` hot_top ON TRUE GROUP BY "
+                        + "stats.id, stats.catalog_id, stats.db_id, stats.tbl_id, stats.idx_id, "
+                        + "stats.col_id, stats.part_id, stats.row_count, stats.ndv, stats.null_count, "
+                        + "stats.min, stats.max, stats.data_size, stats.update_time");
+            }
+        }
+        sql.append(" ").append(String.join(" UNION ALL ", branches));
+        return sql.toString();
+    }
 }

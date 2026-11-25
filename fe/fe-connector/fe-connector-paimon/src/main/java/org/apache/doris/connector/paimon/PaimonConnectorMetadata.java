@@ -19,7 +19,9 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.cache.ConnectorTableKey;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorColumnStatistics;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
@@ -62,6 +64,7 @@ import org.apache.paimon.utils.PartitionPathUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -471,7 +474,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // treated as non-partitioned).
             schemaProps.put(ConnectorTableSchema.PARTITION_COLUMNS_KEY, String.join(",", partitionKeys));
         }
-        return new ConnectorTableSchema(tableName, columns, "PAIMON", schemaProps);
+        Set<ConnectorCapability> capabilities = appendDataFileMetadataColumns && table instanceof DataTable
+                ? EnumSet.of(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE)
+                : Collections.emptySet();
+        return new ConnectorTableSchema(tableName, columns, "PAIMON", schemaProps, capabilities);
     }
 
     // ==================== E7: System Tables ====================
@@ -1993,6 +1999,51 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return Optional.of(new ConnectorTableStatistics(rowCount, -1));
         }
         return Optional.empty();
+    }
+
+    @Override
+    public Optional<ConnectorColumnStatistics> getColumnStatistics(
+            ConnectorSession session, ConnectorTableHandle handle, String columnName) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        if (paimonHandle.isSystemTable() || columnName == null) {
+            return Optional.empty();
+        }
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
+            return readMetadataAuthenticated(() -> {
+                if (PaimonScanParams.getPinnedFileCreationTime(paimonHandle.getScanOptions()).isPresent()) {
+                    return Optional.empty();
+                }
+                Table table = PaimonReaderOptions.runtimeSafeTable(resolveTable(paimonHandle));
+                PaimonReaderOptions.validateEffectiveTable(table);
+                return catalogOps.columnStatistics(table, columnName);
+            });
+        } catch (Exception e) {
+            LOG.warn("Failed to read Paimon column statistics for {}.{}", paimonHandle, columnName, e);
+            return Optional.empty();
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    @Override
+    public List<Long> listFileSizes(ConnectorSession session, ConnectorTableHandle handle) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        if (paimonHandle.isSystemTable()) {
+            return Collections.emptyList();
+        }
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
+            return readMetadataAuthenticated(() -> {
+                Table table = PaimonReaderOptions.runtimeSafeTable(resolveTable(paimonHandle));
+                PaimonReaderOptions.validateEffectiveTable(table);
+                return catalogOps.listFileSizes(table);
+            });
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
     }
 
     private Table runtimeSafeSystemTable(

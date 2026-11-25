@@ -19,6 +19,7 @@ package org.apache.doris.statistics.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
@@ -69,6 +70,7 @@ public class AnalysisJob {
     private final Map<Long, Supplier<IndexSamplingSnapshot>> samplingFrames = new ConcurrentHashMap<>();
     private final Map<PartitionIndexKey, Supplier<IndexSamplingSnapshot>> partitionSamplingFrames
             = new ConcurrentHashMap<>();
+    private final Map<Long, Supplier<List<Long>>> externalChunkSizeCache = new ConcurrentHashMap<>();
 
     long reportedIndexRows(OlapTable table, long indexId) {
         return reportedRows.computeIfAbsent(indexId, id -> IndexSamplingSnapshot.reportedIndexRows(table, id, false));
@@ -121,9 +123,15 @@ public class AnalysisJob {
                         () -> IndexSamplingSnapshot.read(table, key.indexId(), Set.of(key.partitionId())))).get();
     }
 
+    List<Long> externalChunkSizes(ExternalTable table) {
+        return externalChunkSizeCache.computeIfAbsent(table.getId(),
+                id -> Suppliers.memoize(() -> List.copyOf(table.getChunkSizes()))).get();
+    }
+
     private final ColumnMinMaxBatchCollector minMaxCollector;
     private final ColumnSampleBatchCollector sampleBatchCollector;
     private final PartitionSampleBatchCollector partitionSampleBatchCollector;
+    private final ExternalSampleBatchCollector externalSampleBatchCollector;
 
     protected Set<BaseAnalysisTask> queryingTask;
 
@@ -145,6 +153,8 @@ public class AnalysisJob {
         minMaxCollector = new ColumnMinMaxBatchCollector(queryingTask, StatisticsUtil.getMinMaxBatchColumns());
         sampleBatchCollector = new ColumnSampleBatchCollector(queryingTask, StatisticsUtil.getSampleBatchColumns());
         partitionSampleBatchCollector = new PartitionSampleBatchCollector(
+                queryingTask, StatisticsUtil.getSampleBatchColumns());
+        externalSampleBatchCollector = new ExternalSampleBatchCollector(
                 queryingTask, StatisticsUtil.getSampleBatchColumns());
         for (BaseAnalysisTask task : queryingTask) {
             task.job = this;
@@ -293,6 +303,7 @@ public class AnalysisJob {
         minMaxCollector.cancelAll();
         sampleBatchCollector.cancelAll();
         partitionSampleBatchCollector.cancelAll();
+        externalSampleBatchCollector.cancelAll();
     }
 
     public boolean isKilled() {

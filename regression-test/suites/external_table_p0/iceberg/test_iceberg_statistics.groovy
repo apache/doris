@@ -55,6 +55,18 @@ suite("test_iceberg_statistics", "p0,external") {
 
             qt_s1 s1
             qt_s2 s2
+
+            // TABLESAMPLE + ANALYZE TABLE ... WITH SAMPLE on Iceberg
+            def fullCow = sql """select count(*) from sample_cow_parquet"""
+            def sampledCowRows = sql """select count(*) from sample_cow_parquet tablesample(10 rows) repeatable 7"""
+            def sampledCowPct = sql """select count(*) from sample_cow_parquet tablesample(50 percent) repeatable 7"""
+            assertTrue(sampledCowRows[0][0] <= fullCow[0][0])
+            assertTrue(sampledCowPct[0][0] <= fullCow[0][0])
+
+            sql """analyze table sample_cow_parquet with sample rows 100 with sync"""
+            def sampledStats = sql """select count(*), min(count) from internal.__internal_schema.column_statistics where tbl_id = ${table_id_cow}"""
+            assertTrue((sampledStats[0][0] as long) > 0)
+            assertTrue((sampledStats[0][1] as long) >= 0)
         } finally {
         }
     }

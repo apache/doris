@@ -17,6 +17,9 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorColumnStatistics;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
@@ -25,6 +28,8 @@ import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
+import org.apache.iceberg.GenericBlobMetadata;
+import org.apache.iceberg.GenericStatisticsFile;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -35,7 +40,9 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -210,5 +217,109 @@ public class IcebergConnectorMetadataStatisticsTest {
         // `!equalityDeletes.equals("0")` gate surfaces present(100) and this assertion fails.
         Assertions.assertFalse(stats.isPresent(),
                 "equality deletes must gate table statistics to UNKNOWN (summary cannot net them out)");
+    }
+
+    @Test
+    public void columnStatisticsExtractsPuffinThetaSketchNdv() {
+        Table table = newTable();
+        table.newAppend().appendFile(dataFile("/data/f1.parquet", 60)).commit();
+        long snap1 = table.currentSnapshot().snapshotId();
+        table.updateStatistics().setStatistics(new GenericStatisticsFile(
+                snap1, "/stats/s1.puffin", 128L, 32L,
+                Collections.singletonList(new GenericBlobMetadata(
+                        "apache-iceberg-theta-v1", snap1, 1L,
+                        Collections.singletonList(1),
+                        Collections.singletonMap("ndv", "25"))))).commit();
+
+        table.newAppend().appendFile(dataFile("/data/f2.parquet", 40)).commit();
+        long snap2 = table.currentSnapshot().snapshotId();
+        table.updateStatistics().setStatistics(new GenericStatisticsFile(
+                snap2, "/stats/s2.puffin", 128L, 32L,
+                Collections.singletonList(new GenericBlobMetadata(
+                        "apache-iceberg-theta-v1", snap2, 2L,
+                        Collections.singletonList(1),
+                        Collections.singletonMap("ndv", "42"))))).commit();
+
+        IcebergConnectorMetadata metadata = metadataFor(table, new RecordingIcebergCatalogOps());
+        Optional<ConnectorColumnStatistics> colStats = metadata.getColumnStatistics(null, handle(), "ID");
+
+        Assertions.assertTrue(colStats.isPresent());
+        Assertions.assertEquals(100L, colStats.get().getRowCount());
+        Assertions.assertEquals(42L, colStats.get().getNdv());
+        Assertions.assertEquals(-1L, colStats.get().getNumNulls());
+        Assertions.assertEquals(-1.0, colStats.get().getAvgSizeBytes(), 0.0);
+        Assertions.assertFalse(metadata.getColumnStatistics(null, handle(), "missing_col").isPresent());
+    }
+
+    @Test
+    public void columnStatisticsClampsOvershootAndGuardsSystemAndEqualityDeleteTables() {
+        Table table = newTable();
+        table.newAppend().appendFile(dataFile("/data/f1.parquet", 50)).commit();
+        long snap = table.currentSnapshot().snapshotId();
+        table.updateStatistics().setStatistics(new GenericStatisticsFile(
+                snap, "/stats/s1.puffin", 128L, 32L,
+                Collections.singletonList(new GenericBlobMetadata(
+                        "apache-iceberg-theta-v1", snap, 1L,
+                        Collections.singletonList(1),
+                        Collections.singletonMap("ndv", "80"))))).commit();
+
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        IcebergConnectorMetadata metadata = metadataFor(table, ops);
+        Optional<ConnectorColumnStatistics> clamped = metadata.getColumnStatistics(null, handle(), "id");
+        Assertions.assertTrue(clamped.isPresent());
+        Assertions.assertEquals(50L, clamped.get().getNdv());
+
+        ConnectorTableHandle sysHandle = metadata.getSysTableHandle(null, handle(), "snapshots").get();
+        ops.lastLoadTable = null;
+        Assertions.assertFalse(metadata.getColumnStatistics(null, sysHandle, "snapshot_id").isPresent());
+        Assertions.assertNull(ops.lastLoadTable);
+
+        table.newRowDelta().addDeletes(equalityDeletes("/data/ed1.parquet", 5)).commit();
+        Assertions.assertFalse(metadata.getColumnStatistics(null, handle(), "id").isPresent());
+    }
+
+    @Test
+    public void listFileSizesEnumeratesDataFilesAndPropagatesFailures() {
+        Table empty = newTable();
+        Assertions.assertTrue(metadataFor(empty, new RecordingIcebergCatalogOps())
+                .listFileSizes(null, handle()).isEmpty());
+
+        Table populated = newTable();
+        populated.newAppend()
+                .appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                        .withPath("/data/f1.parquet").withFileSizeInBytes(120).withRecordCount(10)
+                        .withFormat(FileFormat.PARQUET).build())
+                .appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                        .withPath("/data/f2.parquet").withFileSizeInBytes(340).withRecordCount(20)
+                        .withFormat(FileFormat.PARQUET).build())
+                .commit();
+        IcebergConnectorMetadata metadata = metadataFor(populated, new RecordingIcebergCatalogOps());
+        List<Long> sizes = metadata.listFileSizes(null, handle());
+        Assertions.assertEquals(Arrays.asList(120L, 340L), sizes);
+
+        ConnectorTableHandle sysHandle = metadata.getSysTableHandle(null, handle(), "snapshots").get();
+        Assertions.assertTrue(metadata.listFileSizes(null, sysHandle).isEmpty());
+
+        RecordingIcebergCatalogOps failingOps = new RecordingIcebergCatalogOps();
+        failingOps.throwOnLoadTable = true;
+        IcebergConnectorMetadata failingMetadata = new IcebergConnectorMetadata(
+                failingOps, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
+        Assertions.assertThrows(RuntimeException.class, () -> failingMetadata.listFileSizes(null, handle()));
+    }
+
+    @Test
+    public void sampleAnalyzeCapabilityAndScanTableSampleOptIn() {
+        Table table = newTable();
+        IcebergConnectorMetadata metadata = metadataFor(table, new RecordingIcebergCatalogOps());
+        ConnectorTableSchema dataSchema = metadata.getTableSchema(null, handle());
+        Assertions.assertTrue(dataSchema.getTableCapabilities().contains(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE));
+
+        ConnectorTableHandle sysHandle = metadata.getSysTableHandle(null, handle(), "snapshots").get();
+        ConnectorTableSchema sysSchema = metadata.getTableSchema(null, sysHandle);
+        Assertions.assertFalse(sysSchema.getTableCapabilities().contains(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE));
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingIcebergCatalogOps());
+        Assertions.assertTrue(provider.supportsTableSample());
     }
 }

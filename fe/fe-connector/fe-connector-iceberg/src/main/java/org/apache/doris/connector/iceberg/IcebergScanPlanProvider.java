@@ -424,6 +424,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return true;
     }
 
+    @Override
+    public boolean supportsTableSample() {
+        return true;
+    }
+
     /**
      * The scan entry. Of everything on the request, iceberg consumes the handle, the columns, the filter and
      * the no-grouping {@code COUNT(*)} signal (FIX-COUNT-PUSHDOWN); the row limit and the pruned partition set

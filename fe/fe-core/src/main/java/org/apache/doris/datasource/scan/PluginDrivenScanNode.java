@@ -2022,9 +2022,18 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * without driving a full {@code planScan}.
      */
     static List<Split> sampleSplits(List<Split> splits, TableSample tableSample, long estimatedRowSize) {
+        if (splits.isEmpty()) {
+            return splits;
+        }
         long totalSize = 0;
         for (Split split : splits) {
-            totalSize += split.getLength();
+            long len = sampleSplitByteLength(split);
+            if (len <= 0) {
+                // Non-data splits (such as JNI system-table splits with no byte length) bypass sampling
+                // rather than corrupting totalSize with -1 or 0.
+                return splits;
+            }
+            totalSize += len;
         }
         long sampleSize;
         if (tableSample.isPercent()) {
@@ -2036,13 +2045,35 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         long selectedSize = 0;
         int index = 0;
         for (Split split : splits) {
-            selectedSize += split.getLength();
+            selectedSize += sampleSplitByteLength(split);
             index += 1;
             if (selectedSize >= sampleSize) {
                 break;
             }
         }
         return splits.subList(0, index);
+    }
+
+    /**
+     * Byte weight of {@code split} for {@link #sampleSplits}: prefers a positive {@link Split#getLength()}
+     * (Hive, Iceberg, and Paimon native ORC/Parquet sub-splits), falling back to a Paimon JNI/Rust
+     * {@code DataSplit}'s byte {@link ConnectorScanRange#getSelfSplitWeight()} (distinguished from
+     * non-{@code DataSplit} row-count system splits by {@code paimon.bucket} / positive {@code fileSize}
+     * and absence of a collapsed {@code COUNT(*)} pushdown count).
+     */
+    static long sampleSplitByteLength(Split split) {
+        long len = split.getLength();
+        if (len > 0) {
+            return len;
+        }
+        if (split instanceof PluginDrivenSplit) {
+            ConnectorScanRange range = ((PluginDrivenSplit) split).getConnectorScanRange();
+            if (range != null && range.getPushDownRowCount() < 0 && range.getSelfSplitWeight() > 0
+                    && (range.getFileSize() > 0 || range.getProperties().containsKey("paimon.bucket"))) {
+                return range.getSelfSplitWeight();
+            }
+        }
+        return -1L;
     }
 
     /**

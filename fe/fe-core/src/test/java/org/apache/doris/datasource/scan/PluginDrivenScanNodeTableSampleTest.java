@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.scan;
 
 import org.apache.doris.analysis.TableSample;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.datasource.split.PluginDrivenSplit;
 import org.apache.doris.spi.Split;
 
 import org.junit.jupiter.api.Assertions;
@@ -25,7 +27,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * FIX-M1 — guards {@link PluginDrivenScanNode#sampleSplits}, the pure, connector-agnostic TABLESAMPLE
@@ -127,5 +131,52 @@ public class PluginDrivenScanNodeTableSampleTest {
         Assertions.assertEquals(run1, run2);
         // And it is a real sample, not the whole table (30% target).
         Assertions.assertTrue(run1.size() < base.size());
+    }
+
+    @Test
+    public void testPaimonJniDataSplitsUseSelfSplitWeightWhileSystemSplitsBypassSampling() {
+        List<Split> jniDataSplits = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            ConnectorScanRange range = Mockito.mock(ConnectorScanRange.class);
+            Mockito.when(range.getPath()).thenReturn(Optional.empty());
+            Mockito.when(range.getStart()).thenReturn(0L);
+            Mockito.when(range.getLength()).thenReturn(-1L);
+            Mockito.when(range.getFileSize()).thenReturn(-1L);
+            Mockito.when(range.getModificationTime()).thenReturn(0L);
+            Mockito.when(range.getHosts()).thenReturn(Collections.emptyList());
+            Mockito.when(range.getPartitionValues()).thenReturn(Collections.emptyMap());
+            Mockito.when(range.getPushDownRowCount()).thenReturn(-1L);
+            Mockito.when(range.getSelfSplitWeight()).thenReturn(100L);
+            Mockito.when(range.getTargetSplitSize()).thenReturn(1024L);
+            Mockito.when(range.getProperties()).thenReturn(Collections.singletonMap("paimon.bucket", String.valueOf(i)));
+            Mockito.when(range.getSplitIdentity()).thenReturn("split-" + i);
+            jniDataSplits.add(new PluginDrivenSplit(range));
+        }
+        List<Split> sampled = PluginDrivenScanNode.sampleSplits(
+                jniDataSplits, new TableSample(true, 40L, 3L), 16L);
+        Assertions.assertEquals(4, sampled.size());
+
+        // Non-DataSplit JNI system splits carry rowCount in selfSplitWeight without paimon.bucket or fileSize;
+        // sampleSplits must return them intact rather than treating rowCount as bytes or summing -1.
+        List<Split> sysSplits = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            ConnectorScanRange sysRange = Mockito.mock(ConnectorScanRange.class);
+            Mockito.when(sysRange.getPath()).thenReturn(Optional.of("/dummyPath"));
+            Mockito.when(sysRange.getStart()).thenReturn(0L);
+            Mockito.when(sysRange.getLength()).thenReturn(-1L);
+            Mockito.when(sysRange.getFileSize()).thenReturn(-1L);
+            Mockito.when(sysRange.getModificationTime()).thenReturn(0L);
+            Mockito.when(sysRange.getHosts()).thenReturn(Collections.emptyList());
+            Mockito.when(sysRange.getPartitionValues()).thenReturn(Collections.emptyMap());
+            Mockito.when(sysRange.getPushDownRowCount()).thenReturn(-1L);
+            Mockito.when(sysRange.getSelfSplitWeight()).thenReturn(10L);
+            Mockito.when(sysRange.getTargetSplitSize()).thenReturn(1024L);
+            Mockito.when(sysRange.getProperties()).thenReturn(Collections.emptyMap());
+            Mockito.when(sysRange.getSplitIdentity()).thenReturn("sys-" + i);
+            sysSplits.add(new PluginDrivenSplit(sysRange));
+        }
+        List<Split> sysResult = PluginDrivenScanNode.sampleSplits(
+                sysSplits, new TableSample(true, 25L, 3L), 16L);
+        Assertions.assertEquals(4, sysResult.size());
     }
 }

@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.ConnectorColumnStatistics;
+
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
@@ -135,6 +137,15 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     Table lastRowCountTable;
     /** When set, {@link #rowCount} throws (drives the best-effort planning-failure path). */
     boolean throwOnRowCount;
+
+    // ---- Column-stats & sample file-size seams ----
+    java.util.Map<String, ConnectorColumnStatistics> columnStats = new java.util.HashMap<>();
+    Table lastColumnStatsTable;
+    String lastColumnStatsName;
+    boolean throwOnColumnStats;
+    List<Long> fileSizes = new ArrayList<>();
+    Table lastListFileSizesTable;
+    boolean throwOnListFileSizes;
 
     @Override
     public List<String> listDatabases() {
@@ -344,6 +355,29 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
             throw new RuntimeException("simulated planning failure");
         }
         return rowCount;
+    }
+
+    @Override
+    public java.util.Optional<ConnectorColumnStatistics> columnStatistics(Table table, String columnName) {
+        checkSnapshotAuthentication();
+        log.add("columnStatistics:" + columnName);
+        lastColumnStatsTable = table;
+        lastColumnStatsName = columnName;
+        if (throwOnColumnStats) {
+            throw new RuntimeException("simulated column stats failure");
+        }
+        return java.util.Optional.ofNullable(columnStats.get(columnName));
+    }
+
+    @Override
+    public List<Long> listFileSizes(Table table) {
+        checkSnapshotAuthentication();
+        log.add("listFileSizes");
+        lastListFileSizesTable = table;
+        if (throwOnListFileSizes) {
+            throw new RuntimeException("simulated listFileSizes failure");
+        }
+        return fileSizes;
     }
 
     @Override
