@@ -24,6 +24,10 @@
 1	v1
 2	v2
 
+-- !sync_dst_spring_explicit_east --
+1	v1
+2	v2
+
 -- !sync_dst_autumn_fold --
 1	v1
 2	v2
@@ -76,6 +80,10 @@
 3	fresh
 
 -- !stream_dst_spring_gap --
+1	v1
+2	v2
+
+-- !stream_dst_spring_explicit_east --
 1	v1
 2	v2
 

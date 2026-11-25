@@ -136,6 +136,7 @@ def time_matrix(spark, cases, source, table, older, newer, older_ms, newer_ms):
             ("iso", "literal", utc.replace(" ", "T") + "Z", "UTC"),
             ("utc", "literal", utc, "UTC"),
             ("shanghai", "literal", shanghai, "Asia/Shanghai"),
+            ("explicit_east", "literal", shanghai.replace(" ", "T") + "+08:00", "UTC"),
         ):
             snapshot_case(
                 spark,
@@ -290,12 +291,14 @@ def commit_time_transition(spark, manifest, path, table):
     ):
         snapshot_case(spark, manifest["cases"], "transition", table, name, v, "millis", ms)
     time_matrix(spark, manifest["cases"], "transition", table, 1, 2, mtimes[1], mtimes[2])
-    spark_error(
-        spark,
-        f"SELECT * FROM {table} {pin('millis', mtimes[0] - 1)}",
-        "DELTA_TIMESTAMP_EARLIER_THAN_COMMIT_RETENTION",
-    )
-    spark_error(spark, f"SELECT * FROM {table} {pin('millis', t4 + 1)}", "DELTA_TIMESTAMP_GREATER_THAN_COMMIT")
+    for ms, error in (
+        (mtimes[0] - 1, "DELTA_TIMESTAMP_EARLIER_THAN_COMMIT_RETENTION"),
+        (t4 + 1, "DELTA_TIMESTAMP_GREATER_THAN_COMMIT"),
+    ):
+        iso = datetime.fromtimestamp(ms / 1000, timezone.utc).isoformat(timespec="milliseconds")
+        with spark_zone(spark, "UTC"):
+            for at in (pin("millis", ms), pin("literal", iso)):
+                spark_error(spark, f"SELECT * FROM {table} {at}", error)
     manifest["transition"] = {
         "enabled_version": 3,
         "in_commit_ms": {3: t3, 4: t4},
@@ -344,6 +347,7 @@ def dst_inputs(spark, manifest, path, table):
         ("spring_gap", 2, f"{spring} 02:30:00"),
         ("spring_shifted", 2, f"{spring} 03:30:00"),
         ("spring_absolute", 2, f"{spring}T07:30:00Z"),
+        ("spring_explicit_east", 2, f"{spring}T15:30:00+08:00"),
         ("autumn_fold", 4, f"{autumn} 01:30:00"),
         ("autumn_first_offset", 4, f"{autumn}T01:30:00-04:00"),
     ):

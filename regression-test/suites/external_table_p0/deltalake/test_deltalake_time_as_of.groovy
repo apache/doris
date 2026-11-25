@@ -19,6 +19,7 @@ import groovy.json.JsonSlurper
 import org.apache.doris.regression.util.JdbcUtils
 
 import java.sql.Types
+import java.time.Instant
 
 suite("test_deltalake_time_as_of", "p0,external,deltalake,external_docker") {
     // Run uc-managed.py --time-travel-edges NEW_DIR on the shared local filesystem first.
@@ -112,7 +113,7 @@ suite("test_deltalake_time_as_of", "p0,external,deltalake,external_docker") {
                     }
                 }
                 if (one.name in ["old_version", "new_version", "before_switch", "at_switch", "spring_gap",
-                                 "autumn_fold", "readded_field"]) {
+                                 "spring_explicit_east", "autumn_fold", "readded_field"]) {
                     assertEquals(one.rows.size().toLong(), sql("select count(*) from ${relation}")[0][0].toLong())
                     quickTest("${mode}_${one.source}_${one.name}", query)
                 }
@@ -147,13 +148,14 @@ suite("test_deltalake_time_as_of", "p0,external,deltalake,external_docker") {
             sql "select * from ${managed} for time as of '2026-02-30'"
             exception "2026-02-30"
         }
-        test {
-            sql "select * from ${fs}.edges.transition for time as of ${fixture.transition.before_earliest}"
-            exception "before the earliest"
-        }
-        test {
-            sql "select * from ${fs}.edges.transition for time as of ${fixture.transition.after_latest}"
-            exception "after the latest"
+        [[fixture.transition.before_earliest, "before the earliest"],
+         [fixture.transition.after_latest, "after the latest"]].each { ms, message ->
+            for (String literal : [ms.toString(), "'${Instant.ofEpochMilli(ms.toLong())}'"]) {
+                test {
+                    sql "select * from ${fs}.edges.transition for time as of ${literal}"
+                    exception message
+                }
+            }
         }
         test {
             sql "select id from ${fs}.edges.checkpoint for version as of 1"
