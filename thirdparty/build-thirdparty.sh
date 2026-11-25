@@ -1309,12 +1309,11 @@ build_arrow() {
 }
 
 # arrow-adbc
-# Produces three artifacts from one source tree:
+# Produces three artifacts from one source tree and installs a binary companion:
 #   libadbc_driver_manager.a  -- statically linked into doris_be
 #   libadbc_driver_jni.so     -- loaded by the FE adbc connector
 #   libadbc_driver_sqlite.so  -- BE unit tests only, not shipped
-# and installs a fourth that is not built here:
-#   libadbc_driver_flightsql.so -- prebuilt, adbc tests only, not shipped
+#   libadbc_driver_flightsql.so -- patched prebuilt driver, adbc tests only, not shipped
 build_arrow_adbc() {
     check_if_source_exist "${ARROW_ADBC_SOURCE}"
 
@@ -1380,14 +1379,22 @@ build_arrow_adbc() {
         -o "${TP_INSTALL_DIR}/lib64/libadbc_driver_jni.so" \
         "${TP_INSTALL_DIR}/lib64/libadbc_driver_manager.a"
 
-    # (3) Flight SQL driver. Not built: upstream implements it in Go, so it comes
-    #     prebuilt out of the release wheel that download-thirdparty.sh unpacked
-    #     (see vars.sh). Nothing links against it; the FE and BE dlopen it at run
-    #     time, and only the adbc tests ask for it.
-    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+    # (3) Installing the patched binary must not require a Go toolchain. Check the extracted
+    # library as well as its archive: a cached source directory may still hold an old release wheel.
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]]; then
         check_if_source_exist "${ARROW_ADBC_FLIGHTSQL_SOURCE}"
-        cp -f "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}/libadbc_driver_flightsql.so" \
-            "${TP_INSTALL_DIR}/lib64/libadbc_driver_flightsql.so"
+        local flight_src="${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}"
+        if ! printf '%s  %s\n' "${ARROW_ADBC_FLIGHTSQL_SHA256}" \
+            "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_NAME}" | sha256sum -c -; then
+            echo "arrow-adbc: prebuilt Flight SQL archive checksum failed" >&2
+            exit 1
+        fi
+        if ! printf '%s  %s\n' "${ARROW_ADBC_FLIGHTSQL_LIBRARY_SHA256}" \
+            "${flight_src}/libadbc_driver_flightsql.so" | sha256sum -c -; then
+            echo "arrow-adbc: prebuilt Flight SQL library checksum failed" >&2
+            exit 1
+        fi
+        cp -f "${flight_src}/libadbc_driver_flightsql.so" "${TP_INSTALL_DIR}/lib64/libadbc_driver_flightsql.so"
     fi
 
     rm -rf "${sqlite_host}"
@@ -1662,6 +1669,22 @@ build_tsan_header() {
 
     mkdir -p "${TP_INSTALL_DIR}/include/sanitizer"
     cp "${TSAN_HEADER_FILE}" "${TP_INSTALL_DIR}/include/sanitizer/"
+}
+
+build_oss_sdk() {
+    check_if_source_exist "${OSS_SDK_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${OSS_SDK_SOURCE}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" -S . -B "${BUILD_DIR}" \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_LIBDIR=lib64 -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -DCMAKE_FIND_ROOT_PATH="${TP_INSTALL_DIR}" -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+        -DUSE_SYSTEM_CURL=ON -DCURL_NO_CURL_CMAKE=ON -DCURL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DUSE_SYSTEM_OPENSSL=ON \
+        -DOPENSSL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" -DOPENSSL_SSL_LIBRARY="${TP_INSTALL_DIR}/lib/libssl.a" \
+        -DOPENSSL_CRYPTO_LIBRARY="${TP_INSTALL_DIR}/lib/libcrypto.a" -DENABLE_RTTI=ON
+    "${CMAKE_CMD}" --build "${BUILD_DIR}" -j "${PARALLEL}"
+    "${CMAKE_CMD}" --install "${BUILD_DIR}"
 }
 
 # aws_sdk
@@ -2751,6 +2774,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         tsan_header
         mysql
         aws_sdk
+        oss_sdk
         js_and_css
         xml2
         idn
@@ -2834,11 +2858,8 @@ cleanup_package_source() {
         flatbuffers)     src_var="FLATBUFFERS_SOURCE" ;;
         arrow)           src_var="ARROW_SOURCE" ;;
         arrow_adbc)
-            # arrow_adbc also unpacks the prebuilt flightsql driver, clean both
-            if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" && -d "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
-                echo "Cleaning up source: ${ARROW_ADBC_FLIGHTSQL_SOURCE}"
-                rm -rf "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}" \
-                    "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}"-*.dist-info
+            if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]]; then
+                rm -rf "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}"
             fi
             src_var="ARROW_ADBC_SOURCE"
             ;;
@@ -2889,6 +2910,7 @@ cleanup_package_source() {
         pugixml)         src_var="PUGIXML_SOURCE" ;;
         lance_c)         src_var="LANCE_C_SOURCE" ;;
         paimon_rust)     src_var="PAIMON_RUST_SOURCE" ;;
+        oss_sdk)         src_var="OSS_SDK_SOURCE" ;;
         aws_sdk)         src_var="AWS_SDK_SOURCE" ;;
         lzma)            src_var="LZMA_SOURCE" ;;
         xml2)            src_var="XML2_SOURCE" ;;

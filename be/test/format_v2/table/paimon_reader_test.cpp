@@ -68,6 +68,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/options.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/defer_op.h"
 #include "util/hash_util.hpp"
 #include "util/timezone_utils.h"
@@ -96,9 +97,15 @@ class RefreshTrackingTableReader final : public TableReader {
 public:
     Status prepare_split(const SplitReadOptions&) override { return Status::OK(); }
 
-    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override {
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts,
+                             std::optional<uint64_t> condition_cache_digest = std::nullopt,
+                             bool all_runtime_filters_applied = false,
+                             std::shared_ptr<const format::PredicateSnapshot> predicate_snapshot =
+                                     nullptr) override {
         ++refresh_count;
-        return TableReader::refresh_conjuncts(std::move(conjuncts));
+        return TableReader::refresh_conjuncts(std::move(conjuncts), condition_cache_digest,
+                                              all_runtime_filters_applied,
+                                              std::move(predicate_snapshot));
     }
 
     int refresh_count = 0;
@@ -729,7 +736,8 @@ TEST(PaimonReaderTest, DecodeBitmap64DeletionVectorRejectsInvalidChecksum) {
 }
 
 TEST(PaimonReaderTest, ReadsEachDeletionVectorFormatAtEofInOneRead) {
-    const auto path = std::filesystem::temp_directory_path() / "doris_paimon_dv_single_read_test";
+    const doris::test::ScopedTempDirectory scoped_path("paimon_reader_test");
+    const auto path = scoped_path.path() / "doris_paimon_dv_single_read_test";
     Defer cleanup([&] { std::filesystem::remove(path); });
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     const auto scan_params = make_local_parquet_scan_params();
@@ -822,8 +830,8 @@ TEST(PaimonReaderTest, NativeDataFilesAreMarkedImmutableForPageCache) {
 // NOLINTNEXTLINE(readability-function-cognitive-complexity): exercise one file across mapping and projection combinations.
 TEST(PaimonReaderTest, ReadsInt96HistorySemanticsThroughTableMapper) {
     TimezoneUtils::load_timezones_to_cache();
-    const auto path =
-            (std::filesystem::temp_directory_path() / "paimon_int96_history.parquet").string();
+    const doris::test::ScopedTempDirectory scoped_path("paimon_reader_test");
+    const auto path = (scoped_path.path() / "paimon_int96_history.parquet").string();
     const auto arrow_ts = arrow::timestamp(arrow::TimeUnit::MICRO);
     arrow::TimestampBuilder builder(arrow_ts, arrow::default_memory_pool());
     ASSERT_TRUE(builder.Append(0).ok());
@@ -1028,8 +1036,8 @@ void check_paimon_split_ids(paimon::PaimonReader& reader, const SplitReadOptions
 
 // Paimon can write both bitmap versions into the same index file. The last entry ends at EOF.
 TEST(PaimonReaderTest, AppliesMixedBitmapDeletionVectorFile) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_paimon_deletion_vector_file_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("paimon_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_paimon_deletion_vector_file_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -1113,8 +1121,8 @@ TEST(PaimonReaderTest, AppliesMixedBitmapDeletionVectorFile) {
 // A missing deletion vector must not report NOT_FOUND: FileScannerV2 would take it for a missing data
 // file and skip the whole split, surviving rows included.
 TEST(PaimonReaderTest, MissingDeletionVectorFileFailsSplit) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_paimon_missing_deletion_vector_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("paimon_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_paimon_missing_deletion_vector_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -1159,8 +1167,8 @@ TEST(PaimonReaderTest, MissingDeletionVectorFileFailsSplit) {
 // Only the deletion vector is snapshot metadata here: a missing data file still reports NOT_FOUND,
 // which FileScannerV2 skips under ignore_not_found_file_in_external_table.
 TEST(PaimonReaderTest, MissingDataFileWithDeletionVectorStillReportsNotFound) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_paimon_missing_data_file_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("paimon_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_paimon_missing_data_file_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -1340,13 +1348,17 @@ TEST(PaimonHybridReaderTest, ForwardsLatePredicatesToActiveChild) {
     split.current_range = make_paimon_native_range(TFileFormatType::FORMAT_PARQUET);
     ASSERT_TRUE(reader.prepare_split(split).ok());
     ASSERT_NE(child, nullptr);
-    ASSERT_TRUE(reader.refresh_conjuncts({}).ok());
+    const auto snapshot = reader._predicate_snapshot;
+    ASSERT_NE(snapshot, nullptr);
+    EXPECT_EQ(child->_predicate_snapshot, snapshot);
+    ASSERT_TRUE(reader.refresh_conjuncts({}, std::nullopt, false, snapshot).ok());
+    EXPECT_EQ(child->_predicate_snapshot, snapshot);
     EXPECT_EQ(child->refresh_count, 1);
 }
 
 TEST(PaimonHybridReaderTest, NativeCountColumnReportsMetadataRowsThroughHybridReader) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_paimon_hybrid_count_column_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("paimon_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_paimon_hybrid_count_column_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto file_path = (test_dir / "data-file.parquet").string();

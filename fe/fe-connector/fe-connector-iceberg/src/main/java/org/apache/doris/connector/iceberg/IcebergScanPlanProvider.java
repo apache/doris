@@ -45,9 +45,12 @@ import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.FluentIterable;
 import org.apache.iceberg.BaseFileScanTask;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.BatchScan;
+import org.apache.iceberg.ContentFile;
 import org.apache.iceberg.ContentScanTask;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataTask;
@@ -93,6 +96,9 @@ import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.io.SupportsStorageCredentials;
+import org.apache.iceberg.metrics.Counter;
+import org.apache.iceberg.metrics.ScanMetrics;
+import org.apache.iceberg.metrics.ScanMetricsUtil;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
@@ -100,7 +106,6 @@ import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.DateTimeUtil;
 import org.apache.iceberg.util.ScanTaskUtil;
-import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -123,10 +128,13 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
@@ -221,14 +229,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // populateScanLevelParams, so it never reaches BE. Its presence also gates the line (absent when the cache
     // is disabled -> no line, matching legacy notContains).
     private static final String MANIFEST_CACHE_QUERYID_PROP = "iceberg.manifest_cache_query_id";
-    // T08 manifest cache gate (ported from fe-core IcebergExternalCatalog + IcebergUtils.isManifestCacheEnabled
-    // + CacheSpec.isCacheEnabled). Default OFF: the default scan path stays the iceberg SDK planFiles()
-    // (splitFiles). When enabled, planScan re-plans at the manifest level so the per-manifest data/delete-file
-    // reads hit the connector-owned IcebergManifestCache. The .ttl-second/.capacity properties feed ONLY this
-    // enable formula (legacy quirk); the cache itself is fixed no-TTL / capacity 100000.
+    // Parsed manifest retention is optional; streaming load scheduling does not depend on this gate.
     private static final boolean DEFAULT_MANIFEST_CACHE_ENABLE = false;
     private static final long DEFAULT_MANIFEST_CACHE_TTL_SECOND = 48L * 60 * 60;
     private static final long DEFAULT_MANIFEST_CACHE_CAPACITY = 1024L;
+    private static final int MAX_UNCACHED_MANIFEST_WINDOW_FILES = 30_000;
 
     private final IcebergCatalogProperties catalogProps;
     private final Map<String, String> properties;
@@ -434,12 +439,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             validateMetadataColumnReader(session, request.getColumns());
             if (session == null || !session.isExternalScanTaskReuseEnabled()) {
                 return rejectRowIdScanWithoutPartitionData(request.getColumns(), planScanInternal(session,
-                        icebergHandle, request.getColumns(), request.getFilter(), request.isCountPushdown()));
+                        icebergHandle, request.getColumns(), request.getFilter(), request.isCountPushdown(),
+                        request.getCoarseSplitSize()));
             }
             if (icebergHandle.isSystemTable()) {
                 // System tables read connector metadata through their own readers; never reuse them.
                 return planScanInternal(session, icebergHandle, request.getColumns(),
-                        request.getFilter(), request.isCountPushdown());
+                        request.getFilter(), request.isCountPushdown(), request.getCoarseSplitSize());
             }
             // Statement-scoped reuse: within one statement the identical scan (same table, same
             // snapshot/ref/schema pin, same filter, same COUNT pushdown) plans once and every
@@ -464,7 +470,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return rejectRowIdScanWithoutPartitionData(request.getColumns(), scanReuse.computeIfAbsent(reuseKey,
                     k -> Collections.unmodifiableList(planScanInternal(session,
                             icebergHandle, request.getColumns(), request.getFilter(),
-                            request.isCountPushdown()))));
+                            request.isCountPushdown(), request.getCoarseSplitSize()))));
         } catch (RuntimeException e) {
             // Normal data scans and native position_deletes run on File Scanner V2. Keep the serialized JNI
             // system-table route untouched because its deferred reads belong to the V1 scanner contract.
@@ -503,6 +509,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (snapshot == null) {
             return -1;
         }
+        // V3 always plans synchronously; probing encrypted deletes here would reject a valid physical COUNT.
+        if (getFormatVersion(table) >= 3) {
+            return -1;
+        }
         if (countPushdown && filter.isEmpty()) {
             boolean netPositionDeletes = sessionBool(session, IGNORE_ICEBERG_DANGLING_DELETE, false);
             ManifestDeleteState deleteState = manifestDeleteState(snapshot.deleteManifests(table.io()));
@@ -518,9 +528,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     return -1;
                 }
             }
-        }
-        if (getFormatVersion(table) >= 3) {
-            return -1;
         }
         long threshold = sessionLong(session, NUM_FILES_IN_BATCH_MODE, DEFAULT_NUM_FILES_IN_BATCH_MODE);
         long fileCount = 0;
@@ -552,6 +559,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return false;
         }
         Table table = resolveTable(session, iceHandle);
+        if (IcebergEncryptionRead.isEncrypted(table)) {
+            // Metadata counts cannot authenticate every current file key, including independent delete keys.
+            return false;
+        }
         TableScan scan = buildScan(table, iceHandle, filter, session);
         return canProveCountFromManifests(table, scan, session);
     }
@@ -596,9 +607,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         try {
             ManifestReadControl readControl = new ManifestReadControl(false);
             CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(
-                    scan, session, table, filter, sliceSize, readControl, iceHandle, request.getScanContext());
+                    scan, session, table, filter, sliceSize, request.getCoarseSplitSize(),
+                    readControl, iceHandle, request.getScanContext());
             return new IcebergStreamingSplitSource(tasks, table, scanSchema, formatVersion, partitioned,
-                    orderedPartitionKeys, zone, uriNormalizer, sliceSize,
+                    orderedPartitionKeys, zone, uriNormalizer, sliceSize, request.getCoarseSplitSize(),
                     iceHandle.getRewriteFileScope(), iceHandle, readControl, requiresRowId(columns),
                     request.getScanContext());
         } catch (RuntimeException e) {
@@ -625,23 +637,21 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * The streaming source's whole-file enumeration, byte-offset-split at {@code sliceSize}. PERF-04 (C17): when
-     * the manifest cache is enabled, read manifests THROUGH THE CACHE via the lazy {@link #cacheBackedFileScanTasks}
-     * (no-stats overload — Phase 2 iterates on the engine pump thread, see there) so a big streaming scan finally
-     * hits the cache while staying lazy (OOM-safe). An eager Phase-1 cache failure records it and falls back to the
-     * SDK {@code planFiles()} path (mirrors {@link #planFileScanTask}); a later lazy failure surfaces through the
-     * streaming source's {@code hasNext}. Cache disabled -> the SDK path, byte-unchanged.
+     * Enumerates whole-file tasks using bounded, completion-ordered manifest loads independently of caching.
+     * Native data scans with engine-owned scheduling use this path even when parsed manifests are not cached.
+     * Custom SDK scans keep their own planning semantics. An eager cache failure retains the existing SDK
+     * fallback; uncached read failures and failures after streaming starts propagate without re-planning.
      */
     private CloseableIterable<FileScanTask> streamingFileScanTasks(TableScan scan, ConnectorSession session,
-            Table table, Optional<ConnectorExpression> filter, long sliceSize,
+            Table table, Optional<ConnectorExpression> filter, long sliceSize, long coarseSplitSize,
             ManifestReadControl readControl, IcebergTableHandle readHandle, ConnectorScanContext scanContext) {
         scanContext.checkCancelled();
         if (isManifestCacheEnabled()) {
             try {
-                return TableScanUtil.splitFiles(
-                        cacheBackedFileScanTasks(scan, session, table, filter, null, readControl, readHandle,
+                return splitFileTasks(
+                        manifestFileScanTasks(scan, session, table, filter, null, readControl, readHandle,
                                 scanContext),
-                        sliceSize);
+                        sliceSize, coarseSplitSize);
             } catch (CancellationException e) {
                 // A stopped query must not restart file planning through the SDK fallback.
                 throw e;
@@ -654,7 +664,50 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         scanContext.checkCancelled();
-        return TableScanUtil.splitFiles(sdkStreamingFileScanTasks(scan, scanContext), sliceSize);
+        if (!isManifestCacheEnabled() && canPlanManifestsWithoutCache(scan, session)) {
+            return splitFileTasks(
+                    SchemaAwareDataTableScan.planFilesWithLocalPlanner(scan, metrics ->
+                            manifestFileScanTasks(scan, session, table, filter, null, readControl,
+                                    readHandle, scanContext, metrics)),
+                    sliceSize, coarseSplitSize);
+        }
+        return splitFileTasks(sdkStreamingFileScanTasks(scan, scanContext), sliceSize, coarseSplitSize);
+    }
+
+    private boolean canPlanManifestsWithoutCache(TableScan scan, ConnectorSession session) {
+        if (!SchemaAwareDataTableScan.supportsLocalManifestPlanning(scan)) {
+            return false;
+        }
+        ConnectorTaskScheduler scheduler = manifestReadScheduler(session);
+        // Standalone callers have no engine-owned workers/lifetime. Keep the SDK's executor and scan
+        // semantics rather than silently turning its parallel planning into inline serial reads.
+        if (scheduler == null || scheduler == ConnectorTaskScheduler.DIRECT) {
+            return false;
+        }
+        Snapshot snapshot = scan.snapshot();
+        return snapshot != null && canBufferManifestFiles(snapshot.dataManifests(scan.table().io()),
+                manifestReadConcurrency(session));
+    }
+
+    static boolean canBufferManifestFiles(List<ManifestFile> manifests, int window) {
+        // A single manifest already streams without ParallelIterable in the SDK. Preserve early delivery
+        // within large manifests too: our prefetcher drains each manifest, whereas SDK consumers can take
+        // the first file before its manifest finishes. Include deleted entries in the read-work bound:
+        // ManifestReader traverses them even though they are not retained in the live-file result.
+        if (manifests.size() <= 1) {
+            return false;
+        }
+        int filesPerManifest = MAX_UNCACHED_MANIFEST_WINDOW_FILES / window;
+        for (ManifestFile manifest : manifests) {
+            Integer added = manifest.addedFilesCount();
+            Integer existing = manifest.existingFilesCount();
+            Integer deleted = manifest.deletedFilesCount();
+            if (added == null || existing == null || deleted == null
+                    || (long) added + existing + deleted > filesPerManifest) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private CloseableIterable<FileScanTask> sdkStreamingFileScanTasks(TableScan scan,
@@ -755,6 +808,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private final ZoneId zone;
         private final UnaryOperator<String> uriNormalizer;
         private final long sliceSize;
+        private final long coarseSplitSize;
         private final Set<String> rewriteScope;
         private final IcebergTableHandle handle;
         private final boolean requiresRowId;
@@ -776,7 +830,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         IcebergStreamingSplitSource(CloseableIterable<FileScanTask> tasks, Table table, Schema scanSchema,
                 int formatVersion,
                 boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-                UnaryOperator<String> uriNormalizer, long sliceSize, Set<String> rewriteScope,
+                UnaryOperator<String> uriNormalizer, long sliceSize, long coarseSplitSize, Set<String> rewriteScope,
                 IcebergTableHandle handle, ManifestReadControl readControl, boolean requiresRowId,
                 ConnectorScanContext scanContext) {
             this.tasks = tasks;
@@ -790,6 +844,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             this.zone = zone;
             this.uriNormalizer = uriNormalizer;
             this.sliceSize = sliceSize;
+            this.coarseSplitSize = coarseSplitSize;
             this.rewriteScope = rewriteScope;
             this.handle = handle;
             this.requiresRowId = requiresRowId;
@@ -821,7 +876,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     scanContext.checkCancelled();
                     IcebergScanRange range = buildRangeForTask(
                             iterator.next(), table, scanSchema, formatVersion, partitioned,
-                            orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, null, scratch);
+                            orderedPartitionKeys, zone, uriNormalizer, sliceSize, coarseSplitSize,
+                            rewriteScope, null, scratch);
                     if (range != null) {
                         if (requiresRowId) {
                             rejectRowIdRangeWithoutPartitionData(range);
@@ -869,7 +925,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter,
-            boolean countPushdown) {
+            boolean countPushdown, long coarseSplitSize) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         if (iceHandle.isResolvedEmptySnapshot() && !iceHandle.isSystemTable()) {
             // Empty pins still need admission: otherwise COUNT/empty scans bypass the encryption fence.
@@ -924,7 +980,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // deletes or invalid record counts prevent an exact proof, use the normal scan so BE reads and counts.
         // A data-row predicate can leave partially matching files, whose file-level recordCount is only an
         // upper bound. Keep those scans on the normal path even if the engine supplies the count signal.
-        if (countPushdown && filter.isEmpty()) {
+        if (countPushdown && filter.isEmpty() && !IcebergEncryptionRead.isEncrypted(table)) {
             Optional<List<ConnectorScanRange>> countRanges = planCountPushdown(
                     table, scan, scanSchema, formatVersion, partitioned, orderedPartitionKeys, zone,
                     uriNormalizer, session, filter, iceHandle);
@@ -962,13 +1018,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // once per file, not per slice. The streaming source below holds its own.
         PerFileScratch scratch = new PerFileScratch();
         List<ConnectorScanRange> ranges = new ArrayList<>();
-        try (SplitPlan plan = planFileScanTask(scan, session, table, filter, iceHandle)) {
+        try (SplitPlan plan = planFileScanTask(scan, session, table, filter, iceHandle, coarseSplitSize)) {
             for (FileScanTask task : plan.tasks) {
                 // Shared per-task mapping (rewrite-scope skip + M-2 weight denominator + v3 stash side-effect),
                 // identical to the streaming path's IcebergStreamingSplitSource so both produce the same ranges.
                 IcebergScanRange range = buildRangeForTask(
                         task, table, scanSchema, formatVersion, partitioned, orderedPartitionKeys, zone,
-                        uriNormalizer, plan.targetSplitSize, rewriteScope, rewritableDeleteSupply,
+                        uriNormalizer, plan.targetSplitSize, plan.coarseSplitSize, rewriteScope, rewritableDeleteSupply,
                         scratch);
                 if (range != null) {
                     ranges.add(range);
@@ -1027,7 +1083,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private IcebergScanRange buildRangeForTask(FileScanTask task, Table table, Schema scanSchema,
             int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            UnaryOperator<String> uriNormalizer, long targetSplitSize, Set<String> rewriteScope,
+            UnaryOperator<String> uriNormalizer, long targetSplitSize, long coarseSplitSize, Set<String> rewriteScope,
             Map<String, List<TIcebergDeleteFileDesc>> rewritableDeleteSupply, PerFileScratch scratch) {
         DataFile dataFile = task.file();
         if (rewriteScope != null && !rewriteScope.contains(dataFile.path().toString())) {
@@ -1038,11 +1094,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // for every slice of a file, so record it exactly ONCE per file — on the file's first slice, keyed to
         // the new file, so the LAST file in the stream is never dropped.
         boolean firstSliceOfFile = scratch.file != dataFile;
-        // targetSplitSize is the scan-level weight denominator (M-2): each data-file range carries a
-        // size-proportional BE scheduling weight (selfSplitWeight computed inside buildRange).
+        // Use the same per-file target for splitting and proportional scheduling. A file with
+        // deletes retains its fallback size even when its neighbors use coarse FE ranges.
         IcebergScanRange range = buildRange(
                 table, scanSchema, dataFile, task, formatVersion, partitioned, orderedPartitionKeys,
-                zone, uriNormalizer, -1, targetSplitSize, scratch);
+                zone, uriNormalizer, -1, selectFeSplitSize(task, targetSplitSize, coarseSplitSize), scratch);
         if (rewritableDeleteSupply != null && firstSliceOfFile) {
             // Record this data file's non-equality delete supply keyed on its RAW path (the exact string the BE
             // matches a rewritable set against). An empty list (no old non-eq deletes) contributes nothing.
@@ -1298,6 +1354,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             List<NestedField> outputPartitionFields, boolean enableMappingVarbinary, ZoneId zone,
             UnaryOperator<String> uriNormalizer) {
         DeleteFile deleteFile = task.file();
+        if (deleteFile.keyMetadata() != null && !IcebergEncryptionRead.isEncrypted(metadataTable)) {
+            // The base encrypted table was already admitted; only undeclared keys need a forced scope check.
+            IcebergEncryptionRead.checkFile(metadataTable, catalogProps, context);
+        }
         IcebergFileEncryption encryption = deleteFileEncryption(deleteFile);
         String originalPath = deleteFile.path().toString();
         IcebergScanRange.Builder builder = new IcebergScanRange.Builder()
@@ -1610,10 +1670,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         netPositionDeletes ? positionDeleteRows.getAsLong() : 0).isPresent()) {
             return false;
         }
+        // Key classification happens after decoding. Bypass the SDK byte cache even for a table that
+        // looks plaintext, or a rejected COUNT could retain file keys and bypass revoked manifest access.
         // Aggregate counters do not expose per-file encryption. Check every live entry before advertising
         // COUNT support, including encrypted files after a plaintext representative; retain no file list.
         for (ManifestFile manifest : dataManifests) {
-            try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, table.io(), table.specs())
+            try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest,
+                    new IcebergScanFileIO(table.io(), () -> { }), table.specs())
                     .select(Collections.singletonList(DataFile.KEY_METADATA.name()))) {
                 for (DataFile file : reader) {
                     if (file.keyMetadata() != null) {
@@ -1642,7 +1705,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         try {
             return buildManifestCountRange(
                     table, scanSchema,
-                    cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId, readHandle),
+                    manifestFileScanTasks(scan, session, table, filter, statsQueryId, readHandle),
                     exactCount, formatVersion, partitioned, orderedPartitionKeys, zone, uriNormalizer,
                     netPositionDeletes);
         } catch (CancellationException | EncryptedCountException e) {
@@ -1704,7 +1767,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         try {
             return accumulateCountPushdownFileTasks(
                     table, scanSchema,
-                    cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId, readHandle), formatVersion,
+                    manifestFileScanTasks(scan, session, table, filter, statsQueryId, readHandle), formatVersion,
                     partitioned, orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes,
                     positionDeleteRows);
         } catch (CancellationException | EncryptedCountException e) {
@@ -1826,7 +1889,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         long exactCount = 0;
         for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
             try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
-                    manifest, table.io(), table.specs())) {
+                    manifest, new IcebergScanFileIO(table.io(), () -> { }), table.specs())) {
                 for (DeleteFile delete : reader) {
                     // Netting delete counts happens before file-task planning. Keep the same early
                     // encryption rejection here so COUNT cannot escape through the manifest shortcut.
@@ -1975,6 +2038,27 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             List<String> orderedPartitionKeys, ZoneId zone,
             UnaryOperator<String> uriNormalizer, PerFileScratch scratch) {
         perFileInvariantComputeCount++;
+        // Imported files may carry keys without a table-level declaration; they still require the full
+        // default-off, HMS/v3 and Standard-manager contract before any key descriptor is published.
+        boolean encryptedFiles = dataFile.keyMetadata() != null;
+        if (!encryptedFiles && task.deletes() != null) {
+            for (DeleteFile delete : task.deletes()) {
+                if (delete.keyMetadata() != null) {
+                    encryptedFiles = true;
+                    break;
+                }
+            }
+        }
+        if (encryptedFiles) {
+            // Known encrypted tables were admitted at resolution. Repeating that inventory proof for
+            // every file costs O(files * backends); dispatch rechecks the actual assigned target instead.
+            if (!IcebergEncryptionRead.isEncrypted(table)) {
+                IcebergEncryptionRead.checkFile(table, catalogProps, context);
+            }
+            if (dataFile.format() != FileFormat.PARQUET) {
+                throw new IllegalArgumentException("Iceberg encryption [UNSUPPORTED_FILE_FORMAT]");
+            }
+        }
         Integer partitionSpecId = null;
         String partitionDataJson = null;
         String rawPartitionKey = null;
@@ -2498,7 +2582,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 continue;
             }
             try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
-                    manifest, table.io(), table.specs())) {
+                    manifest, new IcebergScanFileIO(table.io(), () -> { }), table.specs())) {
                 for (DeleteFile deleteFile : reader) {
                     if (deleteFile.content() == FileContent.EQUALITY_DELETES) {
                         fieldIds.addAll(deleteFile.equalityFieldIds());
@@ -3115,10 +3199,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final class SplitPlan implements Closeable {
         private final CloseableIterable<FileScanTask> tasks;
         private final long targetSplitSize;
+        private final long coarseSplitSize;
 
-        SplitPlan(CloseableIterable<FileScanTask> tasks, long targetSplitSize) {
+        SplitPlan(CloseableIterable<FileScanTask> tasks, long targetSplitSize, long coarseSplitSize) {
             this.tasks = tasks;
             this.targetSplitSize = targetSplitSize;
+            this.coarseSplitSize = coarseSplitSize;
         }
 
         @Override
@@ -3136,14 +3222,30 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * (M-2): the forced {@code file_split_size} (that path slices to it) or the heuristic {@code targetSplitSize}
      * (legacy {@code IcebergScanNode.targetSplitSize}, the same value used to slice — legacy reuses it for both).
      */
-    private SplitPlan splitFiles(TableScan scan, ConnectorSession session) {
+    static long selectFeSplitSize(FileScanTask task, long fallbackSize, long coarseSize) {
+        if (coarseSize <= 0 || !task.deletes().isEmpty()) {
+            return fallbackSize;
+        }
+        FileFormat format = task.file().format();
+        return format == FileFormat.PARQUET || format == FileFormat.ORC ? coarseSize : fallbackSize;
+    }
+
+    private static CloseableIterable<FileScanTask> splitFileTasks(
+            CloseableIterable<FileScanTask> tasks, long fallbackSize, long coarseSize) {
+        Preconditions.checkArgument(fallbackSize > 0, "Split size must be positive: %s", fallbackSize);
+        // Preserve the SDK iterable's lazy enumeration and close ownership while selecting per file.
+        Iterable<FileScanTask> splits = FluentIterable.from(tasks)
+                .transformAndConcat(task -> task.split(selectFeSplitSize(task, fallbackSize, coarseSize)));
+        return CloseableIterable.combine(splits, tasks);
+    }
+
+    private SplitPlan splitFiles(TableScan scan, ConnectorSession session, long coarseSplitSize) {
         long fileSplitSize = sessionLong(session, FILE_SPLIT_SIZE, 0L);
         if (fileSplitSize > 0) {
-            // The split granularity IS fileSplitSize, so it is the correct weight denominator. (Legacy left its
-            // targetSplitSize field at 0 here → divide-by-zero → weight clamped to 1.0; the generic
-            // PluginDrivenSplit guards target>0, so reproducing that is impossible without un-guarding division
-            // for all connectors. Using fileSplitSize gives proper proportional weighting — strictly better.)
-            return new SplitPlan(TableScanUtil.splitFiles(scan.planFiles(), fileSplitSize), fileSplitSize);
+            // This remains the fallback granularity and weight denominator for ineligible files.
+            // Eligible files select the dedicated coarse target for both splitting and weighting.
+            return new SplitPlan(splitFileTasks(scan.planFiles(), fileSplitSize, coarseSplitSize),
+                    fileSplitSize, coarseSplitSize);
         }
         List<FileScanTask> fileScanTasks = new ArrayList<>();
         try (CloseableIterable<FileScanTask> planned = scan.planFiles()) {
@@ -3155,9 +3257,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     + e.getMessage(), e);
         }
         long targetSplitSize = determineTargetFileSplitSize(fileScanTasks, session);
+        // Apply the non-batch count bound after choosing the dedicated target. Otherwise a
+        // 2 GiB file with max_file_split_num=1 would still produce four 512 MiB FE ranges.
+        long boundedCoarseSize = coarseSplitSize > 0
+                ? determineTargetFileSplitSize(fileScanTasks, session, coarseSplitSize) : coarseSplitSize;
         return new SplitPlan(
-                TableScanUtil.splitFiles(CloseableIterable.withNoopClose(fileScanTasks), targetSplitSize),
-                targetSplitSize);
+                splitFileTasks(CloseableIterable.withNoopClose(fileScanTasks), targetSplitSize, boundedCoarseSize),
+                targetSplitSize, boundedCoarseSize);
     }
 
     /**
@@ -3169,12 +3275,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private SplitPlan planFileScanTask(TableScan scan, ConnectorSession session, Table table,
             Optional<ConnectorExpression> filter,
-            IcebergTableHandle readHandle) {
+            IcebergTableHandle readHandle, long coarseSplitSize) {
         if (!isManifestCacheEnabled()) {
-            return splitFiles(scan, session);
+            return splitFiles(scan, session, coarseSplitSize);
         }
         try {
-            return planFileScanTaskWithManifestCache(scan, session, table, filter, readHandle);
+            return planFileScanTaskWithManifestCache(scan, session, table, filter, readHandle, coarseSplitSize);
         } catch (CancellationException e) {
             // A stopped query must not restart file planning through the SDK fallback.
             throw e;
@@ -3183,13 +3289,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             LOG.warn("Iceberg plan with manifest cache failed, falling back to SDK scan: {}", e.getMessage(), e);
             // Mirror the legacy manifestCacheFailures bump so VERBOSE EXPLAIN can report the fallback.
             manifestCache.recordFailure(session.getQueryId());
-            return splitFiles(scan, session);
+            return splitFiles(scan, session, coarseSplitSize);
         }
     }
 
     /**
      * Synchronous (below-batch-threshold) manifest-cache planning: materialize the shared lazy
-     * {@link #cacheBackedFileScanTasks} enumeration into a list, because {@link #determineTargetFileSplitSize}
+     * {@link #manifestFileScanTasks} enumeration into a list, because {@link #determineTargetFileSplitSize}
      * (the per-table heuristic that gives small tables good BE parallelism) needs the whole task list. Byte
      * identical to the pre-PERF-04 body; the streaming ({@link #streamSplits}) and COUNT(*)
      * ({@link #planCountPushdown}) paths consume the same enumeration LAZILY instead (bounded FE heap). Uses the
@@ -3198,68 +3304,72 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private SplitPlan planFileScanTaskWithManifestCache(TableScan scan,
             ConnectorSession session, Table table, Optional<ConnectorExpression> filter,
-            IcebergTableHandle readHandle) throws IOException {
+            IcebergTableHandle readHandle, long coarseSplitSize) throws IOException {
         // Null-safe queryId (offline tests pass a null session): a null id selects the no-stats cache overload,
         // matching the pre-PERF-04 body, which read scan.snapshot() and returned early for an empty table BEFORE
         // ever calling session.getQueryId().
         String statsQueryId = session != null ? session.getQueryId() : null;
         List<FileScanTask> tasks = new ArrayList<>();
         try (CloseableIterable<FileScanTask> whole =
-                cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId, readHandle)) {
+                manifestFileScanTasks(scan, session, table, filter, statsQueryId, readHandle)) {
             for (FileScanTask task : whole) {
                 tasks.add(task);
             }
         }
         long targetSplitSize = determineTargetFileSplitSize(tasks, session);
+        long boundedCoarseSize = coarseSplitSize > 0
+                ? determineTargetFileSplitSize(tasks, session, coarseSplitSize) : coarseSplitSize;
         return new SplitPlan(
-                TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize), targetSplitSize);
+                splitFileTasks(CloseableIterable.withNoopClose(tasks), targetSplitSize, boundedCoarseSize),
+                targetSplitSize, boundedCoarseSize);
     }
 
     /**
-     * PERF-04: the lazy, cache-backed {@link FileScanTask} enumeration shared by the synchronous
-     * ({@link #planFileScanTaskWithManifestCache}), streaming ({@link #streamSplits}), and COUNT(*)
-     * ({@link #planCountPushdown}) paths whenever {@link #isManifestCacheEnabled()}. Ported faithfully from legacy
-     * {@code IcebergScanNode.planFileScanTaskWithManifestCache}: partition-prune manifests with a
-     * {@link ManifestEvaluator}, read each surviving manifest's data/delete files THROUGH THE CACHE, then per data
-     * file apply the {@link InclusiveMetricsEvaluator} (file-stats prune) + {@link ResidualEvaluator} (partition
-     * residual) and attach its deletes via a {@link DeleteFileIndex}. Produces WHOLE-FILE
-     * {@link BaseFileScanTask}s (callers byte-offset-split via {@link TableScanUtil#splitFiles}).
-     *
-     * <p><b>Phase 1 is eager</b> (delete-manifest reads + {@link DeleteFileIndex} build): a data file's deletes
-     * need the full index before any data task can be produced, and running it here (on the caller's thread) lets
-     * the streaming/count callers catch a cache failure and fall back to the SDK path. Bounded like the SDK
-     * {@code planFiles()} (which also reads all delete manifests up front); delete manifests are far fewer than
-     * data manifests. <b>Phase 2 is lazy</b>: the returned iterable's iterator flat-maps the matching data
-     * manifests, yielding one surviving task at a time WITHOUT materializing the list, so a million-file streaming
-     * scan keeps FE heap bounded (peak = the delete index + a bounded manifest window + the split queue).
-     *
-     * <p>{@code statsQueryId} is nullable: a non-null id tallies cache hits/misses under that query (the
-     * synchronous + COUNT paths); {@code null} preserves the existing no-stats streaming path.
-     * Cache counters support concurrent prefetch workers.
+     * Shared manifest-level enumeration. Build the complete delete index before delivering data tasks, then
+     * read matching data manifests through the bounded prefetcher and prune individual files lazily. Caching
+     * only changes lookup/load functions; disabled caches retain results solely within the current window.
+     * {@code statsQueryId} is nullable and records accesses only when caching is enabled.
      */
-    private CloseableIterable<FileScanTask> cacheBackedFileScanTasks(TableScan scan,
+    private CloseableIterable<FileScanTask> manifestFileScanTasks(TableScan scan,
             ConnectorSession session, Table table, Optional<ConnectorExpression> filter, String statsQueryId,
             IcebergTableHandle readHandle) {
-        return cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId,
+        return manifestFileScanTasks(scan, session, table, filter, statsQueryId,
                 new ManifestReadControl(true), readHandle);
     }
 
-    private CloseableIterable<FileScanTask> cacheBackedFileScanTasks(TableScan scan,
+    private CloseableIterable<FileScanTask> manifestFileScanTasks(TableScan scan,
             ConnectorSession session, Table table, Optional<ConnectorExpression> filter, String statsQueryId,
             ManifestReadControl readControl, IcebergTableHandle readHandle) {
-        return cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId, readControl, readHandle,
+        return manifestFileScanTasks(scan, session, table, filter, statsQueryId, readControl, readHandle,
                 new ConnectorScanContext());
     }
 
-    private CloseableIterable<FileScanTask> cacheBackedFileScanTasks(TableScan scan,
+    private CloseableIterable<FileScanTask> manifestFileScanTasks(TableScan scan,
             ConnectorSession session, Table table, Optional<ConnectorExpression> filter, String statsQueryId,
             ManifestReadControl readControl, IcebergTableHandle readHandle, ConnectorScanContext scanContext) {
+        return manifestFileScanTasks(scan, session, table, filter, statsQueryId, readControl,
+                readHandle, scanContext, null);
+    }
+
+    private CloseableIterable<FileScanTask> manifestFileScanTasks(TableScan scan,
+            ConnectorSession session, Table table, Optional<ConnectorExpression> filter, String statsQueryId,
+            ManifestReadControl readControl, IcebergTableHandle readHandle, ConnectorScanContext scanContext,
+            ScanMetrics scanMetrics) {
         scanContext.checkCancelled();
         ConnectorTaskScheduler scheduler = requireActiveManifestScheduler(session);
+        // Cache policy only selects how immutable contents are obtained. Admission, completion order,
+        // cancellation and the retained-result window are identical with and without a cache.
         Snapshot snapshot = scan.snapshot();
         if (snapshot == null) {
             return CloseableIterable.withNoopClose(Collections.emptyList());
         }
+        List<ManifestFile> data = snapshot.dataManifests(table.io());
+        List<ManifestFile> deletes = snapshot.deleteManifests(table.io());
+        if (scanMetrics != null) {
+            scanMetrics.totalDataManifests().increment(data.size());
+            scanMetrics.totalDeleteManifests().increment(deletes.size());
+        }
+        boolean cacheEnabled = isManifestCacheEnabled();
         Schema scanSchema = scan.schema();
         Expression filterExpr = combineFilter(filter, table, scanSchema, session);
         Map<Integer, PartitionSpec> specsById = SchemaAwareDataTableScan.specsFor(scan);
@@ -3272,62 +3382,103 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 new InclusiveMetricsEvaluator(scanSchema, filterExpr, caseSensitive);
         String schemaJson = SchemaParser.toJson(scanSchema);
 
+        Function<ManifestFile, IcebergManifestLoader.ReadFilter> filters = manifest -> {
+            PartitionSpec spec = specsById.get(manifest.partitionSpecId());
+            // Evaluators and the lazy type adapter belong to one loading worker, never to a shared cache.
+            InclusiveMetricsEvaluator metrics = new InclusiveMetricsEvaluator(scanSchema, filterExpr, caseSensitive);
+            ResidualEvaluator residual = ResidualEvaluator.of(spec, filterExpr, caseSensitive);
+            Predicate<ContentFile<?>> predicate = file -> matchesFileFilter(file, metrics, residual);
+            return new IcebergManifestLoader.ReadFilter(spec, predicate, () -> {
+                if (scanMetrics != null) {
+                    if (manifest.content() == ManifestContent.DATA) {
+                        scanMetrics.skippedDataFiles().increment();
+                    } else {
+                        scanMetrics.skippedDeleteFiles().increment();
+                    }
+                }
+            });
+        };
+
         // Every scan in this statement shares admission, including eager delete-manifest reads.
         int concurrency = manifestReadConcurrency(session);
         Semaphore readPermits = IcebergStatementScope.manifestReadBudget(session, concurrency);
-        IcebergManifestReader reader = IcebergStatementScope.manifestReader(session,
-                readHandle.getDbName(), readHandle.getTableName(), manifestCache, table, statsQueryId);
+        IcebergManifestReader reader = cacheEnabled ? IcebergStatementScope.manifestReader(session,
+                readHandle.getDbName(), readHandle.getTableName(), manifestCache, table, statsQueryId) : null;
         boolean statementOwned = session != null && session.getStatementScope() != ConnectorStatementScope.NONE;
-        Supplier<AutoCloseable> retainLoadOwner = reader::retain;
+        Supplier<AutoCloseable> retainLoadOwner = cacheEnabled ? reader::retain
+                : IcebergStatementScope.readTableLeaseFactory(session,
+                        readHandle.getDbName(), readHandle.getTableName());
+        Function<ManifestFile, ManifestCacheValue> cached = cacheEnabled
+                ? manifest -> reader.cachedOnly(manifest, statsQueryId) : manifest -> null;
+        Function<ManifestFile, ManifestCacheValue> deleteLoader = cacheEnabled
+                ? manifest -> reader.read(manifest, statsQueryId)
+                : IcebergManifestLoader.uncachedLoader(table, null, filters, scanContext::checkCancelled);
+        Function<ManifestFile, CompletionStage<ManifestCacheValue>> sharedDeleteLoader = cacheEnabled
+                ? manifest -> reader.readFuture(manifest, statsQueryId)
+                : manifest -> CompletableFuture.completedFuture(deleteLoader.apply(manifest));
         try {
-            IcebergManifestReadContext deleteReadContext = new IcebergManifestReadContext(context, readPermits,
-                    () -> scanContext.isCancelled() || scheduler != null && scheduler.isClosed(), retainLoadOwner);
-
-            // Phase 1 (eager): partition-prune + cache-load delete manifests into the delete-file index.
+            // Build the complete index before delivering data. Both manifest kinds use the same inclusive
+            // row-to-partition projection and bounded loader; delete loading does not require BE demand.
             List<DeleteFile> deleteFiles = new ArrayList<>();
-            for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
-                scanContext.checkCancelled();
-                if (manifest.content() != ManifestContent.DELETES) {
-                    continue;
-                }
-                PartitionSpec spec = specsById.get(manifest.partitionSpecId());
-                if (spec == null) {
-                    continue;
-                }
-                if (!ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive).eval(manifest)) {
-                    continue;
-                }
-                ManifestCacheValue value = reader.cachedOnly(manifest, statsQueryId);
-                if (value == null) {
-                    try {
-                        value = deleteReadContext.read(manifest, m -> reader.read(m, statsQueryId));
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        CancellationException cancelled = new CancellationException(
-                                "Interrupted while reading Iceberg delete manifest " + manifest.path());
-                        cancelled.initCause(e);
-                        throw cancelled;
+            Set<Integer> equalityFields = new HashSet<>();
+            if (!deletes.isEmpty()) {
+                CloseableIterable<ManifestFile> matchingDeletes = getMatchingManifest(deletes, specsById, filterExpr,
+                        scanContext::checkCancelled, scanMetrics, true);
+                try (IcebergManifestPrefetcher prefetcher = new IcebergManifestPrefetcher(
+                        matchingDeletes.iterator(), concurrency, cached, deleteLoader, context, readPermits, () -> true,
+                        scheduler, sharedDeleteLoader, retainLoadOwner, false)) {
+                    scanContext.whenCancelled(prefetcher::cancel);
+                    while (prefetcher.hasNext()) {
+                        IcebergManifestPrefetcher.LoadedManifest loaded = prefetcher.next();
+                        scanContext.checkCancelled();
+                        int specId = loaded.manifest.partitionSpecId();
+                        ResidualEvaluator residual = residualEvaluators.get(specId);
+                        // Manifest summaries only reject whole manifests. Match the SDK's per-file row and
+                        // partition pruning before indexing, after type adaptation, without changing cached values.
+                        for (DeleteFile file : loaded.files.forScan(specsById.get(specId)).getDeleteFiles()) {
+                            scanContext.checkCancelled();
+                            if (!cacheEnabled || matchesFileFilter(file, metricsEvaluator, residual)) {
+                                deleteFiles.add(cacheEnabled ? IcebergManifestLoader.copyDeleteForIndex(file) : file);
+                                if (!cacheEnabled && file.content() == FileContent.EQUALITY_DELETES) {
+                                    equalityFields.addAll(file.equalityFieldIds());
+                                }
+                            } else if (scanMetrics != null) {
+                                scanMetrics.skippedDeleteFiles().increment();
+                            }
+                        }
                     }
+                } catch (IOException e) {
+                    throw new RuntimeException("Failed to close Iceberg delete manifests", e);
                 }
-                scanContext.checkCancelled();
-                deleteFiles.addAll(value.forScan(spec).getDeleteFiles());
             }
             DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
                     .schemasById(table.schemas())
                     .specsById(specsById)
                     .caseSensitive(caseSensitive)
+                    .scanMetrics(scanMetrics == null ? ScanMetrics.noop() : scanMetrics)
                     .build();
+
+            // Read statistics for predicates, retain requested/equality-key statistics in the window, then
+            // discard internal equality-key maps only after delete association. Shared cached values stay complete.
+            Set<Integer> requiredStats = deleteIndex.hasEqualityDeletes() ? equalityFields : Collections.emptySet();
+            boolean hasPredicate = filterExpr != Expressions.alwaysTrue();
+            SchemaAwareDataTableScan.DataFileProjection dataProjection = cacheEnabled ? null
+                    : SchemaAwareDataTableScan.dataFileProjection(scan, requiredStats, hasPredicate);
+            Function<ManifestFile, ManifestCacheValue> loader = cacheEnabled ? deleteLoader
+                    : IcebergManifestLoader.uncachedLoader(table, dataProjection.manifestColumns(), filters,
+                            dataProjection::copyForManifest, scanContext::checkCancelled);
+            Function<ManifestFile, CompletionStage<ManifestCacheValue>> sharedLoader = cacheEnabled ? sharedDeleteLoader
+                    : manifest -> CompletableFuture.completedFuture(loader.apply(manifest));
 
             scanContext.checkCancelled();
             CloseableIterable<ManifestFile> matching =
-                    getMatchingManifest(snapshot.dataManifests(table.io()), specsById, filterExpr,
-                            scanContext::checkCancelled);
+                    getMatchingManifest(data, specsById, filterExpr, scanContext::checkCancelled, scanMetrics, false);
             CloseableIterable<ManifestFile> dataManifests = CloseableIterable.filter(matching,
                     manifest -> manifest.content() == ManifestContent.DATA
                             && specsById.containsKey(manifest.partitionSpecId())
                             && residualEvaluators.containsKey(manifest.partitionSpecId()));
             return new CloseableIterable<FileScanTask>() {
-                private ManifestCacheFileScanTaskIterator iterator;
+                private ManifestFileScanTaskIterator iterator;
                 private boolean closed;
 
                 @Override
@@ -3340,21 +3491,19 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     }
                     IcebergManifestPrefetcher prefetcher = new IcebergManifestPrefetcher(
                             dataManifests.iterator(), concurrency,
-                            manifest -> reader.cachedOnly(manifest, statsQueryId),
-                            manifest -> reader.read(manifest, statsQueryId), context, readPermits,
-                            readControl::allowPrefetch, scheduler,
-                            manifest -> reader.readFuture(manifest, statsQueryId),
-                            retainLoadOwner);
+                            cached, loader, context, readPermits, readControl::allowPrefetch, scheduler,
+                            sharedLoader, retainLoadOwner);
                     scanContext.whenCancelled(prefetcher::cancel);
                     scanContext.checkCancelled();
-                    iterator = new ManifestCacheFileScanTaskIterator(prefetcher, specsById,
-                            residualEvaluators, metricsEvaluator, deleteIndex, schemaJson, scanContext::checkCancelled);
+                    iterator = new ManifestFileScanTaskIterator(prefetcher, specsById,
+                            residualEvaluators, metricsEvaluator, deleteIndex, schemaJson,
+                            scanContext::checkCancelled, scanMetrics, cacheEnabled, dataProjection);
                     return iterator;
                 }
 
                 @Override
                 public void close() throws IOException {
-                    ManifestCacheFileScanTaskIterator active;
+                    ManifestFileScanTaskIterator active;
                     synchronized (this) {
                         if (closed) {
                             return;
@@ -3370,7 +3519,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         try {
                             dataManifests.close();
                         } finally {
-                            if (!statementOwned) {
+                            if (cacheEnabled && !statementOwned) {
                                 reader.close();
                             }
                         }
@@ -3378,7 +3527,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 }
             };
         } catch (RuntimeException | Error failure) {
-            if (!statementOwned) {
+            if (cacheEnabled && !statementOwned) {
                 try {
                     reader.close();
                 } catch (RuntimeException cleanupFailure) {
@@ -3387,6 +3536,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
             throw failure;
         }
+    }
+
+    private static boolean matchesFileFilter(ContentFile<?> file, InclusiveMetricsEvaluator metrics,
+            ResidualEvaluator residual) {
+        return metrics.eval(file) && !residual.residualFor(file.partition()).equals(Expressions.alwaysFalse());
     }
 
     private static int manifestReadConcurrency(ConnectorSession session) {
@@ -3415,14 +3569,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Lazy flat-map iterator behind {@link #cacheBackedFileScanTasks}: walks the matching data manifests, reads
-     * each through the manifest cache on demand, and yields the surviving (metrics + residual pruned)
+     * Lazy flat-map iterator behind {@link #manifestFileScanTasks}: walks the matching data manifests, reads
+     * each through the selected loader on demand, and yields the surviving (metrics + residual pruned)
      * {@link BaseFileScanTask}s one file at a time so the consumer never holds the whole table's task list. Not
      * thread-safe: single-pass, driven by ONE consumer (the sync materialize loop, the streaming pump, or the
      * COUNT file validation). {@code schemaJson}/{@code currentSpecJson} are hoisted loop invariants (constant per
      * table / per manifest spec), byte-identical to the pre-PERF-04 per-file computation.
      */
-    private final class ManifestCacheFileScanTaskIterator implements CloseableIterator<FileScanTask> {
+    private final class ManifestFileScanTaskIterator implements CloseableIterator<FileScanTask> {
         private final IcebergManifestPrefetcher manifestIt;
         private volatile boolean closed;
         private final Map<Integer, PartitionSpec> specsById;
@@ -3431,16 +3585,20 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private final DeleteFileIndex deleteIndex;
         private final String schemaJson;
         private final Runnable checkCancelled;
+        private final ScanMetrics scanMetrics;
+        private final boolean filterFiles;
+        private final SchemaAwareDataTableScan.DataFileProjection dataProjection;
 
         private Iterator<DataFile> dataFileIt;
         private ResidualEvaluator currentResidual;
         private String currentSpecJson;
         private FileScanTask next;
 
-        ManifestCacheFileScanTaskIterator(IcebergManifestPrefetcher manifestIt,
+        ManifestFileScanTaskIterator(IcebergManifestPrefetcher manifestIt,
                 Map<Integer, PartitionSpec> specsById, Map<Integer, ResidualEvaluator> residualEvaluators,
                 InclusiveMetricsEvaluator metricsEvaluator, DeleteFileIndex deleteIndex, String schemaJson,
-                Runnable checkCancelled) {
+                Runnable checkCancelled, ScanMetrics scanMetrics, boolean filterFiles,
+                SchemaAwareDataTableScan.DataFileProjection dataProjection) {
             this.manifestIt = manifestIt;
             this.specsById = specsById;
             this.residualEvaluators = residualEvaluators;
@@ -3448,6 +3606,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             this.deleteIndex = deleteIndex;
             this.schemaJson = schemaJson;
             this.checkCancelled = checkCancelled;
+            this.scanMetrics = scanMetrics;
+            this.filterFiles = filterFiles;
+            this.dataProjection = dataProjection;
         }
 
         @Override
@@ -3467,21 +3628,24 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return result;
         }
 
-        // Fill `next` with the next surviving task, draining the current data manifest's files and advancing to
-        // further data manifests as needed. Per-file logic mirrors the pre-PERF-04 materialized Phase 2 exactly.
+        // Cached manifests are pruned here. Uncached readers already pruned before copying their results.
         private void advance() {
             while (!closed && next == null) {
                 checkCancelled.run();
                 if (dataFileIt != null && dataFileIt.hasNext()) {
                     DataFile dataFile = dataFileIt.next();
-                    if (!metricsEvaluator.eval(dataFile)) {
-                        continue;
-                    }
-                    if (currentResidual.residualFor(dataFile.partition()).equals(Expressions.alwaysFalse())) {
+                    if (filterFiles && !matchesFileFilter(dataFile, metricsEvaluator, currentResidual)) {
+                        if (scanMetrics != null) {
+                            scanMetrics.skippedDataFiles().increment();
+                        }
                         continue;
                     }
                     DeleteFile[] deletes = deleteIndex.forDataFile(dataFile.dataSequenceNumber(), dataFile);
-                    next = new BaseFileScanTask(dataFile, deletes, schemaJson, currentSpecJson, currentResidual);
+                    DataFile taskFile = dataProjection == null ? dataFile : dataProjection.forTask(dataFile);
+                    if (scanMetrics != null) {
+                        ScanMetricsUtil.fileTask(scanMetrics, taskFile, deletes);
+                    }
+                    next = new BaseFileScanTask(taskFile, deletes, schemaJson, currentSpecJson, currentResidual);
                     return;
                 }
                 if (!manifestIt.hasNext()) {
@@ -3546,26 +3710,45 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     private static CloseableIterable<ManifestFile> getMatchingManifest(List<ManifestFile> dataManifests,
             Map<Integer, PartitionSpec> specsById, Expression dataFilter, Runnable checkCancelled) {
+        return getMatchingManifest(dataManifests, specsById, dataFilter, checkCancelled, null, false);
+    }
+
+    private static CloseableIterable<ManifestFile> getMatchingManifest(List<ManifestFile> manifests,
+            Map<Integer, PartitionSpec> specsById, Expression dataFilter, Runnable checkCancelled,
+            ScanMetrics scanMetrics, boolean deleteManifests) {
         Map<Integer, ManifestEvaluator> evalCache = new HashMap<>();
+        Counter skipped = scanMetrics == null ? null
+                : deleteManifests ? scanMetrics.skippedDeleteManifests() : scanMetrics.skippedDataManifests();
         CloseableIterable<ManifestFile> matching = CloseableIterable.filter(
-                CloseableIterable.withNoopClose(dataManifests),
+                CloseableIterable.withNoopClose(manifests),
                 manifest -> {
                     checkCancelled.run();
-                    return evalCache.computeIfAbsent(manifest.partitionSpecId(), specId -> {
+                    boolean matches = evalCache.computeIfAbsent(manifest.partitionSpecId(), specId -> {
                         PartitionSpec spec = specsById.get(specId);
                         return ManifestEvaluator.forPartitionFilter(
                                 Expressions.and(Expressions.alwaysTrue(),
                                         Projections.inclusive(spec, true).project(dataFilter)),
                                 spec, true);
                     }).eval(manifest);
+                    if (!matches && skipped != null) {
+                        skipped.increment();
+                    }
+                    return matches;
                 });
-        return CloseableIterable.filter(matching,
-                manifest -> manifest.hasAddedFiles() || manifest.hasExistingFiles());
+        CloseableIterable<ManifestFile> live = CloseableIterable.filter(matching, manifest -> {
+            boolean hasLiveFiles = manifest.hasAddedFiles() || manifest.hasExistingFiles();
+            if (!hasLiveFiles && skipped != null) {
+                skipped.increment();
+            }
+            return hasLiveFiles;
+        });
+        return scanMetrics == null ? live : CloseableIterable.count(deleteManifests
+                ? scanMetrics.scannedDeleteManifests() : scanMetrics.scannedDataManifests(), live);
     }
 
     /**
-     * Port of legacy {@code IcebergUtils.isManifestCacheEnabled}: the manifest-level path is used iff the
-     * manifest cache is wired AND the spec is enabled ({@code enable && ttl-second != 0 && capacity != 0}).
+     * Parsed-result retention gate: the manifest cache is used iff it is wired AND its spec is enabled
+     * ({@code enable && ttl-second != 0 && capacity != 0}). Bounded loading is independent of this policy.
      * The {@code .ttl-second}/{@code .capacity} properties feed ONLY this formula (legacy quirk); the cache
      * itself is fixed no-TTL / capacity 100000. Parsing is best-effort (blank/unparseable falls back to the
      * default) via the shared {@link CacheSpec}, matching the legacy fe-core behavior.
@@ -3596,6 +3779,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private long determineTargetFileSplitSize(List<? extends ContentScanTask<?>> tasks,
             ConnectorSession session) {
+        return determineTargetFileSplitSize(tasks, session, -1);
+    }
+
+    private long determineTargetFileSplitSize(List<? extends ContentScanTask<?>> tasks,
+            ConnectorSession session, long coarseSplitSize) {
         long maxInitialSplitSize = sessionLong(session, MAX_INITIAL_FILE_SPLIT_SIZE,
                 DEFAULT_MAX_INITIAL_FILE_SPLIT_SIZE);
         long maxSplitSize = sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE);
@@ -3610,7 +3798,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 exceedInitialThreshold = true;
             }
         }
-        long result = exceedInitialThreshold ? maxSplitSize : maxInitialSplitSize;
+        long result = coarseSplitSize > 0 ? coarseSplitSize
+                : exceedInitialThreshold ? maxSplitSize : maxInitialSplitSize;
         if (maxFileSplitNum > 0 && total > 0) {
             long minSplitSizeForMaxNum = (total + maxFileSplitNum - 1) / maxFileSplitNum;
             result = Math.max(result, minSplitSizeForMaxNum);
@@ -3827,6 +4016,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         directLoader);
         rejectServerSideScanPlanning(base, handle);
         IcebergEncryptionRead.check(base, catalogProps, context);
+        if (!isPositionDeletesSysTable(handle) && IcebergEncryptionRead.isEncrypted(base)) {
+            // JNI serializes SDK tasks beyond the native key/transport contract; keep that path closed.
+            throw new DorisConnectorException("Iceberg encryption [UNSUPPORTED_METADATA_TABLE]");
+        }
         return base;
     }
 
@@ -3852,6 +4045,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private final List<String> rewriteFileScope;
         private final Optional<ConnectorExpression> filter;
         private final boolean countPushdown;
+        private final long coarseSplitSize;
 
         private IcebergScanReuseKey(IcebergTableHandle handle, ConnectorScanRequest request) {
             this.dbName = handle.getDbName();
@@ -3867,6 +4061,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                             .collect(Collectors.toList());
             this.filter = request.getFilter();
             this.countPushdown = request.isCountPushdown();
+            this.coarseSplitSize = request.getCoarseSplitSize();
         }
 
         @Override
@@ -3881,6 +4076,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return snapshotId == that.snapshotId
                     && schemaId == that.schemaId
                     && countPushdown == that.countPushdown
+                    && coarseSplitSize == that.coarseSplitSize
                     && Objects.equals(dbName, that.dbName)
                     && Objects.equals(tableName, that.tableName)
                     && Objects.equals(ref, that.ref)
@@ -3891,7 +4087,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         @Override
         public int hashCode() {
             return Objects.hash(dbName, tableName, snapshotId, ref, schemaId,
-                    rewriteFileScope, filter, countPushdown);
+                    rewriteFileScope, filter, countPushdown, coarseSplitSize);
         }
 
         @Override

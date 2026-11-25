@@ -23,6 +23,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.BackendServiceProxy.BackendRpcTarget;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.rpc.TCustomProtocolFactory;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -52,7 +53,6 @@ public class ResultReceiver {
     private Status runStatus = new Status();
     private long packetIdx = 0;
     private long timeoutTs = 0;
-    private TNetworkAddress address;
     private Types.PUniqueId queryId;
     private Types.PUniqueId instanceId;
     private Long backendId;
@@ -60,14 +60,26 @@ public class ResultReceiver {
     private volatile Future<InternalService.PFetchDataResult> fetchDataAsyncFuture = null;
     private Boolean enableParallelResultSink = false;
 
+    private final BackendRpcTarget target;
     int maxMsgSizeOfResultReceiver;
 
     public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs,
             int maxMsgSizeOfResultReceiver, Boolean enableParallelResultSink) {
+        this(queryId, tid, backendId, address, timeoutTs, maxMsgSizeOfResultReceiver, enableParallelResultSink, true);
+    }
+
+    public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs,
+            int maxMsgSizeOfResultReceiver, Boolean enableParallelResultSink, boolean internalRpc) {
+        this(queryId, tid, backendId, new BackendRpcTarget(address, BackendServiceProxy.getInstance(internalRpc)),
+                timeoutTs, maxMsgSizeOfResultReceiver, enableParallelResultSink);
+    }
+
+    public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, BackendRpcTarget target, long timeoutTs,
+            int maxMsgSizeOfResultReceiver, Boolean enableParallelResultSink) {
+        this.target = target;
         this.queryId = Types.PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build();
         this.instanceId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
         this.backendId = backendId;
-        this.address = address;
         this.timeoutTs = timeoutTs;
         this.maxMsgSizeOfResultReceiver = maxMsgSizeOfResultReceiver;
         this.enableParallelResultSink = enableParallelResultSink;
@@ -87,8 +99,7 @@ public class ResultReceiver {
                 .setRespInAttachment(false)
                 .build();
         try {
-            fetchDataAsyncFuture = BackendServiceProxy.getInstance().fetchDataAsyncWithCallback(address, request,
-                    callback);
+            fetchDataAsyncFuture = target.fetch(request, callback);
         } catch (RpcException e) {
             LOG.warn("fetch result rpc exception, finstId={}", DebugUtil.printId(getRealFinstId()), e);
             SimpleScheduler.addToBlacklist(backendId, e.getMessage());

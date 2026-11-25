@@ -32,7 +32,7 @@ import java.util.Map;
  * {@code IcebergCatalogFactory}). Ports the legacy {@code IcebergRestProperties.initNormalizeAndCheckProps}
  * validation verbatim (§4 of the P6-T10 design), in observable fire order:
  * <ol>
- *   <li>security-type enum (none/oauth2)</li>
+ *   <li>security-type enum (none/oauth2/google)</li>
  *   <li>AWS credentials-provider mode enum</li>
  *   <li>OAuth2 scope-only-with-credential (eager)</li>
  *   <li>OAuth2 requires credential-or-token (eager)</li>
@@ -61,7 +61,9 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
     private static final String TOKEN_MODE_ACCESS_TOKEN = "access_token";
     private static final String TOKEN_MODE_TOKEN_EXCHANGE = "token_exchange";
 
-    @ConnectorProperty(names = {"iceberg.rest.uri", "uri"}, required = false,
+    // URI values may contain credentials; the shared alias still needs value-aware catalog rendering.
+    @ConnectorProperty(names = {"iceberg.rest.uri", "uri"}, required = false, sensitive = true,
+            sensitiveInDiagnosticsOnly = true,
             description = "The endpoint of the iceberg rest catalog service.")
     private String uri = "";
 
@@ -84,8 +86,16 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
     private String socketTimeoutMs = "60000";
 
     @ConnectorProperty(names = {"iceberg.rest.security.type"}, required = false,
-            description = "The security type of the iceberg rest catalog service, optional: (none, oauth2).")
+            description = "The security type of the iceberg rest catalog service, optional: (none, oauth2, google).")
     private String securityType = "none";
+
+    @ConnectorProperty(names = {"iceberg.rest.io-impl"}, required = false,
+            description = "The FileIO implementation for the iceberg rest catalog service.")
+    private String ioImpl;
+
+    @ConnectorProperty(names = {"iceberg.rest.google.user-project"}, required = false,
+            description = "The Google project to be billed for using the iceberg rest catalog service.")
+    private String googleUserProject;
 
     @ConnectorProperty(names = {"iceberg.rest.credentials_provider_type"}, required = false,
             description = "The credentials provider type for AWS authentication.")
@@ -126,7 +136,8 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
             description = "True for Glue/S3Tables/OSS Tables Rest Catalog.")
     private String sigV4Enabled = "";
 
-    @ConnectorProperty(names = {"iceberg.rest.access-key-id"}, required = false,
+    // Access-key identifiers follow the same diagnostic masking rule as their secret key.
+    @ConnectorProperty(names = {"iceberg.rest.access-key-id"}, required = false, sensitive = true,
             description = "The access key ID for the iceberg rest catalog service.")
     private String accessKeyId = "";
 
@@ -205,6 +216,14 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
 
     public String getSecurityType() {
         return securityType;
+    }
+
+    public String getIoImpl() {
+        return ioImpl;
+    }
+
+    public String getGoogleUserProject() {
+        return googleUserProject;
     }
 
     public String getCredentialsProviderType() {
@@ -287,9 +306,10 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
     @Override
     public void validate() {
         // 1. security type (legacy validateSecurityType: Security.valueOf(securityType.toUpperCase())).
-        if (!"none".equalsIgnoreCase(securityType) && !"oauth2".equalsIgnoreCase(securityType)) {
+        if (!"none".equalsIgnoreCase(securityType) && !"oauth2".equalsIgnoreCase(securityType)
+                && !"google".equalsIgnoreCase(securityType)) {
             throw new IllegalArgumentException("Invalid security type: " + securityType
-                    + ". Supported values are: none, oauth2");
+                    + ". Supported values are: none, oauth2, google");
         }
         // 2. AWS credentials-provider mode (legacy AwsCredentialsProviderMode.fromString).
         validateCredentialsProviderMode();

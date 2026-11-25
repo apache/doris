@@ -27,6 +27,7 @@
 #else
 #include "benchmark_analyzer.hpp"
 #include "benchmark_array_range.hpp"
+#include "benchmark_arrays_overlap.hpp"
 #include "benchmark_arrow_validation.hpp"
 #include "benchmark_binary_arithmetic.hpp"
 #include "benchmark_bit_pack.hpp"
@@ -40,6 +41,7 @@
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_hybrid_set.hpp"
 #include "benchmark_json_extract.hpp"
+#include "benchmark_md5.hpp"
 #include "benchmark_relative_day.hpp"
 #include "benchmark_rowid_conversion.hpp"
 #include "benchmark_timestamptz_round.hpp"

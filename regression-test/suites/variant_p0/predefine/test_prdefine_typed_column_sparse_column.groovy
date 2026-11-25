@@ -22,8 +22,8 @@ suite("test_predefine_typed_sparse", "p0"){
             "'([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})[.]000000', '\\\\1')"
 
     def tableName = "test_predefine_typed_sparse"
-    sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """CREATE TABLE ${tableName} (
         `id` bigint NULL,

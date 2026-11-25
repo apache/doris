@@ -19,6 +19,7 @@ package org.apache.doris.connector.lance;
 
 import org.apache.doris.filesystem.properties.StorageProperties;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -67,6 +68,19 @@ interface LanceStorageProvider {
      */
     Map<String, String> normalizeVendedStorageOptions(Map<String, String> vendedOptions);
 
+    /** Merges canonical options, reconciling provider settings that depend on one another. */
+    default Map<String, String> mergeStorageOptions(String datasetUri, Map<String, String> catalogOptions,
+            Map<String, String> vendedOptions) {
+        Map<String, String> merged = new HashMap<>(catalogOptions);
+        merged.putAll(vendedOptions);
+        return merged;
+    }
+
+    /** Checks authentication after namespace-vended options have replaced the catalog's options. */
+    default void validateStorageOptions(List<StorageProperties> storageProperties,
+            Map<String, String> effectiveOptions) {
+    }
+
     /**
      * Derives provider options from the fully normalized and merged option map.
      *
@@ -80,6 +94,9 @@ interface LanceStorageProvider {
         String scheme = schemeOf(datasetUri);
         if (S3_SCHEMES.contains(scheme)) {
             return LanceS3StorageProvider.INSTANCE;
+        }
+        if ("oss".equals(scheme)) {
+            return LanceOssStorageProvider.INSTANCE;
         }
         return LancePassThroughStorageProvider.INSTANCE;
     }

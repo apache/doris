@@ -435,6 +435,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HBO_RFSAFE_THRESHOLD = "hbo_rfsafe_threshold";
     public static final String HBO_ROW_MATCHING_THRESHOLD = "hbo_row_matching_threshold";
     public static final String HBO_SKEW_RATIO_THRESHOLD = "hbo_skew_ratio_threshold";
+    public static final String HBO_MAX_SCANS_PER_GROUP = "hbo_max_scans_per_group";
+    public static final String SHOW_HBO_FINGERPRINT = "show_hbo_fingerprint";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
     public static final String REQUIRED_GROUP_IDS = "required_group_ids";
 
@@ -563,6 +565,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
     public static final String ENABLE_PARQUET_FILE_PAGE_CACHE = "enable_parquet_file_page_cache";
     public static final String ENABLE_PARQUET_WRITE_PAGE_INDEX = "enable_parquet_write_page_index";
+    public static final String ENABLE_PARQUET_WRITE_BLOOM_FILTER = "enable_parquet_write_bloom_filter";
     public static final String PARQUET_WRITE_DATA_PAGE_SIZE = "parquet_write_data_page_size";
 
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
@@ -576,6 +579,10 @@ public class SessionVariable implements Serializable, Writable {
 
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
+
+    public static final String FILE_SPLIT_SIZE_ON_FE = "file_split_size_on_fe";
+
+    public static final String FILE_SPLIT_SIZE_ON_BE = "file_split_size_on_be";
 
     public static final String MAX_INITIAL_FILE_SPLIT_SIZE = "max_initial_file_split_size";
 
@@ -1031,23 +1038,23 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ANN_INDEX_CANDIDATE_ROWS_PERCENT_THRESHOLD =
             "ann_index_candidate_rows_percent_threshold";
 
-    public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
+    public static final String DEBUG_VARIANT_MAX_SUBCOLUMNS_COUNT = "debug_variant_max_subcolumns_count";
 
-    public static final String DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
-                                                            "default_variant_enable_typed_paths_to_sparse";
+    public static final String DEBUG_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
+                                                            "debug_variant_enable_typed_paths_to_sparse";
 
-    public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
-                                                            "default_variant_max_sparse_column_statistics_size";
-    public static final String DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT = "default_variant_sparse_hash_shard_count";
+    public static final String DEBUG_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
+                                                            "debug_variant_max_sparse_column_statistics_size";
+    public static final String DEBUG_VARIANT_SPARSE_HASH_SHARD_COUNT = "debug_variant_sparse_hash_shard_count";
 
-    public static final String DEFAULT_VARIANT_ENABLE_DOC_MODE = "default_variant_enable_doc_mode";
+    public static final String DEBUG_VARIANT_ENABLE_DOC_MODE = "debug_variant_enable_doc_mode";
 
-    public static final String DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
-            "default_variant_doc_materialization_min_rows";
+    public static final String DEBUG_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
+            "debug_variant_doc_materialization_min_rows";
 
-    public static final String DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT = "default_variant_doc_hash_shard_count";
+    public static final String DEBUG_VARIANT_DOC_HASH_SHARD_COUNT = "debug_variant_doc_hash_shard_count";
 
-    public static final String DEFAULT_VARIANT_ENABLE_NESTED_GROUP = "default_variant_enable_nested_group";
+    public static final String DEBUG_VARIANT_ENABLE_NESTED_GROUP = "debug_variant_enable_nested_group";
 
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
@@ -2136,6 +2143,10 @@ public class SessionVariable implements Serializable, Writable {
         return hboSkewRatioThreshold;
     }
 
+    public int getHboMaxScansPerGroup() {
+        return hboMaxScansPerGroup;
+    }
+
     @VarAttrDef.VarAttr(name = ENABLE_HBO_OPTIMIZATION)
     private boolean enableHboOptimization = false;
 
@@ -2161,6 +2172,29 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = HBO_SKEW_RATIO_THRESHOLD, needForward = true)
     private int hboSkewRatioThreshold = 5;
+
+    /**
+     * The largest number of scan tokens a memo group's sub tree may contain for hbo struct info (and
+     * therefore for a hbo fingerprint) to be generated for that group. The canonical string of a
+     * group describes its whole sub tree, and in a chain of joins every group of the chain describes
+     * its own prefix, so an unbounded tree is described O(n^2) times. 20 keeps every TPC-DS shape of
+     * this repository (the widest single sub tree is query64's 19 scan join group) while refusing
+     * pathologically wide trees; a value <= 0 disables the limit.
+     */
+    @VarAttrDef.VarAttr(name = HBO_MAX_SCANS_PER_GROUP, needForward = true)
+    private int hboMaxScansPerGroup = 20;
+
+    public boolean isShowHboFingerprint() {
+        return showHboFingerprint;
+    }
+
+    /**
+     * When enabled, the physical plan shown by EXPLAIN appends per-node hbo fingerprint
+     * annotations (join/aggregation/filter), so users can copy a fingerprint and inject hbo
+     * statistics with the {@code HBO SET STATISTICS} statement.
+     */
+    @VarAttrDef.VarAttr(name = SHOW_HBO_FINGERPRINT)
+    private boolean showHboFingerprint = false;
 
     /**
      * as the new optimizer is not mature yet, use this var
@@ -2571,6 +2605,11 @@ public class SessionVariable implements Serializable, Writable {
             description = "Write ColumnIndex and OffsetIndex metadata to new Parquet files. Default is true.")
     public boolean enableParquetWritePageIndex = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_PARQUET_WRITE_BLOOM_FILTER, needForward = true,
+            description = "Write Bloom filters to new Parquet files, except BOOLEAN and INT96 columns. "
+                    + "Default is false.")
+    public boolean enableParquetWriteBloomFilter = false;
+
     @VarAttrDef.VarAttr(name = PARQUET_WRITE_DATA_PAGE_SIZE, needForward = true,
             checker = "checkParquetWriteDataPageSize",
             description = "Target uncompressed Parquet data-page size in bytes. Must be positive; default is 1048576.")
@@ -2589,6 +2628,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
+
+    @VarAttrDef.VarAttr(name = FILE_SPLIT_SIZE_ON_FE, needForward = true,
+            description = "Target bytes for FE coarse file splits when BE refinement is supported. Default: 512 MiB.")
+    public long fileSplitSizeOnFe = 512L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(name = FILE_SPLIT_SIZE_ON_BE, needForward = true,
+            description = "Target bytes for coalescing BE physical splits. Default: 64 MiB. "
+                    + "A nonpositive value does not disable BE refinement.")
+    public long fileSplitSizeOnBe = 64L * 1024L * 1024L;
 
     @VarAttrDef.VarAttr(
             name = MAX_INITIAL_FILE_SPLIT_SIZE,
@@ -3126,6 +3174,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
 
+    /** Read by the lance connector, which matches this name byte for byte; it must stay visible. */
+    public static final String LANCE_FRAGMENTS_PER_SPLIT = "lance_fragments_per_split";
+
     @VarAttrDef.VarAttr(name = FLUSS_UNION_READ_MODE,
             checker = "checkFlussUnionReadMode",
             options = {"", "auto", "required", "disabled"},
@@ -3135,6 +3186,13 @@ public class SessionVariable implements Serializable, Writable {
                     + "alone. The default, empty, follows the catalog's fluss.union_read.mode property. "
                     + "The value set belongs to the fluss connector, which rejects anything else")
     public String flussUnionReadMode = "";
+
+    @VarAttrDef.VarAttr(name = LANCE_FRAGMENTS_PER_SPLIT, needForward = true,
+            checker = "checkLanceFragmentsPerSplit",
+            description = "Debug override for ordinary Lance scans. Default 0 uses automatic splitting; "
+                    + "a positive value groups that many fragments per split, bypassing scalar index segment "
+                    + "scans. Does not affect vector or full-text searches")
+    public int lanceFragmentsPerSplit = 0;
 
     @VarAttrDef.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,
             description = "The minimum memory required to be used by an operator, if not meet, the operator will not "
@@ -3473,10 +3531,13 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = SPILL_BUFFER_SIZE_BYTES, fuzzy = true, needForward = true,
             description = "Maximum block size for spill writes (in bytes). Blocks larger than this threshold are "
                     + "split before writing to disk. Also controls per-file read buffer size during merge sort. "
-                    + "Default is 8MB.")
+                    + "Default is 8 MiB. Range is [1 MiB, 256 MiB]; "
+                    + "out-of-range values are clamped to the nearest bound.")
     public long spillBufferSizeBytes = 8L * 1024L * 1024L;
 
-    @VarAttrDef.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, needForward = true, fuzzy = true)
+    @VarAttrDef.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, needForward = true, fuzzy = true,
+            description = "Number of partitions for aggregation spill. Default is 4. Range is [2, 32]; "
+                    + "out-of-range values are clamped to the nearest bound.")
     public int spillAggregationPartitionCount = 4;
 
     @VarAttrDef.VarAttr(name = LOW_MEMORY_MODE_BUFFER_LIMIT, needForward = true, fuzzy = false)
@@ -3489,12 +3550,14 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, needForward = true, fuzzy = false)
     public long spillStreamingAggMemLimit = 268435456; //256MB
 
-    @VarAttrDef.VarAttr(name = SPILL_HASH_JOIN_PARTITION_COUNT, needForward = true, fuzzy = true)
+    @VarAttrDef.VarAttr(name = SPILL_HASH_JOIN_PARTITION_COUNT, needForward = true, fuzzy = true,
+            description = "Number of partitions for hash join spill. Default is 4. Range is [2, 32]; "
+                    + "out-of-range values are clamped to the nearest bound.")
     public int spillHashJoinPartitionCount = 4;
 
     @VarAttrDef.VarAttr(name = SPILL_REPARTITION_MAX_DEPTH, fuzzy = true, needForward = true,
             description = "Maximum depth for repartition recursion. When exceeded, repartitioning will stop. Default "
-                    + "is 8.")
+                    + "is 8. Range is [1, 128]; out-of-range values are clamped to the nearest bound.")
     public int spillRepartitionMaxDepth = 8;
 
     @VarAttrDef.VarAttr(name = SPILL_JOIN_BUILD_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
@@ -3503,9 +3566,11 @@ public class SessionVariable implements Serializable, Writable {
     public long spillJoinBuildSinkMemLimitBytes = 64L * 1024L * 1024L;
 
     @VarAttrDef.VarAttr(name = SPILL_AGGREGATION_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
-            description = "After spill is triggered, aggregation sink will proactively spill when revocable memory "
-                    + "exceeds this threshold (in bytes). Default is 64GB.")
-    public long spillAggregationSinkMemLimitBytes = 64L * 1024L * 1024L * 1024L;
+            description = "After aggregation starts spilling, the sink proactively spills when revocable memory "
+                    + "reaches this threshold (in bytes), not a query memory limit or the initial spill trigger. "
+                    + "Default is 64 MiB. Range is [1 MiB, 4 GiB]; "
+                    + "out-of-range values are clamped to the nearest bound.")
+    public long spillAggregationSinkMemLimitBytes = 64L * 1024L * 1024L;
 
     @VarAttrDef.VarAttr(name = SPILL_SORT_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
             description = "After spill is triggered, sort sink will proactively spill when revocable memory "
@@ -3518,9 +3583,10 @@ public class SessionVariable implements Serializable, Writable {
     public long spillAnalyticSinkMemLimitBytes = 64L * 1024L * 1024L;
 
     @VarAttrDef.VarAttr(name = SPILL_SORT_MERGE_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
-            description = "After spill is triggered, total memory budget for the sort merge phase (in bytes). "
-                    + "Divided by spill_buffer_size_bytes gives the number of files that can be merged "
-                    + "in parallel. Default is 64MB.")
+            description = "Budget used to derive spill sort merge fan-in (in bytes), not a hard memory limit. "
+                    + "Query sort merges up to max(8, floor(budget / spill_buffer_size_bytes)) files at a time. "
+                    + "Default is 64 MiB. Range is [1 MiB, 4 GiB]; "
+                    + "out-of-range values are clamped to the nearest bound.")
     public long spillSortMergeMemLimitBytes = 64L * 1024L * 1024L;
 
     @VarAttrDef.VarAttr(name = SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT, fuzzy = true)
@@ -3740,7 +3806,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
+            name = DEBUG_VARIANT_MAX_SUBCOLUMNS_COUNT,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantMaxSubcolumnsCount",
@@ -3749,7 +3815,7 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantMaxSubcolumnsCount = 2048;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+            name = DEBUG_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3758,7 +3824,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean defaultEnableTypedPathsToSparse = false;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
+            name = DEBUG_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantMaxSparseColumnStatisticsSize",
@@ -3775,7 +3841,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableHyperscanFallback = true;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
+            name = DEBUG_VARIANT_SPARSE_HASH_SHARD_COUNT,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3789,7 +3855,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean cloudPartitionsTableUseCachedVisibleVersion = true;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_ENABLE_DOC_MODE,
+            name = DEBUG_VARIANT_ENABLE_DOC_MODE,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3798,7 +3864,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean defaultVariantEnableDocMode = false;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
+            name = DEBUG_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3807,7 +3873,7 @@ public class SessionVariable implements Serializable, Writable {
     public long defaultVariantDocMaterializationMinRows = 0L;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT,
+            name = DEBUG_VARIANT_DOC_HASH_SHARD_COUNT,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -3816,7 +3882,7 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantDocHashShardCount = 64;
 
     @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_ENABLE_NESTED_GROUP,
+            name = DEBUG_VARIANT_ENABLE_NESTED_GROUP,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
@@ -4625,6 +4691,12 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkLanceFragmentsPerSplit(String value) {
+        if (Integer.parseInt(value) < 0) {
+            throw new InvalidParameterException("lance_fragments_per_split must be non-negative");
+        }
+    }
+
     public void checkFlussUnionReadMode(String mode) {
         String normalized = Strings.nullToEmpty(mode).trim().toLowerCase(Locale.ROOT);
         if (!normalized.isEmpty() && !"auto".equals(normalized)
@@ -5076,6 +5148,22 @@ public class SessionVariable implements Serializable, Writable {
 
     public long getFileSplitSize() {
         return fileSplitSize;
+    }
+
+    public long getFileSplitSizeOnFe() {
+        return fileSplitSizeOnFe;
+    }
+
+    public void setFileSplitSizeOnFe(long fileSplitSizeOnFe) {
+        this.fileSplitSizeOnFe = fileSplitSizeOnFe;
+    }
+
+    public long getFileSplitSizeOnBe() {
+        return fileSplitSizeOnBe;
+    }
+
+    public void setFileSplitSizeOnBe(long fileSplitSizeOnBe) {
+        this.fileSplitSizeOnBe = fileSplitSizeOnBe;
     }
 
     public void setFileSplitSize(long fileSplitSize) {
@@ -5890,6 +5978,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParquetLazyMat(enableParquetLazyMat);
         // Query options carry the same write policy to OUTFILE and catalog sinks.
         tResult.setEnableParquetWritePageIndex(enableParquetWritePageIndex);
+        tResult.setEnableParquetWriteBloomFilter(enableParquetWriteBloomFilter);
         tResult.setParquetWriteDataPageSize(parquetWriteDataPageSize);
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
         tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
@@ -6093,7 +6182,7 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, normalizeIntValue(attr.name(), root.get(attr.name()).toString()));
                         break;
                     case "long":
-                        field.set(this, (Long) root.get(attr.name()));
+                        field.set(this, normalizeLongValue(attr.name(), (Long) root.get(attr.name())));
                         break;
                     case "float":
                         field.set(this, root.get(attr.name()));
@@ -6147,7 +6236,8 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, normalizeIntValue(attr.name(), sessionVarMap.get(attr.name())));
                         break;
                     case "long":
-                        field.set(this, Long.valueOf(sessionVarMap.get(attr.name())));
+                        field.set(this, normalizeLongValue(attr.name(),
+                                Long.parseLong(sessionVarMap.get(attr.name()))));
                         break;
                     case "float":
                         field.set(this, Float.valueOf(sessionVarMap.get(attr.name())));
@@ -6175,6 +6265,12 @@ public class SessionVariable implements Serializable, Writable {
         switch (name.toLowerCase(Locale.ROOT)) {
             case RUNTIME_FILTER_TYPE:
                 return (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+            // Match the spill ranges enforced by RuntimeState getters.
+            case SPILL_HASH_JOIN_PARTITION_COUNT:
+            case SPILL_AGGREGATION_PARTITION_COUNT:
+                return Math.max(2, Math.min(intValue, 32));
+            case SPILL_REPARTITION_MAX_DEPTH:
+                return Math.max(1, Math.min(intValue, 128));
             // Historical and forwarded values bypass statement-time validation. Keep them valid
             // before SET_VAR saves the original value for restoration through the strict setters.
             case PARALLEL_PIPELINE_TASK_NUM:
@@ -6192,6 +6288,19 @@ public class SessionVariable implements Serializable, Writable {
                 return Math.min(intValue, 256);
             default:
                 return intValue;
+        }
+    }
+
+    static long normalizeLongValue(String name, long value) {
+        // Match the spill ranges enforced by RuntimeState getters.
+        switch (name.toLowerCase(Locale.ROOT)) {
+            case SPILL_BUFFER_SIZE_BYTES:
+                return Math.max(1024L * 1024, Math.min(value, 256L * 1024 * 1024));
+            case SPILL_AGGREGATION_SINK_MEM_LIMIT_BYTES:
+            case SPILL_SORT_MERGE_MEM_LIMIT_BYTES:
+                return Math.max(1024L * 1024, Math.min(value, 4L * 1024 * 1024 * 1024));
+            default:
+                return value;
         }
     }
 
@@ -6911,11 +7020,11 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    // The default_variant_* variables only drive the tests, which run with debug points enabled. Users state VARIANT
+    // The debug_variant_* variables only drive the tests, which run with debug points enabled. Users state VARIANT
     // properties in the column definition, so a DDL text creates the same column in every session.
     public void checkDefaultVariantSettable(String value) {
         if (!Config.enable_debug_points) {
-            throw new UnsupportedOperationException("default_variant_* session variables are only for testing, "
+            throw new UnsupportedOperationException("debug_variant_* session variables are only for testing, "
                     + "set the property in the VARIANT column definition");
         }
     }

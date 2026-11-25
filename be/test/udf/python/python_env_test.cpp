@@ -26,6 +26,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "testutil/scoped_temp_dir.h"
+
 namespace doris {
 
 namespace fs = std::filesystem;
@@ -49,6 +51,8 @@ static PythonVersion create_fake_python_version_for_pip_list(const std::string& 
 
 class PythonEnvTest : public ::testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"python_env_test"};
+
     std::string test_dir_;
     // Some test frameworks set SIGCHLD to SIG_IGN,
     // which causes pclose() to get ECHILD because the kernel auto-reaps children.
@@ -59,8 +63,7 @@ protected:
     void (*old_sigchld_)(int) = SIG_DFL;
 
     void SetUp() override {
-        test_dir_ = fs::temp_directory_path().string() + "/python_env_test_" +
-                    std::to_string(getpid()) + "_" + std::to_string(rand());
+        test_dir_ = (scoped_temp_dir_.path() / "env").string();
         fs::create_directories(test_dir_);
         old_sigchld_ = signal(SIGCHLD, SIG_DFL);
     }

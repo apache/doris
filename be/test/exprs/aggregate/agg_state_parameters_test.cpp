@@ -711,9 +711,12 @@ TEST(AggregateStateParametersTest, WindowFunnelEventlessParameters) {
             }
         }
     }
+    // The input window must be nonnegative even when all events are false.
+    // Use 0 to check that an eventless state ignores an invalid mode.
+    // NegativeWindowWithFalseEvent separately checks that a window of -1 is rejected.
     check_ignored_parameters(
             "window_funnel_v2",
-            {argument<DataTypeInt64>(-1), argument<DataTypeString>("invalid"), timestamp, no, no},
+            {argument<DataTypeInt64>(0), argument<DataTypeString>("invalid"), timestamp, no, no},
             {argument<DataTypeInt64>(0), argument<DataTypeString>("default"), timestamp, no, no});
 }
 } // namespace doris

@@ -40,6 +40,7 @@
 #include "storage/index/inverted/snii/reader/snii_segment_reader.h"
 #include "storage/index/inverted/snii/writer/logical_index_writer.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using namespace doris::snii::format;
@@ -49,9 +50,10 @@ using doris::snii::stats::SniiStatsProvider;
 namespace {
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("snii_stats_provider_test");
     static int counter = 0;
-    return "/tmp/snii_stats_test_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
-           ".idx";
+    return (temp_dir.path() / "snii_stats_test_").string() + std::to_string(getpid()) + "_" +
+           std::to_string(counter++) + ".idx";
 }
 
 class ControllableFileReader final : public io::FileReader {

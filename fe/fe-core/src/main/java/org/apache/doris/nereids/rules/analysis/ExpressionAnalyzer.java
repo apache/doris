@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.MatchPredicate.Operator;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
@@ -67,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -476,6 +478,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     private Expression analyzeLambdaFunction(Expression lambdaFunction,
             List<Slot> boundedSlots, ExpressionRewriteContext context) {
+        // Check the body before binding can fold subqueries or resolve names in the lambda scope.
+        // Subqueries supplying the enclosing function's array inputs are outside this body.
+        if (lambdaFunction.containsType(SubqueryExpr.class)) {
+            throw new AnalysisException("Subqueries are not supported in lambda expressions");
+        }
         ExpressionAnalyzer enclosingAnalyzer = this;
         ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
                 boundedSlots), context == null ? null : context.cascadesContext,
@@ -1031,8 +1038,20 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
 
         if (left.getDataType().isVariantType()) {
-            left = new Cast(left, right.getDataType());
+            if (Match.hasVariantValuesIndex(left)) {
+                if (match.op() != Operator.MATCH_ANY && match.op() != Operator.MATCH_ALL) {
+                    throw new AnalysisException("VARIANT root column supports only MATCH, MATCH_ANY, and MATCH_ALL. "
+                            + "Please query a subcolumn for " + match);
+                }
+                if (!right.isConstant()) {
+                    throw new AnalysisException("VARIANT root MATCH requires a constant query expression: "
+                            + right.toSql());
+                }
+            } else {
+                left = new Cast(left, right.getDataType());
+            }
         }
+
         return match.withChildren(left, right);
     }
 

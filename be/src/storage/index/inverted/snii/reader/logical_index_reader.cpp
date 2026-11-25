@@ -48,6 +48,7 @@ namespace doris::snii::reader {
 
 struct LogicalIndexReader::NormsCacheState {
     struct Data {
+        // The dense section as read, or the sparse norms expanded to one byte per row.
         std::vector<uint8_t> bytes;
         format::NormsPodReader reader;
     };
@@ -83,8 +84,9 @@ constexpr uint64_t kDefaultDictResidentMaxBytes = 256ULL * 1024;
 constexpr size_t kMaxDictLookupBatchRuns = 16;
 constexpr uint64_t kMaxDictLookupBatchBytes = 4ULL * 1024 * 1024;
 // Conservatively covers make_shared's control block and allocator bookkeeping
-// for the state/data/vector allocations. The framed norms bytes are charged
-// separately at their exact validated length.
+// for the state/data/vector allocations. The loaded norms bytes are charged
+// separately: a dense section at its validated length, sparse norms at one
+// byte per row, the size they are expanded to.
 constexpr size_t kNormsAllocationOverheadCharge = 128;
 // The term lookup cache keeps at most this many terms per reader, each at most this long and with
 // at most this many bytes of inline postings, so its footprint has a fixed bound.
@@ -148,10 +150,7 @@ Status validate_norms_region(io::FileReader* reader, const RegionRef& norms, uin
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "logical_index: norms doc count exceeds uint32");
     }
-    const uint64_t payload_length = varint_len(doc_count) + doc_count;
-    const uint64_t expected_length =
-            1 + varint_len(payload_length) + payload_length + sizeof(uint32_t);
-    if (norms.length != expected_length) {
+    if (norms.length != format::NormsPodWriter::dense_section_size(doc_count)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "logical_index: norms region length mismatch");
     }
@@ -160,6 +159,36 @@ Status validate_norms_region(io::FileReader* reader, const RegionRef& norms, uin
                 "logical_index: norms region exceeds cache charge bounds");
     }
     *length = static_cast<size_t>(norms.length);
+    return Status::OK();
+}
+
+// Opening an index reads no norm bytes, so this checks only what the core metadata fixes: a sparse
+// section holds one byte per non-NULL row, or one byte that all of them share.
+Status validate_sparse_norms_region(io::FileReader* reader, const RegionRef& norms,
+                                    uint64_t doc_count, uint64_t null_count) {
+    if (norms.length == 0) {
+        return Status::OK();
+    }
+    const uint64_t file_size = reader->size();
+    if (norms.offset > file_size || norms.length > file_size - norms.offset) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: sparse norms region past end of file");
+    }
+    if (doc_count > std::numeric_limits<uint32_t>::max() || null_count > doc_count) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: sparse norms doc count {} with {} NULL rows", doc_count,
+                null_count);
+    }
+    const uint64_t value_count = doc_count - null_count;
+    const bool one_byte_per_row = norms.length == format::NormsPodWriter::sparse_section_size(
+                                                          doc_count, value_count, false);
+    const bool shared_byte =
+            value_count != 0 && norms.length == format::NormsPodWriter::sparse_section_size(
+                                                        doc_count, value_count, true);
+    if (!one_byte_per_row && !shared_byte) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: sparse norms region length mismatch");
+    }
     return Status::OK();
 }
 
@@ -465,14 +494,22 @@ Status LogicalIndexReader::open(io::FileReader* file_reader, Slice core_frame, S
     size_t norms_length = 0;
     RETURN_IF_ERROR(validate_norms_region(file_reader, candidate.core_.section_refs.norms,
                                           candidate.core_.stats.doc_count, &norms_length));
-    if (norms_length != 0) {
+    RETURN_IF_ERROR(validate_sparse_norms_region(
+            file_reader, candidate.core_.section_refs.sparse_norms, candidate.core_.stats.doc_count,
+            candidate.core_.stats.null_count));
+    if (candidate.has_norms()) {
+        // Dense norms stay in memory as the section read; sparse norms are expanded to one byte
+        // per row, which can be far more than their section on disk.
+        const size_t loaded_bytes = norms_length != 0
+                                            ? norms_length
+                                            : static_cast<size_t>(candidate.core_.stats.doc_count);
         constexpr size_t fixed_charge = sizeof(NormsCacheState) + sizeof(NormsCacheState::Data) +
                                         kNormsAllocationOverheadCharge;
-        if (norms_length > std::numeric_limits<size_t>::max() - fixed_charge) {
+        if (loaded_bytes > std::numeric_limits<size_t>::max() - fixed_charge) {
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                     "logical_index: norms cache charge overflow");
         }
-        candidate.norms_reserved_charge_ = fixed_charge + norms_length;
+        candidate.norms_reserved_charge_ = fixed_charge + loaded_bytes;
         candidate.norms_cache_ = std::make_shared<NormsCacheState>();
     }
     // Raw frames alias the group read and compressed carriers materialize into
@@ -550,8 +587,7 @@ Status LogicalIndexReader::open_norms(format::NormsPodReader* out) const {
     if (reader_ == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("logical_index: not opened");
     }
-    const RegionRef& norms = section_refs().norms;
-    if (norms.length == 0) {
+    if (!has_norms()) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "logical_index: index has no norms");
     }
@@ -584,15 +620,9 @@ Status LogicalIndexReader::open_norms(format::NormsPodReader* out) const {
     }
 
     auto data = std::make_unique<NormsCacheState::Data>();
-    const size_t read_len = static_cast<size_t>(norms.length);
-    Status status = reader_->read_at(norms.offset, read_len, &data->bytes);
-    if (status.ok() && data->bytes.size() != read_len) {
-        status = Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "logical_index: short norms read");
-    }
-    if (status.ok()) {
-        status = format::NormsPodReader::open(Slice(data->bytes), &data->reader);
-    }
+    Status status = section_refs().sparse_norms.length != 0
+                            ? read_sparse_norms(&data->bytes, &data->reader)
+                            : read_dense_norms(&data->bytes, &data->reader);
     {
         std::lock_guard lock(norms_cache_->mutex);
         if (status.ok()) {
@@ -603,6 +633,37 @@ Status LogicalIndexReader::open_norms(format::NormsPodReader* out) const {
     }
     completion->set_value(status);
     return status;
+}
+
+Status LogicalIndexReader::read_dense_norms(std::vector<uint8_t>* bytes,
+                                            format::NormsPodReader* out) const {
+    const RegionRef& norms = section_refs().norms;
+    const auto read_len = static_cast<size_t>(norms.length);
+    RETURN_IF_ERROR(reader_->read_at(norms.offset, read_len, bytes));
+    if (bytes->size() != read_len) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: short norms read");
+    }
+    return format::NormsPodReader::open(Slice(*bytes), out);
+}
+
+Status LogicalIndexReader::read_sparse_norms(std::vector<uint8_t>* dense,
+                                             format::NormsPodReader* out) const {
+    const RegionRef& norms = section_refs().sparse_norms;
+    const auto read_len = static_cast<size_t>(norms.length);
+    std::vector<uint8_t> section;
+    RETURN_IF_ERROR(reader_->read_at(norms.offset, read_len, &section));
+    if (section.size() != read_len) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: short sparse norms read");
+    }
+    format::NullBitmapReader nulls;
+    bool has_nulls = false;
+    RETURN_IF_ERROR(open_null_bitmap(NullDocidsDecodeReservation(), &nulls, &has_nulls));
+    // Validated against uint32 when the index was opened.
+    const auto doc_count = static_cast<uint32_t>(stats().doc_count);
+    return format::NormsPodReader::open_sparse(Slice(section), doc_count,
+                                               has_nulls ? &nulls : nullptr, dense, out);
 }
 
 void LogicalIndexReader::release_compaction_norms() const {
@@ -624,6 +685,27 @@ Status LogicalIndexReader::read_null_docids(
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("logical_index: not opened");
     }
 
+    format::NullBitmapReader null_bitmap_reader;
+    bool present = false;
+    RETURN_IF_ERROR(open_null_bitmap(reserve_decode, &null_bitmap_reader, &present));
+    if (!present) {
+        return Status::OK();
+    }
+    out->reserve(null_bitmap_reader.null_count());
+    null_bitmap_reader.append_docids(*out);
+    for (uint32_t docid : *out) {
+        if (docid >= stats().doc_count) {
+            out->clear();
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "logical_index: null docid outside document domain");
+        }
+    }
+    return Status::OK();
+}
+
+Status LogicalIndexReader::open_null_bitmap(const NullDocidsDecodeReservation& reserve_decode,
+                                            format::NullBitmapReader* out, bool* present) const {
+    *present = false;
     const RegionRef& ref = section_refs().null_bitmap;
     if (ref.length == 0) {
         if (stats().null_count != 0) {
@@ -656,26 +738,16 @@ Status LogicalIndexReader::read_null_docids(
         RETURN_IF_ERROR(reserve_decode(decoded_memory_bytes));
     }
 
-    format::NullBitmapReader null_bitmap_reader;
-    RETURN_IF_ERROR(format::NullBitmapReader::open(Slice(bytes), &null_bitmap_reader));
-    if (null_bitmap_reader.doc_count() != stats().doc_count) {
+    RETURN_IF_ERROR(format::NullBitmapReader::open(Slice(bytes), out));
+    if (out->doc_count() != stats().doc_count) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "logical_index: null bitmap doc count mismatch");
     }
-    if (null_bitmap_reader.null_count() != stats().null_count) {
+    if (out->null_count() != stats().null_count) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "logical_index: null bitmap cardinality mismatch");
     }
-
-    out->reserve(null_bitmap_reader.null_count());
-    null_bitmap_reader.append_docids(*out);
-    for (uint32_t docid : *out) {
-        if (docid >= stats().doc_count) {
-            out->clear();
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                    "logical_index: null docid outside document domain");
-        }
-    }
+    *present = true;
     return Status::OK();
 }
 

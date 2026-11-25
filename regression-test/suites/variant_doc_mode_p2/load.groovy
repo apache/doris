@@ -18,12 +18,12 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_doc_value_p2", "nonConcurrent,p2"){
-    sql """ set default_variant_enable_doc_mode = true """
+    sql """ set debug_variant_enable_doc_mode = true """
     boolean random = new Random().nextBoolean()
     if (random) {
-        sql """ set default_variant_doc_materialization_min_rows = 0 """
+        sql """ set debug_variant_doc_materialization_min_rows = 0 """
     } else {
-        sql """ set default_variant_doc_materialization_min_rows = 10000000 """
+        sql """ set debug_variant_doc_materialization_min_rows = 10000000 """
     }
     // prepare test table
     def timeout = 300000
@@ -82,7 +82,7 @@ suite("test_doc_value_p2", "nonConcurrent,p2"){
     if ((rand_subcolumns_count % 2) == 0) {
         rand_subcolumns_count = 0
     }
-    sql """ set default_variant_enable_doc_mode = true """
+    sql """ set debug_variant_enable_doc_mode = true """
     sql "set enable_variant_flatten_nested = true"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (

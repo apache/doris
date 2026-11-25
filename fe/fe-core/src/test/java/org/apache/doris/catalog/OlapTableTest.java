@@ -60,6 +60,27 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class OlapTableTest {
 
     @Test
+    public void testInvertedIndexLookupIgnoresColumnNameCase() {
+        Index values = new Index(1, "values_idx", List.of("v"), IndexType.INVERTED,
+                Map.of("variant_index_scope", "values", "parser", "english"), "");
+        Index path = new Index(2, "path_idx", List.of("v"), IndexType.INVERTED,
+                Map.of("parser", "english"), "");
+        Index string = new Index(3, "str_idx", List.of("s"), IndexType.INVERTED,
+                Map.of("parser", "english"), "");
+        OlapTable table = new OlapTable();
+        table.setIndexes(List.of(values, path, string));
+        for (String name : List.of("V", "v")) {
+            Column column = new Column(name, Type.VARIANT);
+            Assertions.assertTrue(table.hasVariantValuesIndex(column));
+            Assertions.assertSame(values, table.getVariantValuesIndex(column, "english"));
+            Assertions.assertSame(path, table.getInvertedIndex(column, List.of()));
+        }
+        for (String name : List.of("S", "s")) {
+            Assertions.assertSame(string, table.getInvertedIndex(new Column(name, Type.STRING), List.of()));
+        }
+    }
+
+    @Test
     public void testVariantInvertedIndexLookupEncodesLogicalKeys() {
         List<List<String>> paths = List.of(List.of("a.b"), List.of("a", "b"),
                 List.of("a%2Eb"), List.of("50%"));
@@ -73,11 +94,18 @@ public class OlapTableTest {
         }
         Column column = new Column("v", new VariantType(fields));
         OlapTable table = new OlapTable();
-        table.setIndexes(indexes);
+        Index values = new Index(100, "values_idx", List.of("v"), IndexType.INVERTED,
+                Map.of("variant_index_scope", "values", "parser", "english"), "");
+        List<Index> allIndexes = new ArrayList<>(indexes);
+        allIndexes.add(0, values);
+        table.setIndexes(allIndexes);
         table.setVariantEscapeDotsInKeys(true);
+        Assertions.assertSame(values, table.getVariantValuesIndex(column, "english"));
         for (int i = 0; i < paths.size(); ++i) {
             Assertions.assertSame(indexes.get(i), table.getInvertedIndex(column, paths.get(i)));
             Assertions.assertSame(indexes.get(i), table.getInvertedIndex(column, paths.get(i), "english"));
+            Assertions.assertSame(indexes.get(i), table.getInvertedIndexByStoragePath(
+                    column, table.toVariantStoragePath(paths.get(i)), "english"));
         }
 
         table = new OlapTable();

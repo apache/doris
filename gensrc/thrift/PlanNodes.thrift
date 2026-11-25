@@ -133,7 +133,9 @@ enum TFileFormatType {
     FORMAT_NATIVE = 18,
     FORMAT_LANCE = 19,
     FORMAT_ES_HTTP = 20,
-    FORMAT_MONGODB = 21
+    FORMAT_MONGODB = 21,
+    // Older readers must reject this format instead of ignoring optional file or delete keys.
+    FORMAT_PARQUET_PME = 22
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -979,6 +981,8 @@ struct TFileRangeDesc {
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
     16: optional bool file_cache_admission;
+    // Target size for coalescing physical children; absent/nonpositive does not disable refinement.
+    17: optional i64 target_split_size;
 }
 
 struct TSplitSource {

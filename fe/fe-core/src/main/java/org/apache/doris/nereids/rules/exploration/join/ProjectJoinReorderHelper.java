@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -175,7 +176,8 @@ final class ProjectJoinReorderHelper {
         });
         return project.getProjects().stream()
                 .map(expression -> expression.rewriteUp(child ->
-                        child instanceof Slot ? childSlots.get((Slot) child) : child))
+                        child instanceof Slot && !(child instanceof SlotNotFromChildren)
+                                ? childSlots.get((Slot) child) : child))
                 .map(NamedExpression.class::cast)
                 .collect(Collectors.toList());
     }

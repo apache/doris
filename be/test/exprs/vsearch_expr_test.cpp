@@ -1625,4 +1625,76 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexRejectsSearchFallback) {
     }
 }
 
+namespace {
+
+constexpr uint64_t kDigestSeed = 42;
+
+uint64_t search_digest(const TExprNode& node, const std::string& column_name = "title") {
+    auto expr = VSearchExpr::create_shared(node);
+    expr->add_child(create_slot_ref(0, column_name));
+    return expr->get_digest(kDigestSeed);
+}
+
+} // namespace
+
+// The condition cache keys segment results by this digest, so the same SEARCH must keep hitting.
+TEST_F(VSearchExprTest, DigestIsStableForSameSearchParam) {
+    const uint64_t digest = search_digest(test_node);
+    EXPECT_NE(0, digest);
+    EXPECT_EQ(digest, search_digest(test_node));
+}
+
+// A result cached for one term must not be reused by another term on the same column.
+TEST_F(VSearchExprTest, DigestChangesWithSearchTerm) {
+    TExprNode nomatch = test_node;
+    nomatch.search_param.original_dsl = "nomatch*";
+    nomatch.search_param.root.clause_type = "PREFIX";
+    nomatch.search_param.root.value = "nomatch";
+
+    TExprNode alpha = nomatch;
+    alpha.search_param.original_dsl = "alpha*";
+    alpha.search_param.root.value = "alpha";
+    EXPECT_NE(search_digest(nomatch), search_digest(alpha));
+
+    // The parsed clause decides the result even when the DSL text is the same.
+    TExprNode same_text = nomatch;
+    same_text.search_param.root.value = "alpha";
+    EXPECT_NE(search_digest(nomatch), search_digest(same_text));
+
+    TExprNode term = nomatch;
+    term.search_param.root.clause_type = "TERM";
+    EXPECT_NE(search_digest(nomatch), search_digest(term));
+}
+
+TEST_F(VSearchExprTest, DigestChangesWithSearchOptions) {
+    const uint64_t base = search_digest(test_node);
+
+    TExprNode and_operator = test_node;
+    and_operator.search_param.__set_default_operator("and");
+    TExprNode or_operator = test_node;
+    or_operator.search_param.__set_default_operator("or");
+    EXPECT_NE(search_digest(and_operator), search_digest(or_operator));
+
+    TExprNode min_should_match = test_node;
+    min_should_match.search_param.__set_minimum_should_match(2);
+    EXPECT_NE(base, search_digest(min_should_match));
+
+    TExprNode english = test_node;
+    english.search_param.field_bindings[0].__set_index_properties({{"parser", "english"}});
+    TExprNode unicode = test_node;
+    unicode.search_param.field_bindings[0].__set_index_properties({{"parser", "unicode"}});
+    EXPECT_NE(search_digest(english), search_digest(unicode));
+}
+
+TEST_F(VSearchExprTest, DigestStillDependsOnBoundColumn) {
+    EXPECT_NE(search_digest(test_node, "title"), search_digest(test_node, "body"));
+}
+
+// Without a search param there is nothing to key on, so the condition cache stays off.
+TEST_F(VSearchExprTest, DigestIsZeroWithoutSearchParam) {
+    TExprNode node = test_node;
+    node.__isset.search_param = false;
+    EXPECT_EQ(0, search_digest(node));
+}
+
 } // namespace doris

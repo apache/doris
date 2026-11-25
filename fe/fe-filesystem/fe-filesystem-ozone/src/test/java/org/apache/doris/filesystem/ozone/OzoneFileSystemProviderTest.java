@@ -94,12 +94,15 @@ class OzoneFileSystemProviderTest {
     }
 
     @Test
-    void sensitivePropertyKeys_coverSecretAliasesButNotAccessKey() {
+    void sensitivePropertyKeys_coverAllCredentialAliases() {
         Set<String> keys = provider.sensitivePropertyKeys();
 
         Assertions.assertTrue(keys.contains("ozone.secret_key"), keys.toString());
         Assertions.assertTrue(keys.contains("ozone.session_token"), keys.toString());
-        Assertions.assertFalse(keys.contains("ozone.access_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("ozone.access_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("s3.access_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("s3.access-key-id"), keys.toString());
+        Assertions.assertTrue(keys.contains("AWS_ACCESS_KEY"), keys.toString());
     }
 
     @Test

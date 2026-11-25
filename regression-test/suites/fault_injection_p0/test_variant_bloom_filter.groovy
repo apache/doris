@@ -53,7 +53,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     }
 
     sql """DROP TABLE IF EXISTS test_variant_typed_int_bloom_filter"""
-    sql "set default_variant_enable_doc_mode = false"
+    sql "set debug_variant_enable_doc_mode = false"
     sql "set enable_common_expr_pushdown = true"
     // Keep doc mode controlled by the session variable above. The column-level
     // variant_enable_doc_mode property is mutually exclusive with typed-path
@@ -109,7 +109,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     } else {
         var_def = "variant<properties(\"variant_max_subcolumns_count\" = \"100\")>"
     }
-    sql "set default_variant_enable_doc_mode = false"
+    sql "set debug_variant_enable_doc_mode = false"
     sql """
         CREATE TABLE IF NOT EXISTS ${index_table} (
             k bigint,

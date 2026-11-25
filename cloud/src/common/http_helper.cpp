@@ -33,7 +33,10 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <algorithm>
+#include <charconv>
+#include <chrono>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -44,6 +47,7 @@
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_http.h"
 #include "meta-service/meta_service_rate_limit_helper.h"
+#include "recycler/checker.h"
 #include "recycler/recycler.h"
 #include "recycler/recycler_service.h"
 namespace doris::cloud {
@@ -54,9 +58,9 @@ static google::protobuf::util::Status parse_json_message(const std::string& unre
     static_assert(std::is_base_of_v<google::protobuf::Message, Message>);
     auto st = google::protobuf::util::JsonStringToMessage(body, req);
     if (!st.ok()) {
-        std::string msg = "failed to strictly parse http request for '" + unresolved_path +
-                          "' error: " + st.ToString();
-        LOG_WARNING(msg).tag("body", encryt_sk(hide_access_key(body)));
+        LOG_WARNING("failed to strictly parse HTTP request")
+                .tag("path", unresolved_path)
+                .tag("parse_code", static_cast<int>(st.code()));
 
         // ignore unknown fields
         google::protobuf::util::JsonParseOptions json_parse_options;
@@ -66,16 +70,17 @@ static google::protobuf::util::Status parse_json_message(const std::string& unre
     return {};
 }
 
-#define PARSE_MESSAGE_OR_RETURN(ctrl, req)                                                      \
-    do {                                                                                        \
-        std::string body = ctrl->request_attachment().to_string();                              \
-        auto& unresolved_path = ctrl->http_request().unresolved_path();                         \
-        auto st = parse_json_message(unresolved_path, body, &req);                              \
-        if (!st.ok()) {                                                                         \
-            std::string msg = "parse http request '" + unresolved_path + "': " + st.ToString(); \
-            LOG_WARNING(msg).tag("body", encryt_sk(hide_access_key(body)));                     \
-            return http_json_reply(MetaServiceCode::PROTOBUF_PARSE_ERR, msg);                   \
-        }                                                                                       \
+#define PARSE_MESSAGE_OR_RETURN(ctrl, req)                                                \
+    do {                                                                                  \
+        std::string body = ctrl->request_attachment().to_string();                        \
+        auto& unresolved_path = ctrl->http_request().unresolved_path();                   \
+        auto st = parse_json_message(unresolved_path, body, &req);                        \
+        if (!st.ok()) {                                                                   \
+            std::string msg =                                                             \
+                    "parse http request '" + unresolved_path + "': invalid request JSON"; \
+            LOG_WARNING(msg).tag("parse_code", static_cast<int>(st.code()));              \
+            return http_json_reply(MetaServiceCode::PROTOBUF_PARSE_ERR, msg);             \
+        }                                                                                 \
     } while (0)
 
 const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers() {
@@ -400,6 +405,12 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                 {"check_instance",
                  {.handler = [](void* s,
                                 brpc::Controller* c) { return process_check_instance((RS*)s, c); },
+                  .role = HttpRole::RECYCLER}},
+                {"check_delete_bitmap_orphan",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_check_delete_bitmap_orphan((RS*)s, c);
+                          },
                   .role = HttpRole::RECYCLER}},
                 {"skip_instance_data_cleanup",
                  {.handler =
@@ -813,6 +824,81 @@ HttpResponse process_check_instance(RecyclerServiceImpl* service, brpc::Controll
     std::string msg = "OK";
     service->check_instance(*instance_id, code, msg);
     return http_text_reply(code, msg, msg);
+}
+
+HttpResponse process_check_delete_bitmap_orphan(RecyclerServiceImpl* service,
+                                                brpc::Controller* cntl) {
+    const auto& uri = cntl->http_request().uri();
+    const auto* instance_id = uri.GetQuery("instance_id");
+    if (!instance_id || instance_id->empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "no instance id");
+    }
+    auto parse_positive_query = [&uri](const char* name, int64_t* value) {
+        const auto* query = uri.GetQuery(name);
+        if (query == nullptr) {
+            return true;
+        }
+        auto [ptr, ec] = std::from_chars(query->data(), query->data() + query->size(), *value);
+        return ec == std::errc() && ptr == query->data() + query->size() && *value > 0;
+    };
+    int64_t tablet_id = 0;
+    int64_t max_scan_keys = 0;
+    if (!parse_positive_query("tablet_id", &tablet_id) ||
+        tablet_id == std::numeric_limits<int64_t>::max()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "tablet_id must be a positive integer smaller than INT64_MAX");
+    }
+    if (!parse_positive_query("max_scan_keys", &max_scan_keys)) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "max_scan_keys must be a positive integer");
+    }
+
+    auto start = std::chrono::steady_clock::now();
+    DeleteBitmapOrphanCheckResult result;
+    auto [code, msg] =
+            check_delete_bitmap_orphan(service->txn_kv(), *instance_id, tablet_id, max_scan_keys,
+                                       &result, [cntl] { return cntl->IsCanceled(); });
+    if (code != MetaServiceCode::OK) {
+        return http_json_reply(code, msg);
+    }
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    writer.StartObject();
+    writer.Key("status");
+    const char* status = "incomplete";
+    if (result.cancelled) {
+        status = "cancelled";
+        LOG(INFO) << "delete bitmap orphan check cancelled, instance_id=" << *instance_id
+                  << ", tablet_id=" << tablet_id << ", scanned_kvs=" << result.scanned_kvs;
+    } else if (!result.key.empty()) {
+        status = "suspected_orphan";
+    } else if (result.range_exhausted) {
+        status = "passed";
+    }
+    writer.String(status);
+    writer.Key("scanned_kvs");
+    writer.Int64(result.scanned_kvs);
+    writer.Key("range_exhausted");
+    writer.Bool(result.range_exhausted);
+    writer.Key("elapsed_ms");
+    writer.Int64(std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now() - start)
+                         .count());
+    if (!result.key.empty()) {
+        writer.Key("key");
+        writer.String(hex(result.key).c_str());
+        writer.Key("tablet_id");
+        writer.Int64(result.tablet_id);
+        writer.Key("rowset_id");
+        writer.String(result.rowset_id.c_str());
+        writer.Key("version");
+        writer.Int64(result.version);
+        writer.Key("segment_id");
+        writer.Int64(result.segment_id);
+    }
+    writer.EndObject();
+    return http_json_reply(MetaServiceCode::OK, "", buffer.GetString());
 }
 
 HttpResponse process_check_job_info(RecyclerServiceImpl* service, brpc::Controller* cntl) {

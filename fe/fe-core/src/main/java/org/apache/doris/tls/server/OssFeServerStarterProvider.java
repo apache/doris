@@ -25,8 +25,10 @@ import org.apache.doris.mysql.MysqlServer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.service.FrontendServiceImpl;
 import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.tls.PrivateRpcTls;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -34,6 +36,7 @@ import org.apache.thrift.TProcessor;
 
 import java.io.IOException;
 import java.lang.reflect.Proxy;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 
 public class OssFeServerStarterProvider implements FeServerStarterProvider {
@@ -44,7 +47,8 @@ public class OssFeServerStarterProvider implements FeServerStarterProvider {
 
     @Override
     public ServerStarter createThriftServerStarter(ServerSocket listener) throws IOException {
-        if (ThriftServer.THREADED_SELECTOR.equalsIgnoreCase(Config.thrift_server_type)) {
+        if (PrivateRpcTls.enabled(TlsProtocolSet.Protocol.THRIFT)
+                || ThriftServer.THREADED_SELECTOR.equalsIgnoreCase(Config.thrift_server_type)) {
             return FeServerStarterProvider.super.createThriftServerStarter(listener);
         }
         return new OssThriftServerStarter(listener.getLocalPort(), listener);
@@ -65,6 +69,7 @@ public class OssFeServerStarterProvider implements FeServerStarterProvider {
         private final int port;
         private final ServerSocket listener;
         private ThriftServer server;
+        private volatile boolean privateFileKeys;
 
         private OssThriftServerStarter(int port, ServerSocket listener) {
             this.port = port;
@@ -73,44 +78,67 @@ public class OssFeServerStarterProvider implements FeServerStarterProvider {
 
         @Override
         public void start() throws Exception {
-            if (Config.enable_tls && TlsProtocolSet.isProtocolIncluded(TlsProtocolSet.Protocol.THRIFT)) {
-                throw new UnsupportedOperationException("FE thrift TLS requires TLS module");
+            boolean tls = PrivateRpcTls.enabled(TlsProtocolSet.Protocol.THRIFT);
+            if (tls && ThriftServer.THREADED_SELECTOR.equalsIgnoreCase(Config.thrift_server_type)) {
+                throw new UnsupportedOperationException("Private RPC TLS requires a blocking Thrift server");
             }
-            FrontendServiceImpl service = new FrontendServiceImpl(ExecuteEnv.getInstance());
-            Logger feServiceLogger = LogManager.getLogger(FrontendServiceImpl.class);
-            FrontendService.Iface instance = (FrontendService.Iface) Proxy.newProxyInstance(
-                    FrontendServiceImpl.class.getClassLoader(),
-                    FrontendServiceImpl.class.getInterfaces(),
-                    (proxy, method, args) -> {
-                        long begin = System.currentTimeMillis();
-                        String name = method.getName();
-                        if (MetricRepo.isInit) {
-                            MetricRepo.THRIFT_COUNTER_RPC_ALL.getOrAdd(name).increase(1L);
-                        }
-                        feServiceLogger.debug("receive request for {}", name);
-                        try {
-                            return method.invoke(service, args);
-                        } finally {
-                            ConnectContext.remove();
-                            feServiceLogger.debug("finish process request for {}", name);
+            ServerSocket transportListener = listener;
+            boolean started = false;
+            try {
+                if (tls) {
+                    transportListener = PrivateRpcTls.thriftServerSocket(new InetSocketAddress(
+                            FrontendOptions.isBindIPV6() ? "::0" : "0.0.0.0", port), Config.thrift_backlog_num);
+                }
+                FrontendServiceImpl service = new FrontendServiceImpl(ExecuteEnv.getInstance());
+                Logger feServiceLogger = LogManager.getLogger(FrontendServiceImpl.class);
+                FrontendService.Iface instance = (FrontendService.Iface) Proxy.newProxyInstance(
+                        FrontendServiceImpl.class.getClassLoader(),
+                        FrontendServiceImpl.class.getInterfaces(),
+                        (proxy, method, args) -> {
+                            long begin = System.currentTimeMillis();
+                            String name = method.getName();
                             if (MetricRepo.isInit) {
-                                MetricRepo.THRIFT_COUNTER_RPC_LATENCY.getOrAdd(name)
-                                        .increase(System.currentTimeMillis() - begin);
+                                MetricRepo.THRIFT_COUNTER_RPC_ALL.getOrAdd(name).increase(1L);
                             }
-                        }
-                    });
-            TProcessor processor = new FrontendService.Processor<>(instance);
-            server = new ThriftServer(port, processor);
-            server.start(listener);
-            LOG.info("FE thrift starter started on {}", port);
+                            feServiceLogger.debug("receive request for {}", name);
+                            try {
+                                return method.invoke(service, args);
+                            } finally {
+                                ConnectContext.remove();
+                                feServiceLogger.debug("finish process request for {}", name);
+                                if (MetricRepo.isInit) {
+                                    MetricRepo.THRIFT_COUNTER_RPC_LATENCY.getOrAdd(name)
+                                            .increase(System.currentTimeMillis() - begin);
+                                }
+                            }
+                        });
+                TProcessor processor = new FrontendService.Processor<>(instance);
+                ThriftServer candidate = new ThriftServer(port, processor);
+                candidate.start(transportListener);
+                server = candidate;
+                privateFileKeys = tls;
+                started = true;
+                LOG.info("FE thrift starter started on {}", port);
+            } finally {
+                if (!started && transportListener != null) {
+                    transportListener.close();
+                }
+            }
         }
 
         @Override
         public void stop() throws Exception {
+            privateFileKeys = false;
             if (server != null) {
                 server.stop();
                 server.join();
             }
+        }
+
+        @Override
+        public boolean supportsPrivateFileKeys() {
+            // Configuration alone cannot prove that the split listener actually started with TLS.
+            return privateFileKeys && PrivateRpcTls.supportsPrivateFileKeys(TlsProtocolSet.Protocol.THRIFT);
         }
     }
 

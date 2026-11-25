@@ -22,10 +22,14 @@
 
 #include "common/kerberos/kerberos_config.h"
 #include "common/kerberos/kerberos_ticket_cache.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::kerberos {
 
 class KerberosTicketCacheAuthTest : public testing::Test {
+protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"kerberos_ticket_cache_auth_test"};
+
 public:
     void SetUp() override {
         // Get Kerberos configuration from environment variables
@@ -60,7 +64,7 @@ public:
         _config.set_min_time_before_refresh(600); // 10 minutes
 
         // Create temporary directory for ticket cache
-        _temp_dir = std::filesystem::temp_directory_path() / "doris_krb5_test";
+        _temp_dir = scoped_temp_dir_.path() / "doris_krb5_test";
         if (std::filesystem::exists(_temp_dir)) {
             std::filesystem::remove_all(_temp_dir);
         }

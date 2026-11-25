@@ -42,6 +42,8 @@ struct SectionRefs {
     RegionRef norms;
     RegionRef null_bitmap;
     RegionRef bsbf;
+    // Set instead of `norms` when the index stores norms for its non-NULL rows only.
+    RegionRef sparse_norms;
 };
 
 // Digest of the highest-df terms of one index: (hash, df) pairs small enough to travel with

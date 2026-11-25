@@ -269,6 +269,9 @@ public:
 
     bool has_prx() const { return has_prx_; }
     bool has_norms() const { return has_norms_; }
+    // Whether norms_bytes() holds sparse norms, which the core metadata references in their own
+    // field. Set by finalize_build().
+    bool has_sparse_norms() const { return sparse_norms_; }
     format::IndexTier tier() const { return tier_; }
     uint64_t index_id() const { return index_id_; }
     const std::string& index_suffix() const { return index_suffix_; }
@@ -308,6 +311,8 @@ private:
     // stats/norms/null-bitmap/BSBF.
     Status prepare_build(io::FileWriter* posting_out);
     Status finalize_build();
+    // Encodes the norms section, dense or sparse; part of finalize_build().
+    Status build_norms_section();
     // Iterates terms (from the streaming source or the materialized vector),
     // splitting DICT blocks by target size and filling PODs + blocks_.
     Status build_blocks();
@@ -333,6 +338,7 @@ private:
     format::IndexTier tier_;
     bool has_prx_;
     bool has_norms_;
+    bool sparse_norms_ = false;
     uint32_t doc_count_;
     TrackedNullDocids null_docids_;
     const std::vector<TermPostings>& terms_; // materialized fallback (may be empty)

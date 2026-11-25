@@ -20,6 +20,7 @@ package org.apache.doris.nereids.processor.post;
 import org.apache.doris.nereids.processor.post.RuntimeFilterPushDownVisitor.PushDownContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -34,14 +35,12 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlap
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
-import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -56,7 +55,7 @@ import java.util.Set;
  * Rewrites probeExpr through Projects and SetOperations, expands through join conditions,
  * and creates RuntimeFilter at scan nodes when probeExpr resolves to a scan slot.
  */
-public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownContext> {
+public class RuntimeFilterPushDownVisitor extends AbstractRuntimeFilterPushDownVisitor<PushDownContext> {
 
     /**
      * PushDownContext carries the information needed to push a runtime filter down the plan tree.
@@ -146,11 +145,16 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
     }
 
     @Override
+    protected Expression getProbeExpression(PushDownContext ctx) {
+        return ctx.probeExpr;
+    }
+
+    @Override
     public Boolean visit(Plan plan, PushDownContext ctx) {
         boolean pushed = false;
         for (Plan child : plan.children()) {
             if (child.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
-                pushed |= child.accept(this, ctx);
+                pushed |= pushDown(child, ctx);
             }
         }
         return pushed;
@@ -286,18 +290,24 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         Plan rightNode = join.child(1);
         if (leftNode.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
                 && canPushThroughJoinChild(join, true, ctx)) {
-            pushed |= leftNode.accept(this, ctx);
+            pushed |= pushDown(leftNode, ctx);
         }
         if (rightNode.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
                 && canPushThroughJoinChild(join, false, ctx)) {
-            pushed |= rightNode.accept(this, ctx);
+            pushed |= pushDown(rightNode, ctx);
         }
 
-        // Expand through join conditions at non-builder inner/semi joins
+        // Outer joins only propagate a parent's ordinary join RF from the preserved side.
+        // Decoupled RFs do not carry the parent equality here, so leave them out of this expansion.
+        boolean expandByOuterJoin = !join.isMarkJoin()
+                && ctx.exprOrder >= 0 && ctx.builderNode instanceof PhysicalHashJoin
+                && (join.getJoinType().isLeftOuterJoin() || join.getJoinType().isRightOuterJoin());
+        // Expand through join conditions at non-builder joins.
         if (!join.equals(ctx.builderNode)
                 && ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin
-                && (join.getJoinType() == JoinType.INNER_JOIN || join.getJoinType().isSemiJoin())) {
+                && (join.getJoinType() == JoinType.INNER_JOIN || join.getJoinType().isSemiJoin()
+                        || expandByOuterJoin)) {
             for (Expression expr : join.getHashJoinConjuncts()) {
                 EqualPredicate equalTo = (EqualPredicate) expr;
                 Expression newTarget = null;
@@ -308,12 +318,31 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                 }
                 if (newTarget != null && newTarget.getInputSlots().size() == 1
                         && !newTarget.equals(ctx.srcExpr)) {
+                    if (expandByOuterJoin) {
+                        Plan preserved = join.getJoinType().isLeftOuterJoin() ? leftNode : rightNode;
+                        Plan nonPreserved = join.getJoinType().isLeftOuterJoin() ? rightNode : leftNode;
+                        // For (L LEFT JOIN R ON L.k = R.k) JOIN E ON L.k = E.k, an R row
+                        // matching a needed L row must pass the same RF(E.k). Only derive
+                        // from the preserved side: outer join output keys are not equivalent.
+                        // Limit this to direct keys with identical types so both targets use
+                        // the same equality and RF encoding without additional conversions.
+                        // A computed key such as R.k + 1 may already be a projected slot;
+                        // unlike a direct column alias, it has no original column metadata.
+                        if (!(equalTo instanceof EqualTo)
+                                || !PlanUtils.isColumnRef(ctx.probeExpr) || !PlanUtils.isColumnRef(newTarget)
+                                || !ctx.srcExpr.getDataType().equals(ctx.probeExpr.getDataType())
+                                || !ctx.probeExpr.getDataType().equals(newTarget.getDataType())
+                                || !preserved.getOutputSet().contains(ctx.probeExpr)
+                                || !nonPreserved.getOutputSet().contains(newTarget)) {
+                            continue;
+                        }
+                    }
                     PushDownContext expanded = ctx.withNewProbeExpression(newTarget);
                     if (leftNode.getOutputSet().containsAll(newTarget.getInputSlots())) {
-                        pushed |= leftNode.accept(this, expanded);
+                        pushed |= pushDown(leftNode, expanded);
                     }
                     if (rightNode.getOutputSet().containsAll(newTarget.getInputSlots())) {
-                        pushed |= rightNode.accept(this, expanded);
+                        pushed |= pushDown(rightNode, expanded);
                     }
                 }
             }
@@ -351,11 +380,11 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         Plan right = join.right();
         if (left.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
                 && canPushThroughJoinChild(join, true, ctx)) {
-            pushed |= left.accept(this, ctx);
+            pushed |= pushDown(left, ctx);
         }
         if (right.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
                 && canPushThroughJoinChild(join, false, ctx)) {
-            pushed |= right.accept(this, ctx);
+            pushed |= pushDown(right, ctx);
         }
         return pushed;
     }
@@ -409,7 +438,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         Expression newProbeExpr = ctx.probeExpr.rewriteDownShortCircuit(
                 e -> replaceMap.getOrDefault(e, e));
         if (newProbeExpr.getInputSlots().size() == 1) {
-            return project.child().accept(this, ctx.withNewProbeExpression(newProbeExpr));
+            return pushDown(project.child(), ctx.withNewProbeExpression(newProbeExpr));
         }
         return false;
     }
@@ -433,30 +462,10 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             Expression newProbeExpr = ctx.probeExpr.rewriteDownShortCircuit(
                     e -> replaceMap.getOrDefault(e, e));
             if (newProbeExpr.getInputSlots().size() == 1) {
-                pushedDown |= setOperation.child(i).accept(this, ctx.withNewProbeExpression(newProbeExpr));
+                pushedDown |= pushDown(setOperation.child(i), ctx.withNewProbeExpression(newProbeExpr));
             }
         }
         return pushedDown;
-    }
-
-    @Override
-    public Boolean visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, PushDownContext ctx) {
-        if (!repeat.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
-            return false;
-        }
-        // Only push through Repeat if the probe slot appears in ALL grouping sets.
-        // A slot absent from a grouping set is erased to NULL for rows of that group,
-        // so filtering on it would incorrectly discard needed rows.
-        Set<Expression> commonGroupingExprs = repeat.getCommonGroupingSetExpressions();
-        if (!commonGroupingExprs.containsAll(ctx.probeExpr.getInputSlots())) {
-            return false;
-        }
-        return repeat.child().accept(this, ctx);
-    }
-
-    @Override
-    public Boolean visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, PushDownContext ctx) {
-        return false;
     }
 
     @Override
@@ -467,7 +476,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
         Set<SlotReference> commonPartitionKeys = window.getCommonPartitionKeyFromWindowExpressions();
         if (commonPartitionKeys.containsAll(ctx.probeExpr.getInputSlots())) {
-            return window.child().accept(this, ctx);
+            return pushDown(window.child(), ctx);
         }
         return false;
     }

@@ -17,7 +17,7 @@
 
 # Build context: the repository root. For an external release directory use
 # --build-context doris-output=<directory> --build-arg ARTIFACT_SOURCE=dir.
-ARG JDK_IMAGE=eclipse-temurin:17.0.21_9-jdk-jammy@sha256:76751c16a2a07ec0960e659a2603491f8c79d95592173f6c0df8bf8ebab257cc
+ARG JDK_IMAGE=eclipse-temurin:17.0.21_9-jdk-resolute@sha256:c19b0e2ecdec69220c6c69e7fc7f4ab5b233ccfcce65f0b87c4411e71ca82fdc
 ARG OUTPUT_PATH=./output
 ARG ARTIFACT_SOURCE=context
 ARG JACOCO_VERSION=0.8.16
@@ -62,7 +62,7 @@ FROM ${JDK_IMAGE} AS runtime-base
 ARG JACOCO_VERSION
 ENV JACOCO_VERSION=${JACOCO_VERSION}
 COPY docker/runtime/base-image/install-runtime.sh /tmp/install-runtime.sh
-RUN bash /tmp/install-runtime.sh mysql-client-core-8.0 python-is-python3 lsof \
+RUN bash /tmp/install-runtime.sh mysql-client-core python-is-python3 lsof \
         tzdata curl xz-utils jq procps util-linux gosu && \
     rm /tmp/install-runtime.sh && \
     ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \

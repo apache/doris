@@ -22,25 +22,31 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.datasource.doris.source.RemoteDorisSplit;
 import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.PluginDrivenSplit;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.computegroup.AllBackendComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Multimap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -105,6 +111,29 @@ public class FederationBackendPolicySpreadTest {
     private FileSplit split() {
         return new FileSplit(LocationPath.of("s3://bucket/hot.csv"), 0, 1000, 1000,
                 0, new String[0], Collections.emptyList());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void defaultAllBackendGroupSupportsPlaintextScanSelection(boolean scoped) throws Exception {
+        Mockito.when(Env.getCurrentEnv().getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
+        SystemInfoService service = new SystemInfoService();
+        for (Backend backend : backends) {
+            service.addBackend(backend);
+        }
+        context.setComputeGroup(new AllBackendComputeGroup(service));
+        context.setStatementContext(scoped ? new StatementContext() : null);
+        List<Backend> selected = Assertions.assertDoesNotThrow(FederationBackendPolicy::getQueryAvailableBackends);
+        Assertions.assertEquals(new HashSet<>(backends), new HashSet<>(selected));
+        FederationBackendPolicy scan = new FederationBackendPolicy();
+        scan.init();
+        Assertions.assertEquals(new HashSet<>(selected), new HashSet<>(scan.getBackends()));
+        if (scoped) {
+            context.setComputeGroup(new AllBackendComputeGroup(service));
+            Assertions.assertSame(selected, FederationBackendPolicy.getQueryAvailableBackends());
+            context.setStatementContext(new StatementContext());
+            Assertions.assertNotSame(selected, FederationBackendPolicy.getQueryAvailableBackends());
+        }
     }
 
     private FederationBackendPolicy policy(int candidates, IntUnaryOperator random) throws UserException {

@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.metastore.iceberg.rest;
 
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +30,32 @@ import java.util.Map;
  * verbatim §4 messages + the observable fire order (enum checks → eager body-throws → ParamRules).
  */
 public class IcebergRestMetaStorePropertiesTest {
+
+    @Test
+    public void accessKeyIdentifierIsMaskedWithoutChangingConnectionValues() {
+        IcebergRestMetaStoreProperties properties = IcebergRestMetaStoreProperties.of(
+                Map.of("iceberg.rest.access-key-id", "fixture-rest-access-key"));
+        Assertions.assertEquals("fixture-rest-access-key", properties.getAccessKeyId());
+        Assertions.assertFalse(ConnectorPropertiesUtils.toMaskedString(properties).contains("fixture-rest-access-key"));
+        Assertions.assertTrue(ConnectorPropertiesUtils.getSensitiveKeys(IcebergRestMetaStoreProperties.class)
+                .contains("iceberg.rest.access-key-id"));
+    }
+
+    @Test
+    public void uriDiagnosticsMaskEveryAliasWithoutChangingConnectionValues() {
+        String uri = "https://fixture:fixture-uri-secret@api.example.com/";
+        for (String key : new String[] {"uri", "iceberg.rest.uri"}) {
+            Map<String, String> raw = Map.of(key, uri, "warehouse", "s3://bucket.example.com/warehouse");
+            IcebergRestMetaStoreProperties properties = IcebergRestMetaStoreProperties.of(raw);
+            Assertions.assertEquals(uri, properties.getUri());
+            Assertions.assertEquals(uri, raw.get(key));
+            String rendered = ConnectorPropertiesUtils.toMaskedString(properties);
+            Assertions.assertFalse(rendered.contains("fixture-uri-secret"), rendered);
+            Assertions.assertTrue(rendered.contains("uri=***"), rendered);
+        }
+        Assertions.assertFalse(ConnectorPropertiesUtils.getSensitiveKeys(IcebergRestMetaStoreProperties.class)
+                .contains("uri"), "The shared URI alias must retain value-aware catalog masking");
+    }
 
     private static Map<String, String> raw(String... kv) {
         Map<String, String> m = new HashMap<>();
@@ -52,7 +80,7 @@ public class IcebergRestMetaStorePropertiesTest {
 
     @Test
     public void rule1InvalidSecurityType() {
-        Assertions.assertEquals("Invalid security type: bogus. Supported values are: none, oauth2",
+        Assertions.assertEquals("Invalid security type: bogus. Supported values are: none, oauth2, google",
                 validateError(raw("iceberg.rest.security.type", "bogus")));
         // case-insensitive accept (mirrors Security.valueOf(toUpperCase)).
         IcebergRestMetaStoreProperties.of(raw("iceberg.rest.security.type", "OAuth2",
@@ -66,6 +94,25 @@ public class IcebergRestMetaStorePropertiesTest {
         // blank => DEFAULT (no throw); a known mode with '-' normalization is accepted.
         IcebergRestMetaStoreProperties.of(raw("iceberg.rest.credentials_provider_type", "")).validate();
         IcebergRestMetaStoreProperties.of(raw("iceberg.rest.credentials_provider_type", "instance-profile")).validate();
+    }
+
+    @Test
+    public void googleSecurityBindsOptionsWithoutStaticCredentials() {
+        for (String security : new String[] {"google", "GOOGLE", "Google"}) {
+            IcebergRestMetaStoreProperties properties = IcebergRestMetaStoreProperties.of(raw(
+                    "iceberg.rest.security.type", security,
+                    "iceberg.rest.io-impl", "org.apache.iceberg.gcp.gcs.GCSFileIO",
+                    "iceberg.rest.google.user-project", "billing-project"));
+            properties.validate();
+            Assertions.assertEquals("org.apache.iceberg.gcp.gcs.GCSFileIO", properties.getIoImpl());
+            Assertions.assertEquals("billing-project", properties.getGoogleUserProject());
+        }
+    }
+
+    @Test
+    public void googleSecurityPreservesOauth2UserSessionRequirement() {
+        Assertions.assertEquals("iceberg.rest.session=user requires iceberg.rest.security.type=oauth2",
+                validateError(raw("iceberg.rest.security.type", "google", "iceberg.rest.session", "user")));
     }
 
     @Test
@@ -152,7 +199,7 @@ public class IcebergRestMetaStorePropertiesTest {
         // WHY: rule 1 (security type) runs first. Even with a role_arn (rule 5) and an AK-only (rule 10)
         // also violated, the security-type error must surface. MUTATION: reordering checks would surface a
         // different message.
-        Assertions.assertEquals("Invalid security type: bogus. Supported values are: none, oauth2",
+        Assertions.assertEquals("Invalid security type: bogus. Supported values are: none, oauth2, google",
                 validateError(raw("iceberg.rest.security.type", "bogus",
                         "iceberg.rest.role_arn", "arn", "iceberg.rest.access-key-id", "ak")));
     }

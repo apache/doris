@@ -17,6 +17,8 @@
 
 package org.apache.doris.mysql.protocol;
 
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
@@ -245,10 +247,13 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
     @Override
     public boolean finishStatement(ConnectContext ctx, StmtExecutor executor, int stmtIndex, int stmtCount)
             throws IOException {
+        // Decide cancellation before selecting the owner of the terminal response. An ERR
+        // belongs to finalizeCommand, not to both this intermediate statement and the command.
+        checkCancelledResult(ctx, executor);
         if (stmtIndex != stmtCount - 1) {
             ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
             if (ctx.getState().getStateType() != MysqlStateType.ERR && channel.clientMultiStatements()) {
-                finishCommand(ctx, executor);
+                sendResponse(ctx, executor);
             }
         }
         return true;
@@ -260,6 +265,20 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
      * produced. {@code executor} is null for a command that ran no statement.
      */
     public void finishCommand(ConnectContext ctx, StmtExecutor executor) throws IOException {
+        checkCancelledResult(ctx, executor);
+        sendResponse(ctx, executor);
+    }
+
+    private void checkCancelledResult(ConnectContext ctx, StmtExecutor executor) {
+        // The last batch may carry EOS, so cancellation need not pass through getNext again.
+        // Keep the connection when the cancellation error can be written normally.
+        Status cancelReason = executor == null ? null : executor.getPendingCancelReason();
+        if (cancelReason != null && ctx.getState().getStateType() == MysqlStateType.EOF) {
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, cancelReason.getErrorMsg());
+        }
+    }
+
+    private void sendResponse(ConnectContext ctx, StmtExecutor executor) throws IOException {
         LOG.debug("Finalize command for query {}", DebugUtil.printId(ctx.queryId()));
         ByteBuffer packet;
         if (executor != null && executor.hasForwardedToMaster()
