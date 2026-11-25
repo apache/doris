@@ -195,6 +195,24 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
         assertTrue(profile.contains("PaimonRustReader"),
                 "ANN query must run through the paimon-rust vector reader")
 
+        // Vector rewriting removes the nondeterministic distance function, allowing late
+        // single-consumer CTE inlining. Deep copies must remap the synthesized score slot.
+        def expectedCteIds = idsOf(sql(annQuery)).sort(false)
+        for (String cteBody : [annQuery, """select id,
+                l2_distance_approximate(embedding, ${probe}) as distance
+                from ann_l2 order by distance limit 5"""]) {
+            for (String cteQuery : ["""with c as (${cteBody}) select id from c order by id""",
+                    """with c as (${cteBody}) select id from c
+                        union all select id from c where 1 = 0 order by id"""]) {
+                explain {
+                    sql cteQuery
+                    contains "annSortColumnName=embedding"
+                }
+                assertEquals(expectedCteIds, idsOf(sql(cteQuery)),
+                        "CTE inlining must preserve ANN results and score ExprIds")
+            }
+        }
+
         // Non-index-only projection: the raw vector column is still readable
         // alongside the distance; tag = id % 7 by the fixture generator.
         def annTagged = sql("""select id, tag from ann_l2

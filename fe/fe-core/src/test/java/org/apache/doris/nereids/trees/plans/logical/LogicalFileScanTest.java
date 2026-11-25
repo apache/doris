@@ -27,14 +27,22 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.processor.post.Validator;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.CTEInliner;
+import org.apache.doris.nereids.trees.copier.DeepCopierContext;
+import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExternalSearchRequest;
 
@@ -193,5 +201,87 @@ public class LogicalFileScanTest {
                 copied.getOperativeSlots(), Optional.empty(), copied.getVectorSearch());
         Assertions.assertEquals(Optional.of(search), physical.withGroupExpression(Optional.empty())
                 .withPhysicalPropertiesAndStats(PhysicalProperties.ANY, null).getVectorSearch());
+    }
+
+    @Test
+    public void replacingVectorScoreUpdatesCachedOutputAndOperativeSlots() {
+        LogicalFileScan scan = vectorScan();
+        Slot oldScore = scan.getVirtualColumns().get(0).toSlot();
+        SlotReference newScore = new SlotReference("distance", FloatType.INSTANCE);
+        LogicalFileScan replaced = (LogicalFileScan) scan.withVirtualColumns(ImmutableList.of(newScore));
+
+        Assertions.assertEquals(ImmutableList.of(scan.getOutput().get(0), newScore), replaced.getOutput());
+        Assertions.assertEquals(replaced.getOutput(), replaced.computeOutput());
+        Assertions.assertEquals(replaced.getOutput(), replaced.getOperativeSlots());
+        Assertions.assertEquals(scan.getVectorSearch(), replaced.getVectorSearch());
+        Assertions.assertEquals(scan.getPreloadRelationId(), replaced.getPreloadRelationId());
+        Assertions.assertTrue(scan.getOutput().contains(oldScore));
+    }
+
+    @Test
+    public void vectorScoreSurvivesDeepCopy() {
+        LogicalFileScan scan = vectorScan();
+        Slot score = scan.getVirtualColumns().get(0).toSlot();
+        DeepCopierContext context = new DeepCopierContext();
+        LogicalPlan copied = LogicalPlanDeepCopier.INSTANCE.deepCopy(vectorTopN(scan), context);
+        LogicalFileScan copiedScan = (LogicalFileScan) copied.collectToList(p -> p instanceof LogicalFileScan).get(0);
+        Slot copiedScore = copiedScan.getVirtualColumns().get(0).toSlot();
+
+        Assertions.assertNotEquals(score.getExprId(), copiedScore.getExprId());
+        Assertions.assertEquals(context.exprIdReplaceMap.get(score.getExprId()), copiedScore.getExprId());
+        Assertions.assertEquals(scan.getOutput().size(), copiedScan.getOutput().size());
+        Assertions.assertTrue(copiedScan.getOutput().contains(copiedScore));
+        Assertions.assertFalse(copiedScan.getOutput().contains(score));
+        Assertions.assertTrue(copiedScan.getOperativeSlots().contains(copiedScore));
+        Assertions.assertFalse(copiedScan.getOperativeSlots().contains(score));
+        Assertions.assertEquals(scan.getVectorSearch(), copiedScan.getVectorSearch());
+        Assertions.assertEquals(scan.getPreloadRelationId(), copiedScan.getPreloadRelationId());
+        Assertions.assertDoesNotThrow(() -> new Validator().visit(copied, null));
+    }
+
+    @Test
+    public void lateSingleConsumerCteInliningPreservesVectorScore() {
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.getSessionVariable().inlineCTEReferencedThreshold = 1;
+        StatementContext statementContext = new StatementContext(connectContext, null);
+        LogicalFileScan scan = vectorScan();
+        LogicalPlan body = vectorTopN(scan);
+        CTEId cteId = StatementScopeIdGenerator.newCTEId();
+        LogicalCTEProducer<LogicalPlan> producer = new LogicalCTEProducer<>(cteId, body);
+        LogicalCTEConsumer consumer = new LogicalCTEConsumer(StatementScopeIdGenerator.newRelationId(),
+                cteId, "c", body);
+        LogicalCTEAnchor<?, ?> anchor = new LogicalCTEAnchor<>(cteId, producer, consumer);
+
+        CTEInliner.InlineResult result = new CTEInliner(statementContext).inlineByCurrentConsumerCount(anchor);
+
+        Assertions.assertTrue(result.isChanged());
+        Assertions.assertFalse(result.getPlan().anyMatch(p -> p instanceof LogicalCTEAnchor
+                || p instanceof LogicalCTEConsumer));
+        Assertions.assertEquals(consumer.getOutput(), result.getPlan().getOutput());
+        Assertions.assertDoesNotThrow(() -> new Validator().visit(result.getPlan(), null));
+        LogicalFileScan inlinedScan = (LogicalFileScan) result.getPlan()
+                .collectToList(p -> p instanceof LogicalFileScan).get(0);
+        Assertions.assertEquals(scan.getVectorSearch(), inlinedScan.getVectorSearch());
+        Assertions.assertEquals(scan.getPreloadRelationId(), inlinedScan.getPreloadRelationId());
+    }
+
+    private LogicalFileScan vectorScan() {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
+        Mockito.when(table.getName()).thenReturn("vector_table");
+        Slot id = new SlotReference("id", IntegerType.INSTANCE);
+        LogicalFileScan scan = new LogicalFileScan(StatementScopeIdGenerator.newRelationId(), table,
+                Collections.singletonList("db"), ImmutableList.of(id), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.of(ImmutableList.of(id)));
+        ConnectorVectorSearch search = new ConnectorVectorSearch(new TExternalSearchRequest(),
+                "distance", false, Optional.empty());
+        return scan.withVectorSearch(new SlotReference("distance", FloatType.INSTANCE), search);
+    }
+
+    private LogicalPlan vectorTopN(LogicalFileScan scan) {
+        Slot score = scan.getVirtualColumns().get(0).toSlot();
+        LogicalTopN<LogicalFileScan> topN = new LogicalTopN<>(ImmutableList.of(new OrderKey(score, true, false)),
+                5, 0, scan);
+        return new LogicalProject<>(ImmutableList.of(scan.getOutput().get(0)), topN);
     }
 }

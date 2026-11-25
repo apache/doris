@@ -50,12 +50,14 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Logical file scan for external catalog.
@@ -143,6 +145,26 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return new LogicalFileScan(relationId, getTable(), qualifier, selectedPartitions, required,
                 virtual, tableSample, tableSnapshot, scanParams, Optional.empty(), Optional.empty(), tableAlias,
                 Optional.of(outputs), preloadRelationId, Optional.of(search));
+    }
+
+    /** Replace virtual outputs and scan requirements while retaining the physical slots' ExprIds. */
+    @Override
+    public LogicalFileScan withVirtualColumns(List<NamedExpression> virtualColumns) {
+        Set<ExprId> oldVirtualIds = this.virtualColumns.stream()
+                .map(NamedExpression::getExprId).collect(ImmutableSet.toImmutableSet());
+        Builder<Slot> outputs = ImmutableList.builder();
+        getOutput().stream().filter(slot -> !oldVirtualIds.contains(slot.getExprId())).forEach(outputs::add);
+        Builder<Slot> required = ImmutableList.builder();
+        operativeSlots.stream().filter(slot -> !oldVirtualIds.contains(slot.getExprId())).forEach(required::add);
+        for (NamedExpression column : virtualColumns) {
+            Slot slot = column.toSlot();
+            outputs.add(slot);
+            required.add(slot);
+        }
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, getTable(), qualifier, selectedPartitions, required.build(),
+                virtualColumns, tableSample, tableSnapshot, scanParams, groupExpression, Optional.empty(), tableAlias,
+                Optional.of(outputs.build()), preloadRelationId, vectorSearch));
     }
 
     public RelationId getPreloadRelationId() {
