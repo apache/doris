@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -136,8 +137,9 @@ def resolve_status(
         if reviews_for_pr is None:
             raise ResolutionError("dismissal requires current GitHub review states")
         matching_dismissal = False
+        review_authors = ("github-actions[bot]", os.getenv("DORIS_REVIEW_APP_BOT", ""))
         for review in reviews_for_pr(number):
-            if (review["commit_id"] != head_sha or review["user"]["login"] != "github-actions[bot]"
+            if (review["commit_id"] != head_sha or review["user"]["login"] not in review_authors
                     or "<!-- code-review-completion:" not in (review.get("body") or "")):
                 continue
             review_url = f"{repo_url}/pull/{number}#pullrequestreview-{int(review['id'])}"

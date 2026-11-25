@@ -45,7 +45,7 @@ def record_dismissal(repo, server, title, run_actor_id):
     head = pr["head"]["sha"]
     review = api(f"{root}/pulls/{number}/reviews/{review_id}")
     if (review["state"] != "DISMISSED" or review["commit_id"] != head
-            or review["user"]["login"] != "github-actions[bot]"):
+            or review["user"]["login"] not in ("github-actions[bot]", os.getenv("DORIS_REVIEW_APP_BOT", ""))):
         return None
 
     pages = api(f"{root}/issues/{number}/timeline?per_page=100", "--paginate", "--slurp")
