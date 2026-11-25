@@ -50,6 +50,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -66,6 +67,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class Backend implements Writable {
     private static final Logger LOG = LogManager.getLogger(Backend.class);
+    private static final long PROCESS_START_TIME_MS = ManagementFactory.getRuntimeMXBean().getStartTime();
 
     // Represent a meaningless IP
     public static final String DUMMY_IP = "0.0.0.0";
@@ -152,6 +154,8 @@ public class Backend implements Writable {
     private long beMemory = 0;
     @SerializedName("supportsPaimonRustReader")
     private volatile boolean supportsPaimonRustReader;
+    // Images cannot prove the current process or transport. Only a fresh runtime heartbeat can grant a lease.
+    private transient volatile long fileEncryptionHeartbeatTimeMs;
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
@@ -266,6 +270,15 @@ public class Backend implements Writable {
 
     public boolean isPaimonRustReaderSupported() {
         return supportsPaimonRustReader;
+    }
+
+    public boolean isNativeFileEncryptionSupported() {
+        long heartbeatTimeMs = fileEncryptionHeartbeatTimeMs;
+        if (!isAlive() || heartbeatTimeMs < PROCESS_START_TIME_MS) {
+            return false;
+        }
+        long age = Math.abs(System.currentTimeMillis() - heartbeatTimeMs);
+        return age <= 3_000L * Config.heartbeat_interval_second;
     }
 
     /** Connector-facing capabilities reported by this backend. */
@@ -886,7 +899,12 @@ public class Backend implements Writable {
      * return true if any port changed, or alive state is changed.
      */
     public boolean handleHbResponse(BackendHbResponse hbResponse, boolean isReplay) {
-        boolean isChanged = false;
+        long previousCapabilityTime = fileEncryptionHeartbeatTimeMs;
+        fileEncryptionHeartbeatTimeMs = hbResponse.getStatus() == HbStatus.OK
+                && hbResponse.isNativeFileEncryptionSupported() ? hbResponse.getHbTime() : 0;
+        // Positive leases must reach followers every round. Missing/failed heartbeats must revoke them
+        // immediately, even while the usual liveness grace still considers the backend alive.
+        boolean isChanged = previousCapabilityTime != 0 || fileEncryptionHeartbeatTimeMs != 0;
         if (hbResponse.getStatus() == HbStatus.OK) {
             // An absent capability also clears support after a downgrade or legacy heartbeat replay.
             if (supportsPaimonRustReader != hbResponse.isPaimonRustReaderSupported()) {
@@ -995,6 +1013,21 @@ public class Backend implements Writable {
         }
 
         return isChanged;
+    }
+
+    BackendHbResponse heartbeatForJournal(BackendHbResponse response) {
+        if (response.getStatus() == HbStatus.BAD && isAlive()) {
+            // BAD replay bypasses liveness grace, including on older FEs. Replicate the resulting alive
+            // state with capability zero; retain the original failure for leader-side eviction/diagnostics.
+            BackendHbResponse snapshot = new BackendHbResponse(id, bePort, httpPort, brpcPort,
+                    lastUpdateMs, lastStartTime, version, nodeRoleTag.value,
+                    backendStatus.currentFragmentNum, backendStatus.lastFragmentUpdateTime,
+                    backendStatus.isShutdown, arrowFlightSqlPort, beMemory);
+            snapshot.setPaimonRustReaderSupported(supportsPaimonRustReader);
+            snapshot.setNativeFileEncryptionSupported(false);
+            return snapshot;
+        }
+        return response;
     }
 
     public void setTabletMaxCompactionScore(long compactionScore) {
@@ -1170,5 +1203,4 @@ public class Backend implements Writable {
         result.setAlive(backend.isIsAlive());
         return result;
     }
-
 }

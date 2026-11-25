@@ -2508,6 +2508,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         try {
             return executeAuthenticated(() -> {
                 Table table = resolveTableForRead(session, iceHandle);
+                // Stable metadata does not attest current KMS authorization. Throwing rejects both result-cache
+                // admission and replay; an empty token would instead fall back to legacy freshness caching.
+                if (IcebergEncryptionRead.isEncrypted(table)) {
+                    throw new UnsupportedOperationException("Iceberg encryption [SQL_CACHE_UNAVAILABLE]");
+                }
                 String version = metadataVersion(table, iceHandle).orElseThrow(
                         () -> new UnsupportedOperationException("Iceberg SQL cache requires published table metadata"));
                 long updateMillis = iceHandle.getSnapshotId() < 0 ? 0

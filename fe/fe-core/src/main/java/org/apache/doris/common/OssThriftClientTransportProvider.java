@@ -28,6 +28,13 @@ import org.apache.thrift.transport.layered.TFramedTransport;
 
 public class OssThriftClientTransportProvider implements ThriftClientTransportProvider {
     @Override
+    public boolean supportsPrivateFileKeys() {
+        // Legacy subclasses may override transport creation without using the OSS TLS implementation.
+        return getClass() == OssThriftClientTransportProvider.class
+                && PrivateRpcTls.supportsPrivateFileKeys(Protocol.THRIFT);
+    }
+
+    @Override
     public TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean nonBlocking) throws Exception {
         TSocket socket = PrivateRpcTls.enabled(Protocol.THRIFT)
                 ? new TlsThriftSocket(address.hostname, address.port, timeoutMs)

@@ -123,6 +123,10 @@ public class BackendServiceProxy {
             this.proxy = Objects.requireNonNull(proxy);
         }
 
+        public void requireFileEncryption(long backendId) {
+            NativeFileEncryptionSupport.require(backendId, address);
+        }
+
         public Future<InternalService.PExecPlanFragmentResult> prepare(ByteString fragments, boolean twoPhase)
                 throws RpcException {
             return proxy.execPlanFragmentsAsync(address, fragments, twoPhase);
@@ -227,7 +231,8 @@ public class BackendServiceProxy {
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
             TPipelineFragmentParamsList params, boolean twoPhaseExecution) throws TException, RpcException {
         // This direct entry bypasses the pipeline task builder, but has the same transport restriction.
-        FileScanEncryptionGuard.checkFragments(params, internalRpc);
+        FileScanEncryptionGuard.checkFragments(params,
+                () -> NativeFileEncryptionSupport.supported(address), internalRpc);
         InternalService.PExecPlanFragmentRequest.Builder builder =
                 InternalService.PExecPlanFragmentRequest.newBuilder();
         if (Config.use_compact_thrift_rpc) {

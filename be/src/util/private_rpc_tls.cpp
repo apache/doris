@@ -17,6 +17,7 @@
 
 #include "util/private_rpc_tls.h"
 
+#include <arrow/util/config.h>
 #include <brpc/channel.h>
 #include <brpc/server.h>
 #include <brpc/ssl_options.h>
@@ -37,6 +38,23 @@
 #include "util/thrift_server.h"
 
 namespace doris::rpc_tls {
+
+bool supports_native_file_encryption() {
+#if defined(DORIS_OSS_PRIVATE_RPC_PROVIDERS) && defined(PARQUET_REQUIRE_ENCRYPTION) && \
+        __has_include(<parquet/encryption/encryption_internal.h>)
+    // A PME-enabled reader must not advertise support when file keys would use unprotected RPC.
+    return enabled("brpc") && enabled("thrift") &&
+           config::tls_verify_mode == "verify_fail_if_no_peer_cert" &&
+           !config::tls_certificate_path.empty() && !config::tls_private_key_path.empty() &&
+           !config::tls_ca_certificate_path.empty() &&
+           config::tls_cert_refresh_interval_seconds == 0 &&
+           config::tls_peer_cert_required_san_dns.empty() &&
+           config::tls_private_key_password.empty();
+#else
+    return false;
+#endif
+}
+
 namespace {
 
 Status validate_configuration() {

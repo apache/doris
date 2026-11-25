@@ -18,6 +18,9 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.thrift.TFileEncryptionInfo;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.avro.io.Encoder;
 import org.apache.avro.io.EncoderFactory;
@@ -61,6 +64,29 @@ class IcebergFileEncryptionTest {
             Assertions.assertArrayEquals(ByteBuffers.toByteArray(source.encryptionKey()), encryption.toThrift().getKey());
             Assertions.assertArrayEquals(ByteBuffers.toByteArray(source.aadPrefix()), encryption.toThrift().getAadPrefix());
             Assertions.assertEquals(3, direct.position());
+        }
+    }
+
+    @Test
+    void dataAndIndependentDeleteKeysRequireTheNativeWireMarker() {
+        StandardEncryptionManager manager = new StandardEncryptionManager(List.of(), "synthetic-key", 16, new UnusedKms());
+        IcebergFileEncryption encryption = IcebergFileEncryption.fromMetadata(manager.encrypt(
+                new InMemoryFileIO().newOutputFile("memory://fixture/data.parquet")).keyMetadata().buffer());
+        for (int content : List.of(0, 1, 2)) {
+            IcebergScanRange.Builder builder = new IcebergScanRange.Builder().fileFormat("parquet");
+            if (content == 0) {
+                builder.encryption(encryption);
+            } else {
+                IcebergScanRange.DeleteFile delete = content == 1
+                        ? IcebergScanRange.DeleteFile.positionDelete("fixture.parquet", TFileFormatType.FORMAT_PARQUET,
+                                null, null, 100)
+                        : IcebergScanRange.DeleteFile.equalityDelete("fixture.parquet", TFileFormatType.FORMAT_PARQUET,
+                                List.of(1), 100);
+                builder.deleteFiles(List.of(delete.withEncryption(encryption)));
+            }
+            TFileRangeDesc range = new TFileRangeDesc().setFormatType(TFileFormatType.FORMAT_PARQUET);
+            builder.build().populateRangeParams(new TTableFormatFileDesc(), range);
+            Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET_PME, range.getFormatType());
         }
     }
 
