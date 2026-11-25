@@ -36,4 +36,8 @@ public interface BackendServiceClientChannelProvider {
     default boolean supportsRemoteWorkers() {
         return true;
     }
+
+    default boolean supportsPrivateFileKeys() {
+        return false;
+    }
 }

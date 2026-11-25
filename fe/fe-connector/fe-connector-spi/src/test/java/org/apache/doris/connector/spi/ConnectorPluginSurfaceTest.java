@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 37 carries connector-resolved session variables on rewrite groups.
-        Assertions.assertEquals("37.0", version.getProperty("api.version"));
+        // Major 38 carries connector-resolved session variables on rewrite groups after API 37 added native encryption.
+        Assertions.assertEquals("38.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -102,6 +102,7 @@ public class ConnectorPluginSurfaceTest {
             ConnectorFileSourceOps.class,
             ConnectorSecuritySurface.class,
             ConnectorContext.class,
+            ConnectorStorageContext.class,
             ConnectorSession.class,
             ConnectorStatementScope.class,
             ConnectorStatementScopes.class,

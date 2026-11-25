@@ -194,8 +194,8 @@ uint64_t MetadataAreaBegin(const std::vector<uint8_t>& image) {
 
 uint64_t SectionEnd(const SectionRefs& refs) {
     uint64_t end = 0;
-    for (const RegionRef& region :
-         {refs.dict_region, refs.posting_region, refs.norms, refs.null_bitmap, refs.bsbf}) {
+    for (const RegionRef& region : {refs.dict_region, refs.posting_region, refs.norms,
+                                    refs.null_bitmap, refs.bsbf, refs.sparse_norms}) {
         end = std::max(end, region.offset + region.length);
     }
     return end;
@@ -437,6 +437,28 @@ TEST(SniiRewriteSnapshot, RejectsSectionReferenceOutsideThePhysicalArea) {
                 if (index_id == kIndexIdA) {
                     core->section_refs.posting_region.offset = metadata_begin;
                     core->section_refs.posting_region.length = 1;
+                }
+            });
+
+    ImageFileReader reader(bad);
+    SniiSegmentReader segment;
+    ASSERT_TRUE(SniiSegmentReader::open(&reader, &segment).ok());
+
+    SniiRewriteSnapshot snapshot;
+    const Status status =
+            segment.prepare_rewrite_snapshot(KeysOf({{kIndexIdA, kSuffixA}}), kDocCount, &snapshot);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+}
+
+// Sparse norms are a section like the others: the prefix copy must carry them too.
+TEST(SniiRewriteSnapshot, RejectsSparseNormsReferenceOutsideThePhysicalArea) {
+    const std::vector<uint8_t> good = BuildTwoIndexImage();
+    const uint64_t metadata_begin = MetadataAreaBegin(good);
+    const std::vector<uint8_t> bad =
+            RebuildMetadataArea(good, [metadata_begin](uint64_t index_id, CoreMetadata* core) {
+                if (index_id == kIndexIdA) {
+                    core->section_refs.sparse_norms.offset = metadata_begin;
+                    core->section_refs.sparse_norms.length = 1;
                 }
             });
 

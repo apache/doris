@@ -3728,7 +3728,7 @@ public:
     }
     bool TEST_condition_cache_enabled_for_current_split() const {
         DORIS_CHECK(_file_scan_request != nullptr);
-        return _should_enable_condition_cache(*_file_scan_request);
+        return _condition_cache_localized_digest(*_file_scan_request).has_value();
     }
 };
 

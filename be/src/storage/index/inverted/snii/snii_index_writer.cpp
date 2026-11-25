@@ -253,7 +253,7 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
             _batch.release_oversized();
             _report_analysis_capacity();
         } catch (const Exception& e) {
-            return _latch_analysis_failure(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+            return _latch_write_failure(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                     "SNII analyze value failed: {}", e.what()));
         }
     }
@@ -337,6 +337,27 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const uint8_t*
         start_off += array_elem_size;
         ++_rid;
     }
+    return Status::OK();
+}
+
+Status SniiIndexColumnWriter::add_text_document(
+        const std::function<Status(const TextConsumer&)>& visit) {
+    DCHECK(!_has_positions);
+    RETURN_IF_ERROR(_failure_status);
+    RETURN_IF_ERROR(_finish_density_calibration());
+    auto status = visit([this](std::string_view text) {
+        uint32_t max_position = 0;
+        uint32_t token_count = 0;
+        RETURN_IF_ERROR(_add_value_tokens(Slice(text.data(), text.size()), _rid, 0, &max_position,
+                                          &token_count));
+        return _term_buffer->status();
+    });
+    // A failed traversal may already have emitted postings for this row.
+    if (!status.ok() && _failure_status.ok()) {
+        return _latch_write_failure(std::move(status));
+    }
+    RETURN_IF_ERROR(_failure_status);
+    ++_rid;
     return Status::OK();
 }
 
@@ -533,7 +554,7 @@ Status SniiIndexColumnWriter::finish() {
     return Status::OK();
 }
 
-Status SniiIndexColumnWriter::_latch_analysis_failure(Status status) {
+Status SniiIndexColumnWriter::_latch_write_failure(Status status) {
     DORIS_CHECK(!status.ok());
     DORIS_CHECK(_failure_status.ok());
     _failure_status = std::move(status);

@@ -41,6 +41,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exec/common/hash_table/hash.h"
+#include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exprs/function/array/function_array_index.h"
 #include "exprs/function/array/function_array_utils.h"
 #include "exprs/function/function.h"
@@ -58,12 +59,16 @@ template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
 
+// Keep phmap's equality semantics; doris::EqualTo treats floating-point NaNs as equal.
+template <typename T>
+using OverlapHashSet = doris::flat_hash_set<T, DefaultHash<T>, phmap::priv::hash_default_eq<T>>;
+
 template <PrimitiveType PType>
 struct OverlapSetImpl {
     using ArrayView = ArrayDataView<PType>;
     using ElementNativeType =
             typename NativeType<typename PrimitiveTypeTraits<PType>::ColumnType::value_type>::Type;
-    using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
+    using Set = OverlapHashSet<ElementNativeType>;
     Set set;
     bool has_null = false;
 
@@ -77,7 +82,7 @@ struct OverlapSetImpl {
         }
     }
 
-    bool find_any(const ArrayView& array) {
+    bool find_any(const ArrayView& array) const {
         for (size_t i = 0; i < array.size(); ++i) {
             if (array.is_null_at(i)) {
                 if (has_null) {
@@ -99,7 +104,7 @@ template <>
 struct OverlapSetImpl<TYPE_DECIMALV2> {
     using ArrayView = ArrayDataView<TYPE_DECIMALV2>;
     using ElementNativeType = Int128;
-    using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
+    using Set = OverlapHashSet<ElementNativeType>;
     Set set;
     bool has_null = false;
 
@@ -113,7 +118,7 @@ struct OverlapSetImpl<TYPE_DECIMALV2> {
         }
     }
 
-    bool find_any(const ArrayView& array) {
+    bool find_any(const ArrayView& array) const {
         for (size_t i = 0; i < array.size(); ++i) {
             if (array.is_null_at(i)) {
                 if (has_null) {
@@ -134,7 +139,7 @@ struct OverlapSetImpl<TYPE_DECIMALV2> {
 template <>
 struct OverlapSetImpl<TYPE_STRING> {
     using ArrayView = ArrayDataView<TYPE_STRING>;
-    using Set = phmap::flat_hash_set<StringRef, DefaultHash<StringRef>>;
+    using Set = OverlapHashSet<StringRef>;
     Set set;
     bool has_null = false;
 
@@ -148,7 +153,7 @@ struct OverlapSetImpl<TYPE_STRING> {
         }
     }
 
-    bool find_any(const ArrayView& array) {
+    bool find_any(const ArrayView& array) const {
         for (size_t i = 0; i < array.size(); ++i) {
             if (array.is_null_at(i)) {
                 if (has_null) {
@@ -179,6 +184,8 @@ public:
     bool is_variadic() const override { return false; }
 
     size_t get_number_of_arguments() const override { return 2; }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         auto left_data_type = remove_nullable(arguments[0]);
@@ -301,8 +308,11 @@ public:
                     ColumnArrayView<PType>::create(block.get_by_position(arguments[0]).column);
             auto right_view =
                     ColumnArrayView<PType>::create(block.get_by_position(arguments[1]).column);
+            const auto* prepared =
+                    static_cast<const PreparedSet<PType>*>(context->get_function_state(
+                            FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
             ret = _execute_internal<PType>(left_view, right_view, dst_null_map_data,
-                                           dst_nested_col->get_data().data());
+                                           dst_nested_col->get_data().data(), prepared);
             return true;
         };
         if (!dispatch_switch_all(left_element_type->get_primitive_type(), call)) {
@@ -319,6 +329,14 @@ public:
     }
 
 private:
+    template <PrimitiveType PType>
+    struct PreparedSet {
+        explicit PreparedSet(int arg) : const_arg(arg) {}
+
+        const int const_arg;
+        OverlapSetImpl<PType> set;
+    };
+
     template <PrimitiveType PType>
     static Status _execute_nullable(const ColumnArrayView<PType>& data, UInt8* dst_nullmap_data) {
         for (ssize_t row = 0; row < data.size(); ++row) {
@@ -337,7 +355,7 @@ private:
     template <PrimitiveType PType>
     Status _execute_internal(const ColumnArrayView<PType>& left_data,
                              const ColumnArrayView<PType>& right_data, UInt8* dst_nullmap_data,
-                             UInt8* dst_data) const {
+                             UInt8* dst_data, const PreparedSet<PType>* prepared) const {
         using ExecutorImpl = OverlapSetImpl<PType>;
         RETURN_IF_ERROR(_execute_nullable(left_data, dst_nullmap_data));
         RETURN_IF_ERROR(_execute_nullable(right_data, dst_nullmap_data));
@@ -351,6 +369,12 @@ private:
             const auto right_array = right_data[row];
             if (left_array.size() == 0 || right_array.size() == 0) {
                 dst_data[row] = 0;
+                continue;
+            }
+
+            if (prepared != nullptr) {
+                dst_data[row] =
+                        prepared->set.find_any(prepared->const_arg == 0 ? right_array : left_array);
                 continue;
             }
 

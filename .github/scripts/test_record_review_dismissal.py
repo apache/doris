@@ -115,6 +115,22 @@ class ReviewDismissalTest(unittest.TestCase):
                 self.assertIsNone(record_dismissal(REPO, SERVER, TITLE, 42))
                 self.assertFalse(self.posts)
 
+    @patch.dict("os.environ", DORIS_REVIEW_APP_BOT="doris-review[bot]")
+    def test_configured_app_review_uses_actions_dismissal_receipt(self):
+        self.review["user"] = {"login": "doris-review[bot]"}
+        self.assertEqual(HEAD_SHA, record_dismissal(REPO, SERVER, TITLE, 42))
+        receipt = dict(self.posts[0], creator=BOT, id=1)
+        source = dict(status(2, source="automated", state="failure"), target_url=URL, creator=BOT,
+                      description="Review completed for PR #123: P0=0, P1=1.")
+        reviews = [dict(self.review, id=99, body="<!-- code-review-completion:t -->")]
+
+        def result():
+            return resolve_status([self.pr], [receipt, source], head_sha=HEAD_SHA, repo_url=REPO_URL,
+                                  reviews_for_pr=lambda number: reviews).state
+        self.assertEqual("success", result())
+        source["creator"] = self.review["user"]
+        self.assertEqual("failure", result())
+
     def test_untrusted_title_is_only_a_numeric_lookup_hint(self):
         self.assertIsNone(record_dismissal(REPO, SERVER, TITLE + "\nextra", 42))
         self.api.assert_not_called()

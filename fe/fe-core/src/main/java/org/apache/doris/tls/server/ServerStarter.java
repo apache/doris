@@ -21,4 +21,8 @@ public interface ServerStarter {
     void start() throws Exception;
 
     void stop() throws Exception;
+
+    default boolean supportsPrivateFileKeys() {
+        return false;
+    }
 }

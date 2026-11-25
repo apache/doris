@@ -74,6 +74,12 @@ uint64_t array_all_null_chunks_for_test();
 void reset_array_all_null_chunks_for_test();
 #endif
 
+// Builds a dense batch from compact values and their absolute row IDs, filling gaps with defaults.
+// next_value is advanced to the first compact value after the batch.
+MutableColumnPtr materialize_sparse_column_range(const IColumn& values,
+                                                 std::span<const uint32_t> rowids, size_t row_begin,
+                                                 size_t num_rows, size_t& next_value);
+
 // Writes `total_rows` rows: row rowids[i] takes values_column[i], every other row is NULL. ARRAY
 // takes a one-path full-column fallback because its NULL rows must reach the index writers too.
 Status append_sparse_column(const TabletColumn& tablet_column, ColumnWriter* writer,

@@ -41,6 +41,7 @@
 #include "storage/index/inverted/snii/reader/logical_index_reader.h"
 #include "storage/options.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/slice.h"
 
@@ -696,6 +697,49 @@ TEST_F(IndexDiskUsageCollectorTest, CollectSniiDocsOnlyHasNoPositions) {
     ASSERT_NE(text, nullptr);
     EXPECT_EQ(0, text->position_bytes);
     EXPECT_GT(text->posting_bytes, 0);
+}
+
+// Sparse norms count toward the index that owns them, as dense norms do, so the container keeps
+// only its own bytes whichever form the norms take.
+TEST_F(IndexDiskUsageCollectorTest, CollectSniiAttributesSparseNormsToTheIndex) {
+    // Six rows of text among forty NULL rows, so the sparse norms are far smaller than the dense.
+    auto feed_text_among_nulls = [](IndexColumnWriter* writer) {
+        feed_text(writer);
+        ASSERT_TRUE(writer->add_nulls(40).ok());
+        feed_text(writer);
+    };
+    auto collect = [&](bool sparse, const std::string& rowset_id) {
+        const bool debug_points_were_enabled = config::enable_debug_points;
+        config::enable_debug_points = true;
+        DebugPoints::instance()->clear();
+        if (sparse) {
+            DebugPoints::instance()->add("LogicalIndexWriter::finalize_build.sparse_norms");
+        }
+        auto schema = create_schema();
+        std::vector<IndexSpec> specs {
+                {.index = text_index(1, true), .column_index = 1, .feed = feed_text_among_nulls}};
+        const std::string prefix =
+                write_segment(InvertedIndexStorageFormatPB::SNII, rowset_id, schema, &specs);
+        DebugPoints::instance()->clear();
+        config::enable_debug_points = debug_points_were_enabled;
+        return collect_snii(prefix, schema, /*position_detail=*/false);
+    };
+
+    const auto dense = collect(/*sparse=*/false, "rs_snii_dense_norms");
+    const auto sparse = collect(/*sparse=*/true, "rs_snii_sparse_norms");
+    const IndexDiskUsageRecord* dense_text = find_record(dense, 1, IndexDiskUsageStructure::kTerm);
+    const IndexDiskUsageRecord* sparse_text =
+            find_record(sparse, 1, IndexDiskUsageStructure::kTerm);
+    const IndexDiskUsageRecord* dense_container =
+            find_record(dense, -1, IndexDiskUsageStructure::kContainer);
+    const IndexDiskUsageRecord* sparse_container =
+            find_record(sparse, -1, IndexDiskUsageStructure::kContainer);
+    ASSERT_NE(dense_text, nullptr);
+    ASSERT_NE(sparse_text, nullptr);
+    ASSERT_NE(dense_container, nullptr);
+    ASSERT_NE(sparse_container, nullptr);
+    EXPECT_LT(sparse_text->stats_bytes, dense_text->stats_bytes);
+    EXPECT_EQ(sparse_container->total_bytes, dense_container->total_bytes);
 }
 
 TEST_F(IndexDiskUsageCollectorTest, CollectSniiPositionDetail) {

@@ -26,15 +26,20 @@
 #include <librdkafka/rdkafkacpp.h>
 #include <unistd.h>
 
+#include <future>
 #include <map>
 
 #include "common/config.h"
 #include "common/status.h"
+#include "common/utils.h"
 #include "gtest/gtest_pred_impl.h"
 #include "load/stream_load/new_load_stream_mgr.h"
+#include "load/stream_load/stream_load_context.h"
 #include "load/stream_load/stream_load_executor.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
+#include "util/defer_op.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -73,6 +78,57 @@ public:
         _env->clear_stream_load_executor();
     }
 };
+
+TEST_F(RoutineLoadTaskExecutorTest, LegacyTaskUsesHeartbeatToken) {
+    const auto original_pool_size = config::max_routine_load_thread_pool_size;
+    config::max_routine_load_thread_pool_size = 1;
+    Defer restore_config {[&] { config::max_routine_load_thread_pool_size = original_pool_size; }};
+    _env->cluster_info()->curr_auth_token = "routine-load-token";
+    RoutineLoadTaskExecutor executor(_env);
+    ASSERT_TRUE(executor.init(1024 * 1024).ok());
+
+    // Hold the worker so the submitted task can be inspected before execution.
+    std::promise<void> started;
+    std::promise<void> resume;
+    auto resumed = resume.get_future();
+    Defer stop_executor {[&] {
+        resume.set_value();
+        executor.stop();
+    }};
+    ASSERT_TRUE(executor.get_thread_pool()
+                        .submit_func([&] {
+                            started.set_value();
+                            resumed.wait();
+                        })
+                        .ok());
+    started.get_future().wait();
+
+    TRoutineLoadTask task;
+    task.type = TLoadSourceType::KAFKA;
+    task.__set_auth_code(12345); // Required field sent by older FEs.
+    task.__set_id(TUniqueId());
+    task.__set_txn_id(4);
+    task.__set_db("db1");
+    task.__set_tbl("tbl1");
+    ASSERT_TRUE(executor.submit_task(task).ok());
+    std::lock_guard<std::mutex> lock(executor._lock);
+    auto ctx = executor._task_map.at(UniqueId(task.id));
+    TStreamLoadPutRequest plan;
+    set_request_auth(&plan, ctx->auth);
+    TLoadTxnCommitRequest commit;
+    _env->stream_load_executor()->get_commit_request(ctx.get(), commit);
+    TLoadTxnRollbackRequest rollback;
+    set_request_auth(&rollback, ctx->auth);
+    EXPECT_EQ("routine-load-token", plan.token);
+    EXPECT_EQ(plan.token, commit.token);
+    EXPECT_EQ(plan.token, rollback.token);
+    EXPECT_TRUE(plan.__isset.token);
+    EXPECT_TRUE(commit.__isset.token);
+    EXPECT_TRUE(rollback.__isset.token);
+    EXPECT_FALSE(plan.__isset.auth_code);
+    EXPECT_FALSE(commit.__isset.auth_code);
+    EXPECT_FALSE(rollback.__isset.auth_code);
+}
 
 TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     TRoutineLoadTask task;

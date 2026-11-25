@@ -214,6 +214,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         IcebergWriteContext writeContext = buildWriteContext(handle, schemaContext);
         transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext);
         Table table = transaction.getTable();
+        // Shared rewrite transactions can reuse beginWrite; every native sink still enforces this boundary.
+        IcebergEncryptionRead.checkWrite(table);
         validateBoundWriteMetadata(table, handle);
         validateBoundWriteColumns(table, schemaContext, handle, writeContext.getWriteOperation());
 
