@@ -578,11 +578,15 @@ bool VariantColumnReader::_has_prefix_path_unlocked(const PathInData& relative_p
     const std::string path = relative_path.get_path();
     const std::string dot_prefix = relative_path.get_path() + ".";
 
-    // 1) exact node exists and has children.
-    if (const auto* node = _subcolumns_meta_info->find_exact(relative_path)) {
-        if (!node->children.empty()) {
-            return true;
-        }
+    // 1) exact node exists and has children. Without escaped keys the key `a.b` and the path
+    // a -> b are stored alike, so also try the split path, as get_subcolumn_meta_by_path and
+    // _build_read_plan do. For example, a stored `a.b.c` makes ['a.b'] a prefix.
+    const auto has_children = [this](const PathInData& path_to_find) {
+        const auto* node = _subcolumns_meta_info->find_exact(path_to_find);
+        return node != nullptr && !node->children.empty();
+    };
+    if (has_children(relative_path) || (_path_encoding == 0 && has_children(PathInData(path)))) {
+        return true;
     }
 
     // 2) Check sparse column stats: use lower_bound to test the `p.` prefix range

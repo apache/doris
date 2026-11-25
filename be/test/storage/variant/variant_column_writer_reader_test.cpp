@@ -8829,7 +8829,8 @@ static std::unique_ptr<NegatedMatchOnPath> evaluate_negated_match_on_path(
     leaf->set_unique_id(-1);
     leaf->set_parent_unique_id(parent.unique_id());
     leaf->set_is_nullable(true);
-    leaf->set_path_info(PathInData(leaf->name()));
+    // FE sends `v['a.b']` as the single path component `a.b`.
+    leaf->set_path_info(PathInData(parent.name(), std::vector<std::string> {path}));
     run->leaf = leaf;
     run->match = make_match_any_hit(*leaf);
     TExprNode not_node;
@@ -8886,6 +8887,25 @@ TEST_F(VariantColumnWriterReaderTest, test_match_reads_rows_for_unindexed_varian
 
     // Row 0 stores "hit" at `missing` without an index, so only row evaluation can answer it.
     const auto run = evaluate_negated_match_on_path(segments.front().get(), "missing");
+    ASSERT_TRUE(run->status.ok()) << run->status;
+    EXPECT_FALSE(run->scan->has_index_result_for_expr(run->match.get()));
+    EXPECT_FALSE(run->scan->has_index_result_for_expr(run->negation.get()));
+    EXPECT_FALSE(run->status_map[0][run->match.get()]);
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_match_reads_rows_for_legacy_dotted_variant_path) {
+    init_variant_tablet(41008);
+    // V2 keeps the path metadata inline, so no external meta store can answer the prefix `a.b.`.
+    init_tablet_from_current_schema(41008, TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
+    auto rowset = create_variant_rowset({{R"({"a":{"b":{"c":"hit"}}})", R"({})"}}, 1);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    ASSERT_TRUE(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments).ok());
+    ASSERT_EQ(1, segments.size());
+
+    // Without escaped keys, the segment stores row 0 under a -> b -> c, and the read plan reads
+    // `v['a.b']` from there as {"c":"hit"}. The path is stored, so only row evaluation can
+    // answer the MATCH.
+    const auto run = evaluate_negated_match_on_path(segments.front().get(), "a.b");
     ASSERT_TRUE(run->status.ok()) << run->status;
     EXPECT_FALSE(run->scan->has_index_result_for_expr(run->match.get()));
     EXPECT_FALSE(run->scan->has_index_result_for_expr(run->negation.get()));

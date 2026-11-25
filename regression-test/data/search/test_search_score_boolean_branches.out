@@ -77,3 +77,15 @@
 6	0
 9	0.833
 
+-- !nullable_not_and --
+2
+3
+
+-- !variant_not_and_absent --
+2
+4
+6
+
+-- !variant_dotted_path --
+1
+

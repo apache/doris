@@ -165,4 +165,61 @@ suite("test_search_score_boolean_branches", "p0") {
         WHERE NOT (v['content'] MATCH_ANY 'search') OR v['title'] MATCH_ANY 'apple'
         ORDER BY score() DESC LIMIT 100
     """
+
+    sql "DROP TABLE IF EXISTS test_search_score_nullable_not_and"
+    sql """
+        CREATE TABLE test_search_score_nullable_not_and (
+            id INT NOT NULL,
+            title STRING NULL,
+            content STRING NULL,
+            INDEX idx_title(title) USING INVERTED PROPERTIES("parser" = "english"),
+            INDEX idx_content(content) USING INVERTED PROPERTIES("parser" = "english")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default:1")
+    """
+    sql """
+        INSERT INTO test_search_score_nullable_not_and VALUES
+            (1, NULL, 'hit'), (2, NULL, 'miss'), (3, 'apple', 'miss')
+    """
+
+    // Keep NOT over AND. NULL AND FALSE is FALSE, so NOT keeps row 2 of the nullable table and
+    // row 4 of the VARIANT table, which has no v.content and a v.title without 'apple'.
+    sql """ set disable_nereids_expression_rules = 'SIMPLIFY_NOT_EXPR' """
+    order_qt_nullable_not_and """
+        SELECT id FROM test_search_score_nullable_not_and
+        WHERE NOT (title MATCH_ANY 'x' AND content MATCH_ANY 'hit')
+    """
+    order_qt_variant_not_and_absent """
+        SELECT id FROM test_search_score_variant_absent_path
+        WHERE NOT (v['content'] MATCH_ANY 'search' AND v['title'] MATCH_ANY 'apple')
+    """
+    sql """ set disable_nereids_expression_rules = '' """
+
+    // Without escaped keys, the segment stores row 1 under a.b.c, and v['a.b'] reads
+    // {"c":"hit"} from there.
+    sql "DROP TABLE IF EXISTS test_search_score_variant_dotted_path"
+    sql """
+        CREATE TABLE test_search_score_variant_dotted_path (
+            id INT NOT NULL,
+            v VARIANT NULL,
+            INDEX idx_v(v) USING INVERTED PROPERTIES("parser" = "english")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default:1",
+            "disable_auto_compaction" = "true",
+            "variant_escape_dots_in_keys" = "false"
+        )
+    """
+    sql """
+        INSERT INTO test_search_score_variant_dotted_path VALUES
+            (1, parse_to_variant('{"a":{"b":{"c":"hit"}}}')),
+            (2, parse_to_variant('{"a":{"x":"hit"}}'))
+    """
+    order_qt_variant_dotted_path """
+        SELECT id FROM test_search_score_variant_dotted_path WHERE v['a.b'] MATCH_ANY 'hit'
+    """
 }
