@@ -15,3 +15,12 @@
 -- !oceanbase_incremental_orders --
 10	snapshot_order
 11	incremental_order
+
+-- !oceanbase_after_rollback --
+2	Bob	21
+3	Carol	30
+5	after_rollback	50
+
+-- !oceanbase_after_resume --
+2	Bob_reinserted	42
+5	after_rollback	50

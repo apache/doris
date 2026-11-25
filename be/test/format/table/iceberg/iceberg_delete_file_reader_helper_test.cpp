@@ -150,7 +150,8 @@ int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
 }
 
 std::string temp_parquet_path(const std::string& filename) {
-    return (std::filesystem::temp_directory_path() / filename).string();
+    static const doris::test::ScopedTempDirectory temp_dir("iceberg_delete_file_reader");
+    return (temp_dir.path() / filename).string();
 }
 
 void write_position_delete_parquet(const std::string& path,
@@ -325,8 +326,9 @@ TEST(IcebergDeleteFileReaderHelperTest, ValidateDeletionVectorDescriptor) {
 }
 
 TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorReportsMissingFile) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_iceberg_deletion_vector_missing_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir(
+            "iceberg_delete_file_reader_helper_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_iceberg_deletion_vector_missing_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -350,8 +352,10 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorReportsMissingFile) {
 }
 
 TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorRejectsRangePastFile) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_iceberg_deletion_vector_range_past_file_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir(
+            "iceberg_delete_file_reader_helper_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_iceberg_deletion_vector_range_past_file_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -377,8 +381,9 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorRejectsRangePastFile) 
 }
 
 TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorReaderValidatesOpenedFileRange) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_deletion_vector_opened_file_range_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir(
+            "iceberg_delete_file_reader_helper_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_deletion_vector_opened_file_range_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -422,8 +427,9 @@ TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorReaderValidatesOpenedFileR
 }
 
 TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorStopsWhenIoContextStops) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_iceberg_deletion_vector_stop_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir(
+            "iceberg_delete_file_reader_helper_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_iceberg_deletion_vector_stop_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -476,8 +482,9 @@ TEST(IcebergDeleteFileReaderHelperTest, DecodeDeletionVectorRejectsCrcMismatch) 
 }
 
 TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorReadsMillionDeletePositions) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_iceberg_deletion_vector_large_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir(
+            "iceberg_delete_file_reader_helper_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_iceberg_deletion_vector_large_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -512,8 +519,9 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorReadsMillionDeletePosi
 }
 
 TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorConcurrentReadsAreStable) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_iceberg_deletion_vector_concurrent_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir(
+            "iceberg_delete_file_reader_helper_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_iceberg_deletion_vector_concurrent_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 

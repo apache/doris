@@ -94,6 +94,7 @@
 #include "io/object_storage/obj_storage_client_holder.h"
 #include "io/object_storage/obj_storage_rate_limiter_manager.h"
 #include "testutil/container_credentials_endpoint.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/s3_uri.h"
 
 #ifdef USE_AZURE
@@ -1178,8 +1179,8 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
 
 TEST_F(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider) {
     CaBundleCache cache;
-    auto ca_cert_file_path = std::filesystem::temp_directory_path() /
-                             ("doris_s3_client_factory_ca_" + std::to_string(getpid()) + ".pem");
+    const doris::test::ScopedTempDirectory temp_dir("s3_client_factory_ca");
+    auto ca_cert_file_path = temp_dir.path() / "ca.pem";
     std::filesystem::remove(ca_cert_file_path);
     const auto ca_path = ca_cert_file_path.string();
 

@@ -102,6 +102,35 @@ teamcity_current_trigger() (
     teamcity_current_enqueue "${comment_to_pipeline[$lane]}" "$params" "$count"
 )
 
+# Run only in the OIDC-enabled job after GitHub records the lane approvals.
+teamcity_fc_submit() (
+    set -euo pipefail
+    set +x
+    local lane=$1 pr=$2 head=$3 branch=$4 repeat=$5 token body receipt
+    local endpoint=${TEAMCITY_FC_TRIGGER_URL:?Set the repository variable TEAMCITY_FC_TRIGGER_URL}
+    [[ "$endpoint" =~ ^https://[A-Za-z0-9.-]+/trigger$ ]] || { echo 'Invalid FC HTTPS trigger URL' >&2; return 1; }
+    token=$(printf 'Authorization: Bearer %s\n' "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?}" |
+        curl -q --proto '=https' --fail --silent --show-error --max-time 20 --header @- \
+            --get --data-urlencode 'audience=urn:apache:doris:ci:teamcity-trigger' "${ACTIONS_ID_TOKEN_REQUEST_URL:?}" |
+        jq -er '.value | select(type == "string" and length > 0)') || return 1
+    echo "::add-mask::$token"
+    body=$(jq -cn --arg lane "$lane" --argjson pr "$pr" --arg head "$head" --arg base "$branch" --argjson repeat "$repeat" \
+        '{pipeline:$lane, pr:$pr, head_sha:$head, base_branch:$base, repeat:$repeat}') || return 1
+    local response status
+    response=$(printf 'Authorization: Bearer %s\n' "$token" |
+        curl -q --proto '=https' --silent --show-error --max-time 300 --header @- \
+            -H 'Content-Type: application/json' --write-out '\n%{http_code}' --data-binary "$body" "$endpoint") || return 1
+    status=${response##*$'\n'}
+    receipt=${response%$'\n'*}
+    if [[ $status != 200 ]]; then
+        jq -c '{error, request_key, completed}' <<< "$receipt" >&2
+        return 1
+    fi
+    jq -e --argjson repeat "$repeat" '.build_ids | type == "array" and length == $repeat and
+        all(.[]; type == "number" and . > 0 and floor == .)' <<< "$receipt" >/dev/null || return 1
+    printf '%s queued build IDs: %s\n' "$lane" "$(jq -c '.build_ids' <<< "$receipt")"
+)
+
 skip_build() {
     set +x
     # 对于不需要跑teamcity pipeline的PR，直接调用github的接口返回成功
@@ -186,7 +215,13 @@ trigger_or_skip_build() {
         echo "No pipeline for $COMMENT_TRIGGER_TYPE on $PULL_REQUEST_TARGET_BRANCH" >&2; return 1;
     }
     case "$FILE_CHANGED" in
-        true) trigger_build "$PULL_REQUEST_NUM" "$COMMIT_ID_FROM_TRIGGER" "$COMMENT_TRIGGER_TYPE" "${COMMENT_REPEAT_TIMES:-1}" ;;
+        true)
+            if [[ -n ${TEAMCITY_FC_PLAN:-} ]]; then
+                printf '%s\n' "$COMMENT_TRIGGER_TYPE" >> "$TEAMCITY_FC_PLAN"
+            else
+                trigger_build "$PULL_REQUEST_NUM" "$COMMIT_ID_FROM_TRIGGER" "$COMMENT_TRIGGER_TYPE" "${COMMENT_REPEAT_TIMES:-1}"
+            fi
+            ;;
         false) teamcity_skip_unaffected ;;
         *) echo "Invalid FILE_CHANGED: $FILE_CHANGED" >&2; return 1 ;;
     esac

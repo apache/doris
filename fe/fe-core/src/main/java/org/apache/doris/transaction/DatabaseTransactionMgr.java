@@ -37,6 +37,8 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -2050,17 +2052,26 @@ public class DatabaseTransactionMgr {
         transactionState.beforeStateTransform(TransactionStatus.ABORTED);
         boolean txnOperated = false;
         EditLog.EditLogItem logItem = null;
-        synchronized (transactionState) {
-            txnOperated = unprotectAbortTransaction(transactionId, reason);
-            if (txnOperated) {
-                if (Config.enable_txn_log_outside_lock) {
-                    logItem = enqueueTransactionState(transactionState);
-                } else {
-                    persistTransactionState(transactionState);
+        try {
+            synchronized (transactionState) {
+                txnOperated = unprotectAbortTransaction(transactionId, reason);
+                if (txnOperated) {
+                    if (Config.enable_txn_log_outside_lock) {
+                        logItem = enqueueTransactionState(transactionState);
+                    } else {
+                        persistTransactionState(transactionState);
+                    }
                 }
             }
+        } finally {
+            // Always pair a successful before callback outside the transaction monitor, also when the abort
+            // is rejected or its edit log fails: a routine load job releases the lock taken in beforeAborted here.
+            try {
+                transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
+            } catch (Throwable e) {
+                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            }
         }
-        transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
         if (txnOperated) {
             awaitTransactionState(logItem, transactionState);
         }
@@ -2100,17 +2111,25 @@ public class DatabaseTransactionMgr {
         transactionState.beforeStateTransform(TransactionStatus.ABORTED);
         boolean txnOperated = false;
         EditLog.EditLogItem logItem = null;
-        synchronized (transactionState) {
-            txnOperated = unprotectAbortTransaction(transactionId, "User Abort");
-            if (txnOperated) {
-                if (Config.enable_txn_log_outside_lock) {
-                    logItem = enqueueTransactionState(transactionState);
-                } else {
-                    persistTransactionState(transactionState);
+        try {
+            synchronized (transactionState) {
+                txnOperated = unprotectAbortTransaction(transactionId, "User Abort");
+                if (txnOperated) {
+                    if (Config.enable_txn_log_outside_lock) {
+                        logItem = enqueueTransactionState(transactionState);
+                    } else {
+                        persistTransactionState(transactionState);
+                    }
                 }
             }
+        } finally {
+            // Always pair a successful before callback outside the transaction monitor, as in abortTransaction().
+            try {
+                transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, "User Abort");
+            } catch (Throwable e) {
+                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            }
         }
-        transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, "User Abort");
         if (txnOperated) {
             awaitTransactionState(logItem, transactionState);
         }
@@ -3276,6 +3295,9 @@ public class DatabaseTransactionMgr {
             Database db = env.getInternalCatalog().getDbOrMetaException(info.getDbId());
             TableIf tableIf = db.getTableOrMetaException(info.getStreamId());
             ((BaseTableStream) tableIf).unprotectedCheckStreamUpdate(info.getUpdate());
+            if (tableIf instanceof OlapTableStream) {
+                ((OlapTableStream) tableIf).unprotectedPrepareStreamUpdate((OlapTableStreamUpdate) info.getUpdate());
+            }
         }
     }
 

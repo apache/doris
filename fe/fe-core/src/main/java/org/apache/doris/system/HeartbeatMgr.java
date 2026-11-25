@@ -85,7 +85,11 @@ public class HeartbeatMgr extends MasterDaemon {
     private final ExecutorService abortTxnExecutor;
     private final ExecutorService changelogTtlExecutor;
     private final AtomicBoolean changelogTtlRefreshPending = new AtomicBoolean();
-    private final Map<Long, TNetworkAddress> backendHeartbeatAddresses = Maps.newConcurrentMap();
+
+    private record BackendHeartbeatAddress(TNetworkAddress address, String peerHost) {
+    }
+
+    private final Map<Long, BackendHeartbeatAddress> backendHeartbeatAddresses = Maps.newConcurrentMap();
     private long lastChangelogTtlRefreshMs;
 
 
@@ -213,6 +217,14 @@ public class HeartbeatMgr extends MasterDaemon {
                 isChanged = handleHbResponse(response, false);
 
                 if (isChanged) {
+                    if (response instanceof BackendHbResponse) {
+                        BackendHbResponse backendResponse = (BackendHbResponse) response;
+                        Backend backend = nodeMgr.getBackend(backendResponse.getBeId());
+                        // A backend can be removed while the asynchronous heartbeat is in flight.
+                        if (backend != null) {
+                            response = backend.heartbeatForJournal(backendResponse);
+                        }
+                    }
                     hbPackage.addHbResponse(response);
                 }
             } catch (InterruptedException | ExecutionException e) {
@@ -319,7 +331,7 @@ public class HeartbeatMgr extends MasterDaemon {
         backendHeartbeatAddresses.entrySet().removeIf(entry -> {
             // Removed BEs will never borrow again, so their idle connections must be closed here.
             if (nodeMgr.getBackend(entry.getKey()) == null) {
-                ClientPool.backendHeartbeatPool.clearPool(entry.getValue());
+                ClientPool.backendHeartbeatPool.clearPool(entry.getValue().address(), entry.getValue().peerHost());
                 return true;
             }
             return false;
@@ -350,7 +362,8 @@ public class HeartbeatMgr extends MasterDaemon {
             long backendId = backend.getId();
             HeartbeatService.Client client = null;
 
-            TNetworkAddress beAddr = new TNetworkAddress(backend.getHost(), backend.getHeartbeatPort());
+            String peerHost = backend.getHost();
+            TNetworkAddress beAddr = new TNetworkAddress(peerHost, backend.getHeartbeatPort());
             boolean ok = false;
             try {
                 TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());
@@ -376,20 +389,22 @@ public class HeartbeatMgr extends MasterDaemon {
                 THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {
                     if (Config.enable_fqdn_mode) {
-                        String realIp = Env.getCurrentEnv().getDnsCache().get(backend.getHost());
+                        String realIp = Env.getCurrentEnv().getDnsCache().get(peerHost);
                         // DNSCache returns an empty address when the first lookup fails.
                         if (realIp.isEmpty()) {
-                            throw new UnknownHostException("Failed to resolve hostname: " + backend.getHost());
+                            throw new UnknownHostException("Failed to resolve hostname: " + peerHost);
                         }
                         beAddr = new TNetworkAddress(realIp, backend.getHeartbeatPort());
                     }
-                    TNetworkAddress previousAddress = backendHeartbeatAddresses.put(backendId, beAddr);
+                    BackendHeartbeatAddress endpoint = new BackendHeartbeatAddress(beAddr, peerHost);
+                    BackendHeartbeatAddress previousAddress = backendHeartbeatAddresses.put(backendId, endpoint);
                     // A reused Pod IP can lead to a healthy connection to the wrong BE, even when
                     // its heartbeat succeeds. Switch pools as soon as DNSCache observes the new IP.
-                    if (previousAddress != null && !previousAddress.equals(beAddr)) {
-                        ClientPool.backendHeartbeatPool.clearPool(previousAddress);
+                    if (previousAddress != null && !previousAddress.equals(endpoint)) {
+                        ClientPool.backendHeartbeatPool.clearPool(
+                                previousAddress.address(), previousAddress.peerHost());
                     }
-                    client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
+                    client = ClientPool.backendHeartbeatPool.borrowObject(beAddr, peerHost);
                     result = client.heartbeat(copiedMasterInfo);
                 } else {
                     // Mocked result
@@ -448,6 +463,8 @@ public class HeartbeatMgr extends MasterDaemon {
                             fragmentNum, lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory);
                     response.setPaimonRustReaderSupported(tBackendInfo.isSetSupportsPaimonRustReader()
                             && tBackendInfo.isSupportsPaimonRustReader());
+                    response.setNativeFileEncryptionSupported(tBackendInfo.isSetSupportsNativeFileEncryption()
+                            && tBackendInfo.isSupportsNativeFileEncryption());
                     ok = true;
                     return response;
                 } else {
@@ -462,11 +479,11 @@ public class HeartbeatMgr extends MasterDaemon {
             } finally {
                 if (client != null) {
                     if (ok) {
-                        ClientPool.backendHeartbeatPool.returnObject(beAddr, client);
+                        ClientPool.backendHeartbeatPool.returnObject(beAddr, client, peerHost);
                     } else {
                         // Identity errors are normal RPC replies. Reusing that socket would keep
                         // contacting the wrong BE after DNS has converged.
-                        ClientPool.backendHeartbeatPool.invalidateObject(beAddr, client);
+                        ClientPool.backendHeartbeatPool.invalidateObject(beAddr, client, peerHost);
                     }
                 }
             }

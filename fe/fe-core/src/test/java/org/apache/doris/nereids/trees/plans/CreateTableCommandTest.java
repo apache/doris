@@ -266,6 +266,35 @@ public class CreateTableCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testValuesIndexUsesEffectivePartitionFormat() {
+        String previousDeployMode = Config.deploy_mode;
+        String previousCloudUniqueId = Config.cloud_unique_id;
+        boolean previousRollout = Config.enable_partition_inverted_index_storage_format_rollout;
+        try {
+            Config.deploy_mode = "cloud";
+            Config.cloud_unique_id = "values-format-test";
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+            for (String format : List.of("V2", "V3")) {
+                CreateTableCommand command = (CreateTableCommand) new NereidsParser().parseSingle(
+                        "CREATE TABLE test.values_partition_format (id INT, v VARIANT, "
+                                + "INDEX values_idx(v) USING INVERTED PROPERTIES "
+                                + "('variant_index_scope'='values','parser'='english')) "
+                                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES "
+                                + "('replication_num'='1','inverted_index_storage_format'='SNII',"
+                                + "'partition.inverted_index_storage_format'='" + format + "')");
+                AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                        () -> command.getCreateTableInfo().validate(connectContext));
+                Assertions.assertTrue(error.getMessage().contains(
+                        "VARIANT values index requires inverted_index_storage_format=SNII"));
+            }
+        } finally {
+            Config.deploy_mode = previousDeployMode;
+            Config.cloud_unique_id = previousCloudUniqueId;
+            Config.enable_partition_inverted_index_storage_format_rollout = previousRollout;
+        }
+    }
+
+    @Test
     public void testCreateRowTtlTables() throws Exception {
         createTable("create table test.row_ttl_dup (k int, event_time datetimev2(6), v int) "
                 + "duplicate key(k) distributed by hash(k) buckets 1 properties("

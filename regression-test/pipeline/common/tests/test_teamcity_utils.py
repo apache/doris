@@ -227,7 +227,8 @@ curl(){
         commands = re.search(r'reg="\^run \(([^)]+)\)', workflow).group(1).split('|')
         self.assertEqual(set(commands), set(mappings) | {'buildall'})
 
-    def parse_comment(self, command, branch='master', permission='write', check=True, user_id='27881198'):
+    def parse_comment(self, command, branch='master', permission='write', check=True, user_id='27881198',
+                      login='tester', sender_id=None):
         workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
         block = workflow.split('    - name: "Parse PR comment"\n', 1)[1].split('    - name:', 1)[0]
         script = textwrap.dedent(block.split('      run: |\n', 1)[1])
@@ -237,9 +238,10 @@ curl(){
         prefix = 'curl(){ printf "%s\\n" "$MOCK_GITHUB_RESPONSE"; };\n'
         result = subprocess.run(['bash', '-eo', 'pipefail', '-c', prefix + script], text=True, capture_output=True,
                                 env={**self.env, 'COMMENT_BODY': command, 'COMMENT_USER_ID': user_id,
+                                     'COMMENT_LOGIN': login, 'COMMENT_SENDER_ID': sender_id or user_id,
                                      'GITHUB_TOKEN': 'test-github-token', 'GITHUB_OUTPUT': str(output),
                                      'GITHUB_ENV': str(self.root / 'workflow-env'),
-                                     'MOCK_GITHUB_RESPONSE': json.dumps({'head': {'sha': HEAD}, 'base': {'ref': branch}, 'permission': permission})})
+                                     'MOCK_GITHUB_RESPONSE': json.dumps({'head': {'sha': HEAD}, 'base': {'ref': branch, 'sha': 'c' * 40}, 'changed_files': 1, 'permission': permission})})
         if check:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result, output.read_text()
@@ -254,6 +256,70 @@ curl(){
             result, output = self.parse_comment(command, check=False)
             self.assertNotIn('COMMENT_TRIGGER_TYPE=', output)
 
+    def test_debug_commands_require_the_pilot_author_and_editor(self):
+        pilot = {'login': 'shuke987', 'user_id': '37901441'}
+        for lane in ['compile', 'feut', 'beut', 'cloudut', 'p0', 'cloud_p0', 'vault_p0',
+                     'external', 'nonconcurrent', 'performance', 'all']:
+            _, output = self.parse_comment('run debug' + lane + ' 2', **pilot)
+            self.assertIn('fc=true', output)
+            self.assertIn('COMMENT_TRIGGER_TYPE=' + ('buildall' if lane == 'all' else lane) + '\n', output)
+            self.assertIn('COMMENT_REPEAT_TIMES=2', output)
+        for kwargs in [{'login': 'other'}, {'user_id': '123'}, {'sender_id': '123'}]:
+            result, output = self.parse_comment('run debugall', **{**pilot, **kwargs}, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn('fc=true', output)
+        for cmd in ['run debugcompile 21', 'run debugall extra', 'run debugunknown']:
+            result, _ = self.parse_comment(cmd, **pilot, check=False)
+            self.assertNotEqual(result.returncode, 0)
+        _, output = self.parse_comment('run compile', **pilot)
+        self.assertNotIn('fc=true', output)
+
+    def test_debug_selection_never_enqueues_directly(self):
+        plan = self.root / 'fc-lanes'
+        for lane in ['compile', 'p0', 'feut']:
+            self.trigger(lane, env={'TEAMCITY_FC_PLAN': str(plan)})
+        self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' cloudut 1',
+                       env={'TEAMCITY_FC_PLAN': str(plan)})
+        self.assertEqual(plan.read_text().splitlines(), ['compile', 'p0', 'feut'])
+        self.assertFalse(self.state().get('posts'))
+        self.assertEqual(self.skipped_contexts(), ['TeamCity/cloudut'])
+
+    def test_fc_submission_validates_receipts_and_never_reposts(self):
+        mock = '''curl(){
+    local header
+    read -r header
+    if [[ "$*" == *'audience=urn:apache:doris:ci:teamcity-trigger'* ]]; then
+        [[ "$header" == 'Authorization: Bearer job-token' ]] || return 1
+        echo '{"value":"fixture-oidc"}'
+    else
+        [[ "${!#}" == 'https://fc.example/trigger' &&
+           "$header" == 'Authorization: Bearer fixture-oidc' ]] || return 1
+        while [[ $# -gt 0 && "$1" != --data-binary ]]; do shift; done
+        echo "$2" >> "$FIXTURE_ROOT/fc-posts"
+        echo "$FC_REPLY"
+        echo "$FC_STATUS"
+        return "$FC_EXIT"
+    fi
+}
+'''
+        for reply, status, exit_code, success in [({'build_ids': [17, 18]}, 200, 0, True),
+                                                  ({'build_ids': [17]}, 200, 0, False),
+                                                  ({'build_ids': [0, '18']}, 200, 0, False),
+                                                  ({'build_ids': [17, 18]}, 202, 0, False),
+                                                  ({'error': 'reconciliation_required'}, 409, 0, False),
+                                                  ({}, 0, 28, False)]:
+            posts = self.root / 'fc-posts'
+            posts.unlink(missing_ok=True)
+            env = {'TEAMCITY_FC_TRIGGER_URL': 'https://fc.example/trigger',
+                   'ACTIONS_ID_TOKEN_REQUEST_URL': 'https://oidc.example/token',
+                   'ACTIONS_ID_TOKEN_REQUEST_TOKEN': 'job-token',
+                   'FC_REPLY': json.dumps(reply), 'FC_STATUS': str(status), 'FC_EXIT': str(exit_code)}
+            result = self.run_shell(mock + 'teamcity_fc_submit p0 123 ' + HEAD + ' master 2',
+                                    mock=False, check=False, env=env)
+            self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+            self.assertEqual([json.loads(row) for row in posts.read_text().splitlines()],
+                             [{'pr': 123, 'head_sha': HEAD, 'base_branch': 'master', 'pipeline': 'p0', 'repeat': 2}])
+
     def test_skip_buildall_authorization_is_preserved(self):
         _, output = self.parse_comment('skip buildall')
         self.assertIn('comment_skip=true', output)
@@ -264,7 +330,7 @@ curl(){
 
     def test_skip_buildall_statuses(self):
         workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
-        block = workflow.split('    - name: "Skip buildall"\n', 1)[1]
+        block = workflow.split('    - name: "Skip buildall"\n', 1)[1].split('\n  approve-fc:', 1)[0]
         script = textwrap.dedent(block.split('      run: |\n', 1)[1])
         script = script.replace('source ./regression-test/pipeline/common/teamcity-utils.sh', ':')
         script = script.replace('${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}', HEAD)

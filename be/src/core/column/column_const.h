@@ -320,14 +320,6 @@ public:
 
     void finalize() override { data->finalize(); }
 
-    void erase(size_t start, size_t length) override {
-        if (start >= s || length == 0) {
-            return;
-        }
-        length = std::min(length, s - start);
-        s = s - length;
-    }
-
     size_t serialize_impl(char* pos, const size_t row) const override {
         return data->serialize_impl(pos, 0);
     }

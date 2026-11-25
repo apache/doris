@@ -94,12 +94,8 @@ if [[ "${SPEC_LIB}" != "" ]]; then
         done
     fi
 
-    # ARROW_ADBC_FLIGHTSQL is a companion archive of arrow_adbc rather than a
-    # package of its own: it has no build function, build_arrow_adbc() only copies
-    # the prebuilt driver out of it. Its name therefore never appears on a command
-    # line, so narrowing to the named entries alone leaves it unfetched and
-    # `build-thirdparty.sh arrow_adbc` dies on the missing source directory.
-    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]] &&
+    # arrow_adbc installs the patched test driver from a companion binary archive.
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]] &&
         [[ " ${SPEC_ARCHIVES[*]} " == *' ARROW_ADBC '* ]] &&
         [[ " ${SPEC_ARCHIVES[*]} " != *' ARROW_ADBC_FLIGHTSQL '* ]]; then
         SPEC_ARCHIVES+=('ARROW_ADBC_FLIGHTSQL')
@@ -262,6 +258,11 @@ for TP_ARCH in "${TP_ARCHIVES[@]}"; do
     if [[ ! -r "${TP_SOURCE_DIR}/${!NAME}" ]]; then
         echo "Failed to fetch ${!NAME}"
         exit 1
+    fi
+    # Binary companions need the pinned SHA-256 even when an archive was reused from a mirror/cache.
+    SHA256SUM="${TP_ARCH}_SHA256"
+    if [[ -n "${!SHA256SUM:-}" ]]; then
+        printf '%s  %s\n' "${!SHA256SUM}" "${TP_SOURCE_DIR}/${!NAME}" | sha256sum -c -
     fi
 done
 echo "===== Checking all thirdpart archives...done"
@@ -497,13 +498,17 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
     echo "Finished patching ${ARROW_SOURCE}"
 fi
 
-# arrow-adbc patch adds the pre-generated JNI header, so that building the JNI
-# bridge needs no Maven. See the patch header for how to regenerate it.
+# Keep the JNI-header and connection-info patches independent so cached sources
+# with an existing JNI marker still receive the native server-info isolation fix.
 if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW_ADBC " ]]; then
     cd "${TP_SOURCE_DIR}/${ARROW_ADBC_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
         patch -p1 <"${TP_PATCH_DIR}/apache-arrow-adbc-24-pregenerated-jni-header.patch"
         touch "${PATCHED_MARK}"
+    fi
+    if [[ ! -f "${PATCHED_MARK}_connection_info" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-adbc-24-connection-info.patch"
+        touch "${PATCHED_MARK}_connection_info"
     fi
     cd -
     echo "Finished patching ${ARROW_ADBC_SOURCE}"

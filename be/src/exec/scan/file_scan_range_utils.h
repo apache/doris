@@ -19,6 +19,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "util/private_rpc_tls.h"
 
 namespace doris {
 
@@ -40,9 +41,11 @@ inline const char* file_encryption_validation_error(const TFileEncryptionInfo& i
 
 inline Status validate_file_scan_support(const TFileScanRangeParams& params,
                                          const TFileRangeDesc* range = nullptr) {
+    const auto format = range != nullptr && range->__isset.format_type ? range->format_type
+                                                                       : params.format_type;
     // Deprecated table markers must never fall through to plain file reads: that would lose
     // Hive transaction visibility and LakeSoul merge semantics, including in metadata counts.
-    auto validate_table = [](const TTableFormatFileDesc& table) -> Status {
+    auto validate_table = [format](const TTableFormatFileDesc& table) -> Status {
         if (table.table_format_type == "transactional_hive") {
             return Status::NotSupported("Hive transactional table reads are no longer supported");
         }
@@ -68,9 +71,9 @@ inline Status validate_file_scan_support(const TFileScanRangeParams& params,
                     }
                 }
             }
-            // A plain data file can still have encrypted deletes. Reject before reader selection,
-            // caches or metadata COUNT shortcuts until native decryption is implemented.
-            if (encrypted) {
+            // A plaintext data file can have encrypted deletes. Older readers ignore optional keys,
+            // so every such range must use the explicit native-encryption wire format.
+            if (encrypted && format != TFileFormatType::FORMAT_PARQUET_PME) {
                 return Status::NotSupported("File encryption [READ_UNAVAILABLE]");
             }
         }
@@ -81,6 +84,12 @@ inline Status validate_file_scan_support(const TFileScanRangeParams& params,
     }
     if (range != nullptr && range->__isset.table_format_params) {
         RETURN_IF_ERROR(validate_table(range->table_format_params));
+    }
+    // Avro admission must retain the independent PME capability barrier; encrypted data or
+    // deletes cannot fall through to a plain reader when native decryption is unavailable.
+    if (format == TFileFormatType::FORMAT_PARQUET_PME &&
+        !rpc_tls::supports_native_file_encryption()) {
+        return Status::NotSupported("File encryption [READ_UNAVAILABLE]");
     }
     return Status::OK();
 }

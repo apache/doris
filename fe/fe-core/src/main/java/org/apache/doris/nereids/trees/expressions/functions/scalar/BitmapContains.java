@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -61,6 +64,17 @@ public class BitmapContains extends ScalarFunction
     public BitmapContains withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new BitmapContains(getFunctionParams(children));
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        // -1 must not address UINT64_MAX. Check constants before coercion or NULL propagation.
+        Expression element = FoldConstantRuleOnFE.evaluateWithoutContext(getArgument(1));
+        if (element instanceof IntegerLikeLiteral
+                && !((IntegerLikeLiteral) element).isValueInRange(0, Long.MAX_VALUE)) {
+            throw new AnalysisException(getName() + " element must be between 0 and " + Long.MAX_VALUE
+                    + ", but was " + element.toSql());
+        }
     }
 
     @Override

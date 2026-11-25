@@ -25,8 +25,21 @@
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/faiss_ann_index.h"
+#include "storage/index/inverted/clucene/lucene_ann_store.h"
 
 namespace doris::vector_search_utils {
+Status save_to_directory(segment_v2::VectorIndex* index,
+                         std::shared_ptr<lucene::store::Directory> dir) {
+    segment_v2::LuceneAnnSink sink(std::move(dir));
+    return index->save(&sink);
+}
+
+Status load_from_directory(segment_v2::VectorIndex* index,
+                           std::shared_ptr<lucene::store::Directory> dir) {
+    segment_v2::LuceneAnnSource source(std::move(dir));
+    return index->load(&source, /*io_ctx=*/nullptr);
+}
+
 static void accumulate(double x, double y, double& sum) {
     sum += (x - y) * (x - y);
 }

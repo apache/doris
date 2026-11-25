@@ -25,6 +25,7 @@
 #include <numeric>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -314,4 +315,35 @@ TEST(SniiNullBitmap, DecodedMemoryAccountsEachPortableContainer) {
     ASSERT_TRUE(NullBitmapReader::decoded_memory_bytes(Slice(buffer), &decoded_bytes).ok());
     EXPECT_EQ(decoded_bytes,
               roaring_bytes + kContainerCount * kContainerMetadataBytes + kFixedBytes);
+}
+
+namespace {
+
+using Runs = std::vector<std::pair<uint32_t, uint32_t>>;
+
+Runs NonNullRuns(const std::vector<uint32_t>& nulls, uint32_t doc_count) {
+    const auto buffer = BuildBitmap(nulls, doc_count);
+    NullBitmapReader reader;
+    EXPECT_TRUE(NullBitmapReader::open(Slice(buffer), &reader).ok());
+    Runs runs;
+    reader.for_each_non_null_run(
+            [&runs](uint32_t begin, uint32_t end) { runs.emplace_back(begin, end); });
+    return runs;
+}
+
+} // namespace
+
+// Sparse norms are laid out over the non-NULL rows, so the reader walks the gaps between the
+// NULL rows: with NULL rows {1, 2, 5} of 7 the rows holding values are [0, 1), [3, 5) and [6, 7).
+TEST(SniiNullBitmap, NonNullRunsAreTheGapsBetweenNulls) {
+    EXPECT_EQ(NonNullRuns({1, 2, 5}, 7), (Runs {{0, 1}, {3, 5}, {6, 7}}));
+    EXPECT_EQ(NonNullRuns({0, 6}, 7), (Runs {{1, 6}}));
+    EXPECT_EQ(NonNullRuns({}, 4), (Runs {{0, 4}}));
+    EXPECT_EQ(NonNullRuns({0, 1, 2}, 3), Runs {});
+    EXPECT_EQ(NonNullRuns({}, 0), Runs {});
+
+    // A long stretch of NULL rows is serialized as a run container.
+    std::vector<uint32_t> stretch(1000);
+    std::iota(stretch.begin(), stretch.end(), 100U);
+    EXPECT_EQ(NonNullRuns(stretch, 2000), (Runs {{0, 100}, {1100, 2000}}));
 }

@@ -28,6 +28,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/read_io_trace_test_util.h"
 #include "io/io_common.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/countdown_latch.h"
 #include "util/defer_op.h"
 #include "util/time.h"
@@ -36,11 +37,12 @@ namespace doris::io {
 using namespace std::chrono_literals;
 
 class ReadIOTraceWriterTest : public testing::Test {
+protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"read_io_trace_test"};
+
 public:
     void SetUp() override {
-        _root = (std::filesystem::temp_directory_path() /
-                 fmt::format("doris-read-io-trace-{}-{}", getpid(), MonotonicNanos()))
-                        .native();
+        _root = (scoped_temp_dir_.path() / "trace").string();
         _directory = _root + "/capture";
         ASSERT_TRUE(global_local_filesystem()->create_directory(_root).ok());
     }

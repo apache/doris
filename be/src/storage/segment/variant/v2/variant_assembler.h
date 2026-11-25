@@ -41,6 +41,11 @@ enum class StorageMapKind : uint8_t {
     DOC,
 };
 
+// Append a range of persisted Map<String,String> rows. Preserve a single bucket's stored
+// order and merge multiple buckets in raw path order.
+void append_variant_binary_bucket_range(std::span<const ColumnMap* const> buckets, size_t begin,
+                                        size_t num_rows, ColumnMap& destination);
+
 // Describes the physical streams available to one hierarchical reader. Paths are normalized once
 // by create().
 struct VariantAssemblerOptions {

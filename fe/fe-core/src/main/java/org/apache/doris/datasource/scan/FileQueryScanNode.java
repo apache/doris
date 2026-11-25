@@ -603,7 +603,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     private static boolean isColumnarFormat(TFileFormatType format) {
-        return format == TFileFormatType.FORMAT_PARQUET || format == TFileFormatType.FORMAT_ORC;
+        // PME still has Parquet row groups; a coarse encrypted range needs the same BE coalescing target.
+        return format == TFileFormatType.FORMAT_PARQUET || format == TFileFormatType.FORMAT_PARQUET_PME
+                || format == TFileFormatType.FORMAT_ORC;
     }
 
     private void setLocationPropertiesIfNecessary(Backend selectedBackend, TFileType locationType,

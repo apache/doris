@@ -427,8 +427,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
                 distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan,
                 Optional.of(IvmRewriteContext.create("test_mtmv")));
-        Assertions.assertEquals(IvmRewriteContext.Mode.CREATE,
-                statementContext.getIvmRewriteContext().orElseThrow().getMode());
+        Assertions.assertTrue(statementContext.getIvmRewriteContext().orElseThrow().isCreate());
     }
 
     @Test
@@ -525,14 +524,12 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         ConnectContext autoCtx = MTMVPlanUtil.createMTMVContext(autoMtmv,
                 MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE);
         Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(autoMtmv, autoCtx));
-        Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE,
-                autoCtx.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
+        Assertions.assertTrue(autoCtx.getStatementContext().getIvmRewriteContext().orElseThrow().isNormalize());
 
         ConnectContext incrementalCtx = MTMVPlanUtil.createMTMVContext(incrementalMtmv,
                 MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE);
         Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(incrementalMtmv, incrementalCtx));
-        Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE,
-                incrementalCtx.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
+        Assertions.assertTrue(incrementalCtx.getStatementContext().getIvmRewriteContext().orElseThrow().isNormalize());
     }
 
     @Test

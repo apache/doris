@@ -79,6 +79,29 @@ class LanceErrorMessagesTest {
     }
 
     @Test
+    void passThroughCredentialsNeverReachTheMessageTheCauseOrTheStackTrace() {
+        for (String key : Arrays.asList("token", "azure_storage_sas_token", "sas_key",
+                "AZURE_STORAGE_ACCESS_KEY", "google_service_account", "google_service_account_key",
+                "google_application_credentials", "client_secret", "password", "authorization", "cookie")) {
+            String secret = "vended-sensitive-value-for-" + key;
+            Map<String, String> options = LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                    "az://container/table.lance", Collections.emptyList(),
+                    Map.of(key, secret, "endpoint", "https://storage.example.com"));
+            DorisConnectorException exposed = LanceErrorMessages.failure("Failed to open dataset",
+                    new RuntimeException("provider failure: " + secret + " at https://storage.example.com"),
+                    "az://container/table.lance", options, Collections.emptyList());
+            StringWriter stackTrace = new StringWriter();
+            exposed.printStackTrace(new PrintWriter(stackTrace));
+
+            Assertions.assertFalse(exposed.getMessage().contains(secret), key);
+            Assertions.assertFalse(exposed.getCause().getMessage().contains(secret), key);
+            Assertions.assertFalse(stackTrace.toString().contains(secret), key);
+            Assertions.assertTrue(exposed.getMessage().contains("https://storage.example.com"), key);
+            Assertions.assertEquals(secret, options.get(key), "sanitization must not change the options");
+        }
+    }
+
+    @Test
     void theLimitIsInUtf8Bytes() {
         char[] multibyteCharacters = new char[1024];
         Arrays.fill(multibyteCharacters, '界');

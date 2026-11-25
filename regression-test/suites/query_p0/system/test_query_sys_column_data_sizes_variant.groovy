@@ -66,7 +66,7 @@ suite("test_query_sys_column_data_sizes_variant", "query,p0") {
 
     // Materialized subcolumns and bucketized sparse columns, with the column metas in the footer
     // (V2) and in the external column meta region (V3).
-    sql "set default_variant_enable_doc_mode = false"
+    sql "set debug_variant_enable_doc_mode = false"
     sql "DROP TABLE IF EXISTS test_column_data_sizes_variant_v2"
     sql """
         CREATE TABLE test_column_data_sizes_variant_v2 (

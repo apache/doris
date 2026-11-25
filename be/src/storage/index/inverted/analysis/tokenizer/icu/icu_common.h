@@ -34,14 +34,4 @@ namespace doris::segment_v2::inverted_index {
 
 using BreakIteratorPtr = std::unique_ptr<icu::BreakIterator>;
 
-struct UTextDeleter {
-    void operator()(UText* utext) const {
-        if (utext != nullptr) {
-            utext_close(utext);
-        }
-    }
-};
-
-using UTextPtr = std::unique_ptr<UText, UTextDeleter>;
-
 } // namespace doris::segment_v2::inverted_index

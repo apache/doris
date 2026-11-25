@@ -26,7 +26,7 @@
 # get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
 
 ARG JAVA_VERSION=17
-ARG BASE_IMAGE=apache/doris:base-7.0-jdk${JAVA_VERSION}
+ARG BASE_IMAGE=apache/doris:base-8.0-ubuntu26.04-jdk${JAVA_VERSION}
 FROM ${BASE_IMAGE} AS artifacts
 
 ARG TARGETARCH
