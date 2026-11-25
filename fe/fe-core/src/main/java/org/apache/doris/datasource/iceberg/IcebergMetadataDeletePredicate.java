@@ -93,7 +93,8 @@ public final class IcebergMetadataDeletePredicate {
             }
             result = result == null ? converted.get() : Expressions.and(result, converted.get());
         }
-        return Optional.of(result);
+        // A Doris literal can be legal on the row path but fail to bind in Iceberg (e.g. a zero DATE).
+        return Optional.ofNullable(IcebergUtils.checkConversion(result, schema, true));
     }
 
     /**

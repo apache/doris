@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
@@ -53,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -108,6 +110,8 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -118,13 +122,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 
 /**
  * Pins the branch-4.2 whole-file metadata-delete path and its strict plan extraction.
@@ -383,83 +382,43 @@ public class IcebergMetadataDeleteTest {
     }
 
     @Test
-    public void failedStagingCleansCompletedManifestRewrites() throws Exception {
+    public void concurrentMixedManifestFallsBackBeforeStaging() throws Exception {
         InMemoryCatalog catalog = freshCatalog();
         PartitionSpec spec = PartitionSpec.unpartitioned();
         Table table = catalog.createTable(TABLE_ID, SCHEMA, spec, props("format-version", "2"));
-        table.newAppend()
-                .appendFile(dataFileWithId(spec, "s3://b/db1/t1/whole.parquet", 10L, 0))
-                .appendFile(dataFileWithId(spec, "s3://b/db1/t1/keep.parquet", 5L, 2))
-                .commit();
+        table.newAppend().appendFile(dataFileWithId(spec, "s3://b/db1/t1/base.parquet", 10L, 0)).commit();
         Table statementTable = IcebergSnapshotCacheValue.retainTableGeneration(table);
         TableOperations realOps = ((HasTableOperations) table).operations();
         TrackingFileIO io = new TrackingFileIO(table.io());
         TableOperations racingOps = operationsWithFileIO(realOps, io);
         AtomicBoolean appended = new AtomicBoolean();
-        AtomicBoolean staging = new AtomicBoolean();
-        AtomicReference<String> partialManifest = new AtomicReference<>();
-        CountDownLatch wholeManifestFinished = new CountDownLatch(1);
-        ThreadLocal<Boolean> partialWorker = ThreadLocal.withInitial(() -> false);
-        ThreadPoolExecutor executor = new ThreadPoolExecutor(
-                2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>()) {
-            @Override
-            protected void beforeExecute(Thread thread, Runnable task) {
-                super.beforeExecute(thread, task);
-                partialWorker.set(false);
-            }
-
-            @Override
-            protected void afterExecute(Runnable task, Throwable failure) {
-                try {
-                    if (staging.get() && !partialWorker.get()) {
-                        wholeManifestFinished.countDown();
-                    }
-                } finally {
-                    partialWorker.remove();
-                    super.afterExecute(task, failure);
-                }
-            }
-        };
-        io.beforeRead = path -> {
-            if (staging.get() && path.equals(partialManifest.get())) {
-                partialWorker.set(true);
-                try {
-                    Assertions.assertTrue(wholeManifestFinished.await(30, TimeUnit.SECONDS),
-                            "the whole-file manifest worker must finish before partial-file validation");
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new AssertionError(e);
-                }
-            }
-        };
         Mockito.doAnswer(invocation -> {
             if (appended.compareAndSet(false, true)) {
                 Table current = reload(catalog);
-                current.newAppend().appendFile(dataFileWithBounds(spec,
-                        "s3://b/db1/t1/partial.parquet", 2L, Types.IntegerType.get(), 0, 2)).commit();
+                current.newFastAppend()
+                        .appendFile(dataFileWithId(spec, "s3://b/db1/t1/whole.parquet", 5L, 0))
+                        .appendFile(dataFileWithBounds(spec,
+                                "s3://b/db1/t1/partial.parquet", 2L, Types.IntegerType.get(), 0, 2))
+                        .commit();
                 Snapshot snapshot = current.currentSnapshot();
-                partialManifest.set(snapshot.dataManifests(current.io()).stream()
+                ManifestFile added = snapshot.dataManifests(current.io()).stream()
                         .filter(manifest -> manifest.snapshotId() == snapshot.snapshotId())
-                        .findFirst().get().path());
-                staging.set(true);
+                        .findFirst().get();
+                Assertions.assertEquals(2, added.addedFilesCount().intValue());
             }
             return realOps.refresh();
         }).when(racingOps).refresh();
         Table racingTable = new BaseTable(racingOps, table.name());
-        try {
-            OptionalLong deleted = IcebergMetadataDelete.executeOnTable(
-                    racingTable, statementTable, executor, Expressions.lessThan("id", 1), () -> false);
 
-            Assertions.assertTrue(appended.get());
-            Assertions.assertFalse(deleted.isPresent());
-            Assertions.assertFalse(io.createdFiles.isEmpty(), "a successful worker must have rewritten a manifest");
-            Assertions.assertTrue(io.existingCreatedFiles().isEmpty(), "failed staging must reclaim rewrites");
-            Assertions.assertEquals(3, dataFilePaths(reload(catalog)).size());
-            Assertions.assertEquals("append", reload(catalog).currentSnapshot().operation());
-        } finally {
-            executor.shutdownNow();
-            Assertions.assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
-        }
+        OptionalLong deleted = IcebergMetadataDelete.executeOnTable(
+                racingTable, statementTable, null, Expressions.lessThan("id", 1), () -> false);
+
+        Assertions.assertTrue(appended.get());
+        Assertions.assertFalse(deleted.isPresent());
+        Assertions.assertTrue(io.createdFiles.isEmpty(), "an uninspected snapshot must not start a manifest rewrite");
+        Table current = reload(catalog);
+        Assertions.assertEquals("append", current.currentSnapshot().operation());
+        Assertions.assertEquals(3, dataFilePaths(current).size());
     }
 
     @Test
@@ -793,6 +752,25 @@ public class IcebergMetadataDeleteTest {
         Mockito.verify(dorisTable, Mockito.never()).getCatalog();
     }
 
+    @ParameterizedTest
+    @CsvSource({"0,0,0,false", "2024,2,29,true"})
+    public void preparedDateMustBindBeforeMetadataDelete(int year, int month, int day, boolean canBind)
+            throws Exception {
+        Schema schema = new Schema(Types.NestedField.required(1, "d", Types.DateType.get()));
+        Table table = freshCatalog().createTable(TABLE_ID, schema, PartitionSpec.unpartitioned(),
+                props("format-version", "2"));
+        IcebergExternalTable target = targetTable();
+        SlotReference date = slot(target, "d", DateV2Type.INSTANCE);
+        ByteBuffer data = ByteBuffer.allocate(5).order(ByteOrder.LITTLE_ENDIAN);
+        data.put((byte) 4).putShort((short) year).put((byte) month).put((byte) day).flip();
+        Literal parameter = Literal.getLiteralByMysqlType(MysqlColType.MYSQL_TYPE_DATE, false, data);
+        Plan plan = new LogicalFilter<>(ImmutableSet.of(new EqualTo(date, parameter)),
+                new TargetScan(target, ImmutableList.of(date)));
+
+        Assertions.assertEquals(canBind,
+                IcebergMetadataDeletePredicate.build(table, plan, DORIS_TARGET_ID).isPresent());
+    }
+
     @Test
     public void exactPredicateIsBuiltFromTheTargetFilter() {
         Table table = createTable();
@@ -1035,7 +1013,6 @@ public class IcebergMetadataDeleteTest {
         private static final long serialVersionUID = 1L;
         private final FileIO delegate;
         private final List<String> createdFiles = new CopyOnWriteArrayList<>();
-        private Consumer<String> beforeRead = path -> { };
 
         private TrackingFileIO(FileIO delegate) {
             this.delegate = delegate;
@@ -1043,13 +1020,11 @@ public class IcebergMetadataDeleteTest {
 
         @Override
         public InputFile newInputFile(String path) {
-            beforeRead.accept(path);
             return delegate.newInputFile(path);
         }
 
         @Override
         public InputFile newInputFile(String path, long length) {
-            beforeRead.accept(path);
             return delegate.newInputFile(path, length);
         }
 

@@ -512,7 +512,7 @@ public class IcebergUtils {
         return schema.caseInsensitiveFindField(colName);
     }
 
-    private static Expression checkConversion(Expression expression, Schema schema, boolean requireExact) {
+    static Expression checkConversion(Expression expression, Schema schema, boolean requireExact) {
         if (expression == null) {
             return null;
         }

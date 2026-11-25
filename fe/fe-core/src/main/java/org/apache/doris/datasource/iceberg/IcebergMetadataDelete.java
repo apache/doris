@@ -66,8 +66,8 @@ import java.util.function.BooleanSupplier;
  *
  * <p>This path uses the existing Iceberg metadata and cache-generation machinery. Candidate files
  * must all match in full; partial matches and existing delete files retain row-level DELETE.
- * The final refresh selects the current snapshot, as in the source feature. Later snapshot changes
- * decline the shortcut, while cancellation prevents publication of the pending delete.
+ * The preflight and the delete must use the same snapshot. A concurrent snapshot change declines
+ * the shortcut, while cancellation prevents publication of the pending delete.
  */
 public final class IcebergMetadataDelete {
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataDelete.class);
@@ -131,19 +131,20 @@ public final class IcebergMetadataDelete {
             return OptionalLong.empty();
         }
 
-        if (!matchesWholeFilesOnly(table, deleteExpression, executor) || isCancelled.getAsBoolean()) {
+        long requiredSnapshotId = base.snapshotId();
+        if (!matchesWholeFilesOnly(table, requiredSnapshotId, deleteExpression, executor)
+                || isCancelled.getAsBoolean()) {
             return OptionalLong.empty();
         }
 
-        // Re-read immediately before commit. A racing writer can add a candidate file or a delete
-        // file; the required snapshot check below then aborts instead of changing the deleted set.
+        // Never stage against an uninspected manifest. A concurrent append may contain both a
+        // whole-file match and a partial match that the SDK would discover mid-rewrite.
         table.refresh();
         validateTableIdentity(statementTable, table);
         Snapshot refreshed = table.currentSnapshot();
-        if (refreshed == null || hasLiveDeleteFiles(table, refreshed)) {
+        if (refreshed == null || refreshed.snapshotId() != requiredSnapshotId) {
             return OptionalLong.empty();
         }
-        long requiredSnapshotId = refreshed.snapshotId();
 
         try {
             // The SDK update owns cleanup directly. A discarded BaseTransaction would only
@@ -188,12 +189,12 @@ public final class IcebergMetadataDelete {
      * its strict partition projection or the strict file-metrics evaluator.
      */
     private static boolean matchesWholeFilesOnly(
-            Table table, Expression deleteExpression, ExecutorService executor) {
+            Table table, long snapshotId, Expression deleteExpression, ExecutorService executor) {
         boolean caseSensitive = false;
         if (ExpressionUtil.selectsPartitions(deleteExpression, table, caseSensitive)) {
             return true;
         }
-        TableScan scan = table.newScan()
+        TableScan scan = table.newScan().useSnapshot(snapshotId)
                 .filter(deleteExpression)
                 .caseSensitive(caseSensitive)
                 .includeColumnStats()
