@@ -31,14 +31,18 @@ import org.apache.iceberg.rest.auth.AuthProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.DataInputStream;
+import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 class IcebergRestGcsFileIOTest {
     private static final String GCS_RESOLVER = "org.apache.iceberg.io.NativeGcsResolvingFileIO";
@@ -195,17 +199,40 @@ class IcebergRestGcsFileIOTest {
         Assertions.assertEquals("org.apache.iceberg.gcp.gcs.GCSFileIO", options.get(CatalogProperties.FILE_IO_IMPL));
     }
 
-    @Test
-    void preservesExplicitGenericResolverForNativeGcs() {
-        Map<String, String> raw = new HashMap<>(ImmutableMap.of(
-                "gs.endpoint", "https://storage.googleapis.com", "gs.credential_provider_type", "DEFAULT",
-                "io-impl", "org.apache.iceberg.io.ResolvingFileIO"));
-        IcebergRestProperties properties = properties(raw);
-        Map<String, String> options = new HashMap<>(raw);
-        options.putAll(properties.getIcebergRestCatalogProperties());
-        properties.toFileIOProperties(ImmutableList.of(StorageProperties.createPrimary(raw)),
-                options, new Configuration(false));
-        Assertions.assertEquals("org.apache.iceberg.io.ResolvingFileIO", options.get(CatalogProperties.FILE_IO_IMPL));
+    @ParameterizedTest
+    @MethodSource("dorisNativeCredentials")
+    void preservesDorisNativeCredentialsWithGenericResolver(String provider, String impersonation) throws Exception {
+        for (String ioProperty : new String[] {"io-impl", "iceberg.rest.io-impl"}) {
+            Map<String, String> raw = new HashMap<>(ImmutableMap.of(
+                    "gs.endpoint", "https://storage.googleapis.com", "gs.credential_provider_type", provider,
+                    ioProperty, "org.apache.iceberg.io.ResolvingFileIO"));
+            if (!impersonation.isEmpty()) {
+                raw.put("gs.impersonation_service_account", impersonation);
+            }
+            IcebergRestProperties properties = properties(raw);
+            Map<String, String> options = new HashMap<>(raw);
+            options.putAll(properties.getIcebergRestCatalogProperties());
+            Configuration conf = new Configuration(false);
+            properties.toFileIOProperties(ImmutableList.of(StorageProperties.createPrimary(raw)), options, conf);
+            Assertions.assertEquals(GCS_RESOLVER, options.get(CatalogProperties.FILE_IO_IMPL));
+            Assertions.assertEquals("com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem", conf.get("fs.gs.impl"));
+            Assertions.assertEquals("DEFAULT".equals(provider) ? "APPLICATION_DEFAULT" : "COMPUTE_ENGINE",
+                    conf.get("fs.gs.auth.type"));
+            Assertions.assertEquals(impersonation, conf.get("fs.gs.auth.impersonation.service.account"));
+            try (FileIO io = CatalogUtil.loadFileIO(GCS_RESOLVER, options, conf)) {
+                Method route = Class.forName("org.apache.iceberg.io.ResolvingFileIO")
+                        .getDeclaredMethod("implFromLocation", String.class);
+                route.setAccessible(true);
+                Assertions.assertEquals("org.apache.iceberg.hadoop.HadoopFileIO",
+                        route.invoke(io, "gs://test-bucket/metadata.json"));
+            }
+        }
+    }
+
+    private static Stream<Arguments> dorisNativeCredentials() {
+        return Stream.of(Arguments.of("DEFAULT", ""), Arguments.of("COMPUTE_ENGINE", ""),
+                Arguments.of("DEFAULT", "target@fixture.iam.gserviceaccount.com"),
+                Arguments.of("COMPUTE_ENGINE", "target@fixture.iam.gserviceaccount.com"));
     }
 
     private static IcebergRestProperties properties(Map<String, String> raw) {

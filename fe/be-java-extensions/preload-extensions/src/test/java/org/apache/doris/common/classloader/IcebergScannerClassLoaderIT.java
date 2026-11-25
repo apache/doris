@@ -39,6 +39,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.InputStream;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.net.URL;
@@ -53,6 +54,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.jar.JarFile;
 
@@ -60,11 +63,12 @@ import java.util.jar.JarFile;
 class IcebergScannerClassLoaderIT {
     private static final String RESOLVER = "org.apache.iceberg.io.NativeGcsResolvingFileIO";
     private static final String GCS_IO = "org.apache.iceberg.gcp.gcs.GCSFileIO";
+    private static final String TASK_OWNER = "org.apache.iceberg.DorisMetadataTaskFileIO";
 
     @Test
     void preloadContainsTheFileIoClosureWithoutReplacingPatchedHadoop() throws Exception {
         try (JarFile jar = new JarFile(System.getProperty("preload.jar"))) {
-            for (String name : Arrays.asList(RESOLVER, GCS_IO, "org.apache.iceberg.io.ResolvingFileIO",
+            for (String name : Arrays.asList(RESOLVER, GCS_IO, TASK_OWNER, "org.apache.iceberg.io.ResolvingFileIO",
                     "org.apache.iceberg.util.SerializationUtil", "com.google.cloud.storage.StorageOptions",
                     "com.google.auth.oauth2.GoogleCredentials")) {
                 Assertions.assertNotNull(jar.getEntry(name.replace('.', '/') + ".class"), name);
@@ -131,11 +135,18 @@ class IcebergScannerClassLoaderIT {
             properties.put("gcs.service.host", "http://127.0.0.1:" + server.getAddress().getPort());
             properties.put("gcs.oauth2.token", "synthetic-vended-token");
             properties.put("gcs.oauth2.token-expires-at", String.valueOf(System.currentTimeMillis() + 3600000));
+            properties.put("uri", "http://127.0.0.1:" + server.getAddress().getPort());
+            properties.put("gcs.oauth2.refresh-credentials-endpoint", properties.get("uri") + "/refresh");
             Class<?> type = Assertions.assertDoesNotThrow(() -> Class.forName(GCS_IO, true, loaders.parent));
             Object io = type.getConstructor().newInstance();
             Object restored = null;
             try {
                 type.getMethod("initialize", Map.class).invoke(io, properties);
+                Class<?> credentialType = Class.forName("org.apache.iceberg.io.StorageCredential", true, loaders.parent);
+                Object credential = credentialType.getMethod("create", String.class, Map.class).invoke(null,
+                        "gs://test-bucket", new HashMap<>(properties));
+                // Flat token properties alone never schedule the SDK's storage-credential refresh job.
+                type.getMethod("setCredentials", List.class).invoke(io, Collections.singletonList(credential));
                 Class<?> serialization = Class.forName(
                         "org.apache.iceberg.util.SerializationUtil", true, loaders.parent);
                 String encoded = (String) serialization.getMethod("serializeToBase64", Object.class).invoke(null, io);
@@ -159,6 +170,16 @@ class IcebergScannerClassLoaderIT {
                             new File(loaded.getProtectionDomain().getCodeSource().getLocation().toURI())
                                     .getCanonicalFile());
                 }
+                Field futureField = type.getDeclaredField("refreshFuture");
+                futureField.setAccessible(true);
+                Future<?> refresh = (Future<?>) futureField.get(restored);
+                Assertions.assertNotNull(refresh);
+                Assertions.assertFalse(refresh.isDone());
+                type.getMethod("close").invoke(restored);
+                Assertions.assertTrue(refresh.isCancelled());
+                Field closedField = type.getDeclaredField("isResourceClosed");
+                closedField.setAccessible(true);
+                Assertions.assertTrue(((AtomicBoolean) closedField.get(restored)).get());
             } finally {
                 if (restored != null) {
                     type.getMethod("close").invoke(restored);
@@ -184,6 +205,18 @@ class IcebergScannerClassLoaderIT {
             Class<?> type = Class.forName("org.apache.doris.iceberg.IcebergSysTableJniScanner", true, loaders.child);
             Object scanner = Assertions.assertDoesNotThrow(
                     () -> type.getConstructor(int.class, Map.class).newInstance(16, parameters));
+            Field taskField = type.getDeclaredField("scanTask");
+            taskField.setAccessible(true);
+            Class<?> ownerBridge = Class.forName(TASK_OWNER, true, loaders.parent);
+            Assertions.assertSame(loaders.parent, ownerBridge.getClassLoader());
+            Assertions.assertEquals(new File(System.getProperty("preload.jar")).getCanonicalFile(),
+                    new File(ownerBridge.getProtectionDomain().getCodeSource().getLocation().toURI()).getCanonicalFile());
+            Object owner = ownerBridge.getMethod("fileIO", Class.forName(
+                    "org.apache.iceberg.FileScanTask", true, loaders.parent)).invoke(null, taskField.get(scanner));
+            Field closedField = Class.forName("org.apache.iceberg.io.ResolvingFileIO", true, loaders.parent)
+                    .getDeclaredField("isClosed");
+            closedField.setAccessible(true);
+            Assertions.assertFalse(((AtomicBoolean) closedField.get(owner)).get());
             try {
                 type.getMethod("open").invoke(scanner);
                 Assertions.assertNotEquals(0L, type.getMethod("getNextBatchMeta").invoke(scanner));
@@ -195,6 +228,7 @@ class IcebergScannerClassLoaderIT {
                 type.getMethod("releaseTable").invoke(scanner);
                 type.getMethod("close").invoke(scanner);
             }
+            Assertions.assertTrue(((AtomicBoolean) closedField.get(owner)).get());
         }
     }
 
