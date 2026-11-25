@@ -44,6 +44,7 @@ import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.io.NativeGcsResolvingFileIO;
+import org.apache.iceberg.io.ResolvingFileIO;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 
 import java.util.HashMap;
@@ -108,6 +109,23 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
     )
     protected String ioImpl;
 
+    // Native SDK properties remain pass-through, but their secrets must use the catalog's shared masking.
+    @ConnectorProperty(names = {"gcp.auth.credentials-json"}, required = false, sensitive = true,
+            description = "Inline Google service account credentials.")
+    private String googleCredentialsJson;
+
+    @ConnectorProperty(names = {"gcs.oauth2.token"}, required = false, sensitive = true,
+            description = "Google Cloud Storage bearer token.")
+    private String gcsOauthToken;
+
+    @ConnectorProperty(names = {"gcs.encryption-key"}, required = false, sensitive = true,
+            description = "Google Cloud Storage encryption key.")
+    private String gcsEncryptionKey;
+
+    @ConnectorProperty(names = {"gcs.decryption-key"}, required = false, sensitive = true,
+            description = "Google Cloud Storage decryption key.")
+    private String gcsDecryptionKey;
+
     @Getter
     protected ExecutionAuthenticator executionAuthenticator = new ExecutionAuthenticator(){};
 
@@ -115,6 +133,12 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
 
     protected AbstractIcebergProperties(Map<String, String> props) {
         super(Type.ICEBERG, props);
+    }
+
+    @Override
+    public void initNormalizeAndCheckProps() {
+        super.initNormalizeAndCheckProps();
+        IcebergGoogleCredentialValidator.validate(origProps);
     }
 
     /**
@@ -148,6 +172,8 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
                                            List<StorageProperties> storagePropertiesList,
                                            SessionContext sessionContext) {
         Map<String, String> catalogProps = new HashMap<>(getOrigProps());
+        // Replayed and directly initialized catalogs must be checked before the SDK can authenticate.
+        IcebergGoogleCredentialValidator.validate(catalogProps);
         if (StringUtils.isNotBlank(warehouse)) {
             catalogProps.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         }
@@ -155,12 +181,30 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         // Add manifest cache properties if configured
         addManifestCacheProperties(catalogProps);
 
+        if (!IcebergExternalCatalog.ICEBERG_REST.equals(getIcebergCatalogType())
+                && ResolvingFileIO.class.getName().equals(catalogProps.get(CatalogProperties.FILE_IO_IMPL))) {
+            Configuration conf = createHadoopConfiguration(storagePropertiesList);
+            // Some catalog factories bypass toFileIOProperties but still honor an explicit generic resolver.
+            preserveHadoopGcsFileIO(storagePropertiesList, catalogProps, conf);
+        }
+
         Catalog catalog = initCatalog(catalogName, catalogProps, storagePropertiesList, sessionContext);
 
         if (catalog == null) {
             throw new IllegalStateException("Catalog must not be null after initialization.");
         }
         return catalog;
+    }
+
+    protected Configuration createHadoopConfiguration(List<StorageProperties> storagePropertiesList) {
+        Configuration conf = new Configuration();
+        for (StorageProperties storage : IcebergUtils.selectEffectiveStorageProperties(storagePropertiesList)) {
+            Configuration storageConf = storage.getHadoopStorageConfig();
+            if (storageConf != null) {
+                conf.addResource(storageConf);
+            }
+        }
+        return conf;
     }
 
     /**
@@ -257,12 +301,45 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
                 fileIOProperties.put(AwsClientProperties.CLIENT_REGION, region);
             }
         }
-        if (IcebergExternalCatalog.ICEBERG_REST.equals(getIcebergCatalogType())
-                && !Boolean.parseBoolean(origProps.get("iceberg.rest.vended-credentials-enabled"))
-                && (s3Target instanceof GCSProperties
-                        || origProps.keySet().stream().anyMatch(key -> key.startsWith("fs.gs.")))) {
-            // Adding iceberg-gcp must not route HMAC-backed gs:// files to GCSFileIO's ADC identity.
-            fileIOProperties.putIfAbsent(CatalogProperties.FILE_IO_IMPL, NativeGcsResolvingFileIO.class.getName());
+        preserveHadoopGcsFileIO(storagePropertiesList, fileIOProperties, conf);
+    }
+
+    protected void preserveHadoopGcsFileIO(List<StorageProperties> storagePropertiesList,
+            Map<String, String> fileIOProperties, Configuration conf) {
+        boolean rest = IcebergExternalCatalog.ICEBERG_REST.equals(getIcebergCatalogType());
+        String ioImpl = fileIOProperties.get(CatalogProperties.FILE_IO_IMPL);
+        if (!ResolvingFileIO.class.getName().equals(ioImpl) && !(rest && ioImpl == null)) {
+            return;
+        }
+        if (rest && ((IcebergRestProperties) this).isIcebergRestVendedCredentialsEnabled()) {
+            return;
+        }
+        // SDK storage options (including encryption and billing) must retain their native semantics.
+        // REST-only gcp.auth.* options do not select a storage identity.
+        if (NativeGcsResolvingFileIO.hasSdkGcsProperties(fileIOProperties)) {
+            return;
+        }
+        AbstractS3CompatibleProperties s3Target = null;
+        for (StorageProperties storage : IcebergUtils.selectEffectiveStorageProperties(storagePropertiesList)) {
+            if (storage instanceof AbstractS3CompatibleProperties) {
+                s3Target = (AbstractS3CompatibleProperties) storage;
+            }
+        }
+        boolean hadoopGcs = s3Target instanceof GCSProperties
+                || origProps.keySet().stream().anyMatch(key -> key.startsWith("fs.gs."));
+        if (!hadoopGcs && conf != null) {
+            // Resource files populate the effective configuration without adding keys to the original properties.
+            for (Map.Entry<String, String> entry : conf) {
+                if (entry.getKey().startsWith("fs.gs.")) {
+                    hadoopGcs = true;
+                    break;
+                }
+            }
+        }
+        // The SDK generic resolver ignores Hadoop's credential source and impersonation settings.
+        // Preserve that identity unless SDK storage options or an explicit FileIO selected another path.
+        if (hadoopGcs) {
+            fileIOProperties.put(CatalogProperties.FILE_IO_IMPL, NativeGcsResolvingFileIO.class.getName());
         }
     }
 

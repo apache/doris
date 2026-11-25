@@ -17,12 +17,15 @@
 
 package org.apache.iceberg.io;
 
+import java.util.Map;
+
 /**
- * A {@link ResolvingFileIO} that keeps {@code gs://} locations on {@code HadoopFileIO}.
+ * A {@link ResolvingFileIO} that preserves the legacy Hadoop GCS path unless SDK storage options exist.
  *
  * <p>Adding iceberg-gcp makes the SDK route these locations to GCSFileIO, which does not read the
  * {@code fs.s3a.*} HMAC settings Doris supplies. Both FE and the BE metadata scanner must load this
- * implementation because its class name is carried inside serialized Iceberg scan tasks.
+ * implementation because its class name is carried inside serialized Iceberg scan tasks. Explicit
+ * {@code gcs.*} storage options retain the SDK path, including options supplied after FE selection.
  *
  * <p>The SDK package is required because {@code implFromLocation} is package-private. It also keeps
  * this class and iceberg-core in the same class loader on both sides of a metadata scan.
@@ -33,9 +36,23 @@ public class NativeGcsResolvingFileIO extends ResolvingFileIO {
     private static final String GCS_FILE_IO_IMPL = "org.apache.iceberg.gcp.gcs.GCSFileIO";
     private static final String HADOOP_FILE_IO_IMPL = "org.apache.iceberg.hadoop.HadoopFileIO";
 
+    public static boolean hasSdkGcsProperties(Map<String, String> properties) {
+        return properties.entrySet().stream()
+                .anyMatch(entry -> entry.getKey().startsWith("gcs.") && entry.getValue() != null);
+    }
+
     @Override
     String implFromLocation(String location) {
         String impl = super.implFromLocation(location);
-        return GCS_FILE_IO_IMPL.equals(impl) ? HADOOP_FILE_IO_IMPL : impl;
+        if (!GCS_FILE_IO_IMPL.equals(impl)) {
+            return impl;
+        }
+        // REST/table options and matching vended credentials can arrive after FE chose this resolver.
+        // HadoopFileIO ignores SDK encryption and billing options, so those must keep the native path.
+        if (hasSdkGcsProperties(properties()) || credentials().stream().anyMatch(credential ->
+                location.startsWith(credential.prefix()) && hasSdkGcsProperties(credential.config()))) {
+            return GCS_FILE_IO_IMPL;
+        }
+        return HADOOP_FILE_IO_IMPL;
     }
 }
