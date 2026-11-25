@@ -52,6 +52,7 @@ import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -119,6 +120,34 @@ class IcebergGcsSdkOptionsTest {
                     SerializationUtil.serializeToBytes(original))) {
                 Assertions.assertEquals(LOCATION.startsWith(prefix) ? GCS : HADOOP,
                         restored.ioClass(LOCATION).getName());
+            }
+        }
+    }
+
+    @Test
+    void honorsTheLongestCredentialPrefixRegardlessOfOrder() throws Exception {
+        String location = "gs://fixture-bucket/private/object";
+        Map<String, String> hadoop = ImmutableMap.of("fs.gs.auth.type", "UNAUTHENTICATED");
+        for (boolean narrowSdk : ImmutableList.of(false, true)) {
+            StorageCredential broad = StorageCredential.create("gs://fixture-bucket/",
+                    narrowSdk ? hadoop : ImmutableMap.of("gcs.oauth2.token", "fixture-token"));
+            StorageCredential narrow = StorageCredential.create("gs://fixture-bucket/private/",
+                    narrowSdk ? ImmutableMap.of("gcs.oauth2.token", "fixture-token") : hadoop);
+            for (List<StorageCredential> credentials : ImmutableList.of(
+                    ImmutableList.of(broad, narrow), ImmutableList.of(narrow, broad),
+                    ImmutableList.of(StorageCredential.create(narrow.prefix(), broad.config()), narrow))) {
+                for (boolean globalSdk : ImmutableList.of(false, true)) {
+                    try (ResolvingFileIO original = (ResolvingFileIO) CatalogUtil.loadFileIO(COMPAT_RESOLVER,
+                            globalSdk ? ImmutableMap.of("gcs.project-id", "fixture-project") : ImmutableMap.of(),
+                            new Configuration(false))) {
+                        original.setCredentials(credentials);
+                        try (ResolvingFileIO restored = SerializationUtil.deserializeFromBytes(
+                                SerializationUtil.serializeToBytes(original))) {
+                            Assertions.assertEquals(globalSdk || narrowSdk ? GCS : HADOOP,
+                                    restored.ioClass(location).getName());
+                        }
+                    }
+                }
             }
         }
     }

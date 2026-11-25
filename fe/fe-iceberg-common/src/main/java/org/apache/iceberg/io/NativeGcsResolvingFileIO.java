@@ -49,10 +49,17 @@ public class NativeGcsResolvingFileIO extends ResolvingFileIO {
         }
         // REST/table options and matching vended credentials can arrive after FE chose this resolver.
         // HadoopFileIO ignores SDK encryption and billing options, so those must keep the native path.
-        if (hasSdkGcsProperties(properties()) || credentials().stream().anyMatch(credential ->
-                location.startsWith(credential.prefix()) && hasSdkGcsProperties(credential.config()))) {
+        if (hasSdkGcsProperties(properties())) {
             return GCS_FILE_IO_IMPL;
         }
-        return HADOOP_FILE_IO_IMPL;
+        StorageCredential matching = null;
+        for (StorageCredential credential : credentials()) {
+            if (location.startsWith(credential.prefix())
+                    && (matching == null || credential.prefix().length() >= matching.prefix().length())) {
+                matching = credential;
+            }
+        }
+        // The SDK uses the longest prefix and the last duplicate; broader credentials cannot supply its options.
+        return matching != null && hasSdkGcsProperties(matching.config()) ? GCS_FILE_IO_IMPL : HADOOP_FILE_IO_IMPL;
     }
 }
