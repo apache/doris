@@ -28,6 +28,7 @@
 #include <new>
 #include <optional>
 #include <utility>
+#include <vector>
 
 #include "common/config.h"
 #include "runtime/exec_env.h"
@@ -60,6 +61,13 @@ public:
                                     PFetchRemoteSchemaResponse* response,
                                     google::protobuf::Closure* done) override {
         EXPECT_FALSE(request->is_coordinator());
+        EXPECT_EQ(1, request->tablet_location_size());
+        std::vector<int64_t> tablet_ids;
+        for (const auto& location : request->tablet_location()) {
+            tablet_ids.insert(tablet_ids.end(), location.tablet_id().begin(),
+                              location.tablet_id().end());
+        }
+        EXPECT_EQ((std::vector<int64_t> {1}), tablet_ids);
         Status::OK().to_protobuf(response->mutable_status());
         response->mutable_merged_schema();
         reply.set_value(done);
