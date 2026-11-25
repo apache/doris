@@ -183,12 +183,7 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
 
         if (!IcebergExternalCatalog.ICEBERG_REST.equals(getIcebergCatalogType())
                 && ResolvingFileIO.class.getName().equals(catalogProps.get(CatalogProperties.FILE_IO_IMPL))) {
-            Configuration conf = new Configuration();
-            for (StorageProperties storage : IcebergUtils.selectEffectiveStorageProperties(storagePropertiesList)) {
-                if (storage.getHadoopStorageConfig() != null) {
-                    conf.addResource(storage.getHadoopStorageConfig());
-                }
-            }
+            Configuration conf = createHadoopConfiguration(storagePropertiesList);
             // Some catalog factories bypass toFileIOProperties but still honor an explicit generic resolver.
             preserveHadoopGcsFileIO(storagePropertiesList, catalogProps, conf);
         }
@@ -199,6 +194,17 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
             throw new IllegalStateException("Catalog must not be null after initialization.");
         }
         return catalog;
+    }
+
+    protected Configuration createHadoopConfiguration(List<StorageProperties> storagePropertiesList) {
+        Configuration conf = new Configuration();
+        for (StorageProperties storage : IcebergUtils.selectEffectiveStorageProperties(storagePropertiesList)) {
+            Configuration storageConf = storage.getHadoopStorageConfig();
+            if (storageConf != null) {
+                conf.addResource(storageConf);
+            }
+        }
+        return conf;
     }
 
     /**
