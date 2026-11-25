@@ -3582,13 +3582,18 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = SPILL_BUFFER_SIZE_BYTES, fuzzy = true, needForward = true,
             description = {"落盘时写 block 的最大大小（字节）。如果一个 block 超过该阈值，会按此大小拆分后再写入磁盘。"
-                    + "同时也控制 merge sort 阶段每个文件的读 buffer 大小。默认 8MB。",
+                    + "同时也控制 merge sort 阶段每个文件的读 buffer 大小。默认 8 MiB。范围为 [1 MiB, 256 MiB]，"
+                    + "超出范围的值会限制到最近的边界。",
                 "Maximum block size for spill writes (in bytes). Blocks larger than this threshold are "
                     + "split before writing to disk. Also controls per-file read buffer size during merge sort. "
-                    + "Default is 8MB."})
+                    + "Default is 8 MiB. Range is [1 MiB, 256 MiB]; "
+                    + "out-of-range values are clamped to the nearest bound."})
     public long spillBufferSizeBytes = 8L * 1024L * 1024L;
 
-    @VariableMgr.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, fuzzy = true)
+    @VariableMgr.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, needForward = true, fuzzy = true,
+            description = {"聚合落盘的分区数。默认 4。范围为 [2, 32]，超出范围的值会限制到最近的边界。",
+                "Number of partitions for aggregation spill. Default is 4. Range is [2, 32]; "
+                    + "out-of-range values are clamped to the nearest bound."})
     public int spillAggregationPartitionCount = 4;
 
     @VariableMgr.VarAttr(name = LOW_MEMORY_MODE_BUFFER_LIMIT, fuzzy = false)
@@ -3599,12 +3604,17 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = false)
     public long spillStreamingAggMemLimit = 268435456; //256MB
 
-    @VariableMgr.VarAttr(name = SPILL_HASH_JOIN_PARTITION_COUNT, fuzzy = true)
+    @VariableMgr.VarAttr(name = SPILL_HASH_JOIN_PARTITION_COUNT, needForward = true, fuzzy = true,
+            description = {"哈希连接落盘的分区数。默认 4。范围为 [2, 32]，超出范围的值会限制到最近的边界。",
+                "Number of partitions for hash join spill. Default is 4. Range is [2, 32]; "
+                    + "out-of-range values are clamped to the nearest bound."})
     public int spillHashJoinPartitionCount = 4;
 
     @VariableMgr.VarAttr(name = SPILL_REPARTITION_MAX_DEPTH, fuzzy = true, needForward = true,
-            description = {"重分区的最大递归深度，超过该深度不再继续重分区，\n默认值为 8",
-                "Maximum depth for repartition recursion. When exceeded, repartitioning will stop. Default is 8."})
+            description = {"重分区的最大递归深度，超过该深度不再继续重分区。默认 8。范围为 [1, 128]，"
+                    + "超出范围的值会限制到最近的边界。",
+                "Maximum depth for repartition recursion. When exceeded, repartitioning will stop. Default "
+                    + "is 8. Range is [1, 128]; out-of-range values are clamped to the nearest bound."})
     public int spillRepartitionMaxDepth = 8;
 
     @VariableMgr.VarAttr(name = SPILL_JOIN_BUILD_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
@@ -3614,10 +3624,14 @@ public class SessionVariable implements Serializable, Writable {
     public long spillJoinBuildSinkMemLimitBytes = 64L * 1024L * 1024L;
 
     @VariableMgr.VarAttr(name = SPILL_AGGREGATION_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
-            description = {"一旦触发 spill 后，aggregation sink 的 revocable memory 超过该阈值就主动落盘（字节）。默认 64MB。",
-                "After spill is triggered, aggregation sink will proactively spill when revocable memory "
-                    + "exceeds this threshold (in bytes). Default is 64GB."})
-    public long spillAggregationSinkMemLimitBytes = 64L * 1024L * 1024L * 1024L;
+            description = {"聚合开始落盘后，sink 的可回收内存达到该阈值就主动落盘（字节）。"
+                    + "此值不是查询内存限制或首次落盘的触发阈值。默认 64 MiB。范围为 [1 MiB, 4 GiB]，"
+                    + "超出范围的值会限制到最近的边界。",
+                "After aggregation starts spilling, the sink proactively spills when revocable memory "
+                    + "reaches this threshold (in bytes), not a query memory limit or the initial spill trigger. "
+                    + "Default is 64 MiB. Range is [1 MiB, 4 GiB]; "
+                    + "out-of-range values are clamped to the nearest bound."})
+    public long spillAggregationSinkMemLimitBytes = 64L * 1024L * 1024L;
 
     @VariableMgr.VarAttr(name = SPILL_SORT_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
             description = {"一旦触发 spill 后，sort sink 的 revocable memory 超过该阈值就主动落盘（字节）。默认 64MB。",
@@ -3626,11 +3640,13 @@ public class SessionVariable implements Serializable, Writable {
     public long spillSortSinkMemLimitBytes = 64L * 1024L * 1024L;
 
     @VariableMgr.VarAttr(name = SPILL_SORT_MERGE_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
-            description = {"一旦触发 spill 后，sort merge 阶段可用的总内存大小（字节）。"
-                    + "该值除以 spill_buffer_size_bytes 即为可并行读取合并的文件数。默认 64MB。",
-                "After spill is triggered, total memory budget for the sort merge phase (in bytes). "
-                    + "Divided by spill_buffer_size_bytes gives the number of files that can be merged "
-                    + "in parallel. Default is 64MB."})
+            description = {"用于确定落盘排序归并路数的预算（字节），不是内存硬限制。查询排序每次最多归并 "
+                    + "max(8, floor(预算 / spill_buffer_size_bytes)) 个文件。默认 64 MiB。"
+                    + "范围为 [1 MiB, 4 GiB]，超出范围的值会限制到最近的边界。",
+                "Budget used to derive spill sort merge fan-in (in bytes), not a hard memory limit. "
+                    + "Query sort merges up to max(8, floor(budget / spill_buffer_size_bytes)) files at a time. "
+                    + "Default is 64 MiB. Range is [1 MiB, 4 GiB]; "
+                    + "out-of-range values are clamped to the nearest bound."})
     public long spillSortMergeMemLimitBytes = 64L * 1024L * 1024L;
 
     @VariableMgr.VarAttr(name = SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT, fuzzy = true)
@@ -6218,7 +6234,7 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, normalizeIntValue(attr.name(), root.get(attr.name()).toString()));
                         break;
                     case "long":
-                        field.set(this, (Long) root.get(attr.name()));
+                        field.set(this, normalizeLongValue(attr.name(), (Long) root.get(attr.name())));
                         break;
                     case "float":
                         field.set(this, root.get(attr.name()));
@@ -6272,7 +6288,8 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, normalizeIntValue(attr.name(), sessionVarMap.get(attr.name())));
                         break;
                     case "long":
-                        field.set(this, Long.valueOf(sessionVarMap.get(attr.name())));
+                        field.set(this, normalizeLongValue(attr.name(),
+                                Long.parseLong(sessionVarMap.get(attr.name()))));
                         break;
                     case "float":
                         field.set(this, Float.valueOf(sessionVarMap.get(attr.name())));
@@ -6295,12 +6312,33 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    private static int normalizeIntValue(String name, String value) {
-        int intValue = Integer.valueOf(value);
-        if (RUNTIME_FILTER_TYPE.equalsIgnoreCase(name)) {
-            return (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+    static int normalizeIntValue(String name, String value) {
+        int intValue = Integer.parseInt(value);
+        switch (name.toLowerCase(Locale.ROOT)) {
+            case RUNTIME_FILTER_TYPE:
+                return (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+            // Match the spill ranges enforced by RuntimeState getters.
+            case SPILL_HASH_JOIN_PARTITION_COUNT:
+            case SPILL_AGGREGATION_PARTITION_COUNT:
+                return Math.max(2, Math.min(intValue, 32));
+            case SPILL_REPARTITION_MAX_DEPTH:
+                return Math.max(1, Math.min(intValue, 128));
+            default:
+                return intValue;
         }
-        return intValue;
+    }
+
+    static long normalizeLongValue(String name, long value) {
+        // Match the spill ranges enforced by RuntimeState getters.
+        switch (name.toLowerCase(Locale.ROOT)) {
+            case SPILL_BUFFER_SIZE_BYTES:
+                return Math.max(1024L * 1024, Math.min(value, 256L * 1024 * 1024));
+            case SPILL_AGGREGATION_SINK_MEM_LIMIT_BYTES:
+            case SPILL_SORT_MERGE_MEM_LIMIT_BYTES:
+                return Math.max(1024L * 1024, Math.min(value, 4L * 1024 * 1024 * 1024));
+            default:
+                return value;
+        }
     }
 
     /**
