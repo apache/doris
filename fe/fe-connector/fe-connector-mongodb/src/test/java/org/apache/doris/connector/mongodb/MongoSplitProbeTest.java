@@ -46,6 +46,8 @@ import java.util.function.LongConsumer;
 import java.util.function.LongPredicate;
 
 class MongoSplitProbeTest {
+    private static final long PROBE_TIMEOUT_MS = 1000;
+
     private static final class Driver {
         final ConnectorScanContext context = new ConnectorScanContext();
         final List<TimeoutMode> modes = new ArrayList<>();
@@ -60,7 +62,16 @@ class MongoSplitProbeTest {
         int batchSize;
         int indexBatchSize;
         int dataCommands;
+        int statisticsCommands;
         int indexesRead;
+        int indexesReceived;
+        int initialIndexBatchLength = Integer.MAX_VALUE;
+        int indexBatchLength = Integer.MAX_VALUE;
+        int indexReplies;
+        int indexHasNextCalls;
+        int getMoreCalls;
+        int expireAfterIndexReply;
+        int cancelAfterIndexReply;
         int cursorsClosed;
         long chargedBytes;
         int sessionsStarted;
@@ -69,6 +80,18 @@ class MongoSplitProbeTest {
         boolean closeQueryAfterFirst;
         final java.util.concurrent.atomic.AtomicBoolean queryClosed = new java.util.concurrent.atomic.AtomicBoolean();
 
+        void receiveIndexes(int count) throws InterruptedException {
+            indexesReceived += Math.min(count, indexes.size() - indexesReceived);
+            indexReplies++;
+            if (indexReplies == cancelAfterIndexReply) {
+                context.cancel();
+            }
+            if (indexReplies == expireAfterIndexReply) {
+                // The reply is buffered before this pause; oversleeping still preserves the trigger.
+                Thread.sleep(PROBE_TIMEOUT_MS + 100);
+            }
+        }
+
         @SuppressWarnings("unchecked")
         <T> T proxy(Class<T> type, java.lang.reflect.InvocationHandler handler) {
             return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, handler);
@@ -76,9 +99,19 @@ class MongoSplitProbeTest {
 
         MongoClient client() {
             MongoCursor<?> indexCursor = proxy(MongoCursor.class, (p, method, args) -> switch (method.getName()) {
-                case "hasNext" -> indexesRead < indexes.size();
-                case "next" -> indexes.get(indexesRead++);
-                case "available" -> indexes.size() - indexesRead;
+                case "hasNext" -> {
+                    indexHasNextCalls++;
+                    if (indexesRead == indexesReceived && indexesReceived < indexes.size()) {
+                        getMoreCalls++;
+                        receiveIndexes(indexBatchLength);
+                    }
+                    yield indexesRead < indexesReceived;
+                }
+                case "next" -> {
+                    Assertions.assertTrue(indexesRead < indexesReceived);
+                    yield indexes.get(indexesRead++);
+                }
+                case "available" -> indexesReceived - indexesRead;
                 case "close" -> {
                     cursorsClosed++;
                     yield null;
@@ -87,6 +120,7 @@ class MongoSplitProbeTest {
             });
             ListIndexesIterable<?> list = proxy(ListIndexesIterable.class, (p, method, args) -> {
                 if ("iterator".equals(method.getName())) {
+                    receiveIndexes(initialIndexBatchLength);
                     return indexCursor;
                 }
                 if ("timeoutMode".equals(method.getName())) {
@@ -116,6 +150,7 @@ class MongoSplitProbeTest {
                     case "runCommand" -> {
                         var command = (Document) args[0];
                         if (command.containsKey("collStats")) {
+                            statisticsCommands++;
                             yield statistics;
                         }
                         aggregate = command;
@@ -175,10 +210,91 @@ class MongoSplitProbeTest {
                             });
                 }
             };
-            return catalog.probeSplits(table, "sequence", "primary", snapshot, 16, 1000,
+            return catalog.probeSplits(table, "sequence", "primary", snapshot, 16, PROBE_TIMEOUT_MS,
                     size -> true, bytes -> driver.chargedBytes += bytes,
                     () -> MongoRangePlanner.checkCancelled(session, driver.context));
         }
+    }
+
+    @Test
+    void firstIndexBatchIsChargedBeforeItsDeadlineFallback() {
+        var driver = new Driver();
+        driver.indexes = List.of(new Document("name", "sequence_1").append("key", new Document("sequence", 1)),
+                new Document("name", "partial_other").append("key", new Document("other", 1))
+                        .append("partialFilterExpression", new Document("text", "x".repeat(75000))));
+        driver.expireAfterIndexReply = 1;
+        long expected = driver.indexes.stream().mapToLong(d -> MongoSplitPlan.encode(d.toBsonDocument()).length).sum();
+        Assertions.assertThrows(MongoRangePlanner.PlanningLimit.class, () -> run(driver));
+        Assertions.assertEquals(expected, driver.chargedBytes);
+        Assertions.assertEquals(2, driver.indexesRead);
+        Assertions.assertEquals(1, driver.indexReplies);
+        Assertions.assertEquals(0, driver.getMoreCalls);
+        Assertions.assertEquals(0, driver.statisticsCommands);
+        Assertions.assertEquals(0, driver.dataCommands);
+        Assertions.assertEquals(1, driver.cursorsClosed);
+    }
+
+    @Test
+    void expiredProbeCannotFetchAnUnbufferedIndexBatch() {
+        var driver = new Driver();
+        driver.initialIndexBatchLength = 0;
+        driver.expireAfterIndexReply = 1;
+        Assertions.assertThrows(MongoRangePlanner.PlanningLimit.class, () -> run(driver));
+        Assertions.assertEquals(0, driver.chargedBytes);
+        Assertions.assertEquals(0, driver.indexesRead);
+        Assertions.assertEquals(0, driver.indexHasNextCalls);
+        Assertions.assertEquals(0, driver.getMoreCalls);
+        Assertions.assertEquals(0, driver.statisticsCommands);
+        Assertions.assertEquals(0, driver.dataCommands);
+        Assertions.assertEquals(1, driver.indexReplies);
+        Assertions.assertEquals(1, driver.cursorsClosed);
+    }
+
+    @Test
+    void lateGetMoreBatchIsChargedBeforeDeadlineFallback() {
+        var driver = new Driver();
+        driver.indexes = List.of(new Document("name", "other_1").append("key", new Document("other", 1)),
+                new Document("name", "sequence_1").append("key", new Document("sequence", 1)));
+        driver.initialIndexBatchLength = 1;
+        driver.indexBatchLength = 1;
+        driver.expireAfterIndexReply = 2;
+        long expected = driver.indexes.stream().mapToLong(d -> MongoSplitPlan.encode(d.toBsonDocument()).length).sum();
+        Assertions.assertThrows(MongoRangePlanner.PlanningLimit.class, () -> run(driver));
+        Assertions.assertEquals(expected, driver.chargedBytes);
+        Assertions.assertEquals(2, driver.indexesRead);
+        Assertions.assertEquals(1, driver.getMoreCalls);
+        Assertions.assertEquals(2, driver.indexReplies);
+        Assertions.assertEquals(0, driver.statisticsCommands);
+        Assertions.assertEquals(0, driver.dataCommands);
+        Assertions.assertEquals(1, driver.cursorsClosed);
+    }
+
+    @Test
+    void cancelledProbeCannotFetchAnUnbufferedIndexBatch() {
+        var driver = new Driver();
+        driver.initialIndexBatchLength = 0;
+        driver.cancelAfterIndexReply = 1;
+        Assertions.assertThrows(CancellationException.class, () -> run(driver));
+        Assertions.assertEquals(0, driver.chargedBytes);
+        Assertions.assertEquals(0, driver.indexesRead);
+        Assertions.assertEquals(0, driver.indexHasNextCalls);
+        Assertions.assertEquals(0, driver.getMoreCalls);
+        Assertions.assertEquals(0, driver.statisticsCommands);
+        Assertions.assertEquals(0, driver.dataCommands);
+        Assertions.assertEquals(1, driver.cursorsClosed);
+    }
+
+    @Test
+    void cancelledProbeDoesNotConsumeBufferedIndexBatch() {
+        var driver = new Driver();
+        driver.cancelAfterIndexReply = 1;
+        Assertions.assertThrows(CancellationException.class, () -> run(driver));
+        Assertions.assertEquals(0, driver.chargedBytes);
+        Assertions.assertEquals(0, driver.indexesRead);
+        Assertions.assertEquals(0, driver.getMoreCalls);
+        Assertions.assertEquals(0, driver.statisticsCommands);
+        Assertions.assertEquals(0, driver.dataCommands);
+        Assertions.assertEquals(1, driver.cursorsClosed);
     }
 
     @Test

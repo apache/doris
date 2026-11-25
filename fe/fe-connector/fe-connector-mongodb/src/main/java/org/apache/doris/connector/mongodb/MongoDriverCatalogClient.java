@@ -212,11 +212,13 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
                     .timeoutMode(TimeoutMode.CURSOR_LIFETIME).iterator()) {
                 int count = 0;
                 while (true) {
-                    // hasNext may issue getMore. Cancellation must be checked before that request,
-                    // not only after it returns; the lifetime timeout also covers all cursor batches.
-                    checkProbe(deadline, checkCancelled);
-                    if (!indexes.hasNext()) {
-                        break;
+                    // iterator() can receive a batch before returning. Charge buffered data before
+                    // timeout fallback, but guard hasNext() before it can issue another getMore.
+                    if (indexes.available() == 0) {
+                        checkProbe(deadline, checkCancelled);
+                        if (!indexes.hasNext()) {
+                            break;
+                        }
                     }
                     long batchBytes = 0;
                     do {
