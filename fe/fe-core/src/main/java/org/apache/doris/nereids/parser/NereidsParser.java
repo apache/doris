@@ -422,8 +422,10 @@ public class NereidsParser {
                 LogicalPlanBuilder builder = new LogicalPlanBuilderForEncryption(ImmutableMap.of(), statementRanges) {
                     @Override
                     public LogicalPlan visitInsertTable(DorisParser.InsertTableContext insert) {
-                        // Inspect both query parts without constructing an executable INSERT.
-                        return withCte(visitQuery(insert.query()), insert.cteContext);
+                        // Visit the INSERT expressions without constructing an executable command.
+                        LogicalPlan query = visitQuery(insert.query());
+                        parseInsertPartitionSpec(insert.partitionSpec());
+                        return withCte(query, insert.cteContext);
                     }
                 };
                 ParserUtils.withOrigin(statement, () -> builder.visit(statement));

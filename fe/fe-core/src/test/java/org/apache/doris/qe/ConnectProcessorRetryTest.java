@@ -179,6 +179,16 @@ public class ConnectProcessorRetryTest extends TestWithFeService {
         Assertions.assertFalse(masked.contains("synthetic-item-key"), masked);
     }
 
+    @Test
+    public void testAuditInsertMaskingVisitsStaticPartition() {
+        String insert = "INSERT INTO sample_db.items PARTITION (region='east') SELECT 1";
+        Assertions.assertEquals(insert, NeedAuditEncryption.maskSqlForAudit(insert));
+
+        String batch = "INSERT INTO sample_db.items PARTITION (region='east', region='west') SELECT 1; SELECT 2";
+        Assertions.assertEquals(NeedAuditEncryption.AUDIT_SQL_UNAVAILABLE + "; SELECT 2",
+                NeedAuditEncryption.maskSqlForAudit(batch));
+    }
+
     // tryRetryOriginalSql tests
     @Test
     public void testTryRetryOriginalSqlRetryEnabledCorrectOriginStmt() {
