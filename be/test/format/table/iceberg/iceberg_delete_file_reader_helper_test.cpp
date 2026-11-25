@@ -794,4 +794,28 @@ TEST(IcebergDeleteFileReaderHelperTest, OrcPositionDeletesPreserveRowsAndRejectN
     }
 }
 
+TEST(IcebergDeleteFileReaderHelperTest, IcebergAvroUnprojectedCivilNanosRowPreservesPositions) {
+    RuntimeProfile profile("iceberg_avro_positions");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("Asia/Shanghai");
+    IcebergDeleteFileIOContext io_context(&state);
+    TFileScanRangeParams params;
+    params.__set_file_type(TFileType::FILE_LOCAL);
+    params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+    TIcebergDeleteFileDesc file;
+    file.__set_path(
+            "./be/test/format_v2/avro/test_data/iceberg_timestamps/iceberg_position_deletes.avro");
+    file.__set_file_format(TFileFormatType::FORMAT_AVRO);
+    IcebergDeleteFileReaderOptions options;
+    options.state = &state;
+    options.profile = &profile;
+    options.scan_params = &params;
+    options.io_ctx = &io_context.io_ctx;
+    options.batch_size = 1;
+    CollectPositionDeleteVisitor visitor;
+    const auto status = read_iceberg_position_delete_file(file, options, &visitor);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(visitor.total_rows, 2);
+    EXPECT_EQ(visitor.delete_rows["data.avro"], (std::vector<int64_t> {0, 2}));
+}
 } // namespace doris

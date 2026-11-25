@@ -53,6 +53,13 @@ constexpr const char* ICEBERG_FILE_PATH = "file_path";
 constexpr const char* ICEBERG_ROW_POS = "pos";
 constexpr size_t ICEBERG_DELETION_VECTOR_MIN_BYTES = 12;
 
+// The unprojected deleted row still belongs to Iceberg's writer schema. Civil nanos must
+// survive schema admission even when the visitor reads only file_path and pos.
+class IcebergPositionDeleteTableReader final : public format::TableReader {
+protected:
+    bool use_iceberg_avro_semantics() const override { return true; }
+};
+
 Status get_position_delete_file_format(const TIcebergDeleteFileDesc& delete_file,
                                        format::FileFormat* file_format) {
     if (file_format == nullptr) {
@@ -260,7 +267,7 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
     columns[1].name = ICEBERG_ROW_POS;
     columns[1].type = make_nullable(std::make_shared<DataTypeInt64>());
     auto io_ctx = std::shared_ptr<io::IOContext>(options.io_ctx, [](io::IOContext*) {});
-    format::TableReader reader;
+    IcebergPositionDeleteTableReader reader;
     RETURN_IF_ERROR(reader.init({.projected_columns = columns,
                                  .conjuncts = {},
                                  .format = physical_format,

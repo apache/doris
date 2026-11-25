@@ -145,7 +145,8 @@ protected:
     std::unique_ptr<AvroReader> reader(int64_t start = 0, int64_t size = -1,
                                        bool timestamp_tz = false, bool varbinary = false,
                                        std::optional<GlobalRowIdContext> context = std::nullopt,
-                                       bool hive_compatible = false) {
+                                       bool hive_compatible = false,
+                                       bool iceberg_compatible = false) {
         properties->system_type = TFileType::FILE_LOCAL;
         auto file = std::make_unique<io::FileDescription>();
         file->path = path;
@@ -155,7 +156,8 @@ protected:
         auto io_context = std::make_shared<io::IOContext>();
         io_context->file_reader_stats = &io_stats;
         return std::make_unique<AvroReader>(properties, file, io_context, &profile, timestamp_tz,
-                                            varbinary, context, hive_compatible);
+                                            varbinary, context, hive_compatible,
+                                            iceberg_compatible);
     }
 
     Status initialize(AvroReader* input) {
@@ -2417,6 +2419,122 @@ TEST_F(AvroReaderTest, RejectsTruncatedHeadersAndBlocks) {
         }
         EXPECT_FALSE(status.ok()) << size;
     }
+}
+
+TEST_F(AvroReaderTest, IcebergProducedInstantsKeepTheirTimezoneAndNanosRejection) {
+    state.set_timezone("Asia/Shanghai");
+    const std::string fixtures = "./be/test/format_v2/avro/test_data/iceberg_timestamps/iceberg_";
+    for (const bool nanos : {false, true}) {
+        std::filesystem::copy_file(
+                fixtures + (nanos ? "instant_nanos.avro" : "instant_micros.avro"), path,
+                std::filesystem::copy_options::overwrite_existing);
+        for (const bool mapping : {false, true}) {
+            auto input = reader(0, -1, mapping, false, std::nullopt, false, true);
+            const auto status = initialize(input.get());
+            if (nanos) {
+                EXPECT_FALSE(status.ok());
+                EXPECT_NE(status.to_string().find("timestamp-nanos"), std::string::npos) << status;
+                continue;
+            }
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_EQ(schema[1].timestamp_is_adjusted_to_utc, std::optional<bool>(true));
+            EXPECT_EQ(remove_nullable(schema[1].type)->get_primitive_type(),
+                      mapping ? TYPE_TIMESTAMPTZ : TYPE_DATETIMEV2);
+            auto request = std::make_shared<FileScanRequest>();
+            auto block = block_for({1}, request.get());
+            ASSERT_TRUE(input->open(request).ok());
+            const auto rows = read_all(input.get(), block);
+            ASSERT_EQ(rows.size(), 8);
+            EXPECT_EQ(rows[0][0],
+                      mapping ? "1970-01-01 00:00:00.000000+00:00" : "1970-01-01 08:00:00.000000");
+            EXPECT_TRUE(input->close().ok());
+        }
+    }
+}
+
+TEST_F(AvroReaderTest, IcebergCivilTimestampsReachNamedRecordsArraysAndMaps) {
+    write_header_json(R"({"type":"record","name":"root","fields":[
+      {"name":"definition","type":{"type":"record","name":"clock_record","fields":[
+        {"name":"civil","type":{"type":"long","logicalType":"timestamp-micros","adjust-to-utc":false}},
+        {"name":"instant","type":{"type":"long","logicalType":"timestamp-micros","adjust-to-utc":true}}]}},
+      {"name":"reference","type":["null","clock_record"]},
+      {"name":"items","type":{"type":"array","items":{"type":"long","logicalType":"timestamp-nanos","adjust-to-utc":false}}},
+      {"name":"values","type":{"type":"map","values":{"type":"long","logicalType":"timestamp-micros","adjust-to-utc":false}}}]})");
+    auto input = reader(0, -1, true, false, std::nullopt, false, true);
+    const auto status = initialize(input.get());
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(schema.size(), 4);
+    for (const auto index : {0, 1}) {
+        ASSERT_EQ(schema[index].children.size(), 2);
+        EXPECT_EQ(schema[index].children[0].timestamp_is_adjusted_to_utc,
+                  std::optional<bool>(false));
+        EXPECT_EQ(remove_nullable(schema[index].children[0].type)->get_primitive_type(),
+                  TYPE_DATETIMEV2);
+        EXPECT_EQ(schema[index].children[1].timestamp_is_adjusted_to_utc,
+                  std::optional<bool>(true));
+        EXPECT_EQ(remove_nullable(schema[index].children[1].type)->get_primitive_type(),
+                  TYPE_TIMESTAMPTZ);
+    }
+    ASSERT_EQ(schema[2].children.size(), 1);
+    EXPECT_EQ(remove_nullable(schema[2].children[0].type)->get_primitive_type(), TYPE_TIMESTAMP_NS);
+    ASSERT_EQ(schema[3].children.size(), 2);
+    EXPECT_EQ(schema[3].children[1].timestamp_is_adjusted_to_utc, std::optional<bool>(false));
+    EXPECT_EQ(remove_nullable(schema[3].children[1].type)->get_primitive_type(), TYPE_DATETIMEV2);
+}
+
+TEST_F(AvroReaderTest, IcebergTimestampExtensionRequiresExplicitBooleanFalse) {
+    for (const std::string property :
+         {"", ",\"adjust-to-utc\":true", ",\"adjust-to-utc\":\"false\"", ",\"adjust-to-utc\":null",
+          ",\"adjust-to-utc\":0", ",\"adjust-to-utc\":false"}) {
+        for (const bool nanos : {false, true}) {
+            write_header_json(
+                    "{\"type\":\"record\",\"name\":\"r\",\"fields\":[{\"name\":\"clock\","
+                    "\"type\":{\"type\":\"long\",\"logicalType\":\"timestamp-" +
+                    std::string(nanos ? "nanos" : "micros") + "\"" + property + "}}]}");
+            auto input = reader(0, -1, true, false, std::nullopt, false, true);
+            const auto status = initialize(input.get());
+            const bool civil = property == ",\"adjust-to-utc\":false";
+            if (nanos && !civil) {
+                EXPECT_FALSE(status.ok()) << property;
+            } else {
+                ASSERT_TRUE(status.ok()) << status << property;
+                EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(),
+                          nanos   ? TYPE_TIMESTAMP_NS
+                          : civil ? TYPE_DATETIMEV2
+                                  : TYPE_TIMESTAMPTZ);
+                EXPECT_EQ(schema[0].timestamp_is_adjusted_to_utc, std::optional<bool>(!civil));
+            }
+        }
+    }
+}
+
+TEST_F(AvroReaderTest, OrdinaryAvroDoesNotAdoptIcebergsCivilTimestampConvention) {
+    state.set_timezone("Asia/Shanghai");
+    const std::string fixtures = "./be/test/format_v2/avro/test_data/iceberg_timestamps/iceberg_";
+    std::filesystem::copy_file(fixtures + "civil_micros.avro", path,
+                               std::filesystem::copy_options::overwrite_existing);
+    for (const bool mapping : {false, true}) {
+        auto input = reader(0, -1, mapping);
+        ASSERT_TRUE(initialize(input.get()).ok());
+        ASSERT_EQ(schema.size(), 3);
+        EXPECT_EQ(schema[1].timestamp_is_adjusted_to_utc, std::optional<bool>(true));
+        EXPECT_EQ(remove_nullable(schema[1].type)->get_primitive_type(),
+                  mapping ? TYPE_TIMESTAMPTZ : TYPE_DATETIMEV2);
+        auto request = std::make_shared<FileScanRequest>();
+        auto block = block_for({1}, request.get());
+        ASSERT_TRUE(input->open(request).ok());
+        const auto rows = read_all(input.get(), block);
+        ASSERT_EQ(rows.size(), 8);
+        EXPECT_EQ(rows[0][0],
+                  mapping ? "1970-01-01 00:00:00.000000+00:00" : "1970-01-01 08:00:00.000000");
+        EXPECT_TRUE(input->close().ok());
+    }
+    std::filesystem::copy_file(fixtures + "civil_nanos.avro", path,
+                               std::filesystem::copy_options::overwrite_existing);
+    auto input = reader();
+    const auto status = initialize(input.get());
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("timestamp-nanos"), std::string::npos) << status;
 }
 
 } // namespace

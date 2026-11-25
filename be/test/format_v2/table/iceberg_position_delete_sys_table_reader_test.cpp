@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "format/orc/orc_memory_stream_test.h"
 #include "format/table/iceberg_scan_semantics.h"
@@ -718,6 +719,61 @@ TEST(IcebergPositionDeleteSysTableV2ReaderTest, EncryptedParquetRowUsesDeleteFil
 
 TEST(IcebergPositionDeleteSysTableV2ReaderTest, ParquetReadsNestedIdlessWrapper) {
     run_v2_nested_wrapper_position_delete_test();
+}
+
+TEST(IcebergPositionDeleteSysTableV2ReaderTest, IcebergAvroDeletedRowKeepsCivilNanos) {
+    const std::string path =
+            "./be/test/format_v2/avro/test_data/iceberg_timestamps/iceberg_position_deletes.avro";
+    const auto clock_type = make_nullable(std::make_shared<DataTypeTimeStampNs>());
+    const auto row_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {clock_type}, Strings {"clock"}));
+    auto row = table_column(2147483544, "row", row_type);
+    row.children = {table_column(2, "clock", clock_type)};
+    for (const bool mapping : {false, true}) {
+        ObjectPool pool;
+        std::vector<SlotDescriptor*> slots {make_slot(&pool, 0, "row", row_type)};
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        state.set_timezone("Asia/Shanghai");
+        RuntimeProfile profile("iceberg_civil_deleted_row");
+        TFileScanRangeParams params;
+        params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+        params.__set_enable_mapping_timestamp_tz(mapping);
+        params.__set_file_type(TFileType::FILE_LOCAL);
+        params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+        auto io_ctx = std::make_shared<io::IOContext>();
+        IcebergPositionDeleteSysTableV2Reader reader;
+        ASSERT_TRUE(reader.init({.projected_columns = {row},
+                                 .conjuncts = {},
+                                 .format = FileFormat::AVRO,
+                                 .scan_params = &params,
+                                 .io_ctx = io_ctx,
+                                 .runtime_state = &state,
+                                 .scanner_profile = &profile,
+                                 .file_slot_descs = &slots})
+                            .ok());
+        auto range = native_position_delete_range(path, TFileFormatType::FORMAT_AVRO, std::nullopt,
+                                                  false);
+        range.table_format_params.iceberg_params.__set_format_version(3);
+        SplitReadOptions split;
+        split.current_range = std::move(range);
+        split.current_split_format = FileFormat::AVRO;
+        const auto prepared = reader.prepare_split(split);
+        ASSERT_TRUE(prepared.ok()) << prepared;
+        std::vector<std::string> values;
+        bool eos = false;
+        while (!eos) {
+            Block block = make_output_block(slots);
+            const auto status = reader.get_block(&block, &eos);
+            ASSERT_TRUE(status.ok()) << status;
+            const auto& fields = assert_cast<const ColumnStruct&>(nested_column(block, "row"));
+            for (size_t i = 0; i < block.rows(); ++i) {
+                values.push_back(clock_type->to_string(fields.get_column(0), i));
+            }
+        }
+        EXPECT_EQ(values, (std::vector<std::string> {"1970-01-01 00:00:00.000000000",
+                                                     "1969-12-31 23:59:59.999999999"}));
+        EXPECT_TRUE(reader.close().ok());
+    }
 }
 
 } // namespace doris::format::iceberg

@@ -141,6 +141,7 @@ public:
             : _encryption(encryption) {}
 
 protected:
+    bool use_iceberg_avro_semantics() const override { return true; }
     const TFileEncryptionInfo* file_encryption_info() const override { return _encryption; }
 
     format::TableColumnMappingMode mapping_mode() const override {

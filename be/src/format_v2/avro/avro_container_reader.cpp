@@ -192,8 +192,72 @@ rapidjson::Document physical_schema_document(const std::string& json, bool hive_
     return document;
 }
 
-::avro::ValidSchema compile_physical_schema(const std::string& json, bool hive_validation = false) {
+void normalize_iceberg_timestamps(rapidjson::Value& schema) {
+    // Visit schema positions only: a union/field/item/value may define a timestamp, whereas
+    // defaults and custom metadata objects are not schemas and must retain their own contents.
+    if (schema.IsArray()) {
+        for (auto& branch : schema.GetArray()) {
+            normalize_iceberg_timestamps(branch);
+        }
+        return;
+    }
+    if (!schema.IsObject()) {
+        return;
+    }
+    auto type = schema.FindMember("type");
+    if (type == schema.MemberEnd()) {
+        return;
+    }
+    if (!type->value.IsString()) {
+        normalize_iceberg_timestamps(type->value);
+        return;
+    }
+    const std::string_view physical_type(type->value.GetString(), type->value.GetStringLength());
+    if (physical_type == "long") {
+        const auto adjusted = schema.FindMember("adjust-to-utc");
+        auto logical = schema.FindMember("logicalType");
+        // Iceberg 1.12 writes civil timestamps as timestamp-* plus Boolean false. Avro C++
+        // drops that custom property; preserve it before compilation or epoch 0 becomes 08:00
+        // in a +08 session, and civil nanos is rejected as an unsupported instant.
+        if (adjusted != schema.MemberEnd() && adjusted->value.IsBool() &&
+            !adjusted->value.GetBool() && logical != schema.MemberEnd() &&
+            logical->value.IsString()) {
+            const std::string_view name(logical->value.GetString(),
+                                        logical->value.GetStringLength());
+            if (name == "timestamp-micros") {
+                logical->value.SetString(rapidjson::StringRef("local-timestamp-micros"));
+            } else if (name == "timestamp-nanos") {
+                logical->value.SetString(rapidjson::StringRef("local-timestamp-nanos"));
+            }
+        }
+    } else if (physical_type == "record") {
+        const auto fields = schema.FindMember("fields");
+        if (fields != schema.MemberEnd() && fields->value.IsArray()) {
+            for (auto& field : fields->value.GetArray()) {
+                // Malformed record fields remain the SDK compiler's explicit error.
+                if (field.IsObject()) {
+                    auto field_type = field.FindMember("type");
+                    if (field_type != field.MemberEnd()) {
+                        normalize_iceberg_timestamps(field_type->value);
+                    }
+                }
+            }
+        }
+    } else if (physical_type == "array" || physical_type == "map") {
+        const auto child = schema.FindMember(physical_type == "array" ? "items" : "values");
+        if (child != schema.MemberEnd()) {
+            normalize_iceberg_timestamps(child->value);
+        }
+    }
+}
+
+::avro::ValidSchema compile_physical_schema(const std::string& json, bool hive_validation = false,
+                                            bool iceberg_compatible = false) {
     auto document = physical_schema_document(json, hive_validation);
+    // The Iceberg extension must not change ordinary Avro or Hive instant semantics.
+    if (iceberg_compatible) {
+        normalize_iceberg_timestamps(document);
+    }
     rapidjson::StringBuffer output;
     rapidjson::Writer<rapidjson::StringBuffer> writer(output);
     require(document.Accept(writer), "Cannot serialize Avro physical schema");
@@ -458,7 +522,8 @@ struct AvroContainerReader::Impl {
     bool loaded = false;
 
     Impl(io::FileReaderSPtr input, std::shared_ptr<io::IOContext> context, Reserve allocation,
-         Checkpoint reset, Workspace codec_workspace, RuntimeProfile* profile)
+         Checkpoint reset, Workspace codec_workspace, RuntimeProfile* profile,
+         bool iceberg_compatible)
             : file(std::move(input), std::move(context)),
               reserve(std::move(allocation)),
               checkpoint(std::move(reset)),
@@ -502,7 +567,7 @@ struct AvroContainerReader::Impl {
         // Cover the preprocessing DOM/output and compiler graph before allocating any of them.
         growth(0, found->second.size(), 32);
         schema_charge = found->second.size() * 32;
-        schema = compile_physical_schema(found->second);
+        schema = compile_physical_schema(found->second, false, iceberg_compatible);
     }
 
     void growth(size_t capacity, size_t count, size_t item_size = 1) const {
@@ -973,9 +1038,10 @@ struct AvroContainerReader::Impl {
 AvroContainerReader::AvroContainerReader(io::FileReaderSPtr file,
                                          std::shared_ptr<io::IOContext> context, Reserve reserve,
                                          Checkpoint checkpoint, Workspace workspace,
-                                         RuntimeProfile* profile)
+                                         RuntimeProfile* profile, bool iceberg_compatible)
         : _impl(std::make_unique<Impl>(std::move(file), std::move(context), std::move(reserve),
-                                       std::move(checkpoint), std::move(workspace), profile)) {}
+                                       std::move(checkpoint), std::move(workspace), profile,
+                                       iceberg_compatible)) {}
 AvroContainerReader::~AvroContainerReader() = default;
 
 const ::avro::ValidSchema& AvroContainerReader::dataSchema() const {

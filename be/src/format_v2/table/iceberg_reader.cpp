@@ -2298,7 +2298,7 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
     } else if (delete_file.file_format == TFileFormatType::FORMAT_AVRO) {
         *reader = std::make_unique<format::avro::AvroReader>(
                 system_properties, file_description, io_ctx, _scanner_profile,
-                enable_mapping_timestamp_tz, enable_mapping_varbinary);
+                enable_mapping_timestamp_tz, enable_mapping_varbinary, std::nullopt, false, true);
     } else {
         *reader = std::make_unique<format::orc::OrcReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,

@@ -74,6 +74,7 @@ public:
 protected:
     // Iceberg UUID uses the same 16-byte STRING/VARBINARY carrier in data, defaults and deletes.
     bool preserve_binary_uuid() const override { return true; }
+    bool use_iceberg_avro_semantics() const override { return true; }
 
     const TFileEncryptionInfo* file_encryption_info() const override {
         return _iceberg_params.has_value() && _iceberg_params->__isset.encryption_info

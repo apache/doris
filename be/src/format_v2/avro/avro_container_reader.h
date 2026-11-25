@@ -48,7 +48,7 @@ public:
     using Checkpoint = std::function<void(const ::avro::GenericDatum&, bool)>;
     AvroContainerReader(io::FileReaderSPtr file, std::shared_ptr<io::IOContext> io_context,
                         Reserve reserve, Checkpoint checkpoint, Workspace workspace,
-                        RuntimeProfile* profile);
+                        RuntimeProfile* profile, bool iceberg_compatible = false);
     ~AvroContainerReader();
     const ::avro::ValidSchema& dataSchema() const;
     std::optional<std::string> metadata(const std::string& key) const;

@@ -880,6 +880,7 @@ struct AvroReader::Impl {
     }
 
     bool hive_compatible = false;
+    bool iceberg_compatible = false;
     bool timestamp_tz;
     bool varbinary;
     AvroTemporalPolicy temporal;
@@ -901,10 +902,12 @@ AvroReader::AvroReader(std::shared_ptr<io::FileSystemProperties>& system_propert
                        std::unique_ptr<io::FileDescription>& file_description,
                        std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                        bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
-                       std::optional<GlobalRowIdContext> global_rowid_context, bool hive_compatible)
+                       std::optional<GlobalRowIdContext> global_rowid_context, bool hive_compatible,
+                       bool iceberg_compatible)
         : FileReader(system_properties, file_description, std::move(io_ctx), profile),
           _impl(std::make_unique<Impl>()) {
     _impl->hive_compatible = hive_compatible;
+    _impl->iceberg_compatible = iceberg_compatible;
     _impl->timestamp_tz = enable_mapping_timestamp_tz && !hive_compatible;
     _impl->varbinary = enable_mapping_varbinary;
     _impl->global_rowid_context = global_rowid_context;
@@ -948,7 +951,7 @@ Status AvroReader::init(RuntimeState* state) {
                 [this](const ::avro::GenericDatum& datum, bool before) {
                     Impl::checkpoint_callback(_impl.get(), datum, before);
                 },
-                &Impl::reserve_workspace, _profile);
+                &Impl::reserve_workspace, _profile, _impl->iceberg_compatible);
         if (_impl->hive_compatible) {
             const auto zone = _impl->reader->metadata("writer.time.zone");
             if (zone && !parse_writer_timezone(*zone, &_impl->temporal.timezone)) {
