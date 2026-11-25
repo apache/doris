@@ -127,6 +127,16 @@ class FinalReviewTest(unittest.TestCase):
     def verify(self):
         return submitter.verify_completion(self.context, self.run, self.remaining)
 
+    def test_cloud_receipt_can_recover_without_resubmitting_the_review(self):
+        self.run["cloud_receipt_run_id"] = "27"
+        with mock.patch("debug_review.publish_receipt", side_effect=[TimeoutError(), None]) as receipt:
+            with self.assertRaises(TimeoutError):
+                self.submit()
+            self.assertTrue(self.verify()["gate_receipt"])
+        self.assertEqual(1, len(self.reviews))
+        self.assertEqual(2, receipt.call_count)
+        self.assertEqual(receipt.call_args_list[0], receipt.call_args_list[1])
+
     def gh_response(self, command, **kwargs):
         payload = json.loads(kwargs["input"]) if kwargs.get("input") is not None else None
         paginated = "--paginate" in command

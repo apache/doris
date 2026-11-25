@@ -57,6 +57,15 @@ public interface ConnectorStorageContext {
     };
 
     /**
+     * Whether native encrypted reads have verified readers and authenticated fragment/split transports.
+     * The engine rechecks availability before dispatch and lazy batches; build support alone cannot
+     * establish protected key transport. FE, BE and plugins are deployed together without version negotiation.
+     */
+    default boolean supportsNativeFileEncryption() {
+        return false;
+    }
+
+    /**
      * Normalizes raw per-table vended cloud-storage credentials (the token map a REST catalog
      * returns, e.g. {@code fs.oss.accessKeyId} / {@code s3.access-key}) into the BE-facing storage
      * property map ({@code AWS_ACCESS_KEY} / {@code AWS_SECRET_KEY} / {@code AWS_TOKEN} /

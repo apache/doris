@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 37 adds selected partition row estimates after the API 36 file format SPI.
-        Assertions.assertEquals("37.0", version.getProperty("api.version"));
+        // Major 38 adds selected partition row estimates after the API 37 native encryption changes.
+        Assertions.assertEquals("38.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -102,6 +102,7 @@ public class ConnectorPluginSurfaceTest {
             ConnectorFileSourceOps.class,
             ConnectorSecuritySurface.class,
             ConnectorContext.class,
+            ConnectorStorageContext.class,
             ConnectorSession.class,
             ConnectorStatementScope.class,
             ConnectorStatementScopes.class,

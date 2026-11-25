@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -34,6 +35,44 @@ def list_reviews(helper, repository, number):
                f"repos/{repository}/pulls/{number}/reviews?per_page=100"]
     pages = json.loads(subprocess.check_output(command, text=True))
     return [review for page in pages for review in page]
+
+
+def completed_counts(pr, description):
+    return re.fullmatch(rf"Review completed for PR #{pr}: P0=(0|[1-9][0-9]*), P1=(0|[1-9][0-9]*)\.",
+                        description)
+
+
+def cloud_sources(statuses, repo_url):
+    # Replayed POSTs keep their first status ID, so an older run cannot displace a later verdict.
+    bot = os.getenv("DORIS_REVIEW_APP_BOT")
+    receipts = {}
+    for item in statuses:
+        if not isinstance(item, dict) or not bot or (item.get("creator") or {}).get("login") != bot:
+            continue
+        match = re.fullmatch(r"code-review/cloud/([1-9][0-9]*)/pr-([1-9][0-9]*)/base-([0-9a-f]{40})",
+                             item.get("context") or "")
+        if not match or item.get("state") not in ("failure", "success"):
+            continue
+        run, pr, base = match.groups()
+        if not re.fullmatch(re.escape(f"{repo_url}/pull/{pr}#pullrequestreview-") + r"[1-9][0-9]*",
+                            item.get("target_url") or ""):
+            continue
+        description = item.get("description") or ""
+        counts = completed_counts(pr, description)
+        if counts:
+            expected = "success" if counts.groups() == ("0", "0") else "failure"
+        elif re.fullmatch(rf"Review did not converge after 3 rounds for PR #{pr}: "
+                          r"P0=(0|[1-9][0-9]*), P1=(0|[1-9][0-9]*)\.", description):
+            expected = "failure"
+        else:
+            continue
+        if item["state"] != expected:
+            continue
+        context = f"code-review/source/automated/pr-{pr}/base-{base}"
+        key = (context, f"{repo_url}/actions/runs/{run}")
+        if key not in receipts or item["id"] < receipts[key]["id"]:
+            receipts[key] = dict(item, context=context)
+    return receipts
 
 
 def resolve_status(
@@ -66,8 +105,10 @@ def resolve_status(
             "pending", f"No open pull request currently uses {head_sha[:12]}."
         )
 
+    receipts = cloud_sources(statuses, repo_url)
+    receipt_ids = {receipt["id"] for receipt in receipts.values()}
     latest_by_context: dict[str, dict[str, object]] = {}
-    for item in statuses:
+    for item in [*statuses, *receipts.values()]:
         if not isinstance(item, dict):
             raise ResolutionError("commit status entry is invalid")
         context = item.get("context")
@@ -77,6 +118,9 @@ def resolve_status(
             raise ResolutionError("commit status context or id is invalid")
         if not isinstance(state, str):
             raise ResolutionError("commit status state is invalid")
+        # A cached running response may arrive after this run's terminal receipt.
+        if state == "pending" and (context, item.get("target_url")) in receipts:
+            continue
         previous = latest_by_context.get(context)
         if previous is None or status_id > int(previous["id"]):
             latest_by_context[context] = item
@@ -104,11 +148,11 @@ def resolve_status(
             key = (int(match.group(1)), match.group(2).casefold())
             url = item.get("target_url")
             description = item.get("description") or ""
-            counts = re.fullmatch(rf"Review completed for PR #{key[0]}: P0=(0|[1-9][0-9]*), P1=(0|[1-9][0-9]*)\.",
-                                  description)
+            counts = completed_counts(key[0], description)
             if (key in open_contexts and (key[0], url) in dismissed
                     and counts and counts.groups() != ("0", "0")
-                    and (item.get("creator") or {}).get("login") == "github-actions[bot]"):
+                    and ((item.get("creator") or {}).get("login") == "github-actions[bot]"
+                         or item["id"] in receipt_ids)):
                 accepted_dismissals[key] = url
                 continue
             blocked_contexts.add(key)
@@ -136,8 +180,9 @@ def resolve_status(
         if reviews_for_pr is None:
             raise ResolutionError("dismissal requires current GitHub review states")
         matching_dismissal = False
+        review_authors = ("github-actions[bot]", os.getenv("DORIS_REVIEW_APP_BOT", ""))
         for review in reviews_for_pr(number):
-            if (review["commit_id"] != head_sha or review["user"]["login"] != "github-actions[bot]"
+            if (review["commit_id"] != head_sha or review["user"]["login"] not in review_authors
                     or "<!-- code-review-completion:" not in (review.get("body") or "")):
                 continue
             review_url = f"{repo_url}/pull/{number}#pullrequestreview-{int(review['id'])}"

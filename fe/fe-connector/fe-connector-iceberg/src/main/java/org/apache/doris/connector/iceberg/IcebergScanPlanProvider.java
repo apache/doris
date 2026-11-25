@@ -509,6 +509,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (snapshot == null) {
             return -1;
         }
+        // V3 always plans synchronously; probing encrypted deletes here would reject a valid physical COUNT.
+        if (getFormatVersion(table) >= 3) {
+            return -1;
+        }
         if (countPushdown && filter.isEmpty()) {
             boolean netPositionDeletes = sessionBool(session, IGNORE_ICEBERG_DANGLING_DELETE, false);
             ManifestDeleteState deleteState = manifestDeleteState(snapshot.deleteManifests(table.io()));
@@ -524,9 +528,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     return -1;
                 }
             }
-        }
-        if (getFormatVersion(table) >= 3) {
-            return -1;
         }
         long threshold = sessionLong(session, NUM_FILES_IN_BATCH_MODE, DEFAULT_NUM_FILES_IN_BATCH_MODE);
         long fileCount = 0;
@@ -558,6 +559,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return false;
         }
         Table table = resolveTable(session, iceHandle);
+        if (IcebergEncryptionRead.isEncrypted(table)) {
+            // Metadata counts cannot authenticate every current file key, including independent delete keys.
+            return false;
+        }
         TableScan scan = buildScan(table, iceHandle, filter, session);
         return canProveCountFromManifests(table, scan, session);
     }
@@ -975,7 +980,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // deletes or invalid record counts prevent an exact proof, use the normal scan so BE reads and counts.
         // A data-row predicate can leave partially matching files, whose file-level recordCount is only an
         // upper bound. Keep those scans on the normal path even if the engine supplies the count signal.
-        if (countPushdown && filter.isEmpty()) {
+        if (countPushdown && filter.isEmpty() && !IcebergEncryptionRead.isEncrypted(table)) {
             Optional<List<ConnectorScanRange>> countRanges = planCountPushdown(
                     table, scan, scanSchema, formatVersion, partitioned, orderedPartitionKeys, zone,
                     uriNormalizer, session, filter, iceHandle);
@@ -1349,6 +1354,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             List<NestedField> outputPartitionFields, boolean enableMappingVarbinary, ZoneId zone,
             UnaryOperator<String> uriNormalizer) {
         DeleteFile deleteFile = task.file();
+        if (deleteFile.keyMetadata() != null && !IcebergEncryptionRead.isEncrypted(metadataTable)) {
+            // The base encrypted table was already admitted; only undeclared keys need a forced scope check.
+            IcebergEncryptionRead.checkFile(metadataTable, catalogProps, context);
+        }
         IcebergFileEncryption encryption = deleteFileEncryption(deleteFile);
         String originalPath = deleteFile.path().toString();
         IcebergScanRange.Builder builder = new IcebergScanRange.Builder()
@@ -1661,10 +1670,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         netPositionDeletes ? positionDeleteRows.getAsLong() : 0).isPresent()) {
             return false;
         }
+        // Key classification happens after decoding. Bypass the SDK byte cache even for a table that
+        // looks plaintext, or a rejected COUNT could retain file keys and bypass revoked manifest access.
         // Aggregate counters do not expose per-file encryption. Check every live entry before advertising
         // COUNT support, including encrypted files after a plaintext representative; retain no file list.
         for (ManifestFile manifest : dataManifests) {
-            try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, table.io(), table.specs())
+            try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest,
+                    new IcebergScanFileIO(table.io(), () -> { }), table.specs())
                     .select(Collections.singletonList(DataFile.KEY_METADATA.name()))) {
                 for (DataFile file : reader) {
                     if (file.keyMetadata() != null) {
@@ -1877,7 +1889,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         long exactCount = 0;
         for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
             try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
-                    manifest, table.io(), table.specs())) {
+                    manifest, new IcebergScanFileIO(table.io(), () -> { }), table.specs())) {
                 for (DeleteFile delete : reader) {
                     // Netting delete counts happens before file-task planning. Keep the same early
                     // encryption rejection here so COUNT cannot escape through the manifest shortcut.
@@ -2026,6 +2038,27 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             List<String> orderedPartitionKeys, ZoneId zone,
             UnaryOperator<String> uriNormalizer, PerFileScratch scratch) {
         perFileInvariantComputeCount++;
+        // Imported files may carry keys without a table-level declaration; they still require the full
+        // default-off, HMS/v3 and Standard-manager contract before any key descriptor is published.
+        boolean encryptedFiles = dataFile.keyMetadata() != null;
+        if (!encryptedFiles && task.deletes() != null) {
+            for (DeleteFile delete : task.deletes()) {
+                if (delete.keyMetadata() != null) {
+                    encryptedFiles = true;
+                    break;
+                }
+            }
+        }
+        if (encryptedFiles) {
+            // Known encrypted tables were admitted at resolution. Repeating that inventory proof for
+            // every file costs O(files * backends); dispatch rechecks the actual assigned target instead.
+            if (!IcebergEncryptionRead.isEncrypted(table)) {
+                IcebergEncryptionRead.checkFile(table, catalogProps, context);
+            }
+            if (dataFile.format() != FileFormat.PARQUET) {
+                throw new IllegalArgumentException("Iceberg encryption [UNSUPPORTED_FILE_FORMAT]");
+            }
+        }
         Integer partitionSpecId = null;
         String partitionDataJson = null;
         String rawPartitionKey = null;
@@ -2549,7 +2582,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 continue;
             }
             try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
-                    manifest, table.io(), table.specs())) {
+                    manifest, new IcebergScanFileIO(table.io(), () -> { }), table.specs())) {
                 for (DeleteFile deleteFile : reader) {
                     if (deleteFile.content() == FileContent.EQUALITY_DELETES) {
                         fieldIds.addAll(deleteFile.equalityFieldIds());
@@ -3983,6 +4016,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         directLoader);
         rejectServerSideScanPlanning(base, handle);
         IcebergEncryptionRead.check(base, catalogProps, context);
+        if (!isPositionDeletesSysTable(handle) && IcebergEncryptionRead.isEncrypted(base)) {
+            // JNI serializes SDK tasks beyond the native key/transport contract; keep that path closed.
+            throw new DorisConnectorException("Iceberg encryption [UNSUPPORTED_METADATA_TABLE]");
+        }
         return base;
     }
 

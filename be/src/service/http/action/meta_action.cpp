@@ -27,6 +27,7 @@
 #include <sstream>
 #include <string>
 
+#include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "common/logging.h"
 #include "service/http/action/action_constants.h"
@@ -69,12 +70,19 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
     auto tablet = DORIS_TRY(ExecEnv::get_tablet(tablet_id));
     std::string operation = req->param(OP);
     if (operation == HEADER) {
+        const bool include_cloud_rowsets =
+                config::is_cloud_mode() && req->param("include_cloud_rowsets") == "true";
+        if (include_cloud_rowsets) {
+            RETURN_IF_ERROR(std::static_pointer_cast<CloudTablet>(tablet)->sync_rowsets());
+        }
         TabletMeta tablet_meta;
-        tablet->generate_tablet_meta_copy(tablet_meta, true);
+        tablet->generate_tablet_meta_copy(tablet_meta, include_cloud_rowsets);
         json2pb::Pb2JsonOptions json_options;
         json_options.pretty_json = true;
         json_options.bytes_to_base64 = enable_byte_to_base64;
-        tablet_meta.to_json(json_meta, json_options);
+        TabletMetaPB tablet_meta_pb;
+        tablet_meta.to_meta_pb(&tablet_meta_pb, include_cloud_rowsets);
+        json2pb::ProtoMessageToJson(tablet_meta_pb, json_meta, json_options);
         return Status::OK();
     } else if (operation == DATA_SIZE) {
         if (!config::is_cloud_mode()) {

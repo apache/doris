@@ -29,6 +29,7 @@ import java.util.ServiceLoader;
 
 public final class FeServerStarterFactory {
     private static final Logger LOG = LogManager.getLogger(FeServerStarterFactory.class);
+    private static volatile ServerStarter thriftStarter;
 
     private FeServerStarterFactory() {
     }
@@ -38,11 +39,20 @@ public final class FeServerStarterFactory {
     }
 
     public static ServerStarter createThriftServerStarter(int port) {
-        return provider().createThriftServerStarter(port);
+        ServerStarter selected = provider().createThriftServerStarter(port);
+        thriftStarter = selected;
+        return selected;
     }
 
     public static ServerStarter createThriftServerStarter(ServerSocket listener) throws IOException {
-        return provider().createThriftServerStarter(listener);
+        ServerStarter selected = provider().createThriftServerStarter(listener);
+        thriftStarter = selected;
+        return selected;
+    }
+
+    public static boolean supportsPrivateFileKeys() {
+        ServerStarter selected = thriftStarter;
+        return selected != null && selected.supportsPrivateFileKeys();
     }
 
     public static ServerStarter createFlightServerStarter(int port) {

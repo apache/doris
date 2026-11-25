@@ -200,6 +200,87 @@ jobs:
             cp -f "$CODEX_HOME/auth.json" "$CANARY_AUTH_OBJECT" >/dev/null
           echo "Synced refreshed canary auth."
 
+  debug-review-inputs:
+    if: >-
+      github.repository == 'apache/doris' &&
+      github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+      (github.event.comment.body == 'run debugreview' ||
+       (vars.DORIS_REVIEW_BACKEND == 'fc' && startsWith(github.event.comment.body, '/review'))) &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      head: ${{ steps.snapshot.outputs.head }}
+      base: ${{ steps.snapshot.outputs.base }}
+      focus_suffix: ${{ steps.snapshot.outputs.focus_suffix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha || github.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Resolve open PR and authorize its review focus
+        id: snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" |
+            jq -er 'select(.state == "open") | "head=\(.head.sha)\nbase=\(.base.sha)"' >> "$GITHUB_OUTPUT"
+          python3 .github/scripts/debug_review.py --focus-suffix >> "$GITHUB_OUTPUT"
+
+  authorize-debug-review:
+    needs: debug-review-inputs
+    name: fc-review/v1/${{ github.event.issue.number }}/${{ needs.debug-review-inputs.outputs.head }}/${{ needs.debug-review-inputs.outputs.base }}${{ needs.debug-review-inputs.outputs.focus_suffix }}
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - run: echo 'Authorized debug review for this PR snapshot.'
+
+  debug-review:
+    needs: [debug-review-inputs, authorize-debug-review]
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: code-review-pr-${{ github.event.issue.number }}
+      cancel-in-progress: false
+      queue: max
+    timeout-minutes: 238
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+      id-token: write
+    outputs:
+      aggregate_head: ${{ steps.review.outputs.aggregate_head }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha || github.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Run cloud review and update its source status
+        id: review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          HEAD_SHA: ${{ needs.debug-review-inputs.outputs.head }}
+          BASE_SHA: ${{ needs.debug-review-inputs.outputs.base }}
+        run: python3 .github/scripts/debug_review.py
+
+  aggregate-debug-review:
+    needs: debug-review
+    if: always() && needs.debug-review.outputs.aggregate_head != ''
+    uses: ./.github/workflows/code-review-aggregate-status.yml
+    with:
+      head_sha: ${{ needs.debug-review.outputs.aggregate_head }}
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+
   code-review:
     runs-on: ubuntu-24.04
     # Serialize actual reviews of a PR, including comment and dispatch triggers.
@@ -224,6 +305,7 @@ jobs:
         (
           github.event_name == 'issue_comment' &&
           github.event.issue.pull_request &&
+          (github.repository != 'apache/doris' || vars.DORIS_REVIEW_BACKEND != 'fc') &&
           startsWith(github.event.comment.body, '/review') &&
           (
             github.event.comment.author_association == 'MEMBER' ||

@@ -11,7 +11,9 @@ permissions: {}
 
 jobs:
   notify:
-    if: github.event.review.user.login == 'github-actions[bot]'
+    if: >-
+      github.event.review.user.login == 'github-actions[bot]' ||
+      (vars.DORIS_REVIEW_APP_BOT != '' && github.event.review.user.login == vars.DORIS_REVIEW_APP_BOT)
     runs-on: ubuntu-latest
     steps:
       - run: echo 'Requesting a code review status update.'

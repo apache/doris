@@ -459,13 +459,21 @@ def _verify_completion(context, run, remaining, *, submit=False, submission=None
     verify_inline_comments(root, review, payload, run, remaining)
     # Recheck after the API reads so a moving PR cannot pass an obsolete review.
     check_target(run, remaining)
-    return {
+    result = {
         "state": "failure" if counts[0] + counts[1] or not submission["converged"] else "success",
         "converged": submission["converged"], "rounds": submission["rounds"],
         "incomplete_reason": submission["incomplete_reason"],
         "p0": counts[0], "p1": counts[1], "review_id": review["id"],
         "review_url": review["html_url"],
     }
+    # Only the cloud controller supplies this run ID. Receipt recovery is allowed to
+    # repair the status after a lost response, including on review-only readback.
+    if "cloud_receipt_run_id" in run:
+        from debug_review import publish_receipt
+        publish_receipt(run["repository"], run["cloud_receipt_run_id"], run["pr_number"],
+                        run["head_sha"], run["base_sha"], result, review["user"]["login"])
+        return dict(result, gate_receipt=True)
+    return result
 
 
 def main():
