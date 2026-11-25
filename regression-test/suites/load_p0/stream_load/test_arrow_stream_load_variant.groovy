@@ -21,6 +21,9 @@
 //   arrow_variant_binary.arrow      struct<value: large_binary, metadata: large_binary>
 //   arrow_variant_dictionary.arrow  struct<metadata: dictionary<int8, binary>, value: binary>
 //   arrow_variant_dictionary_entries.arrow  the same with two dictionary entries (int16 indices)
+//   arrow_variant_dictionary_null_entry.arrow  the two entries with an empty third entry between
+//       them that only the SQL NULL row names, as a dictionary-encoded StructBuilder::AppendNull()
+//       leaves it. No row reads that entry, so the file loads.
 // arrow_variant_empty_value.arrow has an empty value cell, which is not an encoded Variant.
 suite("test_arrow_stream_load_variant", "p0") {
     sql "DROP TABLE IF EXISTS test_arrow_stream_load_variant_json"
@@ -145,6 +148,37 @@ suite("test_arrow_stream_load_variant", "p0") {
     order_qt_dictionary_entries """
         SELECT id, v IS NULL, cast(v AS STRING), cast(v['name'] AS STRING), cast(v['n'] AS INT)
         FROM test_arrow_stream_load_variant_entries ORDER BY id
+    """
+
+    sql "DROP TABLE IF EXISTS test_arrow_stream_load_variant_null_entry"
+    sql """
+        CREATE TABLE test_arrow_stream_load_variant_null_entry (
+            id INT,
+            v VARIANT
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    streamLoad {
+        table "test_arrow_stream_load_variant_null_entry"
+        set 'format', 'arrow'
+        file 'arrow_variant_dictionary_null_entry.arrow'
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(5, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_dictionary_null_entry """
+        SELECT id, v IS NULL, cast(v AS STRING), cast(v['name'] AS STRING), cast(v['n'] AS INT)
+        FROM test_arrow_stream_load_variant_null_entry ORDER BY id
     """
 
     // Malformed binary fails the load with a validation error and loads nothing.

@@ -700,135 +700,116 @@ EncodedVariantValues encoded_variant_values(const arrow::StructArray& storage,
     return result;
 }
 
-// Rows of a validated struct slice with a plain binary metadata child. The appender validates the
-// rows and appends them atomically, and keeps a batch whose rows repeat one metadata blob on the
-// single-metadata form without per-row ids.
-template <typename MetadataArray, typename ValueArray>
-void read_variant_rows(ColumnVariantV2& result, const arrow::StructArray& storage,
-                       const MetadataArray& metadata, const ValueArray& values) {
+// Reads the rows of a validated struct slice. metadata_at(row) returns the metadata blob of a
+// non-NULL struct row, from a plain binary child or from the dictionary entry the row's index names.
+//
+// A block whose non-NULL rows all carry the same metadata bytes, which is what a producer that
+// encodes a record batch at a time sends, is appended as it is: one metadata blob, no per-row ids,
+// and the value bytes borrowed from the Arrow buffer. With a dictionary-encoded child those rows
+// name one entry, so the comparison is a pointer check and no row's metadata is copied or hashed.
+//
+// A block with several distinct metadata blobs is re-keyed into one metadata dictionary for the
+// block, as every native block was before this reader existed. Keeping the client's blobs instead
+// would hand them to the memtable one by one, and ColumnVariantV2 finds an existing metadata by
+// scanning all of them, e.g. 4064 rows each with its own blob would cost about 8 million metadata
+// comparisons per block appended to a memtable.
+//
+// Only the metadata of non-NULL struct rows is read. A dictionary entry that no row names, or that
+// only a NULL struct row names, is never looked at: Arrow's StructBuilder::AppendNull() appends an
+// empty binary to each child, so dictionary-encoding that child leaves a "" entry behind the NULL
+// row, and such a batch must still load.
+template <typename ValueArray, typename MetadataAt>
+void read_encoded_variant_rows(ColumnVariantV2& result, const arrow::StructArray& storage,
+                               const ValueArray& values, MetadataAt&& metadata_at) {
     const int64_t rows = storage.length();
-    DorisVector<VariantRef> refs(rows);
-    std::optional<VariantMetadataRef> first_metadata;
-    for (int64_t row = 0; row < rows; ++row) {
+    std::optional<std::string_view> first_metadata;
+    bool shared_metadata = true;
+    for (int64_t row = 0; row < rows && shared_metadata; ++row) {
         if (storage.IsNull(row)) {
-            refs[row].value = {VARIANT_NULL_VALUE.data(), VARIANT_NULL_VALUE.size()};
             continue;
         }
-        if (metadata.IsNull(row) || values.IsNull(row)) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Native Variant has a NULL metadata/value child at row {}", row);
-        }
-        const auto meta = metadata.GetView(row);
-        const auto value = values.GetView(row);
-        refs[row] = {.metadata = {.data = meta.data(), .size = meta.size()},
-                     .value = {value.data(), value.size()}};
+        const std::string_view metadata = metadata_at(row);
         if (!first_metadata.has_value()) {
-            first_metadata = refs[row].metadata;
+            first_metadata = metadata;
+        } else {
+            shared_metadata = metadata.data() == first_metadata->data()
+                                      ? metadata.size() == first_metadata->size()
+                                      : metadata == *first_metadata;
         }
     }
-    // A NULL row borrows a row's metadata so that it does not add the empty metadata as a second
-    // distinct blob, which would put the whole batch on per-row metadata ids.
-    const VariantMetadataRef null_metadata = first_metadata.value_or(VariantMetadataRef {
-            .data = VARIANT_EMPTY_METADATA.data(), .size = VARIANT_EMPTY_METADATA.size()});
-    for (int64_t row = 0; row < rows; ++row) {
-        if (storage.IsNull(row)) {
-            refs[row].metadata = null_metadata;
-        }
-    }
-    result.create_encoded_rows_appender().append(refs);
-}
-
-// Rows of a validated struct slice whose metadata child is dictionary encoded. The dictionary maps
-// directly onto insert_encoded_rows: its entries are the metadata blobs and its indices the
-// metadata ids. When every row uses one entry, e.g. a producer that sends one dictionary entry per
-// batch, only that entry is passed and the rows take the single-metadata form, so no row's
-// metadata is copied, hashed or compared.
-template <typename DictionaryValues, typename ValueArray>
-void read_dictionary_metadata_variant_rows(ColumnVariantV2& result,
-                                           const arrow::StructArray& storage,
-                                           const arrow::DictionaryArray& metadata,
-                                           const DictionaryValues& dictionary,
-                                           const ValueArray& values) {
-    const int64_t rows = storage.length();
-    DorisVector<uint32_t> meta_ids(rows);
-    std::optional<uint32_t> first_id;
-    bool shared_id = true;
-    for (int64_t row = 0; row < rows; ++row) {
-        if (storage.IsNull(row)) {
-            continue;
-        }
-        if (metadata.IsNull(row)) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Native Variant has a NULL metadata dictionary index at row {}", row);
-        }
-        // ValidateFull() has checked every index against the dictionary length.
-        const auto id = static_cast<uint32_t>(metadata.GetValueIndex(row));
-        meta_ids[row] = id;
-        if (!first_id.has_value()) {
-            first_id = id;
-        } else if (id != *first_id) {
-            shared_id = false;
-        }
-    }
-    const EncodedVariantValues encoded_values = encoded_variant_values(storage, values);
-    ColumnVariantV2::EncodedDataView view {.metadata_bytes = {},
-                                           .metadata_offsets = {},
-                                           .meta_ids = {},
-                                           .value_bytes = encoded_values.bytes,
-                                           .value_offsets = encoded_values.offsets};
-    if (!first_id.has_value() || shared_id) {
-        const std::string_view entry = first_id.has_value()
-                                               ? metadata_dictionary_entry(dictionary, *first_id)
-                                               : std::string_view(VARIANT_EMPTY_METADATA.data(),
-                                                                  VARIANT_EMPTY_METADATA.size());
+    if (shared_metadata) {
+        // A NULL row's Variant null references no key, so the shared blob serves it too; a block
+        // of only NULL rows takes the empty metadata.
+        const std::string_view metadata = first_metadata.value_or(
+                std::string_view(VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size()));
+        const EncodedVariantValues encoded_values = encoded_variant_values(storage, values);
         const std::array<uint32_t, 2> metadata_offsets {
-                0, checked_column_bytes(entry.size(), "metadata")};
-        view.metadata_bytes = {entry.data(), entry.size()};
-        view.metadata_offsets = metadata_offsets;
-        result.insert_encoded_rows(view);
+                0, checked_column_bytes(metadata.size(), "metadata")};
+        result.insert_encoded_rows({.metadata_bytes = {metadata.data(), metadata.size()},
+                                    .metadata_offsets = metadata_offsets,
+                                    .meta_ids = {},
+                                    .value_bytes = encoded_values.bytes,
+                                    .value_offsets = encoded_values.offsets});
         return;
     }
-    // A NULL row's Variant null references no key, so any entry serves as its metadata.
+    // Validate into a temporary batch, so that a bad row appends nothing.
+    VariantBatchBuilder decoded;
+    VariantPayloadValidator payload_validator;
     for (int64_t row = 0; row < rows; ++row) {
+        auto output = decoded.begin_row();
         if (storage.IsNull(row)) {
-            meta_ids[row] = *first_id;
+            output.add_null();
+        } else {
+            if (values.IsNull(row)) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Native Variant has a NULL value child at row {}", row);
+            }
+            const std::string_view metadata = metadata_at(row);
+            const auto value = values.GetView(row);
+            const VariantRef ref {.metadata = {.data = metadata.data(), .size = metadata.size()},
+                                  .value = {value.data(), value.size()}};
+            validate_variant_metadata(ref.metadata);
+            payload_validator.validate(ref);
+            output.add_value(ref);
         }
+        output.finish();
     }
-    // Several entries: insert_encoded_rows validates every entry, used or not, before appending.
-    // Entries are consecutive in the dictionary's data buffer and are borrowed as one run.
-    const int64_t entries = dictionary.length();
-    DorisVector<uint32_t> metadata_offsets(entries + 1);
-    const int64_t base = dictionary.value_offset(0);
-    for (int64_t entry = 0; entry < entries; ++entry) {
-        metadata_dictionary_entry(dictionary, entry);
-    }
-    for (int64_t entry = 0; entry <= entries; ++entry) {
-        metadata_offsets[entry] =
-                checked_column_bytes(dictionary.value_offset(entry) - base, "metadata");
-    }
-    view.metadata_bytes = {reinterpret_cast<const char*>(dictionary.value_data()->data()) + base,
-                           metadata_offsets.back()};
-    view.metadata_offsets = metadata_offsets;
-    view.meta_ids = meta_ids;
-    result.insert_encoded_rows(view);
+    result.insert_encoded_batch(decoded.finish_batch());
 }
 
 void read_encoded_variant_arrow(ColumnVariantV2& result, const arrow::StructArray& storage) {
     const arrow::Array& metadata = *storage.GetFieldByName("metadata");
     const arrow::Array& values = *storage.GetFieldByName("value");
     if (metadata.type_id() == arrow::Type::DICTIONARY) {
-        const auto& dictionary_metadata = static_cast<const arrow::DictionaryArray&>(metadata);
-        with_binary_array(*dictionary_metadata.dictionary(), [&](const auto& dictionary) {
+        const auto& indices = static_cast<const arrow::DictionaryArray&>(metadata);
+        with_binary_array(*indices.dictionary(), [&](const auto& dictionary) {
             with_binary_array(values, [&](const auto& value_array) {
-                read_dictionary_metadata_variant_rows(result, storage, dictionary_metadata,
-                                                      dictionary, value_array);
+                read_encoded_variant_rows(result, storage, value_array, [&](int64_t row) {
+                    if (indices.IsNull(row)) {
+                        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                        "Native Variant has a NULL metadata dictionary index at "
+                                        "row {}",
+                                        row);
+                    }
+                    // ValidateFull() has checked every index against the dictionary length. The
+                    // index stays 64-bit: a dictionary may hold more than 2^32 entries, and a
+                    // narrowed index 2^32 + 1 would silently read entry 1.
+                    return metadata_dictionary_entry(dictionary, indices.GetValueIndex(row));
+                });
             });
         });
         return;
     }
     with_binary_array(metadata, [&](const auto& metadata_array) {
         with_binary_array(values, [&](const auto& value_array) {
-            read_variant_rows(result, storage, metadata_array, value_array);
+            read_encoded_variant_rows(result, storage, value_array, [&](int64_t row) {
+                if (metadata_array.IsNull(row)) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "Native Variant has a NULL metadata child at row {}", row);
+                }
+                check_not_empty(metadata_array.value_length(row), "metadata at row", row);
+                return metadata_array.GetView(row);
+            });
         });
     });
 }
@@ -860,7 +841,15 @@ void read_json_variant_arrow(ColumnVariantV2& result, const arrow::Array& array)
 
 bool DataTypeVariantV2SerDe::is_arrow_input_type(const arrow::DataType& type) {
     if (type.id() == arrow::Type::EXTENSION) {
+        // An extension type reaches the SerDe only when Arrow has it registered, and Arrow then
+        // builds it over its canonical storage alone: arrow.parquet.variant over a struct of
+        // non-nullable binary or large_binary children, arrow.json over a string type. The same
+        // field with dictionary-encoded metadata therefore arrives as the plain struct while the
+        // extension is unregistered, and fails in Arrow's IPC reader once it is registered.
         const auto& extension = static_cast<const arrow::ExtensionType&>(type);
+        if (extension.extension_name() == "arrow.json") {
+            return is_arrow_text_type(*extension.storage_type());
+        }
         return extension.extension_name() == "arrow.parquet.variant" &&
                is_encoded_variant_struct_type(*extension.storage_type());
     }
@@ -879,10 +868,10 @@ Status DataTypeVariantV2SerDe::read_column_from_arrow(IColumn& column, const arr
     }
     if (!is_arrow_input_type(*array->type())) {
         return Status::InvalidArgument(
-                "Variant Arrow input must be JSON text (utf8, large_utf8, binary or large_binary) "
-                "or struct<metadata: binary, value: binary> (optionally with the "
-                "arrow.parquet.variant extension, large_binary children or a dictionary-encoded "
-                "metadata child), got {}",
+                "Variant Arrow input must be JSON text (utf8, large_utf8, binary, large_binary or "
+                "the arrow.json extension) or struct<metadata, value> with binary or large_binary "
+                "children, whose metadata may be dictionary encoded when the struct does not "
+                "carry the arrow.parquet.variant extension, got {}",
                 array->type()->ToString());
     }
     if (start == end) {

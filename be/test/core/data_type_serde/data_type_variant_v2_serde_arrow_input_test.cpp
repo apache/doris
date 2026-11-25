@@ -21,6 +21,7 @@
 
 #include <arrow/api.h>
 #include <arrow/buffer_builder.h>
+#include <arrow/extension/json.h>
 #include <arrow/extension/parquet_variant.h>
 #include <gtest/gtest.h>
 
@@ -258,7 +259,25 @@ TEST(DataTypeVariantV2SerdeArrowInputTest, JsonTextParsesLikeAJsonLoad) {
     auto array = text_array(arrow::utf8(), {texts[0], texts[1], texts[2], texts[3]});
     ASSERT_TRUE(read_arrow(*column, *array).ok());
     EXPECT_EQ(json_rows(*column), json_rows(*expected));
-    EXPECT_EQ(json_at(*column, 1), R"("not-json")");
+    // Both sides above go through the same encoder, so the stored values are also spelled out.
+    EXPECT_EQ(json_rows(*column),
+              (std::vector<std::string> {R"({"b":2})", R"("not-json")", long_key_json,
+                                         R"("18446744073709551616")"}));
+}
+
+TEST(DataTypeVariantV2SerdeArrowInputTest, ArrowJsonExtensionIsUnwrapped) {
+    // Arrow registers arrow.json by default, so a pyarrow pa.json_() column arrives as this
+    // extension array rather than as its string storage.
+    std::vector<std::string_view> texts(documents().begin(), documents().end());
+    for (const auto& storage_type : {arrow::utf8(), arrow::large_utf8()}) {
+        auto type = arrow::extension::json(storage_type);
+        ASSERT_TRUE(DataTypeVariantV2SerDe::is_arrow_input_type(*type));
+        auto array = arrow::ExtensionType::WrapArray(type, text_array(storage_type, texts));
+        auto column = ColumnVariantV2::create();
+        auto status = read_arrow(*column, *array);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(json_rows(*column), json_rows(*encode_rows(documents())));
+    }
 }
 
 TEST(DataTypeVariantV2SerdeArrowInputTest, BinaryStructShapesMatchJsonText) {
@@ -346,6 +365,80 @@ TEST(DataTypeVariantV2SerdeArrowInputTest, DictionaryMetadataWithSeveralEntries)
               (std::vector<std::string> {R"({"a":1})", R"({"x":"y"})", R"({"a":{"b":2}})", "[1]"}));
 }
 
+TEST(DataTypeVariantV2SerdeArrowInputTest, SeveralMetadataBlobsAreStoredAsOne) {
+    // A block that reaches the memtable with one metadata blob per row makes every later append
+    // scan all of them, so rows with distinct metadata are re-keyed into one blob for the block.
+    auto encoded = encode_rows({R"({"a":1})", R"({"b":2})", R"({"c":{"d":3}})", R"({"a":4})"});
+    std::vector<std::string_view> entries;
+    for (size_t row = 0; row < encoded->size(); ++row) {
+        entries.push_back(metadata_at(*encoded, row));
+    }
+    auto values = binary_array<arrow::BinaryBuilder>(values_of(*encoded));
+    for (const auto& array :
+         {binary_struct(*encoded),
+          make_struct(dictionary_metadata<arrow::Int32Type>(entries, {0, 1, 2, 3}), values)}) {
+        auto column = ColumnVariantV2::create();
+        ASSERT_TRUE(read_arrow(*column, *array).ok()) << array->type()->ToString();
+        EXPECT_EQ(json_rows(*column), json_rows(*encoded));
+        for (size_t row = 1; row < column->size(); ++row) {
+            EXPECT_EQ(column->get_value_ref(row).metadata.data,
+                      column->get_value_ref(0).metadata.data)
+                    << array->type()->ToString();
+        }
+    }
+}
+
+TEST(DataTypeVariantV2SerdeArrowInputTest, DictionaryEntriesNoRowReadsAreIgnored) {
+    auto first = encode_batch({R"({"a":1})"});
+    auto second = encode_batch({R"({"x":"y"})"});
+    const std::string_view a = metadata_at(*first, 0);
+    const std::string_view b = metadata_at(*second, 0);
+    // Arrow's StructBuilder::AppendNull() appends an empty binary to each child, so a NULL struct
+    // row hides an empty value and, once the metadata child is dictionary encoded, names an empty
+    // dictionary entry. Rows {A, NULL, B} then arrive as dictionary [A, "", B], indices [0, 1, 2].
+    auto null_row_values =
+            binary_array<arrow::BinaryBuilder>({value_at(*first, 0), "", value_at(*second, 0)});
+    auto placeholder = make_struct(dictionary_metadata<arrow::Int32Type>({a, "", b}, {0, 1, 2}),
+                                   null_row_values, false, validity({false, true, false}));
+    auto column = ColumnVariantV2::create();
+    auto status = read_arrow(*column, *placeholder);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(json_rows(*column),
+              (std::vector<std::string> {R"({"a":1})", "null", R"({"x":"y"})"}));
+
+    // The same with a NULL entry behind the NULL row, as dictionary_encode(null_encoding="encode")
+    // produces it.
+    arrow::Int32Builder index_builder;
+    ASSERT_TRUE(index_builder.AppendValues({0, 1, 2}).ok());
+    auto null_entry = make_struct(
+            std::make_shared<arrow::DictionaryArray>(
+                    arrow::dictionary(arrow::int32(), arrow::binary()), finish(index_builder),
+                    binary_array<arrow::BinaryBuilder>({a, "", b}, {false, true, false})),
+            null_row_values, false, validity({false, true, false}));
+    column = ColumnVariantV2::create();
+    status = read_arrow(*column, *null_entry);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(json_rows(*column),
+              (std::vector<std::string> {R"({"a":1})", "null", R"({"x":"y"})"}));
+
+    // Entries no row names at all, whether the rows share one entry or use several: an empty one
+    // and one that is not Variant metadata.
+    auto row_values =
+            binary_array<arrow::BinaryBuilder>({value_at(*first, 0), value_at(*first, 0)});
+    auto mixed_values =
+            binary_array<arrow::BinaryBuilder>({value_at(*first, 0), value_at(*second, 0)});
+    for (const auto& array :
+         {make_struct(dictionary_metadata<arrow::Int32Type>({a, "", "bad"}, {0, 0}), row_values),
+          make_struct(dictionary_metadata<arrow::Int32Type>({a, "", "bad", b}, {0, 3}),
+                      mixed_values)}) {
+        column = ColumnVariantV2::create();
+        status = read_arrow(*column, *array);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(column->size(), 2);
+        EXPECT_EQ(json_at(*column, 0), R"({"a":1})");
+    }
+}
+
 TEST(DataTypeVariantV2SerdeArrowInputTest, SlicedArraysAndRangesUseLogicalRows) {
     auto encoded = encode_batch(documents());
     const auto expected = json_rows(*encoded);
@@ -396,8 +489,9 @@ TEST(DataTypeVariantV2SerdeArrowInputTest, InvalidRowsFailWithoutAppending) {
                                    binary_array<arrow::BinaryBuilder>({values[0], ""}));
     auto empty_entry =
             make_struct(dictionary_metadata<arrow::Int32Type>({""}, {0, 0}), value_array);
-    auto empty_unused_entry = make_struct(
-            dictionary_metadata<arrow::Int32Type>({metadata, "", metadata}, {0, 2}), value_array);
+    // An empty metadata cell on a non-NULL row of a plain binary child.
+    auto empty_metadata =
+            make_struct(binary_array<arrow::BinaryBuilder>({metadata, ""}), value_array);
     arrow::Int32Builder index_builder;
     ASSERT_TRUE(index_builder.AppendValues({0, 1}).ok());
     auto null_entry = make_struct(
@@ -406,7 +500,7 @@ TEST(DataTypeVariantV2SerdeArrowInputTest, InvalidRowsFailWithoutAppending) {
                     binary_array<arrow::BinaryBuilder>({metadata, metadata}, {false, true})),
             value_array);
     for (const auto& array : {bad_value, null_child, bad_index, null_index, bad_entry, empty_value,
-                              empty_entry, empty_unused_entry, null_entry}) {
+                              empty_entry, empty_metadata, null_entry}) {
         EXPECT_FALSE(read_arrow(*column, *array).ok()) << array->ToString();
         ASSERT_EQ(column->size(), 1);
         EXPECT_EQ(json_at(*column, 0), R"({"sentinel":1})");
