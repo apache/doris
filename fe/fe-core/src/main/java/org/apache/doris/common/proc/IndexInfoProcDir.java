@@ -30,7 +30,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
@@ -131,9 +130,7 @@ public class IndexInfoProcDir implements ProcDirInterface {
                 bfColumns = olapTable.getCopiedBfColumns();
                 if (olapTable.hasVariantColumns()
                                     && SessionVariable.enableDescribeExtendVariantColumn()) {
-                    ProcResult baseSchema = IndexSchemaProcNode.createResult(schema, bfColumns,
-                            Collections.emptyList());
-                    return new RemoteIndexSchemaProcDir(olapTable, baseSchema, bfColumns);
+                    return new RemoteIndexSchemaProcDir(olapTable, idxId);
                 }
             } else {
                 schema = table.getBaseSchema();
@@ -143,4 +140,5 @@ public class IndexInfoProcDir implements ProcDirInterface {
             table.readUnlock();
         }
     }
+
 }

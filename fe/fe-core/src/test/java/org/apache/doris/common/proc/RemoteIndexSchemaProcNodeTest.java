@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -34,7 +35,7 @@ import java.util.concurrent.TimeUnit;
 
 class RemoteIndexSchemaProcNodeTest {
     @Test
-    void repeatedFetchDoesNotAccumulateRemoteColumns() {
+    void repeatedFetchDoesNotAccumulateRemoteColumns() throws AnalysisException {
         List<Column> schema = new ArrayList<>(ImmutableList.of(new Column("v", Type.VARIANT)));
         ProcResult base = IndexSchemaProcNode.createResult(schema, null, ImmutableList.of());
         RemoteIndexSchemaProcNode node = new RemoteIndexSchemaProcNode(base, null,
@@ -49,7 +50,8 @@ class RemoteIndexSchemaProcNodeTest {
     void remoteWorkStartsOnlyAfterSnapshotIsConsumed() throws Exception {
         CountDownLatch remoteStarted = new CountDownLatch(1);
         CountDownLatch releaseRemote = new CountDownLatch(1);
-        ProcResult base = IndexSchemaProcNode.createResult(ImmutableList.of(new Column("v", Type.VARIANT)), null, ImmutableList.of());
+        ProcResult base = IndexSchemaProcNode.createResult(
+                ImmutableList.of(new Column("v", Type.VARIANT)), null, ImmutableList.of());
         RemoteIndexSchemaProcNode node = new RemoteIndexSchemaProcNode(base, null, () -> {
             remoteStarted.countDown();
             try {

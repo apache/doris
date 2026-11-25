@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
@@ -31,7 +32,7 @@ import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Pair;
+import org.apache.doris.common.Config;
 import org.apache.doris.proto.InternalService.PFetchRemoteSchemaRequest;
 import org.apache.doris.proto.InternalService.PFetchRemoteSchemaResponse;
 import org.apache.doris.proto.InternalService.PTabletsLocation;
@@ -49,6 +50,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -65,47 +67,65 @@ import java.util.concurrent.TimeoutException;
 public class FetchRemoteTabletSchemaUtil {
     private static final Logger LOG = LogManager.getLogger(FetchRemoteTabletSchemaUtil.class);
 
-    private final Map<Long, Set<Long>> beIdToTabletId = Maps.newHashMap();
-    private final List<Pair<Long, CloudReplica>> cloudReplicas = Lists.newArrayList();
+    private final int tabletCount;
+    private final Map<Long, List<Replica>> tabletReplicas = Maps.newLinkedHashMap();
 
+    /** Capture the candidate replica lists under the table lock and resolve Cloud routes during fetch. */
     public FetchRemoteTabletSchemaUtil(List<Tablet> tablets) {
-        // Capture Cloud replicas without resolving their compute group under the table lock.
+        tabletCount = tablets.size();
         for (Tablet tablet : tablets) {
-            for (Replica replica : tablet.getReplicas()) {
-                if (replica.isAlive()) {
-                    if (replica instanceof CloudReplica) {
-                        cloudReplicas.add(Pair.of(tablet.getId(), (CloudReplica) replica));
-                    } else {
-                        beIdToTabletId.computeIfAbsent(replica.getBackendIdWithoutException(), id -> Sets.newHashSet())
-                                .add(tablet.getId());
-                    }
-                }
-            }
+            tabletReplicas.put(tablet.getId(), Lists.newArrayList(tablet.getReplicas()));
         }
     }
 
-    private Map<Long, Set<Long>> resolveTabletLocations() {
-        if (cloudReplicas.isEmpty()) {
-            return beIdToTabletId;
+    public static class PartitionTablets {
+        private final Partition partition;
+        private final List<Tablet> tablets;
+
+        public PartitionTablets(Partition partition, List<Tablet> tablets) {
+            this.partition = partition;
+            this.tablets = tablets;
         }
-        // Resolve once per request. This may start a suspended compute group.
-        String clusterId;
-        try {
-            clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCurrentClusterId();
-        } catch (ComputeGroupException e) {
-            LOG.debug("Could not resolve compute group for remote schema", e);
-            return Collections.emptyMap();
-        }
-        Map<Long, Set<Long>> locations = Maps.newHashMap();
-        for (Pair<Long, CloudReplica> tablet : cloudReplicas) {
-            try {
-                long backendId = tablet.second.getBackendIdWithClusterId(clusterId);
-                locations.computeIfAbsent(backendId, id -> Sets.newHashSet()).add(tablet.first);
-            } catch (ComputeGroupException e) {
-                LOG.debug("Could not route tablet {} for remote schema", tablet.first, e);
+    }
+
+    /** Capture tablet lists under the table lock. Cloud visibility can require a separate RPC. */
+    public static List<PartitionTablets> snapshotPartitions(Collection<Partition> partitions) {
+        boolean cloudMode = Config.isCloudMode();
+        List<PartitionTablets> snapshot = Lists.newArrayList();
+        for (Partition partition : partitions) {
+            if (cloudMode || partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION) {
+                snapshot.add(new PartitionTablets(partition, partition.getBaseIndex().getTablets()));
             }
         }
-        return locations;
+        return snapshot;
+    }
+
+    public static List<Tablet> collectTablets(List<PartitionTablets> partitions) throws AnalysisException {
+        if (partitions.isEmpty()) {
+            return Collections.emptyList();
+        }
+        boolean cloudMode = Config.isCloudMode();
+        int maxTablets = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
+        List<Tablet> tablets = Lists.newArrayList();
+        long tabletCount = 0;
+        for (PartitionTablets partition : partitions) {
+            if (cloudMode && partition.partition.getVisibleVersion() <= Partition.PARTITION_INIT_VERSION) {
+                continue;
+            }
+            tabletCount += partition.tablets.size();
+            if (tabletCount <= maxTablets) {
+                tablets.addAll(partition.tablets);
+            }
+        }
+        checkTabletCount(tabletCount, maxTablets);
+        return tablets;
+    }
+
+    private static void checkTabletCount(long tabletCount, int maxTablets) throws AnalysisException {
+        if (tabletCount > 0 && tabletCount > maxTablets) {
+            throw new AnalysisException("Extended DESCRIBE needs to read " + tabletCount
+                    + " tablets, exceeding max_fetch_remote_schema_tablet_count=" + maxTablets);
+        }
     }
 
     private static final Map<String, Type> typeMap = new HashMap<>();
@@ -161,102 +181,125 @@ public class FetchRemoteTabletSchemaUtil {
         return typeMap.getOrDefault(typeName, Type.UNSUPPORTED);
     }
 
-    public List<Column> fetch() {
-        // Randomly select up to 2 Backend (BE) servers to act as coordinators.
+    public List<Column> fetch() throws AnalysisException {
+        if (tabletReplicas.isEmpty()) {
+            return Collections.emptyList();
+        }
+        int maxTablets = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
+        checkTabletCount(tabletCount, maxTablets);
+        // Resolve a Cloud compute group at most once, after the table lock has been released.
+        String clusterId = null;
+        Map<Long, Set<Long>> beIdToTabletId = Maps.newHashMap();
+        Map<Long, Backend> liveBackends = Maps.newHashMap();
+        for (Map.Entry<Long, List<Replica>> tablet : tabletReplicas.entrySet()) {
+            boolean hasLiveBackend = false;
+            for (Replica replica : tablet.getValue()) {
+                if (!replica.isAlive()) {
+                    continue;
+                }
+                long backendId;
+                if (replica instanceof CloudReplica) {
+                    if (clusterId == null) {
+                        clusterId = resolveComputeGroup();
+                    }
+                    try {
+                        backendId = ((CloudReplica) replica).getBackendIdWithClusterId(clusterId);
+                    } catch (ComputeGroupException e) {
+                        LOG.debug("Could not route tablet {} for remote schema", tablet.getKey(), e);
+                        continue;
+                    }
+                } else {
+                    backendId = replica.getBackendIdWithoutException();
+                }
+                Backend backend = liveBackends.get(backendId);
+                if (backend == null) {
+                    backend = Env.getCurrentSystemInfo().getBackend(backendId);
+                    if (backend == null || !backend.isAlive()) {
+                        continue;
+                    }
+                    liveBackends.put(backendId, backend);
+                }
+                beIdToTabletId.computeIfAbsent(backendId, k -> Sets.newHashSet()).add(tablet.getKey());
+                hasLiveBackend = true;
+            }
+            if (!hasLiveBackend) {
+                throw new AnalysisException("Extended DESCRIBE could not find a live replica for tablet "
+                        + tablet.getKey());
+            }
+        }
+
+        // 2. Randomly select 2 Backend (BE) servers to act as coordinators.
         // Coordinator BE is responsible for collecting all table columns and returning to the FE.
         // Two BE provide a retry opportunity with the second one in case the first attempt fails.
         List<PTabletsLocation> locations = Lists.newArrayList();
-        List<Backend> coordinatorBackend = Lists.newArrayList();
-        for (Map.Entry<Long, Set<Long>> entry : resolveTabletLocations().entrySet()) {
-            Long backendId = entry.getKey();
-            Set<Long> tabletIds = entry.getValue();
-            Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(backendId);
-            // A backend can be removed after its tablet locations were captured.
-            if (backend == null || !backend.isAlive()) {
-                continue;
-            }
-            LOG.debug("fetch schema from coord backend {}, sample tablets count {}",
-                            backend.getId(), tabletIds.size());
-            coordinatorBackend.add(backend);
-            PTabletsLocation.Builder locationBuilder = PTabletsLocation.newBuilder()
-                                                        .setHost(backend.getHost())
-                                                        .setBrpcPort(backend.getBrpcPort());
-            PTabletsLocation location = locationBuilder.addAllTabletId(tabletIds).build();
-            locations.add(location);
+        List<Backend> coordinatorBackend = Lists.newArrayList(liveBackends.values());
+        for (Map.Entry<Long, Set<Long>> entry : beIdToTabletId.entrySet()) {
+            Backend backend = liveBackends.get(entry.getKey());
+            locations.add(PTabletsLocation.newBuilder()
+                    .setHost(backend.getHost())
+                    .setBrpcPort(backend.getBrpcPort())
+                    .addAllTabletId(entry.getValue())
+                    .build());
         }
-        // pick 2 random coordinator
         Collections.shuffle(coordinatorBackend);
-        if (!coordinatorBackend.isEmpty()) {
-            coordinatorBackend = coordinatorBackend.subList(0, Math.min(2, coordinatorBackend.size()));
-            LOG.debug("pick coordinator backend {}", coordinatorBackend.get(0));
-        }
-        PFetchRemoteSchemaRequest.Builder requestBuilder = PFetchRemoteSchemaRequest.newBuilder()
-                                                                    .addAllTabletLocation(locations)
-                                                                    .setIsCoordinator(true);
-        List<Column> tableColumns = Lists.newArrayList();
-        // Fetch the schema from a coordinator and retry with the alternate coordinator if needed.
-        for (Backend be : coordinatorBackend) {
+        PFetchRemoteSchemaRequest request = PFetchRemoteSchemaRequest.newBuilder()
+                .addAllTabletLocation(locations)
+                .setIsCoordinator(true)
+                .build();
+        long timeoutSeconds = ConnectContext.get().getSessionVariable().fetchRemoteSchemaTimeoutSeconds;
+        Exception lastFailure = null;
+        for (Backend be : coordinatorBackend.subList(0, Math.min(2, coordinatorBackend.size()))) {
             try {
-                PFetchRemoteSchemaRequest request = requestBuilder.build();
                 Future<PFetchRemoteSchemaResponse> future = BackendServiceProxy.getInstance()
-                                            .fetchRemoteTabletSchemaAsync(be.getBrpcAddress(), request);
-                PFetchRemoteSchemaResponse response = null;
+                        .fetchRemoteTabletSchemaAsync(be.getBrpcAddress(), request);
+                PFetchRemoteSchemaResponse response;
                 try {
                     while (DebugPointUtil.isEnable("FetchRemoteTabletSchemaUtil.fetch.waitForResponse")) {
                         Thread.sleep(100);
                     }
-                    response = future.get(
-                        ConnectContext.get().getSessionVariable().fetchRemoteSchemaTimeoutSeconds, TimeUnit.SECONDS);
-                    TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
-                    String errMsg;
-                    if (code != TStatusCode.OK) {
-                        if (!response.getStatus().getErrorMsgsList().isEmpty()) {
-                            errMsg = response.getStatus().getErrorMsgsList().get(0);
-                        } else {
-                            errMsg = "fetchRemoteTabletSchemaAsync failed. backend address: "
-                                    + be.getHost() + " : " + be.getBrpcPort();
-                        }
-                        throw new RpcException(be.getHost(), errMsg);
-                    }
-                    fillColumns(response, tableColumns);
-                    return tableColumns;
-                } catch (AnalysisException e) {
-                    // continue to get result
-                    LOG.warn(e);
-                } catch (InterruptedException e) {
-                    // continue to get result
-                    LOG.warn("fetch remote schema future get interrupted Exception");
+                    response = future.get(timeoutSeconds, TimeUnit.SECONDS);
                 } catch (TimeoutException e) {
                     future.cancel(true);
-                    // continue to get result
-                    LOG.warn("fetch remote schema result timeout, addr {}", be.getBrpcAddress());
+                    throw new AnalysisException("Remote schema RPC timed out on " + be.getBrpcAddress(), e);
+                } catch (InterruptedException e) {
+                    future.cancel(true);
+                    throw e;
                 }
-            }    catch (RpcException e) {
-                LOG.warn("fetch remote schema result rpc exception {}, e {}", be.getBrpcAddress(), e);
-            } catch (ExecutionException e) {
-                LOG.warn("fetch remote schema ExecutionException, addr {}, e {}", be.getBrpcAddress(), e);
+                if (!response.hasStatus() || response.getStatus().getStatusCode() != TStatusCode.OK.getValue()) {
+                    throw new AnalysisException("Remote schema RPC failed on " + be.getBrpcAddress() + " "
+                            + response.getStatus().getErrorMsgsList());
+                }
+                if (!response.hasMergedSchema()) {
+                    throw new AnalysisException("Missing merged schema from " + be.getBrpcAddress());
+                }
+                return decodeColumns(response.getMergedSchema());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AnalysisException("Extended DESCRIBE interrupted while fetching remote schema", e);
+            } catch (AnalysisException | RpcException | ExecutionException e) {
+                lastFailure = e;
+                LOG.warn("Failed to fetch remote schema from {}", be.getBrpcAddress(), e);
             }
         }
-        return tableColumns;
+        throw new AnalysisException("Extended DESCRIBE failed to fetch a complete remote schema"
+                + (lastFailure == null ? "" : " (" + lastFailure.getMessage() + ")"), lastFailure);
     }
 
-    private void fillColumns(PFetchRemoteSchemaResponse response, List<Column> tableColumns) throws AnalysisException {
-        TabletSchemaPB schemaPB = response.getMergedSchema();
-        for (ColumnPB columnPB : schemaPB.getColumnList()) {
-            try {
-                Column remoteColumn = initColumnFromPB(columnPB);
-                tableColumns.add(remoteColumn);
-            } catch (Exception e) {
-                throw new AnalysisException("column default value to string failed");
-            }
+    private String resolveComputeGroup() throws AnalysisException {
+        try {
+            return ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCurrentClusterId();
+        } catch (ComputeGroupException e) {
+            throw new AnalysisException("Extended DESCRIBE could not resolve the compute group", e);
         }
-        // sort the columns
-        Collections.sort(tableColumns, new Comparator<Column>() {
-            @Override
-            public int compare(Column c1, Column c2) {
-                return c1.getName().compareTo(c2.getName());
-            }
-        });
+    }
+
+    private List<Column> decodeColumns(TabletSchemaPB schemaPB) throws AnalysisException {
+        List<Column> tableColumns = Lists.newArrayListWithCapacity(schemaPB.getColumnCount());
+        for (ColumnPB columnPB : schemaPB.getColumnList()) {
+            tableColumns.add(initColumnFromPB(columnPB));
+        }
+        tableColumns.sort(Comparator.comparing(Column::getName));
+        return tableColumns;
     }
 
     private Column initColumnFromPB(ColumnPB column) throws AnalysisException {
@@ -304,7 +347,7 @@ public class FetchRemoteTabletSchemaUtil {
             return new Column(columnName, type, isKey, aggType, isNullable,
                                                     defaultValue, "remote schema");
         } catch (Exception e) {
-            throw new AnalysisException("default value to string failed");
+            throw new AnalysisException("Invalid remote schema column " + column.getName(), e);
         }
     }
 }
