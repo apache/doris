@@ -23,6 +23,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.Profile;
@@ -40,6 +42,7 @@ import org.apache.doris.qe.InsertResult;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -60,13 +63,52 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Tests for publish-timeout behaviors in {@link OlapInsertExecutor}.
+ * Tests for the transaction lifecycle in {@link OlapInsertExecutor}.
  */
 class OlapInsertExecutorTest {
 
     @AfterEach
     void tearDown() {
         ConnectContext.remove();
+    }
+
+    @Test
+    void testCloudInsertReturnsOkWithOriginalTxnIdOnDuplicateBegin() throws Exception {
+        ConnectContext ctx = createExecutorContext();
+        ctx.getSessionVariable().setCloudCluster("test_cluster");
+        Coordinator coordinator = createCoordinator();
+        StmtExecutor stmtExecutor = createStmtExecutor();
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        Env currentEnv = createCurrentEnv(Mockito.mock(LoadManager.class));
+        long originalTxnId = 10008L;
+
+        try (MockedStatic<EnvFactory> envFactoryMock = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<Config> configMock = Mockito.mockStatic(Config.class);
+                MockedStatic<ExecuteEnv> executeEnvMock = Mockito.mockStatic(ExecuteEnv.class)) {
+            prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr,
+                    Mockito.mock(TransactionState.class), currentEnv);
+            ctx.setEnv(currentEnv);
+            OlapInsertExecutor executor = createExecutor(ctx);
+            configMock.when(Config::isCloudMode).thenReturn(true);
+            executeEnvMock.when(ExecuteEnv::getInstance).thenReturn(Mockito.mock(ExecuteEnv.class));
+            TUniqueId queryId = ctx.queryId();
+            Mockito.when(txnMgr.beginTransaction(Mockito.anyLong(), Mockito.anyList(), Mockito.eq("label_test"),
+                    Mockito.eq(queryId), Mockito.any(), Mockito.any(), Mockito.anyLong(), Mockito.anyLong()))
+                    .thenThrow(new DuplicatedRequestException(queryId.toString(), originalTxnId, "duplicate begin"));
+            Mockito.when(txnMgr.commitAndPublishTransactionWithRetry(
+                    Mockito.eq(executor.getDatabase()), Mockito.anyList(), Mockito.eq(originalTxnId),
+                    Mockito.anyList(), Mockito.anyLong(), Mockito.isNull(), Mockito.anyList())).thenReturn(true);
+
+            executor.beginTransaction();
+            executor.executeSingleInsert(stmtExecutor);
+
+            Assertions.assertEquals(MysqlStateType.OK, ctx.getState().getStateType());
+            InsertResult result = ctx.getInsertResult();
+            Assertions.assertNotNull(result);
+            Assertions.assertEquals(originalTxnId, result.txnId);
+            Assertions.assertEquals(TransactionStatus.VISIBLE, result.txnStatus);
+        }
     }
 
     @Test

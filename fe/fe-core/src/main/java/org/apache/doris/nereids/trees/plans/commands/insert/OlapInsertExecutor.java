@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -53,6 +54,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TPartitionType;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
@@ -125,12 +127,15 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             if (streamingInsertTask != null) {
                 loadJobSourceType = LoadJobSourceType.STREAMING_JOB;
             }
+            TUniqueId requestId = Config.isCloudMode() ? ctx.queryId() : null;
             this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                    database.getId(), ImmutableList.of(table.getId()), labelName,
+                    database.getId(), ImmutableList.of(table.getId()), labelName, requestId,
                     new TxnCoordinator(TxnSourceType.FE, 0,
                             FrontendOptions.getLocalHostAddress(),
                             ExecuteEnv.getInstance().getStartupTime()),
-                    loadJobSourceType, ctx.getExecTimeoutS());
+                    loadJobSourceType, -1, ctx.getExecTimeoutS());
+        } catch (DuplicatedRequestException e) {
+            this.txnId = e.getTxnId();
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
         }
