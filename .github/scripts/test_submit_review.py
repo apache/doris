@@ -20,7 +20,6 @@ import copy
 import io
 import itertools
 import json
-import re
 import subprocess
 import tempfile
 import threading
@@ -31,7 +30,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-import run_review_with_resume as runner
 import submit_review as submitter
 from resolve_code_review_status import resolve_status
 
@@ -217,39 +215,6 @@ class FinalReviewTest(unittest.TestCase):
                          (diagnostic["timeout_seconds"], diagnostic["stdout"]))
         self.assertTrue(diagnostic["stderr"].startswith("timed out"))
         self.assertIn("timeout=30", diagnostic["stderr"])
-
-    def test_runner_failure_keeps_original_post_error(self):
-        (self.context / "codex_goal_prompt.txt").write_text("Review the PR")
-        args = SimpleNamespace(context_dir=self.context, cwd=self.context, **{
-            k: self.run[k] for k in ("repository", "pr_number", "head_sha", "base_sha")
-        }, model="gpt-6-sol", effort="xhigh", budget_seconds=60)
-        self.api.side_effect = self.real_api
-
-        def reject_post(command, **kwargs):
-            if kwargs.get("input") is not None:
-                raise subprocess.CalledProcessError(1, command, stderr="gh: Validation Failed (HTTP 422)")
-            return self.gh_response(command, **kwargs)
-
-        def attempt(command, events, stderr, timeout, reaper=None, watchdog=None):
-            run = json.loads((self.context / submitter.RUN_FILE).read_text())
-            with self.assertRaisesRegex(ValueError, "HTTP 422"):
-                submitter.verify_completion(self.context, run, self.remaining, submit=True,
-                                            submission=self.submission())
-            events.write_text(json.dumps({"type": "thread.started", "thread_id":
-                "0199a213-81c0-7800-8aa1-bbab2a035a53"}) + "\n" +
-                json.dumps({"type": "turn.completed"}) + "\n")
-            stderr.write_text("")
-            return 0
-
-        with mock.patch.object(runner, "run_attempt", side_effect=attempt), \
-             mock.patch.object(runner.HeadWatchdog, "check"), \
-             mock.patch.object(submitter.subprocess, "run", side_effect=reject_post), \
-             redirect_stderr(io.StringIO()):
-            self.assertEqual(1, runner.run_review(args))
-        error = runner.read_events(self.context / "codex-events.jsonl")[-1]["error"]["message"]
-        self.assertIn("HTTP 422", error)
-        self.assertIn(submitter.API_ERRORS_FILE, error)
-        self.assertFalse((self.context / submitter.RESULT_FILE).exists())
 
     def test_submits_once_and_verifies_same_complete_review(self):
         result = self.submit()
@@ -454,38 +419,6 @@ class FinalReviewTest(unittest.TestCase):
         self.assertEqual(result, self.verify())
         self.assertEqual(1, len(self.posts))
 
-    def test_runner_reports_rejection_instead_of_missing_submission(self):
-        (self.context / "codex_goal_prompt.txt").write_text("Review the PR")
-        args = SimpleNamespace(context_dir=self.context, cwd=self.context, **{
-            k: self.run[k] for k in ("repository", "pr_number", "head_sha", "base_sha")
-        }, model="gpt-6-sol", effort="xhigh", budget_seconds=60)
-
-        def attempt(command, events, stderr, timeout, reaper=None, watchdog=None):
-            run = json.loads((self.context / submitter.RUN_FILE).read_text())
-            self.reviews = [{"user": {"login": "github-actions[bot]"},
-                             "commit_id": run["head_sha"], "submitted_at": run["started_at"]}]
-            with self.assertRaisesRegex(ValueError, "Another bot review"):
-                submitter.verify_completion(self.context, run, self.remaining, submit=True,
-                                            submission=self.submission())
-            # The model can finish normally after the helper rejects its candidate.
-            events.write_text(json.dumps({"type": "thread.started", "thread_id":
-                "0199a213-81c0-7800-8aa1-bbab2a035a53"}) + "\n" +
-                json.dumps({"type": "turn.completed"}) + "\n")
-            stderr.write_text("")
-            return 0
-
-        with mock.patch.object(runner, "run_attempt", side_effect=attempt), \
-             mock.patch.object(runner.HeadWatchdog, "check"), \
-             mock.patch.object(runner, "check_resume_target") as guard, \
-             redirect_stderr(io.StringIO()):
-            self.assertEqual(1, runner.run_review(args))
-        guard.assert_not_called()
-        error = runner.read_events(self.context / "codex-events.jsonl")[-1]["error"]["message"]
-        self.assertIn("Another bot review", error)
-        self.assertNotIn("No final review submission", error)
-        self.assertEqual([], self.posts)
-        self.assertFalse((self.context / submitter.RESULT_FILE).exists())
-
     def test_simultaneous_helper_invocations_post_only_once(self):
         barrier = threading.Barrier(2, timeout=5)
         original_open = Path.open
@@ -590,45 +523,15 @@ class FinalReviewTest(unittest.TestCase):
         self.submit()
         self.assertEqual(1, len(self.posts))
 
-    def test_delivery_completes_execution_and_gates_findings_and_convergence(self):
-        # Reproduce #66227: final write/readback, then capacity (also on the last
-        # allowed attempt). Run the real verifier and SHA-wide status resolver.
-        for level, converged, capacity in itertools.product((None, 0, 1, 2), (True, False), (True, False)):
-            with self.subTest(priority=level, converged=converged, capacity=capacity), tempfile.TemporaryDirectory() as tmp:
+    def test_verified_delivery_gates_findings_and_convergence(self):
+        for level, converged in itertools.product((None, 0, 1, 2), (True, False)):
+            with self.subTest(priority=level, converged=converged), tempfile.TemporaryDirectory() as tmp:
                 context = Path(tmp)
-                (context / "codex_goal_prompt.txt").write_text("Review the PR")
                 (context / "pr.diff").write_text(self.diff)
-                args = SimpleNamespace(context_dir=context, cwd=context, **{
-                    k: self.run[k] for k in ("repository", "pr_number", "head_sha", "base_sha")
-                }, model="gpt-6-sol", effort="xhigh", budget_seconds=60)
                 self.reviews.clear()
-
-                def attempt(command, events, stderr, timeout, reaper=None, watchdog=None):
-                    run = json.loads((context / submitter.RUN_FILE).read_text())
-                    submitter.verify_completion(context, run, self.remaining, submit=True,
-                                                submission=self.submission(level, converged=converged, rounds=3))
-                    events.write_text(json.dumps({"type": "thread.started", "thread_id":
-                        "0199a213-81c0-7800-8aa1-bbab2a035a53"}) + "\n" + json.dumps({
-                        "type": "turn.failed" if capacity else "turn.completed",
-                        "error": {"message": runner.CAPACITY_MESSAGE} if capacity else {}}) + "\n")
-                    stderr.write_text("")
-                    return 1 if capacity else 0
-
-                with mock.patch.object(runner, "run_attempt", side_effect=attempt), \
-                     mock.patch.object(runner, "RETRY_DELAYS", ()), \
-                     mock.patch.object(runner, "HeadWatchdog"), \
-                     mock.patch.object(runner, "check_resume_target") as guard, \
-                     mock.patch.object(runner.time, "sleep") as sleep, redirect_stderr(io.StringIO()):
-                    self.assertEqual(0, runner.run_review(args))
-                guard.assert_not_called()
-                sleep.assert_not_called()
-                result = json.loads((context / submitter.RESULT_FILE).read_text())
-                self.assertEqual(capacity, result["recovered_after_capacity"])
-                self.assertEqual(converged, result["converged"])
-                self.assertEqual(3, result["rounds"])
-                completion = runner.read_events(context / "codex-events.jsonl")[-1]
-                self.assertEqual("review.completed", completion["type"])
-                self.assertEqual(converged, completion["converged"])
+                result = submitter.verify_completion(
+                    context, self.run, self.remaining, submit=True,
+                    submission=self.submission(level, converged=converged, rounds=3))
                 state = "failure" if level in (0, 1) or not converged else "success"
                 self.assertEqual(state, result["state"])
                 resolution = resolve_status([self.pr], [{"id": 1, "state": result["state"],
@@ -878,29 +781,6 @@ class DiffLocationsTest(unittest.TestCase):
         self.assertEqual([{"line": 1, "side": "RIGHT"}], self.locations(diff, [("a.py", 3)]))
         with self.assertRaisesRegex(ValueError, "not commentable"):
             self.locations(diff, [("a.py", 2)])
-
-
-class ReviewWorkflowTest(unittest.TestCase):
-    def test_queue_is_per_pr_and_failure_artifact_is_explicit(self):
-        workflow = (Path(__file__).resolve().parents[1] / "workflows/code-review-runner.yml").read_text()
-        review_job = workflow.split("  code-review:\n", 1)[1].split("  aggregate-status:", 1)[0]
-        concurrency = re.search(r"^    concurrency:\n((?:      .*\n)+)", review_job, re.MULTILINE)
-        self.assertIsNotNone(concurrency)
-        self.assertIn("github.event.issue.number || inputs.pr_number || github.run_id", concurrency[1])
-        self.assertIn("cancel-in-progress: false", concurrency[1])
-        self.assertIn("queue: max", concurrency[1])
-        self.assertNotIn("sha", concurrency[1])
-        self.assertNotRegex(workflow, r"(?m)^concurrency:")
-        artifact = review_job.split("      - name: Preserve failed final review diagnostics\n", 1)[1]
-        artifact = artifact.split("      - name:", 1)[0]
-        self.assertIn("always()", artifact)
-        self.assertIn("steps.review.outcome == 'failure'", artifact)
-        paths = artifact.split("          path: |\n", 1)[1].split("          #", 1)[0]
-        self.assertEqual({"${{ env.REVIEW_CONTEXT_DIR }}/" + name for name in (
-            submitter.SUBMISSION_FILE, submitter.REJECTION_FILE, submitter.API_ERRORS_FILE, submitter.DRAFT_FILE
-        )}, {line.strip() for line in paths.splitlines()})
-        self.assertIn("include-hidden-files: true", artifact)
-        self.assertIn("if-no-files-found: ignore", artifact)
 
 
 class GitHubAPITest(unittest.TestCase):

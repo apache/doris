@@ -35,7 +35,7 @@ class DebugReviewTest(unittest.TestCase):
                                     GITHUB_OUTPUT=str(Path(tmp) / "outputs")))
         self.event = Path(tmp) / "event.json"
         self.enterContext(patch.dict(os.environ, GITHUB_EVENT_PATH=str(self.event)))
-        self.event.write_text(json.dumps({"comment": {"body": "run debugreview"}}))
+        self.event.write_text(json.dumps({"comment": {"body": "/review"}}))
         self.pr = dict(state="open", head={"sha": "a"*40}, base={"sha": "b"*40})
         self.snapshot = dict(pr_number=42, head_sha="a"*40, base_sha="b"*40)
         self.receipt = {"request_id": "github:review:27"}
@@ -57,11 +57,10 @@ class DebugReviewTest(unittest.TestCase):
         return [call.args for call in self.api.call_args_list if "-X" in call.args]
 
     def test_slash_command_binds_the_same_multiline_focus_in_approval_and_submission(self):
-        for command, expected in (("run debugreview", None), ("/review", ""),
+        for command, expected in (("/review", ""), ("/review\t重点", "重点"),
                                   ("/REVIEW  检查重试\nsecond line", "检查重试\nsecond line")):
             self.event.write_text(json.dumps({"comment": {"body": command}}))
             self.assertEqual(expected, debug.requested_focus())
-        self.assertEqual("", debug.focus_suffix(None))
         self.assertEqual("", debug.focus_suffix(""))
         self.assertEqual("/" + hashlib.sha256(expected.encode()).hexdigest(), debug.focus_suffix(expected))
         def dispatch(path, payload, codes):
@@ -86,16 +85,22 @@ class DebugReviewTest(unittest.TestCase):
             debug.review(42, "a"*40, "b"*40)
         self.assertTrue(all("state=pending" in post for post in self.posts()))
 
-    def test_verified_result_writes_the_existing_dismissible_gate(self):
+    def test_retired_command_and_other_slash_commands_do_not_dispatch(self):
+        for command in ("run debugreview", "/reviewer", "example /review"):
+            with self.subTest(command=command):
+                self.event.write_text(json.dumps({"comment": {"body": command}}))
+                with self.assertRaisesRegex(ValueError, "/review"):
+                    debug.review(42, "a"*40, "b"*40)
+                self.api.assert_not_called()
+                self.fc.assert_not_called()
+
+    def test_actions_only_marks_aggregate_and_source_pending(self):
         self.run_review(dict(self.receipt, state="awaiting_status"), dict(self.row, state="running"),
-                        dict(self.row, state="completed", result=self.result))
-        pending, source, final = self.posts()
-        self.assertIn("context=code-review", pending)
-        self.assertIn("state=pending", source)
-        self.assertIn("context=code-review/source/automated/pr-42/base-" + "b"*40, final)
-        self.assertIn("description=Review completed for PR #42: P0=0, P1=1.", final)
-        self.assertIn("state=failure", final)
-        self.assertIn("target_url=" + self.url, final)
+                        dict(self.row, state="completed", result=dict(self.result, gate_receipt=True)))
+        aggregate, source = self.posts()
+        self.assertIn("context=code-review", aggregate)
+        self.assertIn("context=code-review/source/automated/pr-42/base-" + "b"*40, source)
+        self.assertTrue(all("state=pending" in post for post in (aggregate, source)))
 
     def test_publisher_records_verified_result_once_after_lost_ack(self):
         run, bot = "27", "cloud[bot]"
@@ -118,7 +123,6 @@ class DebugReviewTest(unittest.TestCase):
         self.assertEqual(1, len(records))
         self.assertEqual(("code-review/cloud/27/pr-42/base-" + "b"*40, "failure", self.url),
                          tuple(records[0][k] for k in ("context", "state", "target_url")))
-        self.run_review(dict(self.row, state="completed", result=dict(self.result, gate_receipt=True)))
         self.assertEqual(1, len(self.posts()))
 
     def test_publisher_rejects_stale_snapshot_and_invalid_verdict(self):
@@ -149,25 +153,46 @@ class DebugReviewTest(unittest.TestCase):
                 verdict = debug.verdict(dict(self.result, **change), self.url.split("#")[0], "run", 42)
                 self.assertEqual((expected, "run"), (verdict[0], verdict[2]))
 
-    def test_preview_superseded_and_replayed_snapshots(self):
-        self.run_review(dict(self.row, state="previewed", preview_only=True))
-        self.run_review(dict(self.row, state="previewed", preview_only=False))
+    def test_superseded_and_replayed_snapshots(self):
         self.run_review(dict(self.row, state="superseded"))
         for fields in ({"head_sha": "c"*40}, {"base_sha": "c"*40}, {"request_id": "github:review:1"}):
             with self.subTest(fields=fields), self.assertRaises(ValueError):
                 self.run_review(dict(self.row, **fields, state="completed", result=self.result))
-        self.assertEqual([], self.posts())
+        self.assertTrue(all("state=pending" in post for post in self.posts()))
 
     def test_failure_or_pr_change_never_writes_a_verdict(self):
         with self.assertRaises(RuntimeError):
             self.run_review(dict(self.row, state="failed"))
         self.assertTrue(all("state=pending" in post for post in self.posts()))
         self.api.reset_mock()
-        self.api.side_effect = [self.pr, self.pr, {}, {}, dict(self.pr, base={"sha": "c"*40})]
-        self.run_review(dict(self.row, state="completed", result=self.result))
-        self.assertTrue(all("state=pending" in post for post in self.posts()))
+        self.fc.reset_mock()
+        self.api.return_value = dict(self.pr, base={"sha": "c"*40})
+        debug.review(42, "a"*40, "b"*40)
+        self.fc.assert_not_called()
+        self.assertEqual([], self.posts())
 
     def test_malformed_success_never_passes(self):
         for fields in (dict(state="success"), dict(review_url="https://example.org/"), dict(p1=False)):
             with self.subTest(fields=fields), self.assertRaises(ValueError):
                 debug.verdict(dict(self.result, **fields), self.url.split("#")[0], "run", 42)
+
+
+class ReviewWorkflowTest(unittest.TestCase):
+    def test_only_trusted_pr_comments_can_request_a_cloud_review(self):
+        workflow = (Path(__file__).resolve().parents[1] / "workflows/code-review-runner.yml").read_text()
+        triggers = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0].strip()
+        self.assertEqual("issue_comment:\n    types: [created]", triggers)
+        jobs = workflow.split("\njobs:\n", 1)[1]
+        self.assertEqual(["review-inputs", "authorize-review", "cloud-review", "aggregate-review"],
+                         [line.strip()[:-1] for line in jobs.splitlines()
+                          if line.startswith("  ") and not line.startswith("   ")])
+        self.assertIn("github.event.issue.pull_request", jobs)
+        self.assertIn('["OWNER","MEMBER","COLLABORATOR"]', jobs)
+        self.assertIn("github.event.comment.body == '/review'", jobs)
+        self.assertNotIn("run debugreview", workflow.lower())
+        self.assertNotIn("DORIS_REVIEW_BACKEND", workflow)
+        self.assertIn("name: fc-review/v1/", jobs)
+        self.assertIn("needs: [review-inputs, authorize-review]", jobs)
+        self.assertIn("group: code-review-pr-${{ github.event.issue.number }}", jobs)
+        self.assertIn("cancel-in-progress: false", jobs)
+        self.assertIn("queue: max", jobs)

@@ -80,13 +80,11 @@ def gh(path, *args):
 
 
 def requested_focus():
-    """None identifies the debug command. An empty string is a formal /review."""
     comment = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())["comment"]["body"]
-    if comment.lower() == "run debugreview":
-        return None
-    if not comment.lower().startswith("/review"):
-        raise ValueError("Expected a review command")
-    return comment[len("/review"):].lstrip()
+    match = re.fullmatch(r"/review(?:[ \t\n\r](.*))?", comment, re.IGNORECASE | re.DOTALL | re.ASCII)
+    if not match:
+        raise ValueError("Expected /review with an optional focus")
+    return (match[1] or "").lstrip()
 
 
 def focus_suffix(focus):
@@ -150,33 +148,24 @@ def review(pr, head, base):
         live = gh(f"repos/{repo}/pulls/{pr}")
         return live["state"] == "open" and live["head"]["sha"] == head and live["base"]["sha"] == base
 
-    def write_status(context, state, description, target):
-        gh(f"repos/{repo}/statuses/{head}", "-X", "POST", "-f", f"context={context}",
-           "-f", f"state={state}", "-f", f"description={description}", "-f", f"target_url={target}")
-
+    focus = requested_focus()
     if not current():
         print("PR changed before dispatch")
         return
     snapshot = dict(pr_number=pr, head_sha=head, base_sha=base)
-    def mark_pending():
-        description = f"Automated review is running for PR #{pr}."
-        with Path(os.environ["GITHUB_OUTPUT"]).open("a") as outputs:
-            print(f"aggregate_head={head}", file=outputs)
-        write_status("code-review", "pending", description, run_url)
-        write_status(source, "pending", description, run_url)
-
-    focus = requested_focus()
-    formal = focus is not None
-    if formal:
-        mark_pending()
-        if len(focus.encode()) > 8192:
-            raise ValueError("The cloud review focus exceeds 8192 UTF-8 bytes")
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a") as outputs:
+        print(f"aggregate_head={head}", file=outputs)
+    for context in ("code-review", source):
+        gh(f"repos/{repo}/statuses/{head}", "-X", "POST", "-f", f"context={context}",
+           "-f", "state=pending", "-f", f"description=Automated review is running for PR #{pr}.",
+           "-f", f"target_url={run_url}")
+    if len(focus.encode()) > 8192:
+        raise ValueError("The cloud review focus exceeds 8192 UTF-8 bytes")
     payload = dict(snapshot, review_focus=focus) if focus else snapshot
     receipt = fc("", payload, (202,))
     if receipt.get("request_id") != request_id:
         raise ValueError("Receipt belongs to another run")
     print(f"Submitted {request_id} for PR #{pr}", flush=True)
-    pending = formal
     while True:
         row = fc("/status", {"request_id": request_id}, (200, 202))
         if row.get("request_id") != request_id:
@@ -186,36 +175,15 @@ def review(pr, head, base):
             if (any(row.get(k) != v for k, v in snapshot.items())
                     or type(row.get("preview_only")) is not bool):
                 raise ValueError("Status does not match the authorized snapshot")
-            if formal and (row["preview_only"] or state == "previewed"):
+            if row["preview_only"] or state == "previewed":
                 raise RuntimeError("The default review requires a publishing cloud worker")
-            if formal and state == "completed":
+            if state == "completed":
                 if row["result"].get("gate_receipt") is not True:
                     raise RuntimeError("The cloud publisher did not record a gate receipt")
                 verdict(row["result"], pr_url, run_url, pr)
                 return
-            if state == "previewed":
-                print("ECS completed a preview")
-                return
             if state == "superseded":
                 print("PR changed during review")
-                return
-            if state == "completed" and not row["preview_only"] and row["result"].get("gate_receipt") is True:
-                verdict(row["result"], pr_url, run_url, pr)
-                if not pending:
-                    with Path(os.environ["GITHUB_OUTPUT"]).open("a") as outputs:
-                        print(f"aggregate_head={head}", file=outputs)
-                print(f"Cloud publisher recorded the verdict for {row['result']['review_url']}")
-                return
-            if not row["preview_only"] and not pending:
-                if not current():
-                    return
-                mark_pending()
-                pending = True
-            if state == "completed" and not row["preview_only"]:
-                value = verdict(row["result"], pr_url, run_url, pr)
-                if current():
-                    write_status(source, *value)
-                    print(f"Recorded {value[0]} for {row['result']['review_url']}")
                 return
             if state not in {"queued", "running", "publishing", "uncertain"}:
                 raise RuntimeError(f"Review ended with state {state}")
