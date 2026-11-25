@@ -48,6 +48,7 @@ import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
@@ -590,12 +591,18 @@ public class ColumnDefinition {
                 && defaultValue.get().getValue() != null
                 && type.toCatalogDataType().isScalarType()) {
             try {
-                ColumnDef.validateDefaultValue(type.toCatalogDataType(),
-                        defaultValue.get().getValue(), defaultValue.get().getDefaultValueExprDef());
-                if (!isOlap && type.isDateLikeType()
-                        && defaultValue.get().getDefaultValueExprDef() == null) {
+                DefaultValueExprDef exprDef = defaultValue.get().getDefaultValueExprDef();
+                String value = defaultValue.get().getValue();
+                String validationValue = value;
+                if (isAddColumn && !isOlap && type.isTimeStampTzType() && exprDef == null) {
+                    // The catalog validator reads microseconds. Keep the guard digit in the original
+                    // value until the ADD path binds the zone and rounds to the declared scale.
+                    validationValue = DateUtils.truncateFractionalSecond(normalizeCompactDateTimeFraction(value),
+                            TimeStampTzType.MAX_SCALE);
+                }
+                ColumnDef.validateDefaultValue(type.toCatalogDataType(), validationValue, exprDef);
+                if (!isOlap && type.isDateLikeType() && exprDef == null) {
                     // Preserve SQL literal time-zone and rounding semantics for civil temporal defaults.
-                    String value = defaultValue.get().getValue();
                     if (type.isDateTimeV2Type() || type.isTimeStampTzType()) {
                         value = normalizeCompactDateTimeFraction(value);
                     }

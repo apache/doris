@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -34,11 +36,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.gson.JsonObject;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -145,22 +149,53 @@ public class ExplainInsertCommandTest extends TestWithFeService {
                         + "duplicate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
                 for (long writeMode : modes) {
                     connectContext.getSessionVariable().setSqlMode(writeMode);
-                    for (String source : new String[] {"(k) select k1 from src", "values(1, DEFAULT)"}) {
-                        String sql = "explain insert into " + table + " " + source;
-                        MemoTestUtils.createStatementContext(connectContext, sql);
-                        ExplainCommand explain = (ExplainCommand) parser.parseSingle(sql);
-                        Plan insert = ((Explainable) explain.getLogicalPlan()).getExplainPlan(connectContext);
-                        Plan bound = PlanChecker.from(connectContext).analyze(insert)
-                                .getCascadesContext().getRewritePlan();
-                        Assertions.assertTrue(bound.anyMatch(node -> ((Plan) node).getExpressions().stream()
-                                .anyMatch(expr -> expr.anyMatch(child -> child instanceof StringLikeLiteral
-                                        && value.equals(((StringLikeLiteral) child).getStringValue())))),
-                                "DDL mode " + ddlMode + ", write mode " + writeMode + ": " + sql);
-                    }
+                    assertPlannedStringDefault(table, value);
                 }
             }
         } finally {
             connectContext.getSessionVariable().setSqlMode(previousMode);
+        }
+    }
+
+    @Test
+    public void testReplayedOlapStringDefaultsAcrossSqlModes() throws Exception {
+        long previousMode = connectContext.getSessionVariable().getSqlMode();
+        String table = "replayed_string_defaults";
+        try {
+            connectContext.getSessionVariable().setSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+            String persistedValue = "a\\\\b";
+            createTable("create table " + table + " (k int, v string default '" + persistedValue + "') "
+                    + "duplicate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            Column column = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test")
+                    .getTableOrAnalysisException(table).getColumn("v");
+            JsonObject image = GsonUtils.GSON.toJsonTree(column).getAsJsonObject();
+            Assertions.assertEquals(persistedValue, image.get("defaultValue").getAsString());
+            for (boolean legacy : new boolean[] {false, true}) {
+                if (legacy) {
+                    image.remove("decodedDefaultBackslashes");
+                }
+                column.setDefaultValueInfo(GsonUtils.GSON.fromJson(image, Column.class));
+                connectContext.getSessionVariable().setSqlMode(0L);
+                assertPlannedStringDefault(table, legacy ? "a\\b" : persistedValue);
+                connectContext.getSessionVariable().setSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+                assertPlannedStringDefault(table, persistedValue);
+            }
+        } finally {
+            connectContext.getSessionVariable().setSqlMode(previousMode);
+        }
+    }
+
+    private void assertPlannedStringDefault(String table, String value) throws Exception {
+        for (String source : new String[] {"(k) select k1 from src", "values(1, DEFAULT)"}) {
+            String sql = "explain insert into " + table + " " + source;
+            MemoTestUtils.createStatementContext(connectContext, sql);
+            ExplainCommand explain = (ExplainCommand) parser.parseSingle(sql);
+            Plan insert = ((Explainable) explain.getLogicalPlan()).getExplainPlan(connectContext);
+            Plan bound = PlanChecker.from(connectContext).analyze(insert).getCascadesContext().getRewritePlan();
+            Assertions.assertTrue(bound.anyMatch(node -> ((Plan) node).getExpressions().stream()
+                    .anyMatch(expr -> expr.anyMatch(child -> child instanceof StringLikeLiteral
+                            && value.equals(((StringLikeLiteral) child).getStringValue())))),
+                    "SQL mode " + connectContext.getSessionVariable().getSqlMode() + ": " + sql);
         }
     }
 

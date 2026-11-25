@@ -123,6 +123,17 @@ public class ColumnDefinitionTest {
     }
 
     @Test
+    public void testZonedAddGuardDigitStillValidatesDateAndZone() {
+        for (String value : new String[] {"2021-02-30 02:59:59.9994999CET",
+                "2021-10-31 02:59:59.9994999Invalid/Zone"}) {
+            ColumnDefinition column = new ColumnDefinition("ts", TimeStampTzType.of(3),
+                    false, null, false, Optional.of(new DefaultValue(value)), "");
+            Assertions.assertThrows(AnalysisException.class, () -> column.validateForAddColumn(
+                    false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS, false));
+        }
+    }
+
+    @Test
     public void testUndottedCompactDefaultsMatchDottedPrecisionAndZones() {
         ConnectContext previous = ConnectContext.get();
         ConnectContext context = new ConnectContext();

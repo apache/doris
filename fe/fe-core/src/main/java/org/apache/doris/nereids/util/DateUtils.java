@@ -400,6 +400,11 @@ public class DateUtils {
      * be retrieved by {@link #getNanosecondGuardDigit(String)} during target-scale rounding.
      */
     public static String truncateFractionalSecondForJavaParser(String s) {
+        return truncateFractionalSecond(s, NANOSECOND_SCALE);
+    }
+
+    /** Keep the fraction accepted by a typed parser without changing any zone suffix. */
+    public static String truncateFractionalSecond(String s, int scale) {
         int dot = s.lastIndexOf('.');
         if (dot < 0) {
             return s;
@@ -408,7 +413,7 @@ public class DateUtils {
         while (fractionEnd < s.length() && Character.isDigit(s.charAt(fractionEnd))) {
             fractionEnd++;
         }
-        int retainedEnd = Math.min(dot + NANOSECOND_SCALE + 1, fractionEnd);
+        int retainedEnd = Math.min(dot + scale + 1, fractionEnd);
         return retainedEnd == fractionEnd ? s : s.substring(0, retainedEnd) + s.substring(fractionEnd);
     }
 
