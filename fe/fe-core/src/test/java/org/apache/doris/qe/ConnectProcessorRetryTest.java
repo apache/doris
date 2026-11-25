@@ -24,6 +24,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.apache.commons.codec.digest.DigestUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -110,9 +111,13 @@ public class ConnectProcessorRetryTest extends TestWithFeService {
         try {
             Config.query_audit_always_on = true;
             connectContext.getState().reset();
+            connectContext.setStmtId(123);
+            connectContext.setSqlHash("previous-hash");
             String sql = "SELECT /*+ SET_VAR(query_timeout=42, enable_prepared_stmt_audit_log=false) */ 1";
             Assertions.assertNull(testProcessor.parseWithFallback(sql, sql, session));
             Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+            Assertions.assertEquals(0, connectContext.getStmtId());
+            Assertions.assertEquals(DigestUtils.md5Hex(sql), connectContext.getSqlHash());
             Assertions.assertEquals(originalTimeout, session.getQueryTimeoutS());
             Assertions.assertFalse(session.getIsSingleSetVar());
             Assertions.assertTrue(session.getSessionOriginValue().isEmpty());
@@ -142,6 +147,9 @@ public class ConnectProcessorRetryTest extends TestWithFeService {
     public void testAuditMaskingAcceptsOrdinaryStatementBatch() {
         String sql = "SELECT 1; SELECT 2";
         Assertions.assertEquals(sql, NeedAuditEncryption.maskSqlForAudit(sql));
+        String batch = "EXPORT TABLE sample_db.items TO 'fixture' WITH BROKER fixture; SELECT 2";
+        Assertions.assertEquals(NeedAuditEncryption.AUDIT_SQL_UNAVAILABLE + "; SELECT 2",
+                NeedAuditEncryption.maskSqlForAudit(batch));
     }
 
     // tryRetryOriginalSql tests

@@ -27,6 +27,8 @@ import java.util.TreeMap;
  * NeedAuditEncryption
  */
 public interface NeedAuditEncryption {
+    String AUDIT_SQL_UNAVAILABLE = "/* audit SQL unavailable */";
+
     boolean needAuditEncryption();
 
     /**
@@ -46,7 +48,7 @@ public interface NeedAuditEncryption {
             new NereidsParser().parseAuditStatementsForEncryption(sql, ranges);
             return BaseViewInfo.rewriteSqlWithUtf16Offsets(ranges, sql);
         } catch (RuntimeException e) {
-            return "/* audit SQL unavailable */";
+            return AUDIT_SQL_UNAVAILABLE;
         }
     }
 

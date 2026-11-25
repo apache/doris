@@ -29,6 +29,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.plugin.DialectConverterPlugin;
@@ -394,9 +395,18 @@ public class NereidsParser {
         DorisParser.MultiStatementsContext tree =
                 (DorisParser.MultiStatementsContext) toAst(tokenStream, DorisParser::multiStatements);
         TreeMap<Pair<Integer, Integer>, String> codePointRanges = new TreeMap<>(new Pair.PairComparator<>());
+        Map<Pair<Integer, Integer>, String> statementRanges = new TreeMap<>(new Pair.PairComparator<>());
         for (DorisParser.StatementContext statement : tree.statement()) {
-            LogicalPlanBuilder builder = new LogicalPlanBuilderForEncryption(ImmutableMap.of(), codePointRanges);
-            ParserUtils.withOrigin(statement, () -> builder.visit(statement));
+            statementRanges.clear();
+            try {
+                LogicalPlanBuilder builder = new LogicalPlanBuilderForEncryption(ImmutableMap.of(), statementRanges);
+                ParserUtils.withOrigin(statement, () -> builder.visit(statement));
+                codePointRanges.putAll(statementRanges);
+            } catch (RuntimeException e) {
+                // A failure in one statement's legacy redactor must not discard other statements' text.
+                codePointRanges.put(Pair.of(statement.start.getStartIndex(), statement.stop.getStopIndex()),
+                        NeedAuditEncryption.AUDIT_SQL_UNAVAILABLE);
+            }
         }
         copyMaskRanges(sql, codePointRanges, ranges);
     }

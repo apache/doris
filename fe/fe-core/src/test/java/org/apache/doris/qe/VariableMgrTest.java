@@ -367,6 +367,28 @@ public class VariableMgrTest extends TestWithFeService {
         });
     }
 
+    @Test
+    public void testForwardedCompoundSetKeepsAcceptedAuditSessionValue() throws Throwable {
+        withAuditVariablesRestored(true, () -> {
+            boolean originalProfile = VariableMgr.getDefaultSessionVariable().enableProfile();
+            try {
+                runSet("SET GLOBAL enable_profile = true");
+                String sql = "SET enable_prepared_stmt_audit_log = @@GLOBAL.enable_profile,"
+                        + " GLOBAL enable_profile = false";
+                runSet(sql);
+                Assertions.assertFalse(VariableMgr.getDefaultSessionVariable().enableProfile());
+                Assertions.assertTrue(connectContext.getSessionVariable().enablePreparedStmtAuditLog);
+
+                connectContext.getSessionVariable().enablePreparedStmtAuditLog = false;
+                SetOptionsCommand forwarded = (SetOptionsCommand) UtFrameUtils.parseStmt(sql, connectContext);
+                forwarded.afterForwardToMaster(connectContext);
+                Assertions.assertTrue(connectContext.getSessionVariable().enablePreparedStmtAuditLog);
+            } finally {
+                runSet("SET GLOBAL enable_profile = " + originalProfile);
+            }
+        });
+    }
+
     // A renamed variable would silently lose its protection: every name the policy protects must resolve.
     @Test
     public void testQueryAuditPolicyNamesAreVariables() {

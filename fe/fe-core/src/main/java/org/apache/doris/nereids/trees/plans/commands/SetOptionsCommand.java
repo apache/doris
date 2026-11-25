@@ -85,8 +85,8 @@ public class SetOptionsCommand extends Command implements Forward, NeedAuditEncr
     public void afterForwardToMaster(ConnectContext ctx) throws Exception {
         for (SetVarOp varOp : setVarOpList) {
             // Forwarding with sync has already replayed these values. Do not evaluate the expression again.
-            if (setVarOpList.size() == 1 && varOp instanceof SetSessionVarOp sessionOp
-                    && sessionOp.applyReplayedAuditGlobal(ctx)) {
+            if (varOp instanceof SetSessionVarOp sessionOp && (sessionOp.applyForwardedAuditSession(ctx)
+                    || (setVarOpList.size() == 1 && sessionOp.applyReplayedAuditGlobal(ctx)))) {
                 continue;
             }
             varOp.validate(ctx);

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.QueryAuditPolicy;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.HeartbeatFlags;
@@ -146,6 +148,17 @@ public class SetSessionVarOp extends SetVarOp {
         sb.append(getType().toSql());
         sb.append(" ").append(name).append(" = ").append(value.toSql());
         return sb.toString();
+    }
+
+    /** Apply the only session value that an enabled master can have accepted for this audit variable. */
+    public boolean applyForwardedAuditSession(ConnectContext ctx) throws DdlException {
+        if (!QueryAuditPolicy.isAlwaysOn() || getType() == SetType.GLOBAL
+                || !SessionVariable.ENABLE_PREPARED_STMT_AUDIT_LOG.equalsIgnoreCase(name)) {
+            return false;
+        }
+        VariableMgr.setVarForNonMasterFE(ctx.getSessionVariable(),
+                new SetVar(SetType.SESSION, name, new BoolLiteral(true)));
+        return true;
     }
 
     public boolean applyReplayedAuditGlobal(ConnectContext ctx) throws DdlException {

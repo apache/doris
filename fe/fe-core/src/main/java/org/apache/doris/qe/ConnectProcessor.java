@@ -511,6 +511,8 @@ public abstract class ConnectProcessor {
         executor = null;
         ctx.setExecutor(null);
         ctx.setEffectiveCloudCluster("");
+        ctx.setStmtId(0);
+        ctx.setSqlHash(DigestUtils.md5Hex(sql));
         handleQueryException(new AnalysisException(error.getMessage(), error), sql, null, null);
     }
 

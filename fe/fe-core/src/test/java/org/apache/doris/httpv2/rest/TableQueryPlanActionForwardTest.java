@@ -26,6 +26,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 
@@ -161,6 +162,7 @@ public class TableQueryPlanActionForwardTest {
         try {
             Config.query_audit_always_on = true;
             Mockito.when(env.getCatalogMgr()).thenReturn(Mockito.mock(CatalogMgr.class));
+            Mockito.when(env.getPluginMgr()).thenReturn(Mockito.mock(PluginMgr.class));
             WorkloadRuntimeStatusMgr audit = Mockito.mock(WorkloadRuntimeStatusMgr.class);
             Mockito.when(env.getWorkloadRuntimeStatusMgr()).thenReturn(audit);
             Method handleQuery = TableQueryPlanAction.class.getDeclaredMethod(
@@ -170,6 +172,8 @@ public class TableQueryPlanActionForwardTest {
             InvocationTargetException result = Assertions.assertThrows(InvocationTargetException.class,
                     () -> handleQuery.invoke(action, context, "testDb", "sample_items", sql, new HashMap<>()));
             Assertions.assertInstanceOf(DorisHttpException.class, result.getCause());
+            Assertions.assertTrue(result.getCause().getMessage().contains("enable_prepared_stmt_audit_log"),
+                    result.getCause().getMessage());
 
             ArgumentCaptor<AuditEvent> event = ArgumentCaptor.forClass(AuditEvent.class);
             Mockito.verify(audit).submitFinishQueryToAudit(event.capture());
