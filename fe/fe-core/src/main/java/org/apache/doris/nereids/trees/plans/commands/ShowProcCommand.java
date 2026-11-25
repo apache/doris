@@ -21,7 +21,6 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.proc.ProcNodeInterface;
@@ -51,20 +50,10 @@ public class ShowProcCommand extends ShowCommand {
         this.path = path;
     }
 
-    /**
-     * get meta for show proc
-     */
-    public ShowResultSetMetaData getMetaData(ProcNodeInterface procNode) {
+    private static ShowResultSetMetaData buildMetadata(List<String> names) {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        ProcResult result = null;
-        try {
-            result = procNode.fetchResult();
-        } catch (AnalysisException e) {
-            return builder.build();
-        }
-
-        for (String col : result.getColumnNames()) {
-            builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
+        for (String name : names) {
+            builder.addColumn(new Column(name, ScalarType.createVarchar(30)));
         }
         return builder.build();
     }
@@ -81,9 +70,8 @@ public class ShowProcCommand extends ShowCommand {
         }
 
         ProcNodeInterface procNode = ProcService.getInstance().open(path);
-        List<List<String>> finalRows = procNode.fetchResult().getRows();
-        ShowResultSet resultSet = new ShowResultSet(getMetaData(procNode), finalRows);
-        return resultSet;
+        ProcResult result = procNode.fetchResult();
+        return new ShowResultSet(buildMetadata(result.getColumnNames()), result.getRows());
     }
 
     @Override
