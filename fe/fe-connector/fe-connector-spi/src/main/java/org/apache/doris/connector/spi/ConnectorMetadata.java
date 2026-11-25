@@ -333,6 +333,21 @@ public interface ConnectorMetadata extends
         return handle;  // default: connectors without column-pruned scan metadata ignore the signal
     }
 
+    /**
+     * {@link #applyTopnLazyMaterialization(ConnectorSession, ConnectorTableHandle)}, told which columns the second
+     * phase fetches: {@code lazyColumns} names the columns the scan no longer reads because the engine fetches them
+     * by row id, only for the rows that survive the Top-N. A connector whose backend requirements depend on every
+     * column its reader decodes, in either phase, counts these with the scan's own columns: the second phase runs
+     * on the backend that read the row in the first.
+     *
+     * <p>The engine calls this form. The default passes on to the two-argument form, so a connector that needs only
+     * the signal overrides that one.</p>
+     */
+    default ConnectorTableHandle applyTopnLazyMaterialization(ConnectorSession session,
+            ConnectorTableHandle handle, List<String> lazyColumns) {
+        return applyTopnLazyMaterialization(session, handle);
+    }
+
 
     /**
      * Releases whatever this per-statement instance holds. Called by the engine exactly once per statement in

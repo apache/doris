@@ -245,7 +245,10 @@ metastore/shade/cache). For a write path, the richest example is
    (`s3("uri" = ..., "format" = "<name>")`) is declared in
    `ConnectorProvider#getFileFormats` and read by the catalog-less connector
    that `createFileFormatConnector` builds, whose metadata implements
-   `ConnectorFileSourceOps` (example: `LanceFileFormatConnector`).
+   `ConnectorFileSourceOps` (example: `LanceFileFormatConnector`). The search
+   table functions (`vector_search`, `full_text_search`) reach a catalog's
+   tables through metadata that implements `ConnectorSearchOps` (example:
+   `LanceConnectorMetadata`).
 10. **Write path** (if any). Implement the write Ops and
     `Connector#getWritePlanProvider`; copy from `fe-connector-iceberg`.
 11. **Statement-scoped memos.** Follow the `ConnectorStatementScopes`

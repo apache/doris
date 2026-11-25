@@ -22,6 +22,11 @@ import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.connector.spi.search.ConnectorSearch;
+import org.apache.doris.connector.spi.search.ConnectorSearchFunction;
+import org.apache.doris.connector.spi.search.ConnectorSearchLazyMaterialization;
+import org.apache.doris.connector.spi.search.ConnectorSearchOps;
+import org.apache.doris.connector.spi.search.ConnectorSearchRequest;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
@@ -88,8 +93,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Native encryption requires a new major after API 36 added connector file formats.
-        Assertions.assertEquals("37.0", version.getProperty("api.version"));
+        // Major 38 adds search table functions and lazy-column selection after API 37 native encryption.
+        Assertions.assertEquals("38.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -100,6 +105,10 @@ public class ConnectorPluginSurfaceTest {
             ConnectorProvider.class,
             ConnectorFileSource.class,
             ConnectorFileSourceOps.class,
+            ConnectorSearchOps.class,
+            ConnectorSearchRequest.class,
+            ConnectorSearch.class,
+            ConnectorSearchFunction.class,
             ConnectorSecuritySurface.class,
             ConnectorContext.class,
             ConnectorStorageContext.class,
@@ -131,6 +140,7 @@ public class ConnectorPluginSurfaceTest {
     /** Public enum constants linked directly by connector plugin bytecode. */
     private static final List<Class<? extends Enum<?>>> FROZEN_ENUM_TYPES =
             Arrays.asList(ConnectorCapability.class, ConnectorTaskScheduler.Stage.class,
+                    ConnectorSearchFunction.class, ConnectorSearchLazyMaterialization.class,
                     org.apache.doris.connector.spi.write.ConnectorRowChangeStyle.class,
                     org.apache.doris.connector.spi.write.ConnectorWriteDistribution.Mode.class,
                     org.apache.doris.connector.spi.write.ConnectorWriteDistribution.WriterAssignment.class);
@@ -176,7 +186,8 @@ public class ConnectorPluginSurfaceTest {
         }
         for (Class<?> frozen : FROZEN_TYPES) {
             for (Method m : frozen.getMethods()) {
-                if (m.isSynthetic() || m.getDeclaringClass() == Object.class) {
+                // What every class or every enum has is no part of the plugin API.
+                if (m.isSynthetic() || m.getDeclaringClass() == Object.class || m.getDeclaringClass() == Enum.class) {
                     continue;
                 }
                 StringBuilder sb = new StringBuilder(frozen.getName()).append('#')
