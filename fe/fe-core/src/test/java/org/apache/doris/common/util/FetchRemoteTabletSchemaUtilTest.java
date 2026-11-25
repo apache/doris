@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.proc.ProcNodeInterface;
@@ -162,6 +163,30 @@ class FetchRemoteTabletSchemaUtilTest {
             AnalysisException e = Assertions.assertThrows(AnalysisException.class,
                     () -> FetchRemoteTabletSchemaUtil.collectTablets(partitions));
             Assertions.assertTrue(e.getMessage().contains("needs to read 2049 tablets"), e.getMessage());
+        }
+    }
+
+    @Test
+    void collectsCloudTabletsUsingOneVersionLookup() throws Exception {
+        List<CloudPartition> cloudPartitions = ImmutableList.of(Mockito.mock(CloudPartition.class),
+                Mockito.mock(CloudPartition.class), Mockito.mock(CloudPartition.class));
+        Tablet first = tabletWithReplicas(101);
+        Tablet last = tabletWithReplicas(303);
+        List<PartitionTablets> partitions = ImmutableList.of(new PartitionTablets(cloudPartitions.get(0), ImmutableList.of(first)),
+                new PartitionTablets(cloudPartitions.get(1), ImmutableList.of(tabletWithReplicas(202))),
+                new PartitionTablets(cloudPartitions.get(2), ImmutableList.of(last)));
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        Mockito.when(context.getSessionVariable()).thenReturn(new SessionVariable());
+        long initVersion = Partition.PARTITION_INIT_VERSION;
+        try (MockedStatic<ConnectContext> contextStatic = Mockito.mockStatic(ConnectContext.class);
+                MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class);
+                MockedStatic<CloudPartition> cloudStatic = Mockito.mockStatic(CloudPartition.class)) {
+            contextStatic.when(ConnectContext::get).thenReturn(context);
+            configStatic.when(Config::isCloudMode).thenReturn(true);
+            cloudStatic.when(() -> CloudPartition.getSnapshotVisibleVersion(cloudPartitions))
+                    .thenReturn(ImmutableList.of(initVersion + 1, initVersion, initVersion + 2));
+            Assertions.assertEquals(ImmutableList.of(first, last), FetchRemoteTabletSchemaUtil.collectTablets(partitions));
+            cloudStatic.verify(() -> CloudPartition.getSnapshotVisibleVersion(cloudPartitions));
         }
     }
 
