@@ -1326,10 +1326,10 @@ Status collect_local_variant_schemas(const PFetchRemoteSchemaRequest& request,
                 }
                 return std::move(rowsets.error());
             }
-            auto schema =
-                    DORIS_TRY(vectorized::schema_util::VariantCompactionUtil::
-                                      calculate_variant_extended_schema(
-                                              rowsets.value(), tablet.value()->tablet_schema()));
+            auto schema = DORIS_TRY(
+                    vectorized::schema_util::VariantCompactionUtil::get_extended_desc_schema(
+                            tablet.value()->get_tablet_info(), rowsets.value(),
+                            tablet.value()->tablet_schema()));
             schemas.push_back(std::move(schema));
         }
         return Status::OK();

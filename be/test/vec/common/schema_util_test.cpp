@@ -20,6 +20,7 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
+#include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/segment_v2/variant/variant_column_writer_impl.h"
@@ -1681,7 +1682,6 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     EXPECT_EQ(paths_set_info.subcolumn_indexes["b"].size(), 1);
 }
 
-// Test has_different_structure_in_same_path function indirectly through check_variant_has_no_ambiguous_paths
 TEST_F(SchemaUtilTest, has_different_structure_in_same_path_indirect) {
     // Test case 1: Same structure and same length - should not detect ambiguity
     {
@@ -1860,6 +1860,16 @@ TEST_F(SchemaUtilTest, has_different_structure_in_same_path_indirect) {
     }
 }
 
+TEST_F(SchemaUtilTest, RejectsAmbiguousPathAfterRepeatedDottedAndNestedKeys) {
+    PathsInData paths(1024, PathInDataBuilder().append("a.b", false).build());
+    paths.emplace_back(PathInDataBuilder().append("a", false).append("b", false).build());
+    ASSERT_TRUE(schema_util::check_variant_has_no_ambiguous_paths(paths).ok());
+
+    paths.emplace_back(PathInDataBuilder().append("a", true).append("b", false).build());
+    EXPECT_TRUE(schema_util::check_variant_has_no_ambiguous_paths(paths)
+                        .is<ErrorCode::DATA_QUALITY_ERROR>());
+}
+
 // Test check_path_conflicts_with_existing function indirectly through update_least_common_schema
 TEST_F(SchemaUtilTest, check_path_conflicts_with_existing) {
     // Test case 1: No conflicts - should succeed
@@ -1999,6 +2009,39 @@ TEST_F(SchemaUtilTest, ExtendedDescReturnsBaseSchemaForEmptyRowsets) {
     ASSERT_NE(result.value(), nullptr);
     EXPECT_EQ(result.value()->num_columns(), 1);
     EXPECT_EQ(result.value()->column(0).name(), "v");
+}
+
+TEST_F(SchemaUtilTest, ExtendedDescCacheSeparatesTabletGenerationsAndSchemas) {
+    TabletSchemaPB pb;
+    pb.set_keys_type(KeysType::DUP_KEYS);
+    auto* column = pb.add_column();
+    column->set_unique_id(1);
+    column->set_name("v");
+    column->set_type("VARIANT");
+    auto base_schema = std::make_shared<TabletSchema>();
+    base_schema->init_from_pb(pb);
+
+    const TabletInfo tablet(710051, UniqueId::gen_uid());
+    auto read = [&](const TabletInfo& target, const TabletSchemaSPtr& schema) {
+        return schema_util::VariantCompactionUtil::get_extended_desc_schema(target, {}, schema);
+    };
+    auto first = read(tablet, base_schema);
+    ASSERT_TRUE(first.has_value()) << first.error();
+    auto repeated = read(tablet, base_schema);
+    ASSERT_TRUE(repeated.has_value()) << repeated.error();
+    EXPECT_EQ(first.value(), repeated.value());
+
+    const TabletInfo recreated(tablet.tablet_id, UniqueId::gen_uid());
+    auto replacement = read(recreated, base_schema);
+    ASSERT_TRUE(replacement.has_value()) << replacement.error();
+    EXPECT_NE(first.value(), replacement.value());
+
+    column->set_name("renamed");
+    auto changed_schema = std::make_shared<TabletSchema>();
+    changed_schema->init_from_pb(pb);
+    auto changed = read(tablet, changed_schema);
+    ASSERT_TRUE(changed.has_value()) << changed.error();
+    EXPECT_EQ(changed.value()->column(0).name(), "renamed");
 }
 
 TEST_F(SchemaUtilTest, ExtendedDescPropagatesSegmentOpenFailure) {

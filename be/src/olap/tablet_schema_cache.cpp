@@ -27,6 +27,8 @@
 
 #include "bvar/bvar.h"
 #include "exec/tablet_info.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/rowset.h"
 #include "olap/tablet_schema.h"
 #include "util/sha.h"
 
@@ -150,6 +152,24 @@ std::string TabletSchemaCache::build_load_schema_cache_key(
                                 TabletSchema::deterministic_string_serialize(index_schema_pb));
     }
     return get_key_signature(cache_key);
+}
+
+std::string TabletSchemaCache::build_extended_desc_cache_key(
+        const TabletInfo& tablet, const TabletSchema& base_schema,
+        const std::vector<RowsetSharedPtr>& rowsets) {
+    std::string key("extended_desc");
+    append_cache_key_value(&key, tablet.tablet_id);
+    append_cache_key_value(&key, tablet.tablet_uid.hi);
+    append_cache_key_value(&key, tablet.tablet_uid.lo);
+    TabletSchemaPB base_schema_pb;
+    base_schema.to_schema_pb(&base_schema_pb);
+    append_cache_key_string(&key, TabletSchema::deterministic_string_serialize(base_schema_pb));
+    // Compaction can replace the physical rowsets without changing the visible version.
+    for (const auto& rowset : rowsets) {
+        append_cache_key_string(&key, rowset->rowset_id().to_string());
+        append_cache_key_value(&key, rowset->num_segments());
+    }
+    return get_key_signature(key);
 }
 
 void TabletSchemaCache::release(Cache::Handle* lru_handle) {
