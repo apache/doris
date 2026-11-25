@@ -241,6 +241,21 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testLanceFragmentsPerSplitReachesConnectorsAndRejectsNegativeValues() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION, SessionVariable.LANCE_FRAGMENTS_PER_SPLIT,
+                new IntLiteral(3)));
+        Assertions.assertEquals(3, sessionVar.lanceFragmentsPerSplit);
+        // The lance connector reads it from the session properties, which carry only visible variables.
+        Assertions.assertEquals("3", VariableMgr.toMap(sessionVar).get(SessionVariable.LANCE_FRAGMENTS_PER_SPLIT));
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "lance_fragments_per_split must be non-negative",
+                () -> VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                        SessionVariable.LANCE_FRAGMENTS_PER_SPLIT, new IntLiteral(-1))));
+        Assertions.assertEquals(3, sessionVar.lanceFragmentsPerSplit);
+    }
+
+    @Test
     public void testRuntimeFilterBroadcastJoinProducerNumDescription() throws Exception {
         SessionVariable sessionVar = new SessionVariable();
         Assertions.assertEquals(3, sessionVar.getRuntimeFilterBroadcastJoinProducerNum());

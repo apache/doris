@@ -38,6 +38,23 @@ import java.util.Map;
 public class IcebergConnectorConfTest {
 
     @Test
+    public void workerPoolSizeUsesOnlyPositivePluginConfiguration() {
+        Assertions.assertNull(IcebergConf.workerThreadPoolSize(context(Map.of(), Map.of())));
+        Assertions.assertNull(IcebergConf.workerThreadPoolSize(
+                context(Map.of(IcebergConf.CONF_WORKER_THREAD_POOL_SIZE, " "), Map.of())));
+        Assertions.assertNull(IcebergConf.workerThreadPoolSize(
+                context(Map.of(), Map.of(IcebergConf.CONF_WORKER_THREAD_POOL_SIZE, "8"))));
+        Assertions.assertEquals(1, IcebergConf.workerThreadPoolSize(
+                context(Map.of(IcebergConf.CONF_WORKER_THREAD_POOL_SIZE, " 1 "), Map.of())));
+        for (String invalid : new String[] {"0", "-1", "many", "2147483648"}) {
+            IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> IcebergConf.workerThreadPoolSize(
+                            context(Map.of(IcebergConf.CONF_WORKER_THREAD_POOL_SIZE, invalid), Map.of())));
+            Assertions.assertTrue(error.getMessage().contains(IcebergConf.CONF_WORKER_THREAD_POOL_SIZE));
+        }
+    }
+
+    @Test
     public void encryptionReadIsDefaultOffAndUsesOnlyPluginConfiguration() {
         Assertions.assertFalse(IcebergConf.encryptionReadEnabled(null));
         Assertions.assertFalse(IcebergConf.encryptionReadEnabled(context(Map.of(), Map.of())));

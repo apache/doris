@@ -189,8 +189,9 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public PhysicalWindow<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, groupExpression,
-                null, physicalProperties, statistics, child());
+        return rebuildKeepingStates(this,
+                new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, groupExpression,
+                null, physicalProperties, statistics, child()));
     }
 
     private boolean isUnique(NamedExpression namedExpression) {

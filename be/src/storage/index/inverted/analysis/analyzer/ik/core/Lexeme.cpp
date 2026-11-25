@@ -35,14 +35,6 @@ void Lexeme::setLength(size_t length) {
     this->byte_length_ = length;
 }
 
-void Lexeme::setText(std::string&& text) {
-    if (text.empty()) {
-        this->text_.clear();
-        return;
-    }
-    this->text_ = std::move(text);
-}
-
 bool Lexeme::append(const Lexeme& other, Type new_type) {
     if (this->getByteEndPosition() == other.getByteBeginPosition()) {
         byte_length_ += other.getByteLength();
@@ -51,12 +43,6 @@ bool Lexeme::append(const Lexeme& other, Type new_type) {
         return true;
     }
     return false;
-}
-
-std::string Lexeme::toString() const {
-    std::ostringstream oss;
-    oss << getByteBeginPosition() << '-' << getByteEndPosition() << " : " << text_;
-    return oss.str();
 }
 
 bool Lexeme::operator==(const Lexeme& other) const noexcept {

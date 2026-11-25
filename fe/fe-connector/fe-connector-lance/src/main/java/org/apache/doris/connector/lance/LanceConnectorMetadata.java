@@ -154,7 +154,10 @@ final class LanceConnectorMetadata implements ConnectorMetadata {
 
     // ========= ConnectorPushdownOps =========
 
-    /** Nothing is pushed down to Lance yet, so no conjunct is ever translated, with a CAST or without. */
+    /**
+     * A conjunct holding a CAST stays in Doris. The engine would strip the CAST and hand over the bare column
+     * comparison, which Lance would then evaluate in the column's own type, not the one Doris compares in.
+     */
     @Override
     public boolean supportsCastPredicatePushdown(ConnectorSession session) {
         return false;
@@ -216,8 +219,12 @@ final class LanceConnectorMetadata implements ConnectorMetadata {
     // ========= internals =========
 
     private LanceTableMetadata metadata(ConnectorSession session, LanceTableHandle handle) {
+        // Looked up before the memo's loader runs: a loader may not use the statement scope itself.
+        LanceMetadataMetrics metrics = LanceMetadataMetrics.forTable(session, handle.getDbName(),
+                handle.getTableName());
         return LanceStatementScope.sharedMetadata(session, handle,
-                () -> client.loadTableMetadata(handle.getDbName(), handle.getTableName(), handle.getVersion()));
+                () -> client.loadTableMetadata(handle.getDbName(), handle.getTableName(), handle.getVersion(),
+                        metrics));
     }
 
     private LanceTableMetadata metadataAtOrBefore(ConnectorSession session, LanceTableHandle handle,
@@ -229,7 +236,8 @@ final class LanceConnectorMetadata implements ConnectorMetadata {
                     + "', expected " + LanceSnapshotResolver.TIMESTAMP_FORMATS);
         }
         LanceTableMetadata metadata = client.loadTableMetadataAtOrBefore(handle.getDbName(),
-                handle.getTableName(), timestamp.getAsLong(), requestedText);
+                handle.getTableName(), timestamp.getAsLong(), requestedText,
+                LanceMetadataMetrics.forTable(session, handle.getDbName(), handle.getTableName()));
         // Remembered under the version it resolved to, which is what the pinned reads that follow ask for.
         return LanceStatementScope.sharedMetadata(session, handle.withVersion(metadata.getVersion()),
                 () -> metadata);

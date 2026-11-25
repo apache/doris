@@ -50,6 +50,7 @@
 #include "storage/index/inverted/snii/snii_blob_directory.h"
 #include "storage/index/inverted/snii/snii_doris_adapter.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
+#include "testutil/scoped_temp_dir.h"
 
 using doris::Status;
 using doris::segment_v2::snii_doris::DorisSniiFileReader;
@@ -66,9 +67,10 @@ constexpr int kDocCount = 2000;
 constexpr uint64_t kIndexId = 9;
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("snii_blob_bkd_roundtrip_test");
     static int counter = 0;
-    return "/tmp/snii_blob_bkd_test_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
-           ".idx";
+    return (temp_dir.path() / "snii_blob_bkd_test_").string() + std::to_string(getpid()) + "_" +
+           std::to_string(counter++) + ".idx";
 }
 
 // 1D int range visitor over sortable bytes; collects hits into a set.

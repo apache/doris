@@ -144,6 +144,10 @@ public:
 
     ~ColumnReader() override;
 
+    // Checks this reader and its owned readers without changing their local status.
+    // Does not perform IO. Call without holding the column-reader cache mutex.
+    virtual Status healthy_status() const;
+
     // create a new column iterator. Client should delete returned iterator
     virtual Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                                 const StorageReadOptions*, bool enable_read_ahead = false);
@@ -243,6 +247,28 @@ private:
                  io::FileReaderSPtr file_reader);
     Status init(const ColumnMetaPB* meta);
 
+    // Only wrap initialization of cached state. Iterator-local read failures
+    // must not poison this reader. Preserve exceptions after recording them.
+    template <typename Fn>
+    Status _load_with_health_check(Fn&& load) {
+        try {
+            auto status = load();
+            _healthy_status.update(status);
+            return status;
+        } catch (const doris::Exception& e) {
+            _healthy_status.update(e.to_status());
+            throw;
+        } catch (const std::exception& e) {
+            _healthy_status.update(Status::InternalError(
+                    "Exception while initializing cached column reader: {}", e.what()));
+            throw;
+        } catch (...) {
+            _healthy_status.update(Status::InternalError(
+                    "Unknown exception while initializing cached column reader"));
+            throw;
+        }
+    }
+
     [[nodiscard]] Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory,
                                               const ColumnIteratorOptions& iter_opts);
     [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory,
@@ -276,6 +302,7 @@ private:
     CompressionTypePB _meta_compression;
 
     ColumnReaderOptions _opts;
+    AtomicStatus _healthy_status;
     uint64_t _num_rows;
 
     io::FileReaderSPtr _file_reader;

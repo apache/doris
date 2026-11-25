@@ -26,6 +26,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -262,7 +263,8 @@ struct ReadResult {
     bool eof = false;
     size_t second_rows = 0;
     bool second_eof = false;
-    size_t document_buffer_size = 0;
+    bool document_in_padding_buffer = false;
+    size_t padding_buffer_size = 0;
     int64_t rejected_rows = 0;
     std::map<LocalColumnId, std::vector<uint8_t>> missing_fields;
     std::vector<ColumnDefinition> schema;
@@ -310,7 +312,8 @@ ReadResult read_once(const std::string& file_name, const std::string& content,
 
     result.block = make_block(result.schema, requested_local_ids);
     result.status = reader.get_block(&result.block, &result.rows, &result.eof);
-    result.document_buffer_size = reader.TEST_document_buffer_size();
+    result.document_in_padding_buffer = reader.TEST_document_in_padding_buffer();
+    result.padding_buffer_size = reader.TEST_padding_buffer_size();
     result.rejected_rows = io_ctx->load_filtered_rows;
     result.missing_fields = reader.missing_fields();
     if (result.status.ok() && read_twice) {
@@ -687,7 +690,10 @@ TEST(JsonReaderTest, ReadsRequestedColumnsInFileScanRequestOrder) {
     ASSERT_TRUE(result.second_status.ok()) << result.second_status.to_string();
     EXPECT_EQ(result.second_rows, 0);
     EXPECT_TRUE(result.second_eof);
-    EXPECT_EQ(result.document_buffer_size, 0);
+    EXPECT_FALSE(result.document_in_padding_buffer);
+    // The buffer fits the longest line instead of a fixed 8 MB.
+    EXPECT_EQ(result.padding_buffer_size,
+              std::string_view(R"({"id":1,"name":"alice"})").size() + simdjson::SIMDJSON_PADDING);
 }
 
 TEST(JsonReaderTest, HiveColumnLookupIsCaseInsensitiveWithoutNormalizedKeys) {
@@ -716,6 +722,10 @@ TEST(JsonReaderTest, ReadsSingleDocumentOuterArray) {
     EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 0), "carol");
     EXPECT_EQ(nullable_int_at(*result.block.get_by_position(0).column, 1), 4);
     EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 1), "dave");
+    EXPECT_TRUE(result.document_in_padding_buffer);
+    EXPECT_EQ(result.padding_buffer_size,
+              std::string_view(R"([{"id":3,"name":"carol"},{"id":4,"name":"dave"}])").size() +
+                      simdjson::SIMDJSON_PADDING);
 }
 
 TEST(JsonReaderTest, ReadsJsonRootByLine) {

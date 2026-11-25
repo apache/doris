@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Every provider Lance routes somewhere other than S3 - OSS, Azure, GCS, Tencent COS, local files,
+ * Every provider Lance routes somewhere other than S3 or OSS - Azure, GCS, Tencent COS, local files,
  * and anything Lance adds later.
  *
  * <p>Both halves are deliberately inert, so such a dataset is reachable only through what its

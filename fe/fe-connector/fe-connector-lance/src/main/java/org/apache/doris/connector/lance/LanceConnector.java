@@ -58,10 +58,20 @@ public final class LanceConnector implements Connector {
     private final LanceCatalogClient client;
 
     public LanceConnector(Map<String, String> properties, ConnectorContext context) {
-        this.props = LanceCatalogProperties.of(properties);
+        this(LanceCatalogProperties.of(properties), context);
+    }
+
+    private LanceConnector(LanceCatalogProperties props, ConnectorContext context) {
+        this(props, context, new LanceCatalogClient(props,
+                () -> context.getStorageContext().getStorageProperties(),
+                () -> LanceConf.arrowMemoryLimitBytes(context)));
+    }
+
+    /** Over a catalog client built by the caller, which tests give recording resources. */
+    LanceConnector(LanceCatalogProperties props, ConnectorContext context, LanceCatalogClient client) {
+        this.props = props;
         this.context = context;
-        this.client = new LanceCatalogClient(props, () -> context.getStorageContext().getStorageProperties(),
-                () -> LanceConf.arrowMemoryLimitBytes(context));
+        this.client = client;
     }
 
     @Override
@@ -82,12 +92,14 @@ public final class LanceConnector implements Connector {
     }
 
     /**
-     * Runs on CREATE CATALOG only. A REST catalog is refused here rather than in the property check, so one
-     * that an earlier version created still replays; see {@link LanceCatalogProperties#requireFilesystem}.
+     * Runs on CREATE CATALOG only, so an OSS-HDFS warehouse is refused where the user wrote it. The first use of
+     * the namespace refuses it again: ALTER CATALOG does not run this check.
      */
     @Override
     public void preCreateValidation(ConnectorValidationContext validationContext) {
-        props.requireFilesystem();
+        if (!props.isRest()) {
+            LanceStorageOptions.rejectOssHdfs(context.getStorageContext().getStorageProperties());
+        }
     }
 
     /** {@code test_connection}: the namespace answers a listing under the catalog's parent namespace. */
@@ -102,6 +114,34 @@ public final class LanceConnector implements Connector {
             return ConnectorTestResult.failure("Lance " + props.getCatalogType()
                     + " catalog connectivity test failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * REFRESH CATALOG: the next call opens a new namespace and a cold Lance Session, which reads afresh a
+     * dataset replaced at the same URI. The engine also lands here on replay when it cannot name the database.
+     */
+    @Override
+    public void invalidateAll() {
+        client.refresh();
+    }
+
+    /**
+     * REFRESH DATABASE: retires the generation, as {@link #invalidateAll} does. Describing the tables again would
+     * not be enough, because the Session can serve the metadata of a deleted dataset for one written again at the
+     * same URI. The new dataset starts its versions over, and for one with V1 manifest names Lance keys a
+     * version's index list by the URI and the version alone. A filtered scan of the new dataset would then be
+     * planned over index segments it does not have, and the BE refuses such a range. A Lance Session cannot drop
+     * the entries of one dataset, so every table of the catalog starts cold again.
+     */
+    @Override
+    public void invalidateDb(String dbName) {
+        client.refresh();
+    }
+
+    /** REFRESH TABLE: retires the generation, for the reason {@link #invalidateDb} gives. */
+    @Override
+    public void invalidateTable(String dbName, String tableName) {
+        client.refresh();
     }
 
     @Override

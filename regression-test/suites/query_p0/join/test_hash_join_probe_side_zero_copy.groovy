@@ -108,4 +108,12 @@ suite("test_hash_join_probe_side_zero_copy", "query,p0") {
           ON p.k = b.k + 3 AND p.n < b.v
         ORDER BY p.k, p.n
     """
+
+    qt_shared_nullable_join_key """
+        SELECT l.number, r.number
+        FROM numbers("number" = "4") l
+        LEFT JOIN [broadcast] numbers("number" = "4") r
+            ON NULLIF(l.number, 1) <=> NULLIF(r.number, 2)
+        ORDER BY l.number, r.number
+    """
 }

@@ -284,26 +284,24 @@ ARROW_ADBC_NAME="apache-arrow-adbc-24.tar.gz"
 ARROW_ADBC_SOURCE="arrow-adbc-apache-arrow-adbc-24"
 ARROW_ADBC_MD5SUM="3d6aaf071d384fe8d3c12a9b5f62aa4e"
 
-# arrow-adbc Flight SQL driver, prebuilt.
-# Upstream writes this driver in Go and publishes no bare shared library, so it is
-# taken from the official release wheel (a zip) rather than adding a Go toolchain to
-# the thirdparty build. It must come from the same release as the source tree above
-# (C/Go 1.12.0): partition descriptors are driver-private bytes, so the FE and every
-# BE have to load the very same file. ADBC tests only, not shipped -- same treatment
-# as the SQLite driver. Linux only; the macOS wheels carry a .dylib no test looks for.
+# The test driver includes the connection-info isolation patch and its local capability.
+# Keep normal Doris builds Go-free; the release asset includes the standalone build recipe.
+ARROW_ADBC_FLIGHTSQL_SOURCE=""
 if [[ "$(uname -s)" == 'Linux' ]]; then
-    ARROW_ADBC_FLIGHTSQL_SOURCE="adbc_driver_flightsql"
     if [[ "${MACHINE_TYPE}" == 'x86_64' ]]; then
-        ARROW_ADBC_FLIGHTSQL_DOWNLOAD="https://files.pythonhosted.org/packages/2b/5b/f8566aa6d05eb40225f5874f8f5f5e8b8b4a4ce866d817a5ff352f326302/adbc_driver_flightsql-1.12.0-py3-none-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl"
-        ARROW_ADBC_FLIGHTSQL_NAME="adbc_driver_flightsql-1.12.0-x86_64.zip"
-        ARROW_ADBC_FLIGHTSQL_MD5SUM="975a283dc72db0c646204e512b396e2a"
-    elif [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
-        ARROW_ADBC_FLIGHTSQL_DOWNLOAD="https://files.pythonhosted.org/packages/57/45/6468fb425f3c0ae868c1ca9ab8e15cba76b59e941edd7e80e892e5476728/adbc_driver_flightsql-1.12.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl"
-        ARROW_ADBC_FLIGHTSQL_NAME="adbc_driver_flightsql-1.12.0-aarch64.zip"
-        ARROW_ADBC_FLIGHTSQL_MD5SUM="4ab31967910f9d2af20663b06412e6aa"
-    else
-        echo "no prebuilt adbc flightsql driver for ${MACHINE_TYPE}, skipping it"
-        ARROW_ADBC_FLIGHTSQL_SOURCE=""
+        ARROW_ADBC_FLIGHTSQL_SOURCE="adbc-flightsql-1.12.0-doris-info-v1-linux-x86_64-glibc2.17"
+        ARROW_ADBC_FLIGHTSQL_MD5SUM="b7a5907dcfb1651fdadbec2a24754217"
+        ARROW_ADBC_FLIGHTSQL_SHA256="d8fce8236ab0888467e779a15c4034788d94fcb4d2ccffbe0ac440e659f43e1c"
+        ARROW_ADBC_FLIGHTSQL_LIBRARY_SHA256="e5bb1894b18b4dc9acfbfe0ae406aafc07cf29b9fc35cbe233b6be790f825805"
+    elif [[ "${MACHINE_TYPE}" == 'aarch64' || "${MACHINE_TYPE}" == 'arm64' ]]; then
+        ARROW_ADBC_FLIGHTSQL_SOURCE="adbc-flightsql-1.12.0-doris-info-v1-linux-aarch64-glibc2.17"
+        ARROW_ADBC_FLIGHTSQL_MD5SUM="87e156c668c078753a923aeb7ef016e1"
+        ARROW_ADBC_FLIGHTSQL_SHA256="8051812339dfaf78733d453eb7c7b2ad18cfcc19c5582082abf0dccae9868439"
+        ARROW_ADBC_FLIGHTSQL_LIBRARY_SHA256="674311b8f64d58e5a77ebbdca251352455fdb7f2be80e0482211401c93bfdcb5"
+    fi
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+        ARROW_ADBC_FLIGHTSQL_NAME="${ARROW_ADBC_FLIGHTSQL_SOURCE}.tar.gz"
+        ARROW_ADBC_FLIGHTSQL_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/adbc-flightsql-1.12.0-doris-info-v1/${ARROW_ADBC_FLIGHTSQL_NAME}"
     fi
 fi
 
@@ -737,10 +735,8 @@ export TP_ARCHIVES=(
     'PAIMON_RUST'
 )
 
-# This variable is unset on macOS; callers may source this file with nounset.
-if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]]; then
-    read -r -a TP_ARCHIVES <<<"${TP_ARCHIVES[*]} ARROW_ADBC_FLIGHTSQL"
-    export TP_ARCHIVES
+if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+    TP_ARCHIVES+=('ARROW_ADBC_FLIGHTSQL')
 fi
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

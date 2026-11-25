@@ -19,7 +19,7 @@
 # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners#codeowners-syntax
 
 fe/fe-core/src/main/java/org/apache/doris/catalog/Env.java @dataroaring @CalvinKirs @morningman
-**/pom.xml @CalvinKirs @morningman
+**/pom.xml @CalvinKirs
 fe/fe-common/src/main/java/org/apache/doris/common/FeMetaVersion.java @dataroaring @morningman @yiguolei @xiaokang
 fe/fe-core/src/main/java/org/apache/doris/fs @CalvinKirs @924060929
 be/src/storage/index/inverted/ @airborne12 @eldenmoon @csun5285

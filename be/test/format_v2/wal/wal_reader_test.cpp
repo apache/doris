@@ -39,14 +39,12 @@
 #include "io/fs/local_file_system.h"
 #include "load/group_commit/wal/wal_file_reader.h"
 #include "load/group_commit/wal/wal_writer.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::format::wal {
 namespace {
 
-std::string temporary_wal_path() {
-    const auto root = std::filesystem::temp_directory_path() /
-                      ("doris-wal-v2-" +
-                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+std::string temporary_wal_path(const std::filesystem::path& root) {
     const auto path = root / "1" / "2" / "1_1_1_test";
     std::filesystem::create_directories(path.parent_path());
     return path.string();
@@ -114,8 +112,10 @@ void expect_wal_eof(WalReader* reader, Block* output) {
 class WalReaderV2ProjectionTest
         : public testing::TestWithParam<std::tuple<std::vector<int>, bool>> {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"wal_reader_projection"};
+
     void SetUp() override {
-        _wal_path = temporary_wal_path();
+        _wal_path = temporary_wal_path(scoped_temp_dir_.path());
         const auto type = std::make_shared<DataTypeString>();
         WalWriter writer(_wal_path);
         ASSERT_TRUE(writer.init(io::global_local_filesystem()).ok());
@@ -198,7 +198,8 @@ TEST(WalReaderV2Test, ParseColumnIdsRejectsMalformedHeaders) {
 }
 
 TEST(WalReaderV2Test, SchemaChangeDuplicateIdsKeepBaseColumnAndPhysicalPositions) {
-    const auto wal_path = temporary_wal_path();
+    const doris::test::ScopedTempDirectory temp_dir("wal_reader");
+    const auto wal_path = temporary_wal_path(temp_dir.path());
     const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
     const auto bigint_type = make_nullable(std::make_shared<DataTypeInt64>());
     Block source;
@@ -263,7 +264,8 @@ TEST(WalReaderV2Test, SchemaChangeDuplicateIdsKeepBaseColumnAndPhysicalPositions
 }
 
 TEST(WalReaderV2Test, WriterBackedReaderPreservesNestedSchemaAndMovesFirstPayload) {
-    const auto wal_path = temporary_wal_path();
+    const doris::test::ScopedTempDirectory temp_dir("wal_reader");
+    const auto wal_path = temporary_wal_path(temp_dir.path());
     const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
     const auto array_type = make_nullable(std::make_shared<DataTypeArray>(int_type));
     const auto string_type = make_nullable(std::make_shared<DataTypeString>());

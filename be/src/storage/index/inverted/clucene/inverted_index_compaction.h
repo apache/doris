@@ -27,6 +27,7 @@
 #include "storage/index/index_compound_reader.h"
 
 namespace doris {
+class RowIdConversion;
 class TabletIndex;
 namespace segment_v2 {
 class IndexFileWriter;
@@ -36,7 +37,7 @@ Status compact_column(
         int64_t index_id,
         std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>>& src_index_dirs,
         std::vector<lucene::store::Directory*>& dest_index_dirs, std::string_view tmp_path,
-        const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& trans_vec,
+        const RowIdConversion& rowid_conversion,
         const std::vector<uint32_t>& dest_segment_num_rows);
 } // namespace segment_v2
 } // namespace doris

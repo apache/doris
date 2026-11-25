@@ -30,6 +30,7 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -218,6 +219,56 @@ public class IcebergWriterHelperTest {
     }
 
     @Test
+    public void convertToWriterResultDoesNotInferFileOrderFromTableMetadata() {
+        Table table = tableWith("write.format.default", "parquet");
+        table.replaceSortOrder().desc("age").commit();
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.create(
+                table, "db1.t", Optional.empty(), false, false);
+        TIcebergCommitData commit = dataCommit();
+
+        DataFile fromTable = IcebergWriterHelper.convertToWriterResult(
+                table, Collections.singletonList(commit), ZoneOffset.UTC).dataFiles()[0];
+        DataFile fromContext = IcebergWriterHelper.convertToWriterResult(
+                context, Collections.singletonList(commit), ZoneOffset.UTC).dataFiles()[0];
+
+        Assertions.assertTrue(table.sortOrder().isSorted());
+        Assertions.assertTrue(context.getSortOrder().isSorted());
+        Assertions.assertEquals(Integer.valueOf(0), fromTable.sortOrderId());
+        Assertions.assertEquals(Integer.valueOf(0), fromContext.sortOrderId());
+    }
+
+    @Test
+    public void convertToWriterResultUsesExplicitFileOrderAcrossBothEntrypoints() {
+        Table table = tableWith("write.format.default", "parquet");
+        table.replaceSortOrder().desc("age").commit();
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.create(
+                table, "db1.t", Optional.empty(), false, false);
+        SortOrder fileOrder = context.getSortOrder();
+        table.replaceSortOrder().asc("name").commit();
+        TIcebergCommitData commit = dataCommit();
+
+        for (SortOrder order : Arrays.asList(SortOrder.unsorted(), fileOrder)) {
+            DataFile fromTable = IcebergWriterHelper.convertToWriterResult(
+                    table, order, Collections.singletonList(commit), ZoneOffset.UTC).dataFiles()[0];
+            DataFile fromContext = IcebergWriterHelper.convertToWriterResult(
+                    context, order, Collections.singletonList(commit), ZoneOffset.UTC).dataFiles()[0];
+
+            Assertions.assertEquals(Integer.valueOf(order.orderId()), fromTable.sortOrderId());
+            Assertions.assertEquals(Integer.valueOf(order.orderId()), fromContext.sortOrderId());
+        }
+        Assertions.assertNotEquals(fileOrder.orderId(), table.sortOrder().orderId());
+    }
+
+    private TIcebergCommitData dataCommit() {
+        TIcebergCommitData commit = new TIcebergCommitData();
+        commit.setFilePath("s3://b/db1/t/data.parquet");
+        commit.setRowCount(3L);
+        commit.setFileSize(128L);
+        commit.setFileContent(TFileContent.DATA);
+        return commit;
+    }
+
+    @Test
     public void convertToWriterResultCarriesSplitOffsetsFromCommitProtocol() throws Exception {
         Table table = tableWith("write.format.default", "parquet", "write.metadata.metrics.default", "none");
         TIcebergCommitData commit = new TIcebergCommitData();
@@ -300,7 +351,7 @@ public class IcebergWriterHelperTest {
         commitData.setColumnStats(stats);
 
         DataFile dataFile = IcebergWriterHelper.convertToWriterResult(
-                context, Collections.singletonList(commitData), ZoneOffset.UTC).dataFiles()[0];
+                context, context.getSortOrder(), Collections.singletonList(commitData), ZoneOffset.UTC).dataFiles()[0];
 
         Assertions.assertNotEquals(table.spec().specId(), dataFile.specId(), "the live spec must have moved on");
         Assertions.assertEquals(context.getPartitionSpec().specId(), dataFile.specId());

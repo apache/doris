@@ -200,6 +200,77 @@ jobs:
             cp -f "$CODEX_HOME/auth.json" "$CANARY_AUTH_OBJECT" >/dev/null
           echo "Synced refreshed canary auth."
 
+  debug-review-inputs:
+    if: >-
+      github.repository == 'apache/doris' &&
+      github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+      github.event.comment.body == 'run debugreview' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: read
+    outputs:
+      head: ${{ steps.snapshot.outputs.head }}
+      base: ${{ steps.snapshot.outputs.base }}
+    steps:
+      - name: Resolve open PR for debug review
+        id: snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" |
+            jq -er 'select(.state == "open") | "head=\(.head.sha)\nbase=\(.base.sha)"' >> "$GITHUB_OUTPUT"
+
+  authorize-debug-review:
+    needs: debug-review-inputs
+    name: fc-review/v1/${{ github.event.issue.number }}/${{ needs.debug-review-inputs.outputs.head }}/${{ needs.debug-review-inputs.outputs.base }}
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - run: echo 'Authorized debug review for this PR snapshot.'
+
+  debug-review:
+    needs: [debug-review-inputs, authorize-debug-review]
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: code-review-pr-${{ github.event.issue.number }}
+      cancel-in-progress: false
+      queue: max
+    timeout-minutes: 238
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+      id-token: write
+    outputs:
+      aggregate_head: ${{ steps.review.outputs.aggregate_head }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha || github.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Run cloud review and update its source status
+        id: review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          HEAD_SHA: ${{ needs.debug-review-inputs.outputs.head }}
+          BASE_SHA: ${{ needs.debug-review-inputs.outputs.base }}
+        run: python3 .github/scripts/debug_review.py
+
+  aggregate-debug-review:
+    needs: debug-review
+    if: always() && needs.debug-review.outputs.aggregate_head != ''
+    uses: ./.github/workflows/code-review-aggregate-status.yml
+    with:
+      head_sha: ${{ needs.debug-review.outputs.aggregate_head }}
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+
   code-review:
     runs-on: ubuntu-24.04
     # Serialize actual reviews of a PR, including comment and dispatch triggers.
@@ -1009,7 +1080,7 @@ jobs:
           # Execution succeeded even when verified findings block the PR check.
           # This result is written only after the runner's own API readback.
           jq -er 'select(.state == "success" or .state == "failure") |
-            "review_state=\(.state)\np0=\(.p0)\np1=\(.p1)\nconverged=\(.converged)\nrounds=\(.rounds)"' \
+            "review_state=\(.state)\np0=\(.p0)\np1=\(.p1)\nconverged=\(.converged)\nrounds=\(.rounds)\nreview_id=\(.review_id)"' \
             "$REVIEW_CONTEXT_DIR/review-result.json" >> "$GITHUB_OUTPUT"
 
       - name: Preserve failed final review diagnostics
@@ -1211,8 +1282,10 @@ jobs:
           REVIEW_P0: ${{ steps.review.outputs.p0 }}
           REVIEW_P1: ${{ steps.review.outputs.p1 }}
           REVIEW_CONVERGED: ${{ steps.review.outputs.converged }}
+          REVIEW_ID: ${{ steps.review.outputs.review_id }}
           REVIEW_ROUNDS: ${{ steps.review.outputs.rounds }}
         run: |
+          target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           state="pending"
           summary="Automated review did not pass for PR #${PR_NUMBER} at ${BASE_SHA:0:12}."
 
@@ -1225,6 +1298,9 @@ jobs:
                 summary="Review completed for PR #${PR_NUMBER}: P0=${REVIEW_P0}, P1=${REVIEW_P1}."
                 if [ "$REVIEW_CONVERGED" = "false" ]; then
                   summary="Review did not converge after ${REVIEW_ROUNDS} rounds for PR #${PR_NUMBER}: P0=${REVIEW_P0}, P1=${REVIEW_P1}."
+                elif [[ "$REVIEW_CONVERGED" == true && "$state" == failure && "$REVIEW_ID" =~ ^[1-9][0-9]*$ ]]; then
+                  # A converged review fails when it reports P0 or P1 findings.
+                  target_url="${{ github.server_url }}/${REPO}/pull/${PR_NUMBER}#pullrequestreview-${REVIEW_ID}"
                 fi
                 ;;
               *) echo "::error::Missing verified review verdict"; exit 1 ;;
@@ -1237,7 +1313,7 @@ jobs:
             -f state="${state}" \
             -f context="$source_context" \
             -f description="${summary}" \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            -f target_url="$target_url"
 
       - name: Record review I/O to Litefuse
         if: ${{ always() }}

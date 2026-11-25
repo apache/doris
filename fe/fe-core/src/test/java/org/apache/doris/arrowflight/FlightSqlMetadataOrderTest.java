@@ -126,7 +126,8 @@ public class FlightSqlMetadataOrderTest {
     public void schemasOrderCatalogAndSchemaTogether(boolean hasCatalogs) throws Exception {
         try (MockedStatic<ExecuteEnv> executeEnv = Mockito.mockStatic(ExecuteEnv.class);
                 MockedConstruction<FrontendServiceImpl> services = Mockito.mockConstruction(FrontendServiceImpl.class,
-                        (service, construction) -> Mockito.when(service.getDbNames(Mockito.any(TGetDbsParams.class)))
+                        (service, construction) -> Mockito.when(
+                                service.getDbNames(Mockito.any(TGetDbsParams.class), Mockito.eq(false)))
                                 .thenReturn(databases(hasCatalogs)));
                 RootAllocator allocator = new RootAllocator();
                 VectorSchemaRoot root = VectorSchemaRoot.create(Schemas.GET_SCHEMAS_SCHEMA, allocator)) {
@@ -138,7 +139,8 @@ public class FlightSqlMetadataOrderTest {
                     : Arrays.asList("", "", ""), values(root, "catalog_name"));
             Assertions.assertEquals(Arrays.asList("a_db", "z_db", "z_db"), values(root, "db_schema_name"));
             Mockito.verify(services.constructed().get(0)).getDbNames(Mockito.argThat(params ->
-                    params.getCurrentUserIdent().getAuthenticatedRoles().equals(Set.of("mapped_role"))));
+                    params.getCurrentUserIdent().getAuthenticatedRoles().equals(Set.of("mapped_role"))),
+                    Mockito.eq(false));
         }
     }
 
@@ -149,14 +151,16 @@ public class FlightSqlMetadataOrderTest {
         try (MockedStatic<ExecuteEnv> executeEnv = Mockito.mockStatic(ExecuteEnv.class);
                 MockedConstruction<FrontendServiceImpl> services = Mockito.mockConstruction(FrontendServiceImpl.class,
                         (service, construction) -> {
-                            Mockito.when(service.getDbNames(Mockito.any(TGetDbsParams.class)))
+                            Mockito.when(service.getDbNames(Mockito.any(TGetDbsParams.class), Mockito.eq(false)))
                                     .thenReturn(databases(true));
-                            Mockito.when(service.listTableStatus(Mockito.any(TGetTablesParams.class)))
+                            Mockito.when(service.listTableStatus(
+                                    Mockito.any(TGetTablesParams.class), Mockito.eq(false)))
                                     .thenAnswer(invocation -> new TListTableStatusResult().setTables(Arrays.asList(
                                             new TTableStatus().setName("z_table").setType("BASE TABLE"),
                                             new TTableStatus().setName("a_view").setType("VIEW"),
                                             new TTableStatus().setName("a_table").setType("BASE TABLE"))));
-                            Mockito.when(service.describeTables(Mockito.any(TDescribeTablesParams.class)))
+                            Mockito.when(service.describeTables(
+                                    Mockito.any(TDescribeTablesParams.class), Mockito.eq(false)))
                                     .thenAnswer(invocation -> {
                                         TDescribeTablesParams params = invocation.getArgument(0);
                                         Assertions.assertEquals(Arrays.asList("a_table", "z_table"),
@@ -199,9 +203,10 @@ public class FlightSqlMetadataOrderTest {
             }
             Mockito.verify(services.constructed().get(0), Mockito.times(3)).listTableStatus(Mockito.argThat(params ->
                     params.getCurrentUserIdent().equals(ctx.getCurrentUserIdentityForRpc())
-                            && params.getRequiredColumns().equals(Set.of("TABLE_NAME", "TABLE_TYPE"))));
+                            && params.getRequiredColumns().equals(Set.of("TABLE_NAME", "TABLE_TYPE"))),
+                    Mockito.eq(false));
             Mockito.verify(services.constructed().get(0), Mockito.times(includeSchema ? 3 : 0))
-                    .describeTables(Mockito.any(TDescribeTablesParams.class));
+                    .describeTables(Mockito.any(TDescribeTablesParams.class), Mockito.eq(false));
         }
     }
 
@@ -210,7 +215,8 @@ public class FlightSqlMetadataOrderTest {
     public void emptyDiscoveryStaysEmpty(boolean tables) throws Exception {
         try (MockedStatic<ExecuteEnv> executeEnv = Mockito.mockStatic(ExecuteEnv.class);
                 MockedConstruction<FrontendServiceImpl> services = Mockito.mockConstruction(FrontendServiceImpl.class,
-                        (service, construction) -> Mockito.when(service.getDbNames(Mockito.any(TGetDbsParams.class)))
+                        (service, construction) -> Mockito.when(
+                                service.getDbNames(Mockito.any(TGetDbsParams.class), Mockito.eq(false)))
                                 .thenReturn(new TGetDbsResult().setDbs(Collections.emptyList())));
                 RootAllocator allocator = new RootAllocator();
                 VectorSchemaRoot root = VectorSchemaRoot.create(tables
@@ -226,9 +232,9 @@ public class FlightSqlMetadataOrderTest {
             }
             Assertions.assertEquals(0, root.getRowCount());
             Mockito.verify(services.constructed().get(0), Mockito.never())
-                    .listTableStatus(Mockito.any(TGetTablesParams.class));
+                    .listTableStatus(Mockito.any(TGetTablesParams.class), Mockito.eq(false));
             Mockito.verify(services.constructed().get(0), Mockito.never())
-                    .describeTables(Mockito.any(TDescribeTablesParams.class));
+                    .describeTables(Mockito.any(TDescribeTablesParams.class), Mockito.eq(false));
         }
     }
 

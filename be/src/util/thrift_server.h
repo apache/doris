@@ -31,10 +31,17 @@
 namespace apache {
 namespace thrift {
 class TProcessor;
+namespace transport {
+class TServerSocket;
+class TTransportException;
+} // namespace transport
 } // namespace thrift
 } // namespace apache
 
 namespace doris {
+
+bool is_unknown_eintr(const apache::thrift::transport::TTransportException& error);
+
 // Utility class for all Thrift servers. Runs a TNonblockingServer(default) or a
 // TThreadPoolServer with, by default, 2 worker threads, that exposes the interface
 // described by a user-supplied TProcessor object.
@@ -97,6 +104,9 @@ public:
     // than once.
     Status start();
 
+    // Providers supply a blocking transport before start(); TLS cannot use the raw nonblocking reader.
+    void set_server_socket(std::shared_ptr<apache::thrift::transport::TServerSocket> socket);
+
     // Sets the session handler which receives events when sessions are created or closed.
     void set_session_handler(SessionHandlerIf* session) { _session_handler = session; }
 
@@ -108,6 +118,8 @@ public:
     static SessionKey* get_thread_session_key();
 
 private:
+    std::shared_ptr<apache::thrift::transport::TServerSocket> create_server_socket();
+
     // True if the server has been successfully started, for internal use only
     bool _started;
 
@@ -129,6 +141,7 @@ private:
 
     // Thrift housekeeping
     std::unique_ptr<apache::thrift::server::TServer> _server;
+    std::shared_ptr<apache::thrift::transport::TServerSocket> _server_socket;
     std::shared_ptr<apache::thrift::TProcessor> _processor;
 
     // If not nullptr, called when session events happen. Not owned by us.

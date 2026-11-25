@@ -29,6 +29,7 @@ import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.StructType;
@@ -672,8 +673,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // Surface the backing connector/catalog type (e.g. es, jdbc, max_compute) so the
             // generic node name does not hide which connector this scan delegates to. Reuses the
             // same getDatabase().getCatalog() chain getNameWithFullQualifiers() already walks here.
+            // A file table function whose format a plugin reads (s3(... "format" = <name>)) has no
+            // database: its connector belongs to no catalog, and its session is named after the format.
+            DatabaseIf<?> database = desc.getTable().getDatabase();
             output.append(prefix).append("CONNECTOR: ")
-                    .append(desc.getTable().getDatabase().getCatalog().getType()).append("\n");
+                    .append(database != null ? database.getCatalog().getType() : connectorSession.getCatalogName())
+                    .append("\n");
             if (query != null) {
                 output.append(prefix).append("QUERY: ").append(query).append("\n");
             }
@@ -1321,7 +1326,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
         ConnectContext context = ConnectContext.get();
         StatementContext statement = context == null ? null : context.getStatementContext();
+        // The table of a file table function whose format a plugin reads is no catalog table, and no partition
+        // view of it was warmed before the locks.
         if (statement != null && statement.hasAnyPlanReadLockTable()
+                && desc.getTable() instanceof PluginDrivenExternalTable
                 && ((PluginDrivenExternalTable) desc.getTable()).supportsConnectorPartitionPruning()
                 && getQueryTableSnapshot() == null && getScanParams() == null
                 && statement.getExternalTablePreloadInfo(desc.getTable().getId())
@@ -2621,7 +2629,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         // Delegate format-specific Thrift construction to the connector SPI
         scanRange.populateRangeParams(tableFormatFileDesc, rangeDesc);
-        if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET) {
+        if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET_PME) {
+            // Some old readers inspect only shared params; a per-range marker alone is insufficient.
+            params.setFormatType(TFileFormatType.FORMAT_PARQUET_PME);
+        }
+        if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET
+                || rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET_PME) {
             // Mixed JNI/native scans must retain the Parquet contract after subsequent non-Parquet ranges.
             params.setContainsNativeParquet(true);
         }

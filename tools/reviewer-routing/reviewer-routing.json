@@ -13,7 +13,7 @@
         "^fe/[^/]+/src/main/(?:java|antlr4)/org/apache/doris/(?:analysis/)?(?:Search|search/)",
         "^fe/fe-core/src/main/java/org/apache/doris/(?:indexpolicy/|nereids/trees/expressions/.*(?:Search|Match|BM25)|analysis/.*(?:Search|Match|InvertedIndex))"
       ],
-      "reviewers": ["eldenmoon", "csun5285", "airborne12", "yiguolei", "gavinchou", "924060929", "zclllyybb", "hello-stephen", "morrySnow", "HappenLee"]
+      "reviewers": ["eldenmoon", "csun5285", "airborne12", "yiguolei", "gavinchou", "924060929", "zclllyybb", "morrySnow", "HappenLee"]
     },
     "ann": {
       "label": "Vector indexes and approximate nearest-neighbor search",
@@ -34,7 +34,7 @@
         "^be/src/(?:exprs/function|vec/functions)/.*(?:variant|jsonb|json_)",
         "^fe/fe-core/src/main/java/org/apache/doris/.*(?:/Variant[A-Z]|/Json[A-Z]|/Jsonb[A-Z])"
       ],
-      "reviewers": ["yiguolei", "csun5285", "eldenmoon", "airborne12", "morrySnow", "924060929", "hello-stephen", "Gabriel39", "HappenLee", "gavinchou", "zclllyybb", "Mryange", "yujun777", "zhangstar333"]
+      "reviewers": ["yiguolei", "csun5285", "eldenmoon", "airborne12", "morrySnow", "924060929", "Gabriel39", "HappenLee", "gavinchou", "zclllyybb", "Mryange", "yujun777", "zhangstar333"]
     },
     "udf": {
       "label": "UDF, UDAF and UDTF",
@@ -46,7 +46,7 @@
         "^fe/hive-udf/",
         "^fe/fe-core/src/main/java/org/apache/doris/.*(?:/PythonUdf|/JavaUdf|/Udf[A-Z]|/Udaf[A-Z]|/Udtf[A-Z])"
       ],
-      "reviewers": ["HappenLee", "zclllyybb", "hello-stephen", "morningman"]
+      "reviewers": ["HappenLee", "zclllyybb", "morningman"]
     },
     "connector.iceberg": {
       "label": "Iceberg",
@@ -82,7 +82,7 @@
         "^fe/fe-core/src/main/java/org/apache/doris/(?:datasource|connector)/(?:hive|hms|hudi)/",
         "^be/src/(?:(?:format(?:_v2)?|vec/exec/format)/table/|exec/(?:sink|scan)/|vec/(?:sink|exec)/)(?:v)?(?:hive|hms|hudi)(?:/|_|\\.)"
       ],
-      "reviewers": ["924060929", "CalvinKirs", "morningman", "zhangstar333", "Gabriel39", "hubgeter", "suxiaogang223", "yiguolei", "morrySnow", "hello-stephen"]
+      "reviewers": ["924060929", "CalvinKirs", "morningman", "zhangstar333", "Gabriel39", "hubgeter", "suxiaogang223", "yiguolei", "morrySnow"]
     },
     "connector.jdbc": {
       "label": "JDBC and ADBC",
@@ -166,7 +166,7 @@
         "^extension/",
         "^fe/fe-trino-connector-common/"
       ],
-      "reviewers": ["924060929", "CalvinKirs", "morningman", "Gabriel39", "hubgeter", "gavinchou", "morrySnow", "yiguolei", "suxiaogang223", "zhangstar333", "liaoxin01", "hello-stephen", "starocean999", "JNSimba", "yujun777", "dataroaring"]
+      "reviewers": ["924060929", "CalvinKirs", "morningman", "Gabriel39", "hubgeter", "gavinchou", "morrySnow", "yiguolei", "suxiaogang223", "zhangstar333", "liaoxin01", "starocean999", "JNSimba", "yujun777", "dataroaring"]
     },
     "files.parquet": {
       "label": "Parquet readers and writers",
@@ -190,7 +190,7 @@
       "patterns": [
         "^be/src/(?:format(?:_v2)?/|vec/exec/format/)"
       ],
-      "reviewers": ["yiguolei", "Gabriel39", "924060929", "gavinchou", "hubgeter", "zhangstar333", "HappenLee", "liaoxin01", "morningman", "hello-stephen", "CalvinKirs", "suxiaogang223"]
+      "reviewers": ["yiguolei", "Gabriel39", "gavinchou", "hubgeter", "zhangstar333", "HappenLee", "liaoxin01", "morningman", "suxiaogang223"]
     },
     "io.cache": {
       "label": "File cache and remote cache",
@@ -210,7 +210,7 @@
         "^fe/fe-core/src/main/java/org/apache/doris/(?:fs|cooldown)/",
         "^fs_brokers/"
       ],
-      "reviewers": ["liaoxin01", "gavinchou", "CalvinKirs", "morningman", "924060929", "Gabriel39", "sollhui", "luwei16", "yiguolei", "hello-stephen", "morrySnow", "wyxxxcat", "deardeng"]
+      "reviewers": ["liaoxin01", "gavinchou", "CalvinKirs", "morningman", "924060929", "Gabriel39", "sollhui", "luwei16", "yiguolei", "morrySnow", "wyxxxcat", "deardeng"]
     },
     "functions.aggregate": {
       "label": "Aggregate functions",
@@ -229,7 +229,7 @@
         "^fe/fe-core/src/main/java/org/apache/doris/nereids/(?:rules/expression|trees/expressions|types)/",
         "^fe/fe-core/src/main/java/org/apache/doris/(?:tablefunction|dictionary)/"
       ],
-      "reviewers": ["HappenLee", "yiguolei", "924060929", "morrySnow", "zclllyybb", "starocean999", "Mryange", "mrhhsg", "BiteTheDDDDt", "jacktengg", "yujun777", "airborne12", "eldenmoon", "Gabriel39", "morningman", "linrrzqqq", "csun5285", "gavinchou", "liaoxin01", "hello-stephen", "feiniaofeiafei", "CalvinKirs", "englefly", "yx-keith", "zhangstar333", "sollhui", "hubgeter", "wyxxxcat", "RoanHeNaN"]
+      "reviewers": ["HappenLee", "yiguolei", "924060929", "morrySnow", "zclllyybb", "starocean999", "Mryange", "mrhhsg", "BiteTheDDDDt", "jacktengg", "yujun777", "airborne12", "eldenmoon", "Gabriel39", "morningman", "linrrzqqq", "csun5285", "gavinchou", "liaoxin01", "feiniaofeiafei", "CalvinKirs", "englefly", "yx-keith", "zhangstar333", "sollhui", "hubgeter", "wyxxxcat", "RoanHeNaN"]
     },
     "types": {
       "label": "Columns, Block, types and core data containers",
@@ -238,7 +238,7 @@
         "^be/src/(?:core/|vec/(?:core|columns|data_types|common)/)",
         "^fe/fe-type/"
       ],
-      "reviewers": ["yiguolei", "HappenLee", "Gabriel39", "zclllyybb", "BiteTheDDDDt", "eldenmoon", "mrhhsg", "Mryange", "gavinchou", "csun5285", "924060929", "jacktengg", "zhangstar333", "hello-stephen", "starocean999", "morningman", "morrySnow"]
+      "reviewers": ["yiguolei", "HappenLee", "Gabriel39", "zclllyybb", "BiteTheDDDDt", "eldenmoon", "mrhhsg", "Mryange", "gavinchou", "csun5285", "924060929", "jacktengg", "zhangstar333", "starocean999", "morningman", "morrySnow"]
     },
     "optimizer": {
       "label": "Nereids optimizer, SQL analysis and planning",
@@ -249,7 +249,7 @@
         "^fe/fe-core/src/main/antlr4/",
         "^gensrc/script/doris_builtins_functions\\.py$"
       ],
-      "reviewers": ["morrySnow", "924060929", "starocean999", "englefly", "gavinchou", "yujun777", "yiguolei", "feiniaofeiafei", "CalvinKirs", "morningman", "liaoxin01", "HappenLee", "hello-stephen", "yx-keith", "Gabriel39", "seawinde", "eldenmoon", "zclllyybb", "hubgeter", "airborne12", "csun5285", "luwei16", "dataroaring", "BiteTheDDDDt", "Mryange", "jacktengg", "zhangstar333", "lide-reed", "suxiaogang223", "sollhui"]
+      "reviewers": ["morrySnow", "924060929", "starocean999", "englefly", "gavinchou", "yujun777", "yiguolei", "feiniaofeiafei", "CalvinKirs", "morningman", "liaoxin01", "HappenLee", "yx-keith", "Gabriel39", "seawinde", "eldenmoon", "zclllyybb", "hubgeter", "airborne12", "csun5285", "luwei16", "dataroaring", "BiteTheDDDDt", "Mryange", "jacktengg", "zhangstar333", "lide-reed", "suxiaogang223", "sollhui"]
     },
     "statistics": {
       "label": "Statistics collection and cardinality estimation",
@@ -257,7 +257,7 @@
       "patterns": [
         "^fe/fe-core/src/main/java/org/apache/doris/(?:statistics/|nereids/(?:stats|cost)/)"
       ],
-      "reviewers": ["morrySnow", "starocean999", "englefly", "yujun777", "feiniaofeiafei", "hello-stephen", "924060929", "morningman"]
+      "reviewers": ["morrySnow", "starocean999", "englefly", "yujun777", "feiniaofeiafei", "924060929", "morningman"]
     },
     "mtmv": {
       "label": "Materialized views, asynchronous MV and incremental maintenance",
@@ -283,7 +283,7 @@
         "^be/src/(?:exec/|pipeline/|vec/(?:exec|sink)/)",
         "^be/src/runtime/(?:fragment|query_context|exec_env|runtime_state|result_|record_batch|task_execution|descriptors)"
       ],
-      "reviewers": ["yiguolei", "HappenLee", "Gabriel39", "BiteTheDDDDt", "Mryange", "mrhhsg", "zclllyybb", "gavinchou", "zhangstar333", "jacktengg", "csun5285", "924060929", "morningman", "liaoxin01", "morrySnow", "CalvinKirs", "airborne12", "eldenmoon", "hubgeter", "hello-stephen", "starocean999", "englefly", "sollhui", "suxiaogang223", "kaka11chen"]
+      "reviewers": ["yiguolei", "HappenLee", "Gabriel39", "BiteTheDDDDt", "Mryange", "mrhhsg", "zclllyybb", "gavinchou", "zhangstar333", "jacktengg", "csun5285", "924060929", "morningman", "liaoxin01", "morrySnow", "CalvinKirs", "airborne12", "eldenmoon", "hubgeter", "starocean999", "englefly", "sollhui", "suxiaogang223", "kaka11chen"]
     },
     "runtime.workload": {
       "label": "Workload groups, queues and resource management",
@@ -293,7 +293,7 @@
         "^fe/fe-core/src/main/java/org/apache/doris/resource/workload",
         "^fe/fe-core/src/main/java/org/apache/doris/(?:scheduler|resource)/"
       ],
-      "reviewers": ["yiguolei", "zclllyybb", "HappenLee", "jacktengg", "hello-stephen", "mrhhsg"]
+      "reviewers": ["yiguolei", "zclllyybb", "HappenLee", "jacktengg", "mrhhsg"]
     },
     "runtime.memory": {
       "label": "Memory management and tracking",
@@ -310,7 +310,7 @@
       "patterns": [
         "^be/src/(?:runtime|common|util)/"
       ],
-      "reviewers": ["gavinchou", "yiguolei", "HappenLee", "eldenmoon", "liaoxin01", "Mryange", "zclllyybb", "BiteTheDDDDt", "morningman", "Gabriel39", "csun5285", "airborne12", "mrhhsg", "924060929", "jacktengg", "luwei16", "CalvinKirs", "sollhui", "linrrzqqq", "hello-stephen", "hubgeter", "suxiaogang223", "zhangstar333"]
+      "reviewers": ["gavinchou", "yiguolei", "HappenLee", "eldenmoon", "liaoxin01", "Mryange", "zclllyybb", "BiteTheDDDDt", "morningman", "Gabriel39", "csun5285", "airborne12", "mrhhsg", "924060929", "jacktengg", "luwei16", "CalvinKirs", "sollhui", "linrrzqqq", "hubgeter", "suxiaogang223", "zhangstar333"]
     },
     "load": {
       "label": "Ingestion, Stream Load, Routine Load and write paths",
@@ -323,7 +323,7 @@
         "^fe/fe-core/src/main/java/org/apache/doris/(?:load|insertoverwrite|job)/",
         "^fe/fe-core/src/main/java/org/apache/doris/nereids/load/"
       ],
-      "reviewers": ["liaoxin01", "sollhui", "gavinchou", "CalvinKirs", "924060929", "morrySnow", "yiguolei", "Gabriel39", "hello-stephen", "morningman", "starocean999", "HappenLee", "seawinde", "zclllyybb", "BiteTheDDDDt", "yujun777", "zhangstar333", "luwei16", "hubgeter", "Mryange"]
+      "reviewers": ["liaoxin01", "sollhui", "gavinchou", "CalvinKirs", "924060929", "morrySnow", "yiguolei", "Gabriel39", "morningman", "starocean999", "HappenLee", "seawinde", "zclllyybb", "BiteTheDDDDt", "yujun777", "zhangstar333", "luwei16", "hubgeter", "Mryange"]
     },
     "transaction": {
       "label": "Transactions and commit protocols",
@@ -343,7 +343,7 @@
         "^be/src/olap/(?:compaction|base_compaction|cumulative_compaction|full_compaction|single_replica_compaction)",
         "^be/src/cloud/.*compaction"
       ],
-      "reviewers": ["gavinchou", "luwei16", "yiguolei", "hello-stephen", "eldenmoon", "liaoxin01", "airborne12"]
+      "reviewers": ["gavinchou", "luwei16", "yiguolei", "eldenmoon", "liaoxin01", "airborne12"]
     },
     "schema-change": {
       "label": "Schema change, alter, rollup and index changes",
@@ -354,7 +354,7 @@
         "^fe/fe-core/src/main/java/org/apache/doris/alter/",
         "^be/src/cloud/.*schema_change"
       ],
-      "reviewers": ["gavinchou", "luwei16", "morrySnow", "hello-stephen", "yiguolei", "Yukang-Lian", "924060929", "CalvinKirs", "eldenmoon", "morningman", "dataroaring", "starocean999", "csun5285"]
+      "reviewers": ["gavinchou", "luwei16", "morrySnow", "yiguolei", "Yukang-Lian", "924060929", "CalvinKirs", "eldenmoon", "morningman", "dataroaring", "starocean999", "csun5285"]
     },
     "storage.mow": {
       "label": "Unique keys, merge on write and delete bitmaps",
@@ -372,7 +372,7 @@
       "patterns": [
         "^be/src/(?:storage/|olap/)"
       ],
-      "reviewers": ["gavinchou", "yiguolei", "csun5285", "eldenmoon", "liaoxin01", "HappenLee", "airborne12", "luwei16", "BiteTheDDDDt", "bobhan1", "Gabriel39", "zclllyybb", "Mryange", "morningman", "zhangstar333", "924060929", "mrhhsg", "hello-stephen", "morrySnow", "jacktengg", "deardeng", "RoanHeNaN"]
+      "reviewers": ["gavinchou", "yiguolei", "csun5285", "eldenmoon", "liaoxin01", "HappenLee", "airborne12", "luwei16", "BiteTheDDDDt", "bobhan1", "Gabriel39", "zclllyybb", "Mryange", "morningman", "zhangstar333", "924060929", "mrhhsg", "morrySnow", "jacktengg", "deardeng", "RoanHeNaN"]
     },
     "replication": {
       "label": "Replica scheduling, cloning, balancing and BE agents",
@@ -420,7 +420,7 @@
         "^be/src/cloud/",
         "^fe/fe-core/src/main/java/org/apache/doris/cloud/"
       ],
-      "reviewers": ["gavinchou", "liaoxin01", "luwei16", "hello-stephen", "deardeng", "wyxxxcat", "morningman", "morrySnow", "Yukang-Lian", "924060929", "yiguolei", "bobhan1", "CalvinKirs", "sollhui", "pingchunzhang", "yujun777"]
+      "reviewers": ["gavinchou", "liaoxin01", "luwei16", "deardeng", "wyxxxcat", "morningman", "morrySnow", "Yukang-Lian", "924060929", "yiguolei", "bobhan1", "CalvinKirs", "sollhui", "pingchunzhang", "yujun777"]
     },
     "auth": {
       "label": "Authentication, authorization, Ranger and connection authentication",
@@ -431,7 +431,7 @@
         "^fe/fe-core/src/main/java/org/apache/doris/(?:auth|authentication|blockrule|encryption|tls)/",
         "^fe/fe-core/src/main/java/org/apache/doris/mysql/(?:authenticate|privilege)/"
       ],
-      "reviewers": ["CalvinKirs", "morningman", "morrySnow", "hello-stephen", "924060929", "gavinchou", "seawinde", "luwei16", "starocean999"]
+      "reviewers": ["CalvinKirs", "morningman", "morrySnow", "924060929", "gavinchou", "seawinde", "luwei16", "starocean999"]
     },
     "query": {
       "label": "Query coordination, sessions, protocols and execution management",
@@ -440,7 +440,7 @@
         "^fe/fe-core/src/main/java/org/apache/doris/(?:qe|mysql|arrow|arrowflight|rpc|service)/",
         "^fe/fe-grpc/"
       ],
-      "reviewers": ["924060929", "morrySnow", "gavinchou", "yiguolei", "Gabriel39", "starocean999", "morningman", "CalvinKirs", "HappenLee", "liaoxin01", "englefly", "hubgeter", "Mryange", "hello-stephen", "dataroaring", "BiteTheDDDDt", "zclllyybb", "csun5285", "eldenmoon", "airborne12", "deardeng", "zhangstar333"]
+      "reviewers": ["924060929", "morrySnow", "gavinchou", "yiguolei", "Gabriel39", "starocean999", "morningman", "CalvinKirs", "HappenLee", "liaoxin01", "englefly", "hubgeter", "Mryange", "dataroaring", "BiteTheDDDDt", "zclllyybb", "csun5285", "eldenmoon", "airborne12", "deardeng", "zhangstar333"]
     },
     "metadata": {
       "label": "Catalog, DDL, partitions and metadata models",
@@ -450,7 +450,7 @@
         "^fe/fe-catalog/",
         "^fe/fe-storage-protocol/"
       ],
-      "reviewers": ["morrySnow", "gavinchou", "924060929", "CalvinKirs", "morningman", "starocean999", "dataroaring", "yiguolei", "HappenLee", "deardeng", "zclllyybb", "yujun777", "linrrzqqq", "liaoxin01", "luwei16", "hello-stephen", "eldenmoon", "englefly", "Mryange", "Gabriel39", "BiteTheDDDDt", "seawinde", "feiniaofeiafei", "hubgeter"]
+      "reviewers": ["morrySnow", "gavinchou", "924060929", "CalvinKirs", "morningman", "starocean999", "dataroaring", "yiguolei", "HappenLee", "deardeng", "zclllyybb", "yujun777", "linrrzqqq", "liaoxin01", "luwei16", "eldenmoon", "englefly", "Mryange", "Gabriel39", "BiteTheDDDDt", "seawinde", "feiniaofeiafei", "hubgeter"]
     },
     "persistence": {
       "label": "Journal, EditLog, HA and metadata persistence",
@@ -467,7 +467,7 @@
       "patterns": [
         "^fe/fe-core/src/main/java/org/apache/doris/(?:system|cluster|deploy|task)/"
       ],
-      "reviewers": ["gavinchou", "morningman", "hello-stephen"]
+      "reviewers": ["gavinchou", "morningman"]
     },
     "api": {
       "label": "HTTP APIs, system tables, monitoring and metrics",
@@ -476,7 +476,7 @@
         "^fe/fe-core/src/main/java/org/apache/doris/(?:httpv2|metric|monitor|info)/",
         "^be/src/(?:service|information_schema)/"
       ],
-      "reviewers": ["gavinchou", "liaoxin01", "yiguolei", "924060929", "morningman", "morrySnow", "hello-stephen", "CalvinKirs", "sollhui", "HappenLee", "Gabriel39", "eldenmoon", "luwei16", "hubgeter", "zclllyybb"]
+      "reviewers": ["gavinchou", "liaoxin01", "yiguolei", "924060929", "morningman", "morrySnow", "CalvinKirs", "sollhui", "HappenLee", "Gabriel39", "eldenmoon", "luwei16", "hubgeter", "zclllyybb"]
     },
     "fe.foundation": {
       "label": "FE common modules, configuration and infrastructure",
@@ -485,17 +485,42 @@
         "^fe/(?:fe-common|fe-foundation|fe-thrift)/",
         "^fe/fe-core/src/main/java/org/apache/doris/common/"
       ],
-      "reviewers": ["gavinchou", "morningman", "924060929", "morrySnow", "liaoxin01", "CalvinKirs", "yiguolei", "hello-stephen", "starocean999", "Gabriel39", "HappenLee", "dataroaring", "hubgeter", "airborne12", "Mryange", "suxiaogang223", "luwei16", "deardeng", "yujun777", "zclllyybb", "zhangstar333"]
+      "reviewers": ["gavinchou", "morningman", "924060929", "morrySnow", "liaoxin01", "CalvinKirs", "yiguolei", "starocean999", "Gabriel39", "HappenLee", "dataroaring", "hubgeter", "airborne12", "Mryange", "suxiaogang223", "luwei16", "deardeng", "yujun777", "zclllyybb", "zhangstar333"]
     },
     "ci": {
-      "label": "CI, GitHub workflows and automation",
+      "label": "Repository configuration and general CI infrastructure",
       "priority": 250,
       "patterns": [
         "^\\.github/",
-        "^regression-test/pipeline/",
-        "^docker/thirdparties/"
+        "^regression-test/pipeline/compile/"
+      ],
+      "reviewers": ["morningman", "yiguolei", "shuke987", "Gabriel39", "zclllyybb", "CalvinKirs", "924060929", "zhangstar333", "BiteTheDDDDt", "Mryange", "gavinchou", "suxiaogang223", "liaoxin01", "morrySnow", "mrhhsg", "zgxme", "HappenLee", "eldenmoon"]
+    },
+    "ci.github-actions": {
+      "label": "GitHub Actions workflows, reusable actions and workflow scripts",
+      "priority": 252,
+      "patterns": [
+        "^\\.github/(?:workflows|actions|scripts)/"
       ],
       "reviewers": ["hello-stephen", "morningman", "yiguolei", "shuke987", "Gabriel39", "zclllyybb", "CalvinKirs", "924060929", "zhangstar333", "BiteTheDDDDt", "Mryange", "gavinchou", "suxiaogang223", "liaoxin01", "morrySnow", "mrhhsg", "zgxme", "HappenLee", "eldenmoon"]
+    },
+    "test.ci": {
+      "label": "Test CI pipelines and integration test services",
+      "priority": 255,
+      "patterns": [
+        "^regression-test/pipeline/(?!compile/)",
+        "^docker/thirdparties/",
+        "^\\.github/workflows/be-ut-mac\\.yml$"
+      ],
+      "reviewers": ["hello-stephen", "morningman", "yiguolei", "shuke987", "Gabriel39", "zclllyybb", "CalvinKirs", "924060929", "zhangstar333", "BiteTheDDDDt", "Mryange", "gavinchou", "suxiaogang223", "liaoxin01", "morrySnow", "mrhhsg", "zgxme", "HappenLee", "eldenmoon"]
+    },
+    "docker.runtime": {
+      "label": "Doris Docker runtime images and deployment scripts",
+      "priority": 230,
+      "patterns": [
+        "^docker/runtime/"
+      ],
+      "reviewers": ["morningman", "yiguolei", "CalvinKirs", "hello-stephen", "gavinchou", "924060929", "Gabriel39", "morrySnow", "zclllyybb", "hubgeter", "HappenLee", "BiteTheDDDDt", "airborne12", "liaoxin01", "zhangstar333", "suxiaogang223", "eldenmoon", "yujun777", "csun5285", "starocean999", "deardeng", "englefly", "Mryange", "dataroaring", "sollhui", "wyxxxcat", "seawinde"]
     },
     "build": {
       "label": "Builds, dependencies, packaging and releases",
@@ -509,17 +534,27 @@
         "^fe/[^/]+/src/main/assembly/",
         "^(?:build[^/]*\\.sh|env\\.sh|post-build\\.sh|generated-source\\.sh|\\.clang[^/]*|\\.gitmodules)$"
       ],
-      "reviewers": ["morningman", "yiguolei", "CalvinKirs", "hello-stephen", "gavinchou", "924060929", "Gabriel39", "morrySnow", "zclllyybb", "hubgeter", "HappenLee", "BiteTheDDDDt", "airborne12", "liaoxin01", "zhangstar333", "suxiaogang223", "eldenmoon", "yujun777", "csun5285", "starocean999", "deardeng", "englefly", "Mryange", "dataroaring", "sollhui", "wyxxxcat", "seawinde"]
+      "reviewers": ["morningman", "yiguolei", "CalvinKirs", "gavinchou", "924060929", "Gabriel39", "morrySnow", "zclllyybb", "hubgeter", "HappenLee", "BiteTheDDDDt", "airborne12", "liaoxin01", "zhangstar333", "suxiaogang223", "eldenmoon", "yujun777", "csun5285", "starocean999", "deardeng", "englefly", "Mryange", "dataroaring", "sollhui", "wyxxxcat", "seawinde"]
     },
     "test.framework": {
-      "label": "Test frameworks, services and runner scripts",
-      "priority": 210,
+      "label": "Test frameworks, shared test utilities and runner scripts",
+      "priority": 230,
       "patterns": [
         "^regression-test/(?:framework|plugins|common|conf|script)/",
         "^run-(?:regression-test|be-ut|fe-ut|cloud-ut|fs-env-test)\\.sh$",
-        "^(?:pytest|fe/mocked)/"
+        "^fe/mocked/",
+        "^pytest/(?:deploy|lib)/",
+        "^pytest/(?:__init__\\.py|pytest\\.ini|requirements\\.txt|(?:download_data|run_case|run_restart_case|var)\\.sh)$"
       ],
       "reviewers": ["hello-stephen", "gavinchou", "morrySnow", "liaoxin01", "CalvinKirs", "924060929", "yiguolei", "morningman", "zhangstar333", "starocean999", "zclllyybb", "HappenLee"]
+    },
+    "test.python": {
+      "label": "Python system and query test suites and fixtures",
+      "priority": 210,
+      "patterns": [
+        "^pytest/"
+      ],
+      "reviewers": ["gavinchou", "morrySnow", "liaoxin01", "CalvinKirs", "924060929", "yiguolei", "morningman", "zhangstar333", "starocean999", "zclllyybb", "HappenLee"]
     },
     "docs-tools": {
       "label": "Documentation, examples, tools and web interfaces",
@@ -530,7 +565,7 @@
         "^doris-skills(?:/|$)",
         "(?:^|/)(?:AGENTS|README)\\.md$"
       ],
-      "reviewers": ["hello-stephen", "morningman", "gavinchou", "yiguolei", "morrySnow", "liaoxin01", "zclllyybb", "starocean999", "CalvinKirs", "wyxxxcat", "0AyanamiRei"]
+      "reviewers": ["morningman", "gavinchou", "yiguolei", "morrySnow", "liaoxin01", "zclllyybb", "starocean999", "CalvinKirs", "wyxxxcat", "0AyanamiRei"]
     },
     "protocol": {
       "label": "Thrift and Protobuf interfaces",
@@ -538,7 +573,7 @@
       "patterns": [
         "^gensrc/"
       ],
-      "reviewers": ["yiguolei", "924060929", "gavinchou", "morrySnow", "HappenLee", "morningman", "Gabriel39", "eldenmoon", "liaoxin01", "CalvinKirs", "starocean999", "hello-stephen", "zhangstar333", "zclllyybb", "hubgeter", "csun5285", "airborne12", "BiteTheDDDDt", "luwei16", "dataroaring", "mrhhsg"]
+      "reviewers": ["yiguolei", "924060929", "gavinchou", "morrySnow", "HappenLee", "morningman", "Gabriel39", "eldenmoon", "liaoxin01", "CalvinKirs", "starocean999", "zhangstar333", "zclllyybb", "hubgeter", "csun5285", "airborne12", "BiteTheDDDDt", "luwei16", "dataroaring", "mrhhsg"]
     },
     "fe.other": {
       "label": "Unclassified FE paths",

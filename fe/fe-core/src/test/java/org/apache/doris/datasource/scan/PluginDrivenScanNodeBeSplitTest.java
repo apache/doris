@@ -137,7 +137,8 @@ public class PluginDrivenScanNodeBeSplitTest {
             Deencapsulation.setField(fixture.node, "params", params);
             for (boolean supported : new boolean[] {false, true}) {
                 for (TFileFormatType format : new TFileFormatType[] {
-                        TFileFormatType.FORMAT_PARQUET, TFileFormatType.FORMAT_ORC, TFileFormatType.FORMAT_JNI}) {
+                        TFileFormatType.FORMAT_PARQUET, TFileFormatType.FORMAT_PARQUET_PME,
+                        TFileFormatType.FORMAT_ORC, TFileFormatType.FORMAT_JNI}) {
                     ConnectorScanRange range = new ConnectorScanRange() {
                         @Override
                         public Map<String, String> getProperties() {
