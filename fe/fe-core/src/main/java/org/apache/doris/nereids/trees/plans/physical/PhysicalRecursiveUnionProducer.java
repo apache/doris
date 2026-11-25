@@ -111,7 +111,7 @@ public class PhysicalRecursiveUnionProducer<CHILD_TYPE extends Plan> extends Phy
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalRecursiveUnionProducer<>(cteName, groupExpression,
-                logicalProperties.get(), child()));
+                logicalProperties.get(), children.get(0)));
     }
 
     @Override

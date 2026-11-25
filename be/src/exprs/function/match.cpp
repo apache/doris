@@ -26,13 +26,18 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "common/cast_set.h"
+#include "core/column/column_nullable.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/field.h"
+#include "core/value/variant/variant_leaf_visitor.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/query/logical/match_lowering.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/hyperscan_util.h"
 
 namespace doris {
@@ -50,6 +55,167 @@ const InvertedIndexAnalyzerCtx* get_match_analyzer_ctx(FunctionContext* context)
                 context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     }
     return analyzer_ctx;
+}
+
+class MatchAnyTerms {
+public:
+    explicit MatchAnyTerms(const std::vector<segment_v2::TermInfo>& query_tokens) {
+        for (const auto& token : query_tokens) {
+            _terms.emplace(token.get_single_term());
+        }
+    }
+
+    void start_row(size_t /*row*/) {}
+    bool feed(std::string_view term) const { return _terms.contains(term); }
+
+private:
+    std::unordered_set<std::string_view> _terms;
+};
+
+class MatchAllTerms {
+public:
+    explicit MatchAllTerms(const std::vector<segment_v2::TermInfo>& query_tokens) {
+        for (const auto& token : query_tokens) {
+            _term_ids.emplace(token.get_single_term(), _term_ids.size());
+        }
+        _last_seen_row.resize(_term_ids.size());
+    }
+
+    void start_row(size_t row) {
+        _row_marker = row + 1;
+        _remaining = _term_ids.size();
+    }
+
+    bool feed(std::string_view term) {
+        auto it = _term_ids.find(term);
+        if (it == _term_ids.end() || _last_seen_row[it->second] == _row_marker) {
+            return false;
+        }
+        _last_seen_row[it->second] = _row_marker;
+        return --_remaining == 0;
+    }
+
+private:
+    std::unordered_map<std::string_view, size_t> _term_ids;
+    std::vector<size_t> _last_seen_row;
+    size_t _row_marker = 0;
+    size_t _remaining = 0;
+};
+
+// The stream and the batch tokenize values one at a time and are reused across a block.
+struct BlockTokenizer {
+    BlockTokenizer() = default;
+
+    explicit BlockTokenizer(const InvertedIndexAnalyzerCtx* analyzer_ctx) {
+        if (analyzer_ctx != nullptr && analyzer_ctx->requires_analysis() &&
+            analyzer_ctx->analyzer != nullptr) {
+            stream = analyzer_ctx->analyzer->create_stream();
+        }
+    }
+
+    std::unique_ptr<segment_v2::inverted_index::TextTokenStream> stream;
+    segment_v2::inverted_index::TokenBatch batch;
+};
+
+template <typename Matcher>
+Status match_variant_leaf(std::string_view text,
+                          const segment_v2::inverted_index::TextAnalyzer* analyzer,
+                          BlockTokenizer& tokenizer, Matcher& matcher, bool& matched) {
+    if (analyzer == nullptr) {
+        matched = matched || matcher.feed(text);
+        return Status::OK();
+    }
+    try {
+        if (tokenizer.stream == nullptr) {
+            tokenizer.stream = analyzer->create_stream();
+        }
+        tokenizer.stream->reset(text);
+        // Keep draining even on a match: later tokens and leaves can report analyzer errors.
+        while (tokenizer.stream->next_batch(tokenizer.batch)) {
+            for (const auto& token : tokenizer.batch.tokens()) {
+                if (token.size != 0) {
+                    matched = matched || matcher.feed(token.term());
+                }
+            }
+        }
+        tokenizer.batch.release_oversized();
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>("analyzing '{}' failed: {}",
+                                                                       text, e.what());
+    }
+    return Status::OK();
+}
+
+template <typename Matcher>
+Status match_variant_rows(const ColumnVariantV2& variant, size_t input_rows_count,
+                          const segment_v2::inverted_index::TextAnalyzer* analyzer, Matcher matcher,
+                          ColumnUInt8::Container& result) {
+    BlockTokenizer tokenizer;
+    Status evaluation_status = Status::OK();
+    try {
+        visit_variant_v2_values(
+                variant, 0, input_rows_count, {}, [](size_t) {},
+                [&](size_t row, const VariantRef& value) {
+                    if (!evaluation_status.ok()) {
+                        return;
+                    }
+                    matcher.start_row(row);
+                    bool matched = false;
+                    evaluation_status =
+                            for_each_variant_leaf_text(value, [&](std::string_view text) {
+                                return match_variant_leaf(text, analyzer, tokenizer, matcher,
+                                                          matched);
+                            });
+                    result[row] = matched;
+                });
+    } catch (const Exception& exception) {
+        return exception.to_status();
+    }
+    return evaluation_status;
+}
+
+Status execute_variant_values_match(const FunctionMatchBase& function, FunctionContext* context,
+                                    const ColumnVariantV2& variant,
+                                    const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                                    const std::string& match_query_str,
+                                    const std::string& column_name, Block& block, uint32_t result,
+                                    size_t input_rows_count) {
+    const InvertedIndexQueryType query_type = function.get_query_type_from_fn_name();
+    if (query_type != InvertedIndexQueryType::MATCH_ANY_QUERY &&
+        query_type != InvertedIndexQueryType::MATCH_ALL_QUERY) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "VARIANT root supports only MATCH, MATCH_ANY, and MATCH_ALL");
+    }
+    RETURN_IF_ERROR(function.check(context, function.get_name()));
+
+    // Only root VARIANT inputs reach this branch; FE casts every other VARIANT input to STRING.
+    if (analyzer_ctx == nullptr ||
+        (analyzer_ctx->requires_analysis() && analyzer_ctx->analyzer == nullptr)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "VARIANT MATCH requires a bound analyzer");
+    }
+
+    auto result_values = ColumnUInt8::create();
+    ColumnUInt8::Container& result_data = result_values->get_data();
+    result_data.resize_fill(input_rows_count);
+    const auto query_tokens =
+            function.analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
+    if (query_tokens.empty()) {
+        block.replace_by_position(result, std::move(result_values));
+        return Status::OK();
+    }
+
+    const auto analyzer =
+            analyzer_ctx->requires_analysis() ? analyzer_ctx->get_analyzer() : nullptr;
+    if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY) {
+        RETURN_IF_ERROR(match_variant_rows(variant, input_rows_count, analyzer.get(),
+                                           MatchAnyTerms(query_tokens), result_data));
+    } else {
+        RETURN_IF_ERROR(match_variant_rows(variant, input_rows_count, analyzer.get(),
+                                           MatchAllTerms(query_tokens), result_data));
+    }
+    block.replace_by_position(result, std::move(result_values));
+    return Status::OK();
 }
 
 enum class PhraseMode { EXACT, PREFIX, EDGE };
@@ -239,8 +405,8 @@ private:
 template <typename Callback>
 bool for_each_data_element_tokens(const FunctionMatchBase& function, const std::string& column_name,
                                   const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                                  const ColumnString* string_col, size_t row,
-                                  const ColumnArray::Offsets64* array_offsets,
+                                  BlockTokenizer& tokenizer, const ColumnString* string_col,
+                                  size_t row, const ColumnArray::Offsets64* array_offsets,
                                   const ColumnUInt8::Container* array_element_null_map,
                                   Callback&& callback) {
     const size_t begin = array_offsets ? (row == 0 ? 0 : (*array_offsets)[row - 1]) : row;
@@ -260,8 +426,9 @@ bool for_each_data_element_tokens(const FunctionMatchBase& function, const std::
             }
             continue;
         }
-        auto tokens = function.analyse_data_token(column_name, analyzer_ctx, string_col, element,
-                                                  nullptr, unused_array_offset);
+        auto tokens = function.analyse_data_token(column_name, analyzer_ctx, tokenizer.stream.get(),
+                                                  &tokenizer.batch, string_col, element, nullptr,
+                                                  unused_array_offset);
         if (tokens.empty()) {
             continue;
         }
@@ -274,14 +441,14 @@ bool for_each_data_element_tokens(const FunctionMatchBase& function, const std::
 
 bool match_phrase_data_tokens(const FunctionMatchBase& function, const std::string& column_name,
                               const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                              const ColumnString* string_col, size_t row,
+                              BlockTokenizer& tokenizer, const ColumnString* string_col, size_t row,
                               const ColumnArray::Offsets64* array_offsets,
                               const ColumnUInt8::Container* array_element_null_map,
                               StreamingPhraseMatcher& matcher) {
     matcher.reset_row();
     int64_t position_base = 0;
     const bool matched = for_each_data_element_tokens(
-            function, column_name, analyzer_ctx, string_col, row, array_offsets,
+            function, column_name, analyzer_ctx, tokenizer, string_col, row, array_offsets,
             array_element_null_map, [&](std::span<const segment_v2::TermInfo> tokens) {
                 const bool analyzed = analyzer_ctx && analyzer_ctx->requires_analysis() &&
                                       analyzer_ctx->analyzer != nullptr;
@@ -393,6 +560,12 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     const auto* analyzer_ctx = get_match_analyzer_ctx(context);
     const ColumnPtr source_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+    // Default NULL handling already unwrapped the input column.
+    if (const auto* variant = check_and_get_column<ColumnVariantV2>(source_col.get())) {
+        return execute_variant_values_match(*this, context, *variant, analyzer_ctx, match_query_str,
+                                            column_name, block, result, input_rows_count);
+    }
+
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
     const ColumnArray* array_col = nullptr;
     const ColumnUInt8::Container* array_element_null_map = nullptr;
@@ -483,19 +656,16 @@ std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_query_str_token(
         return query_tokens;
     }
 
-    // Tokenize using the analyzer
-    auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
-            analyzer_ctx->char_filter_map);
-    reader->init(match_query_str.data(), (int)match_query_str.size(), true);
-    query_tokens = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-            reader, analyzer_ctx->analyzer.get());
-    return query_tokens;
+    return doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+            match_query_str, *analyzer_ctx->analyzer);
 }
 
 inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
         const std::string& column_name, const InvertedIndexAnalyzerCtx* analyzer_ctx,
-        const ColumnString* string_col, size_t current_block_row_idx,
-        const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset,
+        segment_v2::inverted_index::TextTokenStream* stream,
+        segment_v2::inverted_index::TokenBatch* batch, const ColumnString* string_col,
+        size_t current_block_row_idx, const ColumnArray::Offsets64* array_offsets,
+        int32_t& current_src_array_offset,
         const ColumnUInt8::Container* array_element_null_map) const {
     std::vector<segment_v2::TermInfo> data_tokens;
     if (analyzer_ctx == nullptr) {
@@ -504,6 +674,8 @@ inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
 
     const bool requires_analysis =
             analyzer_ctx->requires_analysis() && analyzer_ctx->analyzer != nullptr;
+    DORIS_CHECK(!requires_analysis || (stream != nullptr && batch != nullptr));
+    std::vector<segment_v2::TermInfo> element_tokens;
 
     if (array_offsets) {
         for (auto next_src_array_offset = (*array_offsets)[current_block_row_idx];
@@ -516,12 +688,8 @@ inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
                 data_tokens.emplace_back(str_ref.to_string());
                 continue;
             }
-            auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
-                    analyzer_ctx->char_filter_map);
-            reader->init(str_ref.data, (int)str_ref.size, true);
-            auto element_tokens =
-                    doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            reader, analyzer_ctx->analyzer.get());
+            doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                    str_ref.to_string_view(), *stream, *batch, &element_tokens);
             for (auto& token : element_tokens) {
                 data_tokens.emplace_back(std::move(token));
             }
@@ -531,12 +699,8 @@ inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
         if (!requires_analysis) {
             data_tokens.emplace_back(str_ref.to_string());
         } else {
-            auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
-                    analyzer_ctx->char_filter_map);
-            reader->init(str_ref.data, (int)str_ref.size, true);
-            data_tokens =
-                    doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            reader, analyzer_ctx->analyzer.get());
+            doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                    str_ref.to_string_view(), *stream, *batch, &data_tokens);
         }
     }
     return data_tokens;
@@ -576,17 +740,14 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
         return Status::OK();
     }
 
-    std::unordered_set<std::string> query_terms;
-    for (const auto& token : query_tokens) {
-        query_terms.emplace(token.get_single_term());
-    }
-
+    const MatchAnyTerms matcher(query_tokens);
+    BlockTokenizer tokenizer(analyzer_ctx);
     for (int i = 0; i < input_rows_count; i++) {
-        if (for_each_data_element_tokens(*this, column_name, analyzer_ctx, string_col, i,
+        if (for_each_data_element_tokens(*this, column_name, analyzer_ctx, tokenizer, string_col, i,
                                          array_offsets, array_element_null_map,
                                          [&](std::span<const segment_v2::TermInfo> data_tokens) {
                                              for (const auto& info : data_tokens) {
-                                                 if (query_terms.contains(info.get_single_term())) {
+                                                 if (matcher.feed(info.get_single_term())) {
                                                      return true;
                                                  }
                                              }
@@ -619,32 +780,20 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
         return Status::OK();
     }
 
-    std::unordered_map<std::string, size_t> query_term_ids;
-    for (const auto& token : query_tokens) {
-        query_term_ids.emplace(token.get_single_term(), query_term_ids.size());
-    }
-    std::vector<size_t> last_seen_row;
-
+    MatchAllTerms matcher(query_tokens);
+    BlockTokenizer tokenizer(analyzer_ctx);
     for (int i = 0; i < input_rows_count; i++) {
-        size_t remaining = query_term_ids.size();
-        if (for_each_data_element_tokens(
-                    *this, column_name, analyzer_ctx, string_col, i, array_offsets,
-                    array_element_null_map, [&](std::span<const segment_v2::TermInfo> data_tokens) {
-                        if (last_seen_row.empty()) {
-                            last_seen_row.resize(query_term_ids.size(), 0);
-                        }
-                        for (const auto& info : data_tokens) {
-                            auto it = query_term_ids.find(info.get_single_term());
-                            if (it != query_term_ids.end() &&
-                                last_seen_row[it->second] != static_cast<size_t>(i) + 1) {
-                                last_seen_row[it->second] = static_cast<size_t>(i) + 1;
-                                if (--remaining == 0) {
-                                    return true;
-                                }
-                            }
-                        }
-                        return false;
-                    })) {
+        matcher.start_row(i);
+        if (for_each_data_element_tokens(*this, column_name, analyzer_ctx, tokenizer, string_col, i,
+                                         array_offsets, array_element_null_map,
+                                         [&](std::span<const segment_v2::TermInfo> data_tokens) {
+                                             for (const auto& info : data_tokens) {
+                                                 if (matcher.feed(info.get_single_term())) {
+                                                     return true;
+                                                 }
+                                             }
+                                             return false;
+                                         })) {
             result[i] = true;
         }
     }
@@ -677,9 +826,10 @@ Status FunctionMatchPhrase::execute_match(
     }
 
     StreamingPhraseMatcher matcher(query_tokens, PhraseMode::EXACT);
+    BlockTokenizer tokenizer(analyzer_ctx);
     for (int i = 0; i < input_rows_count; i++) {
-        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, string_col, i, array_offsets,
-                                     array_element_null_map, matcher)) {
+        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, tokenizer, string_col, i,
+                                     array_offsets, array_element_null_map, matcher)) {
             result[i] = true;
         }
     }
@@ -707,9 +857,10 @@ Status FunctionMatchPhrasePrefix::execute_match(
     }
 
     StreamingPhraseMatcher matcher(query_tokens, PhraseMode::PREFIX);
+    BlockTokenizer tokenizer(analyzer_ctx);
     for (int i = 0; i < input_rows_count; i++) {
-        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, string_col, i, array_offsets,
-                                     array_element_null_map, matcher)) {
+        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, tokenizer, string_col, i,
+                                     array_offsets, array_element_null_map, matcher)) {
             result[i] = true;
         }
     }
@@ -761,32 +912,31 @@ Status FunctionMatchRegexp::execute_match(
         return 0;
     };
 
-    try {
-        for (int i = 0; i < input_rows_count; i++) {
-            for_each_data_element_tokens(
-                    *this, column_name, analyzer_ctx, string_col, i, array_offsets,
-                    array_element_null_map, [&](std::span<const segment_v2::TermInfo> data_tokens) {
-                        for (const auto& input : data_tokens) {
-                            bool is_match = false;
-                            const auto& input_str = input.get_single_term();
-                            if (hs_scan(database, input_str.data(), (uint32_t)input_str.size(), 0,
-                                        scratch, on_match, (void*)&is_match) != HS_SUCCESS) {
-                                LOG(ERROR) << "hyperscan match failed: " << input_str;
-                                return true;
-                            }
-                            if (is_match) {
-                                result[i] = true;
-                                return true;
-                            }
-                        }
-                        return false;
-                    });
-        }
-    }
-    _CLFINALLY({
+    Defer free_hyperscan {[&]() {
         hs_free_scratch(scratch);
         hs_free_database(database);
-    })
+    }};
+    BlockTokenizer tokenizer(analyzer_ctx);
+    for (size_t i = 0; i < input_rows_count; i++) {
+        for_each_data_element_tokens(
+                *this, column_name, analyzer_ctx, tokenizer, string_col, i, array_offsets,
+                array_element_null_map, [&](std::span<const segment_v2::TermInfo> data_tokens) {
+                    for (const auto& input : data_tokens) {
+                        bool is_match = false;
+                        const auto& input_str = input.get_single_term();
+                        if (hs_scan(database, input_str.data(), (uint32_t)input_str.size(), 0,
+                                    scratch, on_match, (void*)&is_match) != HS_SUCCESS) {
+                            LOG(ERROR) << "hyperscan match failed: " << input_str;
+                            return true;
+                        }
+                        if (is_match) {
+                            result[i] = true;
+                            return true;
+                        }
+                    }
+                    return false;
+                });
+    }
 
     return Status::OK();
 }
@@ -811,9 +961,10 @@ Status FunctionMatchPhraseEdge::execute_match(
     }
 
     StreamingPhraseMatcher matcher(query_tokens, PhraseMode::EDGE);
+    BlockTokenizer tokenizer(analyzer_ctx);
     for (int i = 0; i < input_rows_count; i++) {
-        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, string_col, i, array_offsets,
-                                     array_element_null_map, matcher)) {
+        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, tokenizer, string_col, i,
+                                     array_offsets, array_element_null_map, matcher)) {
             result[i] = true;
         }
     }

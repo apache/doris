@@ -120,6 +120,47 @@ class OlapInsertExecutorTest {
     }
 
     @Test
+    void testSkipExecutionFinishesRegisteredLoadJob() throws Exception {
+        ConnectContext ctx = createExecutorContext();
+        LoadManager loadManager = Mockito.mock(LoadManager.class);
+        Env currentEnv = createCurrentEnv(loadManager);
+
+        try (MockedStatic<EnvFactory> envFactoryMock = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            prepareFactoryMocks(envFactoryMock, envMock, createCoordinator(),
+                    Mockito.mock(GlobalTransactionMgrIface.class), Mockito.mock(TransactionState.class), currentEnv);
+            ctx.setEnv(currentEnv);
+
+            OlapInsertExecutor executor = createExecutor(ctx, true, true);
+            Mockito.verify(loadManager).addLoadJob(Mockito.any());
+            executor.onSkipExecution();
+
+            Mockito.verify(loadManager).recordFinishedLoadJob(Mockito.eq("label_test"), Mockito.eq(-1L),
+                    Mockito.eq("test_db"), Mockito.eq(2L), Mockito.eq(EtlJobType.INSERT), Mockito.anyLong(),
+                    Mockito.eq(""), Mockito.isNull(), Mockito.isNull(), Mockito.eq(UserIdentity.ROOT),
+                    Mockito.anyLong());
+        }
+    }
+
+    @Test
+    void testSkipExecutionRecordsNothingForUnregisteredLoadJob() throws Exception {
+        ConnectContext ctx = createExecutorContext();
+        LoadManager loadManager = Mockito.mock(LoadManager.class);
+        Env currentEnv = createCurrentEnv(loadManager);
+
+        try (MockedStatic<EnvFactory> envFactoryMock = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            prepareFactoryMocks(envFactoryMock, envMock, createCoordinator(),
+                    Mockito.mock(GlobalTransactionMgrIface.class), Mockito.mock(TransactionState.class), currentEnv);
+            ctx.setEnv(currentEnv);
+
+            createExecutor(ctx, true, false).onSkipExecution();
+
+            Mockito.verifyNoInteractions(loadManager);
+        }
+    }
+
+    @Test
     void testPublishTimeoutCommittedModeReturnsOk() throws Exception {
         ConnectContext ctx = createExecutorContext();
         Coordinator coordinator = createCoordinator();
@@ -412,6 +453,10 @@ class OlapInsertExecutorTest {
     }
 
     private OlapInsertExecutor createExecutor(ConnectContext ctx, boolean emptyInsert) {
+        return createExecutor(ctx, emptyInsert, false);
+    }
+
+    private OlapInsertExecutor createExecutor(ConnectContext ctx, boolean emptyInsert, boolean needRegister) {
         Database database = Mockito.mock(Database.class);
         Mockito.when(database.getFullName()).thenReturn("test_db");
         Mockito.when(database.getId()).thenReturn(1L);
@@ -423,7 +468,7 @@ class OlapInsertExecutorTest {
         Mockito.when(table.getId()).thenReturn(2L);
 
         return new OlapInsertExecutor(ctx, table, "label_test", Mockito.mock(NereidsPlanner.class),
-                Optional.empty(), emptyInsert, 0L);
+                Optional.empty(), emptyInsert, 0L, needRegister);
     }
 
     private OlapInsertExecutor createExecutorWithBeforeExecFailure(ConnectContext ctx) {

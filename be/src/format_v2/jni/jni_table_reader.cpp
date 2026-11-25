@@ -77,7 +77,10 @@ Status JniTableReader::prepare_split(const SplitReadOptions& options) {
     return _open_jni_scanner();
 }
 
-Status JniTableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
+Status JniTableReader::refresh_conjuncts(
+        VExprContextSPtrs conjuncts, std::optional<uint64_t> condition_cache_digest,
+        bool all_runtime_filters_applied,
+        std::shared_ptr<const format::PredicateSnapshot> predicate_snapshot) {
     if (_scanner_opened) {
         SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.refresh_conjuncts_timer);
@@ -91,7 +94,9 @@ Status JniTableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
             RETURN_IF_ERROR(conjunct->open(_runtime_state));
         }
     }
-    return TableReader::refresh_conjuncts(std::move(conjuncts));
+    return TableReader::refresh_conjuncts(std::move(conjuncts), condition_cache_digest,
+                                          all_runtime_filters_applied,
+                                          std::move(predicate_snapshot));
 }
 
 Status JniTableReader::get_block(Block* output_block, bool* eos) {

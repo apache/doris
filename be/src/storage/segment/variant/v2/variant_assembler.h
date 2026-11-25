@@ -41,6 +41,11 @@ enum class StorageMapKind : uint8_t {
     DOC,
 };
 
+// Append a range of persisted Map<String,String> rows. Preserve a single bucket's stored
+// order and merge multiple buckets in raw path order.
+void append_variant_binary_bucket_range(std::span<const ColumnMap* const> buckets, size_t begin,
+                                        size_t num_rows, ColumnMap& destination);
+
 // Describes the physical streams available to one hierarchical reader. Paths are normalized once
 // by create().
 struct VariantAssemblerOptions {
@@ -53,6 +58,7 @@ struct VariantAssemblerOptions {
     DorisVector<MaterializedPath> materialized_paths;
     StorageMapKind storage_map_kind = StorageMapKind::NONE;
     bool has_root = false;
+    uint32_t path_encoding = 0;
 };
 
 namespace variant_assembler_detail {
@@ -93,9 +99,11 @@ public:
                     ColumnNullable::MutablePtr* output) const;
 
 private:
-    VariantAssembler(StorageMapKind storage_map_kind, bool has_root, const PathInData& requested,
+    VariantAssembler(uint32_t path_encoding, StorageMapKind storage_map_kind, bool has_root,
+                     const PathInData& requested,
                      DorisVector<variant_assembler_detail::MaterializedSlot> materialized);
 
+    uint32_t _path_encoding;
     StorageMapKind _storage_map_kind;
     bool _has_root;
     PathInData _requested;

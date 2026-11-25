@@ -19,25 +19,24 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/tokenizer/keyword/keyword_tokenizer_factory.h"
+#include "storage/index/inverted/analysis/tokenizer/standard/standard_tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
 
-TokenStreamPtr create_filter(const std::string& text, Settings token_filter_settings) {
-    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(text.data(), text.size(), false);
-
+std::unique_ptr<TextTokenStream> create_filter(Settings token_filter_settings) {
     Settings settings;
     KeywordTokenizerFactory tokenizer_factory;
     tokenizer_factory.initialize(settings);
-    auto tokenizer = tokenizer_factory.create();
-    tokenizer->set_reader(reader);
 
     ASCIIFoldingFilterFactory token_filter_factory;
     token_filter_factory.initialize(token_filter_settings);
-    auto token_filter = token_filter_factory.create(tokenizer);
-    token_filter->reset();
-    return token_filter;
+    return token_filter_factory.create(tokenizer_factory.create());
 }
 
 struct ExpectedToken {
@@ -55,14 +54,13 @@ protected:
         } else {
             settings.set("preserve_original", "false");
         }
-        auto filter = create_filter(text, settings);
+        auto filter = create_filter(settings);
 
-        Token t;
         size_t i = 0;
-        while (filter->next(&t)) {
-            std::string term(t.termBuffer<char>(), t.termLength<char>());
+        for (const CollectedToken& t : collect_checked(*filter, text)) {
+            const std::string& term = t.term;
             EXPECT_EQ(term, expected[i].term) << "Term mismatch at index " << i;
-            EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc)
+            EXPECT_EQ(t.position_increment, expected[i].pos_inc)
                     << "Pos increment mismatch at index " << i;
             ++i;
         }
@@ -120,6 +118,40 @@ TEST_F(ASCIIFoldingFilterFactoryTest, HandlesEmptyString) {
 TEST_F(ASCIIFoldingFilterFactoryTest, PositionIncrementsCorrect) {
     assert_filter_output("á b c", {{"a b c", 1}});
     assert_filter_output("á b c", {{"a b c", 1}, {"á b c", 0}}, true);
+}
+
+namespace {
+
+std::unique_ptr<TextTokenStream> create_standard_folding(bool preserve_original) {
+    StandardTokenizerFactory tokenizer_factory;
+    tokenizer_factory.initialize(Settings());
+    Settings settings;
+    settings.set("preserve_original", preserve_original ? "true" : "false");
+    ASCIIFoldingFilterFactory filter_factory;
+    filter_factory.initialize(settings);
+    return filter_factory.create(tokenizer_factory.create());
+}
+
+} // namespace
+
+// preserve_original makes two tokens of one, which only the per-token filter makes.
+TEST_F(ASCIIFoldingFilterFactoryTest, StandardTokenizerPreservesTheOriginalAtItsPosition) {
+    auto filter = create_standard_folding(true);
+    EXPECT_NE(dynamic_cast<ASCIIFoldingPreserveOriginalFilter*>(filter.get()), nullptr);
+    EXPECT_EQ(collect_checked(*filter, "café"),
+              (std::vector<CollectedToken> {{"cafe", 1}, {"café", 0}}));
+    EXPECT_EQ(collect_checked(*filter, "Ærø café 中"),
+              (std::vector<CollectedToken> {
+                      {"AEro", 1}, {"Ærø", 0}, {"cafe", 1}, {"café", 0}, {"中", 1}}));
+}
+
+// Without preserve_original the one-to-one filter folds every token where it stands.
+TEST_F(ASCIIFoldingFilterFactoryTest, StandardTokenizerFoldsWithoutTheOriginal) {
+    auto filter = create_standard_folding(false);
+    EXPECT_NE(dynamic_cast<ASCIIFoldingFilter*>(filter.get()), nullptr);
+    EXPECT_EQ(collect_checked(*filter, "café"), (std::vector<CollectedToken> {{"cafe", 1}}));
+    EXPECT_EQ(collect_checked(*filter, "Ærø café 中"),
+              (std::vector<CollectedToken> {{"AEro", 1}, {"cafe", 1}, {"中", 1}}));
 }
 
 TEST_F(ASCIIFoldingFilterFactoryTest, ExhaustiveUnicodeCharacters) {

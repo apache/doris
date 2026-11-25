@@ -34,6 +34,8 @@ import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.sql.Types;
 import java.util.Collections;
@@ -53,6 +55,34 @@ class MySqlSchemaChangeDeserializeTest {
     private static final Map<String, String> CONTEXT = Map.of(Constants.DORIS_TARGET_DB, "doris_db");
     private static final FlinkJsonTableChangeSerializer TABLE_CHANGE_SERIALIZER =
             new FlinkJsonTableChangeSerializer();
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "VECTOR",
+        "VECTOR(4)",
+        "VECTOR(4) GENERATED ALWAYS AS (TO_VECTOR(info ->> '$.a1')) VIRTUAL",
+        "VECTOR(4) GENERATED ALWAYS AS (TO_VECTOR(info ->> '$.a1')) STORED"
+    })
+    void addedVectorColumnEmitsArrayDdl(String definition) throws Exception {
+        Table baseline = table("id").edit().addColumn(
+                Column.editor().name("info").type("JSON").jdbcType(Types.OTHER)
+                        .optional(true).create()).create();
+        Column vector = Column.editor().name("v1").type("VECTOR").jdbcType(Types.OTHER)
+                .length(definition.equals("VECTOR") ? 2048 : 4).optional(true).create();
+        Table fresh = baseline.edit().addColumn(vector).create();
+        MySqlDebeziumJsonDeserializer deserializer = newDeserializer(baseline);
+
+        DeserializeResult result = deserializer.deserialize(CONTEXT,
+                schemaChangeRecord("ALTER TABLE t1 ADD COLUMN v1 " + definition, fresh));
+
+        assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertNull(result.getUnsupportedReason());
+        assertEquals(Collections.singletonList("ALTER TABLE `doris_db`.`t1` ADD COLUMN `v1` ARRAY<FLOAT>"),
+                result.getDdls());
+        assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
+        // The caller applies the candidate schema only after the target DDL succeeds.
+        assertEquals(baseline, deserializer.getTableSchemas().get(TABLE).getTable());
+    }
 
     @Test
     void parserFailureRequiresConfirmationWithoutApplyingBaseline() throws Exception {

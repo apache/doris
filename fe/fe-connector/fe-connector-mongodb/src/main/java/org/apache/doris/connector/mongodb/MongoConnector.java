@@ -44,7 +44,17 @@ final class MongoConnector implements Connector {
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new MongoScanPlanProvider(properties);
+        return new MongoScanPlanProvider(properties, this::snapshotClient);
+    }
+
+    private synchronized MongoCatalogClient snapshotClient() {
+        if (closed) {
+            throw new IllegalStateException("MongoDB catalog is closed");
+        }
+        if (client == null) {
+            client = new MongoDriverCatalogClient(properties);
+        }
+        return client;
     }
 
     @Override

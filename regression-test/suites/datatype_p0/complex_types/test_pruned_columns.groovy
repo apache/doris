@@ -227,6 +227,8 @@ suite("test_pruned_columns") {
     sql "set enable_common_expr_pushdown = true"
 
     def lazyPrunedToken = "lazy_pruned_column_recovery_" + UUID.randomUUID().toString()
+    // Drain every scanner to EOS so its final segment timers are collected. LIMIT can
+    // cancel the scan before that collection, leaving these timers at zero.
     sql """
         select
             "${lazyPrunedToken}"
@@ -234,7 +236,7 @@ suite("test_pruned_columns") {
             , element_at(s, 'data')
         from `tbl_test_pruned_columns`
         where element_at(s, 'city') = 'chengdu'
-        order by 1 limit 0, 20;
+        order by id;
     """
 
     def profileAction = new ProfileAction(context)

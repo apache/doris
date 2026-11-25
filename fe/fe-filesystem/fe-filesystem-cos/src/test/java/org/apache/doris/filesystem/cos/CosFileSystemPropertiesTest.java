@@ -75,19 +75,21 @@ class CosFileSystemPropertiesTest {
         Assertions.assertFalse(rendered.contains("cos-token-plain"), rendered);
         Assertions.assertTrue(rendered.contains("secretKey=***"), rendered);
         Assertions.assertTrue(rendered.contains("sessionToken=***"), rendered);
-        Assertions.assertTrue(rendered.contains("accessKey=cos-ak-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("cos-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("accessKey=***"), rendered);
+        Assertions.assertEquals("cos-ak-plain", properties.getAccessKey());
         Assertions.assertTrue(rendered.contains("https://cos.ap-guangzhou.myqcloud.com"), rendered);
     }
 
     @Test
-    void provider_sensitivePropertyKeysCoverSecretsButNotAccessKey() {
+    void provider_sensitivePropertyKeysCoverAllCredentials() {
         Set<String> keys = new CosFileSystemProvider().sensitivePropertyKeys();
 
         Assertions.assertTrue(keys.contains("cos.secret_key"), keys.toString());
         Assertions.assertTrue(keys.contains("COS_SECRET_KEY"), keys.toString());
         Assertions.assertTrue(keys.contains("COS_SESSION_TOKEN"), keys.toString());
-        Assertions.assertFalse(keys.contains("COS_ACCESS_KEY"), keys.toString());
-        Assertions.assertFalse(keys.contains("cos.access_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("COS_ACCESS_KEY"), keys.toString());
+        Assertions.assertTrue(keys.contains("cos.access_key"), keys.toString());
     }
 
     @Test

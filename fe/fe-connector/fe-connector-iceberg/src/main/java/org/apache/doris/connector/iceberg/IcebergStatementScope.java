@@ -73,6 +73,8 @@ final class IcebergStatementScope {
     static final String WRITE_SCHEMA_NAMESPACE = "iceberg.write-schema";
     static final String ACTIVE_WRITE_SCHEMA_NAMESPACE = "iceberg.active-write-schema";
 
+    static final String MANIFEST_READER_NAMESPACE = "iceberg.manifest-reader";
+
     static final String MANIFEST_READ_BUDGET_NAMESPACE = "iceberg.manifest-read-budget";
 
     private IcebergStatementScope() {}
@@ -119,6 +121,44 @@ final class IcebergStatementScope {
         }
         return session.getStatementScope().computeIfAbsent(
                 MANIFEST_READ_BUDGET_NAMESPACE + ":" + session.getQueryId(), () -> new Semaphore(concurrency));
+    }
+
+    /** Shares active reads of the frozen table without retaining completed private manifest values. */
+    static IcebergManifestReader manifestReader(ConnectorSession session, String dbName, String tableName,
+            IcebergManifestCache cache, Table table, String queryId) {
+        IcebergManifestReader present = ConnectorStatementScopes.getIfPresent(
+                session, MANIFEST_READER_NAMESPACE, dbName, tableName);
+        if (present != null) {
+            return present;
+        }
+        // Retaining and inspecting the table can touch its FileIO. Keep both outside scope compute locks.
+        AutoCloseable owner = readTableLeaseFactory(session, dbName, tableName).get();
+        IcebergManifestReader candidate;
+        try {
+            candidate = new IcebergManifestReader(cache, table, queryId, owner);
+        } catch (RuntimeException | Error failure) {
+            try {
+                owner.close();
+            } catch (Exception cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
+        }
+        try {
+            IcebergManifestReader resolved = ConnectorStatementScopes.resolveInStatement(
+                    session, MANIFEST_READER_NAMESPACE, dbName, tableName, () -> candidate);
+            if (resolved != candidate) {
+                candidate.close();
+            }
+            return resolved;
+        } catch (RuntimeException | Error failure) {
+            try {
+                candidate.close();
+            } catch (RuntimeException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
+        }
     }
 
     /** Capture the existing statement owner; each actual callable retains it until its body exits. */

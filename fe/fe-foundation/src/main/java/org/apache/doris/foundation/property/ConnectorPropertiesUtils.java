@@ -193,14 +193,14 @@ public class ConnectorPropertiesUtils {
      * Return the sensitive keys of the give properties
      *
      * @param clazz the class to inspect
-     * @return set of property name aliases marked as sensitive
+     * @return aliases that must be masked unconditionally, excluding diagnostic-only structured addresses
      */
     public static Set<String> getSensitiveKeys(Class<?> clazz) {
         Set<String> keys = new HashSet<>();
         List<Field> supportedProps = getConnectorProperties(clazz);
         for (Field field : supportedProps) {
             ConnectorProperty anno = field.getAnnotation(ConnectorProperty.class);
-            if (anno.sensitive()) {
+            if (anno.sensitive() && !anno.sensitiveInDiagnosticsOnly()) {
                 for (String name : anno.names()) {
                     keys.add(name);
                 }

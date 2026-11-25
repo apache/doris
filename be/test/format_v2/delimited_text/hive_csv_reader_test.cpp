@@ -37,6 +37,7 @@
 #include "io/io_common.h"
 #include "testutil/desc_tbl_builder.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::format::csv {
 namespace {
@@ -209,8 +210,10 @@ void check_reader_count(CsvReader* reader, size_t expected) {
 
 class HiveOpenCsvReaderTest : public testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"hive_csv_reader_test"};
+
     void SetUp() override {
-        _directory = std::filesystem::temp_directory_path() / "hive_csv_reader_v2";
+        _directory = scoped_temp_dir_.path() / "hive_csv_reader_v2";
         std::filesystem::create_directories(_directory);
     }
     void TearDown() override { std::filesystem::remove_all(_directory); }

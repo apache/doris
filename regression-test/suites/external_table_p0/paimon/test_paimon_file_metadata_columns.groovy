@@ -117,6 +117,7 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
         sql """set force_jni_scanner=false"""
         // A one-byte split forces one native source file through multiple scanner ranges.
         sql """set file_split_size=1"""
+        sql """set file_split_size_on_fe=0"""
 
         verifyMetadata("deletion_vector_orc")
         verifyMetadata("deletion_vector_parquet")
@@ -161,6 +162,7 @@ suite("test_paimon_file_metadata_columns", "p0,external") {
         assertEquals(metadataRows, sql(metadataQuery))
     } finally {
         sql """unset variable file_split_size"""
+        sql """unset variable file_split_size_on_fe"""
         sql """set force_jni_scanner=false"""
         sql """set enable_file_scanner_v2=true"""
         sql """drop catalog if exists ${crossFileCatalogName}"""

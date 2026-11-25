@@ -161,6 +161,12 @@ public class MySqlSourceReaderTest {
     }
 
     @Test
+    void snapshotConfigEnablesStreamingResults() throws Exception {
+        assertEquals(Integer.MIN_VALUE, sourceConfig("initial").getFetchSize());
+        assertEquals(Integer.MIN_VALUE, sourceConfig("snapshot").getFetchSize());
+    }
+
+    @Test
     void mysqlConfigCanDisableSchemaChanges() throws Exception {
         Map<String, String> overrides = new HashMap<>();
         overrides.put(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "false");

@@ -38,12 +38,14 @@ import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.jdbc.client.JdbcMySQLClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.PostgresResourceValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingJdbcUrlNormalizer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -284,8 +286,17 @@ public class StreamingJobUtils {
         config.setPassword(properties.get(DataSourceConfigKeys.PASSWORD));
         config.setDriverClass(properties.get(DataSourceConfigKeys.DRIVER_CLASS));
         config.setDriverUrl(properties.get(DataSourceConfigKeys.DRIVER_URL));
-        config.setJdbcUrl(properties.get(DataSourceConfigKeys.JDBC_URL));
-        return JdbcClient.createJdbcClient(config);
+        String jdbcUrl = properties.get(DataSourceConfigKeys.JDBC_URL);
+        if (sourceType == DataSourceType.MYSQL) {
+            // Discover native types such as VECTOR without changing the CDC reader's JDBC URL.
+            jdbcUrl = StreamingJdbcUrlNormalizer.appendDefaultParam(jdbcUrl, "useInformationSchema", "true");
+        }
+        config.setJdbcUrl(jdbcUrl);
+        JdbcClient jdbcClient = JdbcClient.createJdbcClient(config);
+        if (sourceType == DataSourceType.MYSQL) {
+            ((JdbcMySQLClient) jdbcClient).enableVectorMapping();
+        }
+        return jdbcClient;
     }
 
     public static Backend selectBackend(String cloudCluster) throws JobException {

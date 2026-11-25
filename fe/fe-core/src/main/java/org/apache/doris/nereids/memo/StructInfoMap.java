@@ -316,16 +316,13 @@ public class StructInfoMap {
                     groupTableSet.add(tableMaps);
                     filteredTableMaps.or(tableMaps);
                 }
-                if (!filteredTableMaps.isEmpty()) {
-                    childrenTableMap.add(groupTableSet);
-                }
+                // Keep one candidate set per child, including empty sets. The Cartesian product
+                // must reject the whole expression if any child has no candidates.
+                childrenTableMap.add(groupTableSet);
             }
             // filter the tableSet that used intersects with targetBitSet, make sure the at least constructed
             if (!structInfoMap.getTableMaps(tableIdMode).isEmpty() && !targetBitSet.isEmpty()
                     && !filteredTableMaps.isEmpty() && !filteredTableMaps.intersects(targetBitSet)) {
-                continue;
-            }
-            if (childrenTableMap.isEmpty()) {
                 continue;
             }
             // if groupExpression which has the same table set have refreshed, continue

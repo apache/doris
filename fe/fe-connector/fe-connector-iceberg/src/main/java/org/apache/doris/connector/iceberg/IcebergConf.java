@@ -37,6 +37,7 @@ public final class IcebergConf {
     public static final String CONF_DRIVERS_DIR = "drivers_dir";
     public static final String CONF_METASTORE_CLIENT_TIMEOUT_SECOND = "metastore_client_timeout_second";
     public static final String CONF_ENABLE_ENCRYPTION_READ = "enable_encryption_read";
+    public static final String CONF_WORKER_THREAD_POOL_SIZE = "worker_thread_pool_size";
 
     /** The fe.conf name of {@link #CONF_DRIVERS_DIR}, forwarded through the engine environment. */
     public static final String ENV_JDBC_DRIVERS_DIR = "jdbc_drivers_dir";
@@ -49,6 +50,26 @@ public final class IcebergConf {
     public static final String DEFAULT_METASTORE_CLIENT_TIMEOUT_SECOND = "10";
 
     private IcebergConf() {
+    }
+
+    /** Null preserves the SDK's startup setting; a positive override bounds the FE-wide shared pool. */
+    public static Integer workerThreadPoolSize(ConnectorContext context) {
+        String value = ConnectorConf.get(context, CONF_WORKER_THREAD_POOL_SIZE, null, null);
+        if (value == null) {
+            return null;
+        }
+        int size;
+        try {
+            size = Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("iceberg.conf " + CONF_WORKER_THREAD_POOL_SIZE
+                    + " must be a positive integer: " + value, e);
+        }
+        if (size <= 0) {
+            throw new IllegalArgumentException("iceberg.conf " + CONF_WORKER_THREAD_POOL_SIZE
+                    + " must be a positive integer: " + value);
+        }
+        return size;
     }
 
     /** Operator intent only: the read contract independently requires verified backend capabilities. */

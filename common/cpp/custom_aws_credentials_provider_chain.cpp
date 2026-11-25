@@ -25,7 +25,7 @@
 #include <aws/core/utils/logging/LogMacros.h>
 #include <aws/core/utils/memory/AWSMemory.h>
 
-#include "aws_common.h"
+#include "cpp/obj-storage/auth/aws/aws_credential_provider.h"
 
 namespace doris {
 
@@ -45,9 +45,6 @@ CustomAwsCredentialsProviderChain::CustomAwsCredentialsProviderChain()
                         "The environment variable value " << AWS_EC2_METADATA_DISABLED << " is "
                                                           << ec2MetadataDisabled);
 
-    // One provider serves both container platforms: create_container_credentials_provider() reads
-    // all four AWS_CONTAINER_* variables, applies the provider's own relative-then-absolute
-    // precedence, and logs which variable supplied the endpoint.
     if (container_credentials_available()) {
         AddProvider(create_container_credentials_provider());
     }
@@ -75,4 +72,4 @@ CustomAwsCredentialsProviderChain::CustomAwsCredentialsProviderChain(
         AddProvider(provider);
     }
 }
-}
+} // namespace doris

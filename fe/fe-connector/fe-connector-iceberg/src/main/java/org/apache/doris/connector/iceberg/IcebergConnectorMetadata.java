@@ -2141,6 +2141,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return OptionalLong.empty();
         }
         validateBoundWriteGeneration(table, boundWriteMetadataIdentity);
+        IcebergSchemaUtils.validateNoUnknownForWrite(table.schema());
         Expression deleteExpr = predicate.isPresent()
                 ? wholeFileDeleteExpression(table, session, predicate.get())
                 : Expressions.alwaysTrue();
@@ -2182,6 +2183,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // metadata delete (the row-level fallback then reports an exact affected-row count).
         Transaction transaction = IcebergConnectorTransaction.openTransaction(
                 table, context, null, false, boundWriteMetadataIdentity, refreshedSnapshotId);
+        IcebergSchemaUtils.validateNoUnknownForWrite(transaction.table().schema());
         DeleteFiles deleteFiles = transaction.newDelete().deleteFromRowFilter(deleteExpr);
         if (isCancelled.getAsBoolean()) {
             return OptionalLong.empty();
@@ -2506,6 +2508,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         try {
             return executeAuthenticated(() -> {
                 Table table = resolveTableForRead(session, iceHandle);
+                // Stable metadata does not attest current KMS authorization. Throwing rejects both result-cache
+                // admission and replay; an empty token would instead fall back to legacy freshness caching.
+                if (IcebergEncryptionRead.isEncrypted(table)) {
+                    throw new UnsupportedOperationException("Iceberg encryption [SQL_CACHE_UNAVAILABLE]");
+                }
                 String version = metadataVersion(table, iceHandle).orElseThrow(
                         () -> new UnsupportedOperationException("Iceberg SQL cache requires published table metadata"));
                 long updateMillis = iceHandle.getSnapshotId() < 0 ? 0

@@ -37,6 +37,7 @@
 #include "storage/index/inverted/snii/snii_query_oracle.h"
 #include "storage/index/inverted/snii/snii_query_test_util.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
+#include "storage/rowid_conversion.h"
 
 namespace {
 
@@ -357,6 +358,78 @@ TEST(SniiIndexCompactionTest, MergesDeletesNullsAndInterleavedSourcesByteIdentic
     };
     const std::vector<uint32_t> destination_rows = {4, 2};
     auto validated = make_validated_conversion(&conversion, {4, 3}, destination_rows);
+    ASSERT_NE(validated, nullptr);
+    std::unique_ptr<SniiPlainT2MergePlan> plan;
+    assert_ok(SniiPlainT2MergePlan::prepare({&source_zero.index, &source_one.index}, *validated,
+                                            /*total_read_ahead_budget_bytes=*/1U << 20, &plan));
+    ASSERT_NE(plan, nullptr);
+    EXPECT_EQ(plan->destination_null_docids(0), (std::vector<uint32_t> {2}));
+    EXPECT_EQ(plan->destination_null_docids(1), (std::vector<uint32_t> {1}));
+
+    std::array<MemoryFile, 2> merged_files;
+    std::array<std::unique_ptr<SniiCompoundWriter>, 2> compounds;
+    std::array<SniiStreamedIndexSession*, 2> sessions = {nullptr, nullptr};
+    for (size_t i = 0; i < compounds.size(); ++i) {
+        compounds[i] = std::make_unique<SniiCompoundWriter>(&merged_files[i]);
+        SniiIndexInput input =
+                make_input(destination_rows[i], plan->destination_null_docids(i), {});
+        assert_ok(compounds[i]->begin_streamed_index(std::move(input), &sessions[i]));
+    }
+    assert_ok(plan->execute(sessions));
+    for (auto& compound : compounds) {
+        assert_ok(compound->finish());
+    }
+
+    std::array<OpenedIndex, 2> expected;
+    build_index(make_input(/*doc_count=*/4, /*null_docids=*/ {2}, destination_zero_terms()),
+                &expected[0]);
+    build_index(make_input(/*doc_count=*/2, /*null_docids=*/ {1}, destination_one_terms()),
+                &expected[1]);
+    expect_identical_index_image(&merged_files[0], &expected[0].file);
+    expect_identical_index_image(&merged_files[1], &expected[1].file);
+
+    std::array<reader::SniiSegmentReader, 2> merged_segments;
+    std::array<reader::LogicalIndexReader, 2> merged_indexes;
+    for (size_t i = 0; i < merged_files.size(); ++i) {
+        assert_ok(reader::SniiSegmentReader::open(&merged_files[i], &merged_segments[i]));
+        assert_ok(merged_segments[i].open_index(kIndexId, kIndexSuffix, &merged_indexes[i]));
+    }
+    expect_query_semantics(merged_indexes[0], /*alpha=*/ {0, 1}, /*alpha_beta=*/ {0},
+                           /*alpha_beta_gamma=*/ {0});
+    expect_query_semantics(merged_indexes[1], /*alpha=*/ {}, /*alpha_beta=*/ {},
+                           /*alpha_beta_gamma=*/ {});
+    EXPECT_EQ(merged_indexes[0].stats().doc_count, 4U);
+    EXPECT_EQ(merged_indexes[0].stats().indexed_doc_count, 3U);
+    EXPECT_EQ(merged_indexes[0].stats().null_count, 1U);
+    EXPECT_EQ(merged_indexes[1].stats().doc_count, 2U);
+    EXPECT_EQ(merged_indexes[1].stats().indexed_doc_count, 1U);
+    EXPECT_EQ(merged_indexes[1].stats().null_count, 1U);
+}
+
+TEST(SniiIndexCompactionTest, CompressedMappingMergesNullsAndPostingsByteIdenticallyToRebuild) {
+    OpenedIndex source_zero;
+    OpenedIndex source_one;
+    build_index(make_input(/*doc_count=*/4, /*null_docids=*/ {1}, source_zero_terms()),
+                &source_zero, reader::LogicalIndexOpenMode::kCompaction);
+    build_index(make_input(/*doc_count=*/3, /*null_docids=*/ {2}, source_one_terms()), &source_one);
+
+    doris::RowsetId rowset;
+    rowset.init(83);
+    doris::RowIdConversion conversion(doris::RowIdConversion::Mode::COMPRESSED);
+    assert_ok(conversion.init_segment_map(rowset, {7, 19}, {4, 3}));
+    const std::vector<uint32_t> destination_rows {4, 2};
+    assert_ok(conversion.add({{rowset, 7, 0},
+                              {rowset, 19, 0},
+                              {rowset, 7, 1},
+                              {rowset, 19, 1},
+                              {rowset, 7, 2},
+                              {rowset, 19, 2}},
+                             destination_rows));
+    assert_ok(conversion.finalize(destination_rows));
+    std::unique_ptr<ValidatedRowIdConversion> validated;
+    const std::vector<uint32_t> source_rows {4, 3};
+    assert_ok(ValidatedRowIdConversion::create(&conversion, source_rows, destination_rows,
+                                               &validated));
     ASSERT_NE(validated, nullptr);
     std::unique_ptr<SniiPlainT2MergePlan> plan;
     assert_ok(SniiPlainT2MergePlan::prepare({&source_zero.index, &source_one.index}, *validated,

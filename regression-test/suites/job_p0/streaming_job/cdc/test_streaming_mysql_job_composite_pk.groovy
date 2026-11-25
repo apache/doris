@@ -190,6 +190,30 @@ suite("test_streaming_mysql_job_composite_pk", "p0,external,mysql,external_docke
         qt_select_after_incr """select tenant_id, order_id, order_no, amount from ${currentDb}.${table1} order by tenant_id, order_id;"""
         qt_select_after_incr_map """select user_id, role_id from ${currentDb}.${table2} order by user_id, role_id;"""
 
+        sql """PAUSE JOB WHERE jobname='${jobName}'"""
+        Awaitility.await().pollInSameThread().atMost(120, SECONDS).pollInterval(1, SECONDS).until {
+            def job = sql """SELECT Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+            def tasks = sql """SELECT COUNT(*) FROM tasks("type"="insert")
+                               WHERE JobName='${jobName}' AND Status='RUNNING'"""
+            job.size() == 1 && job[0][0] == "PAUSED" && tasks[0][0] == 0
+        }
+        def expectedAfterResume = connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            // Autocommit preserves three distinct committed changes to the same complete key.
+            sql """UPDATE ${mysqlDb}.${table1} SET amount=111.11 WHERE tenant_id=1 AND order_id=1003"""
+            sql """DELETE FROM ${mysqlDb}.${table1} WHERE tenant_id=1 AND order_id=1003"""
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES (1, 1003, 'reinserted', 123.45)"""
+            sql """DELETE FROM ${mysqlDb}.${table1} WHERE tenant_id=2 AND order_id=2002"""
+            sql """SELECT tenant_id, order_id, order_no, amount FROM ${mysqlDb}.${table1}
+                   ORDER BY tenant_id, order_id"""
+        }
+        sql """RESUME JOB WHERE jobname='${jobName}'"""
+        Awaitility.await().pollInSameThread().atMost(180, SECONDS).pollInterval(1, SECONDS).until {
+            sql("""SELECT tenant_id, order_id, order_no, amount FROM ${currentDb}.${table1}
+                   ORDER BY tenant_id, order_id""") == expectedAfterResume
+        }
+        order_qt_after_resume """SELECT tenant_id, order_id, order_no, amount FROM ${currentDb}.${table1}
+                                ORDER BY tenant_id, order_id"""
+
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
 
         def jobCountRsp = sql """select count(1) from jobs("type"="insert") where Name ='${jobName}'"""

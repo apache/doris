@@ -246,7 +246,11 @@ public:
             return false;
         }
 
-        if constexpr (PT == PredicateType::LT) {
+        if constexpr (PT == PredicateType::EQ) {
+            // Equal bounds prove the equality is always true, unless the predicate is negated.
+            return !_opposite && Compare::equal(zone_map.min_value.template get<Type>(), _value) &&
+                   Compare::equal(zone_map.max_value.template get<Type>(), _value);
+        } else if constexpr (PT == PredicateType::LT) {
             return _value > zone_map.max_value.template get<Type>();
         } else if constexpr (PT == PredicateType::LE) {
             return _value >= zone_map.max_value.template get<Type>();

@@ -25,11 +25,17 @@
 //   3. a user column ending in _COL feeding an incremental materialized view, whose before-image
 //      name then ends in _COL__ like a common hidden column.
 suite("test_changelog_before_column_name", "nonConcurrent") {
-    // Read timestamps from FE so that the window uses the same clock and timezone
-    // as SQL parsing. Leave a whole second after each group of committed writes.
+    // Changelog rows use TSO time, which can lag behind NOW().
+    // Put the boundary after prior writes, then wait before the next write.
+    // For example, the update from 10 to 11 must be inside the window.
     def nextBoundary = {
-        sleep(1200)
-        sql("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s')")[0][0].toString()
+        long current = (sql "SELECT CURRENT_TSO_PHYSICAL_TIME FROM information_schema.tso_status")[0][0] as long
+        long boundary = (Math.floorDiv(current, 1000L) + 1L) * 1000L
+        awaitUntil(60, 0.1) {
+            ((sql "SELECT CURRENT_TSO_PHYSICAL_TIME FROM information_schema.tso_status")[0][0] as long) >= boundary
+        }
+        // Use the FE session time zone for both formatting and window parsing.
+        sql("SELECT DATE_FORMAT(FROM_MILLISECOND(${boundary}), '%Y-%m-%d %H:%i:%s')")[0][0].toString()
     }
 
     // A user column can not take the before-image name itself.

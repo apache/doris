@@ -60,10 +60,6 @@ public class JoinEstimation {
                 || connectContext.getSessionVariable().isEnableLowConfidenceEqJoinRemainingConditionDecay();
     }
 
-    private static void normalizeColumnStatistics(Statistics outputStats, Statistics inputStats) {
-        outputStats.normalizeColumnStatistics(inputStats.getRowCount(), false);
-    }
-
     private static EqualPredicate normalizeEqualPredJoinCondition(EqualPredicate equal, Statistics rightStats) {
         boolean changeOrder = equal.left().getInputSlots().stream()
                 .anyMatch(slot -> rightStats.findColumnStatistics(slot) != null);
@@ -260,7 +256,8 @@ public class JoinEstimation {
         return sel;
     }
 
-    private static Statistics estimateInnerJoin(Statistics leftStats, Statistics rightStats, Join join) {
+    private static Statistics estimateInnerJoin(Statistics leftStats, Statistics rightStats, Join join,
+            double expansion) {
         if (joinConditionContainsUnknownColumnStats(leftStats, rightStats, join)) {
             double rowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
             rowCount = Math.max(1, rowCount);
@@ -278,6 +275,13 @@ public class JoinEstimation {
             innerJoinStats = estimateInnerJoinWithEqualPredicate(leftStats, rightStats, join);
         }
 
+        if (expansion != 1.0) {
+            // the factor is the fan out of the equality conditions: scale their estimate before the
+            // residual conditions (which keep their own selectivity) are applied
+            innerJoinStats = new StatisticsBuilder(innerJoinStats)
+                    .setRowCount(Math.max(1.0, innerJoinStats.getRowCount() * expansion))
+                    .build();
+        }
         if (!join.getOtherJoinConjuncts().isEmpty()) {
             FilterEstimation filterEstimation = new FilterEstimation();
             innerJoinStats = filterEstimation.estimate(
@@ -351,8 +355,7 @@ public class JoinEstimation {
                         .putColumnStatistics(rightStats.columnStatistics())
                         .build();
             }
-            normalizeColumnStatistics(result,
-                    join.getJoinType().isLeftSemiOrAntiJoin() ? leftStats : rightStats);
+            result.enforceValid();
             return result;
         }
         double rowCount = Double.POSITIVE_INFINITY;
@@ -398,7 +401,7 @@ public class JoinEstimation {
             }
             builder.setRowCount(outputRowCount);
             Statistics outputStats = builder.build();
-            outputStats.normalizeColumnStatistics();
+            outputStats.enforceValid();
             return outputStats;*/
             StatisticsBuilder builder;
             if (join.getJoinType().isLeftSemiOrAntiJoin()) {
@@ -410,8 +413,7 @@ public class JoinEstimation {
                 builder.setRowCount(rowCount);
             }
             Statistics outputStats = builder.build();
-            normalizeColumnStatistics(outputStats,
-                    join.getJoinType().isLeftSemiOrAntiJoin() ? leftStats : rightStats);
+            outputStats.enforceValid();
             return outputStats;
         }
     }
@@ -433,8 +435,7 @@ public class JoinEstimation {
                         .putColumnStatistics(rightStats.columnStatistics())
                         .build();
             }
-            normalizeColumnStatistics(result,
-                    join.getJoinType().isAsofLeftInnerJoin() ? leftStats : rightStats);
+            result.enforceValid();
             return result;
         }
         double rowCount = Double.POSITIVE_INFINITY;
@@ -461,8 +462,7 @@ public class JoinEstimation {
             }
             builder.setRowCount(rowCount);
             Statistics outputStats = builder.build();
-            normalizeColumnStatistics(outputStats,
-                    join.getJoinType().isAsofLeftInnerJoin() ? leftStats : rightStats);
+            outputStats.enforceValid();
             return outputStats;
         }
     }
@@ -523,13 +523,23 @@ public class JoinEstimation {
      * estimate join
      */
     public static Statistics estimate(Statistics leftStats, Statistics rightStats, Join join) {
+        return estimate(leftStats, rightStats, join, 1.0);
+    }
+
+    /**
+     * The estimate of a join with an injected expansion factor: the factor scales the <b>equality</b>
+     * estimate, and the non equality conditions are applied on the scaled result, so a factor registered
+     * for an equality pair keeps its meaning when the query adds a residual predicate.
+     */
+    public static Statistics estimate(Statistics leftStats, Statistics rightStats, Join join,
+            double expansion) {
         JoinType joinType = join.getJoinType();
         Statistics crossJoinStats = new StatisticsBuilder()
                 .setRowCount(Math.max(1, leftStats.getRowCount()) * Math.max(1, rightStats.getRowCount()))
                 .putColumnStatistics(leftStats.columnStatistics())
                 .putColumnStatistics(rightStats.columnStatistics())
                 .build();
-        Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
+        Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join, expansion);
         if (joinType.isSemiOrAntiJoin()) {
             Statistics outputStats = estimateSemiOrAnti(leftStats, rightStats, innerJoinStats, join);
             updateJoinConditionColumnStatistics(outputStats, join);

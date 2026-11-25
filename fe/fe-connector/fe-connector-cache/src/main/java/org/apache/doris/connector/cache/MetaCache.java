@@ -72,6 +72,13 @@ public final class MetaCache<K, V> {
         return delegate.getOrLoadFuture(nonNullKey, definition.scope(nonNullKey), loader);
     }
 
+    /** Non-blocking observation of a load restricted to an identity-scoped owner. */
+    public CompletionStage<V> getOrLoadFutureForLoadScope(K key, Object loadScope, Function<K, V> loader) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        return delegate.getOrLoadFutureForLoadScope(nonNullKey, definition.scope(nonNullKey),
+                Objects.requireNonNull(loadScope, "loadScope can not be null"), loader);
+    }
+
     /**
      * Loads a missing value while allowing an adapter to publish an auxiliary side effect immediately before the
      * cache value at the same guarded commit point. The coordinator must invoke the supplied commit callback once;
@@ -216,7 +223,10 @@ public final class MetaCache<K, V> {
             this.delegate = delegate;
         }
 
-        /** Returns false when an invalidation raced the remote load and the value was intentionally not cached. */
+        /**
+         * Returns false when invalidation or owner retirement prevents retaining this already-started load.
+         * A closed handle or a handle from another cache remains a caller error.
+         */
         public boolean publish(K key, V value) {
             K nonNullKey = Objects.requireNonNull(key, "key can not be null");
             return owner.delegate.publish(delegate, nonNullKey, owner.definition.scope(nonNullKey), value);

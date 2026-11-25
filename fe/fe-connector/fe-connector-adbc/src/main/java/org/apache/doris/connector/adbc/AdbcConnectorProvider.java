@@ -21,6 +21,8 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -77,5 +79,20 @@ public class AdbcConnectorProvider implements ConnectorProvider {
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new AdbcConnector(properties, context);
+    }
+
+    /**
+     * The sensitive properties (the password), and the driver options under
+     * {@link AdbcCatalogProperties#DRIVER_OPTION_PREFIX}: each driver names its own credentials (an auth
+     * token, an authorization header, a private key), so a driver option is a secret when its name carries
+     * a credential-like word. Like {@link #getType()}, this must not touch an ADBC class: the engine asks
+     * for it before it discards a duplicate directory copy of the plugin.
+     */
+    @Override
+    public ConnectorSecuritySurface securitySurface() {
+        return ConnectorSecuritySurface.EMPTY
+                .withSensitiveKeys(ConnectorPropertiesUtils.getSensitiveKeys(AdbcCatalogProperties.class))
+                .withSensitiveKeyPrefix(AdbcCatalogProperties.DRIVER_OPTION_PREFIX,
+                        "key", "secret", "password", "token", "credential", "authorization");
     }
 }

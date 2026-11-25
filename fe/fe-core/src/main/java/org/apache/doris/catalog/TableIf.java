@@ -339,6 +339,8 @@ public interface TableIf {
                     return "jdbc";
                 case TABLE_VALUED_FUNCTION:
                     return "Table_Valued_Function";
+                case MATERIALIZED_VIEW:
+                    return "MaterializedView";
                 case DICTIONARY:
                     return "dictionary";
                 case DORIS_EXTERNAL_TABLE:
@@ -368,8 +370,9 @@ public interface TableIf {
                     return "SYSTEM VIEW";
                 case INLINE_VIEW:
                 case VIEW:
-                case STREAM:
                     return "VIEW";
+                // A stream is read like a table and has no view definition
+                case STREAM:
                 case OLAP:
                 case MYSQL:
                 case ODBC:

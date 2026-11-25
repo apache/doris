@@ -49,6 +49,7 @@
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/clucene_terms.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_fs_directory.h"
@@ -1412,7 +1413,7 @@ TEST_F(InvertedIndexWriterTest, AnalyzerExceptionReturnsStatus) {
     InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR> writer(
             column.name(), &index_file_writer, &index_meta);
     ASSERT_TRUE(writer.init().ok());
-    writer.set_analysis_for_test(inverted_index::InvertedIndexAnalyzer::create_reader({}),
+    writer.set_analysis_for_test(std::make_shared<lucene::util::SStringReader<char>>(),
                                  std::make_shared<ImmediateFailureAnalyzer>());
 
     const Slice value("value");
@@ -1448,7 +1449,7 @@ TEST_F(InvertedIndexWriterTest, ArrayAnalyzerExceptionReturnsStatus) {
     InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR> writer(
             column.name(), &index_file_writer, &index_meta);
     ASSERT_TRUE(writer.init().ok());
-    writer.set_analysis_for_test(inverted_index::InvertedIndexAnalyzer::create_reader({}),
+    writer.set_analysis_for_test(std::make_shared<lucene::util::SStringReader<char>>(),
                                  std::make_shared<ImmediateFailureAnalyzer>());
 
     const Slice value("value");

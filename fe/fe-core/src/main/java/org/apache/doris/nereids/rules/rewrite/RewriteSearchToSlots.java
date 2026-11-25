@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -141,7 +142,15 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                     // Create ElementAt expression for variant subcolumn
                     // This will be converted to an extracted column slot by VariantSubPathPruning rule
                     // If the subcolumn doesn't exist, ElementAt will remain and BE will handle it gracefully
-                    childExpr = new ElementAt(parentSlot, new StringLiteral(subcolumnPath));
+                    if (scan.getTable().getVariantEscapeDotsInKeys()) {
+                        childExpr = parentSlot;
+                        for (String part : subcolumnPath.split("\\.", -1)) {
+                            String key = PropertyAnalyzer.decodeVariantPathComponent(part);
+                            childExpr = new ElementAt(childExpr, new StringLiteral(key));
+                        }
+                    } else {
+                        childExpr = new ElementAt(parentSlot, new StringLiteral(subcolumnPath));
+                    }
                     normalizedFieldName = normalizedParentFieldName + "." + subcolumnPath;
 
                     LOG.info(
@@ -189,7 +198,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
      * @param columnName    column name (parent column name when isVariantParent)
      * @param dsl           original DSL, used in the error message
      * @param isVariantParent true when {@code columnName} is the parent of a variant subcolumn
-     *                        access (e.g. {@code msg.body}); for that case any INVERTED index on
+     *                        access (e.g. {@code msg.body}); for that case a path-compatible INVERTED index on
      *                        the parent column is accepted because the concrete subcolumn binding
      *                        is resolved per-segment in BE.
      */
@@ -206,7 +215,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
 
         if (isVariantParent) {
             for (Index index : table.getIndexes()) {
-                if (index.getIndexType() != IndexType.INVERTED) {
+                if (index.getIndexType() != IndexType.INVERTED || index.isVariantValuesIndex()) {
                     continue;
                 }
                 List<String> columns = index.getColumns();

@@ -44,6 +44,8 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.runtime_canary == true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      CANARY_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json.1
     permissions:
       contents: read
     steps:
@@ -87,7 +89,7 @@ jobs:
           home="$RUNNER_TEMP/codex-canary-home"
           install -m 700 -d "$home"
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-            cp -f oss://doris-community-ci/codex/auth.json.4 "$home/auth.json" >/dev/null
+            cp -f "$CANARY_AUTH_OBJECT" "$home/auth.json" >/dev/null
           jq -e '
             .auth_mode == "chatgpt"
             and (.tokens.access_token | type == "string" and length > 0)
@@ -174,7 +176,6 @@ jobs:
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
         run: |
           set -euo pipefail
-          auth_object=oss://doris-community-ci/codex/auth.json.4
           jq -e '
             .auth_mode == "chatgpt"
             and (.tokens.access_token | type == "string" and length > 0)
@@ -189,15 +190,96 @@ jobs:
           remote_auth="$(mktemp "$RUNNER_TEMP/codex-canary-current.XXXXXX")"
           trap 'rm -f "$remote_auth"' EXIT
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-            cp -f "$auth_object" "$remote_auth" >/dev/null
+            cp -f "$CANARY_AUTH_OBJECT" "$remote_auth" >/dev/null
           remote_hash="$(sha256sum "$remote_auth" | awk '{print $1}')"
           if [ "$remote_hash" != "$original_hash" ]; then
             echo "::error::Auth changed concurrently; refusing to overwrite it."
             exit 1
           fi
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-            cp -f "$CODEX_HOME/auth.json" "$auth_object" >/dev/null
+            cp -f "$CODEX_HOME/auth.json" "$CANARY_AUTH_OBJECT" >/dev/null
           echo "Synced refreshed canary auth."
+
+  debug-review-inputs:
+    if: >-
+      github.repository == 'apache/doris' &&
+      github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+      (github.event.comment.body == 'run debugreview' ||
+       (vars.DORIS_REVIEW_BACKEND == 'fc' && startsWith(github.event.comment.body, '/review'))) &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      head: ${{ steps.snapshot.outputs.head }}
+      base: ${{ steps.snapshot.outputs.base }}
+      focus_suffix: ${{ steps.snapshot.outputs.focus_suffix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha || github.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Resolve open PR and authorize its review focus
+        id: snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" |
+            jq -er 'select(.state == "open") | "head=\(.head.sha)\nbase=\(.base.sha)"' >> "$GITHUB_OUTPUT"
+          python3 .github/scripts/debug_review.py --focus-suffix >> "$GITHUB_OUTPUT"
+
+  authorize-debug-review:
+    needs: debug-review-inputs
+    name: fc-review/v1/${{ github.event.issue.number }}/${{ needs.debug-review-inputs.outputs.head }}/${{ needs.debug-review-inputs.outputs.base }}${{ needs.debug-review-inputs.outputs.focus_suffix }}
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - run: echo 'Authorized debug review for this PR snapshot.'
+
+  debug-review:
+    needs: [debug-review-inputs, authorize-debug-review]
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: code-review-pr-${{ github.event.issue.number }}
+      cancel-in-progress: false
+      queue: max
+    timeout-minutes: 238
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+      id-token: write
+    outputs:
+      aggregate_head: ${{ steps.review.outputs.aggregate_head }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha || github.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Run cloud review and update its source status
+        id: review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          HEAD_SHA: ${{ needs.debug-review-inputs.outputs.head }}
+          BASE_SHA: ${{ needs.debug-review-inputs.outputs.base }}
+        run: python3 .github/scripts/debug_review.py
+
+  aggregate-debug-review:
+    needs: debug-review
+    if: always() && needs.debug-review.outputs.aggregate_head != ''
+    uses: ./.github/workflows/code-review-aggregate-status.yml
+    with:
+      head_sha: ${{ needs.debug-review.outputs.aggregate_head }}
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
 
   code-review:
     runs-on: ubuntu-24.04
@@ -223,6 +305,7 @@ jobs:
         (
           github.event_name == 'issue_comment' &&
           github.event.issue.pull_request &&
+          (github.repository != 'apache/doris' || vars.DORIS_REVIEW_BACKEND != 'fc') &&
           startsWith(github.event.comment.body, '/review') &&
           (
             github.event.comment.author_association == 'MEMBER' ||
@@ -347,12 +430,6 @@ jobs:
           ref: ${{ steps.review_inputs.outputs.head_sha }}
           fetch-depth: 0
 
-      - name: Install ripgrep
-        timeout-minutes: 5
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-
       - name: Install ossutil
         timeout-minutes: 5
         run: |
@@ -376,6 +453,7 @@ jobs:
           (cd "$package" && sha256sum --check SHA256SUMS)
           test "$(jq -r .version "$package/codex-package.json")" = 0.166.0
           echo "$package/bin" >> "$GITHUB_PATH"
+          echo "$package/codex-path" >> "$GITHUB_PATH"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
@@ -386,6 +464,8 @@ jobs:
         timeout-minutes: 2
         run: |
           set -euo pipefail
+          test "$(command -v rg)" = "$RUNNER_TEMP/codex-exec-goal/codex-path/rg"
+          rg --version
           codex_cmd="$(command -v codex)"
           test "$(readlink -f "$codex_cmd")" = "$RUNNER_TEMP/codex-exec-goal/bin/codex"
           echo "9346ee98398cb7240702e45eed4cbe38c7fb990d9e031dba4e7525383c415deb  $codex_cmd" | sha256sum --check
@@ -1011,7 +1091,7 @@ jobs:
           # Execution succeeded even when verified findings block the PR check.
           # This result is written only after the runner's own API readback.
           jq -er 'select(.state == "success" or .state == "failure") |
-            "review_state=\(.state)\np0=\(.p0)\np1=\(.p1)\nconverged=\(.converged)\nrounds=\(.rounds)"' \
+            "review_state=\(.state)\np0=\(.p0)\np1=\(.p1)\nconverged=\(.converged)\nrounds=\(.rounds)\nreview_id=\(.review_id)"' \
             "$REVIEW_CONTEXT_DIR/review-result.json" >> "$GITHUB_OUTPUT"
 
       - name: Preserve failed final review diagnostics
@@ -1213,8 +1293,10 @@ jobs:
           REVIEW_P0: ${{ steps.review.outputs.p0 }}
           REVIEW_P1: ${{ steps.review.outputs.p1 }}
           REVIEW_CONVERGED: ${{ steps.review.outputs.converged }}
+          REVIEW_ID: ${{ steps.review.outputs.review_id }}
           REVIEW_ROUNDS: ${{ steps.review.outputs.rounds }}
         run: |
+          target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           state="pending"
           summary="Automated review did not pass for PR #${PR_NUMBER} at ${BASE_SHA:0:12}."
 
@@ -1227,6 +1309,9 @@ jobs:
                 summary="Review completed for PR #${PR_NUMBER}: P0=${REVIEW_P0}, P1=${REVIEW_P1}."
                 if [ "$REVIEW_CONVERGED" = "false" ]; then
                   summary="Review did not converge after ${REVIEW_ROUNDS} rounds for PR #${PR_NUMBER}: P0=${REVIEW_P0}, P1=${REVIEW_P1}."
+                elif [[ "$REVIEW_CONVERGED" == true && "$state" == failure && "$REVIEW_ID" =~ ^[1-9][0-9]*$ ]]; then
+                  # A converged review fails when it reports P0 or P1 findings.
+                  target_url="${{ github.server_url }}/${REPO}/pull/${PR_NUMBER}#pullrequestreview-${REVIEW_ID}"
                 fi
                 ;;
               *) echo "::error::Missing verified review verdict"; exit 1 ;;
@@ -1239,7 +1324,7 @@ jobs:
             -f state="${state}" \
             -f context="$source_context" \
             -f description="${summary}" \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            -f target_url="$target_url"
 
       - name: Record review I/O to Litefuse
         if: ${{ always() }}

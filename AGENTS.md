@@ -2,6 +2,17 @@
 
 This is the codebase for Apache Doris, an MPP OLAP database. It primarily consists of the Backend module BE (`be/`, execution and storage engine), the Frontend module FE (`fe/`, optimizer and transaction core), and the Cloud module (`cloud/`, storage-compute separation). Your basic development workflow is: modify code, build using standard procedures, add and run tests, and submit relevant changes.
 
+## Development and PR Skills
+
+Unless the user asks otherwise, work through two skills from the `doris-skills` submodule ([apache/doris-skills](https://github.com/apache/doris-skills)):
+
+- `develop-with-evidence` for any task that changes this repository, such as fixing a bug, developing a feature, refactoring, optimizing, or changing tests, CI, configs, or dependencies.
+- `doris-pr-description` for any task that opens or updates a PR, or writes or checks a PR title and description.
+
+A request such as "fix this and submit a PR" takes both, in that order: `develop-with-evidence` leaves a handoff file under `.git/pr-handoff/` with a description draft, which the commit message follows (see Commit Standards), and `doris-pr-description` opens the PR from it.
+
+If your tool has not installed these skills, read `doris-skills/skills/develop-with-evidence/SKILL.md` or `doris-skills/skills/doris-pr-description/SKILL.md` when the task reaches that skill, and follow it; paths in a skill are relative to its own directory. An empty `doris-skills/` means the submodule is not checked out: run `git submodule update --init doris-skills` first, and if that fails, for example without network access, ask the user to run it. Leave a moved `doris-skills` pointer out of your commits unless the task is to update it. The rules in this file still apply while a skill is in use.
+
 ## Security Threat Model
 
 For security scans, vulnerability triage, security reviews, and changes involving authentication, authorization, network boundaries, external catalogs, cloud tenancy, or other security-sensitive behavior, read `SECURITY.md` first, then follow it to `threat-model.md`. Use `threat-model.md` to determine in-scope components, trust boundaries, attacker roles, explicit non-goals, and triage classification. Findings that are out of model or by design under `threat-model.md` should be reported as such, not treated as Doris vulnerabilities. Such reviews will not be conducted unless explicitly requested by the user, and no conclusions regarding this matter need to be provided.
@@ -26,7 +37,14 @@ Every change under `gensrc/thrift` and `gensrc/proto` must keep every upgrade co
 
 To ensure smooth test execution without interference between worktrees, the first thing to do upon entering a worktree directory is to check if `.worktree_initialized` exists. If not, execute `hooks/setup_worktree.sh`, setting `$ROOT_WORKSPACE_PATH` to the base directory (typically `${DORIS_REPO}`) beforehand. After successful execution, verify that `.worktree_initialized` has been touched and that `thirdparty/installed` dependencies exist correctly.
 
-Submodules are not part of the default worktree setup. If the task does not compile Doris or run tests that require submodules, leave all submodules uninitialized. Build and test entry points initialize the submodule paths they require. Only initialize a submodule manually when the task actually needs it and an entry point does not handle it; initialize the exact required path instead of running an unscoped recursive update for every submodule.
+Submodules are not part of the default worktree setup. If the task does not need submodule content for builds, tests, or skills, leave all submodules uninitialized. Build and test entry points initialize the submodule paths they require. Only initialize a submodule manually when the task actually needs it and an entry point does not handle it; initialize the exact required path instead of running an unscoped recursive update for every submodule.
+
+The `develop-with-evidence` and `doris-pr-description` skills must be loaded from the `doris-skills/` submodule in the current worktree:
+
+- `develop-with-evidence`: `doris-skills/skills/develop-with-evidence/SKILL.md`
+- `doris-pr-description`: `doris-skills/skills/doris-pr-description/SKILL.md`
+
+If the submodule is uninitialized or either required skill is missing, first run `git submodule update --init -- doris-skills` from the worktree root to fetch or update it. Then read the corresponding `SKILL.md` at the path above before using the skill.
 
 When working in worktree mode, all operations must be confined to the current worktree directory. Do not enter `${DORIS_REPO}` or use any resources there. Git's own storage in `${DORIS_REPO}/.git`, which every worktree shares, is not such a resource. This includes the PR handoff files in `${DORIS_REPO}/.git/pr-handoff/`, which a development skill such as `develop-with-evidence` writes and the `doris-pr-description` skill reads. Compilation and execution must be done within the current worktree directory. The compiled Doris cluster must use random ports not used by other worktrees (modify BE and FE conf before compilation, using a uniform offset of `${DORIS_PORT_OFFSET_RANGE}` from default ports without conflicting with other worktrees' ports). Run from the `output` directory within the worktree. To run regression tests, modify `regression-test/conf/regression-conf.groovy` and set the port numbers in `jdbcUrl` and other configuration items to your new ports so the corresponding worktree cluster can be used for regression testing.
 

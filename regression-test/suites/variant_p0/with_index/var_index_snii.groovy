@@ -18,8 +18,8 @@
 import org.apache.doris.regression.action.ProfileAction
 
 suite("regression_test_variant_var_index_snii", "p0, nonConcurrent"){
-    sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     // The tables here hold a handful of rows, so a matching row is a large fraction of its segment
     // and the BKD reader would decline the index as unselective (INVERTED_INDEX_BYPASS), leaving
     // the filtered-row assertions below at 0. A zero threshold turns that selectivity bypass off,

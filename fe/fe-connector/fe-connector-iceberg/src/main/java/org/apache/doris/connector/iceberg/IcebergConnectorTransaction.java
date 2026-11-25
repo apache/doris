@@ -51,6 +51,7 @@ import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
@@ -179,6 +180,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     private Map<String, String> staticPartitionValues = Collections.emptyMap();
     private String branchName;
     private IcebergWriteSchemaContext writeSchemaContext;
+    // The default is deliberately unsorted until sink planning proves that it executes a complete order.
+    private volatile SortOrder fileSortOrder = SortOrder.unsorted();
+    // Protected by beginLock: all groups of a shared rewrite transaction must use the same file order.
+    private boolean fileSortOrderBound;
     // The snapshot pinned at begin time for DELETE/MERGE and OVERWRITE (null for INSERT). Consumed by the
     // commit validation suite (validateFromSnapshot).
     private Long baseSnapshotId;
@@ -281,15 +286,19 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                         ? null : tracked.retainLease();
                 this.table = loaded;
                 try {
+                    IcebergEncryptionRead.checkWrite(loaded);
                     validateBoundWriteGeneration(ctx, loaded);
+                    IcebergSchemaUtils.validateNoUnknownForWrite(loaded.schema());
                     if (writeSchemaContext != null) {
                         writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
                     }
                     applyBeginGuards(ctx, tableName);
                     Transaction opened = openTransaction(loaded, ctx.isOverwrite());
+                    IcebergEncryptionRead.checkWrite(opened.table());
                     // BaseTable.newTransaction refreshes metadata. Fence that second load too, closing the
                     // drop/recreate race between the initial generation check and transaction construction.
                     validateBoundWriteGeneration(ctx, loaded);
+                    IcebergSchemaUtils.validateNoUnknownForWrite(loaded.schema());
                     if (writeSchemaContext != null) {
                         writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
                     }
@@ -352,8 +361,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
     /**
      * Opens the SDK transaction for {@code loaded}. On a Kerberos catalog the table's {@link FileIO} is wrapped
-     * in a plugin-side Kerberos {@code doAs} ({@link IcebergAuthenticatedFileIO}); otherwise this is byte-for-byte
-     * {@code loaded.newTransaction()}.
+     * in a plugin-side Kerberos {@code doAs} ({@link IcebergAuthenticatedFileIO}). Every native write also
+     * validates plaintext metadata through SDK refreshes and the final CAS.
      *
      * <p><b>Why (worker-pool split-brain).</b> {@link #commit()} runs {@code transaction.commitTransaction()} under
      * the caller-thread {@code doAs} ({@code context.executeAuthenticated}), but iceberg fans the parallel manifest
@@ -367,7 +376,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
      * the transaction from ops whose {@code io()} is the auth-wrapping FileIO makes every manifest write capture the
      * plugin Kerberos {@code FileSystem} at factory time, so the deferred stream I/O on the worker thread inherits
      * it. The wrap mirrors {@code BaseTable.newTransaction()} exactly (same name + {@code MetricsReporter}); only
-     * {@code io()} differs. Non-Kerberos catalogs ({@code getPluginAuthenticator() == null}) keep the legacy path.
+     * {@code io()} differs. Non-Kerberos catalogs keep their original FileIO.
      */
     private Transaction openTransaction(Table loaded, boolean requireCurrentPartitionSpec) {
         return openTransaction(loaded, context, writeSchemaContext, requireCurrentPartitionSpec, null, null);
@@ -381,13 +390,16 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     static Transaction openTransaction(Table loaded, ConnectorContext context,
             IcebergWriteSchemaContext writeSchemaContext, boolean requireCurrentPartitionSpec,
             String boundWriteMetadataIdentity, Long requiredSnapshotId) {
+        IcebergEncryptionRead.checkWrite(loaded);
         HadoopAuthenticator auth = context instanceof TcclPinningConnectorContext
                 ? ((TcclPinningConnectorContext) context).getPluginAuthenticator()
                 : null;
         if (!(loaded instanceof HasTableOperations)) {
             Preconditions.checkState(writeSchemaContext == null,
                     "Iceberg write table %s does not expose table operations", loaded.name());
-            return loaded.newTransaction();
+            Transaction opened = loaded.newTransaction();
+            IcebergEncryptionRead.checkWrite(opened.table());
+            return opened;
         }
         TableOperations realOps = ((HasTableOperations) loaded).operations();
         TableOperations writeOps = realOps;
@@ -395,14 +407,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             FileIO authIo = new IcebergAuthenticatedFileIO(realOps.io(), auth);
             writeOps = new IcebergAuthenticatedTableOperations(realOps, authIo);
         }
-        if (writeSchemaContext != null || boundWriteMetadataIdentity != null || requiredSnapshotId != null) {
-            writeOps = new ValidatingTableOperations(
-                    writeOps, writeSchemaContext, requireCurrentPartitionSpec, loaded.name(),
-                    boundWriteMetadataIdentity, requiredSnapshotId);
-        }
-        if (writeOps == realOps) {
-            return loaded.newTransaction();
-        }
+        // Ordinary writes also need the refresh/CAS fence: encryption may be enabled after sink planning.
+        writeOps = new ValidatingTableOperations(
+                writeOps, writeSchemaContext, requireCurrentPartitionSpec, loaded.name(),
+                boundWriteMetadataIdentity, requiredSnapshotId);
         return loaded instanceof BaseTable
                 ? Transactions.newTransaction(loaded.name(), writeOps, ((BaseTable) loaded).reporter())
                 : Transactions.newTransaction(loaded.name(), writeOps);
@@ -446,42 +454,53 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
         @Override
         public TableMetadata current() {
-            return delegate.current();
+            TableMetadata current = delegate.current();
+            IcebergEncryptionRead.checkWrite(current);
+            return current;
         }
 
         @Override
         public TableMetadata refresh() {
             TableMetadata refreshed = delegate.refresh();
+            IcebergEncryptionRead.checkWrite(refreshed);
             checkRequiredSnapshot(refreshed);
             return refreshed;
         }
 
         @Override
         public void commit(TableMetadata base, TableMetadata metadata) {
-            TableMetadata refreshedMetadata = Preconditions.checkNotNull(
-                    delegate.refresh(), "Iceberg table %s no longer exists", tableName);
-            String metadataFileLocation = Preconditions.checkNotNull(
-                    refreshedMetadata.metadataFileLocation(),
-                    "Iceberg table %s has no current metadata file", tableName);
-            // A Hadoop V1 metadata filename can be reused after DROP/CREATE. Re-reading the current file makes
-            // the table-identity fence observe the replacement UUID instead of trusting a cached object.
-            TableMetadata currentMetadata =
-                    TableMetadataParser.read(delegate.io(), metadataFileLocation);
-            Table currentTable = new BaseTable(
-                    new StaticTableOperations(
-                            currentMetadata, delegate.io(), delegate.locationProvider()),
-                    tableName);
-            if (writeSchemaContext != null) {
-                writeSchemaContext.validateCurrentSchema(
-                        currentTable, requireCurrentPartitionSpec);
+            IcebergEncryptionRead.checkWrite(base);
+            IcebergEncryptionRead.checkWrite(metadata);
+            // The SDK refreshes on every commit attempt; its CAS rejects concurrent encryption changes.
+            // Keep the stronger published-file identity check only for writers that already require it.
+            if (writeSchemaContext != null || boundWriteMetadataIdentity != null || requiredSnapshotId != null) {
+                TableMetadata refreshedMetadata = Preconditions.checkNotNull(
+                        delegate.refresh(), "Iceberg table %s no longer exists", tableName);
+                IcebergEncryptionRead.checkWrite(refreshedMetadata);
+                String metadataFileLocation = Preconditions.checkNotNull(
+                        refreshedMetadata.metadataFileLocation(),
+                        "Iceberg table %s has no current metadata file", tableName);
+                // A Hadoop V1 metadata filename can be reused after DROP/CREATE. Re-reading the current file makes
+                // the table-identity fence observe the replacement UUID instead of trusting a cached object.
+                TableMetadata currentMetadata =
+                        TableMetadataParser.read(delegate.io(), metadataFileLocation);
+                IcebergEncryptionRead.checkWrite(currentMetadata);
+                Table currentTable = new BaseTable(
+                        new StaticTableOperations(
+                                currentMetadata, delegate.io(), delegate.locationProvider()),
+                        tableName);
+                if (writeSchemaContext != null) {
+                    writeSchemaContext.validateCurrentSchema(
+                            currentTable, requireCurrentPartitionSpec);
+                }
+                if (boundWriteMetadataIdentity != null
+                        && !boundWriteMetadataIdentity.equals(
+                                IcebergWritePlanProvider.writeMetadataIdentity(currentTable))) {
+                    throw new DorisConnectorException(
+                            "Iceberg write metadata changed after the write was bound; retry the statement");
+                }
+                checkRequiredSnapshot(currentMetadata);
             }
-            if (boundWriteMetadataIdentity != null
-                    && !boundWriteMetadataIdentity.equals(
-                            IcebergWritePlanProvider.writeMetadataIdentity(currentTable))) {
-                throw new DorisConnectorException(
-                        "Iceberg write metadata changed after the write was bound; retry the statement");
-            }
-            checkRequiredSnapshot(currentMetadata);
             delegate.commit(base, metadata);
         }
 
@@ -655,6 +674,18 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         }
         synchronized (this) {
             commitLocations.add(location);
+        }
+    }
+
+    void bindFileSortOrder(SortOrder order) {
+        synchronized (beginLock) {
+            if (fileSortOrderBound) {
+                Preconditions.checkState(fileSortOrder.orderId() == order.orderId() && fileSortOrder.sameOrder(order),
+                        "Iceberg transaction %s file sort order changed between write groups", transactionId);
+            } else {
+                fileSortOrder = order;
+                fileSortOrderBound = true;
+            }
         }
     }
 
@@ -844,8 +875,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             return Collections.emptyList();
         }
         WriteResult writeResult = writeSchemaContext == null
-                ? IcebergWriterHelper.convertToWriterResult(transaction.table(), commitDataList, zone)
-                : IcebergWriterHelper.convertToWriterResult(writeSchemaContext, commitDataList, zone);
+                ? IcebergWriterHelper.convertToWriterResult(transaction.table(), fileSortOrder, commitDataList, zone)
+                : IcebergWriterHelper.convertToWriterResult(writeSchemaContext, fileSortOrder, commitDataList, zone);
         List<WriteResult> results = new ArrayList<>(1);
         results.add(writeResult);
         return results;
@@ -891,7 +922,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             return;
         }
         WriteResult writeResult =
-                IcebergWriterHelper.convertToWriterResult(transaction.table(), commitDataList, zone);
+                IcebergWriterHelper.convertToWriterResult(transaction.table(), fileSortOrder, commitDataList, zone);
         synchronized (filesToAdd) {
             filesToAdd.addAll(Arrays.asList(writeResult.dataFiles()));
         }
@@ -1151,9 +1182,9 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         if (!dataCommitData.isEmpty()) {
             WriteResult writeResult = writeSchemaContext == null
                     ? IcebergWriterHelper.convertToWriterResult(
-                            transaction.table(), dataCommitData, zone)
+                            transaction.table(), fileSortOrder, dataCommitData, zone)
                     : IcebergWriterHelper.convertToWriterResult(
-                            writeSchemaContext, dataCommitData, zone);
+                            writeSchemaContext, fileSortOrder, dataCommitData, zone);
             dataFiles.addAll(Arrays.asList(writeResult.dataFiles()));
         }
 
