@@ -28,38 +28,6 @@ import unittest
 
 HELPER = Path(__file__).parents[1] / 'teamcity-utils.sh'
 HEAD = 'a' * 40
-MOCK = r'''
-import json, os, re, sys
-from pathlib import Path
-root=Path(os.environ['FIXTURE_ROOT']); path=root/'state.json'; state=json.loads(path.read_text())
-args=sys.argv[1:]; url=next(x for x in args if x.startswith('https://ci.example/app/rest/'))
-route=url.split('/app/rest/',1)[1]; method=args[args.index('-X')+1] if '-X' in args else 'GET'
-rows=state.get('builds',[])
-def emit(value): print(json.dumps(value))
-if method=='POST':
- assert route=='buildQueue'
- body=json.loads(args[args.index('--data-binary')+1]); state.setdefault('posts',[]).append(body)
- bid=100+len(state['posts']); body.update(id=bid,number=str(bid),buildTypeId=body['buildType']['id'],state='queued',status='UNKNOWN')
- body['revisions']['revision']=[{'version':body['revisions']['revision'][0]['version']}]
- state.setdefault('builds',[]).append(body); path.write_text(json.dumps(state))
- if state.get('lose_response'):
-  state['lose_response']=False; path.write_text(json.dumps(state));sys.exit(1)
- emit({'id':bid});sys.exit()
-if 'vcs-root-entries' in route:
- emit({'vcs-root-entry':[{'vcs-root':{'id':state.get('root','DorisMigrationValidation_ApacheDoris')}}]})
-elif route.startswith('vcs-root-instances'):
- emit({'vcs-root-instance':[{'id':3,'vcs-root-id':'DorisMigrationValidation_ApacheDoris'}]})
-elif route.startswith('builds/id:'):
- bid=int(route.split(':')[1].split('?')[0]);emit(next(b for b in rows if b['id']==bid))
-else: raise AssertionError(route)
-'''
-
-
-def build(bid=1, lane='Doris_CloudUT', state='running', head=HEAD, params=None):
-    return {'id': bid, 'number': str(bid), 'buildTypeId': lane, 'state': state,
-            'status': 'SUCCESS', 'branchName': 'pull/123',
-            'revisions': {'revision': [{'version': head}]},
-            'properties': {'property': [{'name': k, 'value': v} for k, v in (params or {}).items()]}}
 
 
 class TeamCityUtilsTests(unittest.TestCase):
@@ -67,7 +35,6 @@ class TeamCityUtilsTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        (self.root / 'mock.py').write_text(MOCK)
         (self.root / 'status_mock.py').write_text('''import json, os, sys
 from pathlib import Path
 p=Path(os.environ['FIXTURE_ROOT'])/'statuses.json'
@@ -76,24 +43,14 @@ assert '-d' in sys.argv and '-X' in sys.argv
 if os.environ.get('STATUS_FAIL')=='true': sys.exit(22)
 rows.append(json.loads(sys.argv[sys.argv.index('-d')+1]));p.write_text(json.dumps(rows))
 ''')
-        self.save({})
-        (self.root / 'event.json').write_text(json.dumps({'comment': {
-            'id': 45, 'body': 'run cloudut', 'updated_at': '2026-11-11T00:00:00Z'}}))
-        self.env = {**os.environ, 'TARGET_BRANCH': 'master', 'TEAMCITY_CURRENT_URL': 'https://ci.example',
-                    'TEAMCITY_CURRENT_TOKEN': 'test-current-token', 'GITHUB_TOKEN': 'test-github-token', 'FIXTURE_ROOT': str(self.root),
-                    'GITHUB_EVENT_PATH': str(self.root / 'event.json')}
-
-    def save(self, value):
-        (self.root / 'state.json').write_text(json.dumps(value))
-
-    def state(self):
-        return json.loads((self.root / 'state.json').read_text())
+        self.plan = self.root / 'fc-lanes'
+        self.env = {**os.environ, 'TARGET_BRANCH': 'master', 'GITHUB_TOKEN': 'test-github-token',
+                    'FIXTURE_ROOT': str(self.root), 'TEAMCITY_FC_PLAN': str(self.plan)}
 
     def run_shell(self, command, mock=True, check=True, env=None):
         prefix = 'source "$1"\n'
         if mock:
-            prefix += '''teamcity_request(){ python3 "$FIXTURE_ROOT/mock.py" "$@"; }
-teamcity_current_pr(){ [[ ${PR_FRESH:-true} == true ]]; }
+            prefix += '''teamcity_current_pr(){ [[ ${PR_FRESH:-true} == true ]]; }
 curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
 '''
         result = subprocess.run(['bash', '-c', prefix + command, 'test', str(HELPER)],
@@ -102,59 +59,47 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result
 
-    def trigger(self, lane='cloudut', count=1, **kwargs):
-        return self.run_shell('trigger_or_skip_build true 123 master ' + HEAD + ' ' + lane + ' ' + str(count), **kwargs)
-
     def skipped_contexts(self):
         p = self.root / 'statuses.json'
         return [row['context'] for row in json.loads(p.read_text())] if p.exists() else []
 
     def test_unrelated_files_skip_without_submitting(self):
-        self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' feut 1')
+        self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' feut')
         self.assertEqual(self.skipped_contexts(), ['TeamCity/feut'])
-        self.assertFalse(self.state().get('posts'))
+        self.assertFalse(self.plan.exists())
 
-    def run_with_pr(self, pr, changed):
-        prefix = '''teamcity_request(){ python3 "$FIXTURE_ROOT/mock.py" "$@"; }
-curl(){
-    if [[ "$*" == *'/pulls/123'* ]]; then
-        printf '%s\\n' "$MOCK_PR";
-    else
-        python3 "$FIXTURE_ROOT/status_mock.py" "$@";
-    fi
-}
-'''
-        return self.run_shell(prefix + 'trigger_or_skip_build ' + changed + ' 123 master ' + HEAD + ' feut 1',
-                              mock=False, check=False, env={'MOCK_PR': json.dumps(pr)})
-
-    def test_draft_pr_can_trigger_and_skip(self):
-        pr = {'state': 'open', 'draft': True, 'head': {'sha': HEAD}, 'base': {'ref': 'master'}}
-        result = self.run_with_pr(pr, 'true')
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(self.state()['posts']), 1)
-        result = self.run_with_pr(pr, 'false')
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.skipped_contexts(), ['TeamCity/feut'])
-
-    def test_closed_or_changed_draft_pr_cannot_trigger_or_skip(self):
-        for change in [{'state': 'closed'}, {'head': {'sha': 'b' * 40}}, {'base': {'ref': 'branch-4.2'}}]:
-            for changed in ['true', 'false']:
-                with self.subTest(change=change, changed=changed):
-                    pr = {'state': 'open', 'draft': True, 'head': {'sha': HEAD}, 'base': {'ref': 'master'}, **change}
-                    result = self.run_with_pr(pr, changed)
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertFalse(self.state().get('posts'))
-                    self.assertFalse(self.skipped_contexts())
+    def test_lane_approval_requires_an_open_pr_and_matching_file_snapshot(self):
+        workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
+        step = workflow.split('    - name: Prepare FC lane selection\n', 1)[1].split('    - name:', 1)[0]
+        script = textwrap.dedent(step.split('      run: |\n', 1)[1])
+        (self.root / 'all_files').write_text('be/src/example.cpp\n')
+        base_sha = 'c' * 40
+        pr = {'state': 'open', 'draft': True, 'head': {'sha': HEAD}, 'base': {'ref': 'master', 'sha': base_sha}}
+        for update, count, success in [({}, 1, True), ({'state': 'closed'}, 1, False),
+                                       ({'head': {'sha': 'b' * 40}}, 1, False),
+                                       ({'base': {'ref': 'branch-4.2', 'sha': base_sha}}, 1, False),
+                                       ({'base': {'ref': 'master', 'sha': 'd' * 40}}, 1, False),
+                                       ({}, 2, False), (None, 1, False)]:
+            with self.subTest(update=update, count=count):
+                plan = self.root / 'teamcity-fc-lanes'
+                plan.unlink(missing_ok=True)
+                env = {**self.env, 'PR': '123', 'HEAD_SHA': HEAD, 'BASE_SHA': base_sha, 'TARGET_BRANCH': 'master',
+                       'FILE_COUNT': str(count), 'MOCK_PR': json.dumps({**pr, **update}) if update is not None else '',
+                       'GITHUB_ENV': str(self.root / 'env'), 'RUNNER_TEMP': str(self.root)}
+                result = subprocess.run(['bash', '-eo', 'pipefail', '-c', 'curl(){ echo "$MOCK_PR"; }\n' + script],
+                                        cwd=self.root, env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+                self.assertEqual(plan.exists(), success)
 
     def test_compile_skip_covers_downstream_checks(self):
-        self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' compile 1')
+        self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' compile')
         self.assertEqual(self.skipped_contexts(), ['TeamCity/compile', 'TeamCity/p0', 'TeamCity/cloud_p0',
                                                   'TeamCity/vault_p0', 'TeamCity/external', 'TeamCity/nonconcurrent'])
-        self.assertFalse(self.state().get('posts'))
+        self.assertFalse(self.plan.exists())
 
     def test_failed_skip_and_stale_head_do_not_succeed(self):
         for env in [{'STATUS_FAIL': 'true'}, {'PR_FRESH': 'false'}]:
-            result = self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' feut 1', check=False, env=env)
+            result = self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' feut', check=False, env=env)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(self.skipped_contexts())
 
@@ -219,7 +164,7 @@ curl(){
     def test_keywords_match_required_checks(self):
         repo = HELPER.parents[3]
         required = set(re.findall(r'- (TeamCity/\S+)', (repo / '.asf.yaml').read_text()))
-        result = self.run_shell('for lane in "${!comment_to_pipeline[@]}"; do echo "$lane ${conment_to_context[$lane]}"; done')
+        result = self.run_shell('for lane in "${!conment_to_context[@]}"; do echo "$lane ${conment_to_context[$lane]}"; done')
         mappings = dict(line.split() for line in result.stdout.splitlines())
         self.assertEqual(set(mappings.values()), required | {'TeamCity/external', 'TeamCity/performance'})
         self.assertTrue(all(context == 'TeamCity/' + lane for lane, context in mappings.items()))
@@ -227,8 +172,7 @@ curl(){
         commands = re.search(r'reg="\^run \(([^)]+)\)', workflow).group(1).split('|')
         self.assertEqual(set(commands), set(mappings) | {'buildall'})
 
-    def parse_comment(self, command, branch='master', permission='write', check=True, user_id='27881198',
-                      login='tester', sender_id=None):
+    def parse_comment(self, command, branch='master', permission='write', check=True, user_id='27881198'):
         workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
         block = workflow.split('    - name: "Parse PR comment"\n', 1)[1].split('    - name:', 1)[0]
         script = textwrap.dedent(block.split('      run: |\n', 1)[1])
@@ -238,7 +182,6 @@ curl(){
         prefix = 'curl(){ printf "%s\\n" "$MOCK_GITHUB_RESPONSE"; };\n'
         result = subprocess.run(['bash', '-eo', 'pipefail', '-c', prefix + script], text=True, capture_output=True,
                                 env={**self.env, 'COMMENT_BODY': command, 'COMMENT_USER_ID': user_id,
-                                     'COMMENT_LOGIN': login, 'COMMENT_SENDER_ID': sender_id or user_id,
                                      'GITHUB_TOKEN': 'test-github-token', 'GITHUB_OUTPUT': str(output),
                                      'GITHUB_ENV': str(self.root / 'workflow-env'),
                                      'MOCK_GITHUB_RESPONSE': json.dumps({'head': {'sha': HEAD}, 'base': {'ref': branch, 'sha': 'c' * 40}, 'changed_files': 1, 'permission': permission})})
@@ -252,37 +195,34 @@ curl(){
             result, output = self.parse_comment('run ' + lane + ' 2')
             self.assertIn('COMMENT_TRIGGER_TYPE=' + lane + '\n', output)
             self.assertIn('COMMENT_REPEAT_TIMES=2\n', output)
-        for command in ['run feut-extra', 'please run feut', 'run nonConcurrent', 'run p1', 'run cloud_p1', 'run check_coverage']:
+            self.assertIn('base_sha=' + 'c' * 40 + '\n', output)
+            self.assertIn('file_count=1\n', output)
+        for command in ['run feut-extra', 'please run feut', 'run nonConcurrent', 'run p1', 'run cloud_p1', 'run check_coverage',
+                        'run debugcompile', 'run debugall', 'run p0 21', 'run p0 0']:
             result, output = self.parse_comment(command, check=False)
             self.assertNotIn('COMMENT_TRIGGER_TYPE=', output)
 
-    def test_debug_commands_require_the_pilot_author_and_editor(self):
-        pilot = {'login': 'shuke987', 'user_id': '37901441'}
-        for lane in ['compile', 'feut', 'beut', 'cloudut', 'p0', 'cloud_p0', 'vault_p0',
-                     'external', 'nonconcurrent', 'performance', 'all']:
-            _, output = self.parse_comment('run debug' + lane + ' 2', **pilot)
-            self.assertIn('fc=true', output)
-            self.assertIn('COMMENT_TRIGGER_TYPE=' + ('buildall' if lane == 'all' else lane) + '\n', output)
-            self.assertIn('COMMENT_REPEAT_TIMES=2', output)
-        for kwargs in [{'login': 'other'}, {'user_id': '123'}, {'sender_id': '123'}]:
-            result, output = self.parse_comment('run debugall', **{**pilot, **kwargs}, check=False)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertNotIn('fc=true', output)
-        for cmd in ['run debugcompile 21', 'run debugall extra', 'run debugunknown']:
-            result, _ = self.parse_comment(cmd, **pilot, check=False)
-            self.assertNotEqual(result.returncode, 0)
-        _, output = self.parse_comment('run compile', **pilot)
-        self.assertNotIn('fc=true', output)
-
-    def test_debug_selection_never_enqueues_directly(self):
-        plan = self.root / 'fc-lanes'
+    def test_workflow_plans_lanes_and_scopes_oidc_to_submission(self):
+        workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
+        for title in ['Prepare FC lane selection', 'Collect selected FC lanes']:
+            step = workflow.split('    - name: ' + title + '\n', 1)[1].split('      run: |', 1)[0]
+            self.assertIn("if: steps.parse.outputs.comment_trigger == 'true'", step)
+        gate, submit = workflow.split('  submit-fc:\n')
+        self.assertNotIn('TEAMCITY_CURRENT_TOKEN', workflow)
+        self.assertNotIn('id-token: write', gate)
+        self.assertIn('id-token: write', submit)
+        self.assertIn('needs: [check-comment-if-need-to-trigger-teamcity, approve-fc]', submit)
         for lane in ['compile', 'p0', 'feut']:
-            self.trigger(lane, env={'TEAMCITY_FC_PLAN': str(plan)})
-        self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' cloudut 1',
-                       env={'TEAMCITY_FC_PLAN': str(plan)})
-        self.assertEqual(plan.read_text().splitlines(), ['compile', 'p0', 'feut'])
-        self.assertFalse(self.state().get('posts'))
+            self.run_shell('trigger_or_skip_build true 123 master ' + HEAD + ' ' + lane)
+        self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' cloudut')
+        self.assertEqual(self.plan.read_text().splitlines(), ['compile', 'p0', 'feut'])
         self.assertEqual(self.skipped_contexts(), ['TeamCity/cloudut'])
+
+    def test_missing_plan_stops_submission(self):
+        result = self.run_shell('trigger_or_skip_build true 123 master ' + HEAD + ' p0',
+                                env={'TEAMCITY_FC_PLAN': ''}, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Missing FC lane plan', result.stderr)
 
     def test_fc_submission_validates_receipts_and_never_reposts(self):
         mock = '''curl(){
@@ -340,7 +280,7 @@ curl(){
             expected = {'TeamCity/' + lane for lane in ['compile', 'feut', 'beut', 'cloudut', 'p0', 'cloud_p0', 'vault_p0', 'external', 'nonconcurrent']}
             if branch == 'master': expected.add('TeamCity/performance')
             self.assertEqual(set(self.skipped_contexts()), expected)
-            self.assertFalse(self.state().get('posts'))
+            self.assertFalse(self.plan.exists())
 
     def test_workflow_branch_and_permission_checks(self):
         for branch in ['branch-4.2', 'branch-4.1']:
@@ -352,49 +292,21 @@ curl(){
             result, _ = self.parse_comment('run feut', branch=branch, permission=permission, check=False)
             self.assertNotEqual(result.returncode, 0)
 
-    def test_credentials_are_not_traced(self):
-        result = self.run_shell('''curl(){ printf '%s\\n' "$@" > "$FIXTURE_ROOT/curl-args"; }
-set -x
-teamcity_request --fail https://ci.example
-''', mock=False)
-        self.assertNotIn('test-current-token', result.stdout + result.stderr)
-        args = (self.root / 'curl-args').read_text()
-        self.assertIn('Authorization: Bearer test-current-token', args)
-        self.assertNotIn('--user', args)
-
     def test_retired_branch_has_no_submission(self):
-        result = self.run_shell('trigger_or_skip_build true 123 branch-4.0 ' + HEAD + ' feut 1', check=False)
+        result = self.run_shell('trigger_or_skip_build true 123 branch-4.0 ' + HEAD + ' feut', check=False)
         self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(self.state().get('posts'))
+        self.assertFalse(self.plan.exists())
 
     def test_release_branches_reject_performance(self):
         for branch in ['branch-4.2', 'branch-4.1']:
-            result = self.run_shell('trigger_or_skip_build true 123 ' + branch + ' ' + HEAD + ' performance 1', check=False)
+            result = self.run_shell('trigger_or_skip_build true 123 ' + branch + ' ' + HEAD + ' performance', check=False)
             self.assertNotEqual(result.returncode, 0)
-            self.assertFalse(self.state().get('posts'))
+            self.assertFalse(self.plan.exists())
 
     def test_status_token_is_not_traced(self):
         result = self.run_shell('curl(){ return 0; }; set -x; skip_build "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" feut',
                                 mock=False, env={'GITHUB_TOKEN': 'test-github-token'})
         self.assertNotIn('test-github-token', result.stdout + result.stderr)
-
-    def test_missing_private_token_has_no_public_fallback(self):
-        result = self.run_shell('curl(){ exit 99; }; teamcity_request https://ci.example', mock=False,
-                                check=False, env={'TEAMCITY_CURRENT_TOKEN': ''})
-        self.assertEqual(result.returncode, 1)
-
-    def test_regressions_submit_directly_with_only_pr_parameters(self):
-        for lane, pipeline in [('p0', 'Doris_P0'), ('cloud_p0', 'Doris_CloudP0'),
-                               ('vault_p0', 'Doris_VaultP0'), ('external', 'Doris_External'),
-                               ('nonconcurrent', 'Doris_NonConcurrent')]:
-            self.save({})
-            self.trigger(lane)
-            body = self.state()['posts'][0]
-            self.assertEqual(body['buildType']['id'], pipeline)
-            self.assertEqual({p['name']: p['value'] for p in body['properties']['property']},
-                             {'env.PR_NUMBER': '123', 'env.CI_BRANCH': 'master', 'env.CI_REQUESTED_PR_HEAD': HEAD})
-            self.assertNotIn('custom-artifact-dependencies', body)
-            self.assertEqual(len(self.state()['posts']), 1)
 
     def test_workflow_dispatch_matrix(self):
         workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
@@ -413,54 +325,9 @@ teamcity_request --fail https://ci.example
                 if branch != 'master': expected.discard('performance')
                 self.assertEqual(selected, expected, (branch, command))
 
-    def test_exact_revision_submission(self):
-        self.trigger()
-        body = self.state()['posts'][0]
-        self.assertEqual(body['buildType']['id'], 'Doris_CloudUT')
-        self.assertEqual(body['branchName'], 'pull/123')
-        self.assertEqual(body['properties']['property'][0]['name'], 'env.PR_NUMBER')
-
-    def test_active_build_does_not_prevent_submission(self):
-        self.save({'builds': [build()]})
-        self.trigger()
-        self.assertEqual(len(self.state()['posts']), 1)
-        self.assertEqual(self.state()['builds'][0]['state'], 'running')
-
-    def test_other_revision_is_preserved_and_not_reused(self):
-        self.save({'builds': [build(head='f' * 40)]})
-        self.trigger()
-        self.assertEqual(len(self.state()['posts']), 1)
-        self.assertEqual(self.state()['builds'][0]['state'], 'running')
-
-    def test_each_request_is_submitted_to_teamcity(self):
-        self.trigger(count=2)
-        self.trigger(count=2)
-        self.assertEqual(len(self.state()['posts']), 4)
-        for body in self.state()['posts']:
-            self.assertNotIn('env.CI_COMMENT_REQUEST_KEY', {p['name'] for p in body['properties']['property']})
-
-    def test_uncertain_post_does_not_automatically_retry(self):
-        self.save({'lose_response': True})
-        self.assertNotEqual(self.trigger(check=False).returncode, 0)
-        self.assertEqual(len(self.state()['posts']), 1)
-
-    def test_changed_pr_does_not_submit(self):
-        self.assertNotEqual(self.trigger(check=False, env={'PR_FRESH': 'false'}).returncode, 0)
-        self.assertFalse(self.state().get('posts'))
-
-    def test_temporary_configuration_rejected(self):
-        self.save({'root': 'Doris_Performance_Schema70411_Debug'})
-        self.assertNotEqual(self.trigger('performance', check=False).returncode, 0)
-        self.assertFalse(self.state().get('posts'))
-
-    def test_invalid_count_rejected(self):
-        for count in [0, 21, 'abc']:
-            self.assertNotEqual(self.trigger(count=count, check=False).returncode, 0)
-        self.assertFalse(self.state().get('posts'))
-
     def test_removed_lane_has_no_legacy_fallback(self):
-        self.assertNotEqual(self.trigger('p1', check=False).returncode, 0)
-        self.assertFalse(self.state().get('posts'))
+        self.assertNotEqual(self.run_shell('trigger_or_skip_build true 123 master ' + HEAD + ' p1', check=False).returncode, 0)
+        self.assertFalse(self.plan.exists())
 
 
 if __name__ == '__main__':
