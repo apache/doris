@@ -487,7 +487,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, remoteTblName, remoteDbName);
             }
         }
-        catalog.dropTable(getTableIdentifier(remoteDbName, remoteTblName), true);
+        catalog.dropTable(getTableIdentifier(remoteDbName, remoteTblName), shouldPurgeOnDrop());
+    }
+
+    private boolean shouldPurgeOnDrop() {
+        // REST can unregister without deleting files; HadoopCatalog may delete its directory even with purge=false.
+        Map<String, String> properties = catalogProperties;
+        return !IcebergExternalCatalog.ICEBERG_REST.equalsIgnoreCase(
+                properties.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE))
+                || Boolean.parseBoolean(properties.getOrDefault(IcebergRestProperties.DROP_WITH_PURGE_ENABLED, "true"));
     }
 
     public void renameTableImpl(String dbName, String tblName, String newTblName) throws DdlException {

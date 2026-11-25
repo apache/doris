@@ -36,6 +36,7 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
@@ -128,6 +129,13 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     protected void checkProperties(CatalogProperty property) throws DdlException {
         super.checkProperties(property);
+        if (ICEBERG_REST.equalsIgnoreCase(property.getOrDefault(ICEBERG_CATALOG_TYPE, ""))) {
+            // Validate statements only; replay binding must keep accepting persisted properties.
+            String purge = property.getOrDefault(IcebergRestProperties.DROP_WITH_PURGE_ENABLED, null);
+            if (purge != null && !"true".equalsIgnoreCase(purge) && !"false".equalsIgnoreCase(purge)) {
+                throw new DdlException(IcebergRestProperties.DROP_WITH_PURGE_ENABLED + " must be true or false");
+            }
+        }
         CacheSpec.checkBooleanProperty(property.getOrDefault(ICEBERG_TABLE_CACHE_ENABLE, null),
                 ICEBERG_TABLE_CACHE_ENABLE);
         CacheSpec.checkLongProperty(property.getOrDefault(ICEBERG_TABLE_CACHE_TTL_SECOND, null),

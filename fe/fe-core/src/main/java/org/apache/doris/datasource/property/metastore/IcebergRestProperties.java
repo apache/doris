@@ -43,6 +43,8 @@ import java.util.Map;
 
 public class IcebergRestProperties extends AbstractIcebergProperties {
 
+    public static final String DROP_WITH_PURGE_ENABLED = "iceberg.rest.drop-with-purge-enabled";
+
     // REST catalog property constants
     private static final String PREFIX_PROPERTY = "prefix";
     private static final String VENDED_CREDENTIALS_HEADER = "header.X-Iceberg-Access-Delegation";
@@ -53,6 +55,12 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     private Map<String, String> icebergRestCatalogProperties;
     private S3Properties s3Properties;
     private OSSProperties ossProperties;
+
+    @Getter
+    @ConnectorProperty(names = {DROP_WITH_PURGE_ENABLED},
+            required = false,
+            description = "Delete table data and metadata files when dropping an Iceberg REST table. Default: true.")
+    private boolean icebergRestDropWithPurgeEnabled = true;
 
     @Getter
     @ConnectorProperty(names = {"iceberg.rest.uri", "uri"},
