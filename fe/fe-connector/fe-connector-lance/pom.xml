@@ -110,6 +110,14 @@ under the License.
             <artifactId>commons-lang3</artifactId>
         </dependency>
 
+        <!-- Parses a vector search's query vector and an index's details (its metric). lance-core already brings
+             this version (the jackson-bom one) into the plugin zip; declared because the plugin's own code uses
+             it. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
         <!-- The table-access cache (LanceNamespaceClient) expires each entry after its own time, which
              Caffeine's Expiry expresses. The plugin carries its own copy, as the other connector plugins do,
              rather than whichever version the FE classpath happens to hold; pinned to 2.9.3, the version they

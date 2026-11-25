@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 /** All physical segments belonging to one logical index in a fixed dataset snapshot. */
 final class LanceIndexSegmentGroup {
@@ -49,5 +50,25 @@ final class LanceIndexSegmentGroup {
 
     List<LanceIndexSegmentInfo> getSegments() {
         return segments;
+    }
+
+    /** The segments of this index that are vector-index segments over the field {@code fieldId}. */
+    List<LanceIndexSegmentInfo> getVectorSegments(int fieldId) {
+        return matchingSegments(fieldId, LanceIndexSegmentInfo::isVectorIndex);
+    }
+
+    /** The segments of this index that are full-text (inverted) index segments over the field {@code fieldId}. */
+    List<LanceIndexSegmentInfo> getFullTextSegments(int fieldId) {
+        return matchingSegments(fieldId, LanceIndexSegmentInfo::isFullTextIndex);
+    }
+
+    private List<LanceIndexSegmentInfo> matchingSegments(int fieldId, Predicate<LanceIndexSegmentInfo> typeMatches) {
+        List<LanceIndexSegmentInfo> matches = new ArrayList<>();
+        for (LanceIndexSegmentInfo segment : segments) {
+            if (typeMatches.test(segment) && segment.getFieldIds().contains(fieldId)) {
+                matches.add(segment);
+            }
+        }
+        return matches;
     }
 }

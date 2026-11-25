@@ -17,22 +17,30 @@
 
 package org.apache.doris.connector.lance;
 
+import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.NamedColumnHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.search.ConnectorSearch;
+import org.apache.doris.connector.spi.search.ConnectorSearchFunction;
+import org.apache.doris.connector.spi.search.ConnectorSearchLazyMaterialization;
+import org.apache.doris.connector.spi.search.ConnectorSearchOps;
+import org.apache.doris.connector.spi.search.ConnectorSearchRequest;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import org.apache.arrow.vector.types.pojo.Field;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -40,19 +48,34 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
- * Serves {@code SHOW DATABASES} / {@code SHOW TABLES} / {@code DESC}, the statement's version pin and
- * time travel for a Lance catalog.
+ * Serves {@code SHOW DATABASES} / {@code SHOW TABLES} / {@code DESC}, the statement's version pin, time
+ * travel, and {@code vector_search} / {@code full_text_search} for a Lance catalog.
  *
  * <p>Created per statement by the engine's metadata funnel; it holds no cross-statement state. Reads of one
  * table version share one metadata read through {@link LanceStatementScope}.
  */
-final class LanceConnectorMetadata implements ConnectorMetadata {
+final class LanceConnectorMetadata implements ConnectorMetadata, ConnectorSearchOps {
 
     /** Informational format name the engine records with the schema. */
     private static final String TABLE_FORMAT_TYPE = "LANCE";
+    /**
+     * The fe-core session variable that turns the lazy fetch of a search's columns on, byte-for-byte
+     * {@code SessionVariable.ENABLE_LANCE_LAZY_MATERIALIZATION}; absent means on, its default.
+     */
+    static final String SESSION_ENABLE_LAZY_MATERIALIZATION = "enable_lance_lazy_materialization";
+    /**
+     * The first BE exec version whose TopN lazy materialization reads a row by its Lance dataset row location,
+     * byte-for-byte fe-common {@code Config.LANCE_ROW_LOCATION_MIN_BE_EXEC_VERSION}. An older backend would read the
+     * row location of a search as another kind of row id and fetch the wrong rows, so below it a search is not
+     * lazily materialized.
+     */
+    static final int LANCE_ROW_LOCATION_MIN_BE_EXEC_VERSION = 20;
 
     private final LanceCatalogClient client;
 
@@ -101,9 +124,17 @@ final class LanceConnectorMetadata implements ConnectorMetadata {
         return toTableSchema(lanceHandle, metadata(session, lanceHandle));
     }
 
+    /** The table's columns; for a search, also the search's result column, which its ranges fill. */
     @Override
     public Map<String, ConnectorColumnHandle> getColumnHandles(
             ConnectorSession session, ConnectorTableHandle handle) {
+        if (handle instanceof LanceSearchTableHandle) {
+            LanceSearchTableHandle search = (LanceSearchTableHandle) handle;
+            Map<String, ConnectorColumnHandle> handles = toColumnHandles(metadata(session, search.getTable()));
+            String resultColumn = searchFunction(search).getResultColumn();
+            handles.put(resultColumn, new NamedColumnHandle(resultColumn));
+            return handles;
+        }
         return toColumnHandles(metadata(session, (LanceTableHandle) handle));
     }
 
@@ -161,6 +192,41 @@ final class LanceConnectorMetadata implements ConnectorMetadata {
     @Override
     public boolean supportsCastPredicatePushdown(ConnectorSession session) {
         return false;
+    }
+
+    // ========= ConnectorSearchOps =========
+
+    /**
+     * Prepares a {@code vector_search} or {@code full_text_search} over {@code table}, pinned to the version the
+     * statement reads: the newest one, read through the same statement memo as a plain scan of the table and its
+     * query-begin pin, so a statement that also reads the table reads one version. The arguments are
+     * {@link LanceSearchArguments}, checked before the table is read as far as its schema does not decide them; a
+     * search that may use an index needs the searched column's Lance field id.
+     */
+    @Override
+    public ConnectorSearch prepareSearch(ConnectorSession session, ConnectorTableHandle table,
+            ConnectorSearchRequest request) {
+        LanceSearchArguments arguments = LanceSearchArguments.parse(request);
+        LanceTableHandle lanceTable = (LanceTableHandle) table;
+        LanceTableMetadata metadata = metadata(session, lanceTable);
+        LanceTableHandle pinned = lanceTable.withVersion(metadata.getVersion());
+        LanceSearchArguments.Bound search = arguments.bind(metadata.getSchema());
+        int searchFieldId = arguments.searchesIndex()
+                ? lanceFieldId(session, pinned, metadata, search.getSearchField(), request.getFunction()) : -1;
+        return new ConnectorSearch(new LanceSearchTableHandle(pinned, search.getRequest(), searchFieldId),
+                searchColumns(metadata, request.getFunction()), arguments.getTopK(), arguments.getOffset(),
+                lazyMaterialization(session));
+    }
+
+    /**
+     * Records the columns of a search that the engine reads by row id after merging the candidates: the backend
+     * that ran the search reads them, so they count toward the scan's backend requirements.
+     */
+    @Override
+    public ConnectorTableHandle applyTopnLazyMaterialization(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> lazyColumns) {
+        return handle instanceof LanceSearchTableHandle
+                ? ((LanceSearchTableHandle) handle).withLazyColumns(lazyColumns) : handle;
     }
 
     // ========= MVCC =========
@@ -255,6 +321,64 @@ final class LanceConnectorMetadata implements ConnectorMetadata {
     private static ConnectorTableSchema toTableSchema(LanceTableHandle handle, LanceTableMetadata metadata) {
         return new ConnectorTableSchema(handle.getTableName(), LanceTypeMapping.toColumns(metadata.getSchema()),
                 TABLE_FORMAT_TYPE, Collections.emptyMap());
+    }
+
+    /** The Lance field id of a search's column, from the index metadata the search's planning reads too. */
+    private int lanceFieldId(ConnectorSession session, LanceTableHandle pinned, LanceTableMetadata metadata,
+            Field field, ConnectorSearchFunction function) {
+        // Looked up before the memo's loader runs: a loader may not use the statement scope itself.
+        LanceMetadataMetrics metrics = LanceMetadataMetrics.forTable(session, pinned.getDbName(),
+                pinned.getTableName());
+        LanceIndexMetadata indexMetadata = LanceStatementScope.sharedIndexMetadata(session, pinned, metadata,
+                () -> client.loadIndexMetadata(pinned.getDbName(), pinned.getTableName(), metadata.getVersion(),
+                        metrics));
+        OptionalInt fieldId = indexMetadata.getLanceFieldId(field.getName());
+        if (!fieldId.isPresent()) {
+            throw new DorisConnectorException("Lance "
+                    + (function == ConnectorSearchFunction.VECTOR_SEARCH ? "vector" : "full-text") + " column '"
+                    + field.getName() + "' has no field ID in the Lance schema");
+        }
+        return fieldId.getAsInt();
+    }
+
+    /**
+     * The table's columns and then the function's nullable FLOAT result column. A name the engine could not tell
+     * apart from another, case-insensitively, is rejected, as is a table column named like the result column.
+     */
+    private static List<ConnectorColumn> searchColumns(LanceTableMetadata metadata,
+            ConnectorSearchFunction function) {
+        List<ConnectorColumn> columns = new ArrayList<>(LanceTypeMapping.toColumns(metadata.getSchema()));
+        Set<String> names = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (ConnectorColumn column : columns) {
+            if (!names.add(column.getName())) {
+                throw new DorisConnectorException("Duplicate Lance schema column under case-insensitive matching: '"
+                        + column.getName() + "'");
+            }
+        }
+        String resultColumn = function.getResultColumn();
+        if (names.contains(resultColumn)) {
+            throw new DorisConnectorException("Lance table already contains reserved "
+                    + (function == ConnectorSearchFunction.VECTOR_SEARCH ? "vector search" : "full-text search")
+                    + " column '" + resultColumn + "'");
+        }
+        columns.add(new ConnectorColumn(resultColumn, ConnectorType.of("FLOAT"), null, true, null));
+        return columns;
+    }
+
+    /**
+     * Whether the engine may fetch a search's columns by row id after merging the candidates: unless the session
+     * turns it off, and only when every backend reads Lance row locations.
+     */
+    private static ConnectorSearchLazyMaterialization lazyMaterialization(ConnectorSession session) {
+        String enabled = session.getSessionProperties().get(SESSION_ENABLE_LAZY_MATERIALIZATION);
+        return (enabled == null || Boolean.parseBoolean(enabled))
+                && session.getBeExecVersion() >= LANCE_ROW_LOCATION_MIN_BE_EXEC_VERSION
+                ? ConnectorSearchLazyMaterialization.TOP_LEVEL_COLUMNS : ConnectorSearchLazyMaterialization.NONE;
+    }
+
+    private static ConnectorSearchFunction searchFunction(LanceSearchTableHandle search) {
+        return search.isVectorSearch() ? ConnectorSearchFunction.VECTOR_SEARCH
+                : ConnectorSearchFunction.FULL_TEXT_SEARCH;
     }
 
     private static Map<String, ConnectorColumnHandle> toColumnHandles(LanceTableMetadata metadata) {

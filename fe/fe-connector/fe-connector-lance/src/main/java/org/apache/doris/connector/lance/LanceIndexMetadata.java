@@ -19,6 +19,8 @@ package org.apache.doris.connector.lance;
 
 import org.apache.doris.connector.lance.LanceMetadataMetrics.Stage;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lance.Dataset;
@@ -27,11 +29,13 @@ import org.lance.index.IndexDescription;
 import org.lance.schema.LanceField;
 import org.lance.schema.LanceSchema;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.function.Supplier;
@@ -40,11 +44,12 @@ import java.util.function.Supplier;
  * The top-level field ids and the user indexes of one fixed dataset version.
  *
  * <p>Read only for a scan that can use an index segment: a scan with a pushed predicate and no debug
- * grouping. Schema reads and plain scans never read it, so an index the SDK cannot describe does not stop
- * them.
+ * grouping, or a vector or full-text search. Schema reads and plain scans never read it, so an index the SDK
+ * cannot describe does not stop them.
  */
 final class LanceIndexMetadata {
     private static final Logger LOG = LogManager.getLogger(LanceIndexMetadata.class);
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final boolean fieldIdsAvailable;
     private final Map<String, Integer> lanceFieldIds;
@@ -136,6 +141,7 @@ final class LanceIndexMetadata {
     private static List<LanceIndexSegmentInfo> loadIndexSegments(List<IndexDescription> userIndexes) {
         List<LanceIndexSegmentInfo> result = new ArrayList<>();
         for (IndexDescription description : userIndexes) {
+            String metric = parseMetric(description.getDetailsJson());
             for (Index segment : description.getSegments()) {
                 if (segment.indexType() == null) {
                     continue;
@@ -150,9 +156,26 @@ final class LanceIndexMetadata {
                         })
                         .orElse(null);
                 result.add(new LanceIndexSegmentInfo(segment.uuid(), description.getName(),
-                        description.getFieldIds(), fragmentIds, segment.indexType()));
+                        description.getFieldIds(), fragmentIds, segment.indexType(), metric));
             }
         }
         return result;
+    }
+
+    /**
+     * The {@code metric_type} a vector index's details name, upper case; null when they name none. A vector
+     * search uses only the segments of an index built with the metric it asks for, so an index whose details
+     * are missing or malformed is not used for one; the details never stop an ordinary scan.
+     */
+    static String parseMetric(String detailsJson) {
+        if (detailsJson == null || detailsJson.isEmpty()) {
+            return null;
+        }
+        try {
+            JsonNode metric = JSON.readTree(detailsJson).get("metric_type");
+            return metric == null || !metric.isTextual() ? null : metric.asText().toUpperCase(Locale.ROOT);
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
     }
 }
