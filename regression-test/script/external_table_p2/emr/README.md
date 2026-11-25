@@ -85,8 +85,16 @@ hive --service cli -S -f "$FIXTURES/hive_sources.sql"
 Use a private regression config with `enableExternalEmrTest=true`,
 `enableExternalIcebergTest=true` and `enablePaimonTest=true`. Supply the existing
 `emrCatalogCommonProp` string with the HMS URI and required Hadoop/HMS properties.
-Set `emrPaimonWarehouse` to `HDFS_WAREHOUSE`; otherwise the suite retains its
-original warehouse default. Every FE and BE that accesses the catalog must have
+Set the required `emrPaimonWarehouse` to `HDFS_WAREHOUSE` in that configuration.
+It has no default service address; an enabled Paimon suite fails before catalog
+DDL when the value is missing or blank. For example, use an environment-backed
+entry in the private configuration:
+
+```groovy
+emrPaimonWarehouse = System.getenv("EMR_PAIMON_WAREHOUSE")
+```
+
+Every FE and BE that accesses the catalog must have
 the configured keytab and Kerberos realm configuration, and network access to
 the KDC, HMS, NameNode and DataNodes.
 

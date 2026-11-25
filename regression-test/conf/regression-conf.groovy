@@ -207,6 +207,10 @@ hadoopSecurityAutoToLocal = ""
 //paimon catalog test config for bigdata
 enableExternalPaimonTest = false
 
+// EMR fixtures: set the warehouse in a private config before enabling the suites.
+enableExternalEmrTest = false
+emrPaimonWarehouse = ""
+
 //mysql jdbc connector test config for bigdata
 enableExternalMysqlTest = false
 extMysqlHost = "***.**.**.**"

@@ -122,5 +122,5 @@ Store this record outside the repository, with secrets omitted:
   failures and deliberately disabled suites.
 
 Keep the original source fixtures until target validation is complete. Update the
-private regression config with target mappings, retain old defaults in reusable
-suite code, and keep account-specific CI deployment files outside the PR.
+private regression config with target mappings, keep deployment-specific service
+addresses in configuration, and keep account-specific CI deployment files outside the PR.
