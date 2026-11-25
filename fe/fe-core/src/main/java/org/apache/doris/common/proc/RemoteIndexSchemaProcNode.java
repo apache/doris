@@ -18,18 +18,11 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil;
-import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -43,36 +36,27 @@ public class RemoteIndexSchemaProcNode implements ProcNodeInterface {
             .add("Default").add("Extra")
             .build();
 
-    private List<Partition> partitions;
-    private List<Column> schema;
-    private Set<String> bfColumns;
+    @FunctionalInterface
+    interface RemoteSchemaFetcher {
+        List<Column> fetch() throws AnalysisException;
+    }
 
-    public RemoteIndexSchemaProcNode(List<Partition> partitions, List<Column> schema, Set<String> bfColumns) {
-        this.partitions = partitions;
-        this.schema = schema;
+    private final ProcResult baseSchema;
+    private final Set<String> bfColumns;
+    private final RemoteSchemaFetcher remoteSchemaFetcher;
+
+    RemoteIndexSchemaProcNode(ProcResult baseSchema, Set<String> bfColumns, RemoteSchemaFetcher remoteSchemaFetcher) {
+        this.baseSchema = baseSchema;
         this.bfColumns = bfColumns;
+        this.remoteSchemaFetcher = remoteSchemaFetcher;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(schema);
-        Preconditions.checkNotNull(partitions);
-        List<Tablet> tablets = Lists.newArrayList();
-        for (Partition partition : partitions) {
-            MaterializedIndex idx = partition.getBaseIndex();
-            for (Tablet tablet : idx.getTablets()) {
-                tablets.add(tablet);
-            }
-        }
-        // Get the maximum number of Remote Tablets that can be fetched
-        int maxFetchCount = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
-        // If the number of tablets is greater than the maximum fetch count, randomly select maxFetchCount tablets
-        if (tablets.size() > maxFetchCount) {
-            Collections.shuffle(tablets);
-            tablets = tablets.subList(0, maxFetchCount);
-        }
-        List<Column> remoteSchema = new FetchRemoteTabletSchemaUtil(tablets).fetch();
-        this.schema.addAll(remoteSchema);
-        return IndexSchemaProcNode.createResult(this.schema, this.bfColumns, Lists.newArrayList());
+        List<Column> remoteSchema = remoteSchemaFetcher.fetch();
+        ProcResult remoteResult = IndexSchemaProcNode.createResult(remoteSchema, bfColumns, ImmutableList.of());
+        BaseProcResult result = new BaseProcResult(baseSchema.getColumnNames(), new ArrayList<>(baseSchema.getRows()));
+        result.addRows(remoteResult.getRows());
+        return result;
     }
 }

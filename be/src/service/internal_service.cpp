@@ -47,14 +47,20 @@
 #include <algorithm>
 #include <exception>
 #include <filesystem>
+#include <limits>
 #include <memory>
+#include <new>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
@@ -106,6 +112,7 @@
 #include "util/async_io.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/md5.h"
 #include "util/metrics.h"
@@ -1130,12 +1137,278 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
     response->mutable_status()->set_status_code(TStatusCode::OK);
 }
 
-template <class RPCResponse>
-struct AsyncRPCContext {
-    RPCResponse response;
-    brpc::Controller cntl;
-    brpc::CallId cid;
+namespace {
+
+struct SchemaRpc {
+    PFetchRemoteSchemaRequest request;
+    PFetchRemoteSchemaResponse response;
+    brpc::Controller controller;
+    std::optional<brpc::CallId> call_id;
 };
+
+bool has_required_tablet_coverage(const SchemaRpc& rpc) {
+    const auto& location = rpc.request.tablet_location(0);
+    return location.tablet_visible_version_size() == 0 ||
+           (rpc.response.has_tablet_coverage() && rpc.response.tablet_versions_verified());
+}
+
+bool has_legacy_remote_schema(const SchemaRpc& rpc) {
+    const auto& location = rpc.request.tablet_location(0);
+    return location.tablet_visible_version_size() > 0 &&
+           !rpc.response.has_tablet_versions_verified() && rpc.response.has_merged_schema();
+}
+
+Status check_remote_tablet_coverage(const std::vector<SchemaRpc>& rpcs,
+                                    std::unordered_set<int64_t>& legacy_tablets) {
+    // Healthy requests do not need per-tablet sets.
+    if (std::ranges::none_of(rpcs, [](const auto& rpc) {
+            return !has_required_tablet_coverage(rpc) ||
+                   rpc.response.tablet_coverage().missing_tablet_id_size() > 0;
+        })) {
+        return Status::OK();
+    }
+    std::unordered_set<int64_t> uncovered;
+    std::unordered_set<int64_t> covered;
+    for (const auto& rpc : rpcs) {
+        const auto& assigned = rpc.request.tablet_location(0).tablet_id();
+        const bool legacy = has_legacy_remote_schema(rpc);
+        if (!has_required_tablet_coverage(rpc) && !legacy) {
+            uncovered.insert(assigned.begin(), assigned.end());
+            continue;
+        }
+        if (!rpc.response.has_tablet_coverage() && !legacy) {
+            continue;
+        }
+        const auto& reported_missing = rpc.response.tablet_coverage().missing_tablet_id();
+        std::unordered_map<int64_t, bool> missing;
+        for (int64_t tablet_id : reported_missing) {
+            missing.try_emplace(tablet_id, false);
+        }
+        for (int64_t tablet_id : assigned) {
+            if (auto it = missing.find(tablet_id); it != missing.end()) {
+                it->second = true;
+                uncovered.insert(tablet_id);
+            } else if (legacy) {
+                legacy_tablets.insert(tablet_id);
+            } else if (rpc.response.has_merged_schema()) {
+                covered.insert(tablet_id);
+            }
+        }
+        for (const auto& [tablet_id, assigned_here] : missing) {
+            if (!assigned_here) {
+                return Status::InternalError("Worker reported an unassigned tablet {}", tablet_id);
+            }
+        }
+    }
+    for (int64_t tablet_id : covered) {
+        uncovered.erase(tablet_id);
+        legacy_tablets.erase(tablet_id);
+    }
+    // A legacy reply can replace missing version support. Reported missing tablets or an
+    // explicit negative verification still require another worker to prove coverage.
+    if (!uncovered.empty()) {
+        return Status::Error<ErrorCode::TABLE_NOT_FOUND>(
+                "Extended DESCRIBE could not read tablet {} ({} uncovered tablets)",
+                *std::min_element(uncovered.begin(), uncovered.end()), uncovered.size());
+    }
+    return Status::OK();
+}
+
+void append_remote_variant_schema(const PFetchRemoteSchemaResponse& response,
+                                  std::vector<TabletSchemaSPtr>& schemas) {
+    auto schema = std::make_shared<TabletSchema>();
+    schema->init_from_pb(response.merged_schema());
+    schemas.push_back(std::move(schema));
+}
+
+Status collect_remote_variant_schemas(const PFetchRemoteSchemaRequest& request,
+                                      std::vector<TabletSchemaSPtr>& schemas,
+                                      bool& versions_verified) {
+    std::vector<SchemaRpc> rpcs(request.tablet_location_size());
+    auto join_rpcs = [&] {
+        for (auto& rpc : rpcs) {
+            if (rpc.call_id.has_value()) {
+                brpc::Join(*rpc.call_id);
+                rpc.call_id.reset();
+            }
+        }
+    };
+    // Controllers, responses and the request must survive all dispatched RPCs on error too.
+    Defer join_on_exit {join_rpcs};
+    for (int i = 0; i < request.tablet_location_size(); ++i) {
+        const auto& location = request.tablet_location(i);
+        auto stub = ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
+                location.host(), location.brpc_port());
+        if (stub == nullptr) {
+            return Status::NetworkError("Failed to initialize remote schema RPC to {}:{}",
+                                        location.host(), location.brpc_port());
+        }
+        auto& rpc = rpcs[i];
+        rpc.request.set_is_coordinator(false);
+        rpc.request.set_report_tablet_coverage(true);
+        *rpc.request.add_tablet_location() = location;
+        rpc.controller.set_timeout_ms(config::fetch_remote_schema_rpc_timeout_ms);
+        stub->fetch_remote_tablet_schema(&rpc.controller, &rpc.request, &rpc.response,
+                                         brpc::DoNothing());
+        // Preparing the callback can throw before BRPC takes ownership of the call.
+        rpc.call_id = rpc.controller.call_id();
+    }
+    join_rpcs();
+    for (const auto& rpc : rpcs) {
+        if (rpc.controller.Failed()) {
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                    rpc.controller.remote_side());
+            return Status::NetworkError("Remote schema RPC failed: {}", rpc.controller.ErrorText());
+        }
+        if (!rpc.response.has_status()) {
+            return Status::InternalError("Remote schema RPC did not return a status");
+        }
+        if (rpc.response.status().status_code() != 0) {
+            return Status::create(rpc.response.status());
+        }
+        if (!has_required_tablet_coverage(rpc)) {
+            continue;
+        }
+        if (!rpc.response.has_merged_schema()) {
+            // A new worker with no local copies can still contribute a coverage report.
+            const int missing = rpc.response.tablet_coverage().missing_tablet_id_size();
+            if (missing > 0 && missing == rpc.request.tablet_location(0).tablet_id_size()) {
+                continue;
+            }
+            return Status::InternalError("Remote schema RPC did not return a merged schema");
+        }
+        append_remote_variant_schema(rpc.response, schemas);
+    }
+    std::unordered_set<int64_t> legacy_tablets;
+    RETURN_IF_ERROR(check_remote_tablet_coverage(rpcs, legacy_tablets));
+    if (!legacy_tablets.empty()) {
+        versions_verified = false;
+        for (const auto& rpc : rpcs) {
+            if (has_legacy_remote_schema(rpc) &&
+                std::ranges::any_of(rpc.request.tablet_location(0).tablet_id(),
+                                    [&](int64_t id) { return legacy_tablets.contains(id); })) {
+                append_remote_variant_schema(rpc.response, schemas);
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Result<std::vector<RowsetSharedPtr>> capture_desc_rowsets(const BaseTabletSPtr& tablet,
+                                                          int64_t visible_version) {
+    if (visible_version < 0) {
+        return tablet->get_snapshot_rowset();
+    }
+    if (auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(tablet)) {
+        // The cached tablet might have been loaded before the partition committed this version.
+        // sync_rowsets skips the MS RPC when the requested version is already available locally.
+        SyncOptions options;
+        options.query_version = visible_version;
+        RETURN_IF_ERROR_RESULT(cloud_tablet->sync_rowsets(options));
+    }
+    std::shared_lock lock(tablet->get_header_lock());
+    if (tablet->max_version_unlocked() < visible_version) {
+        return ResultError(Status::Error<ErrorCode::VERSION_NOT_EXIST>(
+                "Tablet {} is behind visible version {}", tablet->tablet_id(), visible_version));
+    }
+    auto captured = tablet->capture_consistent_rowsets_unlocked(Version(0, visible_version),
+                                                                CaptureRowsetOps {});
+    if (!captured.has_value()) {
+        return ResultError(std::move(captured.error()));
+    }
+    return std::move(captured.value().rowsets);
+}
+
+Status collect_local_variant_schemas(const PFetchRemoteSchemaRequest& request,
+                                     PFetchRemoteSchemaResponse* response,
+                                     std::vector<TabletSchemaSPtr>& schemas) {
+    const auto backend = BackendOptions::get_local_backend();
+    for (const auto& location : request.tablet_location()) {
+        if (backend.host != location.host() || config::brpc_port != location.brpc_port()) {
+            continue;
+        }
+        auto* coverage =
+                request.report_tablet_coverage() ? response->mutable_tablet_coverage() : nullptr;
+        for (int i = 0; i < location.tablet_id_size(); ++i) {
+            int64_t tablet_id = location.tablet_id(i);
+            auto tablet = ExecEnv::get_tablet(tablet_id);
+            if (!tablet.has_value()) {
+                // Local placement can be stale while another replica still covers this tablet.
+                // A Cloud lookup or file-read failure does not establish that a replica is absent.
+                if (coverage != nullptr && !config::is_cloud_mode() &&
+                    tablet.error().is<ErrorCode::TABLE_NOT_FOUND>()) {
+                    coverage->add_missing_tablet_id(tablet_id);
+                    continue;
+                }
+                return tablet.error().prepend(
+                        fmt::format("Extended DESCRIBE could not get tablet {}. ", tablet_id));
+            }
+            int64_t version = location.tablet_visible_version_size() == 0
+                                      ? -1
+                                      : location.tablet_visible_version(i);
+            auto rowsets = capture_desc_rowsets(tablet.value(), version);
+            if (!rowsets.has_value()) {
+                // A replica which has not caught up cannot prove coverage for this tablet.
+                if (coverage != nullptr && !config::is_cloud_mode() &&
+                    rowsets.error().is<ErrorCode::VERSION_NOT_EXIST>()) {
+                    coverage->add_missing_tablet_id(tablet_id);
+                    continue;
+                }
+                return std::move(rowsets.error());
+            }
+            auto schema = DORIS_TRY(
+                    vectorized::schema_util::VariantCompactionUtil::get_extended_desc_schema(
+                            tablet.value()->get_tablet_info(), rowsets.value(),
+                            tablet.value()->tablet_schema()));
+            schemas.push_back(std::move(schema));
+        }
+        return Status::OK();
+    }
+    return Status::InternalError("No remote schema tablet assignment for {}:{}", backend.host,
+                                 config::brpc_port);
+}
+
+Status fetch_variant_extended_schema(const PFetchRemoteSchemaRequest& request,
+                                     PFetchRemoteSchemaResponse* response) {
+    bool verify_versions = std::ranges::any_of(request.tablet_location(), [](const auto& location) {
+        return location.tablet_visible_version_size() > 0;
+    });
+    if (verify_versions) {
+        for (const auto& location : request.tablet_location()) {
+            if (location.tablet_visible_version_size() != location.tablet_id_size() ||
+                std::ranges::any_of(location.tablet_visible_version(), [](int64_t version) {
+                    return version <= 0 || version == std::numeric_limits<int64_t>::max();
+                })) {
+                return Status::InvalidArgument(
+                        "Invalid visible versions for extended DESCRIBE tablets");
+            }
+        }
+    }
+    std::vector<TabletSchemaSPtr> schemas;
+    bool versions_verified = verify_versions;
+    if (request.is_coordinator()) {
+        RETURN_IF_ERROR(collect_remote_variant_schemas(request, schemas, versions_verified));
+    } else {
+        RETURN_IF_ERROR(collect_local_variant_schemas(request, response, schemas));
+    }
+    response->set_tablet_versions_verified(versions_verified);
+    if (schemas.empty()) {
+        if (response->tablet_coverage().missing_tablet_id_size() > 0) {
+            return Status::OK();
+        }
+        return Status::InternalError("No tablet schemas for extended DESCRIBE");
+    }
+    TabletSchemaSPtr merged_schema;
+    RETURN_IF_ERROR(
+            vectorized::schema_util::get_least_common_schema(schemas, nullptr, merged_schema));
+    if (request.is_coordinator()) {
+        merged_schema->reserve_extracted_columns();
+    }
+    merged_schema->to_schema_pb(response->mutable_merged_schema());
+    return Status::OK();
+}
+
+} // namespace
 
 void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
                                                   const PFetchRemoteSchemaRequest* request,
@@ -1143,118 +1416,29 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                                                   google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
-        Status st = Status::OK();
-        std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::OTHER,
-                fmt::format("InternalService::fetch_remote_tablet_schema"));
-        SCOPED_ATTACH_TASK(mem_tracker);
-        if (request->is_coordinator()) {
-            // Spawn rpc request to none coordinator nodes, and finally merge them all
-            PFetchRemoteSchemaRequest remote_request(*request);
-            // set it none coordinator to get merged schema
-            remote_request.set_is_coordinator(false);
-            using PFetchRemoteTabletSchemaRpcContext = AsyncRPCContext<PFetchRemoteSchemaResponse>;
-            std::vector<PFetchRemoteTabletSchemaRpcContext> rpc_contexts(
-                    request->tablet_location_size());
-            for (int i = 0; i < request->tablet_location_size(); ++i) {
-                std::string host = request->tablet_location(i).host();
-                int32_t brpc_port = request->tablet_location(i).brpc_port();
-                std::shared_ptr<PBackendService_Stub> stub(
-                        ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
-                                host, brpc_port));
-                if (stub == nullptr) {
-                    LOG(WARNING) << "Failed to init rpc to " << host << ":" << brpc_port;
-                    st = Status::InternalError("Failed to init rpc to {}:{}", host, brpc_port);
-                    continue;
-                }
-                rpc_contexts[i].cid = rpc_contexts[i].cntl.call_id();
-                rpc_contexts[i].cntl.set_timeout_ms(config::fetch_remote_schema_rpc_timeout_ms);
-                stub->fetch_remote_tablet_schema(&rpc_contexts[i].cntl, &remote_request,
-                                                 &rpc_contexts[i].response, brpc::DoNothing());
+        Status st;
+        try {
+            if (request->is_coordinator()) {
+                response->set_coordinator_accepted(true);
             }
-            std::vector<TabletSchemaSPtr> schemas;
-            for (auto& rpc_context : rpc_contexts) {
-                brpc::Join(rpc_context.cid);
-                if (!st.ok()) {
-                    // make sure all flying rpc request is joined
-                    continue;
-                }
-                if (rpc_context.cntl.Failed()) {
-                    LOG(WARNING) << "fetch_remote_tablet_schema rpc err:"
-                                 << rpc_context.cntl.ErrorText();
-                    ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                            rpc_context.cntl.remote_side());
-                    st = Status::InternalError("fetch_remote_tablet_schema rpc err: {}",
-                                               rpc_context.cntl.ErrorText());
-                }
-                if (rpc_context.response.status().status_code() != 0) {
-                    st = Status::create(rpc_context.response.status());
-                }
-                if (rpc_context.response.has_merged_schema()) {
-                    TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
-                    schema->init_from_pb(rpc_context.response.merged_schema());
-                    schemas.push_back(schema);
-                }
-            }
-            if (!schemas.empty() && st.ok()) {
-                // merge all
-                TabletSchemaSPtr merged_schema;
-                st = vectorized::schema_util::get_least_common_schema(schemas, nullptr,
-                                                                      merged_schema);
-                if (!st.ok()) {
-                    LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
-                    st = Status::InternalError("Failed to get least common schema: {}",
-                                               st.to_string());
-                }
-                VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
-                merged_schema->reserve_extracted_columns();
-                merged_schema->to_schema_pb(response->mutable_merged_schema());
-            }
-            st.to_protobuf(response->mutable_status());
-            return;
-        } else {
-            // This is not a coordinator, get it's tablet and merge schema
-            std::vector<int64_t> target_tablets;
-            for (int i = 0; i < request->tablet_location_size(); ++i) {
-                const auto& location = request->tablet_location(i);
-                auto backend = BackendOptions::get_local_backend();
-                // If this is the target backend
-                if (backend.host == location.host() && config::brpc_port == location.brpc_port()) {
-                    target_tablets.assign(location.tablet_id().begin(), location.tablet_id().end());
-                    break;
-                }
-            }
-            if (!target_tablets.empty()) {
-                std::vector<TabletSchemaSPtr> tablet_schemas;
-                for (int64_t tablet_id : target_tablets) {
-                    auto res = ExecEnv::get_tablet(tablet_id);
-                    if (!res.has_value()) {
-                        // just ignore
-                        LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
-                        continue;
-                    }
-                    auto tablet = res.value();
-                    auto rowsets = tablet->get_snapshot_rowset();
-                    auto schema = vectorized::schema_util::VariantCompactionUtil::
-                            calculate_variant_extended_schema(rowsets, tablet->tablet_schema());
-                    tablet_schemas.push_back(schema);
-                }
-                if (!tablet_schemas.empty()) {
-                    // merge all
-                    TabletSchemaSPtr merged_schema;
-                    st = vectorized::schema_util::get_least_common_schema(tablet_schemas, nullptr,
-                                                                          merged_schema);
-                    if (!st.ok()) {
-                        LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
-                        st = Status::InternalError("Failed to get least common schema: {}",
-                                                   st.to_string());
-                    }
-                    merged_schema->to_schema_pb(response->mutable_merged_schema());
-                    VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
-                }
-            }
-            st.to_protobuf(response->mutable_status());
+            auto mem_tracker = MemTrackerLimiter::create_shared(
+                    MemTrackerLimiter::Type::OTHER, "InternalService::fetch_remote_tablet_schema");
+            SCOPED_ATTACH_TASK(mem_tracker);
+            ASSIGN_STATUS_IF_CATCH_EXCEPTION(st = fetch_variant_extended_schema(*request, response),
+                                             st);
+        } catch (const std::bad_alloc& e) {
+            st = Status::MemoryLimitExceeded("Extended DESCRIBE allocation failed: {}", e.what());
+        } catch (const std::exception& e) {
+            st = Status::InternalError("Extended DESCRIBE failed: {}", e.what());
+        } catch (...) {
+            st = Status::InternalError("Unknown error fetching extended DESCRIBE schema");
         }
+        if (!st.ok()) {
+            response->clear_merged_schema();
+            response->clear_tablet_coverage();
+            response->clear_tablet_versions_verified();
+        }
+        st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
