@@ -75,7 +75,7 @@ public:
             tablet_ids.insert(tablet_ids.end(), location.tablet_id().begin(),
                               location.tablet_id().end());
         }
-        EXPECT_EQ((std::vector<int64_t> {1}), tablet_ids);
+        EXPECT_EQ((std::vector<int64_t> {1, 2}), tablet_ids);
         Status::OK().to_protobuf(response->mutable_status());
         response->mutable_merged_schema();
         reply.set_value(done);
@@ -296,11 +296,12 @@ TEST(InternalServiceRemoteSchemaTest, DrainsFirstRpcWhenSecondFailsBeforeDispatc
     PInternalService coordinator(&coordinator_env);
     PFetchRemoteSchemaRequest request;
     request.set_is_coordinator(true);
-    for (int i = 0; i < 2; ++i) {
+    const std::vector<std::vector<int64_t>> assignments {{1, 2}, {3}};
+    for (const auto& tablet_ids : assignments) {
         auto* location = request.add_tablet_location();
         location->set_host("127.0.0.1");
         location->set_brpc_port(server.listen_address().port);
-        location->add_tablet_id(i + 1);
+        location->mutable_tablet_id()->Assign(tablet_ids.begin(), tablet_ids.end());
     }
     PFetchRemoteSchemaResponse response;
     auto first_reply = worker.reply.get_future();

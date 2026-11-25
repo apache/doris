@@ -42,6 +42,7 @@ import org.apache.doris.proto.Types.PStatus;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStatusCode;
@@ -77,6 +78,22 @@ class FetchRemoteTabletSchemaUtilTest {
                 Futures.immediateFuture(FAILED.toBuilder().setCoordinatorAccepted(true).build()));
         AnalysisException error = Assertions.assertThrows(AnalysisException.class, () -> fetch(proxy, true, true));
         Assertions.assertTrue(error.getMessage().contains("injected metadata read failure"));
+        Mockito.verify(proxy).fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void cancelsTimedOutRequestWithoutCallingAnotherCoordinatorAfterDeadline() throws Exception {
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        CompletableFuture<PFetchRemoteSchemaResponse> pending = new CompletableFuture<>();
+        Mockito.when(proxy.fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any())).thenReturn(pending);
+        Tablet tablet = tabletWithReplicas(101);
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> withBackends(proxy, true, true, () -> {
+                    ConnectContext.get().getSessionVariable().fetchRemoteSchemaTimeoutSeconds = 0;
+                    return new FetchRemoteTabletSchemaUtil(List.of(tablet)).fetch();
+                }));
+        Assertions.assertTrue(error.getMessage().contains("Remote schema RPC timed out"));
+        Assertions.assertTrue(pending.isCancelled());
         Mockito.verify(proxy).fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any());
     }
 
@@ -191,6 +208,25 @@ class FetchRemoteTabletSchemaUtilTest {
                     .thenReturn(List.of(initVersion + 1, initVersion, initVersion + 2));
             Assertions.assertEquals(List.of(first, last), FetchRemoteTabletSchemaUtil.collectTablets(partitions));
             cloudStatic.verify(() -> CloudPartition.getSnapshotVisibleVersion(cloudPartitions));
+        }
+    }
+
+    @Test
+    void propagatesCloudBatchVersionLookupFailure() {
+        List<CloudPartition> cloudPartitions = List.of(Mockito.mock(CloudPartition.class),
+                Mockito.mock(CloudPartition.class));
+        List<PartitionTablets> partitions = List.of(
+                new PartitionTablets(cloudPartitions.get(0), List.of(tabletWithReplicas(101))),
+                new PartitionTablets(cloudPartitions.get(1), List.of(tabletWithReplicas(202))));
+        RpcException unavailable = new RpcException("meta-service", "injected batch version failure");
+        try (MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class);
+                MockedStatic<CloudPartition> cloudStatic = Mockito.mockStatic(CloudPartition.class)) {
+            configStatic.when(Config::isCloudMode).thenReturn(true);
+            cloudStatic.when(() -> CloudPartition.getSnapshotVisibleVersion(cloudPartitions)).thenThrow(unavailable);
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> FetchRemoteTabletSchemaUtil.collectTablets(partitions));
+            Assertions.assertTrue(error.getMessage().contains("could not fetch partition versions"));
+            Assertions.assertSame(unavailable, error.getCause());
         }
     }
 
