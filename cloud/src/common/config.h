@@ -391,7 +391,7 @@ CONF_Bool(enable_strict_instance_auth, "true");
 CONF_Bool(enable_loopback_address_for_ms, "false");
 
 // Legacy delete bitmap lock version selection for tables without an explicit table setting.
-// Not recommended for new deployments. Use the enable_delete_bitmap_lock_v2 table property.
+// Not recommended for new deployments. Use the delete_bitmap_lock_version table property.
 // here is some examples:
 // 1. If instance1,instance2 use v2, config should be
 // delete_bitmap_lock_v2_white_list = instance1;instance2

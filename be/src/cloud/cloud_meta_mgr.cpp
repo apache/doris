@@ -1929,9 +1929,8 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
 
 template <typename Request>
 static void set_delete_bitmap_lock_version(const CloudTablet& tablet, Request& request) {
-    if (auto enable_v2 = tablet.tablet_meta()->enable_delete_bitmap_lock_v2();
-        enable_v2.has_value()) {
-        request.set_enable_delete_bitmap_lock_v2(*enable_v2);
+    if (auto version = tablet.tablet_meta()->delete_bitmap_lock_version(); version.has_value()) {
+        request.set_delete_bitmap_lock_version(*version);
     }
 }
 

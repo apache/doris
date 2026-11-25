@@ -42,6 +42,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.proto.OlapFile;
+import org.apache.doris.proto.OlapFile.DeleteBitmapLockVersionPB;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -173,9 +174,11 @@ public class CloudInternalCatalogTest {
                 Mockito.verify(proxy).createTablets(sent.capture());
                 Assertions.assertEquals(2, sent.getValue().getTabletMetasCount());
                 for (OlapFile.TabletMetaCloudPB meta : sent.getValue().getTabletMetasList()) {
-                    Assertions.assertEquals(setting.isPresent(), meta.hasEnableDeleteBitmapLockV2());
-                    boolean expected = setting.orElse(false);
-                    Assertions.assertEquals(expected, meta.getEnableDeleteBitmapLockV2());
+                    Assertions.assertEquals(setting.isPresent(), meta.hasDeleteBitmapLockVersion());
+                    DeleteBitmapLockVersionPB expected = setting.orElse(false)
+                            ? DeleteBitmapLockVersionPB.DELETE_BITMAP_LOCK_VERSION_V2
+                            : DeleteBitmapLockVersionPB.DELETE_BITMAP_LOCK_VERSION_V1;
+                    Assertions.assertEquals(expected, meta.getDeleteBitmapLockVersion());
                 }
                 Mockito.clearInvocations(proxy);
             }

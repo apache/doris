@@ -1938,7 +1938,7 @@ TEST(MetaServiceJobTest, TableDeleteBitmapLockVersionOnAbort) {
     StartTabletJobRequest start;
     auto* job = start.mutable_job();
     job->mutable_idx()->set_tablet_id(tablet_id);
-    job->set_enable_delete_bitmap_lock_v2(true);
+    job->set_delete_bitmap_lock_version(DELETE_BITMAP_LOCK_VERSION_V2);
     auto* compaction = job->add_compaction();
     compaction->set_id("v2_compaction");
     compaction->set_initiator("BE1");
@@ -1957,7 +1957,7 @@ TEST(MetaServiceJobTest, TableDeleteBitmapLockVersionOnAbort) {
     lock.set_lock_id(COMPACTION_DELETE_BITMAP_LOCK_ID);
     lock.set_initiator(initiator);
     lock.set_expiration(60);
-    lock.set_enable_delete_bitmap_lock_v2(true);
+    lock.set_delete_bitmap_lock_version(DELETE_BITMAP_LOCK_VERSION_V2);
     GetDeleteBitmapUpdateLockResponse lock_res;
     meta_service->get_delete_bitmap_update_lock(&cntl, &lock, &lock_res, nullptr);
     ASSERT_EQ(lock_res.status().code(), MetaServiceCode::OK) << lock_res.status().msg();
@@ -1967,7 +1967,7 @@ TEST(MetaServiceJobTest, TableDeleteBitmapLockVersionOnAbort) {
     FinishTabletJobRequest abort;
     abort.set_action(FinishTabletJobRequest::ABORT);
     abort.mutable_job()->CopyFrom(*job);
-    abort.mutable_job()->clear_enable_delete_bitmap_lock_v2();
+    abort.mutable_job()->clear_delete_bitmap_lock_version();
     abort.mutable_job()->mutable_compaction(0)->set_delete_bitmap_lock_initiator(initiator);
     FinishTabletJobResponse abort_res;
     meta_service->finish_tablet_job(&cntl, &abort, &abort_res, nullptr);

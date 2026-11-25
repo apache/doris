@@ -278,8 +278,8 @@ public:
     void remove_rowset_delete_bitmap(const RowsetId& rowset_id, const Version& version);
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
-    std::optional<bool> enable_delete_bitmap_lock_v2() const {
-        return _enable_delete_bitmap_lock_v2;
+    std::optional<DeleteBitmapLockVersionPB> delete_bitmap_lock_version() const {
+        return _delete_bitmap_lock_version;
     }
 #ifdef BE_TEST
     void set_enable_unique_key_merge_on_write(bool value) {
@@ -425,7 +425,7 @@ private:
     // which can avoid the merging cost in read stage, and accelerate the aggregation
     // query performance significantly.
     bool _enable_unique_key_merge_on_write = false;
-    std::optional<bool> _enable_delete_bitmap_lock_v2;
+    std::optional<DeleteBitmapLockVersionPB> _delete_bitmap_lock_version;
     std::shared_ptr<DeleteBitmap> _delete_bitmap;
 
     // binlog config

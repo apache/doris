@@ -388,8 +388,8 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
     if (!job_pb.has_idx()) {
         job_pb.mutable_idx()->CopyFrom(request->job().idx());
     }
-    if (request->job().has_enable_delete_bitmap_lock_v2()) {
-        job_pb.set_enable_delete_bitmap_lock_v2(request->job().enable_delete_bitmap_lock_v2());
+    if (request->job().has_delete_bitmap_lock_version()) {
+        job_pb.set_delete_bitmap_lock_version(request->job().delete_bitmap_lock_version());
     }
     job_pb.add_compaction()->CopyFrom(compaction);
     job_pb.SerializeToString(&job_val);
@@ -526,8 +526,8 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
         return;
     }
     job_pb.mutable_idx()->CopyFrom(request->job().idx());
-    if (request->job().has_enable_delete_bitmap_lock_v2()) {
-        job_pb.set_enable_delete_bitmap_lock_v2(request->job().enable_delete_bitmap_lock_v2());
+    if (request->job().has_delete_bitmap_lock_version()) {
+        job_pb.set_delete_bitmap_lock_version(request->job().delete_bitmap_lock_version());
     }
     // FE can ensure that a tablet does not have more than one schema_change job at the same time,
     // so we can directly preempt previous schema_change job.

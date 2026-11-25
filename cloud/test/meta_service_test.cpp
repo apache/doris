@@ -6745,7 +6745,8 @@ TEST(MetaServiceTest, TableDeleteBitmapLockVersion) {
     brpc::Controller cntl;
     constexpr int64_t initiator = 100;
 
-    auto exercise = [&](int64_t table_id, std::optional<bool> lock_v2, bool expect_v2) {
+    auto exercise = [&](int64_t table_id, std::optional<DeleteBitmapLockVersionPB> version,
+                        bool expect_v2) {
         SCOPED_TRACE(table_id);
         remove_delete_bitmap_lock(meta_service.get(), table_id);
         DORIS_CLOUD_DEFER {
@@ -6776,10 +6777,10 @@ TEST(MetaServiceTest, TableDeleteBitmapLockVersion) {
         remove.set_initiator(initiator);
         RemoveDeleteBitmapUpdateLockResponse remove_res;
 
-        if (lock_v2.has_value()) {
-            get.set_enable_delete_bitmap_lock_v2(*lock_v2);
-            update.set_enable_delete_bitmap_lock_v2(*lock_v2);
-            remove.set_enable_delete_bitmap_lock_v2(*lock_v2);
+        if (version.has_value()) {
+            get.set_delete_bitmap_lock_version(*version);
+            update.set_delete_bitmap_lock_version(*version);
+            remove.set_delete_bitmap_lock_version(*version);
         }
         meta_service->get_delete_bitmap_update_lock(&cntl, &get, &get_res, nullptr);
         ASSERT_EQ(get_res.status().code(), MetaServiceCode::OK) << get_res.status().msg();
@@ -6799,10 +6800,10 @@ TEST(MetaServiceTest, TableDeleteBitmapLockVersion) {
     };
 
     config::delete_bitmap_lock_v2_white_list = "";
-    exercise(501, true, true);
+    exercise(501, DELETE_BITMAP_LOCK_VERSION_V2, true);
     exercise(502, std::nullopt, false);
     config::delete_bitmap_lock_v2_white_list = "test_instance";
-    exercise(503, false, false);
+    exercise(503, DELETE_BITMAP_LOCK_VERSION_V1, false);
     exercise(504, std::nullopt, true);
 }
 

@@ -1326,7 +1326,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 long tableId = entry.getKey();
                 builder.setTableId(tableId).setLockId(transactionId).setInitiator(-1)
                         .setExpiration(Config.delete_bitmap_lock_expiration_seconds).setRequireCompactionStats(true);
-                tableMap.get(tableId).getEnableDeleteBitmapLockV2().ifPresent(builder::setEnableDeleteBitmapLockV2);
+                tableMap.get(tableId).getDeleteBitmapLockVersionProto().ifPresent(builder::setDeleteBitmapLockVersion);
                 List<Long> tabletList = lockContext.getTableToTabletList().get(tableId);
                 for (Long tabletId : tabletList) {
                     TabletMeta tabletMeta = lockContext.getTabletToTabletMeta().get(tabletId);
@@ -1496,7 +1496,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             builder.setTableId(table.getId())
                     .setLockId(transactionId)
                     .setInitiator(-1);
-            table.getEnableDeleteBitmapLockV2().ifPresent(builder::setEnableDeleteBitmapLockV2);
+            table.getDeleteBitmapLockVersionProto().ifPresent(builder::setDeleteBitmapLockVersion);
             final RemoveDeleteBitmapUpdateLockRequest request = builder.build();
             RemoveDeleteBitmapUpdateLockResponse response = null;
             try {

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <chrono>
 #include <random>
 #include <set>
@@ -41,8 +43,9 @@ public:
     template <typename LockContext>
     std::string get_delete_bitmap_lock_version(const std::string& instance_id,
                                                const LockContext& context) {
-        if (context.has_enable_delete_bitmap_lock_v2()) {
-            return context.enable_delete_bitmap_lock_v2() ? "v2" : "v1";
+        if (context.has_delete_bitmap_lock_version()) {
+            return context.delete_bitmap_lock_version() == DELETE_BITMAP_LOCK_VERSION_V2 ? "v2"
+                                                                                         : "v1";
         }
         return get_delete_bitmap_lock_version(instance_id);
     }

@@ -1068,8 +1068,8 @@ public class CloudInternalCatalog extends InternalCatalog {
     public Cloud.CreateTabletsResponse sendCreateTabletsRpc(
             Cloud.CreateTabletsRequest.Builder requestBuilder, OlapTable table) throws DdlException {
         requestBuilder.setCloudUniqueId(Config.cloud_unique_id);
-        table.getEnableDeleteBitmapLockV2().ifPresent(enable -> requestBuilder.getTabletMetasBuilderList()
-                .forEach(tabletMeta -> tabletMeta.setEnableDeleteBitmapLockV2(enable)));
+        table.getDeleteBitmapLockVersionProto().ifPresent(version -> requestBuilder.getTabletMetasBuilderList()
+                .forEach(tabletMeta -> tabletMeta.setDeleteBitmapLockVersion(version)));
         Cloud.CreateTabletsRequest createTabletsReq = requestBuilder.build();
         Preconditions.checkState(createTabletsReq.hasDbId(), "createTabletsReq must set dbId");
         if (LOG.isDebugEnabled()) {
