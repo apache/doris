@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -97,6 +98,25 @@ public class ConnectProcessorRetryTest extends TestWithFeService {
         );
 
         Assertions.assertNull(result, "Should return null when retry is disabled and convertedStmt fails");
+    }
+
+    @Test
+    public void testAuditPolicyRejectionRestoresEarlierTemporaryHint() throws ConnectionException {
+        boolean previous = Config.query_audit_always_on;
+        SessionVariable session = connectContext.getSessionVariable();
+        int originalTimeout = session.getQueryTimeoutS();
+        try {
+            Config.query_audit_always_on = true;
+            connectContext.getState().reset();
+            String sql = "SELECT /*+ SET_VAR(query_timeout=42, enable_prepared_stmt_audit_log=false) */ 1";
+            Assertions.assertNull(testProcessor.parseWithFallback(sql, sql, session));
+            Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+            Assertions.assertEquals(originalTimeout, session.getQueryTimeoutS());
+            Assertions.assertFalse(session.getIsSingleSetVar());
+            Assertions.assertTrue(session.getSessionOriginValue().isEmpty());
+        } finally {
+            Config.query_audit_always_on = previous;
+        }
     }
 
     // tryRetryOriginalSql tests

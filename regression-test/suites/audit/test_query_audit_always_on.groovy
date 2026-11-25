@@ -146,6 +146,18 @@ suite("test_query_audit_always_on", "docker") {
         sleep(15000)
         flushAuditLog()
 
+        // Check the receiving FE explicitly. Node addresses vary between runs.
+        assertEquals(2L, countAudit("frontend_ip = '${follower.host}' AND stmt LIKE ${like(preparedMarker)}"
+                + " AND stmt LIKE 'EXECUTE%'"))
+        def preparedFileCount = { fe ->
+            def auditFile = new File(new File(fe.logFilePath).parentFile, "fe.audit.log")
+            auditFile.exists() ? auditFile.readLines("UTF-8").count { line ->
+                line.contains("|CommandType=COM_STMT_EXECUTE|") && line.contains(preparedMarker)
+            } : 0
+        }
+        awaitUntil(30, 2) { preparedFileCount(follower) == 2 }
+        assertEquals(0, preparedFileCount(master))
+
         // Every rejected attempt is audited, as a failed statement.
         order_qt_rejected_audited """SELECT state, stmt FROM __internal_schema.audit_log
                 WHERE stmt LIKE ${like(rejectedMarker)}"""

@@ -387,7 +387,14 @@ public class VariableMgr {
     private static void checkAuditVariableValue(VarContext ctx, String value) throws DdlException {
         Optional<String> error = QueryAuditPolicy.checkVariableValue(getName(ctx), value);
         if (error.isPresent()) {
-            throw new DdlException(error.get());
+            throw new AuditPolicyException(error.get());
+        }
+    }
+
+    /** A SET rejected by query audit policy, including one evaluated while building a statement. */
+    static class AuditPolicyException extends DdlException {
+        AuditPolicyException(String message) {
+            super(message);
         }
     }
 
@@ -439,10 +446,32 @@ public class VariableMgr {
             }
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
-        // The master has checked the value already, but StmtExecutor.forwardToMaster runs this whether or not the
-        // master accepted the statement, so a value the master rejected must not reach this FE's copy either.
         checkAuditVariableValue(varCtx, getValueToSet(setVar, varCtx));
         setVarInternal(sessionVariable, setVar, varCtx);
+    }
+
+    /** Apply the master's already-replayed audit GLOBAL assignment to the issuing session if it has a field. */
+    public static boolean applyReplayedAuditGlobal(SessionVariable session, String name) throws DdlException {
+        VarContext context = getVarContext(name);
+        if (context == null) {
+            return false;
+        }
+        String canonicalName = getName(context);
+        boolean policyApplies = QueryAuditPolicy.isAlwaysOn()
+                || GlobalVariable.AUDIT_PLUGIN_MAX_SQL_LENGTH.equals(canonicalName);
+        if (!policyApplies || !QueryAuditPolicy.protectedVariableNames().contains(canonicalName)) {
+            return false;
+        }
+        if ((context.getFlag() & VarAttrDef.GLOBAL) == 0) {
+            rlock.lock();
+            try {
+                Field field = context.getField();
+                setValue(session, new SessionVariableField(field), getValue(context.getObj(), field));
+            } finally {
+                rlock.unlock();
+            }
+        }
+        return true;
     }
 
     @Nullable

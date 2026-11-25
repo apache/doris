@@ -39,6 +39,15 @@ public interface NeedAuditEncryption {
         return maskSql(sql, false);
     }
 
+    /** Keep the audit event when SQL masking cannot safely recover the statement. */
+    static String maskSqlForAudit(String sql) {
+        try {
+            return maskSql(sql, false);
+        } catch (RuntimeException e) {
+            return "/* audit SQL unavailable */";
+        }
+    }
+
     /** Apply audit masking rules, optionally retaining source formatting for FE logs. */
     static String maskSql(String sql, boolean preserveFormatting) {
         TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());

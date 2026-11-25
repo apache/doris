@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.qe.QueryAuditPolicy;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -28,7 +30,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
@@ -539,16 +540,19 @@ public class ConfigBase {
         if (!file.exists()) {
             file.getParentFile().mkdirs();
             file.createNewFile();
-        } else if (resetPersist) {
-            // clear the customConfFile content
-            try (PrintWriter writer = new PrintWriter(file)) {
-                writer.print("");
-            }
+        }
+        Properties props = new Properties();
+        try (FileReader fr = new FileReader(file)) {
+            props.load(fr);
         }
 
-        Properties props = new Properties();
-        try (FileReader fr = new FileReader(customConfFile)) {
-            props.load(fr);
+        if (resetPersist) {
+            // This opt-in is a startup setting even when it is set in the custom file.
+            String auditPolicy = props.getProperty(QueryAuditPolicy.QUERY_AUDIT_ALWAYS_ON);
+            props.clear();
+            if (auditPolicy != null) {
+                props.setProperty(QueryAuditPolicy.QUERY_AUDIT_ALWAYS_ON, auditPolicy);
+            }
         }
 
         for (Map.Entry<String, String> entry : customConf.entrySet()) {

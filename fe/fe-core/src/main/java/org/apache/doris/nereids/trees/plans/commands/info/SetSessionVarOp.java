@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -145,6 +146,10 @@ public class SetSessionVarOp extends SetVarOp {
         sb.append(getType().toSql());
         sb.append(" ").append(name).append(" = ").append(value.toSql());
         return sb.toString();
+    }
+
+    public boolean applyReplayedAuditGlobal(ConnectContext ctx) throws DdlException {
+        return getType() == SetType.GLOBAL && VariableMgr.applyReplayedAuditGlobal(ctx.getSessionVariable(), name);
     }
 
     public void afterForwardToMaster(ConnectContext ctx) throws Exception {

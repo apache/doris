@@ -56,6 +56,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.util.List;
 import java.util.Optional;
 
 public class VariableMgrTest extends TestWithFeService {
@@ -263,6 +264,13 @@ public class VariableMgrTest extends TestWithFeService {
             GlobalVariable.auditPluginMaxBatchBytes = 1;
             GlobalVariable.auditPluginLoadTimeoutS = 1200;
 
+            List<String> auditNames = List.of(GlobalVariable.ENABLE_AUDIT_PLUGIN,
+                    SessionVariable.ENABLE_PREPARED_STMT_AUDIT_LOG, GlobalVariable.AUDIT_PLUGIN_MAX_SQL_LENGTH,
+                    GlobalVariable.AUDIT_PLUGIN_MAX_BATCH_BYTES);
+            ByteArrayOutputStream legacyBytes = new ByteArrayOutputStream();
+            new GlobalVarPersistInfo(VariableMgr.getDefaultSessionVariable(), auditNames)
+                    .write(new DataOutputStream(legacyBytes));
+
             Env env = Env.getCurrentEnv();
             EditLog editLog = env.getEditLog();
             EditLog spiedEditLog = Mockito.spy(editLog);
@@ -281,23 +289,58 @@ public class VariableMgrTest extends TestWithFeService {
 
             ArgumentCaptor<GlobalVarPersistInfo> logged = ArgumentCaptor.forClass(GlobalVarPersistInfo.class);
             Mockito.verify(spiedEditLog, Mockito.times(4)).logGlobalVariableV2(logged.capture());
-            JSONObject replayed = new JSONObject();
+            List<GlobalVarPersistInfo> normalized = Lists.newArrayList();
             for (GlobalVarPersistInfo info : logged.getAllValues()) {
                 ByteArrayOutputStream bytes = new ByteArrayOutputStream();
                 info.write(new DataOutputStream(bytes));
-                GlobalVarPersistInfo read = GlobalVarPersistInfo.read(
-                        new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
-                replayed.putAll((JSONObject) JSONValue.parse(read.getPersistJsonString()));
+                normalized.add(GlobalVarPersistInfo.read(
+                        new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))));
+            }
+
+            VariableMgr.replayGlobalVariableV2(GlobalVarPersistInfo.read(
+                    new DataInputStream(new ByteArrayInputStream(legacyBytes.toByteArray()))), false);
+            Assertions.assertFalse(GlobalVariable.enableAuditLoader);
+            Assertions.assertFalse(VariableMgr.newSessionVariable().enablePreparedStmtAuditLog);
+            Assertions.assertEquals(100, GlobalVariable.auditPluginMaxSqlLength);
+            Assertions.assertTrue(QueryAuditPolicy.isAuditLoaderEnabled());
+
+            JSONObject replayed = new JSONObject();
+            for (GlobalVarPersistInfo info : normalized) {
+                VariableMgr.replayGlobalVariableV2(info, false);
+                replayed.putAll((JSONObject) JSONValue.parse(info.getPersistJsonString()));
             }
             Assertions.assertEquals(ImmutableMap.of(GlobalVariable.ENABLE_AUDIT_PLUGIN, true,
                     SessionVariable.ENABLE_PREPARED_STMT_AUDIT_LOG, true,
                     GlobalVariable.AUDIT_PLUGIN_MAX_SQL_LENGTH, 2097152L,
                     GlobalVariable.AUDIT_PLUGIN_MAX_BATCH_BYTES, 52428800L), replayed);
+            Assertions.assertTrue(GlobalVariable.enableAuditLoader);
+            Assertions.assertEquals(2097152, GlobalVariable.auditPluginMaxSqlLength);
+            SessionVariable receiving = new SessionVariable();
+            Assertions.assertTrue(VariableMgr.applyReplayedAuditGlobal(receiving,
+                    SessionVariable.ENABLE_PREPARED_STMT_AUDIT_LOG));
+            Assertions.assertTrue(receiving.enablePreparedStmtAuditLog);
         });
         withAuditVariablesRestored(false, () -> {
             GlobalVariable.enableAuditLoader = false;
             VariableMgr.applyQueryAuditPolicyToGlobalValues();
             Assertions.assertFalse(GlobalVariable.enableAuditLoader);
+        });
+    }
+
+    @Test
+    public void testForwardedAuditGlobalUsesReplayedValue() throws Throwable {
+        withAuditVariablesRestored(false, () -> {
+            String sql = "SET GLOBAL audit_plugin_max_sql_length = 65536";
+            SetOptionsCommand statement = (SetOptionsCommand) UtFrameUtils.parseStmt(sql, connectContext);
+            statement.run(connectContext, null);
+            Assertions.assertEquals(65536, GlobalVariable.auditPluginMaxSqlLength);
+
+            // The receiving FE's journal has already applied the master's successful change.
+            Config.query_audit_always_on = true;
+            SetOptionsCommand forwarded = (SetOptionsCommand) UtFrameUtils.parseStmt(sql, connectContext);
+            forwarded.afterForwardToMaster(connectContext);
+            Assertions.assertEquals(65536, GlobalVariable.auditPluginMaxSqlLength);
+            Assertions.assertEquals(2097152, QueryAuditPolicy.maxSqlLength());
         });
     }
 

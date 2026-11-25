@@ -190,6 +190,32 @@ public class ConfigTest {
     }
 
     @Test
+    public void testResetPersistKeepsStartupAuditOptIn() throws Exception {
+        boolean previous = Config.query_audit_always_on;
+        Field customConfFile = ConfigBase.class.getDeclaredField("customConfFile");
+        customConfFile.setAccessible(true);
+        Object oldCustomFile = customConfFile.get(null);
+        try {
+            Config config = new Config();
+            Path custom = configFile("query_audit_always_on=true\nqe_slow_log_ms=1000\n");
+            customConfFile.set(null, custom.toString());
+            ConfigBase.persistConfig(Map.of("qe_slow_log_ms", "2000"), true);
+            Config.query_audit_always_on = false;
+            long previousSlowLogMs = Config.qe_slow_log_ms;
+            try {
+                config.initCustom(custom.toString());
+                Assertions.assertTrue(Config.query_audit_always_on);
+                Assertions.assertEquals(2000, Config.qe_slow_log_ms);
+            } finally {
+                Config.qe_slow_log_ms = previousSlowLogMs;
+            }
+        } finally {
+            Config.query_audit_always_on = previous;
+            customConfFile.set(null, oldCustomFile);
+        }
+    }
+
+    @Test
     public void testOptionsConfigAcceptsItsOptionsOnly() throws ConfigException {
         String original = Config.mysql_caching_sha2_password_clients;
         try {

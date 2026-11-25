@@ -393,6 +393,33 @@ public class MysqlConnectProcessorLongDataTest {
     }
 
     @Test
+    public void testPreparedAuditKeepsMaskingAcrossSqlModeChange() throws Throwable {
+        withAlwaysOn(true, () -> {
+            String sql = "CREATE USER 'audit_fixture' IDENTIFIED BY 'sample\\'phrase'";
+            LogicalPlan plan = ((LogicalPlanAdapter) new NereidsParser().parseSQL(sql).get(0)).getLogicalPlan();
+            Harness h = new Harness(new ConnectContext(), List.of(), plan, sql);
+            h.context.getSessionVariable().setSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+            h.context.setEffectiveCloudCluster("previous-statement-group");
+            h.prepared.setLongDataError("Synthetic input failure");
+            ConnectContext previous = ConnectContext.get();
+            h.context.setThreadLocalInfo();
+            try {
+                AuditEvent event = captureAudit(h, () -> h.processor.handleExecute(h.prepared.command, 7,
+                        h.prepared, ByteBuffer.allocate(0), null));
+                Assertions.assertEquals("ERR", event.state);
+                Assertions.assertEquals("", h.context.getEffectiveCloudCluster());
+                Assertions.assertEquals("CREATE USER 'audit_fixture' IDENTIFIED BY '*XXX'", event.stmt);
+            } finally {
+                if (previous == null) {
+                    ConnectContext.remove();
+                } else {
+                    previous.setThreadLocalInfo();
+                }
+            }
+        });
+    }
+
+    @Test
     public void testAlwaysOnDispatchAuditsUnknownPreparedStatement() throws Throwable {
         withAlwaysOn(true, () -> {
             Harness h = new Harness(MysqlColType.MYSQL_TYPE_LONG);

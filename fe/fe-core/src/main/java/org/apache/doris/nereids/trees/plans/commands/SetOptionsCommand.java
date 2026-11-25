@@ -23,6 +23,7 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.SetLdapPassVarOp;
 import org.apache.doris.nereids.trees.plans.commands.info.SetPassVarOp;
+import org.apache.doris.nereids.trees.plans.commands.info.SetSessionVarOp;
 import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -83,6 +84,10 @@ public class SetOptionsCommand extends Command implements Forward, NeedAuditEncr
     @Override
     public void afterForwardToMaster(ConnectContext ctx) throws Exception {
         for (SetVarOp varOp : setVarOpList) {
+            // Forwarding with sync has already replayed these values. Do not evaluate the expression again.
+            if (varOp instanceof SetSessionVarOp sessionOp && sessionOp.applyReplayedAuditGlobal(ctx)) {
+                continue;
+            }
             varOp.validate(ctx);
             varOp.afterForwardToMaster(ctx);
         }

@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.planner.GroupCommitPlanner;
 
@@ -34,6 +35,8 @@ public class PreparedStatementContext {
     public String stmtString;
     // Preserve the effective PREPARE hash, including SQL conversion fallback, across connection commands.
     private final String sqlHash;
+    private final long auditSqlMode;
+    private final boolean maskAuditTemplate;
     public Optional<ShortCircuitQueryContext> shortCircuitQueryContext = Optional.empty();
     public Optional<GroupCommitPlanner> groupCommitPlanner = Optional.empty();
     // Long data belongs to a prepared statement and survives individual upload commands.
@@ -51,6 +54,17 @@ public class PreparedStatementContext {
         this.statementContext = statementContext;
         this.stmtString = stmtString;
         this.sqlHash = ctx.getSqlHash();
+        this.auditSqlMode = ctx.getSessionVariable().getSqlMode();
+        this.maskAuditTemplate = command.getLogicalPlan() instanceof NeedAuditEncryption redactor
+                && redactor.needAuditEncryption();
+    }
+
+    public boolean shouldMaskAuditTemplate() {
+        return maskAuditTemplate;
+    }
+
+    public String maskAuditSql(String sql) {
+        return SqlModeHelper.withSqlMode(auditSqlMode, () -> NeedAuditEncryption.maskSqlForAudit(sql));
     }
 
     public String getSqlHash() {
