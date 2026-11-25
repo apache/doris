@@ -1245,12 +1245,11 @@ namespace {
 Status collect_remote_variant_schemas(const PFetchRemoteSchemaRequest& request,
                                       std::vector<TabletSchemaSPtr>& schemas) {
     struct SchemaRpc {
+        PFetchRemoteSchemaRequest request;
         PFetchRemoteSchemaResponse response;
         brpc::Controller controller;
         std::optional<brpc::CallId> call_id;
     };
-    PFetchRemoteSchemaRequest worker_request(request);
-    worker_request.set_is_coordinator(false);
     std::vector<SchemaRpc> rpcs(request.tablet_location_size());
     auto join_rpcs = [&] {
         for (auto& rpc : rpcs) {
@@ -1271,8 +1270,10 @@ Status collect_remote_variant_schemas(const PFetchRemoteSchemaRequest& request,
                                          location.host(), location.brpc_port());
         }
         auto& rpc = rpcs[i];
+        rpc.request.set_is_coordinator(false);
+        *rpc.request.add_tablet_location() = location;
         rpc.controller.set_timeout_ms(config::fetch_remote_schema_rpc_timeout_ms);
-        stub->fetch_remote_tablet_schema(&rpc.controller, &worker_request, &rpc.response,
+        stub->fetch_remote_tablet_schema(&rpc.controller, &rpc.request, &rpc.response,
                                          brpc::DoNothing());
         // Preparing the callback can throw before BRPC takes ownership of the call.
         rpc.call_id = rpc.controller.call_id();
