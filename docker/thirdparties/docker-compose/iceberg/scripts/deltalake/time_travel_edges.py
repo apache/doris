@@ -450,12 +450,19 @@ def retention_and_vacuum(spark, manifest, path, table):
     extended = table + "_extended"
     shutil.copytree(path, extended_path)
     spark.sql(f"CREATE TABLE {extended} USING DELTA LOCATION {sql_quote(extended_path.as_uri())}")
-    spark.sql(f"ALTER TABLE {extended} SET TBLPROPERTIES ('delta.deletedFileRetentionDuration'='interval 30 days')")
+    # Spark preserves this valid spelling in the log; Kernel 4.4.1's interval parser rejects the month token.
+    duration_key = "delta.deletedFileRetentionDuration"
+    extended_window = "interval 0 months 7 days"
+    spark.sql(f"ALTER TABLE {extended} SET TBLPROPERTIES ('{duration_key}'='{extended_window}')")
+    assert spark.sql(f"SHOW TBLPROPERTIES {extended} ('{duration_key}')").first().value == extended_window
     for kind in ("version", "millis"):
         assert read_frame(spark, probe(2, kind, extended))["rows"] == retained_rows
+        selector = pin(kind, 2 if kind == "version" else times[2])
+        assert spark.sql(f"SELECT count(*) FROM {extended} {selector}").first()[0] == len(retained_rows)
         spark_error(spark, probe(1, kind, extended), retired.name, "FILE_NOT_EXIST")
     manifest["retention"] = {
         "retention_seconds": 2,
+        "extended_window": extended_window,
         "v1_ms": times[1],
         "v2_ms": times[2],
         "retired": retired.name,

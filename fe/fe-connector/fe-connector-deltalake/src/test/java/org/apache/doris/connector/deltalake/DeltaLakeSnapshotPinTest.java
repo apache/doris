@@ -56,7 +56,8 @@ class DeltaLakeSnapshotPinTest {
         Map<String, Object> protocol = Map.of("minReaderVersion", 1, "minWriterVersion", 2);
         DeltaLakeTestTables.commit(table, 0, "id", schema, List.of(), protocol, Map.of(), null, committed);
         Snapshot old = TableManager.loadSnapshot(table.toString()).build(engine);
-        Assertions.assertEquals(Duration.ofDays(7).toMillis(), DeltaKernelCompat.deletedFileRetentionMillis(old));
+        Assertions.assertEquals(Duration.ofDays(7).toMillis(),
+                DeltaKernelCompat.deletedFileRetentionMillis(old.getTableProperties()));
         DeltaLakeTestTables.commit(table, 1, "id", schema, List.of(), protocol,
                 Map.of("delta.deletedFileRetentionDuration", "interval 2 seconds"), null, committed + 100);
         Snapshot latest = TableManager.loadSnapshot(table.toString()).build(engine);

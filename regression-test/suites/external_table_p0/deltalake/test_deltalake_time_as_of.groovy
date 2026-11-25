@@ -184,7 +184,8 @@ suite("test_deltalake_time_as_of", "p0,external,deltalake,external_docker") {
             def rows = sql("select id, label from ${fs}.edges.retention ${pin} order by id")
             assertSparkDorisResultEquals(fixture.retention.latest.rows, rows)
         }
-        // Extending retention admits v2. The v1 file removed by VACUUM is still missing.
+        // Spark wrote a zero-month component. Both selectors must admit v2 and still catch the missing v1 Parquet.
+        assertEquals("interval 0 months 7 days", fixture.retention.extended_window)
         for (String pin : ["for version as of 1", "for time as of ${fixture.retention.v1_ms}"]) {
             test {
                 sql "select id, label from ${fs}.edges.retention_extended ${pin} order by id"
@@ -194,6 +195,8 @@ suite("test_deltalake_time_as_of", "p0,external,deltalake,external_docker") {
         for (String pin : ["for version as of 2", "for time as of ${fixture.retention.v2_ms}"]) {
             def rows = sql("select id, label from ${fs}.edges.retention_extended ${pin} order by id")
             assertSparkDorisResultEquals(fixture.retention.retained_rows, rows)
+            def count = sql("select count(*) from ${fs}.edges.retention_extended ${pin}")
+            assertEquals(fixture.retention.retained_rows.size() as long, count[0][0] as long)
         }
         String latest = "select id, label from ${fs}.edges.retention order by id"
         assertSparkDorisResultEquals(fixture.retention.latest.rows, sql(latest))

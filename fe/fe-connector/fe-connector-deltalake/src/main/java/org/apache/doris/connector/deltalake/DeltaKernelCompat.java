@@ -35,6 +35,7 @@ import io.delta.kernel.internal.actions.DeletionVectorDescriptor;
 import io.delta.kernel.internal.actions.Protocol;
 import io.delta.kernel.internal.snapshot.LogSegment;
 import io.delta.kernel.internal.tablefeatures.TableFeature;
+import io.delta.kernel.internal.util.IntervalParserUtils;
 import io.delta.kernel.internal.util.PartitionUtils;
 import io.delta.kernel.statistics.DataFileStatistics;
 import io.delta.kernel.types.BinaryType;
@@ -47,14 +48,21 @@ import io.delta.kernel.utils.FileStatus;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /** The only production class coupled to Kernel internal APIs; pinned to Kernel 4.4.1. */
 final class DeltaKernelCompat {
+    private static final Pattern CALENDAR_TERM = Pattern.compile(
+            "(?<=\\p{javaWhitespace})((?:[+-]\\p{javaWhitespace}*)?)([0-9]+)(\\p{javaWhitespace}+)(year|month)s?\\b");
+
     private DeltaKernelCompat() {
     }
 
@@ -62,8 +70,53 @@ final class DeltaKernelCompat {
         return snapshot.getMetadata().getId();
     }
 
-    static long deletedFileRetentionMillis(Snapshot latest) {
-        return TableConfig.TOMBSTONE_RETENTION.fromMetadata(latest.getTableProperties());
+    static long deletedFileRetentionMillis(Map<String, String> properties) {
+        TableConfig<Long> retention = TableConfig.TOMBSTONE_RETENTION;
+        String value = properties.get(retention.getKey());
+        if (value == null) {
+            return retention.fromMetadata(properties);
+        }
+        String interval = value.trim().toLowerCase(Locale.ROOT);
+        if (!interval.startsWith("interval ")) {
+            interval = "interval " + interval;
+        }
+        long micros = IntervalParserUtils.parseIntervalAsMicros(withoutCalendarMonths(interval));
+        if (micros < 0) {
+            throw new IllegalArgumentException(retention.getKey() + " must be non-negative: " + value);
+        }
+        return TimeUnit.MICROSECONDS.toMillis(micros);
+    }
+
+    // Spark accepts a zero total calendar-month component. Kernel 4.4.1 rejects month and year tokens outright.
+    private static String withoutCalendarMonths(String interval) {
+        Matcher term = CALENDAR_TERM.matcher(interval);
+        if (!term.find()) {
+            return interval;
+        }
+        int months = 0;
+        StringBuilder fixed = new StringBuilder(interval.length());
+        do {
+            String sign = term.group(1);
+            try {
+                long quantity = Long.parseLong(term.group(2));
+                if (sign.startsWith("-")) {
+                    quantity = -quantity;
+                }
+                if ("year".equals(term.group(4))) {
+                    months = Math.toIntExact(Math.addExact(months, Math.multiplyExact(quantity, 12L)));
+                } else {
+                    months = Math.addExact(months, Math.toIntExact(quantity));
+                }
+            } catch (ArithmeticException | NumberFormatException e) {
+                throw new IllegalArgumentException("Calendar months out of range in Delta retention: " + interval, e);
+            }
+            // Keep the sign and separators so malformed tokens still fail Kernel's syntax checks.
+            term.appendReplacement(fixed, sign + "0" + term.group(3) + "days");
+        } while (term.find());
+        if (months != 0) {
+            throw new IllegalArgumentException("Delta retention requires zero total calendar months: " + interval);
+        }
+        return term.appendTail(fixed).toString();
     }
 
     static OptionalLong fileCount(Snapshot snapshot) {

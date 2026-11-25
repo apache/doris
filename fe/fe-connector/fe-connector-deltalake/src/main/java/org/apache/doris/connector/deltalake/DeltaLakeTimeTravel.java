@@ -70,7 +70,7 @@ final class DeltaLakeTimeTravel {
         if (target.getVersion() == latest.getVersion()) {
             return;
         }
-        long retentionMillis = DeltaKernelCompat.deletedFileRetentionMillis(latest);
+        long retentionMillis = DeltaKernelCompat.deletedFileRetentionMillis(latest.getTableProperties());
         long commitMillis = target.getTimestamp(engine);
         if (commitMillis < nowMillis - retentionMillis) {
             throw new DorisConnectorException("Cannot time travel beyond delta.deletedFileRetentionDuration: "

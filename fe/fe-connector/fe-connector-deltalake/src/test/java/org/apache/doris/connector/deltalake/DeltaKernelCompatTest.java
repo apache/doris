@@ -37,6 +37,9 @@ import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -50,6 +53,33 @@ import java.util.UUID;
 class DeltaKernelCompatTest {
     @TempDir
     Path warehouse;
+
+    @ParameterizedTest
+    @CsvSource({
+            "interval 7 days, 604800000",
+            "interval 0 months 7 days, 604800000",
+            "INTERVAL +0 YEARS 1 WEEK, 604800000",
+            "1 year -12 months 7 days, 604800000",
+            "- 1 year + 12 MONTHS .123456 seconds, 123",
+            "1 month -1 month, 0",
+            "2147483647 months -2147483647 months 1 millisecond, 1"
+    })
+    void readsSparkRetentionIntervals(String interval, long expectedMillis) {
+        Assertions.assertEquals(expectedMillis,
+                DeltaKernelCompat.deletedFileRetentionMillis(Map.of("delta.deletedFileRetentionDuration", interval)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "1 month", "1 year -11 months", "0.0 months 7 days", "interval + -0 months 7 days",
+            "0 months 7 dayz", "0 months -1 microsecond", "2147483647 months 1 month -1 month -2147483647 months",
+            "9223372036854775807 years"
+    })
+    void rejectsInvalidSparkRetentionIntervals(String interval) {
+        Map<String, String> properties = Map.of("delta.deletedFileRetentionDuration", interval);
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> DeltaKernelCompat.deletedFileRetentionMillis(properties));
+    }
 
     @Test
     void resolvesAllDvStorageTypesOffsetsPaddingAndZeroCardinality() throws Exception {
