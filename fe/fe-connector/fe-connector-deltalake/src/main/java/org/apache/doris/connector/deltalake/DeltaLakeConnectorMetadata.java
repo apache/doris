@@ -228,25 +228,34 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
         if (spec.getKind() == ConnectorTimeTravelSpec.Kind.VERSION_REF) {
             throw invalidVersion(spec.getStringValue());
         }
+        long coordinate;
         if (spec.getKind() == ConnectorTimeTravelSpec.Kind.TIMESTAMP) {
-            long timestampMillis = DeltaLakeTimeTravel.parseTimestampMillis(session, spec);
-            return beginQuerySnapshot(session, loadTimestamp(session, (DeltaLakeTableHandle) handle, timestampMillis));
-        }
-        if (spec.getKind() != ConnectorTimeTravelSpec.Kind.SNAPSHOT_ID) {
+            coordinate = DeltaLakeTimeTravel.parseTimestampMillis(session, spec);
+        } else if (spec.getKind() == ConnectorTimeTravelSpec.Kind.SNAPSHOT_ID) {
+            coordinate = parseVersion(spec.getStringValue());
+        } else {
             return Optional.empty();
         }
+        DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+        DeltaLakeTableHandle resolved = DeltaLakeStatementScope.timeTravel(session, delta, spec.getKind(), coordinate,
+                () -> runtime.execute(() -> delta.timeTravel(runtime, spec.getKind(), coordinate)));
+        // applySnapshot reuses the admitted version without re-reading the log or rechecking the clock.
+        DeltaLakeTableHandle pinned = DeltaLakeStatementScope.atVersion(session, delta, resolved.getVersion(),
+                () -> resolved);
+        return beginQuerySnapshot(session, pinned);
+    }
+
+    private static long parseVersion(String value) {
         long version;
         try {
-            version = Long.parseLong(spec.getStringValue());
+            version = Long.parseLong(value);
         } catch (NumberFormatException e) {
-            throw invalidVersion(spec.getStringValue());
+            throw invalidVersion(value);
         }
         if (version < 0) {
-            throw invalidVersion(spec.getStringValue());
+            throw invalidVersion(value);
         }
-        // Even a matching latest pointer may be cached across statements. Open the explicit target
-        // once in this statement so a recreated table or truncated version cannot use that pointer.
-        return beginQuerySnapshot(session, loadVersion(session, (DeltaLakeTableHandle) handle, version));
+        return version;
     }
 
     private static DorisConnectorException invalidVersion(String value) {
@@ -268,14 +277,6 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     private DeltaLakeTableHandle loadVersion(ConnectorSession session, DeltaLakeTableHandle delta, long version) {
         return DeltaLakeStatementScope.atVersion(session, delta, version,
                 () -> runtime.execute(() -> delta.atVersion(runtime, version)));
-    }
-
-    private DeltaLakeTableHandle loadTimestamp(ConnectorSession session, DeltaLakeTableHandle delta,
-            long timestampMillis) {
-        DeltaLakeTableHandle resolved = DeltaLakeStatementScope.atTimestamp(session, delta, timestampMillis,
-                () -> runtime.execute(() -> delta.atTimestamp(runtime, timestampMillis)));
-        // Seed the version scope so applySnapshot reuses the loaded snapshot instead of re-reading the log.
-        return DeltaLakeStatementScope.atVersion(session, delta, resolved.getVersion(), () -> resolved);
     }
 
     @Override

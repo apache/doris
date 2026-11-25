@@ -17,8 +17,6 @@
 
 package org.apache.doris.connector.deltalake;
 
-import org.apache.doris.connector.spi.DorisConnectorException;
-
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.SnapshotBuilder;
 import io.delta.kernel.TableManager;
@@ -60,17 +58,12 @@ final class DeltaLakeTableReference implements Serializable {
     }
 
     Snapshot loadAtTimestamp(Engine engine, DeltaLakeTableResolver resolver, String database, String table,
-            long timestampMillis, String expectedTableId) {
+            long timestampMillis, Snapshot latest) {
         Snapshot snapshot;
         if (managed) {
             snapshot = resolver.managedSnapshot(engine, database, table, this, Optional.empty(),
                     Optional.of(timestampMillis));
         } else {
-            // Load latest fresh so a cached statement handle does not hide newer commits or an ICT boundary.
-            Snapshot latest = TableManager.loadSnapshot(path).build(engine);
-            if (!expectedTableId.equals(DeltaKernelCompat.tableId(latest))) {
-                throw new DorisConnectorException("Delta table was recreated during the statement: " + path);
-            }
             snapshot = TableManager.loadSnapshot(path).atTimestamp(timestampMillis, latest).build(engine);
         }
         DeltaLakeFeatureCheck.check(snapshot, managed);

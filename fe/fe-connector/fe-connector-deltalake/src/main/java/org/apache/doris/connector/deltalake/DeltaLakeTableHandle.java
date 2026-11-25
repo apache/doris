@@ -20,6 +20,7 @@ package org.apache.doris.connector.deltalake;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.engine.Engine;
@@ -89,19 +90,44 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
     DeltaLakeTableHandle atVersion(DeltaLakeRuntime runtime, long requestedVersion) {
         Snapshot pinned = reference.load(runtime.engine(reference), runtime.resolver, database, table,
                 Optional.of(requestedVersion));
-        return verifyAndWrap(pinned);
+        verifyTableId(pinned);
+        return wrap(pinned);
     }
 
-    DeltaLakeTableHandle atTimestamp(DeltaLakeRuntime runtime, long timestampMillis) {
-        Snapshot pinned = reference.loadAtTimestamp(runtime.engine(reference), runtime.resolver, database, table,
-                timestampMillis, tableId);
-        return verifyAndWrap(pinned);
+    DeltaLakeTableHandle timeTravel(DeltaLakeRuntime runtime, ConnectorTimeTravelSpec.Kind kind, long coordinate) {
+        Engine engine = runtime.engine(reference);
+        // The catalog cache may predate an append or a change to the retention property.
+        Snapshot latest = loadLatest(runtime, engine);
+        Snapshot target;
+        if (kind == ConnectorTimeTravelSpec.Kind.TIMESTAMP) {
+            target = reference.loadAtTimestamp(engine, runtime.resolver, database, table, coordinate, latest);
+        } else if (coordinate == latest.getVersion()) {
+            return wrap(latest);
+        } else {
+            target = reference.load(engine, runtime.resolver, database, table, Optional.of(coordinate));
+        }
+        verifyTableId(target);
+        // A version load or a UC timestamp load can observe a commit ratified after our latest read.
+        if (target.getVersion() > latest.getVersion()) {
+            latest = loadLatest(runtime, engine);
+        }
+        DeltaLakeTimeTravel.checkRetention(engine, latest, target, System.currentTimeMillis());
+        return wrap(target);
     }
 
-    private DeltaLakeTableHandle verifyAndWrap(Snapshot pinned) {
+    private Snapshot loadLatest(DeltaLakeRuntime runtime, Engine engine) {
+        Snapshot latest = reference.load(engine, runtime.resolver, database, table, Optional.empty());
+        verifyTableId(latest);
+        return latest;
+    }
+
+    private void verifyTableId(Snapshot pinned) {
         if (!tableId.equals(DeltaKernelCompat.tableId(pinned))) {
             throw new DorisConnectorException("Delta table was recreated during the statement: " + getPath());
         }
+    }
+
+    private DeltaLakeTableHandle wrap(Snapshot pinned) {
         DeltaKernelCompat.prepareForConcurrentReads(pinned);
         return new DeltaLakeTableHandle(database, table, reference, pinned);
     }
@@ -116,9 +142,7 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
         }
         Snapshot reloaded = reference.load(engine, resolver, database, table, Optional.of(version));
         // A recreated table can reuse version 0 at the same path; it is not the statement's table.
-        if (!tableId.equals(DeltaKernelCompat.tableId(reloaded))) {
-            throw new DorisConnectorException("Delta table was recreated during the statement: " + getPath());
-        }
+        verifyTableId(reloaded);
         return reloaded;
     }
 }

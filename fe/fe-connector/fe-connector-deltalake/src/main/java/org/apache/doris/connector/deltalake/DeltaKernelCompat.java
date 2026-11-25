@@ -30,6 +30,7 @@ import io.delta.kernel.engine.Engine;
 import io.delta.kernel.expressions.Predicate;
 import io.delta.kernel.expressions.PredicateEvaluator;
 import io.delta.kernel.internal.InternalScanFileUtils;
+import io.delta.kernel.internal.TableConfig;
 import io.delta.kernel.internal.actions.DeletionVectorDescriptor;
 import io.delta.kernel.internal.actions.Protocol;
 import io.delta.kernel.internal.snapshot.LogSegment;
@@ -59,6 +60,10 @@ final class DeltaKernelCompat {
 
     static String tableId(Snapshot snapshot) {
         return snapshot.getMetadata().getId();
+    }
+
+    static long deletedFileRetentionMillis(Snapshot latest) {
+        return TableConfig.TOMBSTONE_RETENTION.fromMetadata(latest.getTableProperties());
     }
 
     static OptionalLong fileCount(Snapshot snapshot) {

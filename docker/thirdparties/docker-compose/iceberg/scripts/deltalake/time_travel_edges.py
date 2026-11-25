@@ -396,11 +396,11 @@ def retention_and_vacuum(spark, manifest, path, table):
     age_guard = "spark.databricks.delta.vacuum.enforceTimeTravelWithinDeletedFileRetentionDuration"
     assert spark.conf.get(age_guard).lower() == "true"
     times = history(spark, table)
+    def wait_for_expiry(timestamp_ms):
+        time.sleep(max(0, (timestamp_ms + 2100) / 1000 - time.time()))
+
     # Wait for the table's own two-second data retention to elapse, leaving all log versions in place.
-    cutoff = max(rem["deletionTimestamp"], times[3], int(retired.stat().st_mtime * 1000)) + 2100
-    remaining = (cutoff - time.time() * 1000) / 1000
-    if remaining > 0:
-        time.sleep(remaining)
+    wait_for_expiry(max(rem["deletionTimestamp"], times[3], int(retired.stat().st_mtime * 1000)))
     assert spark.read.parquet(retired.as_uri()).select("id", "label").first().asDict() == {
         "id": 1,
         "label": "retired",
@@ -408,8 +408,8 @@ def retention_and_vacuum(spark, manifest, path, table):
     retained_rows = [list(r) for r in spark.read.parquet(retained.as_uri()).select("id", "label").collect()]
     assert retained_rows == [[2, "retained"]]
 
-    def probe(v, selector):
-        return f"SELECT * FROM {table} {pin(selector, v if selector == 'version' else times[v])} ORDER BY id"
+    def probe(v, selector, source=table):
+        return f"SELECT * FROM {source} {pin(selector, v if selector == 'version' else times[v])} ORDER BY id"
 
     # The age check and physical deletion are different boundaries. Record Spark's default first.
     check = "DELTA_UNSUPPORTED_TIME_TRAVEL_BEYOND_DELETED_FILE_RETENTION_DURATION"
@@ -434,13 +434,26 @@ def retention_and_vacuum(spark, manifest, path, table):
     for v in (1, 2):
         for kind in ("version", "millis"):
             spark_error(spark, probe(v, kind), check)
-    spark.conf.set(age_guard, "false")
-    try:
-        for kind in ("version", "millis"):
-            assert read_frame(spark, probe(2, kind))["rows"] == retained_rows
-            spark_error(spark, probe(1, kind), retired.name, "FILE_NOT_EXIST")
-    finally:
-        spark.conf.set(age_guard, "true")
+    times = history(spark, table)
+    latest_version = max(times)
+    # VACUUM may have committed a new latest version. Exercise its exemption after it has aged out.
+    wait_for_expiry(times[latest_version])
+    latest = read_frame(spark, f"SELECT * FROM {table} ORDER BY id")
+    for kind in ("version", "millis"):
+        assert read_frame(spark, probe(latest_version, kind)) == latest
+        for v in (1, 2):
+            selector = pin(kind, v if kind == "version" else times[v])
+            spark_error(spark, f"SELECT count(*) FROM {table} {selector}", check)
+
+    # Keep both policies available to Doris. The copy preserves log mtimes and the files left by VACUUM.
+    extended_path = path.with_name("retention_extended")
+    extended = table + "_extended"
+    shutil.copytree(path, extended_path)
+    spark.sql(f"CREATE TABLE {extended} USING DELTA LOCATION {sql_quote(extended_path.as_uri())}")
+    spark.sql(f"ALTER TABLE {extended} SET TBLPROPERTIES ('delta.deletedFileRetentionDuration'='interval 30 days')")
+    for kind in ("version", "millis"):
+        assert read_frame(spark, probe(2, kind, extended))["rows"] == retained_rows
+        spark_error(spark, probe(1, kind, extended), retired.name, "FILE_NOT_EXIST")
     manifest["retention"] = {
         "retention_seconds": 2,
         "v1_ms": times[1],
@@ -453,7 +466,9 @@ def retention_and_vacuum(spark, manifest, path, table):
         "spark_default_rejected_old_versions": True,
         "obsolete_file_exists": retired.exists(),
         "v2_file_exists": retained.exists(),
-        "latest": read_frame(spark, f"SELECT * FROM {table} ORDER BY id"),
+        "latest_version": latest_version,
+        "latest_ms": times[latest_version],
+        "latest": latest,
     }
 
 

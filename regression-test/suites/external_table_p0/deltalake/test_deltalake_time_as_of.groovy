@@ -52,6 +52,8 @@ suite("test_deltalake_time_as_of", "p0,external,deltalake,external_docker") {
             assertFalse(new File(log, "${prefix}.crc").exists())
         }
         File data = new File(root, "warehouse/edges/retention")
+        assertTrue(new File(root, "warehouse/edges/retention_extended").isDirectory(),
+                "Regenerate the retention fixture with uc-managed.py --time-travel-edges")
         assertFalse(new File(data, fixture.retention.retired as String).exists())
         assertTrue(new File(data, fixture.retention.retained as String).isFile())
         assertTrue(new File(data, "_delta_log/00000000000000000001.json").isFile())
@@ -168,15 +170,29 @@ suite("test_deltalake_time_as_of", "p0,external,deltalake,external_docker") {
         assertEquals(fixture.checkpoint.mixed.schema, schemaOf(nestedMeta))
         assertSparkDorisResultEquals(fixture.checkpoint.mixed.rows, nestedRows)
         quickTest("${mode}_nested_mixed", nested)
+        for (String pin : ["for version as of 1", "for time as of ${fixture.retention.v1_ms}",
+                           "for version as of 2", "for time as of ${fixture.retention.v2_ms}"]) {
+            for (String projection : ["id, label", "count(*)"]) {
+                test {
+                    sql "select ${projection} from ${fs}.edges.retention ${pin}"
+                    exception "Cannot time travel beyond delta.deletedFileRetentionDuration"
+                }
+            }
+        }
+        for (String pin : ["for version as of ${fixture.retention.latest_version}",
+                           "for time as of ${fixture.retention.latest_ms}"]) {
+            def rows = sql("select id, label from ${fs}.edges.retention ${pin} order by id")
+            assertSparkDorisResultEquals(fixture.retention.latest.rows, rows)
+        }
+        // Extending retention admits v2. The v1 file removed by VACUUM is still missing.
         for (String pin : ["for version as of 1", "for time as of ${fixture.retention.v1_ms}"]) {
             test {
-                sql "select id, label from ${fs}.edges.retention ${pin} order by id"
+                sql "select id, label from ${fs}.edges.retention_extended ${pin} order by id"
                 exception fixture.retention.retired
             }
         }
-        // Spark's default age guard rejects v2. Kernel can still scan the retained v2 file.
         for (String pin : ["for version as of 2", "for time as of ${fixture.retention.v2_ms}"]) {
-            def rows = sql("select id, label from ${fs}.edges.retention ${pin} order by id")
+            def rows = sql("select id, label from ${fs}.edges.retention_extended ${pin} order by id")
             assertSparkDorisResultEquals(fixture.retention.retained_rows, rows)
         }
         String latest = "select id, label from ${fs}.edges.retention order by id"

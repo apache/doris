@@ -20,6 +20,7 @@ package org.apache.doris.connector.deltalake;
 
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScopes;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -28,6 +29,7 @@ import java.util.function.Supplier;
 final class DeltaLakeStatementScope {
     static final String SNAPSHOT_NAMESPACE = "deltalake.snapshot";
     static final String VERSION_NAMESPACE = "deltalake.snapshot-version";
+    static final String EXPLICIT_VERSION_NAMESPACE = "deltalake.time-travel-version";
     static final String TIMESTAMP_NAMESPACE = "deltalake.snapshot-timestamp";
 
     static final String FILE_COUNT_NAMESPACE = "deltalake.file-count";
@@ -55,9 +57,12 @@ final class DeltaLakeStatementScope {
         return resolveByCoordinate(session, VERSION_NAMESPACE, handle, version, loader);
     }
 
-    static DeltaLakeTableHandle atTimestamp(ConnectorSession session, DeltaLakeTableHandle handle,
-            long timestampMillis, Supplier<DeltaLakeTableHandle> loader) {
-        return resolveByCoordinate(session, TIMESTAMP_NAMESPACE, handle, timestampMillis, loader);
+    static DeltaLakeTableHandle timeTravel(ConnectorSession session, DeltaLakeTableHandle handle,
+            ConnectorTimeTravelSpec.Kind kind, long coordinate, Supplier<DeltaLakeTableHandle> loader) {
+        // An implicitly pinned MVCC handle in VERSION_NAMESPACE has not passed the explicit read-age check.
+        String namespace = kind == ConnectorTimeTravelSpec.Kind.TIMESTAMP
+                ? TIMESTAMP_NAMESPACE : EXPLICIT_VERSION_NAMESPACE;
+        return resolveByCoordinate(session, namespace, handle, coordinate, loader);
     }
 
     private static DeltaLakeTableHandle resolveByCoordinate(ConnectorSession session, String namespace,

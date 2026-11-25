@@ -21,6 +21,9 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 
+import io.delta.kernel.Snapshot;
+import io.delta.kernel.engine.Engine;
+
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -35,7 +38,7 @@ import java.time.format.ResolverStyle;
 import java.time.format.SignStyle;
 import java.time.temporal.ChronoField;
 
-/** Parses Doris {@code FOR TIME AS OF} literals into UTC epoch milliseconds for Delta Kernel. */
+/** Timestamp parsing and snapshot retention for explicit Delta time travel. */
 final class DeltaLakeTimeTravel {
     private static final DateTimeFormatter DATE_FORMAT = new DateTimeFormatterBuilder()
             .appendValue(ChronoField.YEAR, 4, 10, SignStyle.EXCEEDS_PAD)
@@ -61,6 +64,19 @@ final class DeltaLakeTimeTravel {
             .withResolverStyle(ResolverStyle.STRICT);
 
     private DeltaLakeTimeTravel() {
+    }
+
+    static void checkRetention(Engine engine, Snapshot latest, Snapshot target, long nowMillis) {
+        if (target.getVersion() == latest.getVersion()) {
+            return;
+        }
+        long retentionMillis = DeltaKernelCompat.deletedFileRetentionMillis(latest);
+        long commitMillis = target.getTimestamp(engine);
+        if (commitMillis < nowMillis - retentionMillis) {
+            throw new DorisConnectorException("Cannot time travel beyond delta.deletedFileRetentionDuration: "
+                    + target.getPath() + " version " + target.getVersion() + " committed at "
+                    + Instant.ofEpochMilli(commitMillis) + ", retention " + retentionMillis + " ms");
+        }
     }
 
     static long parseTimestampMillis(ConnectorSession session, ConnectorTimeTravelSpec spec) {

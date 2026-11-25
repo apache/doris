@@ -39,6 +39,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -47,7 +49,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -258,8 +263,9 @@ class DeltaLakeUnityCatalogTest {
     @Test
     void resolvesHistoricalTimestampThroughUnityCatalog(@TempDir Path dir) throws Exception {
         Path table = dir.resolve("t");
-        long t0 = Instant.parse("2026-11-24T00:00:00Z").toEpochMilli();
-        long t1 = Instant.parse("2026-11-24T01:00:00Z").toEpochMilli();
+        LocalDate day = LocalDate.now(ZoneOffset.UTC).minusDays(1);
+        long t0 = Instant.parse(day + "T00:00:00Z").toEpochMilli();
+        long t1 = Instant.parse(day + "T01:00:00Z").toEpochMilli();
         DeltaLakeTestTables.commit(table, 0, "delta-uuid", new StructType().add("old_name", LongType.LONG),
                 List.of(), Map.of("minReaderVersion", 1, "minWriterVersion", 2), Collections.emptyMap(), null, t0);
         DeltaLakeTestTables.commit(table, 1, "delta-uuid", new StructType().add("new_name", StringType.STRING),
@@ -275,7 +281,7 @@ class DeltaLakeUnityCatalogTest {
                 ConnectorMetadata metadata = connector.getMetadata(session)) {
             ConnectorTableHandle latest = metadata.getTableHandle(session, "db", "t").orElseThrow();
             ConnectorMvccSnapshot v0 = metadata.resolveTimeTravel(session, latest,
-                    ConnectorTimeTravelSpec.timestamp("2026-11-24 08:30:00", false)).orElseThrow();
+                    ConnectorTimeTravelSpec.timestamp(day + " 08:30:00", false)).orElseThrow();
             Assertions.assertEquals(0, v0.getSnapshotId());
             Assertions.assertEquals(Set.of("old_name"), metadata.getColumnHandles(session, latest, v0).keySet());
             DeltaLakeTableHandle pinned = (DeltaLakeTableHandle) metadata.applySnapshot(session, latest, v0);
@@ -284,8 +290,9 @@ class DeltaLakeUnityCatalogTest {
         }
     }
 
-    @Test
-    void resolvesHistoricalTimestampForManagedUnityCatalogTable(@TempDir Path dir) throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void resolvesHistoryWithStagedUnityCatalogRetention(boolean expired, @TempDir Path dir) throws Exception {
         Path table = dir.resolve("managed");
         String tableUuid = "00000000-0000-0000-0000-000000000001";
         Map<String, Object> protocol = Map.of(
@@ -295,14 +302,17 @@ class DeltaLakeUnityCatalogTest {
         Map<String, String> config = Map.of(
                 "delta.enableInCommitTimestamps", "true",
                 "io.unitycatalog.tableId", tableUuid);
-        long t0 = Instant.parse("2026-11-24T00:00:00Z").toEpochMilli();
-        long t1 = Instant.parse("2026-11-24T01:00:00Z").toEpochMilli();
+        LocalDate day = LocalDate.now(ZoneOffset.UTC).minusDays(1);
+        long t0 = Instant.parse(day + "T00:00:00Z").toEpochMilli();
+        long t1 = Instant.parse(day + "T01:00:00Z").toEpochMilli();
         DeltaLakeTestTables.commit(table, 0, "managed-uuid", new StructType().add("v0_col", LongType.LONG),
-                List.of(), protocol, config, t0, t0);
+                List.of(), protocol, config, t0, System.currentTimeMillis());
+        Map<String, String> stagedConfig = new HashMap<>(config);
+        stagedConfig.put("delta.deletedFileRetentionDuration", expired ? "interval 1 hour" : "interval 7 days");
         Path stagedV1 = DeltaLakeTestTables.writeCommit(
                 table.resolve("_delta_log/_staged_commits/00000000000000000001.test.json"),
                 "managed-uuid", new StructType().add("v1_col", StringType.STRING),
-                List.of(), protocol, config, t1, t1);
+                List.of(), protocol, stagedConfig, t1, t1);
         String location = table.toUri().toString();
         String managedJson = EXTERNAL.replace("\"EXTERNAL\"", "\"MANAGED\"")
                 .replace("s3://warehouse/t", location)
@@ -326,10 +336,23 @@ class DeltaLakeUnityCatalogTest {
             Assertions.assertEquals(1, ((DeltaLakeTableHandle) latest).getVersion());
             Assertions.assertEquals(Set.of("v1_col"), metadata.getColumnHandles(session, latest).keySet());
 
-            ConnectorMvccSnapshot v0 = metadata.resolveTimeTravel(session, latest,
-                    ConnectorTimeTravelSpec.timestamp("2026-11-24T00:30:00Z", false)).orElseThrow();
-            Assertions.assertEquals(0, v0.getSnapshotId());
-            Assertions.assertEquals(Set.of("v0_col"), metadata.getColumnHandles(session, latest, v0).keySet());
+            for (ConnectorTimeTravelSpec selector : List.of(ConnectorTimeTravelSpec.snapshotId("1"),
+                    ConnectorTimeTravelSpec.timestamp(Long.toString(t1), true))) {
+                Assertions.assertEquals(1, metadata.resolveTimeTravel(session, latest, selector)
+                        .orElseThrow().getSnapshotId());
+            }
+            for (ConnectorTimeTravelSpec selector : List.of(ConnectorTimeTravelSpec.snapshotId("0"),
+                    ConnectorTimeTravelSpec.timestamp(day + "T00:30:00Z", false))) {
+                if (expired) {
+                    DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                            () -> metadata.resolveTimeTravel(session, latest, selector));
+                    Assertions.assertTrue(error.getMessage().contains("beyond delta.deletedFileRetentionDuration"));
+                } else {
+                    ConnectorMvccSnapshot v0 = metadata.resolveTimeTravel(session, latest, selector).orElseThrow();
+                    Assertions.assertEquals(0, v0.getSnapshotId());
+                    Assertions.assertEquals(Set.of("v0_col"), metadata.getColumnHandles(session, latest, v0).keySet());
+                }
+            }
         }
     }
 
