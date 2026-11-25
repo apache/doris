@@ -76,4 +76,4 @@ suite("test_orc_merge_io_input_streams", "p2,external") {
 }
 
 // Reproduce the ZLIB fixture with GenerateOrcMergeFixture.java and register it with
-// tools/emr_storage_regression/p2_fixtures/04-orc-merge-table.sql. See that directory's README.
+// regression-test/script/external_table_p2/emr/orc_merge_table.sql. See that directory's README.

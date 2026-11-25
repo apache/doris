@@ -19,6 +19,12 @@ under the License.
 
 # Guide for test cases
 
+## External P2 data preparation
+
+For a new external account or cluster, start with the
+[dataset preparation and migration guide](script/external_table_p2/README.md).
+It links initialization scripts, per-service configuration and acceptance checks.
+
 ## General Case
 
 1. Write "def" before variable names; otherwise, they will be global variables and may be affected by other cases running in parallel.

@@ -17,7 +17,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# EMR migration fixtures for external P2
+# Build the EMR fixtures
+
+Start with the [shared preparation and migration workflow](../README.md).
 
 These scripts reproduce the fixtures for `test_hive_migrate_iceberg`,
 `test_hive_migrate_partition_iceberg` and `test_hive_migrate_paimon`.
@@ -55,8 +57,8 @@ target installation. Hive and Spark must load that installation's Hive and
 Hadoop configuration, including HMS authentication.
 
 ```bash
-FIXTURES=tools/emr_storage_regression/p2_fixtures
-hive --service cli -S -f "$FIXTURES/01-hive-sources.sql"
+FIXTURES=regression-test/script/external_table_p2/emr
+hive --service cli -S -f "$FIXTURES/hive_sources.sql"
 
 "$SPARK_SQL" --master 'local[2]' --driver-memory 2g \
   --jars "$ICEBERG_JAR" \
@@ -65,7 +67,7 @@ hive --service cli -S -f "$FIXTURES/01-hive-sources.sql"
   --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions \
   --conf spark.sql.catalog.spark_catalog=org.apache.iceberg.spark.SparkSessionCatalog \
   --conf spark.sql.catalog.spark_catalog.type=hive \
-  -f "$FIXTURES/02-iceberg-migrate.sql"
+  -f "$FIXTURES/iceberg_migration.sql"
 
 "$SPARK_SQL" --master 'local[2]' --driver-memory 2g \
   --jars "$PAIMON_JAR" \
@@ -75,7 +77,7 @@ hive --service cli -S -f "$FIXTURES/01-hive-sources.sql"
   --conf spark.sql.catalog.paimon.metastore=hive \
   --conf "spark.sql.catalog.paimon.uri=$HMS_URI" \
   --conf "spark.sql.catalog.paimon.warehouse=$HDFS_WAREHOUSE" \
-  -f "$FIXTURES/03-paimon-migrate.sql"
+  -f "$FIXTURES/paimon_migration.sql"
 ```
 
 ## Verify through Doris
@@ -123,7 +125,7 @@ Run with `-ea` so the generator verifies stripe counts, row counts, compression,
 index stride and stripe-level trace bounds before registration.
 
 ```bash
-FIXTURES=tools/emr_storage_regression/p2_fixtures
+FIXTURES=regression-test/script/external_table_p2/emr
 mkdir -p /tmp/doris-orc-merge-fixture/classes
 javac -cp "$SPARK_JARS/*" -d /tmp/doris-orc-merge-fixture/classes \
   "$FIXTURES/GenerateOrcMergeFixture.java"
@@ -134,7 +136,7 @@ ORC_MERGE_LOCATION=/user/hive/warehouse/regression.db/test_orc_merge_io_input_st
 hdfs dfs -mkdir "$ORC_MERGE_LOCATION"
 hdfs dfs -put /tmp/doris-orc-merge-fixture/orc_merge_io_input_streams.orc "$ORC_MERGE_LOCATION/"
 hive --service cli -S --hivevar orc_merge_location="$ORC_MERGE_LOCATION" \
-  -f "$FIXTURES/04-orc-merge-table.sql"
+  -f "$FIXTURES/orc_merge_table.sql"
 
 ./run-regression-test.sh --run --conf /path/to/private-regression-conf.groovy \
   -d external_table_p2/hive -s test_orc_merge_io_input_streams -parallel 1

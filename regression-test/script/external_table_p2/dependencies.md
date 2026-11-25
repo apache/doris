@@ -19,6 +19,8 @@ under the License.
 
 # External P2 dependency inventory
 
+Use the [preparation workflow](README.md) to select a family before initializing it.
+
 A fixture is more than its visible rows when a suite checks migration, snapshots,
 deletes, compression or file splitting. Preserve the matching metadata and file
 layout. Other suites generate their own tables and only need a service and access
@@ -26,10 +28,10 @@ configuration. Check enable flags and unconditional skip guards before provision
 
 | Family | Required environment or preloaded data | Preparation |
 | --- | --- | --- |
-| EMR migration | Hive HMS/HDFS; four Iceberg and two Paimon tables | [Reproduce migration history](../../../tools/emr_storage_regression/p2_fixtures/README.md), including Hive source files and later appends |
-| ORC stream regression | `regression.test_orc_merge_io_input_streams_table`, ZLIB file with consecutive stripes whose row groups all reject the target | Use `GenerateOrcMergeFixture.java` and `04-orc-merge-table.sql`; the suite checks the actual row-group and merged-IO path through its Profile |
-| MaxCompute | Read projects, schema project, write project and Storage API quota access | See [configuration](README.md); write suites create their own tables |
-| DLF | Legacy and REST metadata plus OSS warehouses | See [configuration](README.md); preserve Paimon snapshot 1 and Iceberg metadata |
+| EMR migration | Hive HMS/HDFS; four Iceberg and two Paimon tables | [Reproduce migration history](emr/README.md), including Hive source files and later appends |
+| ORC stream regression | `regression.test_orc_merge_io_input_streams_table`, ZLIB file with consecutive stripes whose row groups all reject the target | Use `emr/GenerateOrcMergeFixture.java` and `emr/orc_merge_table.sql`; the suite checks the actual row-group and merged-IO path through its Profile |
+| MaxCompute | Read projects, schema project, write project and Storage API quota access | See [MaxCompute initialization](maxcompute/README.md); write suites create their own tables |
+| DLF | Legacy and REST metadata plus OSS warehouses | See [DLF initialization](dlf/README.md); preserve Paimon snapshot 1 and Iceberg metadata |
 | Iceberg equality deletes | `flink_db.sample` with data, position-delete and equality-delete files | Preserve the complete Iceberg table, including manifests and delete files |
 | Hive compression | Hive 3 HMS/HDFS; `multi_catalog.test_compress_partitioned` | Use the published bootstrap archive; preserve 16 files, 734,675,596 bytes and eight partitions |
 | Hudi | Docker Hive/HDFS and generated Hudi tables | Retain the Docker suites and their generator data; obsolete disabled EMR suites are removed |
