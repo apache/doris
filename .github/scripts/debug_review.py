@@ -20,6 +20,7 @@
 import http.client
 import json
 import os
+import re
 import time
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
@@ -95,6 +96,32 @@ def verdict(result, pr_url, run_url, pr):
     return state, summary, link if state == "failure" and converged else run_url
 
 
+def publish_receipt(repo, run, pr, head, base, result, bot):
+    """Called by the cloud controller after exact GitHub review and inline readback."""
+    if not re.fullmatch(r"[1-9][0-9]*", run) or not bot:
+        raise ValueError("Expected a workflow run ID and a publishing App login")
+    pr_url = f"https://github.com/{repo}/pull/{pr}"
+    state, summary, _ = verdict(result, pr_url, f"https://github.com/{repo}/actions/runs/{run}", pr)
+    fields = dict(context=f"code-review/cloud/{run}/pr-{pr}/base-{base}", state=state,
+                  description=summary, target_url=result["review_url"])
+    root = f"repos/{repo}"
+    # A lost POST response or controller restart must keep this result's original order.
+    pages = gh(f"{root}/commits/{head}/statuses?per_page=100", "--paginate", "--slurp")
+    for page in pages:
+        for row in page:
+            if row["context"] == fields["context"] and row["creator"]["login"] == bot:
+                if any(row[key] != value for key, value in fields.items()):
+                    raise ValueError("Conflicting cloud receipt for this run")
+                return
+    live = gh(f"{root}/pulls/{pr}")
+    if live["state"] != "open" or (live["head"]["sha"], live["base"]["sha"]) != (head, base):
+        raise ValueError("Cloud review snapshot changed before recording the verdict")
+    args = []
+    for key, value in fields.items():
+        args.extend(("-f", f"{key}={value}"))
+    gh(f"{root}/statuses/{head}", "-X", "POST", *args)
+
+
 def review(pr, head, base):
     repo = os.environ["GITHUB_REPOSITORY"]
     run = os.environ["GITHUB_RUN_ID"]
@@ -135,6 +162,13 @@ def review(pr, head, base):
                 return
             if state == "superseded":
                 print("PR changed during review")
+                return
+            if state == "completed" and not row["preview_only"] and row["result"].get("gate_receipt") is True:
+                verdict(row["result"], pr_url, run_url, pr)
+                if not pending:
+                    with Path(os.environ["GITHUB_OUTPUT"]).open("a") as outputs:
+                        print(f"aggregate_head={head}", file=outputs)
+                print(f"Cloud publisher recorded the verdict for {row['result']['review_url']}")
                 return
             if not row["preview_only"] and not pending:
                 if not current():

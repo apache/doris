@@ -62,6 +62,37 @@ class DebugReviewTest(unittest.TestCase):
         self.assertIn("state=failure", final)
         self.assertIn("target_url=" + self.url, final)
 
+    def test_publisher_records_verified_result_once_after_lost_ack(self):
+        run, bot = "27", "cloud[bot]"
+        records = []
+        def github(path, *args):
+            if "/commits/" in path:
+                return [[], records]
+            if "/pulls/" in path:
+                return self.pr
+            self.assertEqual("repos/apache/doris/statuses/" + "a"*40, path)
+            fields = dict(field.split("=", 1) for field in args[3::2])
+            records.append(dict(fields, creator={"login": bot}))
+            raise TimeoutError("response lost after write")
+        self.api.side_effect = github
+        def publish():
+            debug.publish_receipt("apache/doris", run, 42, "a"*40, "b"*40, self.result, bot)
+        with self.assertRaises(TimeoutError):
+            publish()
+        publish()
+        self.assertEqual(1, len(records))
+        self.assertEqual(("code-review/cloud/27/pr-42/base-" + "b"*40, "failure", self.url),
+                         tuple(records[0][k] for k in ("context", "state", "target_url")))
+        self.run_review(dict(self.row, state="completed", result=dict(self.result, gate_receipt=True)))
+        self.assertEqual(1, len(self.posts()))
+
+    def test_publisher_rejects_stale_snapshot_and_invalid_verdict(self):
+        self.api.side_effect = [[], dict(self.pr, base={"sha": "c"*40})]
+        for result in (self.result, dict(self.result, state="success")):
+            with self.assertRaises(ValueError):
+                debug.publish_receipt("apache/doris", "27", 42, "a"*40, "b"*40, result, "cloud[bot]")
+        self.assertEqual([], self.posts())
+
     def test_each_fc_request_uses_a_fresh_review_audience_token(self):
         values = [(200, {"value": "first"}), (202, self.receipt),
                   (200, {"value": "next"}), (200, self.row)]
