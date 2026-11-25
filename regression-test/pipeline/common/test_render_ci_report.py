@@ -115,6 +115,39 @@ class ReportTest(TestCase):
         for secret in ("very-private", "unrelated-output", "<script>"):
             self.assertNotIn(secret, page)
 
+    def test_googletest_global_failure_is_a_build_problem(self):
+        # GoogleTest 1.12.1 reports environment failures outside its root test counters.
+        xml = self.root / "be.xml"
+        xml.write_text('<testsuites tests="0" failures="0" disabled="0" errors="0">'
+                       '<testsuite name="NonTestSuiteFailure" tests="1" failures="1" skipped="0">'
+                       '<testcase name="" classname="" status="run" result="completed">'
+                       '<failure message="global teardown">expected &lt;clean&gt;</failure>'
+                       '</testcase></testsuite></testsuites>')
+        self.generate("beut", "--status", "failure", "--junit", str(xml))
+        page = self.output.read_text()
+        self.assertIn("0 test executions · 0 failed · 0 passed · 0 skipped", page)
+        self.assertIn("<h2>Build problems</h2>", page)
+        self.assertIn("global teardown\nexpected &lt;clean&gt;", page)
+        self.assertNotIn("<h2>Failed tests</h2>", page)
+        # A named case in a suite with this name is still a regular test.
+        xml.write_text(xml.read_text().replace('name="" classname=""', 'name="real" classname="C"'))
+        with self.assertRaises(SystemExit):
+            self.generate("beut", "--status", "failure", "--junit", str(xml))
+
+    def test_googletest_suppressed_and_explicitly_run_disabled_cases(self):
+        xml = self.root / "be.xml"
+        xml.write_text('<testsuites tests="4" failures="0" disabled="2"><testsuite tests="4" '
+                       'failures="0" skipped="1" disabled="2"><testcase name="ok"/>'
+                       '<testcase name="DISABLED_off" status="notrun" result="suppressed"/>'
+                       '<testcase name="DISABLED_on" status="run" result="completed"/>'
+                       '<testcase name="skip"><skipped/></testcase></testsuite></testsuites>')
+        self.generate("beut", "--status", "success", "--junit", str(xml))
+        self.assertIn("4 tests · 0 failed · 2 passed · 1 skipped · 1 not run", self.output.read_text())
+        # An aggregate disabled count alone cannot say whether the disabled test ran.
+        xml.write_text('<testsuite tests="3" failures="0" skipped="0" disabled="1"/>')
+        self.generate("beut", "--status", "success", "--junit", str(xml))
+        self.assertIn("2 passed · 0 skipped · 1 without recorded outcome", self.output.read_text())
+
     def test_junit_rejects_invalid_input_before_upload(self):
         xml = self.root / "junit.xml"
         for invalid in ("<testsuite>", '<!DOCTYPE x [<!ENTITY t "private">]><testsuite/>', "<html/>"):
@@ -210,6 +243,71 @@ class ReportTest(TestCase):
         with patch.object(ci.subprocess, "run", side_effect=put) as client:
             self.generate("compile", "--status", "failure", "--failed-step", "checkout", "--upload")
             self.assertEqual(client.call_count, 1)
+
+    def test_large_core_uses_multipart(self):
+        path = self.root / "large.core"
+        with path.open("wb") as stream:
+            stream.truncate(6 * 1024**3)
+        rejected = subprocess.CompletedProcess([], 1, b"", b"simulated service failure")
+        with patch.object(ci.subprocess, "run", return_value=rejected) as client, self.assertRaises(ValueError):
+            ci.upload(path, "builds/test/large.core")
+        self.assertEqual(client.call_args.args[0][2], "initiate-multipart-upload")
+
+    def test_multipart_publishes_every_byte_before_the_report(self):
+        core = self.root / "core"
+        core.write_bytes(b"\x7fELF\x02\x01\x01" + bytes(9) + b"\x04\x00" + bytes(range(31)))
+        parts, operations = [], []
+
+        def client(argv, **kwargs):
+            operation = argv[2]
+            operations.append(operation)
+            output = b""
+            if operation == "initiate-multipart-upload":
+                self.assertEqual(argv[argv.index("--content-type") + 1], "application/octet-stream")
+                self.assertEqual(argv[argv.index("--content-disposition") + 1], "attachment")
+                output = b'"session-id"'
+            elif operation == "upload-part":
+                self.assertEqual(argv[argv.index("--part-number") + 1], str(len(parts) + 1))
+                parts.append(Path(argv[argv.index("--body") + 1].removeprefix("file://")).read_bytes())
+            elif operation == "put-object":
+                self.assertEqual(argv[argv.index("--key") + 1], self.key)
+            if operation in ("initiate-multipart-upload", "complete-multipart-upload"):
+                self.assertEqual(argv[argv.index("--forbid-overwrite") + 1], "true")
+            if operation in ("upload-part", "complete-multipart-upload"):
+                self.assertEqual(argv[argv.index("--upload-id") + 1], "session-id")
+            return subprocess.CompletedProcess(argv, 0, output, b"")
+
+        with patch.object(ci, "MULTIPART_THRESHOLD", 20), patch.object(ci.subprocess, "run", side_effect=client):
+            self.generate("beut", "--status", "failure", "--public-core", str(core), "--upload")
+        self.assertEqual(operations, ["initiate-multipart-upload", "upload-part", "upload-part",
+                                      "upload-part", "complete-multipart-upload", "put-object"])
+        self.assertEqual([len(part) for part in parts], [20, 20, 9])
+        self.assertEqual(b"".join(parts), core.read_bytes())
+
+    def test_multipart_aborts_on_part_failure_or_conflicting_completion(self):
+        core = self.root / "core"
+        core.write_bytes(b"\x7fELF\x02\x01\x01" + bytes(9) + b"\x04\x00" + bytes(7))
+        for failure in ("upload-part", "complete-multipart-upload"):
+            operations = []
+
+            def client(argv, **kwargs):
+                operation = argv[2]
+                operations.append(operation)
+                if operation == failure:
+                    return subprocess.CompletedProcess(argv, 1, b"", b"FileAlreadyExists" if
+                                                       operation == "complete-multipart-upload" else b"failed")
+                return subprocess.CompletedProcess(argv, 0, b'"session-id"', b"")
+
+            with self.subTest(failure=failure), patch.object(ci, "MULTIPART_THRESHOLD", 20), \
+                    patch.object(ci.subprocess, "run", side_effect=client), patch.object(ci, "urlopen") as get:
+                response = get.return_value.__enter__.return_value
+                response.geturl.return_value = "another URL"
+                with self.assertRaises(SystemExit):
+                    self.generate("beut", "--status", "failure", "--public-core", str(core), "--upload")
+                self.assertEqual(get.call_count, int(failure == "complete-multipart-upload"))
+            self.assertEqual(operations[-2:], [failure, "abort-multipart-upload"])
+            self.assertNotIn("put-object", operations)
+            self.assertFalse(self.output.exists())
 
     def test_retry_requires_identical_bytes(self):
         self.generate("p0", "--status", "success")
