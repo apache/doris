@@ -86,7 +86,7 @@ suite("test_variant_values_index_ddl", "p0") {
     rejected('VARIANT<PROPERTIES("variant_enable_nested_group"="true")>', english, "SNII", "DUPLICATE", "",
              "VARIANT values index does not support NestedGroup")
     rejected("VARIANT<'wide':DECIMAL(76,2)>", english, "SNII", "DUPLICATE", "",
-             "VARIANT values index does not support declared Decimal256 paths")
+             "Decimal256 is not supported in VARIANT templates")
     rejected("VARIANT", english, "SNII", "UNIQUE", ',"enable_unique_key_merge_on_write"="false"',
              "INVERTED index with parser can NOT be used in value columns of UNIQUE_KEYS table with merge_on_write disable")
     rejected("VARIANT", ',"analyzer"="english"', "SNII", "UNIQUE", ',"enable_unique_key_merge_on_write"="false"',
