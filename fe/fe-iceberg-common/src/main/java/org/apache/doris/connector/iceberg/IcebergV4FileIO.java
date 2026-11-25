@@ -166,9 +166,13 @@ public final class IcebergV4FileIO implements FileIO {
             }
             // Resolve legacy roots in their actual default filesystem, through the authenticated factory.
             HadoopInputFile input = (HadoopInputFile) delegate.newInputFile(resolved);
-            return input.getFileSystem().makeQualified(input.getPath()).toString();
+            return hadoopIdentity(input);
         }
         return resolved;
+    }
+
+    private static String hadoopIdentity(HadoopInputFile input) {
+        return input.getFileSystem().makeQualified(input.getPath()).toString();
     }
 
     private boolean isLegacyEntry(ContentFile<?> file) {
@@ -287,6 +291,12 @@ public final class IcebergV4FileIO implements FileIO {
         boolean rootedMatches = rootedInput != null && rootedInput.getLength() == file.length();
         // After expiry, the immutable descriptor is the remaining evidence; never guess between two matches.
         if (relativeMatches && rootedMatches) {
+            // Hadoop roots and qualified paths can alias one object; ambiguity requires distinct identities.
+            if (relativeInput instanceof HadoopInputFile && rootedInput instanceof HadoopInputFile
+                    && hadoopIdentity((HadoopInputFile) relativeInput)
+                            .equals(hadoopIdentity((HadoopInputFile) rootedInput))) {
+                return remember(path, relative, file.snapshotId());
+            }
             throw new IllegalArgumentException("Ambiguous legacy and V4 manifest reference: " + path);
         }
         if (relativeMatches || rootedMatches) {

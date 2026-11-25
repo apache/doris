@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.RawLocalFileSystem;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
@@ -79,7 +80,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
@@ -287,6 +290,90 @@ class IcebergFormatV4ReadTest {
                 Assertions.assertEquals(Set.of("/data/correct.parquet", table.location() + "/data/current.parquet"),
                         ranges.stream().map(range -> range.getPath().orElseThrow()).collect(Collectors.toSet()));
             }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void rootedManifestAliasesRemainReadableAfterProducerExpiration(boolean cached) throws Exception {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("aliases", Map.of());
+        catalog.createNamespace(Namespace.of("db"));
+        Table table = catalog.createTable(TableIdentifier.of("db", "aliases"),
+                new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get())),
+                PartitionSpec.unpartitioned(), "testfs://namespace/",
+                Map.of(TableProperties.FORMAT_VERSION, "3", TableProperties.WRITE_METADATA_LOCATION,
+                        tempDir.resolve("metadata").toString()));
+        table.newFastAppend().appendFile(data(table, "testfs://namespace/data/first.parquet")).commit();
+        long producer = table.currentSnapshot().snapshotId();
+        table.newFastAppend().appendFile(data(table, "testfs://namespace/data/second.parquet")).commit();
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "4").commit();
+        table.expireSnapshots().expireSnapshotId(producer).cleanExpiredFiles(false).commit();
+        Assertions.assertNull(table.snapshot(producer));
+        Assertions.assertEquals("testfs://namespace", table.location());
+        List<String> metadataFiles = new ArrayList<>();
+        metadataFiles.add(table.currentSnapshot().manifestListLocation());
+        metadataFiles.add(((BaseTable) table).operations().current().metadataFileLocation());
+        for (ManifestFile manifest : table.currentSnapshot().allManifests(table.io())) {
+            Assertions.assertEquals(FileFormat.AVRO, FileFormat.fromFileName(manifest.path()));
+            metadataFiles.add(manifest.path());
+        }
+        for (String location : metadataFiles) {
+            Path target = Path.of(location);
+            Assertions.assertTrue(target.startsWith(tempDir));
+            Files.createDirectories(target.getParent());
+            try (org.apache.iceberg.io.SeekableInputStream input = table.io().newInputFile(location).newStream();
+                    OutputStream output = Files.newOutputStream(target)) {
+                input.transferTo(output);
+            }
+        }
+        Configuration conf = new Configuration(false);
+        conf.set("fs.defaultFS", "testfs://namespace");
+        conf.set("fs.testfs.impl", RootedLocalFileSystem.class.getName());
+        conf.setBoolean("fs.testfs.impl.disable.cache", true);
+        RecordingAuthenticator auth = new RecordingAuthenticator();
+        FileIO storage = new HadoopFileIO(conf) {
+            @Override
+            public InputFile newInputFile(String location) {
+                Assertions.assertTrue(auth.active.get(), "Alias resolution must preserve authenticated IO");
+                return super.newInputFile(location);
+            }
+
+            @Override
+            public InputFile newInputFile(String location, long length) {
+                Assertions.assertTrue(auth.active.get(), "Alias resolution must preserve authenticated IO");
+                return super.newInputFile(location, length);
+            }
+        };
+        Table cold = new BaseTable(new StaticTableOperations(((BaseTable) table).operations().current(),
+                new IcebergAuthenticatedFileIO(storage, auth)), table.name());
+        IcebergScanPlanProvider scans = provider(cold, cached);
+        ConnectorSession session = new IcebergStatementScopeTest.ScopeSession(1, "manifest-alias",
+                org.apache.doris.connector.spi.ConnectorStatementScope.NONE);
+        Set<String> expected = Set.of("testfs://namespace/data/first.parquet",
+                "testfs://namespace/data/second.parquet");
+        List<ConnectorScanRange> eager = Assertions.assertDoesNotThrow(() -> scans.planScan(session, request()));
+        Assertions.assertEquals(expected, eager.stream()
+                .map(range -> range.getPath().orElseThrow()).collect(Collectors.toSet()));
+        Set<String> streamed = new java.util.HashSet<>();
+        try (ConnectorSplitSource source = scans.streamSplits(session, request())) {
+            while (source.hasNext()) {
+                streamed.add(source.next().getPath().orElseThrow());
+            }
+        }
+        Assertions.assertEquals(expected, streamed);
+    }
+
+    /** Real Hadoop path/qualification semantics with all file bytes kept in the test's temporary directory. */
+    public static class RootedLocalFileSystem extends RawLocalFileSystem {
+        @Override
+        public URI getUri() {
+            return URI.create("testfs://namespace");
+        }
+
+        @Override
+        public String getScheme() {
+            return "testfs";
         }
     }
 

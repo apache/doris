@@ -495,7 +495,11 @@ final class IcebergWriterHelper {
     }
 
     static void validateWriteFormat(Table table) {
-        if (getFormatVersion(table) >= 4) {
+        validateWriteFormat(getFormatVersion(table));
+    }
+
+    static void validateWriteFormat(int formatVersion) {
+        if (formatVersion >= 4) {
             // V4 uses a read-only adapter; raw SDK writes can lose legacy path provenance on a rewrite.
             throw new DorisConnectorException("Doris does not support writes to Iceberg format v4 tables");
         }

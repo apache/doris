@@ -67,6 +67,8 @@ import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -1758,6 +1760,62 @@ public class IcebergConnectorTransactionTest {
             Assertions.assertEquals(0, refreshes.get(), ctx.getWriteOperation() + " opened a transaction");
         }
         Assertions.assertNull(reloadCurrentSnapshot(catalog, id));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"before_commit,4", "staging,4", "cas,4", "before_commit,3", "staging,3", "cas,3"})
+    void distributedRewriteFencesFormatChangesThroughCommitReplay(String phase, int targetVersion) throws Exception {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                "s3://b/db1/t1", props("format-version", "3"));
+        String original = "s3://b/data/original.parquet";
+        String replacement = "s3://b/data/replacement.parquet";
+        table.newFastAppend().appendFile(dataFile(table.spec(), original, 5L)).commit();
+        long snapshot = table.currentSnapshot().snapshotId();
+        Table concurrent = catalog.loadTable(id);
+        AtomicBoolean changed = new AtomicBoolean();
+        Runnable change = () -> {
+            Assertions.assertFalse(changed.getAndSet(true));
+            concurrent.updateProperties().set(TableProperties.FORMAT_VERSION, Integer.toString(targetVersion))
+                    .set("test.concurrent-commit", "true").commit();
+        };
+        TableOperations realOps = ((HasTableOperations) table).operations();
+        Table writeTable = table;
+        if ("staging".equals(phase)) {
+            writeTable = stagingTable(table.name(), new AtomicReference<>(realOps), change);
+        } else if ("cas".equals(phase)) {
+            writeTable = new BaseTable((TableOperations) Proxy.newProxyInstance(TableOperations.class.getClassLoader(),
+                    new Class<?>[] {TableOperations.class}, (proxy, method, args) -> {
+                        if ("commit".equals(method.getName()) && !changed.get()) {
+                            change.run();
+                        }
+                        return invokeUnwrapped(realOps, method, args);
+                    }), table.name());
+        }
+        IcebergConnectorTransaction txn = txnFor(opsReturning(writeTable), new RecordingConnectorContext());
+        // Distributed rewrite intentionally has no schema context; format fencing must be independent of it.
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.addCommitData(commitBytes(dataFileItem(replacement, 5L, 100L)));
+        txn.registerRewriteSourceFiles(Collections.singleton(original));
+        if ("before_commit".equals(phase)) {
+            change.run();
+        }
+        if (targetVersion == 4) {
+            DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+            Assertions.assertTrue(failure.getMessage().contains("format"), failure.getMessage());
+            Assertions.assertEquals(snapshot, reloadCurrentSnapshot(catalog, id).snapshotId());
+            Assertions.assertEquals(Collections.singleton(original), currentDataFiles(catalog.loadTable(id)).stream()
+                    .map(DataFile::location).collect(java.util.stream.Collectors.toSet()));
+        } else {
+            txn.commit();
+            Assertions.assertNotEquals(snapshot, reloadCurrentSnapshot(catalog, id).snapshotId());
+            Assertions.assertEquals(Collections.singleton(replacement), currentDataFiles(catalog.loadTable(id)).stream()
+                    .map(DataFile::location).collect(java.util.stream.Collectors.toSet()));
+        }
+        Assertions.assertTrue(changed.get());
+        Assertions.assertEquals(targetVersion, IcebergWriterHelper.getFormatVersion(catalog.loadTable(id)));
+        Assertions.assertEquals("true", catalog.loadTable(id).properties().get("test.concurrent-commit"));
     }
 
     @Test

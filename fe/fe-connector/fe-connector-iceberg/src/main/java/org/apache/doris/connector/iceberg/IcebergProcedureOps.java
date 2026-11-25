@@ -345,7 +345,7 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
             validate(metadata);
             // A refresh or CAS retry must not let a procedure admitted on V1-V3 publish V4 paths.
             refresh();
-            delegate.commit(base, metadata);
+            IcebergRestSchemaCompatibility.commitWithFormatFence(delegate, base, metadata, admittedFormat);
         }
 
         @Override

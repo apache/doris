@@ -31,6 +31,8 @@ import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.iceberg.MetadataUpdate;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.UpdateRequirement;
 import org.apache.iceberg.rest.RESTSerializers;
 import org.apache.iceberg.rest.requests.CommitTransactionRequest;
@@ -39,10 +41,13 @@ import org.apache.iceberg.rest.requests.UpdateTableRequestParser;
 import org.apache.iceberg.util.JsonUtil;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
-/** Preserves the assigned field ID high-water mark for Iceberg 1.6 REST servers. */
+/** Preserves metadata invariants across Iceberg REST client/server versions. */
 final class IcebergRestSchemaCompatibility {
+    private static final ThreadLocal<WriteFormat> WRITE_FORMAT = new ThreadLocal<>();
+
     private IcebergRestSchemaCompatibility() {
     }
 
@@ -63,7 +68,49 @@ final class IcebergRestSchemaCompatibility {
         return mapper;
     }
 
+    static void commitWithFormatFence(TableOperations operations, TableMetadata base, TableMetadata updated,
+            int admittedFormat) {
+        WriteFormat previous = WRITE_FORMAT.get();
+        // The SDK serializes REST requests synchronously on this committing thread.
+        WRITE_FORMAT.set(new WriteFormat(base.uuid(), admittedFormat));
+        try {
+            operations.commit(base, updated);
+        } finally {
+            if (previous == null) {
+                WRITE_FORMAT.remove();
+            } else {
+                WRITE_FORMAT.set(previous);
+            }
+        }
+    }
+
+    private static UpdateTableRequest withWriteFormat(UpdateTableRequest request) {
+        WriteFormat format = WRITE_FORMAT.get();
+        if (format == null || request.requirements().stream().noneMatch(requirement ->
+                requirement instanceof UpdateRequirement.AssertTableUUID
+                        && ((UpdateRequirement.AssertTableUUID) requirement).uuid().equalsIgnoreCase(format.uuid))) {
+            return request;
+        }
+        List<MetadataUpdate> updates = new ArrayList<>(request.updates().size() + 1);
+        // REST requirements do not fence format. An explicit same-version upgrade is a no-op on that version,
+        // but atomically rejects a server-side upgrade because the format cannot be downgraded.
+        updates.add(new MetadataUpdate.UpgradeFormatVersion(format.version));
+        updates.addAll(request.updates());
+        return UpdateTableRequest.create(request.identifier(), request.requirements(), updates);
+    }
+
+    private static final class WriteFormat {
+        private final String uuid;
+        private final int version;
+
+        private WriteFormat(String uuid, int version) {
+            this.uuid = uuid;
+            this.version = version;
+        }
+    }
+
     private static void writeUpdate(UpdateTableRequest request, JsonGenerator generator) throws IOException {
+        request = withWriteFormat(request);
         List<MetadataUpdate> updates = request.updates();
         boolean addsSchema = updates.stream().anyMatch(update -> update instanceof MetadataUpdate.AddSchema);
         if (!addsSchema) {

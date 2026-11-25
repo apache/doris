@@ -411,7 +411,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         // Ordinary writes also need the refresh/CAS fence: encryption may be enabled after sink planning.
         writeOps = new ValidatingTableOperations(
                 writeOps, writeSchemaContext, requireCurrentPartitionSpec, loaded.name(),
-                boundWriteMetadataIdentity, requiredSnapshotId);
+                boundWriteMetadataIdentity, requiredSnapshotId, realOps.current().formatVersion());
         return loaded instanceof BaseTable
                 ? Transactions.newTransaction(loaded.name(), writeOps, ((BaseTable) loaded).reporter())
                 : Transactions.newTransaction(loaded.name(), writeOps);
@@ -431,6 +431,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
      */
     private static final class ValidatingTableOperations implements TableOperations {
         private final TableOperations delegate;
+        // Distributed rewrite has no schema context; its admitted format must still survive every retry.
+        private final int admittedFormat;
         private final IcebergWriteSchemaContext writeSchemaContext;
         private final boolean requireCurrentPartitionSpec;
         private final String tableName;
@@ -444,19 +446,22 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         private ValidatingTableOperations(TableOperations delegate,
                 IcebergWriteSchemaContext writeSchemaContext,
                 boolean requireCurrentPartitionSpec, String tableName,
-                String boundWriteMetadataIdentity, Long requiredSnapshotId) {
+                String boundWriteMetadataIdentity, Long requiredSnapshotId, int admittedFormat) {
             this.delegate = delegate;
             this.writeSchemaContext = writeSchemaContext;
             this.requireCurrentPartitionSpec = requireCurrentPartitionSpec;
             this.tableName = tableName;
             this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
             this.requiredSnapshotId = requiredSnapshotId;
+            IcebergWriterHelper.validateWriteFormat(admittedFormat);
+            this.admittedFormat = admittedFormat;
         }
 
         @Override
         public TableMetadata current() {
             TableMetadata current = delegate.current();
             IcebergEncryptionRead.checkWrite(current);
+            checkFormat(current);
             return current;
         }
 
@@ -464,6 +469,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         public TableMetadata refresh() {
             TableMetadata refreshed = delegate.refresh();
             IcebergEncryptionRead.checkWrite(refreshed);
+            checkFormat(refreshed);
             checkRequiredSnapshot(refreshed);
             return refreshed;
         }
@@ -472,12 +478,14 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         public void commit(TableMetadata base, TableMetadata metadata) {
             IcebergEncryptionRead.checkWrite(base);
             IcebergEncryptionRead.checkWrite(metadata);
-            // The SDK refreshes on every commit attempt; its CAS rejects concurrent encryption changes.
-            // Keep the stronger published-file identity check only for writers that already require it.
+            checkFormat(base);
+            checkFormat(metadata);
+            // REWRITE needs the final refresh too, even though it has no pinned schema context.
+            TableMetadata refreshedMetadata = Preconditions.checkNotNull(
+                    delegate.refresh(), "Iceberg table %s no longer exists", tableName);
+            IcebergEncryptionRead.checkWrite(refreshedMetadata);
+            checkFormat(refreshedMetadata);
             if (writeSchemaContext != null || boundWriteMetadataIdentity != null || requiredSnapshotId != null) {
-                TableMetadata refreshedMetadata = Preconditions.checkNotNull(
-                        delegate.refresh(), "Iceberg table %s no longer exists", tableName);
-                IcebergEncryptionRead.checkWrite(refreshedMetadata);
                 String metadataFileLocation = Preconditions.checkNotNull(
                         refreshedMetadata.metadataFileLocation(),
                         "Iceberg table %s has no current metadata file", tableName);
@@ -486,6 +494,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 TableMetadata currentMetadata =
                         TableMetadataParser.read(delegate.io(), metadataFileLocation);
                 IcebergEncryptionRead.checkWrite(currentMetadata);
+                checkFormat(currentMetadata);
                 Table currentTable = new BaseTable(
                         new StaticTableOperations(
                                 currentMetadata, delegate.io(), delegate.locationProvider()),
@@ -502,7 +511,14 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 }
                 checkRequiredSnapshot(currentMetadata);
             }
-            delegate.commit(base, metadata);
+            IcebergRestSchemaCompatibility.commitWithFormatFence(delegate, base, metadata, admittedFormat);
+        }
+
+        private void checkFormat(TableMetadata metadata) {
+            if (metadata.formatVersion() != admittedFormat) {
+                throw new DorisConnectorException("Iceberg table format changed during write for " + tableName
+                        + ": admitted " + admittedFormat + ", found " + metadata.formatVersion());
+            }
         }
 
         /** Aborts a retry replay that would apply the delete to a snapshot other than the preflighted one. */
@@ -539,7 +555,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
         @Override
         public TableOperations temp(TableMetadata metadata) {
-            return delegate.temp(metadata);
+            checkFormat(metadata);
+            // Interim snapshots skip final schema/snapshot fences, but must retain the transaction's format.
+            return new ValidatingTableOperations(delegate.temp(metadata), null, false, tableName,
+                    null, null, admittedFormat);
         }
 
         @Override
