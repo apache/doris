@@ -4161,9 +4161,9 @@ public class Env {
         }
 
         if (Config.isCloudMode() && !isIvmMtmv) {
-            olapTable.getEnableDeleteBitmapLockV2().ifPresent(enable ->
-                    sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_DELETE_BITMAP_LOCK_V2)
-                            .append("\" = \"").append(enable).append("\""));
+            olapTable.getDeleteBitmapLockVersion().ifPresent(version ->
+                    sb.append(",\n\"").append(PropertyAnalyzer.DELETE_BITMAP_LOCK_VERSION)
+                            .append("\" = \"").append(version).append("\""));
         }
 
         // enable_unique_key_skip_bitmap, always print this property for merge-on-write unique table

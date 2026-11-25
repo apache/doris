@@ -28,30 +28,30 @@ suite("test_table_delete_bitmap_lock_version", "p0") {
     sql """CREATE TABLE mow_lock_v1_explicit (k INT, v INT)
            UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
            PROPERTIES ("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
-                       "enable_delete_bitmap_lock_v2" = "false")"""
+                       "delete_bitmap_lock_version" = "v1")"""
 
     // The rest of SHOW CREATE can vary with the environment, including the storage vault name.
     assertTrue(sql("SHOW CREATE TABLE mow_lock_v2_default")[0][1]
-            .contains('"enable_delete_bitmap_lock_v2" = "true"'))
+            .contains('"delete_bitmap_lock_version" = "v2"'))
     assertTrue(sql("SHOW CREATE TABLE mow_lock_v1_explicit")[0][1]
-            .contains('"enable_delete_bitmap_lock_v2" = "false"'))
+            .contains('"delete_bitmap_lock_version" = "v1"'))
 
     test {
-        sql """ALTER TABLE mow_lock_v2_default SET ("enable_delete_bitmap_lock_v2" = "false")"""
-        exception "enable_delete_bitmap_lock_v2 can only be specified when creating a table"
+        sql """ALTER TABLE mow_lock_v2_default SET ("delete_bitmap_lock_version" = "v1")"""
+        exception "delete_bitmap_lock_version can only be specified when creating a table"
     }
     test {
         sql """CREATE TABLE mow_lock_bad_value (k INT, v INT)
                UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
                PROPERTIES ("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
-                           "enable_delete_bitmap_lock_v2" = "invalid")"""
-        exception "enable_delete_bitmap_lock_v2 must be true or false"
+                           "delete_bitmap_lock_version" = "invalid")"""
+        exception "delete_bitmap_lock_version must be v1 or v2"
     }
     test {
         sql """CREATE TABLE dup_lock_v2 (k INT, v INT)
                DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
-               PROPERTIES ("replication_num" = "1", "enable_delete_bitmap_lock_v2" = "true")"""
-        exception "enable_delete_bitmap_lock_v2 is only supported for cloud merge-on-write tables"
+               PROPERTIES ("replication_num" = "1", "delete_bitmap_lock_version" = "v2")"""
+        exception "delete_bitmap_lock_version is only supported for cloud merge-on-write tables"
     }
 
     sql "INSERT INTO mow_lock_v2_default VALUES (1, 10), (2, 20)"

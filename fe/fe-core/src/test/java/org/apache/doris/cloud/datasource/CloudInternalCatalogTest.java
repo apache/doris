@@ -162,7 +162,7 @@ public class CloudInternalCatalogTest {
             mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
             for (Optional<Boolean> setting : Arrays.asList(Optional.<Boolean>empty(),
                     Optional.of(false), Optional.of(true))) {
-                setting.ifPresent(table::setEnableDeleteBitmapLockV2);
+                setting.ifPresent(enable -> table.setDeleteBitmapLockVersion(enable ? "v2" : "v1"));
                 Cloud.CreateTabletsRequest.Builder request = Cloud.CreateTabletsRequest.newBuilder()
                         .setDbId(DB_ID)
                         .addTabletMetas(OlapFile.TabletMetaCloudPB.newBuilder().setTabletId(100L))

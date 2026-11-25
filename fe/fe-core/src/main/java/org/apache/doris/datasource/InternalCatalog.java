@@ -184,6 +184,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -2892,15 +2893,17 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 
-        String lockV2Property = properties.remove(PropertyAnalyzer.ENABLE_DELETE_BITMAP_LOCK_V2);
+        String lockVersion = properties.remove(PropertyAnalyzer.DELETE_BITMAP_LOCK_VERSION);
         if (Config.isCloudMode() && enableUniqueKeyMergeOnWrite) {
-            if (lockV2Property != null
-                    && !"true".equalsIgnoreCase(lockV2Property) && !"false".equalsIgnoreCase(lockV2Property)) {
-                throw new DdlException(PropertyAnalyzer.ENABLE_DELETE_BITMAP_LOCK_V2 + " must be true or false");
+            String version = lockVersion == null ? PropertyAnalyzer.DELETE_BITMAP_LOCK_VERSION_V2
+                    : lockVersion.toLowerCase(Locale.ROOT);
+            if (!PropertyAnalyzer.DELETE_BITMAP_LOCK_VERSION_V1.equals(version)
+                    && !PropertyAnalyzer.DELETE_BITMAP_LOCK_VERSION_V2.equals(version)) {
+                throw new DdlException(PropertyAnalyzer.DELETE_BITMAP_LOCK_VERSION + " must be v1 or v2");
             }
-            olapTable.setEnableDeleteBitmapLockV2(lockV2Property == null || Boolean.parseBoolean(lockV2Property));
-        } else if (lockV2Property != null) {
-            throw new DdlException(PropertyAnalyzer.ENABLE_DELETE_BITMAP_LOCK_V2
+            olapTable.setDeleteBitmapLockVersion(version);
+        } else if (lockVersion != null) {
+            throw new DdlException(PropertyAnalyzer.DELETE_BITMAP_LOCK_VERSION
                     + " is only supported for cloud merge-on-write tables");
         }
 
