@@ -41,6 +41,7 @@ import org.apache.doris.proto.Types.PStatus;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStatusCode;
@@ -187,6 +188,25 @@ class FetchRemoteTabletSchemaUtilTest {
                     .thenReturn(ImmutableList.of(initVersion + 1, initVersion, initVersion + 2));
             Assertions.assertEquals(ImmutableList.of(first, last), FetchRemoteTabletSchemaUtil.collectTablets(partitions));
             cloudStatic.verify(() -> CloudPartition.getSnapshotVisibleVersion(cloudPartitions));
+        }
+    }
+
+    @Test
+    void propagatesCloudBatchVersionLookupFailure() {
+        List<CloudPartition> cloudPartitions = ImmutableList.of(Mockito.mock(CloudPartition.class),
+                Mockito.mock(CloudPartition.class));
+        List<PartitionTablets> partitions = ImmutableList.of(
+                new PartitionTablets(cloudPartitions.get(0), ImmutableList.of(tabletWithReplicas(101))),
+                new PartitionTablets(cloudPartitions.get(1), ImmutableList.of(tabletWithReplicas(202))));
+        RpcException unavailable = new RpcException("meta-service", "injected batch version failure");
+        try (MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class);
+                MockedStatic<CloudPartition> cloudStatic = Mockito.mockStatic(CloudPartition.class)) {
+            configStatic.when(Config::isCloudMode).thenReturn(true);
+            cloudStatic.when(() -> CloudPartition.getSnapshotVisibleVersion(cloudPartitions)).thenThrow(unavailable);
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> FetchRemoteTabletSchemaUtil.collectTablets(partitions));
+            Assertions.assertTrue(error.getMessage().contains("could not fetch partition versions"));
+            Assertions.assertSame(unavailable, error.getCause());
         }
     }
 
