@@ -41,8 +41,6 @@ struct AuthInfo {
     std::string passwd;
     std::string cluster;
     std::string user_ip;
-    // -1 as unset
-    int64_t auth_code = -1; // deprecated
     std::string token;
 
     std::string cert_pem;
@@ -59,14 +57,8 @@ struct AuthInfo {
 template <class T>
 void set_request_auth(T* req, const AuthInfo& auth) {
     req->user = auth.user; // always set user, because it may be used by FE
-    // auth code is deprecated and should be removed in 3.1
-    if (auth.auth_code != -1) {
-        // if auth_code is set, no need to set other info
-        req->__set_auth_code(auth.auth_code);
-        // user name and passwd is unused, but they are required field.
-        // so they have to be set.
-        req->passwd = "";
-    } else if (auth.token != "") {
+    // Internal loads, including Routine Load and WAL replay, use the FE token.
+    if (!auth.token.empty()) {
         req->__isset.token = true;
         req->token = auth.token;
     } else {

@@ -60,6 +60,7 @@ import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TListTableStatusResult;
+import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnCommitRequest;
 import org.apache.doris.thrift.TLoadTxnRollbackRequest;
 import org.apache.doris.thrift.TMaxComputeBlockIdRequest;
@@ -891,9 +892,61 @@ public class FrontendServiceImplTest {
     }
 
     @Test
+    public void testLoadPlanningAndPreCommitRejectInvalidToken() {
+        testLoadPlanningAndPreCommitRejectInvalidToken(false);
+        testLoadPlanningAndPreCommitRejectInvalidToken(true);
+    }
+
+    private void testLoadPlanningAndPreCommitRejectInvalidToken(boolean legacyAuthCode) {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+        TLoadTxnBeginRequest begin = new TLoadTxnBeginRequest().setToken("bad-token");
+        TLoadTxnCommitRequest preCommit = new TLoadTxnCommitRequest().setToken("bad-token");
+        TStreamLoadPutRequest plan = new TStreamLoadPutRequest().setToken("bad-token");
+        if (legacyAuthCode) {
+            begin.setAuthCode(0);
+            preCommit.setAuthCode(0);
+            plan.setAuthCode(0);
+        }
+        assertInvalidToken(impl, "loadTxnBeginImpl", begin, "127.0.0.1");
+        assertInvalidToken(impl, "loadTxnPreCommitImpl", preCommit);
+        assertInvalidToken(impl, "httpStreamPutImpl", plan, new TStreamLoadPutResult());
+    }
+
+    @Test
+    public void testLegacyAuthCodeStillRequiresPassword() {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TLoadTxnBeginRequest request = new TLoadTxnBeginRequest()
+                .setUser("root").setPasswd("wrong_password").setUserIp("127.0.0.1")
+                .setDb("test").setTbl("missing_table").setLabel("legacy_auth_code").setAuthCode(0);
+        Assert.assertTrue(impl.loadTxnBegin(request).getStatus().getErrorMsgs().get(0)
+                .contains("Access denied"));
+    }
+
+    @Test
+    public void testInternalTokenWithLegacyAuthCodePassesAuthentication() {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        Mockito.doReturn(true).when(impl).checkToken("internal-token");
+        TLoadTxnBeginRequest request = new TLoadTxnBeginRequest()
+                .setToken("internal-token").setAuthCode(0);
+        // An empty label is rejected only after successful authentication.
+        Assert.assertTrue(impl.loadTxnBegin(request).getStatus().getErrorMsgs().get(0)
+                .contains("empty label"));
+        Mockito.verify(impl).checkToken("internal-token");
+    }
+
+    @Test
     public void testLoadTxnCommitRejectsInvalidToken() {
+        testLoadTxnCommitRejectsInvalidToken(false);
+        testLoadTxnCommitRejectsInvalidToken(true);
+    }
+
+    private void testLoadTxnCommitRejectsInvalidToken(boolean legacyAuthCode) {
         FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
         TLoadTxnCommitRequest request = new TLoadTxnCommitRequest();
+        if (legacyAuthCode) {
+            request.setAuthCode(0);
+        }
         request.setToken("bad-token");
         Mockito.doReturn(false).when(impl).checkToken("bad-token");
 
@@ -902,8 +955,16 @@ public class FrontendServiceImplTest {
 
     @Test
     public void testLoadTxnRollbackRejectsInvalidToken() {
+        testLoadTxnRollbackRejectsInvalidToken(false);
+        testLoadTxnRollbackRejectsInvalidToken(true);
+    }
+
+    private void testLoadTxnRollbackRejectsInvalidToken(boolean legacyAuthCode) {
         FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
         TLoadTxnRollbackRequest request = new TLoadTxnRollbackRequest();
+        if (legacyAuthCode) {
+            request.setAuthCode(0);
+        }
         request.setToken("bad-token");
         Mockito.doReturn(false).when(impl).checkToken("bad-token");
 
@@ -912,6 +973,11 @@ public class FrontendServiceImplTest {
 
     @Test
     public void testCommitTxnRejectsInvalidToken() {
+        testCommitTxnRejectsInvalidToken(false);
+        testCommitTxnRejectsInvalidToken(true);
+    }
+
+    private void testCommitTxnRejectsInvalidToken(boolean legacyAuthCode) {
         FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
         TCommitTxnRequest request = new TCommitTxnRequest();
         request.setUser("root");
@@ -919,6 +985,9 @@ public class FrontendServiceImplTest {
         request.setDb("test");
         request.setTxnId(100L);
         request.setCommitInfos(Collections.emptyList());
+        if (legacyAuthCode) {
+            request.setAuthCode(0);
+        }
         request.setToken("bad-token");
         Mockito.doReturn(false).when(impl).checkToken("bad-token");
 
@@ -932,12 +1001,20 @@ public class FrontendServiceImplTest {
 
     @Test
     public void testRollbackTxnRejectsInvalidToken() {
+        testRollbackTxnRejectsInvalidToken(false);
+        testRollbackTxnRejectsInvalidToken(true);
+    }
+
+    private void testRollbackTxnRejectsInvalidToken(boolean legacyAuthCode) {
         FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
         TRollbackTxnRequest request = new TRollbackTxnRequest();
         request.setUser("root");
         request.setPasswd("");
         request.setDb("test");
         request.setTxnId(100L);
+        if (legacyAuthCode) {
+            request.setAuthCode(0);
+        }
         request.setToken("bad-token");
         Mockito.doReturn(false).when(impl).checkToken("bad-token");
 
@@ -1001,7 +1078,8 @@ public class FrontendServiceImplTest {
                 .setTbl(table)
                 .setUserIp("127.0.0.1")
                 .setLoadId(new TUniqueId(1L, 1L))
-                .setGroupCommitMode("async_mode");
+                .setGroupCommitMode("async_mode")
+                .setAuthCode(0);
     }
 
     private MockedStatic<Env> transactionValidationEnvMock;
@@ -1037,11 +1115,12 @@ public class FrontendServiceImplTest {
         }
     }
 
-    private void assertInvalidToken(FrontendServiceImpl impl, String methodName, Object request) {
+    private void assertInvalidToken(FrontendServiceImpl impl, String methodName, Object... args) {
         try {
-            Method method = FrontendServiceImpl.class.getDeclaredMethod(methodName, request.getClass());
+            Class<?>[] types = Arrays.stream(args).map(Object::getClass).toArray(Class<?>[]::new);
+            Method method = FrontendServiceImpl.class.getDeclaredMethod(methodName, types);
             method.setAccessible(true);
-            method.invoke(impl, request);
+            method.invoke(impl, args);
             Assert.fail("expected invalid token");
         } catch (InvocationTargetException e) {
             Assert.assertTrue(e.getCause() instanceof AuthenticationException);
