@@ -17,7 +17,8 @@
 
 // Frozen index files. The analysis goldens freeze the tokens; these freeze what the production
 // writers make of them, so the paths from the analyzers into the writers are covered too: the SNII
-// file bytes, and for V1 and V2, whose files carry timestamps, the terms with their documents and
+// file bytes, with dense norms and with the form the writer chooses, and for V1 and V2, whose files
+// carry timestamps, the terms with their documents and
 // positions read back, for a string column and, on V2, for an array column, whose elements reach
 // the analyzer another way. The digests are in analysis_golden.txt under "write/".
 
@@ -50,6 +51,7 @@
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/golden_file.h"
 #include "testutil/tmp_file_dirs_util.h"
+#include "util/debug_points.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
 
@@ -74,10 +76,14 @@ constexpr const char* kConfigs[] = {
 struct Format {
     const char* name;
     InvertedIndexStorageFormatPB format;
+    // Keeps the SNII writer to dense norms, the form of every index before the writer chose
+    // between dense and sparse norms; the "snii" digests were frozen then.
+    bool dense_norms = false;
 };
 
 constexpr Format kFormats[] = {
-        {.name = "snii", .format = InvertedIndexStorageFormatPB::SNII},
+        {.name = "snii", .format = InvertedIndexStorageFormatPB::SNII, .dense_norms = true},
+        {.name = "snii-smaller-norms", .format = InvertedIndexStorageFormatPB::SNII},
         {.name = "v1", .format = InvertedIndexStorageFormatPB::V1},
         {.name = "v2", .format = InvertedIndexStorageFormatPB::V2},
 };
@@ -207,6 +213,22 @@ ArrayRows array_rows(const std::vector<std::vector<std::string>>& batches) {
         }
     }
     return rows;
+}
+
+// Writes the rows in `format`, with the SNII writer kept to dense norms when the format asks.
+std::string write_format(const Format& format, const std::string& name, const TabletIndex& meta,
+                         const std::vector<std::vector<std::string>>& batches) {
+    if (!format.dense_norms) {
+        return write_index(name, format.format, meta, batches);
+    }
+    const bool debug_points_were_enabled = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->clear();
+    DebugPoints::instance()->add("LogicalIndexWriter::build_norms_section.dense_norms");
+    std::string prefix = write_index(name, format.format, meta, batches);
+    DebugPoints::instance()->clear();
+    config::enable_debug_points = debug_points_were_enabled;
+    return prefix;
 }
 
 // Writes the rows into the V2 index of an array column; returns the index path prefix.
@@ -344,9 +366,10 @@ TEST_F(AnalysisWriteGolden, MatchesTheFrozenDigests) {
         for (const Format& format : kFormats) {
             const std::string key = std::string(kWritePrefix) + format.name + "/" + config->name;
             const std::string prefix =
-                    write_index(std::to_string(&format - kFormats) + "_" +
-                                        std::to_string(config - _configs.begin()),
-                                format.format, meta, batches);
+                    write_format(format,
+                                 std::to_string(&format - kFormats) + "_" +
+                                         std::to_string(config - _configs.begin()),
+                                 meta, batches);
             const WriteDigest digest = format.format == InvertedIndexStorageFormatPB::SNII
                                                ? snii_digest(prefix)
                                                : clucene_digest(prefix, format.format, meta);
