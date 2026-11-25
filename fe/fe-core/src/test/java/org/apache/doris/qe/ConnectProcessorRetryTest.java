@@ -168,6 +168,17 @@ public class ConnectProcessorRetryTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testAuditInsertMaskingVisitsPrefixCte() {
+        String sql = "WITH items AS (SELECT * FROM S3('uri'='s3://fixture/items.parquet',"
+                + " 'format'='parquet', 's3.secret_key'='synthetic-item-key'))"
+                + " INSERT INTO sample_db.items SELECT * FROM items";
+        String masked = NeedAuditEncryption.maskSqlForAudit(sql);
+        Assertions.assertTrue(masked.contains("INSERT INTO sample_db.items"), masked);
+        Assertions.assertTrue(masked.contains("*XXX"), masked);
+        Assertions.assertFalse(masked.contains("synthetic-item-key"), masked);
+    }
+
     // tryRetryOriginalSql tests
     @Test
     public void testTryRetryOriginalSqlRetryEnabledCorrectOriginStmt() {
