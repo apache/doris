@@ -74,6 +74,20 @@ class InternalSchemaInitializerTest {
         Assertions.assertEquals("key2", modifyColumnOp.getColumnDef().translateToCatalogStyle().getName());
         Assertions.assertEquals(StatisticConstants.MAX_NAME_LEN, modifyColumnOp.getColumnDef().translateToCatalogStyle().getType().getLength());
         Assertions.assertTrue(modifyColumnOp.getColumnDef().translateToCatalogStyle().isAllowNull());
+
+        OlapTable partStatsTable = Mockito.mock(OlapTable.class);
+        Mockito.when(partStatsTable.getName()).thenReturn(StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
+        List<Column> legacyPartSchema = InternalSchema.PARTITION_STATS_SCHEMA.stream()
+                .filter(def -> !"unseen_ndv".equals(def.getName()))
+                .map(def -> new Column(def.getName(), def.getType(), false, null, def.isAllowNull(), null, ""))
+                .collect(Collectors.toList());
+        Mockito.when(partStatsTable.getBaseSchema()).thenReturn(legacyPartSchema);
+        Mockito.when(partStatsTable.getFullSchema()).thenReturn(legacyPartSchema);
+        List<AlterTableOp> partOps = initializer.getModifyColumnOp(partStatsTable);
+        Assertions.assertEquals(1, partOps.size());
+        AddColumnOp addUnseenNdv = (AddColumnOp) partOps.get(0);
+        Assertions.assertEquals("unseen_ndv", addUnseenNdv.getColumnDef().getName());
+        Assertions.assertTrue(addUnseenNdv.getColumnDef().isNullable());
     }
 
     @Test

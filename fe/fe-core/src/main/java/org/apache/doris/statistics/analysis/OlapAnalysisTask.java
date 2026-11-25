@@ -88,6 +88,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     // Assigned only to table-sample tasks when the job is constructed.
     ColumnMinMaxBatchCollector.Batch minMaxBatch;
     ColumnSampleBatchCollector.Batch sampleBatch;
+    PartitionSampleBatchCollector.Batch partitionSampleBatch;
 
     private boolean fullScanOfNonNullUniqueKey;
     // Set only for a logical sample returning raw moments. A census follows freezeResultCount's census path.
@@ -103,8 +104,24 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         super(info);
     }
 
+    boolean usesPartitionTable() {
+        return (StatisticsUtil.enablePartitionAnalyze() || (info != null && info.partitionOnly))
+                && tbl instanceof OlapTable && tbl.isPartitionedTable();
+    }
+
     public void doExecute() throws Exception {
         if (killed) {
+            return;
+        }
+        if (usesPartitionTable()) {
+            logicalSampleProbability = 0;
+            logicalSampleDomainRate = 1.0;
+            fullScanOfNonNullUniqueKey = false;
+            if (info.jobType == AnalysisInfo.JobType.SYSTEM) {
+                job.requireIndexReports((OlapTable) tbl, targetIndexId());
+            }
+            doPartitionTable();
+            LOG.info("AnalysisTask Done {}", this.toString());
             return;
         }
         if (tableSample != null && info.rowCount == 0) {
@@ -640,7 +657,220 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (sampleBatch != null) {
             sampleBatch.onTaskCancelled();
         }
+        if (partitionSampleBatch != null) {
+            partitionSampleBatch.onTaskCancelled();
+        }
         super.cancelQueries();
+    }
+
+    String partitionFromPrefix(String partitionName) {
+        String indexClause = getIndex();
+        String base = indexClause.isEmpty() ? qualifiedTableName() : (qualifiedTableName() + " " + indexClause);
+        return base + " " + getPartitionInfo(partitionName);
+    }
+
+    @Override
+    protected long partitionRowCount(Partition partition) {
+        if (job != null && tbl instanceof OlapTable olapTable) {
+            long rows = job.reportedPartitionIndexRows(olapTable, targetIndexId(), partition.getId());
+            if (rows >= 0) {
+                return rows;
+            }
+        }
+        return super.partitionRowCount(partition);
+    }
+
+    @Override
+    protected boolean shouldSamplePartition(Partition partition, long partitionRowCount,
+            long hugePartitionThreshold) {
+        boolean requested = tableSample != null
+                || (AnalysisInfo.JobType.SYSTEM.equals(info.jobType) && partitionRowCount > hugePartitionThreshold);
+        if (!requested || !(tbl instanceof OlapTable table)) {
+            return false;
+        }
+        IndexSamplingSnapshot.ReportState state = IndexSamplingSnapshot.reportState(
+                table, targetIndexId(), Set.of(partition.getId()));
+        if (state == IndexSamplingSnapshot.ReportState.EMPTY) {
+            return false;
+        }
+        if (state == IndexSamplingSnapshot.ReportState.PENDING || partitionRowCount <= 0) {
+            throw new AnalyzeSkipException("Written partition " + partition.getName()
+                    + " has no positive index row count; deferring statistics");
+        }
+        return true;
+    }
+
+    @Override
+    protected boolean samplePartition(Partition partition, long partitionRowCount,
+            long totalSampledPartitionRows, int sampledPartitionCount) throws Exception {
+        OlapTable table = (OlapTable) tbl;
+        long indexId = targetIndexId();
+        KeysType keys;
+        boolean mow;
+        boolean hasRowTtl;
+        boolean uniqueAcrossTablets;
+        ColumnPhysicalLayout layout;
+        List<String> keyColumnNames;
+        table.readLock();
+        try {
+            MaterializedIndexMeta meta = table.getIndexMetaByIndexId(indexId);
+            Column physical = meta == null ? null : resolveColumn(meta, info.colName);
+            if (physical == null) {
+                throw new AnalyzeSkipException("Statistics target column or index was removed: " + info.colName);
+            }
+            col = physical;
+            keys = meta.getKeysType();
+            mow = table.getEnableUniqueKeyMergeOnWrite();
+            hasRowTtl = table.hasRowTtl();
+            uniqueAcrossTablets = indexId == table.getBaseIndexId()
+                    || FixedBlockSampleSpec.guaranteesGlobalKeyUniqueness(table, meta, indexId);
+            layout = columnLayout(table, meta, physical);
+            keyColumnNames = keys == KeysType.AGG_KEYS
+                    ? meta.getSchema().stream().filter(Column::isKey).map(Column::getName).toList()
+                    : List.of();
+        } finally {
+            table.readUnlock();
+        }
+        TabletSamplingMethod method = choosePartitionSamplingMethod(
+                table, partition.getId(), keys, mow, partitionRowCount);
+        if (method == null) {
+            if (tableSample == null && AnalysisInfo.JobType.SYSTEM.equals(info.jobType)) {
+                return false;
+            }
+            throw new AnalyzeSkipException(
+                    "Partition-scoped block sampling is not supported for column " + info.colName);
+        }
+        long targetRows = partitionSampleTargetRows(partitionRowCount, totalSampledPartitionRows);
+        boolean logicalSample = keys == KeysType.AGG_KEYS || keys == KeysType.UNIQUE_KEYS || hasRowTtl;
+        if (partitionSampleBatch != null) {
+            checkMinMaxCancelled();
+            try {
+                if (partitionSampleBatch.collectPartition(
+                        this, table, indexId, partition, method, partitionRowCount, targetRows, logicalSample)) {
+                    return true;
+                }
+            } catch (InterruptedException e) {
+                Thread.interrupted();
+                try {
+                    checkMinMaxCancelled();
+                    cancel();
+                } finally {
+                    Thread.currentThread().interrupt();
+                }
+                throw new CancellationException("Interrupted collecting batched partition sample statistics");
+            }
+        }
+        sampleSinglePartition(table, indexId, partition, method, layout, uniqueAcrossTablets,
+                keyColumnNames, partitionRowCount, targetRows, logicalSample);
+        return true;
+    }
+
+    private long partitionSampleTargetRows(long partitionRowCount, long totalSampledPartitionRows) {
+        if (tableSample != null) {
+            if (tableSample.isPercent()) {
+                return Math.max(1L, (long) (partitionRowCount * (tableSample.getSampleValue() / 100.0)));
+            }
+            long budget = Math.max(1L, tableSample.getSampleValue());
+            return Math.max(1L, Math.round((double) budget * partitionRowCount
+                    / Math.max(1L, totalSampledPartitionRows)));
+        }
+        long budget = Math.max(1L, StatisticsUtil.getHugeTableSampleRows());
+        return Math.max(1L, Math.round((double) budget * partitionRowCount
+                / Math.max(1L, totalSampledPartitionRows)));
+    }
+
+    private TabletSamplingMethod choosePartitionSamplingMethod(OlapTable table, long partitionId,
+            KeysType keys, boolean mow, long rows) {
+        if (!StatisticsUtil.enableFixedBlockStatsSampling() || rows <= 0) {
+            return null;
+        }
+        long indexId = targetIndexId();
+        IndexSamplingSnapshot frame = job.partitionSamplingFrame(table, indexId, partitionId);
+        if ((keys == KeysType.DUP_KEYS || keys == KeysType.UNIQUE_KEYS && mow)
+                && frame.allCandidatesSupportFixedBlock()) {
+            return new HierarchicalFixedBudgetTabletSamplingMethod();
+        }
+        boolean supportsKeyRange;
+        boolean crossTabletDuplicates;
+        boolean supportsRandomAgg;
+        table.readLock();
+        try {
+            supportsKeyRange = FixedBlockSampleSpec.supportsKeyRange(table, indexId);
+            MaterializedIndexMeta meta = table.getIndexMetaByIndexId(indexId);
+            crossTabletDuplicates = meta == null || !FixedBlockSampleSpec.routesIndexByKeys(table, meta);
+            supportsRandomAgg = FixedBlockSampleSpec.supportsRandomAgg(table, indexId);
+        } finally {
+            table.readUnlock();
+        }
+        if ((keys == KeysType.AGG_KEYS || keys == KeysType.UNIQUE_KEYS && !mow)
+                && supportsKeyRange && frame.allCandidatesSupport(true)) {
+            return new HierarchicalFixedBudgetTabletSamplingMethod(Mode.KEY_RANGE_BLOCK, crossTabletDuplicates);
+        }
+        if (keys == KeysType.AGG_KEYS && supportsRandomAgg) {
+            return new RandomAggTabletSamplingMethod(frame.allCandidatesSupportFixedBlock(),
+                    frame.allCandidatesSupport(true) && frame.allCandidatesSupportSharedKeyRange());
+        }
+        return null;
+    }
+
+    private void sampleSinglePartition(OlapTable table, long indexId, Partition partition,
+            TabletSamplingMethod method, ColumnPhysicalLayout layout, boolean uniqueAcrossTablets,
+            List<String> keyColumnNames, long partRows, long targetSampleRows, boolean logicalSample)
+            throws Exception {
+        boolean singleUnique = layout.singleUniqueKey() && uniqueAcrossTablets;
+        boolean singleNonNullUnique = singleUnique && !col.isAllowNull();
+        String partName = partition.getName();
+        long partId = partition.getId();
+        String baseFromPrefix = partitionFromPrefix(partName);
+        TableStatisticsSqlBuilder.BatchedPartitionColumnSpec measureSpec =
+                new TableStatisticsSqlBuilder.BatchedPartitionColumnSpec(
+                        0, StatisticsUtil.escapeSQL(info.colName), SqlUtils.getIdentSql(col.getName()),
+                        col.getType().isStringType(), col.getType().getSlotSize(), singleNonNullUnique,
+                        0.00000000000000001);
+        int baseSqlBytes = TableStatisticsSqlBuilder.batchedPartitionSampleInsertSql(
+                baseFromPrefix, catalog.getId(), db.getId(), tbl.getId(), info.indexId,
+                StatisticsUtil.escapeSQL(partName), partId, false, logicalSample,
+                0.00000000000000001, Math.max(1L, partRows), List.of(measureSpec))
+                .getBytes(StandardCharsets.UTF_8).length;
+        int whereReserve = method instanceof RandomAggTabletSamplingMethod
+                ? SampledScanSqlRenderer.renderKeyHashWhere(
+                        new KeyHashScanClause(Optional.empty(), Long.MAX_VALUE, 1), keyColumnNames)
+                        .getBytes(StandardCharsets.UTF_8).length
+                : 0;
+        int clauseBytes = Math.max(256, MAX_INTERNAL_SQL_BYTES - baseSqlBytes - whereReserve - 64);
+        SamplingBudget budget = new SamplingBudget(targetSampleRows,
+                StatisticsUtil.getStatisticsSampleUnitRows(),
+                StatisticsUtil.getStatisticsMaxSampleTablets(), 4, clauseBytes);
+        TabletSamplingScope scope = job.partitionSamplingFrame(table, indexId, partId).scope();
+        long seedSeek = tableSample == null ? -1L : tableSample.getSeek();
+        TabletSamplingRequest request = new TabletSamplingRequest(scope, layout, budget,
+                Math.max(1L, partRows), job.samplingSeed(seedSeek) ^ partId);
+        TabletSampleSpec spec = method.build(request);
+        boolean census = spec.scanClause() instanceof FullScanClause;
+        EqualProbabilitySamplingSemantics sem = census ? null
+                : (EqualProbabilitySamplingSemantics) spec.semantics();
+        String sampleHints = census ? ""
+                : SampledScanSqlRenderer.render(spec.scanClause(), MAX_INTERNAL_SQL_BYTES);
+        String sampleWhere = census ? ""
+                : SampledScanSqlRenderer.renderKeyHashWhere(spec.scanClause(), keyColumnNames);
+        String fullFrom = baseFromPrefix
+                + (sampleHints.isEmpty() ? "" : " " + sampleHints)
+                + sampleWhere;
+        double domRate = census ? 1.0 : subdomainRate(layout, singleUnique, sem);
+        TableStatisticsSqlBuilder.BatchedPartitionColumnSpec finalSpec =
+                new TableStatisticsSqlBuilder.BatchedPartitionColumnSpec(
+                        0, StatisticsUtil.escapeSQL(info.colName), SqlUtils.getIdentSql(col.getName()),
+                        col.getType().isStringType(), col.getType().getSlotSize(), singleNonNullUnique,
+                        domRate);
+        String sql = SampledScanSqlRenderer.checked(
+                TableStatisticsSqlBuilder.batchedPartitionSampleInsertSql(
+                        fullFrom, catalog.getId(), db.getId(), tbl.getId(), info.indexId,
+                        StatisticsUtil.escapeSQL(partName), partId, census, logicalSample && !census,
+                        census ? 1.0 : sem.probability(), Math.max(1L, partRows), List.of(finalSpec)),
+                MAX_INTERNAL_SQL_BYTES);
+        runInsert(sql);
+        Env.getServingEnv().getAnalysisManager().updatePartitionStatsCache(
+                info.catalogId, info.dbId, info.tblId, info.indexId, Set.of(partName), info.colName);
     }
 
     protected ResultRow collectMinMax() {

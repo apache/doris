@@ -184,6 +184,12 @@ public class Hll128 {
         return type;
     }
 
+    public Hll128 copy() {
+        Hll128 copy = new Hll128();
+        copy.merge(this);
+        return copy;
+    }
+
     public static Hll128 fromHll(Hll hll) {
         Hll128 hll128 = new Hll128();
         if (hll == null || hll.getType() == Hll.HLL_DATA_EMPTY) {

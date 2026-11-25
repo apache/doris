@@ -966,8 +966,10 @@ public class StatisticsUtil {
         long hugePartitionLowerBoundRows = getHugePartitionLowerBoundRows();
         for (Partition p : partitions) {
             long id = p.getId();
-            // Skip partition that is too large.
-            if (p.getBaseIndex().getRowCount() > hugePartitionLowerBoundRows) {
+            // Only skip huge partitions when fixed-block sampling is disabled; with fixed-block
+            // sampling enabled, doPartitionTable samples huge partitions in bounded I/O.
+            if (!enableFixedBlockStatsSampling()
+                    && p.getBaseIndex().getRowCount() > hugePartitionLowerBoundRows) {
                 continue;
             }
             // New partition added.

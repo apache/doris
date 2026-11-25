@@ -353,7 +353,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
             String indexName = indexId == -1 ? tableIf.getName() : ((OlapTable) tableIf).getIndexNameById(indexId);
             row.add(indexName); // index_name.
             row.add(String.valueOf(value.count)); // count
-            row.add(String.valueOf(value.ndv.estimateCardinality())); // ndv
+            row.add(String.valueOf(value.effectiveNdv())); // ndv
             row.add(String.valueOf(value.numNulls)); // num_null
             row.add(String.valueOf(value.minExpr == null ? "N/A"
                     : value.minExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))); // min

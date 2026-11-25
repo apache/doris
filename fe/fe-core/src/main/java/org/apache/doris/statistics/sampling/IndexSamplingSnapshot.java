@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AnalysisException;
@@ -41,7 +42,11 @@ import java.util.Set;
 /** A job-local sampling frame. Imputed counts have no path back to the catalog row count. */
 public record IndexSamplingSnapshot(TabletSamplingScope scope, Set<Long> replicaBackends) {
     public static IndexSamplingSnapshot read(OlapTable table, long indexId) {
-        List<Partition> parts = snapshotPartitions(table);
+        return read(table, indexId, null);
+    }
+
+    public static IndexSamplingSnapshot read(OlapTable table, long indexId, Set<Long> partitionIds) {
+        List<Partition> parts = snapshotPartitions(table, partitionIds);
         List<Long> versions = versions(parts);
         List<PartitionSampleMeta> raw = new ArrayList<>();
         Set<Long> backends = new HashSet<>();
@@ -74,7 +79,12 @@ public record IndexSamplingSnapshot(TabletSamplingScope scope, Set<Long> replica
     }
 
     public static boolean hasWrittenPartition(OlapTable table) {
-        return versions(snapshotPartitions(table)).stream()
+        return versions(snapshotPartitions(table, null)).stream()
+                .anyMatch(v -> v > Partition.PARTITION_INIT_VERSION);
+    }
+
+    public static boolean hasWrittenPartition(OlapTable table, Set<Long> partitionIds) {
+        return versions(snapshotPartitions(table, partitionIds)).stream()
                 .anyMatch(v -> v > Partition.PARTITION_INIT_VERSION);
     }
 
@@ -82,7 +92,11 @@ public record IndexSamplingSnapshot(TabletSamplingScope scope, Set<Long> replica
 
     /** Stop after the first positive report. The collector only needs readiness, not a filled frame. */
     public static ReportState reportState(OlapTable table, long indexId) {
-        List<Partition> parts = snapshotPartitions(table);
+        return reportState(table, indexId, null);
+    }
+
+    public static ReportState reportState(OlapTable table, long indexId, Set<Long> partitionIds) {
+        List<Partition> parts = snapshotPartitions(table, partitionIds);
         List<Long> versions = versions(parts);
         table.readLock();
         try {
@@ -104,10 +118,27 @@ public record IndexSamplingSnapshot(TabletSamplingScope scope, Set<Long> replica
         }
     }
 
-    private static List<Partition> snapshotPartitions(OlapTable table) {
+    private static List<Partition> snapshotPartitions(OlapTable table, Set<Long> partitionIds) {
         table.readLock();
         try {
-            return List.copyOf(table.getPartitions());
+            if (partitionIds == null || partitionIds.isEmpty()) {
+                return List.copyOf(table.getPartitions());
+            }
+            List<Partition> selected = new ArrayList<>(partitionIds.size());
+            for (long partId : partitionIds) {
+                Partition part = table.getPartition(partId);
+                if (part != null) {
+                    selected.add(part);
+                } else {
+                    for (Partition candidate : table.getPartitions()) {
+                        if (candidate.getId() == partId) {
+                            selected.add(candidate);
+                            break;
+                        }
+                    }
+                }
+            }
+            return List.copyOf(selected);
         } finally {
             table.readUnlock();
         }
@@ -117,6 +148,49 @@ public record IndexSamplingSnapshot(TabletSamplingScope scope, Set<Long> replica
         table.readLock();
         try {
             return table.getRowCountForIndex(indexId, strict);
+        } finally {
+            table.readUnlock();
+        }
+    }
+
+    public static long reportedPartitionIndexRows(OlapTable table, long indexId, long partitionId) {
+        List<Partition> parts = snapshotPartitions(table, Set.of(partitionId));
+        if (parts.isEmpty()) {
+            return 0L;
+        }
+        long version = versions(parts).get(0);
+        if (version == Partition.PARTITION_INIT_VERSION) {
+            return 0L;
+        }
+        table.readLock();
+        try {
+            Partition part = parts.get(0);
+            MaterializedIndex index = part.getIndex(indexId);
+            if (index == null) {
+                return TableIf.UNKNOWN_ROW_COUNT;
+            }
+            long reported = index.getRowCount();
+            if (reported > 0) {
+                return reported;
+            }
+            long sum = 0L;
+            int known = 0;
+            List<Tablet> tablets = index.getTablets();
+            for (Tablet tablet : tablets) {
+                long rows = tablet.getMinReplicaRowCount(version);
+                if (rows > 0) {
+                    sum = Math.addExact(sum, rows);
+                    known++;
+                }
+            }
+            if (known == 0) {
+                return TableIf.UNKNOWN_ROW_COUNT;
+            }
+            if (known == tablets.size()) {
+                return sum;
+            }
+            long mean = 1L + (sum - 1L) / known;
+            return Math.addExact(sum, Math.multiplyExact((long) (tablets.size() - known), mean));
         } finally {
             table.readUnlock();
         }

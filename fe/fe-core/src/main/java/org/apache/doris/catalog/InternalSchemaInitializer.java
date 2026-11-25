@@ -114,9 +114,15 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     public void modifyColumnStatsTblSchema() {
+        modifyStatsTblSchema(StatisticConstants.TABLE_STATISTIC_TBL_NAME);
+        modifyStatsTblSchema(StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
+        StatsTableSchemaValid = true;
+    }
+
+    private void modifyStatsTblSchema(String tblName) {
         while (true) {
             try {
-                Table table = findStatsTable();
+                Table table = findStatsTable(tblName);
                 if (table == null) {
                     break;
                 }
@@ -128,7 +134,7 @@ public class InternalSchemaInitializer extends Thread {
                     table.writeUnlock();
                 }
             } catch (Throwable t) {
-                LOG.warn("Failed to do schema change for stats table. Try again later.", t);
+                LOG.warn("Failed to do schema change for stats table {}. Try again later.", tblName, t);
             }
             try {
                 Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
@@ -136,10 +142,13 @@ public class InternalSchemaInitializer extends Thread {
                 // IGNORE
             }
         }
-        StatsTableSchemaValid = true;
     }
 
     public Table findStatsTable() {
+        return findStatsTable(StatisticConstants.TABLE_STATISTIC_TBL_NAME);
+    }
+
+    public Table findStatsTable(String tblName) {
         // 1. check database exist
         Optional<Database> dbOpt = Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
         if (!dbOpt.isPresent()) {
@@ -148,7 +157,7 @@ public class InternalSchemaInitializer extends Thread {
 
         // 2. check table exist
         Database db = dbOpt.get();
-        Optional<Table> tableOp = db.getTable(StatisticConstants.TABLE_STATISTIC_TBL_NAME);
+        Optional<Table> tableOp = db.getTable(tblName);
         return tableOp.orElse(null);
     }
 
@@ -160,7 +169,9 @@ public class InternalSchemaInitializer extends Thread {
                     StatisticConstants.DB_NAME,
                     table.getName());
             AlterTableCommand alterTableCommand = new AlterTableCommand(tableNameInfo, ops);
-            Env.getCurrentEnv().alterTable(alterTableCommand);
+            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+                Env.getCurrentEnv().alterTable(alterTableCommand);
+            }
         }
     }
 
@@ -174,12 +185,15 @@ public class InternalSchemaInitializer extends Thread {
         Set<String> clusterKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         boolean isEnableMergeOnWrite = ((OlapTable) table).getEnableUniqueKeyMergeOnWrite();
+        List<ColumnDef> expectedSchema = StatisticConstants.PARTITION_STATISTIC_TBL_NAME.equals(table.getName())
+                ? InternalSchema.PARTITION_STATS_SCHEMA
+                : InternalSchema.TABLE_STATS_SCHEMA;
 
-        if (!currentColumnNames.containsAll(InternalSchema.TABLE_STATS_SCHEMA.stream()
+        if (!currentColumnNames.containsAll(expectedSchema.stream()
                 .map(ColumnDef::getName)
                 .map(String::toLowerCase)
                 .collect(Collectors.toList()))) {
-            for (ColumnDef expected : InternalSchema.TABLE_STATS_SCHEMA) {
+            for (ColumnDef expected : expectedSchema) {
                 if (!currentColumnNames.contains(expected.getName().toLowerCase())) {
                     ColumnDefinition columnDefinition = expected.translateToColumnDefinition();
 
@@ -570,6 +584,16 @@ public class InternalSchemaInitializer extends Thread {
         optionalTable = db.getTable(StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
         if (!optionalTable.isPresent()) {
             return false;
+        }
+        Table partStatsTbl = optionalTable.get();
+        partStatsTbl.writeLock();
+        try {
+            doSchemaChange(partStatsTbl);
+        } catch (Exception e) {
+            LOG.warn("Failed to alter partition statistics table schema", e);
+            return false;
+        } finally {
+            partStatsTbl.writeUnlock();
         }
 
         // 3. check audit table

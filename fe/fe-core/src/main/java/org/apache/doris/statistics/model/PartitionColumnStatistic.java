@@ -47,6 +47,7 @@ public class PartitionColumnStatistic {
 
     public final double count;
     public final Hll128 ndv;
+    public final double unseenNdv;
     public final double numNulls;
     public final double dataSize;
     public final double avgSizeByte;
@@ -61,8 +62,17 @@ public class PartitionColumnStatistic {
                            double numNulls, double dataSize, double minValue, double maxValue,
                            LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown,
                            String updatedTime) {
+        this(count, ndv, 0.0, avgSizeByte, numNulls, dataSize, minValue, maxValue,
+                minExpr, maxExpr, isUnKnown, updatedTime);
+    }
+
+    public PartitionColumnStatistic(double count, Hll128 ndv, double unseenNdv, double avgSizeByte,
+                           double numNulls, double dataSize, double minValue, double maxValue,
+                           LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown,
+                           String updatedTime) {
         this.count = count;
         this.ndv = ndv;
+        this.unseenNdv = Math.max(0.0, unseenNdv);
         this.avgSizeByte = avgSizeByte;
         this.numNulls = numNulls;
         this.dataSize = dataSize;
@@ -72,6 +82,15 @@ public class PartitionColumnStatistic {
         this.maxExpr = maxExpr;
         this.isUnKnown = isUnKnown;
         this.updatedTime = updatedTime;
+    }
+
+    public long effectiveNdv() {
+        long hllCard = ndv == null ? 0L : ndv.estimateCardinality();
+        if (unseenNdv <= 0.0) {
+            return hllCard;
+        }
+        long maxNonNull = Math.max(0L, Math.round(count - numNulls));
+        return Math.min(maxNonNull, hllCard + Math.round(unseenNdv));
     }
 
     public static PartitionColumnStatistic fromResultRow(List<ResultRow> resultRows) throws IOException {
@@ -149,6 +168,12 @@ public class PartitionColumnStatistic {
             partitionStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
         }
         partitionStatisticBuilder.setUpdatedTime(row.get(12));
+        if (row.getValues().size() > 13) {
+            String unseen = row.getWithDefault(13, "0");
+            if (!"NULL".equalsIgnoreCase(unseen)) {
+                partitionStatisticBuilder.setUnseenNdv(Double.parseDouble(unseen));
+            }
+        }
         return partitionStatisticBuilder.build();
     }
 }

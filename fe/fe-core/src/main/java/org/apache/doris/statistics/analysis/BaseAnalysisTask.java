@@ -233,7 +233,8 @@ public abstract class BaseAnalysisTask {
             + "SUBSTRING(CAST(MIN(${colName}) AS STRING), 1, 1024) AS `min`, "
             + "SUBSTRING(CAST(MAX(${colName}) AS STRING), 1, 1024) AS `max`, "
             + "${dataSizeFunction} AS `data_size`, "
-            + "NOW() AS `update_time` "
+            + "NOW() AS `update_time`, "
+            + "0 AS `unseen_ndv` "
             + "FROM ${catalogName}.${dbName}.${tblName} ${index} ${partitionInfo}";
 
     protected static final String MERGE_PARTITION_TEMPLATE =
@@ -245,7 +246,9 @@ public abstract class BaseAnalysisTask {
             + "'${colId}' AS `col_id`, "
             + "NULL AS `part_id`, "
             + "SUM(count) AS `row_count`, "
-            + "HLL_CARDINALITY(HLL_UNION(ndv)) AS `ndv`, "
+            + "IF(IFNULL(SUM(unseen_ndv), 0) = 0, HLL_CARDINALITY(HLL_UNION(ndv)), "
+            + "LEAST(GREATEST(0, IFNULL(SUM(count) - SUM(null_count), 0)), "
+            + "HLL_CARDINALITY(HLL_UNION(ndv)) + IFNULL(SUM(unseen_ndv), 0))) AS `ndv`, "
             + "SUM(null_count) AS `null_count`, "
             + "MIN(${min}) AS `min`, "
             + "MAX(${max}) AS `max`, "
@@ -530,17 +533,41 @@ public abstract class BaseAnalysisTask {
         ColStatsMeta columnStatsMeta = tableStatsStatus == null
                 ? null : tableStatsStatus.findColumnStatsMeta(idxName, col.getName());
         boolean hasHughPartition = false;
+        boolean sampledAnyPartition = false;
         long hugePartitionThreshold = StatisticsUtil.getHugePartitionLowerBoundRows();
         int partitionBatchSize = StatisticsUtil.getPartitionAnalyzeBatchSize();
+        long totalSampledPartitionRows = 0L;
+        int sampledPartitionCount = 0;
+        for (String part : partitionNames) {
+            Partition partition = tbl.getPartition(part);
+            if (partition == null || shouldSkipUnchangedPartition(partition, tableStatsStatus, columnStatsMeta)) {
+                continue;
+            }
+            long partitionRowCount = partitionRowCount(partition);
+            if (shouldSamplePartition(partition, partitionRowCount, hugePartitionThreshold)) {
+                totalSampledPartitionRows += Math.max(0L, partitionRowCount);
+                sampledPartitionCount++;
+            }
+        }
         for (String part : partitionNames) {
             // External table partition is null.
             Partition partition = tbl.getPartition(part);
+            long partitionRowCount = 0L;
             if (partition != null) {
-                // For huge partition, skip analyze it.
-                long partitionRowCount = partition.getBaseIndex().getRowCount();
-                if (partitionRowCount > hugePartitionThreshold && AnalysisInfo.JobType.SYSTEM.equals(info.jobType)) {
+                partitionRowCount = partitionRowCount(partition);
+                boolean unchanged = shouldSkipUnchangedPartition(partition, tableStatsStatus, columnStatsMeta);
+                if (!unchanged && shouldSamplePartition(partition, partitionRowCount, hugePartitionThreshold)) {
+                    if (samplePartition(partition, partitionRowCount,
+                            totalSampledPartitionRows, sampledPartitionCount)) {
+                        sampledAnyPartition = true;
+                        if (!killed) {
+                            jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
+                        }
+                        continue;
+                    }
                     hasHughPartition = true;
-                    // -1 means it's skipped because this partition is too large.
+                    // -1 means it's skipped because this partition is too large and fixed-block sampling
+                    // is unavailable.
                     // Skip the write when the task is cancelled: the job may already be in a
                     // terminal state and have cleared the shared map, so a late write would
                     // re-populate it and keep the memory alive.
@@ -550,29 +577,20 @@ public abstract class BaseAnalysisTask {
                     LOG.info("Partition {} in table {} is too large, skip it.", part, tbl.getName());
                     continue;
                 }
-                batchRowCount += partitionRowCount;
                 // For cluster upgrade compatible (older version metadata doesn't have partition update rows map)
                 // and insert before first analyze, set partition update rows to 0.
                 // Skip the write when the task is cancelled: see the comment above.
                 if (!killed) {
                     jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
                 }
+                if (unchanged) {
+                    LOG.debug("Partition {} doesn't change after last analyze for column {}, skip it.",
+                            part, col.getName());
+                    continue;
+                }
+                batchRowCount += Math.max(0L, partitionRowCount);
             }
             params.put("partId", partition == null ? "-1" : String.valueOf(partition.getId()));
-            // Skip partitions that not changed after last analyze.
-            // External table getPartition always return null. So external table doesn't skip any partitions.
-            if (partition != null && tableStatsStatus != null && tableStatsStatus.partitionUpdateRows != null) {
-                ConcurrentMap<Long, Long> tableUpdateRows = tableStatsStatus.partitionUpdateRows;
-                if (columnStatsMeta != null && columnStatsMeta.partitionUpdateRows != null) {
-                    ConcurrentMap<Long, Long> columnUpdateRows = columnStatsMeta.partitionUpdateRows;
-                    long id = partition.getId();
-                    if (Objects.equals(tableUpdateRows.getOrDefault(id, 0L), columnUpdateRows.get(id))) {
-                        LOG.debug("Partition {} doesn't change after last analyze for column {}, skip it.",
-                                part, col.getName());
-                        continue;
-                    }
-                }
-            }
             params.put("partName", StatisticsUtil.quote(StatisticsUtil.escapeSQL(part)));
             params.put("partitionInfo", getPartitionInfo(part));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -581,7 +599,7 @@ public abstract class BaseAnalysisTask {
             partNames.add(part);
             // 3. insert partition in batch
             if (count == partitionBatchSize || batchRowCount > hugePartitionThreshold) {
-                String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
+                String sql = StatisticConstants.INSERT_INTO_PARTITION_STATS_PREFIX
                         + Joiner.on(" UNION ALL ").join(sqls);
                 runInsert(sql);
                 analysisManager.updatePartitionStatsCache(info.catalogId, info.dbId, info.tblId, info.indexId,
@@ -594,21 +612,22 @@ public abstract class BaseAnalysisTask {
         }
         // 3. insert partition in batch
         if (count > 0) {
-            String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
+            String sql = StatisticConstants.INSERT_INTO_PARTITION_STATS_PREFIX
                     + Joiner.on(" UNION ALL ").join(sqls);
             runInsert(sql);
             analysisManager.updatePartitionStatsCache(info.catalogId, info.dbId, info.tblId, info.indexId,
                     partNames, info.colName);
         }
-        // 4. Skip large partition and fallback to sample analyze if large partition exists.
+        if ((sampledAnyPartition || hasHughPartition) && !isSync
+                && jobInfo.analysisMethod != AnalysisMethod.SAMPLE) {
+            long startTime = jobInfo.startTime;
+            jobInfo = new AnalysisInfoBuilder(jobInfo).setAnalysisMethod(AnalysisMethod.SAMPLE).build();
+            jobInfo.markStartTime(startTime);
+            analysisManager.replayCreateAnalysisJob(jobInfo);
+        }
+        // 4. Fallback to table-wide sample analyze only when a huge partition could not be partition-sampled.
         if (hasHughPartition) {
             tableSample = new TableSample(false, StatisticsUtil.getHugeTableSampleRows());
-            if (!isSync) {
-                long startTime = jobInfo.startTime;
-                jobInfo = new AnalysisInfoBuilder(jobInfo).setAnalysisMethod(AnalysisMethod.SAMPLE).build();
-                jobInfo.markStartTime(startTime);
-                analysisManager.replayCreateAnalysisJob(jobInfo);
-            }
             if (tableStatsStatus == null || columnStatsMeta == null
                     || tableStatsStatus.updatedRows.get() > columnStatsMeta.updatedRows) {
                 doSample();
@@ -627,6 +646,41 @@ public abstract class BaseAnalysisTask {
                 job.taskDoneWithoutData(this);
             }
         }
+    }
+
+    protected long partitionRowCount(Partition partition) {
+        return partition.getBaseIndex().getRowCount();
+    }
+
+    protected boolean shouldSkipUnchangedPartition(Partition partition, TableStatsMeta tableStatsStatus,
+            ColStatsMeta columnStatsMeta) {
+        if (partition == null || tableStatsStatus == null || tableStatsStatus.partitionUpdateRows == null
+                || columnStatsMeta == null || columnStatsMeta.partitionUpdateRows == null) {
+            return false;
+        }
+        if (AnalysisInfo.JobType.MANUAL.equals(info.jobType)) {
+            if (info.partitionOnly && info.partitionNames != null && !info.partitionNames.isEmpty()
+                    && tableSample != null) {
+                return false;
+            }
+            if (tableSample == null && columnStatsMeta.analysisMethod == AnalysisMethod.SAMPLE) {
+                return false;
+            }
+        }
+        ConcurrentMap<Long, Long> tableUpdateRows = tableStatsStatus.partitionUpdateRows;
+        ConcurrentMap<Long, Long> columnUpdateRows = columnStatsMeta.partitionUpdateRows;
+        long id = partition.getId();
+        return Objects.equals(tableUpdateRows.getOrDefault(id, 0L), columnUpdateRows.get(id));
+    }
+
+    protected boolean shouldSamplePartition(Partition partition, long partitionRowCount,
+            long hugePartitionThreshold) {
+        return false;
+    }
+
+    protected boolean samplePartition(Partition partition, long partitionRowCount,
+            long totalSampledPartitionRows, int sampledPartitionCount) throws Exception {
+        return false;
     }
 
     protected abstract void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException;
@@ -765,6 +819,10 @@ public abstract class BaseAnalysisTask {
 
     protected void runInsert(String sql) throws Exception {
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+            r.connectContext.getState().setPlanWithUnKnownColumnStats(true);
+            if (this instanceof OlapAnalysisTask) {
+                configureStatsCte(r.connectContext.getSessionVariable());
+            }
             configureJobParallelism(r.connectContext.getSessionVariable(), info);
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
             try {
@@ -778,6 +836,7 @@ public abstract class BaseAnalysisTask {
             } finally {
                 AuditLogHelper.logAuditLog(stmtExecutor.getContext(), stmtExecutor.getOriginStmt().toString(),
                         stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(), true);
+                stmtExecutor = null;
             }
         }
     }

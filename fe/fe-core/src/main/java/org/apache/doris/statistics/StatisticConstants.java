@@ -86,6 +86,13 @@ public class StatisticConstants {
                         .collect(Collectors.joining(", "))
                     + ") VALUES ";
 
+    public static final String INSERT_INTO_PARTITION_STATS_PREFIX =
+            "INSERT INTO " + FULL_QUALIFIED_PARTITION_STATS_TBL_NAME + "("
+                    + InternalSchema.PARTITION_STATS_SCHEMA.stream()
+                        .map(ColumnDef::getName).map(s -> String.format("`%s`", s))
+                        .collect(Collectors.joining(", "))
+                    + ") ";
+
     public static final int STATISTIC_INTERNAL_TABLE_REPLICA_NUM = 3;
 
     public static final int RETRY_LOAD_QUEUE_SIZE = 1000;

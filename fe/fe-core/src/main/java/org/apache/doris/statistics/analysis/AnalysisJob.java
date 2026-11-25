@@ -55,17 +55,28 @@ public class AnalysisJob {
 
     public static final Logger LOG = LogManager.getLogger(AnalysisJob.class);
 
+    private record PartitionIndexKey(long indexId, long partitionId) {
+    }
+
     private final long samplingSeed = ThreadLocalRandom.current().nextLong() & Long.MAX_VALUE;
     private final Map<Long, Long> reportedRows = new ConcurrentHashMap<>();
+    private final Map<PartitionIndexKey, Long> reportedPartitionRows = new ConcurrentHashMap<>();
     private final Map<Long, Supplier<Boolean>> keyRangeDecisions = new ConcurrentHashMap<>();
     private final Map<Long, Supplier<Boolean>> randomAggDecisions = new ConcurrentHashMap<>();
     private final Map<Long, List<String>> sampleColumns = new HashMap<>();
     private final Map<Long, Long> indexRows = new ConcurrentHashMap<>();
     private final Map<Long, ReportState> reportStates = new ConcurrentHashMap<>();
     private final Map<Long, Supplier<IndexSamplingSnapshot>> samplingFrames = new ConcurrentHashMap<>();
+    private final Map<PartitionIndexKey, Supplier<IndexSamplingSnapshot>> partitionSamplingFrames
+            = new ConcurrentHashMap<>();
 
     long reportedIndexRows(OlapTable table, long indexId) {
         return reportedRows.computeIfAbsent(indexId, id -> IndexSamplingSnapshot.reportedIndexRows(table, id, false));
+    }
+
+    long reportedPartitionIndexRows(OlapTable table, long indexId, long partitionId) {
+        return reportedPartitionRows.computeIfAbsent(new PartitionIndexKey(indexId, partitionId),
+                key -> IndexSamplingSnapshot.reportedPartitionIndexRows(table, key.indexId(), key.partitionId()));
     }
 
     void requireIndexReports(OlapTable table, long indexId) {
@@ -104,8 +115,15 @@ public class AnalysisJob {
                 id -> Suppliers.memoize(() -> IndexSamplingSnapshot.read(table, id))).get();
     }
 
+    IndexSamplingSnapshot partitionSamplingFrame(OlapTable table, long indexId, long partitionId) {
+        return partitionSamplingFrames.computeIfAbsent(new PartitionIndexKey(indexId, partitionId),
+                key -> Suppliers.memoize(
+                        () -> IndexSamplingSnapshot.read(table, key.indexId(), Set.of(key.partitionId())))).get();
+    }
+
     private final ColumnMinMaxBatchCollector minMaxCollector;
     private final ColumnSampleBatchCollector sampleBatchCollector;
+    private final PartitionSampleBatchCollector partitionSampleBatchCollector;
 
     protected Set<BaseAnalysisTask> queryingTask;
 
@@ -126,6 +144,8 @@ public class AnalysisJob {
     public AnalysisJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> queryingTask) {
         minMaxCollector = new ColumnMinMaxBatchCollector(queryingTask, StatisticsUtil.getMinMaxBatchColumns());
         sampleBatchCollector = new ColumnSampleBatchCollector(queryingTask, StatisticsUtil.getSampleBatchColumns());
+        partitionSampleBatchCollector = new PartitionSampleBatchCollector(
+                queryingTask, StatisticsUtil.getSampleBatchColumns());
         for (BaseAnalysisTask task : queryingTask) {
             task.job = this;
             if (task instanceof OlapAnalysisTask && task.tableSample != null && task.info != null) {
@@ -272,6 +292,7 @@ public class AnalysisJob {
         killed.set(true);
         minMaxCollector.cancelAll();
         sampleBatchCollector.cancelAll();
+        partitionSampleBatchCollector.cancelAll();
     }
 
     public boolean isKilled() {

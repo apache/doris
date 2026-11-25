@@ -23,6 +23,7 @@ import org.apache.doris.statistics.util.Hll128;
 public class PartitionColumnStatisticBuilder {
     private double count;
     private Hll128 ndv;
+    private double unseenNdv;
     private double avgSizeByte;
     private double numNulls;
     private double dataSize;
@@ -38,7 +39,8 @@ public class PartitionColumnStatisticBuilder {
 
     public PartitionColumnStatisticBuilder(PartitionColumnStatistic statistic) {
         this.count = statistic.count;
-        this.ndv = statistic.ndv;
+        this.ndv = statistic.ndv == null ? new Hll128() : statistic.ndv.copy();
+        this.unseenNdv = statistic.unseenNdv;
         this.avgSizeByte = statistic.avgSizeByte;
         this.numNulls = statistic.numNulls;
         this.dataSize = statistic.dataSize;
@@ -57,6 +59,11 @@ public class PartitionColumnStatisticBuilder {
 
     public PartitionColumnStatisticBuilder setNdv(Hll128 ndv) {
         this.ndv = ndv;
+        return this;
+    }
+
+    public PartitionColumnStatisticBuilder setUnseenNdv(double unseenNdv) {
+        this.unseenNdv = Math.max(0.0, unseenNdv);
         return this;
     }
 
@@ -113,6 +120,10 @@ public class PartitionColumnStatisticBuilder {
         return ndv;
     }
 
+    public double getUnseenNdv() {
+        return unseenNdv;
+    }
+
     public double getAvgSizeByte() {
         return avgSizeByte;
     }
@@ -151,15 +162,23 @@ public class PartitionColumnStatisticBuilder {
 
     public PartitionColumnStatistic build() {
         dataSize = dataSize > 0 ? dataSize : Math.max((count - numNulls + 1) * avgSizeByte, 0);
-        return new PartitionColumnStatistic(count, ndv, avgSizeByte, numNulls,
+        return new PartitionColumnStatistic(count, ndv, unseenNdv, avgSizeByte, numNulls,
                 dataSize, minValue, maxValue, minExpr, maxExpr,
                 isUnknown, updatedTime);
     }
 
     public PartitionColumnStatisticBuilder merge(PartitionColumnStatistic other) {
         count += other.count;
-        ndv.merge(other.ndv);
+        if (ndv == null) {
+            ndv = new Hll128();
+        }
+        if (other.ndv != null) {
+            ndv.merge(other.ndv);
+        }
+        unseenNdv += other.unseenNdv;
         numNulls += other.numNulls;
+        dataSize += other.dataSize;
+        avgSizeByte = count > 0 ? dataSize / count : 0;
         if (minValue > other.minValue) {
             minValue = other.minValue;
             minExpr = other.minExpr;
@@ -173,7 +192,11 @@ public class PartitionColumnStatisticBuilder {
     }
 
     public ColumnStatistic toColumnStatistics() {
-        return new ColumnStatistic(count, ndv.estimateCardinality(), null,
+        double hllCard = ndv == null ? 0.0 : ndv.estimateCardinality();
+        double mergedNdv = unseenNdv <= 0.0
+                ? hllCard
+                : Math.min(Math.max(0.0, count - numNulls), hllCard + unseenNdv);
+        return new ColumnStatistic(count, mergedNdv, null,
                 avgSizeByte, numNulls, dataSize, minValue, maxValue, minExpr, maxExpr, isUnknown, updatedTime, null);
     }
 }

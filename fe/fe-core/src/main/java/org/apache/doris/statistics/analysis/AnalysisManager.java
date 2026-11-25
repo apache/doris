@@ -446,9 +446,24 @@ public class AnalysisManager implements Writable {
         infoBuilder.setTableVersion(version);
         infoBuilder.setPriority(JobPriority.MANUAL);
         // Must not alias TableStatsMeta.partitionUpdateRows: it is cleared at the job terminal state.
-        infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null
-                : new ConcurrentHashMap<>(tableStatsStatus.partitionUpdateRows));
-        infoBuilder.setEnablePartition(StatisticsUtil.enablePartitionAnalyze());
+        Map<Long, Long> initialPartitionUpdateRows = null;
+        if (tableStatsStatus != null) {
+            Set<String> targetPartitions = command.getPartitionNames();
+            if (targetPartitions.isEmpty() || olapTable == null) {
+                initialPartitionUpdateRows = new ConcurrentHashMap<>(tableStatsStatus.partitionUpdateRows);
+            } else {
+                initialPartitionUpdateRows = new ConcurrentHashMap<>();
+                for (String partName : targetPartitions) {
+                    Partition part = olapTable.getPartition(partName);
+                    if (part != null) {
+                        Long updated = tableStatsStatus.partitionUpdateRows.get(part.getId());
+                        initialPartitionUpdateRows.put(part.getId(), updated == null ? 0L : updated);
+                    }
+                }
+            }
+        }
+        infoBuilder.setPartitionUpdateRows(initialPartitionUpdateRows);
+        infoBuilder.setEnablePartition(StatisticsUtil.enablePartitionAnalyze() || partitionOnly);
         return infoBuilder.build();
     }
 
@@ -977,6 +992,35 @@ public class AnalysisManager implements Writable {
                                         Set<String> partNames, String colName) {
         updateLocalPartitionStatsCache(catalogId, dbId, tableId, indexId, partNames, colName);
         updateRemotePartitionStats(catalogId, dbId, tableId, indexId, partNames, colName);
+    }
+
+    public void updatePartitionStatsCacheForColumns(long catalogId, long dbId, long tableId, long indexId,
+            Set<String> partNames, Collection<String> colNames) {
+        if (partNames == null || partNames.isEmpty() || colNames == null || colNames.isEmpty()) {
+            return;
+        }
+        String partNamePredicate = partNames.stream()
+                .map(p -> "'" + StatisticsUtil.escapeSQL(p) + "'")
+                .collect(Collectors.joining(","));
+        String colNamePredicate = colNames.stream()
+                .map(c -> "'" + StatisticsUtil.escapeSQL(c) + "'")
+                .collect(Collectors.joining(","));
+        List<ResultRow> resultRows = StatisticsRepository.loadPartitionColumnStatsForColumns(
+                catalogId, dbId, tableId, indexId, partNamePredicate, colNamePredicate);
+        StatisticsCache cache = Env.getCurrentEnv().getStatisticsCache();
+        for (ResultRow row : resultRows) {
+            String rowPartName = row.get(4);
+            String rowColName = row.get(5);
+            try {
+                cache.updatePartitionColStatsCache(catalogId, dbId, tableId, indexId, rowPartName, rowColName,
+                        PartitionColumnStatistic.fromResultRow(row));
+            } catch (Exception e) {
+                cache.invalidatePartitionColumnStatsCache(catalogId, dbId, tableId, indexId, rowPartName, rowColName);
+            }
+        }
+        for (String colName : colNames) {
+            updateRemotePartitionStats(catalogId, dbId, tableId, indexId, partNames, colName);
+        }
     }
 
     public void updateLocalPartitionStatsCache(long catalogId, long dbId, long tableId, long indexId,

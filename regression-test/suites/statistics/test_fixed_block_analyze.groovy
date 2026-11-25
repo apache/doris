@@ -271,12 +271,41 @@ suite("test_fixed_block_analyze", "nonConcurrent") {
         sql "ANALYZE TABLE fixed_block_analyze_char_short_key WITH SAMPLE ROWS 1024 WITH SYNC"
         assertEquals(4, (sql "SHOW COLUMN STATS fixed_block_analyze_char_short_key").size())
 
-        // Partition-subset WITH SAMPLE is rejected; explicit PARTITION(p1) full analyze collects partition stats
-        // even when enable_partition_analyze is false (default)
+        // Partition-scoped WITH SAMPLE collects partition statistics via block sampling
+        sql "ANALYZE TABLE fixed_block_analyze_comp_agg PARTITION(p1) WITH SAMPLE ROWS 512 WITH SYNC"
+        def p1SampleStats = sql "SHOW COLUMN STATS fixed_block_analyze_comp_agg PARTITION(p1)"
+        assertEquals(5, p1SampleStats.size())
+        def p1CachedSampleStats = sql "SHOW COLUMN CACHED STATS fixed_block_analyze_comp_agg PARTITION(p1)"
+        assertEquals(5, p1CachedSampleStats.size())
+
+        sql "ANALYZE TABLE fixed_block_analyze_comp_mor PARTITION(p1) WITH SAMPLE ROWS 512 WITH SYNC"
+        def morPartStats = sql "SHOW COLUMN STATS fixed_block_analyze_comp_mor PARTITION(p1)"
+        assertEquals(6, morPartStats.size())
+
+        sql "ANALYZE TABLE fixed_block_analyze_comp_agg PARTITION(*) WITH SAMPLE ROWS 1024 WITH SYNC"
+        def allPartStats = sql "SHOW COLUMN STATS fixed_block_analyze_comp_agg PARTITION(*)"
+        assertEquals(10, allPartStats.size())
+        def mergedStats = sql "SHOW COLUMN STATS fixed_block_analyze_comp_agg"
+        assertEquals(5, mergedStats.size())
+
         test {
-            sql "ANALYZE TABLE fixed_block_analyze_comp_agg PARTITION(p1) WITH SAMPLE ROWS 512 WITH SYNC"
-            exception "Partition-scoped ANALYZE with sample is not supported"
+            sql "ANALYZE TABLE fixed_block_analyze_comp_agg PARTITION(p_missing) WITH SAMPLE ROWS 512 WITH SYNC"
+            exception "Partition: p_missing not exists"
         }
+        test {
+            sql "ANALYZE TABLE fixed_block_analyze_mow PARTITION(p1) WITH SAMPLE ROWS 512 WITH SYNC"
+            exception "is not a partitioned table"
+        }
+        sql "SET GLOBAL enable_fixed_block_stats_sampling = false"
+        try {
+            test {
+                sql "ANALYZE TABLE fixed_block_analyze_comp_agg PARTITION(p1) WITH SAMPLE ROWS 512 WITH SYNC"
+                exception "requires enable_fixed_block_stats_sampling = true"
+            }
+        } finally {
+            sql "SET GLOBAL enable_fixed_block_stats_sampling = true"
+        }
+
         sql "ANALYZE TABLE fixed_block_analyze_comp_agg PARTITION(p1) WITH SYNC"
         def p1PartStats = sql "SHOW COLUMN STATS fixed_block_analyze_comp_agg (p) PARTITION(p1)"
         assertEquals(1, p1PartStats.size())

@@ -17,6 +17,8 @@
 
 package org.apache.doris.statistics.analysis;
 
+import org.apache.doris.statistics.StatisticConstants;
+
 import org.apache.commons.text.StringSubstitutor;
 
 import java.util.ArrayList;
@@ -338,6 +340,148 @@ final class TableStatisticsSqlBuilder {
                         + "stats.col_id, stats.part_id, stats.row_count, stats.ndv, stats.null_count, "
                         + "stats.min, stats.max, stats.data_size, stats.update_time");
             }
+        }
+        sql.append(" ").append(String.join(" UNION ALL ", branches));
+        return sql.toString();
+    }
+
+    record BatchedPartitionColumnSpec(
+            int ord,
+            String colId,
+            String ident,
+            boolean stringType,
+            int slotSize,
+            boolean singleNonNullUnique,
+            double domainRate) {
+    }
+
+    static String batchedPartitionSampleInsertSql(
+            String tableFromClause,
+            long catalogId,
+            long dbId,
+            long tblId,
+            long idxId,
+            String escapedPartName,
+            long partId,
+            boolean census,
+            boolean logicalSample,
+            double sampleProbability,
+            long partitionPopulationRows,
+            List<BatchedPartitionColumnSpec> columns) {
+        String baseProjection = columns.stream()
+                .map(c -> c.ident() + " AS `__s" + c.ord() + "`")
+                .collect(Collectors.joining(", "));
+        StringBuilder sql = new StringBuilder();
+        sql.append(StatisticConstants.INSERT_INTO_PARTITION_STATS_PREFIX)
+                .append("WITH `sample_base` AS (SELECT ")
+                .append(baseProjection)
+                .append(" FROM ")
+                .append(tableFromClause)
+                .append("), `__agg` AS (SELECT COUNT(1) AS `n`");
+        for (BatchedPartitionColumnSpec c : columns) {
+            int i = c.ord();
+            String colRef = "`__s" + i + "`";
+            String hllArg = c.stringType()
+                    ? "SUBSTRING(CAST(" + colRef + " AS STRING), 1, 1024)"
+                    : colRef;
+            String bytesExpr = c.stringType()
+                    ? "IFNULL(SUM(LENGTH(" + colRef + ")), 0)"
+                    : "COUNT(1) * " + c.slotSize();
+            sql.append(", COUNT(1) - COUNT(").append(colRef).append(") AS `z").append(i).append("`")
+                    .append(", HLL_UNION(HLL_HASH(").append(hllArg).append(")) AS `hll").append(i).append("`")
+                    .append(", SUBSTRING(CAST(MIN(").append(colRef).append(") AS STRING), 1, 1024) AS `min")
+                    .append(i).append("`")
+                    .append(", SUBSTRING(CAST(MAX(").append(colRef).append(") AS STRING), 1, 1024) AS `max")
+                    .append(i).append("`")
+                    .append(", ").append(bytesExpr).append(" AS `bytes").append(i).append("`");
+        }
+        sql.append(" FROM `sample_base`)");
+
+        if (!census) {
+            for (BatchedPartitionColumnSpec c : columns) {
+                if (c.singleNonNullUnique()) {
+                    continue;
+                }
+                int i = c.ord();
+                String colRef = "`__s" + i + "`";
+                String hashExpr = c.stringType()
+                        ? "xxhash_64(SUBSTRING(CAST(" + colRef + " AS STRING), 1, 1024))"
+                        : colRef;
+                sql.append(", `__d").append(i).append("` AS (SELECT COUNT(1) AS `d`, ")
+                        .append("IFNULL(SUM(IF(g.`cnt` = 1, 1, 0)), 0) AS `f1` ")
+                        .append("FROM (SELECT COUNT(1) AS `cnt` FROM `sample_base` WHERE ")
+                        .append(colRef).append(" IS NOT NULL GROUP BY ").append(hashExpr).append(") g)");
+            }
+        }
+
+        String popExpr;
+        if (census) {
+            popExpr = "CAST(`__agg`.`n` AS BIGINT)";
+        } else if (logicalSample) {
+            popExpr = "GREATEST(`__agg`.`n`, CAST(ROUND(CAST(`__agg`.`n` AS DOUBLE) / ("
+                    + sampleProbability + ")) AS BIGINT))";
+        } else {
+            popExpr = "GREATEST(`__agg`.`n`, CAST(" + partitionPopulationRows + " AS BIGINT))";
+        }
+
+        List<String> branches = new ArrayList<>(columns.size());
+        for (BatchedPartitionColumnSpec c : columns) {
+            int i = c.ord();
+            String zRef = "`__agg`.`z" + i + "`";
+            String hllRef = "`__agg`.`hll" + i + "`";
+            String minRef = "`__agg`.`min" + i + "`";
+            String maxRef = "`__agg`.`max" + i + "`";
+            String bytesRef = "`__agg`.`bytes" + i + "`";
+            String countExpr;
+            String nullsExpr;
+            String sizeExpr;
+            String unseenExpr;
+            String fromClause;
+            if (census) {
+                countExpr = popExpr;
+                nullsExpr = "CAST(" + zRef + " AS BIGINT)";
+                sizeExpr = "CAST(" + bytesRef + " AS BIGINT)";
+                unseenExpr = "CAST(0 AS BIGINT)";
+                fromClause = " FROM `__agg`";
+            } else {
+                countExpr = popExpr;
+                nullsExpr = "LEAST(" + popExpr + ", GREATEST(0, CAST(ROUND(CAST(" + popExpr
+                        + " AS DOUBLE) * CAST(" + zRef + " AS DOUBLE) / NULLIF(`__agg`.`n`, 0)) AS BIGINT)))";
+                sizeExpr = "GREATEST(0, CAST(ROUND(CAST(" + bytesRef + " AS DOUBLE) * CAST("
+                        + popExpr + " AS DOUBLE) / NULLIF(`__agg`.`n`, 0)) AS BIGINT))";
+                if (c.singleNonNullUnique()) {
+                    unseenExpr = "GREATEST(0, CAST(" + popExpr + " - HLL_CARDINALITY(" + hllRef + ") AS BIGINT))";
+                    fromClause = " FROM `__agg` WHERE `__agg`.`n` > 0";
+                } else {
+                    String dRef = "`__d" + i + "`.`d`";
+                    String f1Ref = "`__d" + i + "`.`f1`";
+                    String nonNullSample = "(`__agg`.`n` - " + zRef + ")";
+                    String estNdv = "LEAST(" + popExpr + " - (" + nullsExpr + "), GREATEST(0, IF(" + dRef + " = 0, 0, "
+                            + "GREATEST(" + dRef + ", CAST(ROUND((1.0 / (" + c.domainRate() + ")) * CAST("
+                            + nonNullSample + " AS DOUBLE) * " + dRef
+                            + " / NULLIF(" + nonNullSample + " - " + f1Ref + " + CAST(" + f1Ref + " AS DOUBLE) * "
+                            + nonNullSample + " / NULLIF(GREATEST(CAST(" + nonNullSample + " AS DOUBLE), CAST("
+                            + popExpr + " AS DOUBLE) * (" + c.domainRate() + ")), 0), 0)) AS BIGINT)))))";
+                    unseenExpr = "GREATEST(0, CAST((" + estNdv + ") - HLL_CARDINALITY(" + hllRef + ") AS BIGINT))";
+                    fromClause = " FROM `__agg` CROSS JOIN `__d" + i + "` WHERE `__agg`.`n` > 0";
+                }
+            }
+            branches.add("SELECT '" + catalogId + "' AS `catalog_id`, "
+                    + "'" + dbId + "' AS `db_id`, "
+                    + "'" + tblId + "' AS `tbl_id`, "
+                    + "'" + idxId + "' AS `idx_id`, "
+                    + "'" + escapedPartName + "' AS `part_name`, "
+                    + "CAST(" + partId + " AS BIGINT) AS `part_id`, "
+                    + "'" + c.colId() + "' AS `col_id`, "
+                    + countExpr + " AS `count`, "
+                    + hllRef + " AS `ndv`, "
+                    + nullsExpr + " AS `null_count`, "
+                    + minRef + " AS `min`, "
+                    + maxRef + " AS `max`, "
+                    + sizeExpr + " AS `data_size_in_bytes`, "
+                    + "NOW() AS `update_time`, "
+                    + unseenExpr + " AS `unseen_ndv`"
+                    + fromClause);
         }
         sql.append(" ").append(String.join(" UNION ALL ", branches));
         return sql.toString();

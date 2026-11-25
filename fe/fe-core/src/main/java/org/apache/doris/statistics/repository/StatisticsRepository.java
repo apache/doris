@@ -76,12 +76,22 @@ public class StatisticsRepository {
 
     private static final String FETCH_PARTITION_STATISTIC_TEMPLATE = "SELECT `catalog_id`, `db_id`, `tbl_id`, `idx_id`,"
             + " `part_name`, `col_id`, `count`, hll_to_base64(`ndv`) as ndv, `null_count`, `min`, `max`, "
-            + "`data_size_in_bytes`, `update_time` FROM " + FULL_QUALIFIED_PARTITION_STATISTICS_NAME
+            + "`data_size_in_bytes`, `update_time`, IFNULL(`unseen_ndv`, 0) as unseen_ndv FROM "
+            + FULL_QUALIFIED_PARTITION_STATISTICS_NAME
             + " WHERE `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}' AND `tbl_id` = ${tableId}"
             + " AND `idx_id` = '${indexId}' AND `part_name` IN (${partName}) AND `col_id` = '${columnId}'";
 
+    private static final String FETCH_PARTITION_STATISTIC_COLUMNS_TEMPLATE =
+            "SELECT `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `part_name`, `col_id`, `count`, "
+            + "hll_to_base64(`ndv`) as ndv, `null_count`, `min`, `max`, `data_size_in_bytes`, `update_time`, "
+            + "IFNULL(`unseen_ndv`, 0) as unseen_ndv FROM " + FULL_QUALIFIED_PARTITION_STATISTICS_NAME
+            + " WHERE `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}' AND `tbl_id` = ${tableId}"
+            + " AND `idx_id` = '${indexId}' AND `part_name` IN (${partName}) AND `col_id` IN (${columnIds})";
+
     private static final String FETCH_PARTITIONS_STATISTIC_TEMPLATE = "SELECT col_id, part_name, idx_id, count, "
-            + "hll_cardinality(ndv) as ndv, null_count, min, max, data_size_in_bytes, update_time FROM "
+            + "IF(IFNULL(unseen_ndv, 0) = 0, hll_cardinality(ndv), "
+            + "LEAST(GREATEST(0, IFNULL(count - null_count, 0)), hll_cardinality(ndv) + unseen_ndv)) as ndv, "
+            + "null_count, min, max, data_size_in_bytes, update_time FROM "
             + FULL_QUALIFIED_PARTITION_STATISTICS_NAME
             + " WHERE `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}' AND `tbl_id` = ${tableId}"
             + " AND `part_name` in (${partitionInfo}) AND `col_id` in (${columnInfo})";
@@ -456,6 +466,18 @@ public class StatisticsRepository {
         params.put("columnId", StatisticsUtil.escapeSQL(colName));
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
             .replace(FETCH_PARTITION_STATISTIC_TEMPLATE));
+    }
+
+    public static List<ResultRow> loadPartitionColumnStatsForColumns(long ctlId, long dbId, long tableId,
+            long idxId, String partName, String columnIds) {
+        Map<String, String> params = new HashMap<>();
+        generateCtlDbIdParams(ctlId, dbId, params);
+        params.put("tableId", String.valueOf(tableId));
+        params.put("indexId", String.valueOf(idxId));
+        params.put("partName", partName);
+        params.put("columnIds", columnIds);
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
+            .replace(FETCH_PARTITION_STATISTIC_COLUMNS_TEMPLATE));
     }
 
     private static void generateCtlDbIdParams(long ctdId, long dbId, Map<String, String> params) {

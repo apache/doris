@@ -509,7 +509,7 @@ suite("test_partition_stats") {
             assertEquals("SAMPLE", result[7][9])
             assertEquals("SAMPLE", result[8][9])
             result = sql """show column stats part4 partition(p1)"""
-            assertEquals(0, result.size())
+            assertEquals(9, result.size())
             result = sql """show column stats part4 partition(p2)"""
             assertEquals(9, result.size())
             result = sql """show column stats part4 partition(p3)"""

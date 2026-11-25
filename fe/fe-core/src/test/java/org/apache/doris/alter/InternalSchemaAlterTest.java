@@ -116,6 +116,9 @@ public class InternalSchemaAlterTest extends TestWithFeService {
         Assertions.assertNotNull(db);
         OlapTable table = db.getOlapTableOrAnalysisException(StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
         Assertions.assertEquals(PrimitiveType.HLL, table.getColumn("ndv").getType().getPrimitiveType());
+        Assertions.assertNotNull(table.getColumn("unseen_ndv"));
+        Assertions.assertEquals(PrimitiveType.BIGINT, table.getColumn("unseen_ndv").getType().getPrimitiveType());
+        Assertions.assertTrue(table.getColumn("unseen_ndv").isAllowNull());
     }
 
     // A table an earlier version created lacks the columns added since, and has the others in order. They are

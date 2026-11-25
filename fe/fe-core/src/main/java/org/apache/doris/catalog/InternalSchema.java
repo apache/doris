@@ -109,6 +109,9 @@ public class InternalSchema {
         PARTITION_STATS_SCHEMA.add(
                 new ColumnDef("update_time", ScalarType.DATETIMEV2,
                     ColumnNullableType.NOT_NULLABLE));
+        PARTITION_STATS_SCHEMA.add(
+                new ColumnDef("unseen_ndv", ScalarType.createType(PrimitiveType.BIGINT),
+                    ColumnNullableType.NULLABLE));
 
         // histogram_statistics table
         HISTO_STATS_SCHEMA = new ArrayList<>();

@@ -104,7 +104,8 @@ final class ColumnSampleBatchCollector {
         Map<Target, Map<String, List<OlapAnalysisTask>>> groups = new HashMap<>();
         for (BaseAnalysisTask task : tasks) {
             if (!(task instanceof OlapAnalysisTask olapTask) || task.tableSample == null
-                    || task.info == null || task.info.rowCount == 0 || !(task.tbl instanceof OlapTable)) {
+                    || task.info == null || task.info.rowCount == 0 || !(task.tbl instanceof OlapTable)
+                    || olapTask.usesPartitionTable()) {
                 continue;
             }
             Set<String> partNames = task.info.partitionNames == null ? Set.of() : Set.copyOf(task.info.partitionNames);

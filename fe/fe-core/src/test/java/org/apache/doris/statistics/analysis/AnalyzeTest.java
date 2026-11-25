@@ -143,38 +143,80 @@ public class AnalyzeTest extends TestWithFeService {
     @Test
     public void testPartitionAnalyzeValidationAndExplicitPartitionRouting() throws Exception {
         NereidsParser parser = new NereidsParser();
-        AnalyzeTableCommand invalidSubsetSample = (AnalyzeTableCommand) parser.parseSingle(
+        AnalyzeTableCommand subsetSample = (AnalyzeTableCommand) parser.parseSingle(
                 "ANALYZE TABLE t_part PARTITION(p1) WITH SAMPLE ROWS 100");
-        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> invalidSubsetSample.validate(connectContext));
-        Assertions.assertTrue(ex.getMessage().contains("Partition-scoped ANALYZE with sample is not supported"),
-                ex.getMessage());
+        Assertions.assertDoesNotThrow(() -> subsetSample.validate(connectContext));
+        Assertions.assertEquals(AnalysisMethod.SAMPLE, subsetSample.getAnalysisMethod());
+
+        try (MockedStatic<StatisticsUtil> mockedUtil = Mockito.mockStatic(
+                StatisticsUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedUtil.when(StatisticsUtil::enableFixedBlockStatsSampling).thenReturn(false);
+            AnalyzeTableCommand disabledSample = (AnalyzeTableCommand) parser.parseSingle(
+                    "ANALYZE TABLE t_part PARTITION(p1) WITH SAMPLE ROWS 100");
+            AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                    () -> disabledSample.validate(connectContext));
+            Assertions.assertTrue(ex.getMessage().contains("enable_fixed_block_stats_sampling"),
+                    ex.getMessage());
+        }
+
+        AnalyzeTableCommand nonPartitioned = (AnalyzeTableCommand) parser.parseSingle(
+                "ANALYZE TABLE t1 PARTITION(p1) WITH SYNC");
+        AnalysisException notPartEx = Assertions.assertThrows(AnalysisException.class,
+                () -> nonPartitioned.validate(connectContext));
+        Assertions.assertTrue(notPartEx.getMessage().contains("not a partitioned table"),
+                notPartEx.getMessage());
+
+        AnalyzeTableCommand missingPart = (AnalyzeTableCommand) parser.parseSingle(
+                "ANALYZE TABLE t_part PARTITION(p_missing) WITH SYNC");
+        AnalysisException missingPartEx = Assertions.assertThrows(AnalysisException.class,
+                () -> missingPart.validate(connectContext));
+        Assertions.assertTrue(missingPartEx.getMessage().contains("not exists"),
+                missingPartEx.getMessage());
+
+        AnalyzeTableCommand tempPart = (AnalyzeTableCommand) parser.parseSingle(
+                "ANALYZE TABLE t_part TEMPORARY PARTITION(p1) WITH SYNC");
+        AnalysisException tempPartEx = Assertions.assertThrows(AnalysisException.class,
+                () -> tempPart.validate(connectContext));
+        Assertions.assertTrue(tempPartEx.getMessage().contains("temporary partition"),
+                tempPartEx.getMessage());
 
         AnalyzeTableCommand starSample = (AnalyzeTableCommand) parser.parseSingle(
                 "ANALYZE TABLE t_part PARTITION(*) WITH SAMPLE ROWS 100");
+        Assertions.assertTrue(starSample.isStarPartition());
         Assertions.assertDoesNotThrow(() -> starSample.validate(connectContext));
 
         AnalyzeTableCommand explicitSubsetFull = (AnalyzeTableCommand) parser.parseSingle(
                 "ANALYZE TABLE t_part PARTITION(p1) WITH SYNC");
         Assertions.assertDoesNotThrow(() -> explicitSubsetFull.validate(connectContext));
-        Assertions.assertDoesNotThrow(explicitSubsetFull::checkAndSetSample);
         Assertions.assertEquals(AnalysisMethod.FULL, explicitSubsetFull.getAnalysisMethod());
+        Assertions.assertDoesNotThrow(explicitSubsetFull::checkAndSetSample);
+        Assertions.assertEquals(AnalysisMethod.SAMPLE, explicitSubsetFull.getAnalysisMethod());
 
-        // Explicit PARTITION(...) full analyze routes to doPartitionTable() even when enable_partition_analyze=false.
+        // Explicit PARTITION(...) sample and full analyze both route to doPartitionTable()
+        // even when enable_partition_analyze=false.
         OlapTable mockedPartTable = Mockito.mock(OlapTable.class);
         Mockito.when(mockedPartTable.isPartitionedTable()).thenReturn(true);
+        Mockito.when(mockedPartTable.getName()).thenReturn("t_part");
+        InternalCatalog mockedCatalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(mockedCatalog.getName()).thenReturn("internal");
+        Database mockedDb = Mockito.mock(Database.class);
+        Mockito.when(mockedDb.getFullName()).thenReturn("analysis_job_test");
         OlapAnalysisTask partTask = Mockito.spy(new OlapAnalysisTask());
+        partTask.catalog = mockedCatalog;
+        partTask.db = mockedDb;
         partTask.tbl = mockedPartTable;
         partTask.col = new Column("p", PrimitiveType.INT);
         partTask.info = new AnalysisInfoBuilder()
                 .setPartitionOnly(true)
                 .setPartitionNames(Set.of("p1"))
-                .setAnalysisMethod(AnalysisMethod.FULL)
+                .setAnalysisMethod(AnalysisMethod.SAMPLE)
+                .setSampleRows(100)
                 .build();
+        partTask.tableSample = partTask.getTableSample();
         Mockito.doNothing().when(partTask).doPartitionTable();
         try (MockedStatic<StatisticsUtil> mockedUtil = Mockito.mockStatic(StatisticsUtil.class)) {
             mockedUtil.when(StatisticsUtil::enablePartitionAnalyze).thenReturn(false);
-            partTask.doFull();
+            partTask.doExecute();
         }
         Mockito.verify(partTask, Mockito.times(1)).doPartitionTable();
     }

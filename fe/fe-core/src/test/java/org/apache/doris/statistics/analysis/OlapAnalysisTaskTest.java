@@ -151,7 +151,10 @@ public class OlapAnalysisTaskTest {
         String sql = stringSubstitutor.replace(BaseAnalysisTask.MERGE_PARTITION_TEMPLATE);
         Assertions.assertEquals("SELECT CONCAT(2, '-', 3, '-', 'col1') AS `id`, 0 AS `catalog_id`, 1 AS `db_id`, "
                 + "2 AS `tbl_id`, 3 AS `idx_id`, 'col1' AS `col_id`, NULL AS `part_id`, SUM(count) AS `row_count`, "
-                + "HLL_CARDINALITY(HLL_UNION(ndv)) AS `ndv`, SUM(null_count) AS `null_count`, MIN(min) AS `min`, "
+                + "IF(IFNULL(SUM(unseen_ndv), 0) = 0, HLL_CARDINALITY(HLL_UNION(ndv)), "
+                + "LEAST(GREATEST(0, IFNULL(SUM(count) - SUM(null_count), 0)), "
+                + "HLL_CARDINALITY(HLL_UNION(ndv)) + IFNULL(SUM(unseen_ndv), 0))) AS `ndv`, "
+                + "SUM(null_count) AS `null_count`, MIN(min) AS `min`, "
                 + "MAX(max) AS `max`, SUM(data_size_in_bytes) AS `data_size`, NOW() AS `update_time`,null as `hot_value` "
                 + "FROM internal.__internal_schema.partition_statistics "
                 + "WHERE `catalog_id` = 0  AND `db_id` = 1  AND `tbl_id` = 2  AND `idx_id` = 3  AND `col_id` = 'col1'",

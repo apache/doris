@@ -157,17 +157,34 @@ public class AnalyzeTableCommand extends AnalyzeCommand {
         if (analyzeProperties.isSample() && analyzeProperties.forceFull()) {
             throw new AnalysisException("Impossible to analyze with sample and full simultaneously");
         }
-        if (analyzeProperties.isSample() && table instanceof OlapTable && !getPartitionNames().isEmpty()) {
+        if (partitionNames != null) {
+            partitionNames.validate();
+            if (partitionNames.isTemp()) {
+                throw new AnalysisException("Analyze temporary partition is not supported");
+            }
+            if (table instanceof OlapTable olapTable) {
+                if (!olapTable.isPartitionedTable()) {
+                    throw new AnalysisException("Table " + olapTable.getName() + " is not a partitioned table");
+                }
+                for (String partName : getPartitionNames()) {
+                    if (olapTable.getPartition(partName) == null) {
+                        throw new AnalysisException("Partition: " + partName + " not exists");
+                    }
+                }
+            }
+        }
+        if (analyzeProperties.isSample() && table instanceof OlapTable
+                && !getPartitionNames().isEmpty() && !StatisticsUtil.enableFixedBlockStatsSampling()) {
             throw new AnalysisException(
-                    "Partition-scoped ANALYZE with sample is not supported on OLAP tables; "
-                            + "omit WITH SAMPLE to collect partition statistics or omit PARTITION(...) "
-                            + "to sample the table");
+                    "Partition-scoped ANALYZE with sample on OLAP tables requires "
+                            + "enable_fixed_block_stats_sampling = true");
         }
     }
 
     @Override
     public void checkAndSetSample() throws AnalysisException {
-        if (table instanceof OlapTable && !getPartitionNames().isEmpty() && !analyzeProperties.forceFull()) {
+        if (table instanceof OlapTable && !getPartitionNames().isEmpty()
+                && !analyzeProperties.forceFull() && !StatisticsUtil.enableFixedBlockStatsSampling()) {
             return;
         }
         super.checkAndSetSample();

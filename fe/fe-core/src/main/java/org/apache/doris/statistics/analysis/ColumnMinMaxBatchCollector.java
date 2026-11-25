@@ -62,7 +62,8 @@ final class ColumnMinMaxBatchCollector {
         }
         Map<Target, Map<String, List<OlapAnalysisTask>>> groups = new HashMap<>();
         for (BaseAnalysisTask task : tasks) {
-            if (!(task instanceof OlapAnalysisTask olapTask) || task.tableSample == null || task.info.rowCount == 0) {
+            if (!(task instanceof OlapAnalysisTask olapTask) || task.tableSample == null
+                    || task.info == null || task.info.rowCount == 0 || olapTask.usesPartitionTable()) {
                 continue;
             }
             OlapTable table = (OlapTable) task.tbl;

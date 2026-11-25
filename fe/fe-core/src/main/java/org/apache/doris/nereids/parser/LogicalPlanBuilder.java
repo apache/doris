@@ -8813,7 +8813,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         PartitionNamesInfo partitionNamesInfo = null;
         if (ctx.partitionSpec() != null) {
             Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
-            partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+            partitionNamesInfo = new PartitionNamesInfo(
+                    partitionSpec.first, partitionSpec.second == null, partitionSpec.second, 0);
         }
         List<String> columnNames = null;
         if (ctx.columns != null) {
