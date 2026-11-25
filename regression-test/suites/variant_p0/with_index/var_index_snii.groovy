@@ -22,30 +22,6 @@ suite("regression_test_variant_var_index_snii", "p0, nonConcurrent"){
     sql """ set debug_variant_enable_typed_paths_to_sparse = false """
     sql """ set debug_variant_enable_doc_mode = false """
 
-    // enable_match_without_inverted_index only gates MATCH_PRED's residual row-level fallback
-    // (see match.cpp / olap_scan_operator.cpp); it has no effect on a plain `>` predicate, so a
-    // correct qt_*_range result alone does not show the SNII native BKD reader served the query
-    // -- it could equally be a full scan reaching the same rows.
-    //
-    // segment_iterator.apply_inverted_index (demands zero residual predicates after index
-    // application) is NOT the right instrument here: a cast()-wrapped comparison always leaves
-    // the cast expression as a residual, on every storage format, so that debug point can never
-    // pass for these queries regardless of whether the index served them. Use
-    // segment_iterator.inverted_index.filtered_rows instead: it fails the query unless the
-    // inverted index actually filtered out exactly the expected number of rows, which is a direct
-    // measurement of index participation rather than a residual-predicate check.
-    def assertRangeFilteredRowCount = { String sqlQuery, int expectedFilteredRows ->
-        def checkpoint = "segment_iterator.inverted_index.filtered_rows"
-        try {
-            GetDebugPoint().enableDebugPointForAllBEs(checkpoint, [filtered_rows: "${expectedFilteredRows}"])
-            sql "set experimental_enable_parallel_scan = false"
-            sql "sync"
-            sql "${sqlQuery}"
-        } finally {
-            GetDebugPoint().disableDebugPointForAllBEs(checkpoint)
-        }
-    }
-
     // Declared sub-column types: FE validates each path type through
     // CreateTableInfo, and the BE gets subcolumn_indexes already initialized.
     def typed_table = "var_index_snii_typed"
@@ -63,17 +39,27 @@ suite("regression_test_variant_var_index_snii", "p0, nonConcurrent"){
         properties("replication_num" = "1", "disable_auto_compaction" = "true",
                    "inverted_index_storage_format" = "SNII");
     """
-    sql """insert into ${typed_table} values(1, 'alpha plain', ${variantV2Function}('{"a" : 123, "b" : "xxxyyy", "c" : 111999111}'))"""
-    sql """insert into ${typed_table} values(2, 'beta plain', ${variantV2Function}('{"a" : 18811, "b" : "hello world", "c" : 1181111}'))"""
-    sql """insert into ${typed_table} values(3, 'alpha other', ${variantV2Function}('{"a" : 18811, "b" : "hello wworld", "c" : 11111}'))"""
-    sql """insert into ${typed_table} values(4, 'gamma plain', ${variantV2Function}('{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}'))"""
+    // Keep the matching rows and the rejected row in one segment. The debug point checks
+    // the scanner's cumulative filtered-row count during each segment's initialization.
+    sql """INSERT INTO ${typed_table} VALUES
+        (1, 'alpha plain', ${variantV2Function}('{"a" : 123, "b" : "xxxyyy", "c" : 111999111}')),
+        (2, 'beta plain', ${variantV2Function}('{"a" : 18811, "b" : "hello world", "c" : 1181111}')),
+        (3, 'alpha other', ${variantV2Function}('{"a" : 18811, "b" : "hello wworld", "c" : 11111}')),
+        (4, 'gamma plain', ${variantV2Function}('{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}'))
+    """
 
     sql """set enable_match_without_inverted_index = false"""
     qt_typed_match """select k from ${typed_table} where cast(v["b"] as string) match 'hello' order by k"""
-    qt_typed_range """select k from ${typed_table} where cast(v["a"] as int) > 1000 order by k"""
-    // typed_table has 4 rows with a = 123, 18811, 18811, 1234; `> 1000` filters out exactly the
-    // a=123 row (k=1), so the index must report filtered_rows: 1.
-    assertRangeFilteredRowCount("select k from ${typed_table} where cast(v[\"a\"] as int) > 1000 order by k", 1)
+    // Check the result and the BKD participation together on the first range scan. Repeating
+    // the query can reuse condition-cache results computed before the debug point was set.
+    def checkpoint = "segment_iterator.inverted_index.filtered_rows"
+    sql "SET experimental_enable_parallel_scan=false"
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs(checkpoint, [filtered_rows: 1])
+        qt_typed_range """select k from ${typed_table} where cast(v["a"] as int) > 1000 order by k"""
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs(checkpoint)
+    }
     qt_typed_both """select k from ${typed_table} where cast(v["a"] as int) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 1024 order by k"""
     // A plain column and a variant column carry SNII indexes in one table: the plain one is
     // keyed by its own index id, the variant sub-columns by suffix path under theirs.
