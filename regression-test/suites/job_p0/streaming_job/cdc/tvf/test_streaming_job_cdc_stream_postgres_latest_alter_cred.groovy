@@ -21,7 +21,7 @@ import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
 /**
- * Test cdc_stream TVF streaming job with offset=latest and credential update via ALTER JOB.
+ * Test cdc_stream TVF streaming job with offset=latest and credential validation during ALTER JOB.
  *
  * Scenario A — offset=latest:
  *   1. Pre-existing rows (A1, B1) are present in the PG source table before the job is created.
@@ -32,14 +32,12 @@ import static java.util.concurrent.TimeUnit.SECONDS
  * Scenario B — ALTER with wrong credentials:
  *   1. Pause the job.
  *   2. ALTER JOB with wrong password (same type/database/table, so the unmodifiable-property check passes).
- *   3. Resume the job → fetchMeta fails → job auto-pauses with an error message.
- *   4. Verify the error message reflects the credential failure.
+ *   3. ALTER rejects the wrong password during validation.
  *
- * Scenario C — ALTER back to correct credentials and recover:
- *   1. Alter back to correct credentials while still PAUSED.
- *   2. Resume the job → job returns to RUNNING.
- *   3. INSERT (E1, F1) after recovery → should appear in Doris (no data loss during pause).
- *   4. Verify final data: only C1, D1, E1, F1 are present (A1, B1 still absent).
+ * Scenario C — resume with the original credentials:
+ *   1. Resume the job → job returns to RUNNING.
+ *   2. INSERT (E1, F1) after resume → should appear in Doris (no data loss during pause).
+ *   3. Verify final data: only C1, D1, E1, F1 are present (A1, B1 still absent).
  */
 suite("test_streaming_job_cdc_stream_postgres_latest_alter_cred",
         "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
@@ -144,68 +142,34 @@ suite("test_streaming_job_cdc_stream_postgres_latest_alter_cred",
 
         qt_offset_latest_data """ SELECT * FROM ${currentDb}.${dorisTable} ORDER BY name """
 
-        // ── Scenario B: ALTER to wrong credentials → job should auto-pause ────────────
+        // Scenario B: invalid credentials are rejected before the job is changed.
         sql """PAUSE JOB where jobname = '${jobName}'"""
         Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
             def s = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
             s.size() == 1 && s.get(0).get(0) == "PAUSED"
         })
 
-        // alter with wrong password; type/jdbc_url/database/schema/table remain unchanged
-        sql """
-            ALTER JOB ${jobName}
-            INSERT INTO ${currentDb}.${dorisTable} (name, age)
-            SELECT name, age FROM cdc_stream(
-                "type"         = "postgres",
-                "jdbc_url"     = "${jdbcUrl}",
-                "driver_url"   = "${driver_url}",
-                "driver_class" = "org.postgresql.Driver",
-                "user"         = "${pgUser}",
-                "password"     = "wrong_password_for_test",
-                "database"     = "${pgDB}",
-                "schema"       = "${pgSchema}",
-                "table"        = "${pgTable}",
-                "offset"       = "latest"
-            )
-        """
-
-        sql """RESUME JOB where jobname = '${jobName}'"""
-
-        // job should re-pause due to credential failure
-        try {
-            Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
-                def s = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
-                log.info("status after wrong cred resume: " + s)
-                s.size() == 1 && s.get(0).get(0) == "PAUSED"
-            })
-        } catch (Exception ex) {
-            log.info("job: " + (sql """select * from jobs("type"="insert") where Name='${jobName}'"""))
-            throw ex
+        test {
+            sql """
+                ALTER JOB ${jobName}
+                INSERT INTO ${currentDb}.${dorisTable} (name, age)
+                SELECT name, age FROM cdc_stream(
+                    "type"         = "postgres",
+                    "jdbc_url"     = "${jdbcUrl}",
+                    "driver_url"   = "${driver_url}",
+                    "driver_class" = "org.postgresql.Driver",
+                    "user"         = "${pgUser}",
+                    "password"     = "wrong_password_for_test",
+                    "database"     = "${pgDB}",
+                    "schema"       = "${pgSchema}",
+                    "table"        = "${pgTable}",
+                    "offset"       = "latest"
+                )
+            """
+            exception "password authentication failed"
         }
 
-        def errorMsgAfterWrongCred = sql """select ErrorMsg from jobs("type"="insert") where Name='${jobName}'"""
-        log.info("error msg after wrong cred: " + errorMsgAfterWrongCred)
-        assert errorMsgAfterWrongCred.get(0).get(0) != null && !errorMsgAfterWrongCred.get(0).get(0).isEmpty() :
-                "ErrorMsg should be non-empty when wrong credentials are used"
-
-        // ── Scenario C: ALTER back to correct credentials and recover ─────────────────
-        sql """
-            ALTER JOB ${jobName}
-            INSERT INTO ${currentDb}.${dorisTable} (name, age)
-            SELECT name, age FROM cdc_stream(
-                "type"         = "postgres",
-                "jdbc_url"     = "${jdbcUrl}",
-                "driver_url"   = "${driver_url}",
-                "driver_class" = "org.postgresql.Driver",
-                "user"         = "${pgUser}",
-                "password"     = "${pgPassword}",
-                "database"     = "${pgDB}",
-                "schema"       = "${pgSchema}",
-                "table"        = "${pgTable}",
-                "offset"       = "latest"
-            )
-        """
-
+        // The rejected ALTER leaves the original credentials in place.
         sql """RESUME JOB where jobname = '${jobName}'"""
 
         // verify job transitions back to RUNNING

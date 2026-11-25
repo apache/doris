@@ -148,6 +148,11 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                 boolean sqlModified = isSqlModified(streamingJob.getExecuteSql());
                 if (sqlModified) {
                     checkUnmodifiableProperties(streamingJob.getExecuteSql());
+                    InsertIntoTableCommand insertCommand =
+                            (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
+                    // Validate as the caller without registering a load job.
+                    insertCommand.setJobId(-1);
+                    insertCommand.initPlan(ConnectContext.get(), ConnectContext.get().getExecutor(), false);
                 }
                 if (!propModified && !sqlModified) {
                     throw new AnalysisException("No properties or sql changed in ALTER JOB");
