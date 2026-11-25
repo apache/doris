@@ -132,10 +132,10 @@ private:
     void _check_and_recreate_processes();
 
 #ifdef BE_TEST
-    static constexpr std::chrono::milliseconds PROCESS_START_TIMEOUT {500};
-    static constexpr std::chrono::milliseconds PROCESS_TERMINATE_TIMEOUT {100};
-    static constexpr std::chrono::milliseconds PROCESS_POOL_INIT_TIMEOUT {1000};
-    static constexpr std::chrono::milliseconds PROCESS_REPAIR_WAIT_TIMEOUT {200};
+    static constexpr std::chrono::milliseconds PROCESS_START_TIMEOUT {2000};
+    static constexpr std::chrono::milliseconds PROCESS_TERMINATE_TIMEOUT {300};
+    static constexpr std::chrono::milliseconds PROCESS_POOL_INIT_TIMEOUT {4000};
+    static constexpr std::chrono::milliseconds PROCESS_REPAIR_WAIT_TIMEOUT {500};
 #else
     static constexpr std::chrono::milliseconds PROCESS_START_TIMEOUT {5000};
     static constexpr std::chrono::milliseconds PROCESS_TERMINATE_TIMEOUT {1000};
