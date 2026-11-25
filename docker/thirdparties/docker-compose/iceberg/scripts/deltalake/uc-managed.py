@@ -67,4 +67,10 @@ spark._jvm.org.apache.spark.sql.delta.DeltaLog.clearCache()
 result = spark.sql("SELECT id, label FROM doris_delta.m1.uc_managed ORDER BY id").collect()
 assert [(r.id, r.label) for r in result] == [(1, "before"), (3, "after")], result
 print("Spark managed rows:", result)
+# Capture an independent Spark reference while the same latest commit is still staged.
+if reference := os.environ.get("UC_TEST_HISTORY_REFERENCE"):
+    history = spark.sql("DESCRIBE HISTORY doris_delta.m1.uc_managed").orderBy("version")
+    projection = ["unix_millis(timestamp)" if name == "timestamp" else name for name in history.columns]
+    rows = [list(row.asDict(recursive=True).values()) for row in history.selectExpr(*projection).collect()]
+    Path(reference).write_text(json.dumps(rows), encoding="utf-8")
 spark.stop()

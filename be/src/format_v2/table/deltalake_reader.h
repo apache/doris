@@ -29,6 +29,7 @@ public:
 protected:
     Status create_file_reader(std::unique_ptr<FileReader>* reader) override;
     TableColumnMappingMode mapping_mode() const override;
+    bool _should_enable_condition_cache(const FileScanRequest& file_request) const override;
     Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) override;
     Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
                                        bool* has_delete_file) override;

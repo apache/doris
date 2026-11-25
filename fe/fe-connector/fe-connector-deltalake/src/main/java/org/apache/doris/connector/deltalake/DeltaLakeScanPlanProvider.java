@@ -114,6 +114,9 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
     public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter, boolean countPushdown) {
         streamingCount = false;
+        if (((DeltaLakeTableHandle) handle).isHistory()) {
+            return -1;
+        }
         String enabled = session.getProperty("enable_external_table_batch_mode", String.class);
         if (enabled != null && !Boolean.parseBoolean(enabled)) {
             return -1;
@@ -288,6 +291,9 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
         return runtime.execute(() -> {
             DeltaLakeScanPlanMemo.checkCancelled(request.getScanContext());
             DeltaLakeTableHandle handle = (DeltaLakeTableHandle) request.getTableHandle();
+            if (handle.isHistory()) {
+                return DeltaLakeHistoryReader.plan(runtime, handle, request);
+            }
             Snapshot snapshot = handle.snapshot(runtime);
             if (session == null || !session.isExternalScanTaskReuseEnabled()) {
                 return planScanInternal(session, request, handle, snapshot).ranges();
@@ -456,6 +462,11 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter) {
         return runtime.execute(() -> {
             DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+            if (delta.isHistory()) {
+                return Map.of(ScanNodePropertyKeys.FILE_FORMAT_TYPE, "parquet",
+                        ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS, "Native Delta Lake history reads",
+                        "deltalake.history_version", String.valueOf(delta.getVersion()));
+            }
             Snapshot snapshot = delta.snapshot(runtime);
             Map<String, String> properties = new HashMap<>();
             properties.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, "parquet");
@@ -496,6 +507,11 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
 
     @Override
     public void appendExplainInfo(StringBuilder output, String prefix, Map<String, String> properties) {
+        String historyVersion = properties.get("deltalake.history_version");
+        if (historyVersion != null) {
+            output.append(prefix).append("Delta history through version: ").append(historyVersion).append("\n");
+            return;
+        }
         output.append(prefix).append("Delta snapshot: ").append(properties.get("deltalake.snapshot_version"))
                 .append('\n');
         DeltaLakeScanMetrics.Result result = scanMetrics;

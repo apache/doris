@@ -30,11 +30,15 @@ import io.delta.kernel.engine.Engine;
 import io.delta.kernel.expressions.Predicate;
 import io.delta.kernel.expressions.PredicateEvaluator;
 import io.delta.kernel.internal.InternalScanFileUtils;
+import io.delta.kernel.internal.TableConfig;
 import io.delta.kernel.internal.actions.DeletionVectorDescriptor;
 import io.delta.kernel.internal.actions.Protocol;
+import io.delta.kernel.internal.fs.Path;
 import io.delta.kernel.internal.snapshot.LogSegment;
 import io.delta.kernel.internal.tablefeatures.TableFeature;
+import io.delta.kernel.internal.util.FileNames;
 import io.delta.kernel.internal.util.PartitionUtils;
+import io.delta.kernel.internal.util.Utils;
 import io.delta.kernel.statistics.DataFileStatistics;
 import io.delta.kernel.types.BinaryType;
 import io.delta.kernel.types.DataType;
@@ -42,10 +46,13 @@ import io.delta.kernel.types.DateType;
 import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
 import io.delta.kernel.types.TimestampNTZType;
+import io.delta.kernel.utils.CloseableIterator;
 import io.delta.kernel.utils.FileStatus;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -59,6 +66,44 @@ final class DeltaKernelCompat {
 
     static String tableId(Snapshot snapshot) {
         return snapshot.getMetadata().getId();
+    }
+
+    static OptionalLong earliestHistoryVersion(Engine engine, Snapshot snapshot) throws IOException {
+        OptionalLong staged = snapshot.getLogSegment().getAllCatalogCommits().stream()
+                .mapToLong(commit -> commit.getVersion()).min();
+        if (staged.orElse(-1) == 0) {
+            // UC can ratify v0 before any numbered JSON exists in _delta_log.
+            return staged;
+        }
+        Path logPath = new Path(snapshot.getPath(), "_delta_log");
+        try (CloseableIterator<FileStatus> files = engine.getFileSystemClient()
+                .listFrom(FileNames.listingPrefix(logPath, 0))) {
+            while (files.hasNext()) {
+                String path = files.next().getPath();
+                if (FileNames.isPublishedDeltaFile(path)) {
+                    long published = FileNames.deltaVersion(path);
+                    return OptionalLong.of(Math.min(published, staged.orElse(published)));
+                }
+            }
+        }
+        return staged;
+    }
+
+    static OptionalLong historyIctStart(Snapshot snapshot) {
+        var metadata = snapshot.getMetadata();
+        if (!TableConfig.IN_COMMIT_TIMESTAMPS_ENABLED.fromMetadata(metadata)) {
+            return OptionalLong.empty();
+        }
+        Optional<Long> version = TableConfig.IN_COMMIT_TIMESTAMP_ENABLEMENT_VERSION.fromMetadata(metadata);
+        Optional<Long> timestamp = TableConfig.IN_COMMIT_TIMESTAMP_ENABLEMENT_TIMESTAMP.fromMetadata(metadata);
+        if (version.isPresent() != timestamp.isPresent()) {
+            throw new IllegalStateException("Incomplete Delta in-commit timestamp enablement metadata");
+        }
+        return OptionalLong.of(version.orElse(0L));
+    }
+
+    static CloseableIterator<FileStatus> singleLogFile(FileStatus file) {
+        return Utils.toCloseableIterator(List.of(file).iterator());
     }
 
     static OptionalLong fileCount(Snapshot snapshot) {
