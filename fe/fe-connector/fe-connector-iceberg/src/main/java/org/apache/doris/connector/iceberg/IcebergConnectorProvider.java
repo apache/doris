@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -94,6 +95,8 @@ public class IcebergConnectorProvider implements ConnectorProvider {
         // Keep secret masking and JDBC restrictions when REST decryption adds a KMS endpoint check.
         return ConnectorSecuritySurface.ofJdbcDriverUrls("iceberg.catalog.type", "iceberg.jdbc.driver_url")
                 .withSensitiveKeys(MetaStoreProviders.sensitivePropertyKeys())
+                // Native SDK data-encryption keys must not appear in SHOW output or CREATE/ALTER audit SQL.
+                .withSensitiveKeys(List.of("gcs.encryption-key", "gcs.decryption-key"))
                 .withSsrfEndpoints("kms.endpoint");
     }
 }

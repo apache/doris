@@ -20,6 +20,8 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
+import org.apache.doris.connector.ConnectorPluginManager;
+import org.apache.doris.connector.iceberg.IcebergConnectorProvider;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
@@ -31,9 +33,45 @@ import org.mockito.Mockito;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 class DatasourcePropertyMaskingTest {
     private static final String MASK = DatasourcePrintableMap.PASSWORD_MASK;
+
+    @Test
+    void gcsSdkEncryptionKeysAreMaskedInShowAndAudit() {
+        synchronized (DatasourcePrintableMap.SENSITIVE_KEY) {
+            Set<String> existing = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            existing.addAll(DatasourcePrintableMap.SENSITIVE_KEY);
+            IcebergConnectorProvider provider = new IcebergConnectorProvider();
+            try {
+                new ConnectorPluginManager().registerProvider(provider);
+                for (String key : List.of("gcs.encryption-key", "GCS.DECRYPTION-KEY")) {
+                    assertRendered(key, "fixture-csek-value", MASK);
+                }
+                assertRendered("gcs.project-id", "fixture-project", "fixture-project");
+                NeedAuditEncryption audit = () -> true;
+                for (String prefix : List.of("CREATE CATALOG masking_catalog PROPERTIES ",
+                        "ALTER CATALOG masking_catalog SET PROPERTIES ")) {
+                    String masked = audit.geneEncryptionSQL(prefix
+                            + "('gcs.encryption-key'='fixture-write-csek','GCS.DECRYPTION-KEY'='fixture-read-csek',"
+                            + "'gcs.project-id'='fixture-project')");
+                    Assertions.assertFalse(masked.contains("fixture-write-csek"), masked);
+                    Assertions.assertFalse(masked.contains("fixture-read-csek"), masked);
+                    Assertions.assertTrue(masked.contains(MASK), masked);
+                    Assertions.assertTrue(masked.contains("fixture-project"), masked);
+                }
+            } finally {
+                // Keep registrations from other tests and remove only the keys admitted by this fixture.
+                for (String key : provider.securitySurface().sensitiveKeys()) {
+                    if (!existing.contains(key)) {
+                        DatasourcePrintableMap.SENSITIVE_KEY.remove(key);
+                    }
+                }
+            }
+        }
+    }
 
     private void assertRendered(String key, String value, String expected) {
         Map<String, String> properties = Map.of(key, value);

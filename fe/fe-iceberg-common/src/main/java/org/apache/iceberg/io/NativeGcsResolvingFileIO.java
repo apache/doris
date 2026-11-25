@@ -17,8 +17,10 @@
 
 package org.apache.iceberg.io;
 
+import java.util.Map;
+
 /**
- * A {@link ResolvingFileIO} that keeps {@code gs://} locations on {@code HadoopFileIO}.
+ * A {@link ResolvingFileIO} that preserves Hadoop GCS credentials unless native SDK options are supplied.
  *
  * <p>Doris configures GCS access as Hadoop properties: native credentials (credential provider type,
  * service-account impersonation) as {@code fs.gs.*}, and HMAC interoperability keys or anonymous access as
@@ -26,7 +28,8 @@ package org.apache.iceberg.io;
  * routes {@code gs} to {@code GCSFileIO} whenever iceberg-gcp is on the classpath and falls back to
  * HadoopFileIO only when that class is missing. The plugins bundle iceberg-gcp for the REST catalog's
  * {@code GoogleAuthManager} and an explicitly chosen {@code GCSFileIO}, so this class pins the default
- * routing instead of relying on that class being absent. Every other scheme resolves exactly as upstream.
+ * routing instead of relying on that class being absent. Native SDK storage options retain the SDK
+ * path, including options and credentials received after FE selection. Other schemes resolve as upstream.
  *
  * <p>It lives in {@code org.apache.iceberg.io} because {@code implFromLocation} is package-private; the
  * override only takes effect when this class and iceberg-core share a class loader, which holds for the
@@ -39,9 +42,30 @@ public class NativeGcsResolvingFileIO extends ResolvingFileIO {
     private static final String GCS_FILE_IO_IMPL = "org.apache.iceberg.gcp.gcs.GCSFileIO";
     private static final String HADOOP_FILE_IO_IMPL = "org.apache.iceberg.hadoop.HadoopFileIO";
 
+    public static boolean hasSdkGcsProperties(Map<String, String> properties) {
+        return properties.entrySet().stream()
+                .anyMatch(entry -> entry.getKey().startsWith("gcs.") && entry.getValue() != null);
+    }
+
     @Override
     String implFromLocation(String location) {
         String impl = super.implFromLocation(location);
-        return GCS_FILE_IO_IMPL.equals(impl) ? HADOOP_FILE_IO_IMPL : impl;
+        if (!GCS_FILE_IO_IMPL.equals(impl)) {
+            return impl;
+        }
+        // REST/table configuration and matching storage credentials can arrive after FE selected this class.
+        // HadoopFileIO ignores SDK encryption, billing and token options, so those retain the native path.
+        if (hasSdkGcsProperties(properties())) {
+            return GCS_FILE_IO_IMPL;
+        }
+        StorageCredential matching = null;
+        for (StorageCredential credential : credentials()) {
+            if (location.startsWith(credential.prefix())
+                    && (matching == null || credential.prefix().length() >= matching.prefix().length())) {
+                matching = credential;
+            }
+        }
+        // The SDK uses the longest prefix and the last duplicate; broader credentials cannot supply its options.
+        return matching != null && hasSdkGcsProperties(matching.config()) ? GCS_FILE_IO_IMPL : HADOOP_FILE_IO_IMPL;
     }
 }

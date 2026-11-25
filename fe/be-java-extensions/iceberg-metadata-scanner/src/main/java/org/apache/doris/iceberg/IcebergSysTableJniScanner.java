@@ -24,9 +24,12 @@ import org.apache.doris.kerberos.PreExecutionAuthenticator;
 import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Preconditions;
+import com.google.common.io.Closer;
+import org.apache.iceberg.DorisMetadataTaskFileIO;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.io.CloseableIterator;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.types.Type;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,44 +47,57 @@ public class IcebergSysTableJniScanner extends JniScanner {
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
     private final PreExecutionAuthenticator preExecutionAuthenticator;
     private final FileScanTask scanTask;
+    private final FileIO fileIO;
     private final int requiredFieldCount;
     private final Type[] icebergTypes;
     private final String timezone;
     private CloseableIterator<StructLike> reader;
+    private volatile boolean closed;
 
     public IcebergSysTableJniScanner(int batchSize, Map<String, String> params) {
         String serializedSplitParams = params.get("serialized_split");
         Preconditions.checkArgument(serializedSplitParams != null && !serializedSplitParams.isEmpty(),
                 "serialized_split should not be empty");
         this.scanTask = IcebergSerializationCompat.deserializeFromBase64(serializedSplitParams);
-        String requiredFieldsParam = params.get("required_fields");
-        Preconditions.checkArgument(requiredFieldsParam != null && !requiredFieldsParam.isEmpty(),
-                "required_fields should not be empty");
-        String[] requiredFields = requiredFieldsParam.split(",");
-        this.requiredFieldCount = requiredFields.length;
-        this.icebergTypes = new Type[requiredFieldCount];
-        for (int i = 0; i < requiredFieldCount; i++) {
-            // Resolve types by name, but read projected ROWS by position below. StaticDataTask.schema()
-            // can be the full schema even when its rows contain only the requested fields.
-            this.icebergTypes[i] = scanTask.schema().findType(requiredFields[i]);
-            Preconditions.checkNotNull(icebergTypes[i], "Missing Iceberg metadata field %s", requiredFields[i]);
+        // The deserialized task owns its FileIO independently of the FE catalog's cached instance.
+        this.fileIO = DorisMetadataTaskFileIO.fileIO(scanTask);
+        try {
+            String requiredFieldsParam = params.get("required_fields");
+            Preconditions.checkArgument(requiredFieldsParam != null && !requiredFieldsParam.isEmpty(),
+                    "required_fields should not be empty");
+            String[] requiredFields = requiredFieldsParam.split(",");
+            this.requiredFieldCount = requiredFields.length;
+            this.icebergTypes = new Type[requiredFieldCount];
+            for (int i = 0; i < requiredFieldCount; i++) {
+                // Resolve types by name, but read projected ROWS by position below. StaticDataTask.schema()
+                // can be the full schema even when its rows contain only the requested fields.
+                this.icebergTypes[i] = scanTask.schema().findType(requiredFields[i]);
+                Preconditions.checkNotNull(icebergTypes[i], "Missing Iceberg metadata field %s", requiredFields[i]);
+            }
+            this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
+            Map<String, String> hadoopOptionParams = params.entrySet().stream()
+                    .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
+                    .collect(Collectors
+                            .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()),
+                                    kv1 -> kv1.getValue()));
+            this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
+            String requiredTypesParam = params.get("required_types");
+            Preconditions.checkArgument(requiredTypesParam != null && !requiredTypesParam.isEmpty(),
+                    "required_types should not be empty");
+            String[] requiredTypeStrings = requiredTypesParam.split("#");
+            ColumnType[] requiredTypes = parseRequiredTypes(requiredTypeStrings, requiredFields);
+            initTableInfo(requiredTypes, requiredFields, batchSize);
+        } catch (RuntimeException | Error failure) {
+            closeOnFailure(failure);
+            throw failure;
         }
-        this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
-        Map<String, String> hadoopOptionParams = params.entrySet().stream()
-                .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
-                .collect(Collectors
-                        .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
-        this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
-        String requiredTypesParam = params.get("required_types");
-        Preconditions.checkArgument(requiredTypesParam != null && !requiredTypesParam.isEmpty(),
-                "required_types should not be empty");
-        String[] requiredTypeStrings = requiredTypesParam.split("#");
-        ColumnType[] requiredTypes = parseRequiredTypes(requiredTypeStrings, requiredFields);
-        initTableInfo(requiredTypes, requiredFields, batchSize);
     }
 
     @Override
-    protected void openInternal() throws IOException {
+    protected synchronized void openInternal() throws IOException {
+        if (closed) {
+            throw new IOException("Metadata scanner is closed");
+        }
         try {
             preExecutionAuthenticator.execute(() -> {
                 // execute FileScanTask to get rows
@@ -89,47 +105,78 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 return null;
             });
         } catch (Exception e) {
-            closeInternal();
+            closeOnFailure(e);
             String msg = String.format("Failed to open scan task: %s", scanTask);
             LOG.error(msg, e);
             throw new IOException(msg, e);
+        } catch (Error e) {
+            closeOnFailure(e);
+            throw e;
         }
     }
 
     @Override
     protected int getNext() throws IOException {
-        int rows = 0;
-        long startAppendDataTime = System.nanoTime();
-        while (rows < getBatchSize()) {
-            if (!reader.hasNext()) {
-                break;
-            }
-            StructLike row = reader.next();
-            for (int i = 0; i < requiredFieldCount; i++) {
-                // Read positionally: FE (IcebergScanPlanProvider.doPlanSystemTableScan) projects the
-                // metadata-table scan to exactly the BE-requested fields, in required_fields order, so the
-                // i-th projected row field is the i-th required field. Do NOT index via scanTask.schema():
-                // for a metadata StaticDataTask, schema() returns the FULL table schema while rows() yields a
-                // narrowed StructProjection, so a full-schema ordinal overruns the projected row (upstream
-                // #65262 -- reverting this to a by-name/schema() lookup reintroduces ArrayIndexOutOfBounds).
-                Object value = row.get(i, Object.class);
-                ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone, icebergTypes[i]);
-                appendData(i, columnValue);
-            }
-            rows++;
+        CloseableIterator<StructLike> activeReader = reader;
+        if (closed || activeReader == null) {
+            throw new IOException("Metadata scanner is not open");
         }
-        appendDataTime += System.nanoTime() - startAppendDataTime;
-        return rows;
+        try {
+            int rows = 0;
+            long startAppendDataTime = System.nanoTime();
+            while (rows < getBatchSize()) {
+                if (!activeReader.hasNext()) {
+                    break;
+                }
+                StructLike row = activeReader.next();
+                for (int i = 0; i < requiredFieldCount; i++) {
+                    // Read positionally: FE (IcebergScanPlanProvider.doPlanSystemTableScan) projects the
+                    // metadata-table scan to exactly the BE-requested fields, in required_fields order, so the
+                    // i-th projected row field is the i-th required field. Do NOT index via scanTask.schema():
+                    // for a metadata StaticDataTask, schema() returns the FULL table schema while rows() yields a
+                    // narrowed StructProjection, so a full-schema ordinal overruns the projected row (upstream
+                    // #65262 -- reverting this to a by-name/schema() lookup reintroduces ArrayIndexOutOfBounds).
+                    Object value = row.get(i, Object.class);
+                    ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone, icebergTypes[i]);
+                    appendData(i, columnValue);
+                }
+                rows++;
+            }
+            appendDataTime += System.nanoTime() - startAppendDataTime;
+            return rows;
+        } catch (RuntimeException | Error failure) {
+            closeOnFailure(failure);
+            throw failure;
+        }
     }
 
     @Override
     protected void closeInternal() throws IOException {
-        if (reader != null) {
-            // Called twice whenever openInternal fails - it closes, then BE closes again. That is
-            // within the SPI contract here because closing an iceberg CloseableIterator twice is a
-            // no-op the second time, for both shapes a metadata table produces: a StaticDataTask's
-            // rows have nothing to release, and a ManifestReadTask's avro reader closes idempotently.
-            reader.close();
+        closeResources();
+    }
+
+    private synchronized void closeResources() throws IOException {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        try (Closer closer = Closer.create()) {
+            // Close the reader first, and still retire its independent owner if reader.close fails.
+            // GCSFileIO.close cancels refresh callbacks that otherwise retain completed split state.
+            closer.register(fileIO);
+            closer.register(reader);
+            reader = null;
+        }
+    }
+
+    private void closeOnFailure(Throwable failure) {
+        try {
+            // Constructor cleanup must not dispatch to a subclass before it has been initialized.
+            closeResources();
+        } catch (IOException | RuntimeException | Error closeFailure) {
+            if (failure != closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
         }
     }
 
