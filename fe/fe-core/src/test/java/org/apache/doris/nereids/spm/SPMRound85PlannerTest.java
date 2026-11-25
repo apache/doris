@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -191,9 +190,9 @@ public class SPMRound85PlannerTest {
      */
     @Test
     public void testEmptyArrayContainerKeepsItsMarkers() {
-        Assertions.assertEquals(1, booleanArrayMarkers(
+        Assertions.assertEquals(1, untypedArrayMarkers(
                 "SELECT k FROM t WHERE k > 0 OR element_at([], 1)"),
-                "the empty array container is retyped ARRAY<BOOLEAN>");
+                "the empty array container keeps ARRAY<NULL_TYPE>");
     }
 
     /**
@@ -203,9 +202,9 @@ public class SPMRound85PlannerTest {
      */
     @Test
     public void testAllNullArrayUnderArraySortKeepsItsMarkers() {
-        Assertions.assertEquals(1, booleanArrayMarkers(
+        Assertions.assertEquals(1, untypedArrayMarkers(
                 "SELECT k FROM t WHERE k > 0 OR element_at(array_sort([NULL]), 1)"),
-                "the all-NULL array inside array_sort is retyped ARRAY<BOOLEAN>");
+                "the all-NULL array inside array_sort keeps ARRAY<NULL_TYPE>");
     }
 
     /**
@@ -218,12 +217,12 @@ public class SPMRound85PlannerTest {
         for (SpmConstVar var : markers(
                 "SELECT k FROM t WHERE k > 0 OR element_at(map_values({'x': NULL}), 1)")) {
             if (var.getDataType() instanceof MapType
-                    && ((MapType) var.getDataType()).getValueType() instanceof BooleanType) {
+                    && ((MapType) var.getDataType()).getValueType().isNullType()) {
                 maps++;
             }
         }
         Assertions.assertEquals(1, maps,
-                "the all-NULL map inside map_values is retyped MAP<STRING, BOOLEAN>");
+                "the all-NULL map inside map_values keeps MAP<STRING, NULL_TYPE>");
     }
 
     /**
@@ -236,22 +235,21 @@ public class SPMRound85PlannerTest {
         int maps = 0;
         for (SpmConstVar var : markers(
                 "SELECT k FROM t WHERE k > 0 OR element_at(NULL, 'x')")) {
-            if (var.getDataType() instanceof MapType
-                    && ((MapType) var.getDataType()).getValueType() instanceof BooleanType) {
+            if (var.getDataType().isNullType()) {
                 maps++;
             }
         }
         Assertions.assertEquals(1, maps,
-                "the bare NULL container of the MAP overload is typed MAP<STRING, BOOLEAN>");
+                "the bare NULL container keeps NullType");
     }
 
     // ==================== helpers ====================
 
-    private static int booleanArrayMarkers(String sql) {
+    private static int untypedArrayMarkers(String sql) {
         int arrays = 0;
         for (SpmConstVar var : markers(sql)) {
             if (var.getDataType() instanceof ArrayType
-                    && ((ArrayType) var.getDataType()).getItemType() instanceof BooleanType) {
+                    && ((ArrayType) var.getDataType()).getItemType().isNullType()) {
                 arrays++;
             }
         }

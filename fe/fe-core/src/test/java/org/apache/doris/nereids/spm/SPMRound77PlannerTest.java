@@ -137,7 +137,7 @@ public class SPMRound77PlannerTest {
      * substitute.
      */
     @Test
-    public void testAllNullNullIfOperandParameterizesBooleanMarkers() {
+    public void testAllNullNullIfOperandPreservesNullMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR nullif(NULL, NULL)");
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
@@ -148,9 +148,8 @@ public class SPMRound77PlannerTest {
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 nullMarkers++;
-                Assertions.assertTrue(((SpmConstVar) placeholder).getDataType()
-                                instanceof BooleanType,
-                        "an argument of a Boolean NULLIF operand is parameterized BOOLEAN, got: "
+                Assertions.assertTrue(((SpmConstVar) placeholder).getDataType().isNullType(),
+                        "an argument of a Boolean NULLIF operand is parameterized with NullType, got: "
                                 + ((SpmConstVar) placeholder).getDataType());
             }
         }

@@ -289,13 +289,13 @@ public class SPMRound82PlannerTest {
      * the {@code array_min(array(TRUE))} caller replayed NULL for k = -1.
      */
     @Test
-    public void testArrayMinOverAllNullArrayKeepsBooleanMarkers() {
+    public void testArrayMinOverAllNullArrayKeepsNullMarkers() {
         assertBooleanNullMarkers("SELECT k FROM t WHERE k > 0 OR array_min(array(NULL))");
     }
 
     /** ARRAY_MAX has the same element-typed signature (see the ARRAY_MIN case). */
     @Test
-    public void testArrayMaxOverAllNullArrayKeepsBooleanMarkers() {
+    public void testArrayMaxOverAllNullArrayKeepsNullMarkers() {
         assertBooleanNullMarkers("SELECT k FROM t WHERE k > 0 OR array_max(array(NULL))");
     }
 
@@ -311,7 +311,7 @@ public class SPMRound82PlannerTest {
             }
             SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             if (var.getValue().isNullLiteral() && var.getDataType() instanceof BooleanType) {
-                Assertions.fail("only an all-NULL array is retyped: "
+                Assertions.fail("typed array arguments must preserve their original types: "
                         + builder.getPlaceholderExprs());
             }
         }
@@ -324,19 +324,19 @@ public class SPMRound82PlannerTest {
         LogicalPlan plan = parse(sql);
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
-        int booleanNullMarkers = 0;
+        int untypedNullMarkers = 0;
         for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
             if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
             SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
-            if (var.getValue().isNullLiteral() && var.getDataType() instanceof BooleanType) {
-                booleanNullMarkers++;
+            if (var.getValue().isNullLiteral() && var.getDataType().isNullType()) {
+                untypedNullMarkers++;
             }
         }
-        Assertions.assertTrue(booleanNullMarkers > 0,
+        Assertions.assertTrue(untypedNullMarkers > 0,
                 "the all-NULL array makes the reducer a NullType producer, so its markers have"
-                        + " to be BOOLEAN already: " + builder.getPlaceholderExprs());
+                        + " to retain NullType: " + builder.getPlaceholderExprs());
     }
 
     /** The root projection's labels, read with the SPM label rule (unbound items included). */

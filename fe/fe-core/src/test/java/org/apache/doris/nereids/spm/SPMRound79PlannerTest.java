@@ -117,24 +117,23 @@ public class SPMRound79PlannerTest {
      * `element_at(array(TRUE), 1)` variant has nothing to substitute.
      */
     @Test
-    public void testAllNullArrayElementKeepsBooleanMarkers() {
+    public void testAllNullArrayElementKeepsNullMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR element_at(array(NULL), 1)");
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
-        int booleanNullMarkers = 0;
+        int untypedNullMarkers = 0;
         for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
             Expression placeholder = marker.placeholderExpr();
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
-                Assertions.assertTrue(((SpmConstVar) placeholder).getDataType()
-                                instanceof BooleanType,
+                Assertions.assertTrue(((SpmConstVar) placeholder).getDataType().isNullType(),
                         "the all-NULL array's element marker is consumed by a Boolean"
                                 + " consumer, got: " + ((SpmConstVar) placeholder).getDataType());
-                booleanNullMarkers++;
+                untypedNullMarkers++;
             }
         }
-        Assertions.assertTrue(booleanNullMarkers >= 1,
+        Assertions.assertTrue(untypedNullMarkers >= 1,
                 "the array element carries a NULL marker: " + builder.getPlaceholderExprs());
     }
 

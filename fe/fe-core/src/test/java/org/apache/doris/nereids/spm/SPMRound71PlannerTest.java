@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.NullType;
 
 import org.junit.jupiter.api.Assertions;
@@ -129,7 +128,7 @@ public class SPMRound71PlannerTest {
      * (the replayed query then returned NULL instead of TRUE at {@code k = -1}).
      */
     @Test
-    public void testAllNullCaseOperandParameterizesBooleanMarkers() {
+    public void testAllNullCaseOperandPreservesNullMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR CASE WHEN k = 0"
                 + " THEN NULL ELSE NULL END");
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
@@ -149,8 +148,8 @@ public class SPMRound71PlannerTest {
                 continue;
             }
             nullMarkers++;
-            Assertions.assertTrue(constVar.getDataType() instanceof BooleanType,
-                    "a branch NULL of a Boolean CASE operand is parameterized BOOLEAN,"
+            Assertions.assertTrue(constVar.getDataType().isNullType(),
+                    "a branch NULL of a Boolean CASE operand is parameterized with NullType,"
                             + " got: " + constVar.getDataType());
         }
         Assertions.assertEquals(2, nullMarkers,

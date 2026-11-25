@@ -22,10 +22,8 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -70,7 +68,7 @@ public class SPMPlaceholderContextTest {
     }
 
     @Test
-    public void testAllNullContainerProducersTypeOnlyTheirValues() {
+    public void testAllNullContainerProducersPreserveLiteralTypes() {
         String[] containers = {
                 "array(NULL)", "map('x', NULL)", "array_repeat(NULL, 2)",
                 "array_concat(array(NULL), array_repeat(NULL, 2))",
@@ -86,8 +84,7 @@ public class SPMPlaceholderContextTest {
             for (PlaceholderSnapshot record : builder.getPlaceholderExprs()) {
                 if (record.originalExpr().isNullLiteral()) {
                     nulls++;
-                    Assertions.assertEquals(BooleanType.INSTANCE,
-                            ((SpmConstVar) record.placeholderExpr()).getDataType(), container);
+                    Assertions.assertTrue(record.placeholderExpr().getDataType().isNullType(), container);
                 } else {
                     Assertions.assertEquals(record.originalExpr().getDataType(),
                             ((SpmConstVar) record.placeholderExpr()).getDataType(), container);
@@ -98,14 +95,13 @@ public class SPMPlaceholderContextTest {
     }
 
     @Test
-    public void testBareNullContainerArgumentsRemainArrays() {
+    public void testBareNullContainerArgumentsRemainNullType() {
         TestSPMPlaceholderBuilder builder = parameterize("SELECT k > 0 OR element_at("
                 + "array_concat(NULL, array_sort(NULL)), 1) AS c FROM t");
         int arrays = 0;
         for (PlaceholderSnapshot record : builder.getPlaceholderExprs()) {
             if (record.originalExpr().isNullLiteral()) {
-                Assertions.assertTrue(record.placeholderExpr().getDataType()
-                        instanceof org.apache.doris.nereids.types.ArrayType);
+                Assertions.assertTrue(record.placeholderExpr().getDataType().isNullType());
                 arrays++;
             }
         }
@@ -123,21 +119,14 @@ public class SPMPlaceholderContextTest {
         for (String container : containers) {
             TestSPMPlaceholderBuilder builder = parameterize("SELECT k > 0 OR element_at("
                     + container + ", 1) AS c FROM t");
-            int typedNulls = 0;
             int untypedNulls = 0;
             for (PlaceholderSnapshot record : builder.getPlaceholderExprs()) {
                 if (record.originalExpr().isNullLiteral()) {
-                    Expression marker = record.placeholderExpr();
-                    if (marker.getDataType().isNullType()) {
-                        untypedNulls++;
-                    } else {
-                        Assertions.assertEquals(BooleanType.INSTANCE, marker.getDataType(), container);
-                        typedNulls++;
-                    }
+                    Assertions.assertTrue(record.placeholderExpr().getDataType().isNullType(), container);
+                    untypedNulls++;
                 }
             }
-            Assertions.assertTrue(typedNulls > 0, container);
-            Assertions.assertTrue(untypedNulls > 0, container);
+            Assertions.assertTrue(untypedNulls > 1, container);
         }
     }
 

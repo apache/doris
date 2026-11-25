@@ -84,19 +84,19 @@ public class SPMRound84PlannerTest {
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
-        int booleanMaps = 0;
+        int untypedMaps = 0;
         for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
             if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
             SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             if (var.getDataType() instanceof MapType
-                    && ((MapType) var.getDataType()).getValueType() instanceof BooleanType) {
-                booleanMaps++;
+                    && ((MapType) var.getDataType()).getValueType().isNullType()) {
+                untypedMaps++;
             }
         }
-        Assertions.assertEquals(1, booleanMaps,
-                "the all-NULL map literal is retyped MAP<STRING, BOOLEAN>: "
+        Assertions.assertEquals(1, untypedMaps,
+                "the all-NULL map literal keeps MAP<STRING, NULL_TYPE>: "
                         + builder.getPlaceholderExprs());
     }
 
@@ -113,7 +113,7 @@ public class SPMRound84PlannerTest {
             SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             Assertions.assertFalse(var.getDataType() instanceof MapType
                             && ((MapType) var.getDataType()).getValueType() instanceof BooleanType,
-                    "only an all-NULL map is retyped: " + builder.getPlaceholderExprs());
+                    "only an all-NULL map keeps its original type: " + builder.getPlaceholderExprs());
         }
     }
 

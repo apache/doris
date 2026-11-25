@@ -34,6 +34,7 @@ suite("test_spm_review_round80", "spm") {
 
     sql """set enable_spm_rewrite = true"""
     sql """set enable_spm_fallback = false"""
+    sql """set enable_sql_cache = false"""
 
     sql """DROP TABLE IF EXISTS spm_r80_t"""
     sql """
@@ -54,6 +55,10 @@ suite("test_spm_review_round80", "spm") {
     def createBaseline = { String text ->
         (sql('CREATE GLOBAL BASELINE PLAN "' + text + '" WITH "' + text + '"')[0][0] as Long)
     }
+    def logFrozen = { String label, long id ->
+        def frozen = sql("""SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}""")[0][0]
+        logger.info("SPM NULL payload comparison: ${label}, baseline ${id}, plan_frozen=${frozen}")
+    }
     def explainOf = { String query -> sql("""EXPLAIN ${query}""").toString() }
     def directRows = { String query ->
         sql """set enable_spm_rewrite = false"""
@@ -68,6 +73,7 @@ suite("test_spm_review_round80", "spm") {
     String mapBind = "SELECT k, k > 0 OR element_at(map('x', NULL), 'x') AS c" +
             " FROM spm_r80_t ORDER BY k"
     long mapId = createBaseline(mapBind)
+    logFrozen("map", mapId)
     assertTrue(explainOf(mapBind).contains("SPM baseline hit: id=${mapId}"),
             "the identical MAP query must replay its baseline: " + explainOf(mapBind))
     // The `map('x', TRUE)` variant: for k = -1 the captured NULL value gave NULL, the user's
@@ -89,6 +95,7 @@ suite("test_spm_review_round80", "spm") {
     // ==================== #4: the bracket ARRAY marker survives Boolean binding ================
     String arrayBind = "SELECT k, k > 0 OR element_at([NULL], 1) AS c FROM spm_r80_t ORDER BY k"
     long arrayId = createBaseline(arrayBind)
+    logFrozen("bracket array", arrayId)
     assertTrue(explainOf(arrayBind).contains("SPM baseline hit: id=${arrayId}"),
             "the identical bracket-array query must replay its baseline: " + explainOf(arrayBind))
     String arrayVariant = "SELECT k, k > 0 OR element_at([TRUE], 1) AS c" +

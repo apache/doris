@@ -58,13 +58,13 @@ public class SPMRound78PlannerTest {
      * both markers vanish - a `greatest(1, 1)` variant then has nothing to substitute.
      */
     @Test
-    public void testAllNullGreatestOperandParameterizesBooleanMarkers() {
+    public void testAllNullGreatestOperandPreservesNullMarkers() {
         assertAllNullProducerMarkersAreBoolean("greatest");
     }
 
     /** LEAST shares the GreatestLeast path. */
     @Test
-    public void testAllNullLeastOperandParameterizesBooleanMarkers() {
+    public void testAllNullLeastOperandPreservesNullMarkers() {
         assertAllNullProducerMarkersAreBoolean("least");
     }
 
@@ -80,10 +80,9 @@ public class SPMRound78PlannerTest {
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 nullMarkers++;
-                Assertions.assertTrue(((SpmConstVar) placeholder).getDataType()
-                                instanceof BooleanType,
+                Assertions.assertTrue(((SpmConstVar) placeholder).getDataType().isNullType(),
                         "an argument of a Boolean " + function + " operand is parameterized"
-                                + " BOOLEAN, got: "
+                                + " with NullType, got: "
                                 + ((SpmConstVar) placeholder).getDataType());
             }
         }
@@ -100,23 +99,23 @@ public class SPMRound78PlannerTest {
      * the whole operand, deleting the inner markers. A literal-only producer test missed this.
      */
     @Test
-    public void testConditionalNestedInAnotherConditionalKeepsBooleanMarkers() {
+    public void testConditionalNestedInAnotherConditionalKeepsNullMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR (CASE WHEN k = 0 THEN"
                 + " ifnull(NULL, NULL) ELSE NULL END)");
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
-        int booleanNullMarkers = 0;
+        int untypedNullMarkers = 0;
         for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
             Expression placeholder = marker.placeholderExpr();
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral
-                    && ((SpmConstVar) placeholder).getDataType() instanceof BooleanType) {
-                booleanNullMarkers++;
+                    && ((SpmConstVar) placeholder).getDataType().isNullType()) {
+                untypedNullMarkers++;
             }
         }
-        Assertions.assertEquals(3, booleanNullMarkers,
-                "the ELSE NULL and BOTH ifnull arguments must be BOOLEAN markers: "
+        Assertions.assertEquals(3, untypedNullMarkers,
+                "the ELSE NULL and BOTH ifnull arguments must be untyped NULL markers: "
                         + builder.getPlaceholderExprs());
     }
 

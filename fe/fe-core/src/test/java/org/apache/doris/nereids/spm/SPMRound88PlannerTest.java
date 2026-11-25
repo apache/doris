@@ -79,9 +79,8 @@ public class SPMRound88PlannerTest {
             // the container's marker AND the element_at index keep their ids
             Assertions.assertTrue(markers(sql).size() >= 2,
                     testCase[0] + " must keep its markers: " + describe(sql));
-            Assertions.assertEquals(0, nullTypedMarkers(sql).size(),
-                    testCase[0] + " must leave no NullType marker in a Boolean operand of a"
-                            + " retArgType(0) chain: " + describe(sql));
+            Assertions.assertFalse(nullTypedMarkers(sql).isEmpty(),
+                    testCase[0] + " must keep the untyped NULL marker: " + describe(sql));
         }
     }
 
@@ -96,12 +95,12 @@ public class SPMRound88PlannerTest {
         int arrayMarkers = 0;
         for (SpmConstVar marker : markers(sql)) {
             if (marker.getDataType() instanceof ArrayType
-                    && ((ArrayType) marker.getDataType()).getItemType() instanceof BooleanType) {
+                    && ((ArrayType) marker.getDataType()).getItemType().isNullType()) {
                 arrayMarkers++;
             }
         }
         Assertions.assertEquals(1, arrayMarkers,
-                "the bracket container marker must be ARRAY<BOOLEAN>: " + describe(sql));
+                "the bracket container marker must be ARRAY<NULL_TYPE>: " + describe(sql));
     }
 
     /** The map counterpart of the family: {@code map_filter} forwards its MAP's type. */
@@ -117,8 +116,8 @@ public class SPMRound88PlannerTest {
         }
         Assertions.assertEquals(1, mapMarkers,
                 "map_filter's container keeps a MAP marker: " + describe(sql));
-        Assertions.assertEquals(0, nullTypedMarkers(sql).size(),
-                "map_filter's container must leave no NullType marker: " + describe(sql));
+        Assertions.assertEquals(1, nullTypedMarkers(sql).size(),
+                "map_filter's container preserves its NULL value type: " + describe(sql));
     }
 
     /**

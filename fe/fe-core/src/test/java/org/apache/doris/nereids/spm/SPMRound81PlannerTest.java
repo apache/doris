@@ -85,14 +85,14 @@ public class SPMRound81PlannerTest {
      * the frozen replay returned NULL for k = -1 where the caller returns TRUE.
      */
     @Test
-    public void testArraySortOverAllNullArrayKeepsBooleanMarkers() {
+    public void testArraySortOverAllNullArrayKeepsNullMarkers() {
         assertBooleanNullMarkers("SELECT k FROM t WHERE k > 0"
                 + " OR element_at(array_sort(array(NULL)), 1)");
     }
 
     /** ARRAY_DISTINCT has the same type-preserving signature (see the ARRAY_SORT case). */
     @Test
-    public void testArrayDistinctOverAllNullArrayKeepsBooleanMarkers() {
+    public void testArrayDistinctOverAllNullArrayKeepsNullMarkers() {
         assertBooleanNullMarkers("SELECT k FROM t WHERE k > 0"
                 + " OR element_at(array_distinct(array(NULL)), 1)");
     }
@@ -110,7 +110,7 @@ public class SPMRound81PlannerTest {
             }
             SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             if (var.getValue().isNullLiteral() && var.getDataType() instanceof BooleanType) {
-                Assertions.fail("only an all-NULL array is retyped: "
+                Assertions.fail("typed array arguments must preserve their original types: "
                         + builder.getPlaceholderExprs());
             }
         }
@@ -216,19 +216,19 @@ public class SPMRound81PlannerTest {
         LogicalPlan plan = parse(sql);
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
-        int booleanNullMarkers = 0;
+        int untypedNullMarkers = 0;
         for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
             if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
             SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
-            if (var.getValue().isNullLiteral() && var.getDataType() instanceof BooleanType) {
-                booleanNullMarkers++;
+            if (var.getValue().isNullLiteral() && var.getDataType().isNullType()) {
+                untypedNullMarkers++;
             }
         }
-        Assertions.assertTrue(booleanNullMarkers > 0,
+        Assertions.assertTrue(untypedNullMarkers > 0,
                 "the all-NULL array makes element_at a NullType producer, so its markers have"
-                        + " to be BOOLEAN already: " + builder.getPlaceholderExprs());
+                        + " to retain NullType: " + builder.getPlaceholderExprs());
     }
 
     private static LogicalAggregate<?> findAggregate(Plan plan) {

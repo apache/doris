@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.NullType;
 
@@ -77,12 +76,8 @@ public class SPMRound68PlannerTest {
         Assertions.assertTrue(right instanceof SpmConstVar,
                 "the captured NULL must stay a MARKER: " + right);
         SpmConstVar marker = (SpmConstVar) right;
-        Assertions.assertFalse(marker.getDataType() instanceof NullType,
-                "a NullType operand is exactly what the analyzer replaces (losing the"
-                        + " marker); the payload must be BOOLEAN");
-        Assertions.assertTrue(marker.getDataType() instanceof BooleanType,
-                "the boolean payload keeps the marker where a boolean operand is expected: "
-                        + marker.getDataType());
+        Assertions.assertTrue(marker.getDataType() instanceof NullType,
+                "the marker preserves the original NULL type; the consumer casts it: " + marker.getDataType());
         Assertions.assertEquals("_spm_const_var(" + marker.getId() + ", NULL)", marker.toSql(),
                 "the frozen text must keep the placeholder call (its id is what a matching"
                         + " TRUE / FALSE variant is substituted into)");

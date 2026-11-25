@@ -123,19 +123,18 @@ public class SPMRound83PlannerTest {
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
-        int booleanArrays = 0;
+        int untypedArrays = 0;
         for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
             if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
             SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
-            if (var.getDataType() instanceof ArrayType
-                    && ((ArrayType) var.getDataType()).getItemType() instanceof BooleanType) {
-                booleanArrays++;
+            if (var.getDataType().isNullType()) {
+                untypedArrays++;
             }
         }
-        Assertions.assertEquals(1, booleanArrays,
-                "the bare NULL container is retyped ARRAY<BOOLEAN>: "
+        Assertions.assertEquals(1, untypedArrays,
+                "the bare NULL container keeps NullType: "
                         + builder.getPlaceholderExprs());
     }
 
@@ -159,48 +158,45 @@ public class SPMRound83PlannerTest {
         }
     }
 
-    /** A bare NULL container under an array reducer has no map overload and is retyped as well. */
+    /** A bare NULL container under an array reducer retains its scalar type. */
     @Test
-    public void testBareNullContainerOfAnArrayReducerIsRetyped() {
+    public void testBareNullContainerOfAnArrayReducerKeepsNullType() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR array_min(NULL)");
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
-        boolean retyped = false;
+        boolean untyped = false;
         for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
             if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
             SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
-            if (var.getDataType() instanceof ArrayType
-                    && ((ArrayType) var.getDataType()).getItemType() instanceof BooleanType) {
-                retyped = true;
+            if (var.getDataType().isNullType()) {
+                untyped = true;
             }
         }
-        Assertions.assertTrue(retyped,
-                "array_min(NULL) is NullType, so its container marker has to be an array of"
-                        + " BOOLEAN already: " + builder.getPlaceholderExprs());
+        Assertions.assertTrue(untyped,
+                "array_min(NULL) keeps the bare NULL marker: " + builder.getPlaceholderExprs());
     }
 
-    /** A BRACKET all-NULL array under an array reducer is retyped like an element_at container. */
+    /** A bracket all-NULL array under a reducer retains its element type. */
     @Test
-    public void testBracketAllNullArrayUnderAnArrayReducerIsRetyped() {
+    public void testBracketAllNullArrayUnderAnArrayReducerKeepsNullType() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR array_max([NULL])");
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
-        int booleanArrays = 0;
+        int untypedArrays = 0;
         for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
             if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
             SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             if (var.getDataType() instanceof ArrayType
-                    && ((ArrayType) var.getDataType()).getItemType() instanceof BooleanType) {
-                booleanArrays++;
+                    && ((ArrayType) var.getDataType()).getItemType().isNullType()) {
+                untypedArrays++;
             }
         }
-        Assertions.assertEquals(1, booleanArrays,
-                "the bracket literal is ONE marker, so the reducer's container repair has to"
-                        + " retype it: " + builder.getPlaceholderExprs());
+        Assertions.assertEquals(1, untypedArrays,
+                "the bracket literal is one ARRAY<NULL_TYPE> marker: " + builder.getPlaceholderExprs());
     }
 
     // ==================== #3: map_values ====================
@@ -212,24 +208,24 @@ public class SPMRound83PlannerTest {
      * marker NullType and {@code visitOr} erased the whole call.
      */
     @Test
-    public void testMapValuesOverAnAllNullMapKeepsBooleanMarkers() {
+    public void testMapValuesOverAnAllNullMapKeepsNullMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0"
                 + " OR element_at(map_values(map('x', NULL)), 1)");
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
-        int booleanNullMarkers = 0;
+        int untypedNullMarkers = 0;
         for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
             if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
             SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
-            if (var.getValue().isNullLiteral() && var.getDataType() instanceof BooleanType) {
-                booleanNullMarkers++;
+            if (var.getValue().isNullLiteral() && var.getDataType().isNullType()) {
+                untypedNullMarkers++;
             }
         }
-        Assertions.assertTrue(booleanNullMarkers > 0,
+        Assertions.assertTrue(untypedNullMarkers > 0,
                 "the all-NULL map value makes the extracted array NullType, so its markers have"
-                        + " to be BOOLEAN already: " + builder.getPlaceholderExprs());
+                        + " to retain NullType: " + builder.getPlaceholderExprs());
     }
 
     /** A map with a real value keeps its own value type. */
@@ -245,7 +241,7 @@ public class SPMRound83PlannerTest {
             }
             SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             if (var.getValue().isNullLiteral() && var.getDataType() instanceof BooleanType) {
-                Assertions.fail("only an all-NULL map is retyped: "
+                Assertions.fail("typed map arguments must preserve their original types: "
                         + builder.getPlaceholderExprs());
             }
         }

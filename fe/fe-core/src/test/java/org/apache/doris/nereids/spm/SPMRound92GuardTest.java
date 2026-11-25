@@ -65,6 +65,11 @@ public class SPMRound92GuardTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
+            "NULL",
+            "CASE WHEN k < 0 THEN NULL ELSE NULL END",
+            "element_at(map('x', NULL), 'x')",
+            "element_at(array(NULL), 1)",
+            "element_at([NULL], 1)",
             "element_at(array_with_constant(1, NULL), 1)",
             "element_at(array_flatten(array(array(NULL))), 1)",
             "element_at(array_flatten([[NULL]]), 1)",
@@ -82,7 +87,10 @@ public class SPMRound92GuardTest {
         List<SpmConstVar> nullMarkers = markers(String.format(query, operand));
         List<SpmConstVar> valueMarkers = markers(String.format(query, operand.replace("NULL", "TRUE")));
         Assertions.assertTrue(nullMarkers.size() > 1);
-        Assertions.assertEquals(valueMarkers.stream().map(SpmConstVar::getDataType).toList(),
+        Assertions.assertEquals(valueMarkers.size(), nullMarkers.size());
+        Assertions.assertEquals(valueMarkers.stream().map(SpmConstVar::getId).toList(),
+                nullMarkers.stream().map(SpmConstVar::getId).toList());
+        Assertions.assertNotEquals(valueMarkers.stream().map(SpmConstVar::getDataType).toList(),
                 nullMarkers.stream().map(SpmConstVar::getDataType).toList());
 
         Expression unbound = new NereidsParser().parseExpression("k > 0 OR " + operand);
@@ -149,24 +157,18 @@ public class SPMRound92GuardTest {
                 .filter(marker -> marker.getValue().isNullLiteral())
                 .toList();
         Assertions.assertEquals(1, nullMarkers.size());
-        Assertions.assertTrue(nullMarkers.get(0).getDataType().isBooleanType());
+        Assertions.assertTrue(nullMarkers.get(0).getDataType().isNullType());
     }
 
     /**
-     * The NULL element variant keeps a marker for the element, and the marker is RETYPED: an
-     * all-NULL element argument makes the whole call {@code ARRAY<NULL_TYPE>}, so a NullType
-     * payload would be erased together with the operand.
+     * The NULL element variant keeps an untyped marker; the Boolean consumer casts its result.
      */
     @Test
     public void testArrayRepeatNullElementKeepsItsMarker() {
         String sql = booleanContext("array_repeat(NULL, 1)");
         List<SpmConstVar> markers = markers(sql);
         Assertions.assertFalse(markers.isEmpty(), "the capture must keep markers: " + sql);
-        for (SpmConstVar marker : markers) {
-            Assertions.assertFalse(marker.getDataType().isNullType(),
-                    "no marker may keep a NullType payload (the operand would be erased): "
-                            + marker);
-        }
+        Assertions.assertTrue(markers.stream().anyMatch(marker -> marker.getDataType().isNullType()), sql);
     }
 
     /**
@@ -183,8 +185,8 @@ public class SPMRound92GuardTest {
                 "array_repeat(NULL, 1) and array_repeat(TRUE, 1) must freeze the same skeleton: "
                         + nullMarkers + " vs " + valueMarkers);
         for (int i = 0; i < nullMarkers.size(); i++) {
-            Assertions.assertEquals(valueMarkers.get(i).getDataType(), nullMarkers.get(i).getDataType(),
-                    "marker " + i + " must keep the type the value variant gives it");
+            Assertions.assertEquals(valueMarkers.get(i).getId(), nullMarkers.get(i).getId(),
+                    "marker " + i + " must retain its id across literal variants");
         }
     }
 

@@ -37,7 +37,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.NullType;
 
@@ -76,7 +75,7 @@ public class SPMRound76PlannerTest {
      * `ifnull(NULL, TRUE)` variant had nothing to substitute (the replay returned NULL).
      */
     @Test
-    public void testAllNullIfNullOperandParameterizesBooleanMarkers() {
+    public void testAllNullIfNullOperandPreservesNullMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR ifnull(NULL, NULL)");
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
@@ -88,9 +87,8 @@ public class SPMRound76PlannerTest {
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 nullMarkers++;
-                Assertions.assertTrue(((SpmConstVar) placeholder).getDataType()
-                                instanceof BooleanType,
-                        "an argument NULL of a Boolean IFNULL operand is parameterized BOOLEAN,"
+                Assertions.assertTrue(((SpmConstVar) placeholder).getDataType().isNullType(),
+                        "an argument NULL of a Boolean IFNULL operand is parameterized with NullType,"
                                 + " got: " + ((SpmConstVar) placeholder).getDataType());
             }
         }
@@ -100,7 +98,7 @@ public class SPMRound76PlannerTest {
 
     /** `nvl` is the same call under another spelling and must behave identically. */
     @Test
-    public void testAllNullNvlOperandParameterizesBooleanMarkers() {
+    public void testAllNullNvlOperandPreservesNullMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR nvl(NULL, NULL)");
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
@@ -111,8 +109,7 @@ public class SPMRound76PlannerTest {
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 nullMarkers++;
-                Assertions.assertTrue(((SpmConstVar) placeholder).getDataType()
-                                instanceof BooleanType,
+                Assertions.assertTrue(((SpmConstVar) placeholder).getDataType().isNullType(),
                         "the NVL spelling is the same conditional family");
             }
         }

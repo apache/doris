@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.qe.ConnectContext;
@@ -152,7 +151,7 @@ public class SPMRound73PlannerTest {
      * ELSE TRUE variant had nothing to substitute (the replay returned NULL).
      */
     @Test
-    public void testAllNullIfOperandParameterizesBooleanMarkers() {
+    public void testAllNullIfOperandPreservesNullMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR IF(k = 0, NULL, NULL)");
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
@@ -167,9 +166,8 @@ public class SPMRound73PlannerTest {
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 nullMarkers++;
-                Assertions.assertTrue(((SpmConstVar) placeholder).getDataType()
-                                instanceof BooleanType,
-                        "a branch NULL of a Boolean IF operand is parameterized BOOLEAN, got: "
+                Assertions.assertTrue(((SpmConstVar) placeholder).getDataType().isNullType(),
+                        "a branch NULL of a Boolean IF operand is parameterized with NullType, got: "
                                 + ((SpmConstVar) placeholder).getDataType());
             }
         }

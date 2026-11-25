@@ -1045,38 +1045,13 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
-     * Chooses the literal payload used while analyzing a scalar placeholder. The payload controls the marker's
-     * capture-time type even though replay replaces the marker by id. A NULL used as a Boolean operand,
-     * conditional result can otherwise be coerced into a new Boolean NULL expression,
-     * discarding the marker. Relevant scalar NULLs are therefore typed Boolean. All-NULL container payloads
-     * receive corresponding element or value typing so the marker survives the same coercion. The replacement
-     * still uses the caller's actual value and type.
+     * Keep the original literal type during capture. Consumers perform their own type coercion,
+     * and capture falls back to the parameterized tree if an untyped NULL marker is lost.
+     * Retain the context parameters while evaluating the removal of producer-side typing.
      */
     private static Literal markerPayload(Literal literal, Expression parent,
             boolean booleanConditionalResult,
             boolean booleanElementContainer, boolean containerElement, int mapKeyDepth) {
-        if (containerElement && literal.isNullLiteral()) {
-            // array(NULL) builds its container from the ELEMENTS, so an all-NULL element list is
-            // exactly what makes the constructor NullType. The NULL marker is a CHILD of the
-            // constructor (not the container the container-position repair retypes above), so
-            // typing IT BOOLEAN makes the constructor ARRAY<BOOLEAN> and removes the NullType from
-            // the chain - k > 0 OR element_at(array_reverse_sort(array(NULL)), 1) kept the whole
-            // operand as a typed constant NULL otherwise, together with every marker inside it
-            // . A NULL value stays NULL through any coercion, so only the marker's
-            // TYPE changes.
-            return NullLiteral.BOOLEAN_INSTANCE;
-        }
-        if (booleanElementContainer) {
-            Literal payload = booleanContainerPayload(literal, parent, mapKeyDepth);
-            if (payload != null) {
-                return payload;
-            }
-        }
-        boolean booleanOperand = parent instanceof And || parent instanceof Or
-                || parent instanceof Not;
-        if (literal.isNullLiteral() && (booleanOperand || booleanConditionalResult)) {
-            return NullLiteral.BOOLEAN_INSTANCE;
-        }
         return literal;
     }
 

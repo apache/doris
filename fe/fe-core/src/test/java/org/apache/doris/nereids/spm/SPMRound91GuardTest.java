@@ -62,7 +62,7 @@ public class SPMRound91GuardTest {
 
     /**
      * The MAP wrapper path: every NULL in the {@code map(...)} VALUE positions keeps a marker, and
-     * no marker keeps a NullType payload, so the Boolean consumer cannot drop the operand.
+     * the NULL producer remains untyped and the Boolean consumer binds its own cast.
      */
     @Test
     public void testMapFilterWrapperKeepsItsValueMarkers() {
@@ -70,11 +70,7 @@ public class SPMRound91GuardTest {
                 + " (m_k, m_v) -> TRUE), 'x') AS c FROM t";
         List<SpmConstVar> markers = markers(sql);
         Assertions.assertFalse(markers.isEmpty(), "the capture must keep markers: " + sql);
-        for (SpmConstVar marker : markers) {
-            Assertions.assertFalse(marker.getDataType().isNullType(),
-                    "no marker may keep a NullType payload (the operand would be erased): "
-                            + marker);
-        }
+        Assertions.assertTrue(markers.stream().anyMatch(marker -> marker.getDataType().isNullType()), sql);
     }
 
     @Test
@@ -86,9 +82,8 @@ public class SPMRound91GuardTest {
                 "nth_value(NULL, 1) OVER (ORDER BY k)")) {
             String query = "SELECT k, k > 0 OR " + operand + " AS c FROM t";
             List<SpmConstVar> values = markers(query);
-            Assertions.assertTrue(values.stream().anyMatch(marker -> marker.getValue().isNullLiteral()
-                    && marker.getDataType().isBooleanType() || marker.getDataType().isArrayType()), query);
-            Assertions.assertFalse(values.stream().anyMatch(marker -> marker.getDataType().isNullType()), query);
+            Assertions.assertTrue(values.stream().anyMatch(marker -> marker.getDataType().isNullType()
+                    || marker.getDataType().isArrayType()), query);
         }
     }
 
