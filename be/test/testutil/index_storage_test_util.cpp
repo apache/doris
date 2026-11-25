@@ -429,8 +429,8 @@ Status fill_variant_column(const VariantColumnSpec& column_spec, const IndexBatc
         column->insert_encoded_batch(encoder.finish_batch());
         variant_column = std::move(column);
     } else {
-        auto column =
-                ColumnVariant::create(column_spec.max_subcolumns_count, column_spec.enable_doc_mode);
+        auto column = ColumnVariant::create(column_spec.max_subcolumns_count,
+                                            column_spec.enable_doc_mode);
         auto json_column = ColumnString::create();
         for (const auto& json : values) {
             json_column->insert_data(json.data(), json.size());
@@ -438,7 +438,7 @@ Status fill_variant_column(const VariantColumnSpec& column_spec, const IndexBatc
         ParseConfig config;
         config.deprecated_enable_flatten_nested = batch.deprecated_enable_flatten_nested;
         config.parse_to = column_spec.enable_doc_mode ? ParseConfig::ParseTo::OnlyDocValueColumn
-                                                     : batch.parse_to;
+                                                      : batch.parse_to;
         variant_util::parse_json_to_variant(*column, *json_column, config);
         variant_column = std::move(column);
     }
@@ -472,14 +472,13 @@ Status validate_direct_variant_column(const VariantColumnSpec& column_spec, cons
         }
         nested_column = &nullable_column->get_nested_column();
     }
-    const bool correct_type = use_variant_v2
-                                      ? check_and_get_column<ColumnVariantV2>(nested_column) != nullptr
-                                      : check_and_get_column<ColumnVariant>(nested_column) != nullptr;
+    const bool correct_type =
+            use_variant_v2 ? check_and_get_column<ColumnVariantV2>(nested_column) != nullptr
+                           : check_and_get_column<ColumnVariant>(nested_column) != nullptr;
     if (!correct_type) {
-        return Status::InvalidArgument("direct variant column {} must use {}, actual={}",
-                                       column_spec.name,
-                                       use_variant_v2 ? "VARIANT V2" : "VARIANT V1",
-                                       column->get_name());
+        return Status::InvalidArgument(
+                "direct variant column {} must use {}, actual={}", column_spec.name,
+                use_variant_v2 ? "VARIANT V2" : "VARIANT V1", column->get_name());
     }
     return Status::OK();
 }
@@ -523,10 +522,10 @@ Status fill_block(const TabletSchema& schema, const IndexTabletOptions& tablet_o
          ++variant_pos, ++column_pos) {
         const bool use_variant_v2 = schema.column(column_pos).variant_is_v2();
         if (!batch.variant_columns_by_column.empty()) {
-            RETURN_IF_ERROR(validate_direct_variant_column(
-                    tablet_options.variant_columns[variant_pos],
-                    batch.variant_columns_by_column[variant_pos], rows, variant_pos,
-                    use_variant_v2));
+            RETURN_IF_ERROR(
+                    validate_direct_variant_column(tablet_options.variant_columns[variant_pos],
+                                                   batch.variant_columns_by_column[variant_pos],
+                                                   rows, variant_pos, use_variant_v2));
             auto variant_column = batch.variant_columns_by_column[variant_pos]->clone_resized(rows);
             if (tablet_options.variant_columns[variant_pos].nullable &&
                 !variant_column->is_nullable()) {
@@ -1192,8 +1191,8 @@ Result<RowsetSharedPtr> IndexStorageTestFixture::write_rowset(const IndexRowsetS
     context.rowset_type = BETA_ROWSET;
     context.data_dir = _data_dir.get();
     context.rowset_state = VISIBLE;
-    context.tablet_schema = _use_variant_v2 ? make_variant_v2_schema(*_tablet_schema)
-                                            : _tablet_schema;
+    context.tablet_schema =
+            _use_variant_v2 ? make_variant_v2_schema(*_tablet_schema) : _tablet_schema;
     context.tablet_path = _tablet->tablet_path();
     context.tablet_id = _tablet->tablet_id();
     context.tablet_uid = _tablet->tablet_uid();

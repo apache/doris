@@ -109,8 +109,8 @@ TEST(IndexStorageVariantCompactionUtilTest, ValuesIndexPlanningSkipsEmptyColumnI
     schema->init_from_pb(schema_pb);
 
     EXPECT_FALSE(variant_util::VariantCompactionUtil::has_writable_values_index(*schema));
-    auto status = variant_util::VariantCompactionUtil::plan_values_index_compaction({}, true, {},
-                                                                                    schema);
+    auto status =
+            variant_util::VariantCompactionUtil::plan_values_index_compaction({}, true, {}, schema);
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_NE(schema->try_path_set_info(2), nullptr);
     EXPECT_TRUE(schema->has_column_unique_id(2));

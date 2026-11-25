@@ -169,8 +169,8 @@ public:
         return next_stream();
     }
 
-    lucene::analysis::TokenStream* tokenStream(
-            const TCHAR*, const inverted_index::ReaderPtr&) override {
+    lucene::analysis::TokenStream* tokenStream(const TCHAR*,
+                                               const inverted_index::ReaderPtr&) override {
         return next_stream();
     }
 
@@ -413,7 +413,8 @@ void VariantValuesSegmentTest::check_layout(bool doc, int buckets, int limit, in
     auto file = std::make_shared<IndexFileReader>(
             (*rowset)->rowset_meta()->fs(),
             std::string(InvertedIndexDescriptor::get_index_file_path_prefix(*path)),
-            InvertedIndexStorageFormatPB::SNII, (*rowset)->rowset_meta()->inverted_index_file_info(0));
+            InvertedIndexStorageFormatPB::SNII,
+            (*rowset)->rowset_meta()->inverted_index_file_info(0));
     ASSERT_TRUE(file->init().ok());
     const auto* meta = (*rowset)->tablet_schema()->inverted_indexs(2).front();
     auto index = file->open_snii_index(meta);

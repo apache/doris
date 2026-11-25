@@ -56,7 +56,8 @@ static Result<std::vector<uint32_t>> values_term_postings(const RowsetSharedPtr&
     }
     const std::string prefix(InvertedIndexDescriptor::get_index_file_path_prefix(*path));
     IndexFileReader reader(rowset->rowset_meta()->fs(), prefix, InvertedIndexStorageFormatPB::SNII,
-                           rowset->rowset_meta()->inverted_index_file_info(0), rowset->rowset_meta()->tablet_id());
+                           rowset->rowset_meta()->inverted_index_file_info(0),
+                           rowset->rowset_meta()->tablet_id());
     RETURN_IF_ERROR_RESULT(reader.init());
     const auto indexes = rowset->tablet_schema()->inverted_indexs(uid);
     const auto meta = std::ranges::find_if(indexes, [](const TabletIndex* candidate) {
@@ -480,8 +481,7 @@ TEST_F(IndexStorageVariantCompactionReadTest, MowClusterKeyNativeValuesMergeRemo
             IndexBatch::single_variant({R"({"a":"deleted"})", R"({"a":"survivor"})"}));
     auto source = write_rowset(spec);
     ASSERT_TRUE(source.has_value()) << source.error();
-    tablet()->tablet_meta()->delete_bitmap().add(
-            {(*source)->rowset_id(), 0, 0}, 0);
+    tablet()->tablet_meta()->delete_bitmap().add({(*source)->rowset_id(), 0, 0}, 0);
     const bool old_native = config::inverted_index_compaction_enable;
     config::inverted_index_compaction_enable = true;
     DEFER({ config::inverted_index_compaction_enable = old_native; });
@@ -1008,7 +1008,8 @@ TEST_F(IndexStorageVariantCompactionReadTest, SameRootMultiIndexesSurviveCompact
             IndexFileReader next_reader(
                     second._output_rowset->rowset_meta()->fs(),
                     std::string(InvertedIndexDescriptor::get_index_file_path_prefix(*next_path)),
-                    InvertedIndexStorageFormatPB::SNII, second._output_rowset->rowset_meta()->inverted_index_file_info(0));
+                    InvertedIndexStorageFormatPB::SNII,
+                    second._output_rowset->rowset_meta()->inverted_index_file_info(0));
             ASSERT_TRUE(next_reader.init().ok());
             check(next_reader, 9, 72, "", "hello", {0, 4, 8});
             check(next_reader, 9, 73, "v%2Es", "HELLO", {0, 4, 8});
@@ -1087,8 +1088,8 @@ TEST_F(IndexStorageVariantCompactionReadTest, ValuesMultiSegmentMowRowidsAndEmpt
             ASSERT_EQ(source->num_segments(), 2);
         }
         for (uint32_t pos : {0U, 1U}) {
-            tablet()->tablet_meta()->delete_bitmap().add(
-                    {sources->front()->rowset_id(), pos, 0}, 1);
+            tablet()->tablet_meta()->delete_bitmap().add({sources->front()->rowset_id(), pos, 0},
+                                                         1);
         }
         config::inverted_index_compaction_enable = native;
         FullCompaction compaction(*storage_engine(), tablet());

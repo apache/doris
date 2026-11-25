@@ -105,8 +105,8 @@ template <typename Matcher>
 Status match_variant_leaf(std::string_view text, const InvertedIndexAnalyzerCtx* analyzer_ctx,
                           Matcher& matcher, bool& matched) {
     std::vector<segment_v2::TermInfo> tokens;
-    RETURN_IF_ERROR(segment_v2::inverted_index::InvertedIndexAnalyzer::analyze(
-            text, analyzer_ctx, {}, &tokens));
+    RETURN_IF_ERROR(segment_v2::inverted_index::InvertedIndexAnalyzer::analyze(text, analyzer_ctx,
+                                                                               {}, &tokens));
     for (const auto& token : tokens) {
         matched = matched || matcher.feed(token.get_single_term());
     }
@@ -129,8 +129,7 @@ Status match_variant_rows(const ColumnVariantV2& variant, size_t input_rows_coun
                     bool matched = false;
                     evaluation_status =
                             for_each_variant_leaf_text(value, [&](std::string_view text) {
-                                return match_variant_leaf(text, analyzer_ctx, matcher,
-                                                          matched);
+                                return match_variant_leaf(text, analyzer_ctx, matcher, matched);
                             });
                     result[row] = matched;
                 });
@@ -143,9 +142,8 @@ Status match_variant_rows(const ColumnVariantV2& variant, size_t input_rows_coun
 Status execute_variant_values_match(const FunctionMatchBase& function, FunctionContext* context,
                                     const ColumnVariantV2& variant,
                                     const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                                    const std::string& match_query_str,
-                                    Block& block, uint32_t result,
-                                    size_t input_rows_count) {
+                                    const std::string& match_query_str, Block& block,
+                                    uint32_t result, size_t input_rows_count) {
     const InvertedIndexQueryType query_type = function.get_query_type_from_fn_name();
     if (query_type != InvertedIndexQueryType::MATCH_ANY_QUERY &&
         query_type != InvertedIndexQueryType::MATCH_ALL_QUERY) {

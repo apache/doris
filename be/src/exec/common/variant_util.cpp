@@ -1271,8 +1271,8 @@ Status VariantCompactionUtil::plan_values_index_compaction(
     // the newly built schema, so it can select the V2 writer while keeping legacy key encoding.
     for (size_t i = 0; i < schema->num_columns(); ++i) {
         const auto& column = schema->column(i);
-        const int32_t uid = column.is_extracted_column() ? column.parent_unique_id()
-                                                        : column.unique_id();
+        const int32_t uid =
+                column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
         if (column.is_variant_type() && values_roots.contains(uid)) {
             schema->mutable_column(i).set_variant_is_v2(true);
         }

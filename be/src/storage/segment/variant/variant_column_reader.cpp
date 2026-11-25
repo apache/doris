@@ -663,9 +663,11 @@ bool VariantColumnReader::_need_read_flat_leaves(const StorageReadOptions* opts,
     const int32_t uid = target_col.is_extracted_column() ? target_col.parent_unique_id()
                                                          : target_col.unique_id();
     return opts != nullptr && opts->tablet_schema != nullptr &&
-           std::ranges::any_of(opts->tablet_schema->columns(), [uid](const auto& column) {
-               return column->is_extracted_column() && column->parent_unique_id() == uid;
-           }) &&
+           std::ranges::any_of(opts->tablet_schema->columns(),
+                               [uid](const auto& column) {
+                                   return column->is_extracted_column() &&
+                                          column->parent_unique_id() == uid;
+                               }) &&
            is_compaction_or_checksum_reader(opts);
 }
 
