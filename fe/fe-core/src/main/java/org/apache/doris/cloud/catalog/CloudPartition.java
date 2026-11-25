@@ -189,13 +189,7 @@ public class CloudPartition extends Partition {
                 .build();
 
         try {
-            String pausePoint = "CloudPartition.getVisibleVersionFromMs.pause";
-            ConnectContext ctx = ConnectContext.get();
-            DebugPointUtil.DebugPoint pause = DebugPointUtil.getDebugPoint(pausePoint);
-            while (pause != null && ctx != null && ctx.getConnectionId() == pause.param("connection_id", -1)) {
-                Uninterruptibles.sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
-                pause = DebugPointUtil.getDebugPoint(pausePoint);
-            }
+            waitForVersionDebugPoint();
             Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(request);
             long version = -1;
             long mTime = -1;
@@ -222,6 +216,16 @@ public class CloudPartition extends Partition {
             return version;
         } catch (RpcException e) {
             throw new RuntimeException("get version from meta service failed");
+        }
+    }
+
+    private static void waitForVersionDebugPoint() {
+        String pausePoint = "CloudPartition.getVisibleVersionFromMs.pause";
+        ConnectContext ctx = ConnectContext.get();
+        DebugPointUtil.DebugPoint pause = DebugPointUtil.getDebugPoint(pausePoint);
+        while (pause != null && ctx != null && ctx.getConnectionId() == pause.param("connection_id", -1)) {
+            Uninterruptibles.sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
+            pause = DebugPointUtil.getDebugPoint(pausePoint);
         }
     }
 
@@ -471,6 +475,7 @@ public class CloudPartition extends Partition {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getVisibleVersion use CloudPartition {}", partitionIds.toString());
         }
+        waitForVersionDebugPoint();
         Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(req, maxAttempts);
         if (resp.getStatus().getCode() != MetaServiceCode.OK) {
             throw new RpcException("get visible version", "unexpected status " + resp.getStatus());

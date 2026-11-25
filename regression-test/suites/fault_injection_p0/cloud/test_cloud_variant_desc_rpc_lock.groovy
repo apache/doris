@@ -20,6 +20,7 @@ import org.apache.doris.regression.util.NodeType
 
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 
 suite("test_cloud_variant_desc_rpc_lock", "p0") {
@@ -41,6 +42,7 @@ suite("test_cloud_variant_desc_rpc_lock", "p0") {
             DUPLICATE KEY(id)
             PARTITION BY RANGE(id) (PARTITION p1 VALUES LESS THAN (100))
             DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES ("light_schema_change" = "true")
         """
         sql """INSERT INTO cloud_variant_desc_rpc_lock VALUES (0, PARSE_TO_VARIANT('{"detail":1}'))"""
         sql "SELECT * FROM cloud_variant_desc_rpc_lock LIMIT 1"
@@ -53,10 +55,10 @@ suite("test_cloud_variant_desc_rpc_lock", "p0") {
         def wholeTableDesc = "DESC cloud_variant_desc_rpc_lock"
         def wholeTableProc = "SHOW PROC '${schemaPath}'"
 
-        def checkConcurrentDdl = { String query, String debugPoint, String comment ->
+        def whileSchemaRequestIsPaused = { String query, String debugPoint, String label, Closure action ->
             def connectionIds = new ArrayBlockingQueue(1)
             def startQuery = new CountDownLatch(1)
-            def schema = extraThread("schema-${comment}") {
+            def schema = extraThread("schema-${label}") {
                 sql "USE `${dbName}`"
                 sql "SET describe_extend_variant_column = true"
                 sql "SET cloud_partition_version_cache_ttl_ms = 0"
@@ -76,15 +78,21 @@ suite("test_cloud_variant_desc_rpc_lock", "p0") {
                                 && it.Time.toInteger() >= 1
                     }
                 }
-                def ddl = extraThread("ddl-${comment}") {
+                def ddl = extraThread("ddl-${label}") {
                     sql "USE `${dbName}`"
-                    sql "ALTER TABLE cloud_variant_desc_rpc_lock MODIFY COMMENT '${comment}'"
+                    action()
                 }
                 ddl.get(10, TimeUnit.SECONDS)
                 assertFalse(schema.isDone(), "DDL must complete while ${query} is still paused")
             } finally {
                 startQuery.countDown()
                 DebugPoint.disableDebugPoint(master.Host, masterHttpPort, NodeType.FE, debugPoint)
+            }
+            return schema
+        }
+        def checkConcurrentDdl = { String query, String debugPoint, String comment ->
+            def schema = whileSchemaRequestIsPaused(query, debugPoint, comment) {
+                sql "ALTER TABLE cloud_variant_desc_rpc_lock MODIFY COMMENT '${comment}'"
             }
             def columns = schema.get(30, TimeUnit.SECONDS).collect { it[0] }
             assertTrue(columns.contains("payload.detail"), "${query} returned ${columns}".toString())
@@ -99,5 +107,26 @@ suite("test_cloud_variant_desc_rpc_lock", "p0") {
         def version = "CloudPartition.getVisibleVersionFromMs.pause"
         checkConcurrentDdl(wholeTableDesc, version, "version-desc")
         checkConcurrentDdl(wholeTableProc, version, "version-proc")
+
+        def schema = whileSchemaRequestIsPaused(wholeTableDesc, version, "light-add") {
+            sql """
+                ALTER TABLE cloud_variant_desc_rpc_lock ADD COLUMN extra_payload
+                VARIANT<PROPERTIES("variant_enable_doc_mode" = "false")>
+            """
+            sql """
+                INSERT INTO cloud_variant_desc_rpc_lock (id, payload, extra_payload)
+                VALUES (1, PARSE_TO_VARIANT('{"detail":2}'), PARSE_TO_VARIANT('{"new_key":3}'))
+            """
+            sql "SELECT CAST(extra_payload AS STRING) FROM cloud_variant_desc_rpc_lock WHERE id = 1"
+        }
+        try {
+            def columns = schema.get(30, TimeUnit.SECONDS).collect { it[0] }
+            assertTrue(false, "Extended DESC returned a snapshot across a schema change: ${columns}".toString())
+        } catch (ExecutionException error) {
+            assertTrue(error.cause.message.contains("Table schema changed during extended DESCRIBE"), error.toString())
+        }
+        sql "SET describe_extend_variant_column = true"
+        def recovered = sql(wholeTableDesc).collect { it[0] }
+        assertTrue(recovered.containsAll(["payload.detail", "extra_payload", "extra_payload.new_key"]))
     }
 }

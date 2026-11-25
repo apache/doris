@@ -20,6 +20,7 @@
 #include <brpc/server.h>
 #include <bthread/id.h>
 #include <butil/endpoint.h>
+#include <gen_cpp/AgentService_types.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -34,7 +35,12 @@
 #include "common/config.h"
 #include "load/channel/load_stream_mgr.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
+#include "service/backend_options.h"
 #include "service/internal_service.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet_manager.h"
+#include "testutil/index_storage_test_util.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug/leak_annotations.h"
 #include "util/defer_op.h"
@@ -159,6 +165,11 @@ public:
         EXPECT_TRUE(request->report_tablet_coverage());
         ASSERT_EQ(1, request->tablet_location_size());
         const auto& location = request->tablet_location(0);
+        if (location.tablet_visible_version_size() != 0 &&
+            (location.tablet_id_size() == 1 || _replica != ReplicaReply::LEGACY)) {
+            EXPECT_EQ(location.tablet_id_size(), location.tablet_visible_version_size());
+            response->set_tablet_versions_verified(true);
+        }
         if (location.tablet_id_size() == 1) {
             if (_replica == ReplicaReply::IO_ERROR) {
                 Status::IOError("injected segment read failure")
@@ -187,7 +198,8 @@ void signal_schema_response(std::promise<void>* finished) {
     finished->set_value();
 }
 
-void check_replica_coverage(ReplicaReply replica, int expected_status) {
+void check_replica_coverage(ReplicaReply replica, int expected_status,
+                            bool require_versions = false) {
     ScopedConfigValue heavy_threads(config::brpc_heavy_work_pool_threads, 1);
     ScopedConfigValue light_threads(config::brpc_light_work_pool_threads, 1);
     ScopedConfigValue peer_threads(config::brpc_peer_fetch_pool_threads, 1);
@@ -214,6 +226,11 @@ void check_replica_coverage(ReplicaReply replica, int expected_status) {
         location->add_tablet_id(101);
     }
     request.mutable_tablet_location(1)->add_tablet_id(102);
+    if (require_versions) {
+        request.mutable_tablet_location(0)->add_tablet_visible_version(2);
+        request.mutable_tablet_location(1)->add_tablet_visible_version(2);
+        request.mutable_tablet_location(1)->add_tablet_visible_version(3);
+    }
 
     std::promise<void> finished;
     auto reply = finished.get_future();
@@ -232,6 +249,7 @@ void check_replica_coverage(ReplicaReply replica, int expected_status) {
     ASSERT_TRUE(response.has_status());
     EXPECT_EQ(expected_status, response.status().status_code());
     EXPECT_EQ(expected_status == 0, response.has_merged_schema());
+    EXPECT_EQ(expected_status == 0 && require_versions, response.tablet_versions_verified());
 }
 
 void release_pending_schema_rpcs(std::future<google::protobuf::Closure*>& first_reply,
@@ -333,6 +351,71 @@ TEST(InternalServiceRemoteSchemaTest, RecoversOnlyWhenAnotherWorkerProvesCoverag
     check_replica_coverage(ReplicaReply::MISSING, ErrorCode::TABLE_NOT_FOUND);
     check_replica_coverage(ReplicaReply::LEGACY, ErrorCode::TABLE_NOT_FOUND);
     check_replica_coverage(ReplicaReply::IO_ERROR, ErrorCode::IO_ERROR);
+    check_replica_coverage(ReplicaReply::COVERED, 0, true);
+    check_replica_coverage(ReplicaReply::LEGACY, ErrorCode::TABLE_NOT_FOUND, true);
+}
+
+class InternalServiceRemoteSchemaWorkerTest : public index_storage_test::IndexStorageTestFixture {};
+
+TEST_F(InternalServiceRemoteSchemaWorkerTest, LaggingLocalTabletDoesNotProveCoverage) {
+    ScopedConfigValue heavy_threads(config::brpc_heavy_work_pool_threads, 1);
+    ScopedConfigValue light_threads(config::brpc_light_work_pool_threads, 1);
+    ScopedConfigValue peer_threads(config::brpc_peer_fetch_pool_threads, 1);
+    ScopedConfigValue flight_threads(config::brpc_arrow_flight_work_pool_threads, 1);
+    ScopedConfigValue load_threads(config::brpc_load_light_work_pool_threads, 1);
+
+    constexpr int64_t tablet_id = 710051;
+    TColumnType type;
+    type.__set_type(TPrimitiveType::INT);
+    TColumn key;
+    key.__set_column_name("id");
+    key.__set_column_type(type);
+    key.__set_is_key(true);
+    TTabletSchema schema;
+    schema.__set_short_key_column_count(1);
+    schema.__set_schema_hash(71005);
+    schema.__set_keys_type(TKeysType::DUP_KEYS);
+    schema.__set_storage_type(TStorageType::COLUMN);
+    schema.__set_columns({key});
+    TCreateTabletReq create;
+    create.__set_tablet_id(tablet_id);
+    create.__set_version(2);
+    create.__set_tablet_schema(schema);
+    std::vector<DataDir*> dirs {data_dir()};
+    RuntimeProfile profile("CreateDescTestTablet");
+    auto status = storage_engine()->tablet_manager()->create_tablet(create, dirs, &profile);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(ExecEnv::get_tablet(tablet_id).has_value());
+
+    ExecEnv worker_env;
+    worker_env._load_stream_mgr = std::make_unique<LoadStreamMgr>(1);
+    PInternalService worker(&worker_env);
+    PFetchRemoteSchemaRequest request;
+    request.set_is_coordinator(false);
+    request.set_report_tablet_coverage(true);
+    auto* location = request.add_tablet_location();
+    location->set_host(BackendOptions::get_local_backend().host);
+    location->set_brpc_port(config::brpc_port);
+    location->add_tablet_id(tablet_id);
+    location->add_tablet_visible_version(3);
+
+    PFetchRemoteSchemaResponse response;
+    std::promise<void> finished;
+    auto reply = finished.get_future();
+    Defer drain {[&] {
+        worker._heavy_work_pool.shutdown();
+        worker._heavy_work_pool.join();
+        worker_env.load_stream_mgr()->set_heavy_work_pool(nullptr);
+    }};
+    worker.fetch_remote_tablet_schema(nullptr, &request, &response,
+                                      brpc::NewCallback(signal_schema_response, &finished));
+    ASSERT_EQ(std::future_status::ready, reply.wait_for(10s));
+    ASSERT_TRUE(response.has_status());
+    EXPECT_EQ(0, response.status().status_code());
+    EXPECT_TRUE(response.tablet_versions_verified());
+    EXPECT_FALSE(response.has_merged_schema());
+    ASSERT_EQ(1, response.tablet_coverage().missing_tablet_id_size());
+    EXPECT_EQ(tablet_id, response.tablet_coverage().missing_tablet_id(0));
 }
 
 } // namespace doris

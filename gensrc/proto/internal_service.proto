@@ -1088,6 +1088,8 @@ message PTabletsLocation {
     required string host = 1;
     required int32  brpc_port = 2;
     repeated int64  tablet_id = 3;
+    // When provided, each entry is the required visible version for the tablet at the same position.
+    repeated int64 tablet_visible_version = 4 [packed = true];
 }
 
 message PFetchRemoteSchemaRequest {
@@ -1109,6 +1111,8 @@ message PFetchRemoteSchemaResponse {
     optional PRemoteSchemaTabletCoverage tablet_coverage = 3;
     // A coordinator that accepted the request reports worker errors itself.
     optional bool coordinator_accepted = 4;
+    // Workers verify versions for successful reads; the coordinator verifies complete coverage.
+    optional bool tablet_versions_verified = 5;
 }
 
 message PAlterVaultSyncRequest {

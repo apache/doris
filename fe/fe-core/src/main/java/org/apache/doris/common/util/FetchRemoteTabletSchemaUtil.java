@@ -69,17 +69,25 @@ public class FetchRemoteTabletSchemaUtil {
     private static final Logger LOG = LogManager.getLogger(FetchRemoteTabletSchemaUtil.class);
 
     private final int tabletCount;
-    private final Map<Long, List<Replica>> tabletReplicas = Maps.newLinkedHashMap();
+    private final Map<Long, TabletReplicas> tabletReplicas = Maps.newLinkedHashMap();
+
+    private record TabletReplicas(List<Replica> replicas, long visibleVersion) {
+    }
+
+    public record VersionedTablet(Tablet tablet, long visibleVersion) {
+    }
 
     /** Capture the candidate replica lists under the table lock and resolve Cloud routes during fetch. */
-    public FetchRemoteTabletSchemaUtil(List<Tablet> tablets) {
+    public FetchRemoteTabletSchemaUtil(List<VersionedTablet> tablets) {
         tabletCount = tablets.size();
-        for (Tablet tablet : tablets) {
-            tabletReplicas.put(tablet.getId(), Lists.newArrayList(tablet.getReplicas()));
+        for (VersionedTablet target : tablets) {
+            Tablet tablet = target.tablet();
+            tabletReplicas.put(tablet.getId(),
+                    new TabletReplicas(Lists.newArrayList(tablet.getReplicas()), target.visibleVersion()));
         }
     }
 
-    public record PartitionTablets(Partition partition, List<Tablet> tablets) {
+    public record PartitionTablets(Partition partition, List<Tablet> tablets, long visibleVersion) {
     }
 
     /** Capture tablet lists under the table lock. Cloud visibility can require a separate RPC. */
@@ -87,30 +95,34 @@ public class FetchRemoteTabletSchemaUtil {
         boolean cloudMode = Config.isCloudMode();
         List<PartitionTablets> snapshot = Lists.newArrayList();
         for (Partition partition : partitions) {
-            if (cloudMode || partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION) {
-                snapshot.add(new PartitionTablets(partition, partition.getBaseIndex().getTablets()));
+            long visibleVersion = cloudMode ? -1L : partition.getVisibleVersion();
+            if (cloudMode || visibleVersion > Partition.PARTITION_INIT_VERSION) {
+                snapshot.add(new PartitionTablets(partition, partition.getBaseIndex().getTablets(), visibleVersion));
             }
         }
         return snapshot;
     }
 
-    public static List<Tablet> collectTablets(List<PartitionTablets> partitions) throws AnalysisException {
+    public static List<VersionedTablet> collectTablets(List<PartitionTablets> partitions) throws AnalysisException {
         if (partitions.isEmpty()) {
             return Collections.emptyList();
         }
         boolean cloudMode = Config.isCloudMode();
         List<Long> cloudVersions = cloudMode ? getCloudVisibleVersions(partitions) : List.of();
         int maxTablets = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
-        List<Tablet> tablets = Lists.newArrayList();
+        List<VersionedTablet> tablets = Lists.newArrayList();
         long tabletCount = 0;
         for (int i = 0; i < partitions.size(); ++i) {
-            if (cloudMode && cloudVersions.get(i) <= Partition.PARTITION_INIT_VERSION) {
+            PartitionTablets partition = partitions.get(i);
+            long version = cloudMode ? cloudVersions.get(i) : partition.visibleVersion();
+            if (version <= Partition.PARTITION_INIT_VERSION) {
                 continue;
             }
-            PartitionTablets partition = partitions.get(i);
             tabletCount += partition.tablets().size();
             if (tabletCount <= maxTablets) {
-                tablets.addAll(partition.tablets());
+                for (Tablet tablet : partition.tablets()) {
+                    tablets.add(new VersionedTablet(tablet, version));
+                }
             }
         }
         checkTabletCount(tabletCount, maxTablets);
@@ -118,12 +130,9 @@ public class FetchRemoteTabletSchemaUtil {
     }
 
     private static List<Long> getCloudVisibleVersions(List<PartitionTablets> partitions) throws AnalysisException {
-        if (partitions.size() == 1) {
-            return List.of(partitions.get(0).partition().getVisibleVersion());
-        }
         try {
-            // The batch API returns versions in the same order as the catalog snapshot.
-            return CloudPartition.getSnapshotVisibleVersion(
+            // Obtain the authoritative versions in one RPC. A cached empty partition might have been written to.
+            return CloudPartition.getSnapshotVisibleVersionFromMs(
                     partitions.stream().map(p -> (CloudPartition) p.partition()).toList());
         } catch (RpcException e) {
             throw new AnalysisException("Extended DESCRIBE could not fetch partition versions", e);
@@ -198,9 +207,9 @@ public class FetchRemoteTabletSchemaUtil {
         String clusterId = null;
         Map<Long, Set<Long>> beIdToTabletId = Maps.newHashMap();
         Map<Long, Backend> liveBackends = Maps.newHashMap();
-        for (Map.Entry<Long, List<Replica>> tablet : tabletReplicas.entrySet()) {
+        for (Map.Entry<Long, TabletReplicas> tablet : tabletReplicas.entrySet()) {
             boolean hasLiveBackend = false;
-            for (Replica replica : tablet.getValue()) {
+            for (Replica replica : tablet.getValue().replicas()) {
                 if (!replica.isAlive()) {
                     continue;
                 }
@@ -242,11 +251,13 @@ public class FetchRemoteTabletSchemaUtil {
         List<Backend> coordinatorBackend = Lists.newArrayList(liveBackends.values());
         for (Map.Entry<Long, Set<Long>> entry : beIdToTabletId.entrySet()) {
             Backend backend = liveBackends.get(entry.getKey());
-            locations.add(PTabletsLocation.newBuilder()
-                    .setHost(backend.getHost())
-                    .setBrpcPort(backend.getBrpcPort())
-                    .addAllTabletId(entry.getValue())
-                    .build());
+            PTabletsLocation.Builder location = PTabletsLocation.newBuilder()
+                    .setHost(backend.getHost()).setBrpcPort(backend.getBrpcPort());
+            for (long tabletId : entry.getValue()) {
+                location.addTabletId(tabletId);
+                location.addTabletVisibleVersion(tabletReplicas.get(tabletId).visibleVersion());
+            }
+            locations.add(location.build());
         }
         Collections.shuffle(coordinatorBackend);
         PFetchRemoteSchemaRequest request = PFetchRemoteSchemaRequest.newBuilder()
@@ -292,12 +303,16 @@ public class FetchRemoteTabletSchemaUtil {
                         + be.getBrpcAddress() + " " + response.getStatus().getErrorMsgsList());
                 // Worker RPCs already retry transport failures within their own deadline.
                 // Moving an accepted request to another coordinator repeats the worker fan-out.
-                if (response.hasStatus() && response.getCoordinatorAccepted()) {
+                if (response.hasStatus() && response.getCoordinatorAccepted()
+                        && response.getStatus().getStatusCode() != TStatusCode.NETWORK_ERROR.getValue()) {
                     throw failure;
                 }
                 lastFailure = failure;
             } else if (!response.hasMergedSchema()) {
                 lastFailure = new AnalysisException("Missing merged schema from " + be.getBrpcAddress());
+            } else if (!response.getTabletVersionsVerified()) {
+                lastFailure = new AnalysisException("Coordinator could not verify tablet versions on "
+                        + be.getBrpcAddress());
             } else {
                 try {
                     return decodeColumns(response.getMergedSchema());
