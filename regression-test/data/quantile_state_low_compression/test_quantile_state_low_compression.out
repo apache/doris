@@ -26,6 +26,24 @@ true
 -- !2048_explicit --
 02	0	2047
 
+-- !fractional_32_explicit --
+02	0	31
+
+-- !fractional_33_digest --
+03	0	32
+
+-- !fractional_129_digest --
+03	0	128
+
+-- !fractional_2048_digest --
+03	0	2047
+
+-- !max_compression_2048_explicit --
+02	0	2047
+
+-- !max_compression_2049_digest --
+03	0	2048
+
 -- !stored_partials --
 0	7	7	7
 1	7	7	7

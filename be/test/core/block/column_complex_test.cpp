@@ -668,7 +668,7 @@ TEST_F(ColumnQuantileStateTest, ColumnQuantileStateReadWrite) {
         data[i].add_value(i + 1);
     }
     // TDIGEST type
-    for (size_t i = 0; i < QUANTILE_STATE_EXPLICIT_NUM; ++i) {
+    for (size_t i = 0; i < QUANTILE_STATE_EXPLICIT_MAX_NUM; ++i) {
         data[0].add_value(i);
     }
     check_serialize_and_deserialize(column);

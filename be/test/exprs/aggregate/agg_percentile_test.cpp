@@ -249,7 +249,7 @@ TEST(AggregateFunctionQuantileStateTest, EmptyWindowAfterNonemptyWindow) {
 
 TEST(AggregateFunctionQuantileStateTest, ResetClearsAllRepresentations) {
     for (bool is_window : {false, true}) {
-        for (size_t count : {size_t(1), size_t(3), size_t(QUANTILE_STATE_EXPLICIT_NUM + 1)}) {
+        for (size_t count : {size_t(1), size_t(3), size_t(QUANTILE_STATE_EXPLICIT_MAX_NUM + 1)}) {
             expect_reset_quantile_state(count, is_window);
         }
     }
@@ -347,7 +347,7 @@ TEST(AggregateFunctionQuantileStateTest, CompactionPromotesSingleLowState) {
 }
 
 TEST(AggregateFunctionQuantileStateTest, RepeatedExplicitFramesReuseCapacity) {
-    for (size_t frame_size : {size_t(2), size_t(3), size_t(QUANTILE_STATE_EXPLICIT_NUM)}) {
+    for (size_t frame_size : {size_t(2), size_t(3), size_t(QUANTILE_STATE_EXPLICIT_MAX_NUM)}) {
         expect_repeated_explicit_frames_reuse_capacity(frame_size);
     }
 }

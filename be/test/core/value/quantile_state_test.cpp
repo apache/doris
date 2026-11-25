@@ -163,22 +163,22 @@ TEST(QuantileStateTest, AddValueRetainsSampleAtExplicitLimit) {
     for (float compression : {QUANTILE_STATE_COMPRESSION_DEFAULT, QUANTILE_STATE_COMPRESSION_MAX}) {
         for (double value : {-100.0, 100.0}) {
             QuantileState state(compression);
-            for (int i = 0; i < QUANTILE_STATE_EXPLICIT_NUM - 1; ++i) {
+            for (int i = 0; i < QUANTILE_STATE_EXPLICIT_MAX_NUM - 1; ++i) {
                 state.add_value(0);
             }
             ASSERT_EQ(EXPLICIT, state._type);
-            EXPECT_EQ(QUANTILE_STATE_EXPLICIT_NUM - 1, state._explicit_data.size());
+            EXPECT_EQ(QUANTILE_STATE_EXPLICIT_MAX_NUM - 1, state._explicit_data.size());
             state.add_value(0);
             ASSERT_EQ(EXPLICIT, state._type);
-            EXPECT_EQ(QUANTILE_STATE_EXPLICIT_NUM, state._explicit_data.size());
+            EXPECT_EQ(QUANTILE_STATE_EXPLICIT_MAX_NUM, state._explicit_data.size());
 
             state.add_value(value);
             EXPECT_TRUE(state._explicit_data.empty());
-            expect_digest_samples(state, QUANTILE_STATE_EXPLICIT_NUM + 1, std::min(0.0, value),
+            expect_digest_samples(state, QUANTILE_STATE_EXPLICIT_MAX_NUM + 1, std::min(0.0, value),
                                   std::max(0.0, value));
 
             state.add_value(0);
-            expect_digest_samples(state, QUANTILE_STATE_EXPLICIT_NUM + 2, std::min(0.0, value),
+            expect_digest_samples(state, QUANTILE_STATE_EXPLICIT_MAX_NUM + 2, std::min(0.0, value),
                                   std::max(0.0, value));
         }
     }
@@ -186,20 +186,103 @@ TEST(QuantileStateTest, AddValueRetainsSampleAtExplicitLimit) {
 
 TEST(QuantileStateTest, LowCompressionBoundaryAndDefault) {
     EXPECT_EQ(QUANTILE_STATE_COMPRESSION_DEFAULT, QuantileState()._compression);
-    for (float compression : {32.0F, 32.5F, 127.0F, 128.0F, 128.5F, 256.0F, 2047.0F, 2048.0F}) {
+    for (float compression : {32.0F, 32.5F, 127.0F, 128.0F, 128.5F, 256.0F, 2047.0F, 2047.5F,
+                              2048.0F, 2048.5F, 10000.0F}) {
         QuantileState state(compression);
-        const auto limit = std::min<size_t>(QUANTILE_STATE_EXPLICIT_NUM,
-                                            static_cast<size_t>(std::ceil(compression)));
+        const auto limit =
+                std::min<size_t>(QUANTILE_STATE_EXPLICIT_MAX_NUM, static_cast<size_t>(compression));
         for (size_t i = 0; i < limit; ++i) {
             state.add_value(0);
         }
         ASSERT_EQ(EXPLICIT, state._type) << compression;
         state.add_value(100);
+        ASSERT_EQ(TDIGEST, state._type) << compression;
         expect_digest_samples(state, limit + 1, 0, 100);
         EXPECT_EQ(0, state._explicit_data.capacity());
         EXPECT_EQ(compression, state._mutable_tdigest().compression());
         if (compression < QUANTILE_STATE_COMPRESSION_DEFAULT) {
             EXPECT_EQ(std::ceil(compression), state._mutable_tdigest().max_unprocessed());
+        }
+    }
+}
+
+static void expect_fractional_merge_result(const QuantileState& target, const QuantileState& source,
+                                           float compression, size_t total_count, size_t limit) {
+    auto result = target;
+    result.merge(source);
+    EXPECT_EQ(compression, result._compression);
+    EXPECT_EQ(0, result.get_value_by_percentile(0));
+    EXPECT_EQ(100, result.get_value_by_percentile(1));
+    if (target._type == TDIGEST || source._type == TDIGEST || total_count > limit) {
+        expect_digest_samples(result, total_count, 0, 100);
+    } else {
+        ASSERT_EQ(EXPLICIT, result._type);
+        EXPECT_EQ(total_count, result._explicit_data.size());
+    }
+}
+
+static void expect_fractional_merge_boundary(float compression, size_t left_count,
+                                             size_t total_count, size_t limit) {
+    QuantileState left(compression);
+    QuantileState right(32);
+    for (size_t i = 0; i < left_count; ++i) {
+        left.add_value(0);
+    }
+    for (size_t i = left_count; i < total_count; ++i) {
+        right.add_value(100);
+    }
+    expect_fractional_merge_result(left, right, compression, total_count, limit);
+    expect_fractional_merge_result(right, left, compression, total_count, limit);
+}
+
+TEST(QuantileStateTest, FractionalCompressionMergeBoundary) {
+    for (float compression : {32.5F, 128.5F, 2047.5F, 2048.5F, 10000.0F}) {
+        const auto limit = std::min<size_t>(2048, static_cast<size_t>(compression));
+        for (size_t left_count : {size_t(1), limit / 2, limit - 1}) {
+            for (size_t total_count : {limit, limit + 1}) {
+                expect_fractional_merge_boundary(compression, left_count, total_count, limit);
+            }
+        }
+    }
+}
+
+static void expect_fractional_explicit_samples(const QuantileState& state, float compression,
+                                               size_t count) {
+    EXPECT_EQ(compression, state._compression);
+    if (count <= static_cast<size_t>(compression)) {
+        ASSERT_EQ(EXPLICIT, state._type);
+        EXPECT_EQ(count, state._explicit_data.size());
+    } else {
+        expect_digest_samples(state, count, 0, count - 1);
+        EXPECT_EQ(0, state._explicit_data.capacity());
+    }
+    EXPECT_EQ(0, state.get_value_by_percentile(0));
+    EXPECT_EQ(count - 1, state.get_value_by_percentile(1));
+}
+
+static void expect_fractional_explicit_roundtrip(float compression, size_t count) {
+    QuantileState legacy;
+    for (size_t i = 0; i < count; ++i) {
+        legacy.add_value(i);
+    }
+    std::vector<uint8_t> bytes(legacy.get_serialized_size());
+    ASSERT_EQ(bytes.size(), legacy.serialize(bytes.data()));
+    std::memcpy(bytes.data(), &compression, sizeof(compression));
+    QuantileState restored;
+    ASSERT_TRUE(restored.deserialize(Slice(reinterpret_cast<char*>(bytes.data()), bytes.size())));
+    expect_fractional_explicit_samples(restored, compression, count);
+    bytes.resize(restored.get_serialized_size());
+    ASSERT_EQ(bytes.size(), restored.serialize(bytes.data()));
+    QuantileState roundtrip;
+    ASSERT_TRUE(roundtrip.deserialize(Slice(reinterpret_cast<char*>(bytes.data()), bytes.size())));
+    expect_fractional_explicit_samples(roundtrip, compression, count);
+}
+
+TEST(QuantileStateTest, ReadFractionalExplicitBoundary) {
+    for (float compression : {32.5F, 128.5F, 2047.5F}) {
+        const auto limit = static_cast<size_t>(compression);
+        for (size_t count : {limit, limit + 1}) {
+            expect_fractional_explicit_roundtrip(compression, count);
         }
     }
 }
@@ -426,7 +509,7 @@ TEST(QuantileStateTest, EmptyAndExplicitMergeUseNonemptyCompression) {
     EXPECT_EQ(129, reverse._explicit_data.size());
 }
 
-TEST(QuantileStateTest, ReadOversizedLowExplicitThenAppend) {
+TEST(QuantileStateTest, ReadOversizedLowExplicitConvertsBeforeAppendOrMerge) {
     QuantileState legacy(2048);
     for (int i = 0; i < 1440; ++i) {
         legacy.add_value(i);
@@ -437,15 +520,14 @@ TEST(QuantileStateTest, ReadOversizedLowExplicitThenAppend) {
     std::memcpy(bytes.data(), &low_compression, sizeof(low_compression));
     QuantileState restored;
     ASSERT_TRUE(restored.deserialize(Slice(reinterpret_cast<char*>(bytes.data()), bytes.size())));
-    ASSERT_EQ(EXPLICIT, restored._type);
-    ASSERT_EQ(1440, restored._explicit_data.size());
+    expect_digest_samples(restored, 1440, 0, 1439);
+    EXPECT_EQ(0, restored._explicit_data.capacity());
     auto merged = restored;
     QuantileState singleton(2048);
     singleton.add_value(1440);
     merged.merge(singleton);
     EXPECT_EQ(2048, merged._compression);
-    EXPECT_EQ(EXPLICIT, merged._type);
-    EXPECT_EQ(1441, merged._explicit_data.size());
+    expect_digest_samples(merged, 1441, 0, 1440);
     restored.add_value(1440);
     EXPECT_EQ(0, restored._explicit_data.capacity());
     expect_digest_samples(restored, 1441, 0, 1440);
@@ -480,29 +562,29 @@ TEST(QuantileStateTest, LowCompressionThreePartialTreesAndSelfMerge) {
 
 TEST(QuantileStateTest, MergeSingletonAndExplicitRetainsBoundarySample) {
     for (double value : {-100.0, 100.0}) {
-        auto explicit_state = constant_state(0, QUANTILE_STATE_EXPLICIT_NUM);
+        auto explicit_state = constant_state(0, QUANTILE_STATE_EXPLICIT_MAX_NUM);
         auto singleton = constant_state(value, 1);
 
         auto explicit_first = explicit_state;
         explicit_first.merge(singleton);
         auto singleton_first = singleton;
         singleton_first.merge(explicit_state);
-        expect_digest_samples(explicit_first, QUANTILE_STATE_EXPLICIT_NUM + 1, std::min(0.0, value),
-                              std::max(0.0, value));
-        expect_digest_samples(singleton_first, QUANTILE_STATE_EXPLICIT_NUM + 1,
+        expect_digest_samples(explicit_first, QUANTILE_STATE_EXPLICIT_MAX_NUM + 1,
                               std::min(0.0, value), std::max(0.0, value));
-        EXPECT_EQ(QUANTILE_STATE_EXPLICIT_NUM, explicit_state._explicit_data.size());
+        expect_digest_samples(singleton_first, QUANTILE_STATE_EXPLICIT_MAX_NUM + 1,
+                              std::min(0.0, value), std::max(0.0, value));
+        EXPECT_EQ(QUANTILE_STATE_EXPLICIT_MAX_NUM, explicit_state._explicit_data.size());
         EXPECT_EQ(0, explicit_state.get_value_by_percentile(1));
         EXPECT_EQ(value, singleton.get_value_by_percentile(1));
     }
 }
 
 TEST(QuantileStateTest, ExplicitMergeGroupingRetainsAllSamples) {
-    auto state = constant_state(0, QUANTILE_STATE_EXPLICIT_NUM - 1);
+    auto state = constant_state(0, QUANTILE_STATE_EXPLICIT_MAX_NUM - 1);
     auto other = constant_state(0, 1);
     other.add_value(100);
     state.merge(other);
-    expect_digest_samples(state, QUANTILE_STATE_EXPLICIT_NUM + 1, 0, 100);
+    expect_digest_samples(state, QUANTILE_STATE_EXPLICIT_MAX_NUM + 1, 0, 100);
 }
 
 TEST(QuantileStateTest, SelfMergeAndSharedSourceMerge) {

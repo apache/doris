@@ -261,11 +261,16 @@ bool QuantileState::deserialize(const Slice& slice) {
         uint16_t num_explicits = decode_fixed16_le(ptr);
         ptr += sizeof(uint16_t);
         if (_compression >= QUANTILE_STATE_COMPRESSION_DEFAULT) {
-            _explicit_data.reserve(std::min(num_explicits * 2, QUANTILE_STATE_EXPLICIT_NUM));
+            _explicit_data.reserve(std::min(num_explicits * 2, QUANTILE_STATE_EXPLICIT_MAX_NUM));
         }
         _explicit_data.resize(num_explicits);
         memcpy(&_explicit_data[0], ptr, num_explicits * sizeof(double));
         ptr += num_explicits * sizeof(double);
+        // Older writers used ceil(C): at C=32.5, their 33 explicit samples exceed the limit.
+        // Keep reading those states, but enforce the current bound before exposing the value.
+        if (_explicit_data.size() > _explicit_limit()) {
+            _convert_to_tdigest();
+        }
         break;
     }
     case TDIGEST: {
@@ -320,8 +325,8 @@ size_t QuantileState::serialize(uint8_t* dst) const {
 }
 
 size_t QuantileState::_explicit_limit() const {
-    return std::min<size_t>(QUANTILE_STATE_EXPLICIT_NUM,
-                            static_cast<size_t>(std::ceil(_compression)));
+    // Sample counts are integral: C=32.5 permits 32 exact samples, not 33.
+    return std::min<size_t>(QUANTILE_STATE_EXPLICIT_MAX_NUM, static_cast<size_t>(_compression));
 }
 
 void QuantileState::_convert_to_tdigest() {

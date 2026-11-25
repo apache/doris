@@ -83,6 +83,44 @@ suite("test_quantile_state_low_compression", "docker,p1,quantile_state_low_compr
                   FROM numbers("number" = "2048")) x
         """
 
+        // Fractional C bounds the integer sample count without rounding up.
+        qt_fractional_32_explicit """
+            SELECT substr(hex(from_base64(quantile_state_to_base64(s))), 9, 2),
+                   quantile_percent(s, 0), quantile_percent(s, 1)
+            FROM (SELECT quantile_union(to_quantile_state(number, 32.5)) AS s
+                  FROM numbers("number" = "32")) x
+        """
+        qt_fractional_33_digest """
+            SELECT substr(hex(from_base64(quantile_state_to_base64(s))), 9, 2),
+                   quantile_percent(s, 0), quantile_percent(s, 1)
+            FROM (SELECT quantile_union(to_quantile_state(number, 32.5)) AS s
+                  FROM numbers("number" = "33")) x
+        """
+        qt_fractional_129_digest """
+            SELECT substr(hex(from_base64(quantile_state_to_base64(s))), 9, 2),
+                   quantile_percent(s, 0), quantile_percent(s, 1)
+            FROM (SELECT quantile_union(to_quantile_state(number, 128.5)) AS s
+                  FROM numbers("number" = "129")) x
+        """
+        qt_fractional_2048_digest """
+            SELECT substr(hex(from_base64(quantile_state_to_base64(s))), 9, 2),
+                   quantile_percent(s, 0), quantile_percent(s, 1)
+            FROM (SELECT quantile_union(to_quantile_state(number, 2047.5)) AS s
+                  FROM numbers("number" = "2048")) x
+        """
+        qt_max_compression_2048_explicit """
+            SELECT substr(hex(from_base64(quantile_state_to_base64(s))), 9, 2),
+                   quantile_percent(s, 0), quantile_percent(s, 1)
+            FROM (SELECT quantile_union(to_quantile_state(number, 10000)) AS s
+                  FROM numbers("number" = "2048")) x
+        """
+        qt_max_compression_2049_digest """
+            SELECT substr(hex(from_base64(quantile_state_to_base64(s))), 9, 2),
+                   quantile_percent(s, 0), quantile_percent(s, 1)
+            FROM (SELECT quantile_union(to_quantile_state(number, 10000)) AS s
+                  FROM numbers("number" = "2049")) x
+        """
+
         sql "DROP TABLE IF EXISTS test_quantile_state_low_partials"
         sql """
             CREATE TABLE test_quantile_state_low_partials (
