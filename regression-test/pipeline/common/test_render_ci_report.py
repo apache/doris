@@ -26,6 +26,7 @@ from tempfile import TemporaryDirectory
 from unittest import TestCase, main
 from unittest.mock import patch
 import subprocess
+import tarfile
 
 import render_ci_report as ci
 
@@ -53,7 +54,7 @@ class ReportTest(TestCase):
             for pipeline, label in ci.PIPELINES.items():
                 self.generate(pipeline, "--status", "SUCCESS")
                 page = self.output.read_text()
-                self.assertIn(f"<h1>{label}</h1>", page)
+                self.assertIn(f'<h1 class="success">{label}</h1>', page)
                 self.assertIn(">Passed</strong>", page)
                 if pipeline != "compile":
                     self.assertIn("Case counts were not recorded", page)
@@ -180,7 +181,10 @@ class ReportTest(TestCase):
         self.assertIn(problem, page)
         self.assertEqual(page.count("suite.Case[A]"), 2)
         self.assertIn("different trace", page)
-        self.assertIn("<small>Muted</small>", page)
+        self.assertIn("<h2>Failed tests (1)</h2>", page)
+        self.assertIn("<h2>Muted tests (1)</h2>", page)
+        self.assertLess(page.index(error.split("<")[0]), page.index("<h2>Muted tests"))
+        self.assertLess(page.index("<h2>Muted tests"), page.index("different trace"))
         self.assertNotIn("private_env_dump", page)
         self.assertNotIn("<expression>", page)
         for field,value in (("id",24), ("buildTypeId","Doris_FEUT"), ("state","running"),("status","SUCCESS"),
@@ -205,7 +209,7 @@ class ReportTest(TestCase):
                 self.assertEqual(argv[argv.index(flag)+1], value)
             self.assertIn("--forbid-overwrite", argv)
             body_file = Path(argv[argv.index("--body")+1].removeprefix("file://"))
-            self.assertIn(b"<h1>Compile</h1>", body_file.read_bytes())
+            self.assertIn(b'<h1 class="failure">Compile</h1>', body_file.read_bytes())
             return subprocess.CompletedProcess(argv, 0, b"", b"")
         with patch.object(ci.subprocess, "run", side_effect=put) as client:
             self.generate("compile", "--status", "failure", "--failed-step", "checkout", "--upload")
@@ -229,9 +233,11 @@ class ReportTest(TestCase):
                         self.generate("p0", "--status", "success", "--upload")
 
     def test_status_is_not_inferred_from_counts(self):
-        for status in ("failure", "error", "canceled"):
-            self.generate("p0", "--status", status, "--failed", "0")
-            self.assertIn(f">{ci.RESULTS[status]}</strong>", self.output.read_text())
+        for status, result in ci.RESULTS.items():
+            self.generate("nonconcurrent", "--status", status, "--failed", "0")
+            page = self.output.read_text()
+            self.assertIn(f'<h1 class="{status}">NonConcurrent</h1>', page)
+            self.assertIn(f'<strong class="{status}">{result}</strong>', page)
 
     def receipt(self, *objects, build="3817", pipeline="Doris_P0"):
         path = self.root / "oss-artifacts.json"
@@ -350,6 +356,37 @@ class ReportTest(TestCase):
             with self.assertRaises(SystemExit), patch.object(ci, "upload", side_effect=AssertionError):
                 self.generate("p0", "--status", "failure", option, str(wrong), "--upload")
 
+    def test_sanitized_doris_download_uses_only_runtime_logs(self):
+        archive = self.root / "export.tar.gz"
+        files = {
+            "cluster/be.INFO.log.20261125": b"ready\npassword=test-fixture\n",
+            "ut/private-diagnostics/host.log": b"private host data",
+            "cluster/core.42": b"binary core",
+            "../outside.log": b"outside",
+        }
+        with tarfile.open(archive, "w:gz") as tar:
+            for name, payload in files.items():
+                member = tarfile.TarInfo(name)
+                member.size = len(payload)
+                tar.addfile(member, io.BytesIO(payload))
+            link = tarfile.TarInfo("cluster/link.log")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "be.INFO.log.20261125"
+            tar.addfile(link)
+
+        self.generate("p0", "--status", "failure", "--sanitize-doris-log", str(archive))
+        result, = self.output.parent.glob("doris-logs-*.tar.gz")
+        self.assertIn(f'href="{result.name}"', self.output.read_text())
+        with tarfile.open(result) as tar:
+            self.assertEqual(tar.getnames(), ["cluster/be.INFO.log.20261125"])
+            self.assertEqual(tar.extractfile(tar.getmembers()[0]).read(), b"ready\npassword=[redacted]\n")
+
+        with tarfile.open(archive, "w:gz"):
+            pass
+        self.generate("p0", "--status", "success", "--sanitize-doris-log", str(archive))
+        self.assertIn("No public Doris log archive for this build", self.output.read_text())
+        self.assertNotIn(f'href="{result.name}"', self.output.read_text())
+
     def test_configured_origin_and_build_copy(self):
         path = self.root / "copy.json"
         path.write_text(json.dumps(dict(id=3817, buildTypeId="Compile_Copy", state="finished", status="SUCCESS")))
@@ -357,7 +394,8 @@ class ReportTest(TestCase):
         with self.assertRaises(SystemExit):
             self.generate(*args)
         self.generate(*args, "--build-type-id", "Compile_Copy")
-        self.assertIn(TEST_ORIGIN + "/downloadBuildLog.html?", self.output.read_text())
+        self.assertNotIn("/downloadBuildLog.html?", self.output.read_text())
+        self.assertIn("No build log available", self.output.read_text())
         with patch.dict(ci.os.environ, {"TEAMCITY_CURRENT_URL": ""}):
             self.generate(*args, "--build-type-id", "Compile_Copy")
             self.assertNotIn("/downloadBuildLog", self.output.read_text())
