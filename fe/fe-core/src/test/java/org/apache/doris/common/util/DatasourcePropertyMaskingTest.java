@@ -73,6 +73,43 @@ class DatasourcePropertyMaskingTest {
         }
     }
 
+    @Test
+    void googleCredentialJsonRemainsMaskedWithoutTheAdditionalNamePattern() {
+        synchronized (DatasourcePrintableMap.SENSITIVE_KEY) {
+            Set<String> existing = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            existing.addAll(DatasourcePrintableMap.SENSITIVE_KEY);
+            String previousPattern = Config.datasource_sensitive_property_pattern;
+            IcebergConnectorProvider provider = new IcebergConnectorProvider();
+            try {
+                new ConnectorPluginManager().registerProvider(provider);
+                Config.datasource_sensitive_property_pattern = "(?!)";
+                String json = "{\"type\":\"service_account\",\"private_key\":\"fixture-json-secret\"}";
+                assertRendered("GCP.AUTH.CREDENTIALS-JSON", json, MASK);
+                assertRendered("gcs.oauth2.token", "fixture-oauth-secret", MASK);
+                assertRendered("gcs.project-id", "fixture-project", "fixture-project");
+                NeedAuditEncryption audit = () -> true;
+                for (String prefix : List.of("CREATE CATALOG masking_catalog PROPERTIES ",
+                        "ALTER CATALOG masking_catalog SET PROPERTIES ")) {
+                    String masked = audit.geneEncryptionSQL(prefix
+                            + "('gcp.auth.credentials-json'='" + json
+                            + "','gcs.oauth2.token'='fixture-oauth-secret','gcs.project-id'='fixture-project')");
+                    Assertions.assertFalse(masked.contains("fixture-json-secret"), masked);
+                    Assertions.assertFalse(masked.contains("fixture-oauth-secret"), masked);
+                    Assertions.assertTrue(masked.contains(MASK), masked);
+                    Assertions.assertTrue(masked.contains("fixture-project"), masked);
+                }
+            } finally {
+                Config.datasource_sensitive_property_pattern = previousPattern;
+                // Remove only this fixture's registrations so other providers' secrets stay registered.
+                for (String key : provider.securitySurface().sensitiveKeys()) {
+                    if (!existing.contains(key)) {
+                        DatasourcePrintableMap.SENSITIVE_KEY.remove(key);
+                    }
+                }
+            }
+        }
+    }
+
     private void assertRendered(String key, String value, String expected) {
         Map<String, String> properties = Map.of(key, value);
         CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);

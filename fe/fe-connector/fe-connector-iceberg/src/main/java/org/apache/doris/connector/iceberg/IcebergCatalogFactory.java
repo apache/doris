@@ -425,6 +425,8 @@ public final class IcebergCatalogFactory {
     public static Map<String, String> buildCatalogProperties(IcebergCatalogProperties catalogProps,
             Optional<S3CompatibleFileSystemProperties> chosenS3, boolean metaCacheWeightLimited) {
         Map<String, String> props = catalogProps.getRaw();
+        // Replayed catalogs bypass statement validation; check before credential JSON reaches the SDK.
+        IcebergGoogleCredentialValidator.validate(props);
         String flavor = catalogProps.getFlavor();
         Map<String, String> opts = buildBaseCatalogProperties(props, metaCacheWeightLimited);
         opts.put(CatalogProperties.CATALOG_IMPL, resolveCatalogImpl(flavor));

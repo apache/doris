@@ -146,7 +146,6 @@ under the License.
             <groupId>com.google.cloud</groupId>
             <artifactId>google-cloud-storage</artifactId>
             <version>${google-cloud-storage.version}</version>
-            <scope>runtime</scope>
         </dependency>
 
         <!-- Caffeine: needed on the COMPILE classpath for the vendored split-package

@@ -95,8 +95,9 @@ public class IcebergConnectorProvider implements ConnectorProvider {
         // Keep secret masking and JDBC restrictions when REST decryption adds a KMS endpoint check.
         return ConnectorSecuritySurface.ofJdbcDriverUrls("iceberg.catalog.type", "iceberg.jdbc.driver_url")
                 .withSensitiveKeys(MetaStoreProviders.sensitivePropertyKeys())
-                // Native SDK data-encryption keys must not appear in SHOW output or CREATE/ALTER audit SQL.
-                .withSensitiveKeys(List.of("gcs.encryption-key", "gcs.decryption-key"))
+                // Protect inline SDK credentials even when the additional name-pattern rule is disabled.
+                .withSensitiveKeys(List.of("gcp.auth.credentials-json", "gcs.oauth2.token",
+                        "gcs.encryption-key", "gcs.decryption-key"))
                 .withSsrfEndpoints("kms.endpoint");
     }
 }
