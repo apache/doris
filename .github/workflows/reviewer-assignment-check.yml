@@ -13,6 +13,11 @@ on:
       - '.github/scripts/test_review_checkout_workflow.py'
       - '.github/scripts/resolve_code_review_status.py'
       - '.github/scripts/test_resolve_code_review_status.py'
+      - '.github/scripts/debug_review.py'
+      - '.github/scripts/test_debug_review.py'
+      - '.github/scripts/submit_review.py'
+      - '.github/scripts/test_submit_review.py'
+      - '.github/workflows/code-review-cloud-receipt.yml'
       - '.github/workflows/pull-request-events.yml'
       - '.github/workflows/resolve-pr-event.yml'
       - '.github/workflows/lfs-warning.yml'
@@ -31,6 +36,11 @@ on:
       - '.github/scripts/test_review_checkout_workflow.py'
       - '.github/scripts/resolve_code_review_status.py'
       - '.github/scripts/test_resolve_code_review_status.py'
+      - '.github/scripts/debug_review.py'
+      - '.github/scripts/test_debug_review.py'
+      - '.github/scripts/submit_review.py'
+      - '.github/scripts/test_submit_review.py'
+      - '.github/workflows/code-review-cloud-receipt.yml'
       - '.github/workflows/pull-request-events.yml'
       - '.github/workflows/resolve-pr-event.yml'
       - '.github/workflows/lfs-warning.yml'
@@ -67,3 +77,4 @@ jobs:
             -s .github/scripts -p test_review_checkout_workflow.py
           PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
             -s .github/scripts -p test_resolve_code_review_status.py
+          (cd .github/scripts && python3 -B -m unittest test_debug_review test_submit_review)
