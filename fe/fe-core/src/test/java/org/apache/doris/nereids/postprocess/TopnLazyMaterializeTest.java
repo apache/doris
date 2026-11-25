@@ -296,6 +296,38 @@ public class TopnLazyMaterializeTest extends SSBTestBase {
     }
 
     @Test
+    public void testThresholdOfZeroOrLessKeepsTableTopNEager() throws Exception {
+        // LazyMaterializeTopN always runs, for the TopN of a search table function; over a table the threshold
+        // still decides, and 0 or less turns it off.
+        this.createTable("create table tm_threshold_off (k int, v int) duplicate key(k) "
+                + "distributed by hash(k) buckets 1 properties('replication_num' = '1')");
+        String sql = "select * from tm_threshold_off order by k limit 1";
+        int originalThreshold = connectContext.getSessionVariable().topNLazyMaterializationThreshold;
+        try {
+            Assertions.assertEquals(1, materializationNodesOf(sql).size(), "default threshold");
+            for (int threshold : new int[] {0, -1}) {
+                connectContext.getSessionVariable().topNLazyMaterializationThreshold = threshold;
+                Assertions.assertTrue(materializationNodesOf(sql).isEmpty(), "threshold " + threshold);
+            }
+        } finally {
+            connectContext.getSessionVariable().topNLazyMaterializationThreshold = originalThreshold;
+        }
+    }
+
+    private List<MaterializationNode> materializationNodesOf(String sql) {
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = new PlanPostProcessors(checker.getCascadesContext()).process(checker.getPhysicalPlan());
+        PlanFragment fragment = new PhysicalPlanTranslator(
+                new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+        List<MaterializationNode> materializationNodes = Lists.newArrayList();
+        fragment.getPlanRoot().collect(MaterializationNode.class, materializationNodes);
+        return materializationNodes;
+    }
+
+    @Test
     public void testLightSchemaChangeFalse() throws Exception {
         this.createTable("create table tm_lsc_false (k int, v int) duplicate key(k) "
                 + "distributed by hash(k) buckets 1 "

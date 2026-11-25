@@ -18,21 +18,27 @@
 package org.apache.doris.nereids.processor.post.materialize;
 
 import org.apache.doris.analysis.ColumnAccessPath;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.connector.spi.search.ConnectorSearchLazyMaterialization;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -208,5 +214,38 @@ public class MaterializeProbeVisitorTest {
         Mockito.when(relation.getTable()).thenReturn(table);
 
         Assertions.assertFalse(new MaterializeProbeVisitor().checkRelationTableSupportedType(relation));
+    }
+
+    @Test
+    public void testSearchTableFunctionFollowsItsConnectorsLazyMaterialization() {
+        // A search table function is admitted by what its connector decided, whatever the TVF's name or format.
+        Assertions.assertTrue(new MaterializeProbeVisitor().checkTVFRelationTableSupportedType(
+                mockSearchRelation(ConnectorSearchLazyMaterialization.TOP_LEVEL_COLUMNS)));
+        Assertions.assertFalse(new MaterializeProbeVisitor().checkTVFRelationTableSupportedType(
+                mockSearchRelation(ConnectorSearchLazyMaterialization.NONE)));
+    }
+
+    @Test
+    public void testSearchTableFunctionKeepsNestedSubColumnInSearchPhase() {
+        // TOP_LEVEL_COLUMNS fetches whole columns by row id: a projection of a nested field stays in the scan.
+        PhysicalTVFRelation relation = mockSearchRelation(ConnectorSearchLazyMaterialization.TOP_LEVEL_COLUMNS);
+        SlotReference nestedSlot = Mockito.mock(SlotReference.class);
+        Mockito.when(nestedSlot.hasSubColPath()).thenReturn(true);
+        // Backed by a base column and not operative, so only the nested access path keeps it in the scan.
+        Mockito.when(nestedSlot.getOriginalColumn()).thenReturn(Optional.of(new Column("embedding", Type.INT)));
+        Mockito.when(relation.getOutput()).thenReturn(ImmutableList.of(nestedSlot));
+
+        Assertions.assertFalse(new MaterializeProbeVisitor().visitPhysicalTVFRelation(
+                relation, new MaterializeProbeVisitor.ProbeContext(nestedSlot)).isPresent());
+    }
+
+    private PhysicalTVFRelation mockSearchRelation(ConnectorSearchLazyMaterialization lazyMaterialization) {
+        VectorSearchTableValuedFunction searchFunction = Mockito.mock(VectorSearchTableValuedFunction.class);
+        Mockito.when(searchFunction.getLazyMaterialization()).thenReturn(lazyMaterialization);
+        VectorSearch function = Mockito.mock(VectorSearch.class);
+        Mockito.when(function.getSearchFunction()).thenReturn(searchFunction);
+        PhysicalTVFRelation relation = Mockito.mock(PhysicalTVFRelation.class);
+        Mockito.when(relation.getFunction()).thenReturn(function);
+        return relation;
     }
 }
