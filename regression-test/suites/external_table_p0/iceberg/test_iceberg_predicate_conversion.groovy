@@ -50,7 +50,12 @@ suite("test_iceberg_predicate_conversion", "p0,external") {
         order_qt_q01 """${sqlstr}""" 
         explain {
             sql("""${sqlstr}""")
-            contains """ref(name="glue_varchar") > "2023-03-07 00:00:00"""
+            // Comparing STRING to DATE casts the column. A lexical file filter would lose that cast.
+            notContains 'ref(name="glue_varchar")'
+        }
+        explain {
+            sql("select glue_varchar from tb_predict where glue_varchar > '2023-03-07'")
+            contains 'ref(name="glue_varchar") > "2023-03-07"'
         }
 
         sqlstr = """select l_shipdate from tb_predict where l_shipdate in ("1997-05-18", "1996-05-06"); """
