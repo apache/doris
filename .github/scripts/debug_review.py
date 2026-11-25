@@ -17,6 +17,7 @@
 # under the License.
 
 """Submit an authorized PR snapshot and synchronize its verified result with the merge gate."""
+import hashlib
 import http.client
 import json
 import os
@@ -77,6 +78,20 @@ def gh(path, *args):
     return decode_json(response, command)
 
 
+def requested_focus():
+    """None identifies the debug command. An empty string is a formal /review."""
+    comment = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())["comment"]["body"]
+    if comment.lower() == "run debugreview":
+        return None
+    if not comment.lower().startswith("/review"):
+        raise ValueError("Expected a review command")
+    return comment[len("/review"):].lstrip()
+
+
+def focus_suffix(focus):
+    return "/" + hashlib.sha256(focus.encode()).hexdigest() if focus else ""
+
+
 def verdict(result, pr_url, run_url, pr):
     p0, p1 = result["p0"], result["p1"]
     converged, rounds = result["converged"], result["rounds"]
@@ -116,11 +131,25 @@ def review(pr, head, base):
         print("PR changed before dispatch")
         return
     snapshot = dict(pr_number=pr, head_sha=head, base_sha=base)
-    receipt = fc("", snapshot, (202,))
+    def mark_pending():
+        description = f"Automated review is running for PR #{pr}."
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a") as outputs:
+            print(f"aggregate_head={head}", file=outputs)
+        write_status("code-review", "pending", description, run_url)
+        write_status(source, "pending", description, run_url)
+
+    focus = requested_focus()
+    formal = focus is not None
+    if formal:
+        mark_pending()
+        if len(focus.encode()) > 8192:
+            raise ValueError("The cloud review focus exceeds 8192 UTF-8 bytes")
+    payload = dict(snapshot, review_focus=focus) if focus else snapshot
+    receipt = fc("", payload, (202,))
     if receipt.get("request_id") != request_id:
         raise ValueError("Receipt belongs to another run")
     print(f"Submitted {request_id} for PR #{pr}", flush=True)
-    pending = False
+    pending = formal
     while True:
         row = fc("/status", {"request_id": request_id}, (200, 202))
         if row.get("request_id") != request_id:
@@ -130,6 +159,13 @@ def review(pr, head, base):
             if (any(row.get(k) != v for k, v in snapshot.items())
                     or type(row.get("preview_only")) is not bool):
                 raise ValueError("Status does not match the authorized snapshot")
+            if formal and (row["preview_only"] or state == "previewed"):
+                raise RuntimeError("The default review requires a publishing cloud worker")
+            if formal and state == "completed":
+                if row["result"].get("gate_receipt") is not True:
+                    raise RuntimeError("The cloud publisher did not record a gate receipt")
+                verdict(row["result"], pr_url, run_url, pr)
+                return
             if state == "previewed":
                 print("ECS completed a preview")
                 return
@@ -139,11 +175,7 @@ def review(pr, head, base):
             if not row["preview_only"] and not pending:
                 if not current():
                     return
-                description = f"Automated review is running for PR #{pr}."
-                with Path(os.environ["GITHUB_OUTPUT"]).open("a") as outputs:
-                    print(f"aggregate_head={head}", file=outputs)
-                write_status("code-review", "pending", description, run_url)
-                write_status(source, "pending", description, run_url)
+                mark_pending()
                 pending = True
             if state == "completed" and not row["preview_only"]:
                 value = verdict(row["result"], pr_url, run_url, pr)
@@ -157,4 +189,9 @@ def review(pr, head, base):
 
 
 if __name__ == "__main__":
-    review(int(os.environ["PR_NUMBER"]), os.environ["HEAD_SHA"], os.environ["BASE_SHA"])
+    import sys
+
+    if sys.argv[1:] == ["--focus-suffix"]:
+        print("focus_suffix=" + focus_suffix(requested_focus()))
+    else:
+        review(int(os.environ["PR_NUMBER"]), os.environ["HEAD_SHA"], os.environ["BASE_SHA"])

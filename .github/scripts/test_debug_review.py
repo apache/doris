@@ -17,6 +17,8 @@
 # under the License.
 
 """Exercise the FC receipt-to-status path without GitHub or model credentials."""
+import hashlib
+import json
 import os
 import tempfile
 import unittest
@@ -31,6 +33,9 @@ class DebugReviewTest(unittest.TestCase):
         tmp = self.enterContext(tempfile.TemporaryDirectory())
         self.enterContext(patch.dict(os.environ, GITHUB_REPOSITORY="apache/doris", GITHUB_RUN_ID="27",
                                     GITHUB_OUTPUT=str(Path(tmp) / "outputs")))
+        self.event = Path(tmp) / "event.json"
+        self.enterContext(patch.dict(os.environ, GITHUB_EVENT_PATH=str(self.event)))
+        self.event.write_text(json.dumps({"comment": {"body": "run debugreview"}}))
         self.pr = dict(state="open", head={"sha": "a"*40}, base={"sha": "b"*40})
         self.snapshot = dict(pr_number=42, head_sha="a"*40, base_sha="b"*40)
         self.receipt = {"request_id": "github:review:27"}
@@ -50,6 +55,36 @@ class DebugReviewTest(unittest.TestCase):
 
     def posts(self):
         return [call.args for call in self.api.call_args_list if "-X" in call.args]
+
+    def test_slash_command_binds_the_same_multiline_focus_in_approval_and_submission(self):
+        for command, expected in (("run debugreview", None), ("/review", ""),
+                                  ("/REVIEW  检查重试\nsecond line", "检查重试\nsecond line")):
+            self.event.write_text(json.dumps({"comment": {"body": command}}))
+            self.assertEqual(expected, debug.requested_focus())
+        self.assertEqual("", debug.focus_suffix(None))
+        self.assertEqual("", debug.focus_suffix(""))
+        self.assertEqual("/" + hashlib.sha256(expected.encode()).hexdigest(), debug.focus_suffix(expected))
+        def dispatch(path, payload, codes):
+            if not path:
+                self.assertEqual(dict(self.snapshot, review_focus=expected), payload)
+                self.assertEqual(2, len(self.posts()))
+                return self.receipt
+            return dict(self.row, state="completed", result=dict(self.result, gate_receipt=True))
+        self.fc.side_effect = dispatch
+        debug.review(42, "a"*40, "b"*40)
+        self.assertTrue(all("state=pending" in post for post in self.posts()))
+
+    def test_slash_review_requires_publication_and_a_durable_verdict(self):
+        self.event.write_text(json.dumps({"comment": {"body": "/review"}}))
+        for row in (dict(self.row, state="queued", preview_only=True),
+                    dict(self.row, state="previewed"), dict(self.row, state="completed", result=self.result)):
+            with self.subTest(row=row), self.assertRaises(RuntimeError):
+                self.fc.side_effect = [self.receipt, row]
+                debug.review(42, "a"*40, "b"*40)
+        self.event.write_text(json.dumps({"comment": {"body": "/review " + "重"*2800}}))
+        with self.assertRaisesRegex(ValueError, "8192"):
+            debug.review(42, "a"*40, "b"*40)
+        self.assertTrue(all("state=pending" in post for post in self.posts()))
 
     def test_verified_result_writes_the_existing_dismissible_gate(self):
         self.run_review(dict(self.receipt, state="awaiting_status"), dict(self.row, state="running"),
