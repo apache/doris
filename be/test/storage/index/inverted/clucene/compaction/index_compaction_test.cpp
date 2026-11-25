@@ -591,9 +591,26 @@ protected:
         EXPECT_EQ(ctx.columns_to_do_index_compaction, native_columns);
     }
 
+    void _run_compressed_wiki_test(KeysType keys) {
+        const bool old_enabled = config::enable_compressed_rowid_conversion;
+        const auto old_threshold = config::compressed_rowid_conversion_threshold_bytes;
+        const bool old_debug = config::debug_inverted_index_compaction;
+        Defer restore {[&] {
+            config::enable_compressed_rowid_conversion = old_enabled;
+            config::compressed_rowid_conversion_threshold_bytes = old_threshold;
+            config::debug_inverted_index_compaction = old_debug;
+        }};
+        config::enable_compressed_rowid_conversion = true;
+        config::compressed_rowid_conversion_threshold_bytes = 0;
+        config::debug_inverted_index_compaction = false;
+        _build_wiki_tablet(keys, InvertedIndexStorageFormatPB::V2);
+        _run_normal_wiki_test(false, "", 50, keys == KeysType::UNIQUE_KEYS ? 2 : 3, true);
+    }
+
     void _run_normal_wiki_test(bool with_delete = false, const std::string& delete_pred = "",
                                int64_t max_rows_per_segment = 100000,
-                               int output_rowset_segment_number = 1) {
+                               int output_rowset_segment_number = 1,
+                               bool check_compressed_mapping = false) {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
         std::string data_file1 =
@@ -630,9 +647,14 @@ protected:
             rowsets.push_back(delete_rowset);
             EXPECT_TRUE(rowsets.size() == (data_files.size() + 1));
         }
-        auto custom_check_index = [this, output_rowset_segment_number](
+        auto custom_check_index = [this, output_rowset_segment_number, check_compressed_mapping](
                                           const BaseCompaction& compaction,
                                           const RowsetWriterContext& ctx) {
+            if (check_compressed_mapping) {
+                ASSERT_NE(compaction._stats.rowid_conversion, nullptr);
+                EXPECT_EQ(compaction._stats.rowid_conversion->mode(),
+                          RowIdConversion::Mode::COMPRESSED);
+            }
             auto keys_type = _tablet_schema->keys_type();
             if (keys_type == KeysType::UNIQUE_KEYS) {
                 EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
@@ -1672,6 +1694,14 @@ TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_multiple_dest_segments) {
 TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_multiple_dest_segments) {
     _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V2);
     _run_normal_wiki_test(false, "", 50, 2);
+}
+
+TEST_F(IndexCompactionTest, compressed_rowid_conversion_dup_matches_rebuild) {
+    _run_compressed_wiki_test(KeysType::DUP_KEYS);
+}
+
+TEST_F(IndexCompactionTest, compressed_rowid_conversion_mow_matches_rebuild) {
+    _run_compressed_wiki_test(KeysType::UNIQUE_KEYS);
 }
 
 TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_multiple_src_lucene_segments) {
