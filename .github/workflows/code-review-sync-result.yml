@@ -35,6 +35,7 @@ jobs:
         id: record
         env:
           GH_TOKEN: ${{ github.token }}
+          DORIS_REVIEW_APP_BOT: ${{ vars.DORIS_REVIEW_APP_BOT }}
           RUN_ACTOR_ID: ${{ github.event.workflow_run.actor.id }}
           RUN_TITLE: ${{ github.event.workflow_run.display_title }}
         run: python3 .github/scripts/record_review_dismissal.py
