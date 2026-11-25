@@ -127,6 +127,28 @@ public class TimestampTzQueryOutputTest {
     }
 
     @Test
+    public void testNullQueryOptionsPreserveDisplayValidation() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("Asia/Shanghai");
+            DateLiteral historical = DateLiteralUtils.createDateLiteral("1900-01-01 00:00:00+00:00",
+                    ScalarType.createTimeStampTzType(0));
+            Assertions.assertEquals("1900-01-01 08:05:43+08:05:43", historical.getStringValueForQuery(null));
+            for (String[] boundary : new String[][] {
+                    {"+08:00", "9999-12-31 23:59:59+00:00"},
+                    {"-08:00", "0000-01-01 00:00:00+00:00"}}) {
+                context.getSessionVariable().setTimeZone(boundary[0]);
+                DateLiteral literal = DateLiteralUtils.createDateLiteral(boundary[1],
+                        ScalarType.createTimeStampTzType(0));
+                Assertions.assertThrows(AnalysisException.class, () -> literal.getStringValueForQuery(null));
+            }
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void testNestedStoragePreservesUtcAndQueryOptions() throws Exception {
         ConnectContext context = new ConnectContext();
         context.setThreadLocalInfo();

@@ -23,6 +23,7 @@ Suite.metaClass.checkNonNullableMvRewrite = { String source, columns, String mv 
     String projection = names.collect { "`${it}`" }.join(", ")
     String asserted = names.collect { "non_nullable(`${it}`) AS `${it}`" }.join(", ")
     String previousRewrite = suite.sql("SELECT @@enable_materialized_view_rewrite")[0][0].toString()
+    String previousStrategy = suite.sql("SELECT @@pre_materialized_view_rewrite_strategy")[0][0].toString()
     try {
         suite.sql("SET enable_materialized_view_rewrite = false")
         def schema = suite.sql("DESC ${source}")
@@ -41,6 +42,8 @@ Suite.metaClass.checkNonNullableMvRewrite = { String source, columns, String mv 
             AS SELECT ${asserted} FROM ${source}
         """)
         if (names.contains("vec")) {
+            // ANN pushdown runs in RBO; this release intentionally defaults MV rewriting to CBO only.
+            suite.sql("SET pre_materialized_view_rewrite_strategy = TRY_IN_RBO")
             suite.sql("""CREATE INDEX ${mv}_ann ON ${mv}(vec) USING ANN
                 PROPERTIES ("index_type" = "hnsw", "metric_type" = "l2_distance", "dim" = "2")""")
             String indexJobs = "SHOW ALTER TABLE COLUMN WHERE TableName = '${mv}' ORDER BY CreateTime DESC LIMIT 1"
@@ -80,6 +83,7 @@ Suite.metaClass.checkNonNullableMvRewrite = { String source, columns, String mv 
             suite.assertEquals(suite.sql(ann).toString(), actual.toString())
         }
     } finally {
+        suite.sql("SET pre_materialized_view_rewrite_strategy = '${previousStrategy}'")
         suite.sql("SET enable_materialized_view_rewrite = ${previousRewrite}")
     }
 }

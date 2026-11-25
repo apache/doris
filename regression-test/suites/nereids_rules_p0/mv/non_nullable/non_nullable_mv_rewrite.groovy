@@ -70,31 +70,45 @@ suite("non_nullable_mv_rewrite") {
     mv_rewrite_success(filtered, "non_nullable_mv")
     qt_filtered filtered
 
-    sql "SET enable_profile = true"
-    sql "SET profile_level = 2"
+    String previousStrategy = sql("SELECT @@pre_materialized_view_rewrite_strategy")[0][0].toString()
     String ann = """SELECT /*+ use_mv(non_nullable_mv) */ id,
         l2_distance_approximate(vec, [0.0, 0.0, 0.0]) AS distance FROM non_nullable_base
         ORDER BY distance LIMIT 3"""
-    mv_rewrite_success(ann, "non_nullable_mv")
-    explain {
-        sql ann
-        contains "non_nullable_mv"
-        contains "ANN SORT INFO"
-    }
-    qt_ann ann
-    String queryId = sql("SELECT last_query_id()")[0][0].toString()
-    boolean searchedIndex = false
-    for (int attempt = 0; attempt < 30 && !searchedIndex; attempt++) {
-        String profile = Http.GET("http://${context.config.feHttpAddress}/api/profile/text/?query_id=${queryId}",
-                false, false, context.config.feHttpUser, context.config.feHttpPassword).toString()
-        def counters = profile =~ /AnnIndexTopNSearchCnt:\s*([0-9]+)/
-        searchedIndex = counters.any { it[1].toLong() > 0 }
-        if (!searchedIndex) {
-            sleep(500)
+    try {
+        // CBO-only MV rewriting cannot expose the MV's ANN index to the earlier RBO pushdown.
+        sql "SET pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
+        mv_rewrite_success(ann, "non_nullable_mv")
+        explain {
+            sql ann
+            contains "non_nullable_mv"
+            notContains "ANN SORT INFO"
         }
+        sql "SET pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+        sql "SET enable_profile = true"
+        sql "SET profile_level = 2"
+        mv_rewrite_success(ann, "non_nullable_mv")
+        explain {
+            sql ann
+            contains "non_nullable_mv"
+            contains "ANN SORT INFO"
+        }
+        qt_ann ann
+        String queryId = sql("SELECT last_query_id()")[0][0].toString()
+        boolean searchedIndex = false
+        for (int attempt = 0; attempt < 30 && !searchedIndex; attempt++) {
+            String profile = Http.GET("http://${context.config.feHttpAddress}/api/profile/text/?query_id=${queryId}",
+                    false, false, context.config.feHttpUser, context.config.feHttpPassword).toString()
+            def counters = profile =~ /AnnIndexTopNSearchCnt:\s*([0-9]+)/
+            searchedIndex = counters.any { it[1].toLong() > 0 }
+            if (!searchedIndex) {
+                sleep(500)
+            }
+        }
+        assertTrue(searchedIndex, "The rewritten query must execute an ANN index search")
+        sql "SET enable_profile = false"
+    } finally {
+        sql "SET pre_materialized_view_rewrite_strategy = '${previousStrategy}'"
     }
-    assertTrue(searchedIndex, "The rewritten query must execute an ANN index search")
-    sql "SET enable_profile = false"
 
     // A surviving cast must use scalar evaluation even when its underlying column has an ANN index.
     ["", "WHERE id > 0"].eachWithIndex { String filter, int i ->

@@ -694,7 +694,8 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public String getStringValueForQuery(FormatOptions options) {
-        if (!type.isTimeStampTz() || options.isForStreamLoad()) {
+        // Legacy scalar callers omit dialect options; null still requests session-local query output.
+        if (!type.isTimeStampTz() || (options != null && options.isForStreamLoad())) {
             // Storage input stays in UTC even when the session-local display year is out of range.
             return getStringValue();
         }
