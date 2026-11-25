@@ -32,8 +32,6 @@ suite("test_lance_vector_search_element_types", "p0,external") {
      * Fixture shape: 12 rows, 4-dimensional vectors, and only row 1 is non-null in every vector
      * column. So each search below returns exactly one row, which also pins that Lance skips null
      * rows rather than scoring them.
-     *
-     * int8 is deliberately absent; see the comment at the end of this suite.
      */
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -94,6 +92,14 @@ suite("test_lance_vector_search_element_types", "p0,external") {
         ORDER BY _distance, row_id
     """
 
+    // Lance converts signed INT8 vectors to floats for L2. The conversion must preserve null
+    // elements so the fixed-size-list batches with null rows still have the correct shape.
+    qt_int8_l2 """
+        SELECT row_id, _distance
+        FROM ${search("fixed_size_list_int8_col", "[-1,0,1,2]", "l2")}
+        ORDER BY _distance, row_id
+    """
+
     // Every search above returns one row because the other 11 are null, so a regression that
     // scored null rows instead of skipping them would show up as extra rows in the goldens.
     def float32Rows = sql """
@@ -107,18 +113,4 @@ suite("test_lance_vector_search_element_types", "p0,external") {
         sql """SELECT row_id FROM ${search("fixed_size_list_uint8_col", "[0,1,2,3]", "l2")}"""
         exception "does not support UInt8"
     }
-
-    // DO NOT add a query over fixed_size_list_int8_col here. all_types.lance holds nulls in every
-    // vector column, and searching a nullable int8 column does not fail the query - it kills the
-    // backend. Lance rebuilds the batch as float32 through convert_to_floating_point, whose int8
-    // arm drops null inner elements while keeping the original null buffer, so
-    // FixedSizeListArray::new gets a values buffer shorter than that buffer implies and its
-    // unwrap panics; a Rust panic crossing lance-c's FFI boundary has nowhere to be caught and
-    // the process aborts. The float arms of the same function return the batch unchanged, which
-    // is why only int8 does this.
-    //
-    // Fixed upstream by lance 15bbd4a85 (#7498), first released in Lance v9.0.0-beta.11. lance-c
-    // pins Lance 7.0.0-beta.7 through v0.1.6, so it is still reproducible on the version this
-    // branch builds against. Add the int8 coverage once lance-c ships a release built on Lance 9
-    // or newer.
 }
