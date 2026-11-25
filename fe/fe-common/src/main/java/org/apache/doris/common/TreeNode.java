@@ -152,15 +152,7 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
     }
 
     public boolean contains(Class cl) {
-        if (cl.isAssignableFrom(this.getClass()) && this.getClass().isAssignableFrom(cl)) {
-            return true;
-        }
-        for (NodeType child : children) {
-            if (child.contains(cl)) {
-                return true;
-            }
-        }
-        return false;
+        return findFirstMatching(node -> cl.equals(node.getClass())) != null;
     }
 
     /**
@@ -168,15 +160,7 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
      */
     public <C extends TreeNode<NodeType>> boolean contains(
             Predicate<? super C> predicate) {
-        if (predicate.apply((C) this)) {
-            return true;
-        }
-        for (NodeType child : children) {
-            if (child.contains(predicate)) {
-                return true;
-            }
-        }
-        return false;
+        return findFirstMatching(node -> predicate.apply((C) node)) != null;
     }
 
     /**
@@ -207,15 +191,7 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
     }
 
     public boolean containsSubclass(Class cl) {
-        if (cl.isAssignableFrom(this.getClass())) {
-            return true;
-        }
-        for (NodeType child : children) {
-            if (child.containsSubclass(cl)) {
-                return true;
-            }
-        }
-        return false;
+        return findFirstMatching(cl::isInstance) != null;
     }
 
     /**
@@ -223,13 +199,19 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
      * Looks for matching children via depth-first, left-to-right traversal.
      */
     public <C extends NodeType> C findFirstOf(Class<C> cl) {
-        if (this.getClass().equals(cl)) {
-            return (C) this;
+        return (C) findFirstMatching(node -> node.getClass().equals(cl));
+    }
+
+    /** Return the first match in left-to-right depth-first order, or null. */
+    protected TreeNode<NodeType> findFirstMatching(
+            java.util.function.Predicate<? super TreeNode<NodeType>> predicate) {
+        if (predicate.test(this)) {
+            return this;
         }
         for (NodeType child : children) {
-            NodeType result = child.findFirstOf(cl);
+            TreeNode<NodeType> result = child.findFirstMatching(predicate);
             if (result != null) {
-                return (C) result;
+                return result;
             }
         }
         return null;
@@ -248,16 +230,7 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
 
     /** anyMatch */
     public boolean anyMatch(Predicate<TreeNode<? extends NodeType>> func) {
-        if (func.apply(this)) {
-            return true;
-        }
-
-        for (NodeType child : children) {
-            if (child.anyMatch(func)) {
-                return true;
-            }
-        }
-        return false;
+        return findFirstMatching(func) != null;
     }
 
     /** foreachDown */
