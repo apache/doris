@@ -19,6 +19,8 @@ import com.amazonaws.auth.AWSStaticCredentialsProvider
 import com.amazonaws.auth.BasicAWSCredentials
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
+import com.amazonaws.services.s3.model.DeleteObjectsRequest
+import com.amazonaws.services.s3.model.ListObjectsV2Request
 
 suite("test_iceberg_rest_drop_purge_option", "p0,external,iceberg,external_docker,external_docker_iceberg,nonConcurrent") {
     if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enableIcebergTest"))) {
@@ -54,6 +56,41 @@ suite("test_iceberg_rest_drop_purge_option", "p0,external,iceberg,external_docke
             .withCredentials(new AWSStaticCredentialsProvider(new BasicAWSCredentials("admin", "password")))
             .build()
     try {
+        List<String> cleanupPrefixes = [
+                "wh/rest_drop_purge_db/",
+                "wh/rest_drop_purge_cascade_db/",
+                "wh/rest_drop_purge_enabled_cascade_db/"
+        ]
+        // Three stale markers and two-entry pages exercise multi-batch cleanup on every run.
+        cleanupPrefixes.each { String prefix ->
+            (0..<3).each { int index ->
+                client.putObject("warehouse", "${prefix}cleanup-stale-${index}".toString(), "stale")
+            }
+        }
+        String neighborKey = "wh/rest_drop_purge_db_neighbor/cleanup-sentinel"
+        client.putObject("warehouse", neighborKey, "keep")
+        // SQL cannot discover files after unregister-only drops. Reclaim only this suite's previous runs,
+        // leaving current-run retained files available for debugging until the next invocation.
+        cleanupPrefixes.each { String prefix ->
+            while (true) {
+                def objects = client.listObjectsV2(new ListObjectsV2Request()
+                        .withBucketName("warehouse").withPrefix(prefix).withMaxKeys(2)).objectSummaries
+                if (objects.isEmpty()) {
+                    break
+                }
+                // Re-list the first page after deletion instead of reusing an opaque continuation token.
+                client.deleteObjects(new DeleteObjectsRequest("warehouse").withKeys(objects.collect {
+                    new DeleteObjectsRequest.KeyVersion(it.key)
+                }))
+            }
+        }
+        cleanupPrefixes.each { String prefix ->
+            assertTrue(client.listObjectsV2("warehouse", prefix).objectSummaries.isEmpty(),
+                    "Previous-run objects remain under ${prefix}")
+        }
+        assertTrue(client.doesObjectExist("warehouse", neighborKey))
+        client.deleteObject("warehouse", neighborKey)
+
         def captureObjects = { String table ->
             def data = sql "select file_path from `${table}\$files` where content = 0"
             def metadata = sql "select file from `${table}\$metadata_log_entries`"
@@ -63,7 +100,13 @@ suite("test_iceberg_rest_drop_purge_option", "p0,external,iceberg,external_docke
             def snapshots = sql "select manifest_list from `${table}\$snapshots`"
             assertTrue(!manifests.isEmpty(), "The table must have manifest files")
             assertTrue(!snapshots.isEmpty(), "The table must have manifest lists")
-            return (data + metadata + manifests + snapshots).collect { it[0].toString() }.unique()
+            def objects = (data + metadata + manifests + snapshots).collect { it[0].toString() }.unique()
+            objects.each { String object ->
+                URI uri = new URI(object)
+                assertTrue(uri.host == "warehouse" && cleanupPrefixes.any { uri.path.startsWith("/${it}") },
+                        "Table object is outside this suite's cleanup prefixes: ${object}")
+            }
+            return objects
         }
         def checkObjects = { List<String> objects, boolean present ->
             objects.each { String object ->
