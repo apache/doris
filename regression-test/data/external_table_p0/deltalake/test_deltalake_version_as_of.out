@@ -15,6 +15,25 @@
 -- !filesystem_dropped_partition --
 0	row-0
 
+-- !filesystem_old_partition_groups --
+__NULL__	1	7
+a/b	4	10
+gone	1	0
+
+-- !filesystem_cte_new_then_old --
+1	row-1	row-1
+4	row-4	row-4
+20	new-20	\N
+21	new-21	\N
+
+-- !filesystem_correlated_old_rows --
+2	row-2
+3	row-3
+
+-- !filesystem_readded_predicate --
+new	1	10000000000
+old	1	old-value
+
 -- !filesystem_dv_counts --
 after	18
 before	20

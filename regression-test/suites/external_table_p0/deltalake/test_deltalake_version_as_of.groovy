@@ -113,12 +113,27 @@ suite("test_deltalake_version_as_of", "p0,external") {
         compareWithSpark("dropped_partition") { name, at ->
             "select id, payload from ${name} ${at} ${inserted} where part='gone' order by id"
         }
+        compareWithSpark("old_partition_groups") { name, at -> """select coalesce(part,'__NULL__') as p,
+            count(*) as matched, cast(sum(id) as bigint) as ids from ${name} ${at} ${inserted}
+            where id in (0,1,2,3,4,7) group by part order by p""" }
         compareWithSpark { name, at ->
             "select id, label from ${name} ${at} ${evolved} where segment is null or segment='new' order by id"
         }
         compareWithSpark { name, at -> """select o.id, o.payload, n.label
             from ${name} ${at} ${inserted} o left join ${name} ${at} ${evolved} n on o.id=n.id
             where o.id <= 4 order by o.id""" }
+        compareWithSpark("cte_new_then_old") { name, at -> """with
+            n as (select id, label from ${name} ${at} ${evolved}),
+            o as (select id, payload from ${name} ${at} ${inserted})
+            select n.id, n.label, o.payload from n left join o on n.id=o.id
+            where n.id in (1,4,20,21) order by n.id""" }
+        compareWithSpark("correlated_old_rows") { name, at -> """select o.id, o.payload from ${name} ${at} ${inserted} o
+            where o.id in (1,2,3,4,7) and not exists (select 1 from ${name} ${at} ${evolved} n
+                where n.id=o.id and n.label is not null) order by o.id""" }
+        compareWithSpark("readded_predicate", idMapped) { name, at -> """select 'new' as phase, count(*) as matched,
+            cast(min(payload) as string) as val from ${name} ${at} ${newColumn} where payload>=10000000000
+            union all select 'old', count(*), min(payload) from ${name} ${at} ${originalColumn}
+            where payload like 'old%' order by phase""" }
         // COUNT with and without a filter exercises metadata counting and decoding rows masked by the DV.
         for (boolean streaming : [false, true]) {
             sql "set enable_external_table_batch_mode=${streaming}"
