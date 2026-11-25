@@ -87,6 +87,17 @@ under the License.
             </exclusions>
         </dependency>
 
+        <!-- Builds the Substrait ExtendedExpression of the pushed predicates, which BE hands to lance-c. It
+             declares protobuf-java at runtime scope only, but the envelope is built with its generated
+             protobuf classes, so protobuf-java is a compile dependency here. -->
+        <dependency>
+            <groupId>io.substrait</groupId>
+            <artifactId>core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+        </dependency>
         <!-- Arrow allocator implementation. A RootAllocator needs an allocation-manager factory at runtime;
              declared so the plugin zip carries it whatever lance-core pulls in. -->
         <dependency>
@@ -97,6 +108,28 @@ under the License.
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
+        </dependency>
+
+        <!-- The table-access cache (LanceNamespaceClient) expires each entry after its own time, which
+             Caffeine's Expiry expresses. The plugin carries its own copy, as the other connector plugins do,
+             rather than whichever version the FE classpath happens to hold; pinned to 2.9.3, the version they
+             bundle. -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>2.9.3</version>
+            <exclusions>
+                <!-- Annotation-only jars. Guava, which lance-core brings, needs newer ones, and these older
+                     ones would win by being nearer in the dependency tree. -->
+                <exclusion>
+                    <groupId>org.checkerframework</groupId>
+                    <artifactId>checker-qual</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.google.errorprone</groupId>
+                    <artifactId>error_prone_annotations</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>

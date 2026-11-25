@@ -39,8 +39,9 @@ import java.util.regex.Pattern;
 /**
  * Everything a user writes in {@code CREATE CATALOG} for a Lance catalog, bound and checked.
  *
- * <p>The keys and their rules are the ones Lance catalogs have had since 4.1, unchanged: images written by
- * those versions persist the raw property map, and this class must accept it as it is. Settings that are
+ * <p>The keys and their rules are the ones Lance catalogs have had since 4.1 (the table-access cache TTL since
+ * 4.2), unchanged: images written by those versions persist the raw property map, and this class must accept it
+ * as it is. Settings that are
  * one-per-FE rather than one-per-catalog live in the plugin's {@code lance.conf} ({@link LanceConf}).
  *
  * <p>{@link #of(Map)} touches neither storage nor any {@code org.lance.*} type: it runs at CREATE, again on
@@ -62,6 +63,12 @@ public final class LanceCatalogProperties {
     public static final String ROOT_DATABASE = "lance.namespace.root_database";
     public static final String DEFAULT_DELIMITER = "$";
     public static final String DEFAULT_ROOT_DATABASE = "default";
+    /**
+     * How long a table's dataset URI and storage options, as the namespace describes them, are reused before the
+     * table is described again; 0 describes it on every read. See {@link LanceNamespaceClient}.
+     */
+    public static final String TABLE_ACCESS_CACHE_TTL_SECONDS = "lance.table_access_cache_ttl_seconds";
+    public static final int DEFAULT_TABLE_ACCESS_CACHE_TTL_SECONDS = 60;
 
     /** Every REST-only key starts with this; a filesystem catalog rejects all of them. */
     public static final String REST_PREFIX = "lance.rest.";
@@ -115,6 +122,11 @@ public final class LanceCatalogProperties {
     @ConnectorProperty(names = {ROOT_DATABASE}, required = false,
             description = "The Doris database name representing the catalog's root namespace. Default: default.")
     private String rootDatabase = DEFAULT_ROOT_DATABASE;
+
+    @ConnectorProperty(names = {TABLE_ACCESS_CACHE_TTL_SECONDS}, required = false,
+            description = "Maximum lifetime of cached table URIs and access options in seconds. "
+                    + "Default: 60. Set to 0 to describe the table on every read.")
+    private int tableAccessCacheTtlSeconds = DEFAULT_TABLE_ACCESS_CACHE_TTL_SECONDS;
 
     @ConnectorProperty(names = {REST_URI}, required = false,
             description = "The HTTP or HTTPS endpoint of the Lance REST namespace service.")
@@ -171,6 +183,10 @@ public final class LanceCatalogProperties {
     }
 
     private void validateCommonProperties() {
+        if (tableAccessCacheTtlSeconds < 0) {
+            throw new IllegalArgumentException("Property '" + TABLE_ACCESS_CACHE_TTL_SECONDS
+                    + "' must be non-negative");
+        }
         if (namespaceDelimiter.isEmpty() || namespaceDelimiter.indexOf('\\') >= 0) {
             throw new IllegalArgumentException("Property '" + NAMESPACE_DELIMITER
                     + "' cannot be empty or contain the escape character '\\'");
@@ -396,6 +412,11 @@ public final class LanceCatalogProperties {
     /** The configured parent namespace, already parsed and validated; empty when none is configured. */
     public List<String> getParentNamespace() {
         return parentNamespace;
+    }
+
+    /** See {@link #TABLE_ACCESS_CACHE_TTL_SECONDS}; never negative. */
+    public int getTableAccessCacheTtlSeconds() {
+        return tableAccessCacheTtlSeconds;
     }
 
     /**

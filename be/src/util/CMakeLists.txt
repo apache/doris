@@ -38,6 +38,11 @@ add_library(Util STATIC
     ${UTIL_FILES}
 )
 
+if (NOT ENABLE_TLS)
+    # Purpose-aware defaults apply only to the OSS providers; custom modules keep their existing policy.
+    target_compile_definitions(Util PRIVATE DORIS_OSS_PRIVATE_RPC_PROVIDERS=1)
+endif()
+
 pch_reuse(Util)
 
 # Unity build for the small util TUs (parse-overhead dominated). Ten files

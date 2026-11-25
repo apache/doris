@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "storage/index/inverted/snii/encoding/byte_sink.h"
 #include "storage/index/inverted/snii/io/local_file.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::snii::format {
 namespace {
@@ -71,8 +72,9 @@ struct Oracle {
 };
 
 std::string tmp_path() {
-    return "/tmp/snii_bsbf_" + std::to_string(::getpid()) + "_" + std::to_string(std::rand()) +
-           ".bin";
+    static const doris::test::ScopedTempDirectory temp_dir("bsbf_test");
+    return (temp_dir.path() / "snii_bsbf_").string() + std::to_string(::getpid()) + "_" +
+           std::to_string(std::rand()) + ".bin";
 }
 
 TEST(SniiBsbf, BuildProbeMatchesParquetOracle) {

@@ -25,6 +25,7 @@ import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
@@ -162,7 +163,7 @@ public class TabletStatMgr extends MasterDaemon {
                 Long tableChangelogSize = 0L;
                 Long tableTotalChangelogSize = 0L;
 
-                if (!table.readLockIfExist()) {
+                if (!table.writeLockIfExist()) {
                     continue;
                 }
                 try {
@@ -191,7 +192,10 @@ public class TabletStatMgr extends MasterDaemon {
                         for (MaterializedIndex index
                                 : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             long indexRowCount = 0L;
+                            long indexReportVersion = Long.MAX_VALUE;
+                            long requiredReportVersion = index.getRequiredChangelogReportVersion();
                             boolean indexReported = true;
+                            boolean anyTabletReported = false;
                             List<Tablet> tablets = index.getTablets();
                             tabletCount += tablets.size();
                             for (Tablet tablet : tablets) {
@@ -200,33 +204,34 @@ public class TabletStatMgr extends MasterDaemon {
                                 long tabletRemoteDataSize = 0L;
 
                                 long tabletRowCount = Long.MAX_VALUE;
+                                long tabletReportVersion = -1;
 
                                 Long tabletChangelogSize = 0L;
 
                                 boolean tabletReported = false;
                                 for (Replica replica : tablet.getReplicas()) {
+                                    Replica.RowCountReport report = replica.getRowCountReport();
+                                    long reportVersion = report == null ? 0 : report.version();
                                     LOG.debug("Table {} replica {} current version {}, report version {}",
-                                            olapTable.getName(), replica.getId(),
-                                            replica.getVersion(), replica.getLastReportVersion());
+                                            olapTable.getName(), replica.getId(), replica.getVersion(), reportVersion);
                                     // Replica with less row count is more accurate than the others
                                     // when replicas' version are identical. Because less row count
                                     // means this replica does more compaction than the others.
+                                    boolean replicaReported = reportVersion == -1
+                                            || reportVersion > Partition.PARTITION_INIT_VERSION
+                                            || reportVersion == Partition.PARTITION_INIT_VERSION
+                                                    && replica.getVersion() == Partition.PARTITION_INIT_VERSION;
+                                    long replicaRows = index.isChangelog() && report != null
+                                            ? report.rows() : replica.getRowCount();
+                                    // An unreported changelog replica still has the default zero. Choosing it
+                                    // over a reported replica would erase a useful positive estimate.
                                     if (replica.checkVersionCatchUp(version, false)
-                                            && replica.getRowCount() < tabletRowCount) {
-                                        // 1. If replica version and reported replica version are all equal to
-                                        // PARTITION_INIT_VERSION, set tabletReported to true, which indicates this
-                                        // tablet is empty for sure when previous report.
-                                        // 2. If last report version is larger than PARTITION_INIT_VERSION, set
-                                        // tabletReported to true as well. That is, we only guarantee all replicas of
-                                        // the tablet are reported for the init version.
-                                        // e.g. When replica version is 2, but last reported version is 1,
-                                        // tabletReported would be false.
-                                        if (replica.getVersion() == Partition.PARTITION_INIT_VERSION
-                                                && replica.getLastReportVersion() == Partition.PARTITION_INIT_VERSION
-                                                || replica.getLastReportVersion() > Partition.PARTITION_INIT_VERSION) {
-                                            tabletReported = true;
-                                        }
-                                        tabletRowCount = replica.getRowCount();
+                                            && (!index.isChangelog()
+                                                    || replicaReported && reportVersion >= requiredReportVersion)
+                                            && replicaRows >= 0 && replicaRows < tabletRowCount) {
+                                        tabletReported = replicaReported;
+                                        tabletRowCount = replicaRows;
+                                        tabletReportVersion = reportVersion;
                                     }
 
                                     if (replica.getDataSize() > tabletDataSize) {
@@ -268,16 +273,29 @@ public class TabletStatMgr extends MasterDaemon {
                                     tabletRowCount = 0L;
                                 }
                                 indexRowCount += tabletRowCount;
+                                indexReportVersion = Math.min(indexReportVersion, tabletReportVersion);
                                 if (!index.isChangelog()) {
                                     tableRowCount += tabletRowCount;
                                 }
                                 // Only when all tablets of this index are reported, we set indexReported to true.
                                 indexReported = indexReported && tabletReported;
+                                anyTabletReported |= tabletReported;
 
                                 tableChangelogSize += tabletChangelogSize;
                             } // end for tablets
-                            index.setRowCountReported(indexReported);
-                            index.setRowCount(indexRowCount);
+                            // Suspend publication rather than only the daemon entry, so a report
+                            // already in flight cannot mask the immediate-count regression test.
+                            if (DebugPointUtil.isEnable("FE.TabletStatMgr.updateIndexRowCount.disabled")) {
+                                continue;
+                            }
+                            // No report is different from an empty report: keep immediate changelog
+                            // estimates until at least one tablet has supplied a valid retained count.
+                            if (!index.isChangelog() || anyTabletReported || indexReported) {
+                                index.setReportedRowCount(indexRowCount, indexReported,
+                                        index.isChangelog() && !tablets.isEmpty() ? indexReportVersion : -1);
+                            } else {
+                                index.setRowCountReported(false);
+                            }
                             LOG.debug("Table {} index {} all tablets reported[{}], row count {}",
                                     olapTable.getName(), olapTable.getIndexNameById(index.getId()),
                                     indexReported, indexRowCount);
@@ -296,7 +314,7 @@ public class TabletStatMgr extends MasterDaemon {
                         minTableSize = Pair.of("" + table.getId(), tableDataSize);
                     }
 
-                    // this is only one thread to update table statistics, readLock is enough
+                    // The write lock serializes retained counts with transaction visibility deltas.
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(), table.getName(),
                             tableDataSize, tableTotalReplicaDataSize,
                             tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L,
@@ -309,7 +327,7 @@ public class TabletStatMgr extends MasterDaemon {
                                  table.getName(), db.getFullName());
                     }
                 } finally {
-                    table.readUnlock();
+                    table.writeUnlock();
                 }
                 totalTableSize += tableDataSize;
             }
@@ -404,13 +422,11 @@ public class TabletStatMgr extends MasterDaemon {
                         replica.setLocalSegmentSize(stat.getLocalSegmentSize());
                         replica.setRemoteInvertedIndexSize(stat.getRemoteIndexSize());
                         replica.setRemoteSegmentSize(stat.getRemoteSegmentSize());
-                        replica.setRowCount(stat.getRowCount());
+                        replica.updateRowCountReport(stat.getRowCount(),
+                                stat.isSetVisibleVersion() ? stat.getVisibleVersion() : -1);
                         replica.setTotalVersionCount(stat.getTotalVersionCount());
                         replica.setVisibleVersionCount(stat.isSetVisibleVersionCount() ? stat.getVisibleVersionCount()
                                 : stat.getTotalVersionCount());
-                        // Older version BE doesn't set visible version. Set it to max for compatibility.
-                        replica.setLastReportVersion(stat.isSetVisibleVersion() ? stat.getVisibleVersion()
-                                : Long.MAX_VALUE);
                     }
                 }
             }

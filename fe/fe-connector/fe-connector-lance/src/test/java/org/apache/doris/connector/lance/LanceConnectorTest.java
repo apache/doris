@@ -24,9 +24,11 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /** The connector's lifecycle, without reaching storage or loading the native library. */
@@ -58,18 +60,60 @@ class LanceConnectorTest {
     /** An FE replaying the edit log builds every catalog: building one must not reach storage or lance.conf. */
     @Test
     void buildingTheConnectorReadsNothing() {
-        LanceTestContext unreachable = new LanceTestContext() {
+        new LanceConnector(filesystem(), unreachable("building the connector")).close();
+    }
+
+    /**
+     * The engine routes REFRESH CATALOG / DATABASE / TABLE, and their replay, to the connector: on a catalog no
+     * statement has used yet they open nothing.
+     */
+    @Test
+    void refreshingAnUnusedCatalogReadsNothing() {
+        LanceConnector connector = new LanceConnector(filesystem(), unreachable("a refresh"));
+        connector.invalidateTable("default", "t");
+        connector.invalidateDb("default");
+        connector.invalidateAll();
+        connector.close();
+    }
+
+    /**
+     * REFRESH TABLE, DATABASE and CATALOG each replace the catalog's generation, so the next call connects a new
+     * namespace with a new Session: a Lance Session cannot drop the cached metadata of one dataset.
+     */
+    @Test
+    void everyRefreshReplacesTheGeneration() {
+        FakeResourceFactory resources = new FakeResourceFactory();
+        LanceCatalogProperties properties = LanceCatalogProperties.of(filesystem());
+        LanceConnector connector = new LanceConnector(properties, new LanceTestContext(), new LanceCatalogClient(
+                properties, Collections::emptyList, () -> 1024 * 1024, resources, () -> 0L));
+        LanceTestSession session = new LanceTestSession();
+        List<Runnable> refreshes = Arrays.asList(() -> connector.invalidateTable("default", "t"),
+                () -> connector.invalidateDb("default"), connector::invalidateAll);
+        connector.getMetadata(session).listDatabaseNames(session);
+        for (int i = 0; i < refreshes.size(); i++) {
+            Assertions.assertEquals(0, resources.namespaces.get(i).closes.get());
+            refreshes.get(i).run();
+            Assertions.assertEquals(1, resources.namespaces.get(i).closes.get());
+            Assertions.assertTrue(resources.allocators.get(i).closed);
+            connector.getMetadata(session).listDatabaseNames(session);
+            Assertions.assertEquals(i + 2, resources.namespaces.size());
+        }
+        connector.close();
+        Assertions.assertEquals(1, resources.namespaces.get(3).closes.get());
+    }
+
+    private static LanceTestContext unreachable(String what) {
+        return new LanceTestContext() {
             @Override
             public ConnectorStorageContext getStorageContext() {
-                throw new AssertionError("building the connector must not bind storage properties");
+                throw new AssertionError(what + " must not bind storage properties");
             }
 
             @Override
             public Map<String, String> getConnectorConfig() {
-                throw new AssertionError("building the connector must not read lance.conf");
+                throw new AssertionError(what + " must not read lance.conf");
             }
         };
-        new LanceConnector(filesystem(), unreachable).close();
     }
 
     /** A REST namespace reads no storage of its own, so CREATE has nothing to check before test_connection. */

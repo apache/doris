@@ -33,6 +33,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "storage/segment/column_meta_accessor.h"
+#include "storage/segment/column_reader_cache.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/segment/variant/variant_ext_meta_writer.h"
@@ -446,7 +447,7 @@ TEST(ExternalColMetaUtilTest, VariantExtMetaWriterAndReaderInteropAndCompatibili
     EXPECT_TRUE(has);
 }
 
-TEST(ExternalColMetaUtilTest, VariantColumnReaderRetriesExternalMetaAfterPageAllocationFailure) {
+TEST(ExternalColMetaUtilTest, VariantColumnReaderRebuiltAfterPageAllocationFailure) {
     SegmentFooterPB footer;
     footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
     const int32_t root_uid = 1;
@@ -552,27 +553,40 @@ TEST(ExternalColMetaUtilTest, VariantColumnReaderRetriesExternalMetaAfterPageAll
     column_opts.tablet_schema->append_column(std::move(tablet_column));
     ColumnMetaAccessor accessor;
     ASSERT_TRUE(accessor.init(*footer_sp, recording_fr).ok());
-    VariantColumnReader variant_reader;
-    st = variant_reader.init(column_opts, &accessor, footer_sp, root_uid, footer.num_rows(),
-                             recording_fr, &reader_stats, &io_ctx);
-    ASSERT_TRUE(st.ok()) << st;
+    ColumnReaderCache cache(&accessor, column_opts.tablet_schema, recording_fr, footer.num_rows(),
+                            [&](std::shared_ptr<SegmentFooterPB>& out, OlapReaderStatistics*,
+                                const io::IOContext*) {
+                                out = footer_sp;
+                                return Status::OK();
+                            });
+    std::shared_ptr<ColumnReader> cached;
+    ASSERT_TRUE(cache.get_column_reader(root_uid, &cached, &reader_stats, &io_ctx).ok());
+    auto failed = std::static_pointer_cast<VariantColumnReader>(cached);
 
     reset_recording("#load_external_meta_once");
     const PathInData key_path("key0");
     recording_fr->fail_next_read_with_allocation_error();
-    st = variant_reader.load_external_meta_once(&reader_stats, &io_ctx);
+    st = failed->load_external_meta_once(&reader_stats, &io_ctx);
     ASSERT_TRUE(st.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) << st;
+    EXPECT_FALSE(failed->healthy_status().ok());
     expect_recorded_reads_with_limiter("failed load_external_meta_once");
-    EXPECT_EQ(variant_reader.get_subcolumn_meta_by_path(key_path), nullptr);
+    EXPECT_EQ(failed->get_subcolumn_meta_by_path(key_path), nullptr);
+    EXPECT_FALSE(failed->load_external_meta_once(&reader_stats, &io_ctx).ok());
+    EXPECT_TRUE(recording_fr->records().empty());
 
-    st = variant_reader.load_external_meta_once(&reader_stats, &io_ctx);
+    ASSERT_TRUE(cache.get_column_reader(root_uid, &cached, &reader_stats, &io_ctx).ok());
+    auto replacement = std::static_pointer_cast<VariantColumnReader>(cached);
+    ASSERT_NE(failed, replacement);
+    ASSERT_TRUE(replacement->healthy_status().ok());
+    st = replacement->load_external_meta_once(&reader_stats, &io_ctx);
     ASSERT_TRUE(st.ok()) << st.to_json();
     expect_recorded_reads_with_limiter("load_external_meta_once");
-    EXPECT_NE(variant_reader.get_subcolumn_meta_by_path(key_path), nullptr);
-    EXPECT_EQ(variant_reader.get_stats()->subcolumns_non_null_size.at("key0"), 123);
+    EXPECT_NE(replacement->get_subcolumn_meta_by_path(key_path), nullptr);
+    EXPECT_EQ(replacement->get_stats()->subcolumns_non_null_size.at("key0"), 123);
 
-    ASSERT_TRUE(variant_reader.load_external_meta_once(&reader_stats, &io_ctx).ok());
+    ASSERT_TRUE(replacement->load_external_meta_once(&reader_stats, &io_ctx).ok());
     EXPECT_TRUE(recording_fr->records().empty());
+    EXPECT_FALSE(failed->healthy_status().ok());
 
     bool has = false;
     reset_recording("#has_prefix");

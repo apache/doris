@@ -119,6 +119,8 @@ public class BDBHA implements HAProtocol {
         } catch (UnknownMasterException e) {
             LOG.warn("Catch UnknownMasterException when calling getObserverNodes.", e);
             return Lists.newArrayList();
+        } finally {
+            replicationGroupAdmin.close();
         }
         return ret;
     }
@@ -146,6 +148,8 @@ public class BDBHA implements HAProtocol {
         } catch (UnknownMasterException e) {
             LOG.warn("Catch UnknownMasterException when calling getElectableNodes.", e);
             return Lists.newArrayList();
+        } finally {
+            replicationGroupAdmin.close();
         }
         return ret;
     }
@@ -153,10 +157,16 @@ public class BDBHA implements HAProtocol {
     @Override
     public InetSocketAddress getLeader() {
         ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
-        String leaderName = replicationGroupAdmin.getMasterNodeName();
-        ReplicationGroup rg = replicationGroupAdmin.getGroup();
-        ReplicationNode rn = rg.getMember(leaderName);
-        return rn.getSocketAddress();
+        try {
+            String leaderName = replicationGroupAdmin.getMasterNodeName();
+            ReplicationGroup rg = replicationGroupAdmin.getGroup();
+            ReplicationNode rn = rg.getMember(leaderName);
+            return rn.getSocketAddress();
+        } finally {
+            if (replicationGroupAdmin != null) {
+                replicationGroupAdmin.close();
+            }
+        }
     }
 
     @Override
@@ -174,6 +184,8 @@ public class BDBHA implements HAProtocol {
         } catch (Exception e) {
             LOG.error("remove electable node {} meeting unkown exception:", nodeName, e);
             System.exit(-1);
+        } finally {
+            replicationGroupAdmin.close();
         }
         return true;
     }
@@ -192,6 +204,8 @@ public class BDBHA implements HAProtocol {
         } catch (MasterStateException e) {
             LOG.error("the updating electable node is master {}", nodeName, e);
             return false;
+        } finally {
+            replicationGroupAdmin.close();
         }
         return true;
     }
@@ -202,16 +216,20 @@ public class BDBHA implements HAProtocol {
             return;
         }
 
-        List<String> conflictNodes = Lists.newArrayList();
-        Set<ReplicationNode> replicationNodes = replicationGroupAdmin.getGroup().getElectableNodes();
-        for (ReplicationNode replicationNode : replicationNodes) {
-            if (replicationNode.getHostName().equals(host) && replicationNode.getPort() == port) {
-                conflictNodes.add(replicationNode.getName());
+        try {
+            List<String> conflictNodes = Lists.newArrayList();
+            Set<ReplicationNode> replicationNodes = replicationGroupAdmin.getGroup().getElectableNodes();
+            for (ReplicationNode replicationNode : replicationNodes) {
+                if (replicationNode.getHostName().equals(host) && replicationNode.getPort() == port) {
+                    conflictNodes.add(replicationNode.getName());
+                }
             }
-        }
 
-        for (String conflictNode : conflictNodes) {
-            removeElectableNode(conflictNode);
+            for (String conflictNode : conflictNodes) {
+                removeElectableNode(conflictNode);
+            }
+        } finally {
+            replicationGroupAdmin.close();
         }
     }
 
@@ -253,20 +271,24 @@ public class BDBHA implements HAProtocol {
         if (replicationGroupAdmin == null) {
             return;
         }
-        Set<ReplicationNode> replicationNodes = replicationGroupAdmin.getGroup().getElectableNodes();
-        LOG.debug("removedFrontends:{}", removedFrontends);
-        for (ReplicationNode replicationNode : replicationNodes) {
-            LOG.debug("node:{}", replicationNode.toString());
-            if (removedFrontends.contains(replicationNode.getName())) {
-                try {
-                    replicationGroupAdmin.removeMember(replicationNode.getName());
-                } catch (MemberNotFoundException e) {
-                    LOG.warn("the electable node is not found {}", replicationNode.getName());
-                } catch (Exception e) {
-                    LOG.error("remove electable node {} meeting unknown exception:", replicationNode.getName(), e);
-                    System.exit(-1);
+        try {
+            Set<ReplicationNode> replicationNodes = replicationGroupAdmin.getGroup().getElectableNodes();
+            LOG.debug("removedFrontends:{}", removedFrontends);
+            for (ReplicationNode replicationNode : replicationNodes) {
+                LOG.debug("node:{}", replicationNode.toString());
+                if (removedFrontends.contains(replicationNode.getName())) {
+                    try {
+                        replicationGroupAdmin.removeMember(replicationNode.getName());
+                    } catch (MemberNotFoundException e) {
+                        LOG.warn("the electable node is not found {}", replicationNode.getName());
+                    } catch (Exception e) {
+                        LOG.error("remove electable node {} meeting unknown exception:", replicationNode.getName(), e);
+                        System.exit(-1);
+                    }
                 }
             }
+        } finally {
+            replicationGroupAdmin.close();
         }
     }
 }

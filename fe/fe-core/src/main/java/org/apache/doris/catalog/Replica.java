@@ -96,6 +96,9 @@ public abstract class Replica {
     private volatile long dataSize = 0;
     @SerializedName(value = "rc", alternate = {"rowCount"})
     private volatile long rowCount = 0;
+    // Keep the count and its coverage together. Replica updates from other paths can change rowCount.
+    @Getter
+    private transient volatile RowCountReport rowCountReport;
     @SerializedName(value = "st", alternate = {"state"})
     private volatile ReplicaState state;
 
@@ -244,6 +247,22 @@ public abstract class Replica {
 
     public void setRowCount(long rowCount) {
         this.rowCount = rowCount;
+    }
+
+    public record RowCountReport(long rows, long version) {
+    }
+
+    public boolean isRowCountReported() {
+        return rowCountReport != null;
+    }
+
+    public synchronized void updateRowCountReport(long rows, long version) {
+        if (rowCountReport == null || version >= rowCountReport.version()) {
+            setRowCount(rows);
+            if (rowCountReport == null || rows != rowCountReport.rows() || version != rowCountReport.version()) {
+                rowCountReport = new RowCountReport(rows, version);
+            }
+        }
     }
 
 
@@ -618,15 +637,5 @@ public abstract class Replica {
     public boolean isScheduleAvailable() {
         return Env.getCurrentSystemInfo().checkBackendScheduleAvailable(getBackendIdValue())
                 && !isUserDrop();
-    }
-
-    public void setLastReportVersion(long version) {
-        if (version > 0) {
-            throw new UnsupportedOperationException("setLastReportVersion is not supported in Replica");
-        }
-    }
-
-    public long getLastReportVersion() {
-        return 0;
     }
 }

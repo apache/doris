@@ -251,6 +251,8 @@ public class IcebergConnector implements Connector {
     private volatile boolean pluginAuthComputed;
 
     public IcebergConnector(Map<String, String> properties, ConnectorContext context) {
+        // Configure the SDK before any catalog/scan/commit can initialize its static worker pool.
+        IcebergWorkerPool.initialize(context);
         this.properties = Collections.unmodifiableMap(properties);
         // Both before isUserSessionEnabled(), which the cache fields below gate on.
         this.catalogProps = IcebergCatalogProperties.of(this.properties);
@@ -1081,8 +1083,8 @@ public class IcebergConnector implements Connector {
                 break;
             default:
                 // rest / hadoop / glue: FileIO needs the bound storage configuration, including
-                // native GCS credentials when ResolvingFileIO falls back to HadoopFileIO, plus raw
-                // fs./dfs./hadoop. passthrough.
+                // native GCS credentials for the gs:// paths NativeGcsResolvingFileIO keeps on
+                // HadoopFileIO, plus raw fs./dfs./hadoop. passthrough.
                 conf = IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 break;
         }

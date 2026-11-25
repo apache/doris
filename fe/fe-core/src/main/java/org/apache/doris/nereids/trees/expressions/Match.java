@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.InvertedIndexProperties;
 import org.apache.doris.analysis.MatchPredicate.Operator;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -131,6 +133,23 @@ public abstract class Match extends BinaryOperator implements PropagateNullable,
 
     public Optional<String> getAnalyzer() {
         return analyzer;
+    }
+
+    /** A direct VARIANT slot without a subpath, even if its source metadata was lost. */
+    public static boolean isVariantRootSlot(Expression input) {
+        return input instanceof SlotReference && input.getDataType().isVariantType()
+                && !((SlotReference) input).hasSubColPath();
+    }
+
+    /** Whether the input can use root MATCH semantics with a values index. */
+    public static boolean hasVariantValuesIndex(Expression input) {
+        if (!isVariantRootSlot(input)) {
+            return false;
+        }
+        SlotReference slot = (SlotReference) input;
+        TableIf table = slot.getOriginalTable().orElse(null);
+        return table instanceof OlapTable && slot.getOriginalColumn().isPresent()
+                && ((OlapTable) table).hasVariantValuesIndex(slot.getOriginalColumn().get());
     }
 
     protected Optional<String> analyzer() {

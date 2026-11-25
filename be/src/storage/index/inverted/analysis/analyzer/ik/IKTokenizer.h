@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -30,8 +31,13 @@ namespace doris::segment_v2 {
 
 // The words IK segments the value into, full-width forms folded to half-width and, with
 // `lowercase`, ASCII lowercased; at most MAX_WORD_LEN bytes each, cut on a rune boundary.
+//
+// reset() segments the whole value, so that a value IK cannot decode throws there, and keeps the
+// words back to back in one buffer reused from value to value; next_token() folds each word in
+// place, which never makes it longer.
 class IKTokenizer final : public inverted_index::PerTokenTokenizer {
 public:
+    // The dictionaries must be loaded.
     IKTokenizer(std::shared_ptr<Configuration> config, bool lowercase);
 
     // Strict: folds rune by rune and keeps an invalid byte sequence as it is.
@@ -45,8 +51,15 @@ protected:
     bool next_token(inverted_index::TokenRef& token) override;
 
 private:
-    size_t buffer_index_ {0};
-    std::vector<std::string> tokens_;
+    // A word of the current value: words_bytes_[offset, offset + size).
+    struct Word {
+        size_t offset;
+        size_t size;
+    };
+
+    size_t next_word_ {0};
+    std::string words_bytes_;
+    std::vector<Word> words_;
     std::shared_ptr<Configuration> config_;
     std::unique_ptr<IKSegmenter> ik_segmenter_;
     const bool lowercase_;

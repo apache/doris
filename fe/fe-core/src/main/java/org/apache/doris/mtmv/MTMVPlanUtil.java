@@ -691,7 +691,7 @@ public class MTMVPlanUtil {
             // must not mutate it here (the change would bypass journaling).
             ivmRewriteContext.ifPresent(rewriteContext -> {
                 Long resolved = rewriteContext.getResolvedMinMaxTopK();
-                if (rewriteContext.getMode() == IvmRewriteContext.Mode.CREATE && resolved != null
+                if (rewriteContext.isCreate() && resolved != null
                         && !mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK)) {
                     mvProperties.put(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK, String.valueOf(resolved));
                 }

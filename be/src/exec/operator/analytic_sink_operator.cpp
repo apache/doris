@@ -1379,18 +1379,20 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state, Block
     {
         SCOPED_TIMER(local_state._compute_partition_by_timer);
         for (size_t i = 0; i < local_state._partition_by_eq_expr_ctxs.size(); ++i) {
-            RETURN_IF_ERROR(
-                    _insert_range_column(input_block, local_state._partition_by_eq_expr_ctxs[i],
-                                         local_state._partition_by_columns[i].get(), block_rows));
+            // String key columns are promoted to ColumnString64 after appending.
+            RETURN_IF_ERROR(_insert_range_column_ignore_overflow(
+                    input_block, local_state._partition_by_eq_expr_ctxs[i],
+                    local_state._partition_by_columns[i].get(), block_rows));
             convert_column_if_overflow(local_state._partition_by_columns[i]);
         }
     }
     {
         SCOPED_TIMER(local_state._compute_order_by_timer);
         for (size_t i = 0; i < local_state._order_by_eq_expr_ctxs.size(); ++i) {
-            RETURN_IF_ERROR(_insert_range_column(input_block, local_state._order_by_eq_expr_ctxs[i],
-                                                 local_state._order_by_columns[i].get(),
-                                                 block_rows));
+            // String key columns are promoted to ColumnString64 after appending.
+            RETURN_IF_ERROR(_insert_range_column_ignore_overflow(
+                    input_block, local_state._order_by_eq_expr_ctxs[i],
+                    local_state._order_by_columns[i].get(), block_rows));
             convert_column_if_overflow(local_state._order_by_columns[i]);
         }
     }
@@ -1456,14 +1458,20 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
                 continue;
             }
             for (size_t j = 0; j < _agg_expr_ctxs[i].size(); j++) {
-                _agg_input_columns[i][j]->erase(0, remove_rows);
+                auto& column = _agg_input_columns[i][j];
+                const auto start = static_cast<size_t>(remove_rows);
+                column = column->cut(start, column->size() - start)->assert_mutable();
             }
         }
         for (size_t i = 0; i < _partition_exprs_size; i++) {
-            _partition_by_columns[i]->erase(0, remove_rows);
+            auto& column = _partition_by_columns[i];
+            const auto start = static_cast<size_t>(remove_rows);
+            column = column->cut(start, column->size() - start)->assert_mutable();
         }
         for (size_t i = 0; i < _order_by_exprs_size; i++) {
-            _order_by_columns[i]->erase(0, remove_rows);
+            auto& column = _order_by_columns[i];
+            const auto start = static_cast<size_t>(remove_rows);
+            column = column->cut(start, column->size() - start)->assert_mutable();
         }
     }
     COUNTER_UPDATE(_remove_count, 1);
@@ -1597,8 +1605,17 @@ Status AnalyticSinkOperatorX::_insert_range_column(Block* block, const VExprCont
     ColumnPtr column;
     RETURN_IF_ERROR(expr->execute(block, column));
     column = column->convert_to_full_column_if_const();
-    // iff dst_column is string, maybe overflow of 4G, so need ignore overflow
-    // the column is used by compare_at self to find the range, it's need convert it when overflow?
+    dst_column->insert_range_from(*column, 0, length);
+    return Status::OK();
+}
+
+Status AnalyticSinkOperatorX::_insert_range_column_ignore_overflow(Block* block,
+                                                                   const VExprContextSPtr& expr,
+                                                                   IColumn* dst_column,
+                                                                   size_t length) {
+    ColumnPtr column;
+    RETURN_IF_ERROR(expr->execute(block, column));
+    column = column->convert_to_full_column_if_const();
     dst_column->insert_range_from_ignore_overflow(*column, 0, length);
     return Status::OK();
 }

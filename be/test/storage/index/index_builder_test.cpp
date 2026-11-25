@@ -665,8 +665,8 @@ protected:
     // Builds a k2 index over a rowset whose schema owns a k1 index that was never
     // written, and returns the index ids present in the output rowset's index
     // file. `leave_empty_index_file` picks between the two shapes a source
-    // segment with no index content can have on disk: a zero-byte file (read as
-    // INVERTED_INDEX_BYPASS) or no file at all (INVERTED_INDEX_FILE_NOT_FOUND).
+    // segment with no index content can have on disk: a zero-byte file or no file
+    // at all. Both are read as INVERTED_INDEX_FILE_NOT_FOUND.
     //
     // The rowset is written BEFORE the schema gains k1, so k1 has no content
     // anywhere and nothing can be lost by either shape. That is not an artifact
@@ -743,9 +743,7 @@ protected:
             auto reader = std::make_unique<segment_v2::IndexFileReader>(
                     io::global_local_filesystem(), source_prefix, InvertedIndexStorageFormatPB::V2);
             auto st = reader->init();
-            EXPECT_TRUE(leave_empty_index_file ? st.is<ErrorCode::INVERTED_INDEX_BYPASS>()
-                                               : st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>())
-                    << st;
+            EXPECT_TRUE(st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) << st;
         }
 
         TOlapTableIndex k2_index;
@@ -1395,7 +1393,7 @@ TEST_F(IndexBuilderTest, BuildInvertedIndexAfterWritingDataTest) {
 // nothing to carry over, and every requested index is built from the raw columns.
 TEST_F(IndexBuilderTest, BuildIndexOverEmptyIndexFileTest) {
     // Without tolerating the empty index file this fails the whole ALTER with
-    // [E-6004]inverted index file ... is empty.
+    // [E-6003]inverted index file ... is empty.
     EXPECT_EQ(build_k2_index_over_unwritten_k1(14695, 15695, true), (std::set<int64_t> {2}));
 }
 
@@ -4272,6 +4270,19 @@ TEST_F(IndexBuilderTest, DropOneSniiIndexPreservesSurvivingPhysicalIndex) {
 // build; same key with a changed definition -> rebuild, never inherit; a container
 // key the target schema no longer holds is not inherited; two build indexes on one
 // column share one column group (the "scan the column once" pin).
+TEST_F(IndexBuilderTest, SniiBuildRejectsUnsupportedColumnWithoutCrashing) {
+    auto schema = create_snii_schema(
+            {SniiIndexSpec {.index_id = 1, .index_name = "values", .column_unique_id = 2}});
+    schema->mutable_column(schema->field_index(2)).set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    IndexBuilder::SniiIndexRewritePlan plan;
+    plan.build_columns.emplace_back(2, schema->inverted_indexs(2));
+    IndexBuilder builder(*_engine_ref, nullptr, {}, {}, false);
+    auto status = builder._build_snii_indexes_for_segment(schema, plan, nullptr, nullptr);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
+    EXPECT_NE(status.to_string().find("Generic index builder does not support column"),
+              std::string::npos);
+}
+
 TEST_F(IndexBuilderTest, SniiBuildPlanClassifiesInheritBuildReplaceAndDrop) {
     const auto input_schema = create_snii_schema(
             {SniiIndexSpec {.index_id = 1, .index_name = "idx_a", .column_unique_id = 2}});

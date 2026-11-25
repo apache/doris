@@ -89,6 +89,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/timezone_utils.h"
@@ -119,28 +120,6 @@ private:
     std::string _name;
     bool _enable_debug_points;
 };
-
-std::filesystem::path unique_test_dir(std::string_view prefix) {
-    static std::atomic<uint64_t> next_dir_id {0};
-    std::string name(prefix);
-    if (const auto* test_info = testing::UnitTest::GetInstance()->current_test_info();
-        test_info != nullptr) {
-        name += "_";
-        name += test_info->test_suite_name();
-        name += "_";
-        name += test_info->name();
-    }
-    name += "_";
-    name += std::to_string(getpid());
-    name += "_";
-    name += std::to_string(next_dir_id.fetch_add(1));
-    for (auto& ch : name) {
-        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_' && ch != '-' && ch != '.') {
-            ch = '_';
-        }
-    }
-    return std::filesystem::temp_directory_path() / name;
-}
 
 std::filesystem::path find_repo_file(std::string_view relative_path) {
     auto dir = std::filesystem::current_path();
@@ -4646,6 +4625,8 @@ format::LocalColumnIndex struct_child_projection(int32_t root_field_id, int32_t 
 
 class NewOrcReaderTest : public testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"new_orc_reader"};
+
     static void SetUpTestSuite() { TimezoneUtils::load_timezones_to_cache(); }
 
     enum class DirectInPredicateShape {
@@ -4664,7 +4645,7 @@ protected:
     };
 
     void SetUp() override {
-        _test_dir = unique_test_dir("doris_new_orc_reader_test");
+        _test_dir = scoped_temp_dir_.path() / "reader";
         std::filesystem::remove_all(_test_dir);
         std::filesystem::create_directories(_test_dir);
         _file_path = (_test_dir / "reader.orc").string();

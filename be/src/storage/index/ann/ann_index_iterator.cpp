@@ -27,15 +27,15 @@ AnnIndexIterator::AnnIndexIterator(const IndexReaderPtr& reader) : IndexIterator
     _ann_reader = std::dynamic_pointer_cast<AnnIndexReader>(reader);
 }
 
-bool AnnIndexIterator::try_load_index() {
+Status AnnIndexIterator::load_index() {
+    // An iterator without its reader is invalid, not a segment whose index has not been built.
     if (_ann_reader == nullptr) {
-        LOG(WARNING) << "AnnIndexIterator::try_load_index: _ann_reader is null";
-        return false;
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>("_ann_reader is null");
     }
 
     // _context may be unset in some test scenarios; pass nullptr IOContext in that case.
     io::IOContext* io_ctx = (_context != nullptr) ? _context->io_ctx : nullptr;
-    return _ann_reader->try_load_index(io_ctx);
+    return _ann_reader->load_index(io_ctx);
 }
 
 Status AnnIndexIterator::read_from_index(const IndexParam& param) {

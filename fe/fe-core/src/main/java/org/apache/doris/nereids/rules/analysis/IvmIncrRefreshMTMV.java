@@ -52,7 +52,7 @@ public class IvmIncrRefreshMTMV implements CustomRewriter {
         StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
         Optional<IvmRewriteContext> rewriteContext = statementContext.getIvmRewriteContext();
         if (!rewriteContext.isPresent()
-                || rewriteContext.get().getMode() != IvmRewriteContext.Mode.INCREMENTAL) {
+                || !rewriteContext.get().isIncrementalRefresh()) {
             return plan;
         }
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult()

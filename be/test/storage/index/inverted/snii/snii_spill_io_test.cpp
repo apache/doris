@@ -33,6 +33,7 @@
 #include "storage/index/inverted/snii/common/slice.h"
 #include "storage/index/inverted/snii/io/file_writer.h"
 #include "storage/index/inverted/snii/writer/spillable_byte_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::snii::writer {
 using doris::Status;
@@ -79,13 +80,7 @@ void expect_bytes_eq(const std::vector<uint8_t>& actual, const std::vector<uint8
 class SniiSpillIoTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        std::error_code ec;
-        std::filesystem::path base = std::filesystem::temp_directory_path(ec);
-        if (ec) {
-            base = "/tmp";
-        }
-        dir_ = base / ("snii_spill_io_test_" + std::to_string(::getpid()));
-        std::filesystem::create_directories(dir_, ec);
+        dir_ = temp_dir_.path();
         ::setenv("SNII_TEMP_DIR", dir_.c_str(), 1);
     }
 
@@ -95,6 +90,7 @@ protected:
         std::filesystem::remove_all(dir_, ec);
     }
 
+    doris::test::ScopedTempDirectory temp_dir_ {"snii_spill_io_test"};
     std::filesystem::path dir_;
 };
 

@@ -27,11 +27,17 @@
 #include "storage/index/inverted/snii/encoding/byte_sink.h"
 #include "storage/index/inverted/snii/encoding/section_framer.h"
 #include "storage/index/inverted/snii/format/format_constants.h"
+#include "storage/index/inverted/snii/format/null_bitmap.h"
+#include "storage/index/inverted/snii/query/bm25_scorer.h"
 
 using namespace doris::snii;
 using doris::Status; // RETURN_IF_ERROR expands to bare Status
+using doris::snii::format::kNullRowNorm;
 using doris::snii::format::NormsPodReader;
 using doris::snii::format::NormsPodWriter;
+using doris::snii::format::NullBitmapReader;
+using doris::snii::format::NullBitmapWriter;
+using doris::snii::format::SparseNormsMode;
 
 namespace {
 
@@ -216,4 +222,201 @@ TEST(SniiNormsPod, TryEncodedNormChecksBounds) {
     EXPECT_EQ(v, 6U);
     Status s = reader.try_encoded_norm(3, &v);
     EXPECT_TRUE(s.is<doris::ErrorCode::INVALID_ARGUMENT>()) << s.to_string();
+}
+
+namespace {
+
+NullBitmapReader OpenNulls(const std::vector<uint32_t>& nulls, uint32_t doc_count) {
+    NullBitmapWriter writer;
+    writer.add_many(nulls);
+    ByteSink sink;
+    EXPECT_TRUE(writer.finish(doc_count, &sink).ok());
+    NullBitmapReader reader;
+    EXPECT_TRUE(NullBitmapReader::open(sink.view(), &reader).ok());
+    return reader;
+}
+
+// Encodes the rows of `norms` outside `nulls` and checks the size the writer reserves for it.
+std::vector<uint8_t> BuildSparse(const std::vector<uint8_t>& norms,
+                                 const std::vector<uint32_t>& nulls) {
+    const bool constant = NormsPodWriter::sparse_values_constant(norms, nulls);
+    ByteSink sink;
+    NormsPodWriter::finish_sparse(norms, nulls, constant, &sink);
+    EXPECT_EQ(sink.buffer().size(), NormsPodWriter::sparse_section_size(
+                                            norms.size(), norms.size() - nulls.size(), constant));
+    return sink.buffer();
+}
+
+Status ExpandSparse(const std::vector<uint8_t>& framed, const std::vector<uint32_t>& nulls,
+                    uint32_t doc_count, std::vector<uint8_t>* dense, NormsPodReader* reader) {
+    const auto bitmap = OpenNulls(nulls, doc_count);
+    return NormsPodReader::open_sparse(Slice(framed), doc_count, &bitmap, dense, reader);
+}
+
+// What a reader of the dense section sees for the same rows: a NULL row reads kNullRowNorm.
+std::vector<uint8_t> DenseView(std::vector<uint8_t> norms, const std::vector<uint32_t>& nulls) {
+    for (const uint32_t docid : nulls) {
+        norms[docid] = kNullRowNorm;
+    }
+    return norms;
+}
+
+std::vector<uint8_t> FrameSparse(uint8_t mode, uint64_t doc_count, uint64_t value_count,
+                                 const std::vector<uint8_t>& bytes) {
+    ByteSink payload;
+    payload.put_u8(mode);
+    payload.put_varint64(doc_count);
+    payload.put_varint64(value_count);
+    for (const uint8_t byte : bytes) {
+        payload.put_u8(byte);
+    }
+    ByteSink sink;
+    SectionFramer::write(sink, static_cast<uint8_t>(format::SectionType::kNormsSparse),
+                         payload.view());
+    return sink.buffer();
+}
+
+} // namespace
+
+// The writer compares this size with the sparse one, so it must be the size finish() writes.
+TEST(SniiNormsPod, DenseSectionSizeIsTheWrittenSize) {
+    for (const size_t doc_count : {0, 7, 127, 128, 5000}) {
+        EXPECT_EQ(NormsPodWriter::dense_section_size(doc_count),
+                  BuildPod(std::vector<uint8_t>(doc_count, 3)).size())
+                << "doc_count=" << doc_count;
+    }
+}
+
+// The writer and the reader must agree on the norm of a NULL row, which the reader restores
+// without storing it: the writer encodes a NULL row as a document of zero tokens.
+TEST(SniiNormsPod, NullRowNormIsTheNormOfAnEmptyDocument) {
+    EXPECT_EQ(query::encode_norm(0), kNullRowNorm);
+}
+
+// Rows 1, 2 and 5 are NULL: the section keeps the norms of rows 0, 3, 4 and 6 only, and the
+// reader rebuilds one byte per row with kNullRowNorm on the NULL rows. The 9s written for the
+// NULL rows are dropped, so the reader cannot return them.
+TEST(SniiNormsPod, SparseKeepsOnlyNonNullRows) {
+    const std::vector<uint8_t> norms = {3, 9, 9, 1, 2, 9, 4};
+    const std::vector<uint32_t> nulls = {1, 2, 5};
+    const auto framed = BuildSparse(norms, nulls);
+    EXPECT_EQ(framed.size(), NormsPodWriter::sparse_section_size(7, 4, /*constant=*/false));
+
+    std::vector<uint8_t> dense;
+    NormsPodReader reader;
+    ASSERT_TRUE(ExpandSparse(framed, nulls, 7, &dense, &reader).ok());
+    EXPECT_EQ(dense, (std::vector<uint8_t> {3, kNullRowNorm, kNullRowNorm, 1, 2, kNullRowNorm, 4}));
+    ASSERT_EQ(reader.doc_count(), 7U);
+    for (uint32_t docid = 0; docid < 7; ++docid) {
+        EXPECT_EQ(reader.encoded_norm(docid), dense[docid]) << "docid=" << docid;
+    }
+}
+
+// Rows of one token each share one norm, so the section stores that byte once.
+TEST(SniiNormsPod, SparseStoresASharedNormOnce) {
+    const std::vector<uint8_t> norms = {5, 1, 5, 5, 1, 5};
+    const std::vector<uint32_t> nulls = {1, 4};
+    ASSERT_TRUE(NormsPodWriter::sparse_values_constant(norms, nulls));
+    const auto framed = BuildSparse(norms, nulls);
+    EXPECT_EQ(framed.size(), NormsPodWriter::sparse_section_size(6, 4, /*constant=*/true));
+
+    std::vector<uint8_t> dense;
+    NormsPodReader reader;
+    ASSERT_TRUE(ExpandSparse(framed, nulls, 6, &dense, &reader).ok());
+    EXPECT_EQ(dense, DenseView(norms, nulls));
+}
+
+TEST(SniiNormsPod, SparseWithEveryRowNullStoresNoValue) {
+    const std::vector<uint8_t> norms = {1, 1, 1};
+    const std::vector<uint32_t> nulls = {0, 1, 2};
+    EXPECT_FALSE(NormsPodWriter::sparse_values_constant(norms, nulls));
+    const auto framed = BuildSparse(norms, nulls);
+
+    std::vector<uint8_t> dense;
+    NormsPodReader reader;
+    ASSERT_TRUE(ExpandSparse(framed, nulls, 3, &dense, &reader).ok());
+    EXPECT_EQ(dense, std::vector<uint8_t>(3, kNullRowNorm));
+}
+
+// An index without NULL rows has no null bitmap, and its sparse section holds every row.
+TEST(SniiNormsPod, SparseWithoutNullRowsHoldsEveryRow) {
+    const std::vector<uint8_t> norms = {2, 7, 4};
+    const auto framed = BuildSparse(norms, {});
+
+    std::vector<uint8_t> dense;
+    NormsPodReader reader;
+    ASSERT_TRUE(NormsPodReader::open_sparse(Slice(framed), 3, nullptr, &dense, &reader).ok());
+    EXPECT_EQ(dense, norms);
+}
+
+TEST(SniiNormsPod, SparseRoundTripMatchesDenseOnManyRows) {
+    constexpr uint32_t kDocs = 5000;
+    std::vector<uint8_t> norms(kDocs);
+    std::vector<uint32_t> nulls;
+    for (uint32_t docid = 0; docid < kDocs; ++docid) {
+        norms[docid] = static_cast<uint8_t>((docid * 31 + 7) & 0xFF);
+        // Nine rows in ten are NULL, in runs of different lengths.
+        if ((docid * 7919) % 10 != 0) {
+            nulls.push_back(docid);
+        }
+    }
+    const auto framed = BuildSparse(norms, nulls);
+    EXPECT_LT(framed.size(), BuildPod(norms).size());
+
+    std::vector<uint8_t> dense;
+    NormsPodReader reader;
+    ASSERT_TRUE(ExpandSparse(framed, nulls, kDocs, &dense, &reader).ok());
+    EXPECT_EQ(dense, DenseView(norms, nulls));
+}
+
+// The section belongs to one null bitmap: read against another, its values would land on the
+// wrong rows, so the counts must agree.
+TEST(SniiNormsPod, SparseRejectsAnotherNullBitmap) {
+    const auto framed = BuildSparse({3, 1, 1, 4}, {1, 2});
+    std::vector<uint8_t> dense;
+    NormsPodReader reader;
+    const Status status = ExpandSparse(framed, {1}, 4, &dense, &reader);
+    EXPECT_TRUE(status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+}
+
+TEST(SniiNormsPod, SparseRejectsAnotherDocCount) {
+    const auto framed = BuildSparse({3, 1, 4}, {1});
+    std::vector<uint8_t> dense;
+    NormsPodReader reader;
+    const auto bitmap = OpenNulls({1}, 3);
+    const Status status = NormsPodReader::open_sparse(Slice(framed), 4, &bitmap, &dense, &reader);
+    EXPECT_TRUE(status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+}
+
+TEST(SniiNormsPod, SparseRejectsMalformedSections) {
+    const auto values = static_cast<uint8_t>(SparseNormsMode::kValues);
+    const auto constant = static_cast<uint8_t>(SparseNormsMode::kConstant);
+    const std::vector<std::vector<uint8_t>> malformed = {
+            // Unknown mode.
+            FrameSparse(2, 3, 2, {3, 4}),
+            // Fewer values than non-NULL rows.
+            FrameSparse(values, 3, 2, {3}),
+            // More bytes than values.
+            FrameSparse(values, 3, 2, {3, 4, 5}),
+            // A shared norm needs at least one non-NULL row.
+            FrameSparse(constant, 3, 0, {3}),
+            // A shared norm is one byte.
+            FrameSparse(constant, 3, 2, {3, 3}),
+            // The dense frame type.
+            BuildPod({3, 1, 4}),
+    };
+    for (const auto& framed : malformed) {
+        std::vector<uint8_t> dense;
+        NormsPodReader reader;
+        const Status status = ExpandSparse(framed, {1}, 3, &dense, &reader);
+        EXPECT_TRUE(status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+    }
+
+    auto flipped = BuildSparse({3, 1, 4}, {1});
+    ASSERT_GT(flipped.size(), 5U);
+    flipped[flipped.size() - 5] ^= 0xFF;
+    std::vector<uint8_t> dense;
+    NormsPodReader reader;
+    const Status status = ExpandSparse(flipped, {1}, 3, &dense, &reader);
+    EXPECT_TRUE(status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
 }

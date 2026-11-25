@@ -103,6 +103,20 @@ TEST(HashTableMethodTest, testMethodFixed) {
               {0, 1, -1, 3, -1, 4});
 }
 
+TEST(HashTableMethodTest, FixedKeysPreserveSharedPayload) {
+    MethodKeysFixed<PHHashMap<UInt64, IColumn::ColumnIndex, HashCRC32<UInt64>>> method(
+            Sizes {sizeof(int16_t), sizeof(int16_t)});
+    auto values = ColumnHelper::create_column<DataTypeInt16>({7, 9, 7, 0});
+    auto nulls = ColumnHelper::create_column<DataTypeUInt8>({1, 1, 0, 0});
+    test_insert(method, {ColumnNullable::create(values, nulls), values});
+    EXPECT_EQ(values->get_int(0), 7);
+    EXPECT_EQ(values->get_int(1), 9);
+
+    auto probe = ColumnHelper::create_column<DataTypeInt16>({55, 55, 7, 0});
+    test_find(method, {ColumnNullable::create(probe, nulls), values}, {0, 1, 2, 3});
+    EXPECT_EQ(probe->get_int(0), 55);
+}
+
 TEST(HashTableMethodTest, testMethodSerialized) {
     MethodSerialized<StringHashMap<IColumn::ColumnIndex>> method;
 

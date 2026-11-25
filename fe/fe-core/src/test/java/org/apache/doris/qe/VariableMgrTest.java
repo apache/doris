@@ -90,6 +90,49 @@ public class VariableMgrTest extends TestWithFeService {
     }
 
     @Test
+    public void testGlobalSpillVariablesPersistNormalizedValues() throws Exception {
+        String[][] samples = {
+                {SessionVariable.SPILL_AGGREGATION_SINK_MEM_LIMIT_BYTES, "68719476736", "4294967296"},
+                {SessionVariable.SPILL_HASH_JOIN_PARTITION_COUNT, "64", "32"},
+                {SessionVariable.SPILL_AGGREGATION_PARTITION_COUNT, "1", "2"},
+                {SessionVariable.SPILL_REPARTITION_MAX_DEPTH, "256", "128"},
+                {SessionVariable.SPILL_BUFFER_SIZE_BYTES, "1024", "1048576"},
+                {SessionVariable.SPILL_SORT_MERGE_MEM_LIMIT_BYTES, "8589934592", "4294967296"}
+        };
+        for (String[] sample : samples) {
+            String name = sample[0];
+            String originalGlobal = VariableMgr.getVarContext(name).getField()
+                    .get(VariableMgr.getDefaultSessionVariable()).toString();
+            String originalSession = VariableMgr.getVarContext(name).getField()
+                    .get(connectContext.getSessionVariable()).toString();
+            try {
+                SetOptionsCommand stmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                        "set global " + name + "=" + sample[1], connectContext);
+                stmt.run(connectContext, null);
+                Assertions.assertEquals(sample[2], VariableMgr.getVarContext(name).getField()
+                        .get(VariableMgr.newSessionVariable()).toString());
+                Assertions.assertEquals(sample[2], VariableMgr.getVarContext(name).getField()
+                        .get(connectContext.getSessionVariable()).toString());
+
+                GlobalVarPersistInfo info = new GlobalVarPersistInfo(
+                        VariableMgr.getDefaultSessionVariable(), Lists.newArrayList(name));
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                info.write(new DataOutputStream(bytes));
+                GlobalVarPersistInfo restored = GlobalVarPersistInfo.read(
+                        new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+                SessionVariable fromLog = new SessionVariable();
+                fromLog.readFromJson(restored.getPersistJsonString());
+                Assertions.assertEquals(sample[2], VariableMgr.getVarContext(name).getField().get(fromLog).toString());
+            } finally {
+                VariableMgr.setVar(connectContext.getSessionVariable(),
+                        new SetVar(SetType.GLOBAL, name, new StringLiteral(originalGlobal)));
+                VariableMgr.setVar(connectContext.getSessionVariable(),
+                        new SetVar(SetType.SESSION, name, new StringLiteral(originalSession)));
+            }
+        }
+    }
+
+    @Test
     public void testReadOnly() {
         // Set global variable
         SetVar setVar = new SetVar(SetType.SESSION, "version_comment", null);

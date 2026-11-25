@@ -19,7 +19,7 @@ suite("dotted_key_escape_document_examples", "p0,nonConcurrent") {
     // the layout depends on the row threshold and DESC prints it, which fuzzy mode picks at random
     sql "set debug_variant_doc_materialization_min_rows = 0"
     sql "set debug_variant_enable_doc_mode=false"
-    def oldNested = sql("select @@debug_variant_enable_nested_group")[0][0]
+    def oldNested = sql("SELECT @@session.debug_variant_enable_nested_group")[0][0]
     try {
         [false, true].each { nestedDefault ->
             sql "set debug_variant_enable_nested_group=${nestedDefault}"
