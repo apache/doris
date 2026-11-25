@@ -145,11 +145,12 @@ private:
     std::optional<BrpcClientCache<PBackendService_Stub>> _owned;
 };
 
-enum class ReplicaReply { COVERED, MISSING, LEGACY, IO_ERROR };
+enum class ReplicaReply { COVERED, MISSING, LEGACY, UNVERIFIED, IO_ERROR };
 
 class CoverageSchemaWorker final : public PBackendService {
 public:
-    explicit CoverageSchemaWorker(ReplicaReply replica) : _replica(replica) {}
+    CoverageSchemaWorker(ReplicaReply replica, bool first_worker_covers)
+            : _replica(replica), _first_worker_covers(first_worker_covers) {}
 
     void fetch_remote_tablet_schema(google::protobuf::RpcController*,
                                     const PFetchRemoteSchemaRequest* request,
@@ -162,7 +163,8 @@ public:
         if (location.tablet_visible_version_size() != 0 &&
             (location.tablet_id_size() == 1 || _replica != ReplicaReply::LEGACY)) {
             EXPECT_EQ(location.tablet_id_size(), location.tablet_visible_version_size());
-            response->set_tablet_versions_verified(true);
+            response->set_tablet_versions_verified(location.tablet_id_size() == 1 ||
+                                                   _replica != ReplicaReply::UNVERIFIED);
         }
         if (location.tablet_id_size() == 1) {
             if (_replica == ReplicaReply::IO_ERROR) {
@@ -170,7 +172,12 @@ public:
                         .to_protobuf(response->mutable_status());
                 return;
             }
-            response->mutable_tablet_coverage()->add_missing_tablet_id(101);
+            if (_first_worker_covers) {
+                response->mutable_tablet_coverage();
+                response->mutable_merged_schema();
+            } else {
+                response->mutable_tablet_coverage()->add_missing_tablet_id(101);
+            }
         } else {
             // This worker always reads tablet 102. It may also cover tablet 101.
             response->mutable_merged_schema();
@@ -186,6 +193,7 @@ public:
 
 private:
     ReplicaReply _replica;
+    bool _first_worker_covers;
 };
 
 void signal_schema_response(std::promise<void>* finished) {
@@ -193,13 +201,13 @@ void signal_schema_response(std::promise<void>* finished) {
 }
 
 void check_replica_coverage(ReplicaReply replica, int expected_status,
-                            bool require_versions = false) {
+                            bool require_versions = false, bool first_worker_covers = false) {
     ScopedConfigValue heavy_threads(config::brpc_heavy_work_pool_threads, 1);
     ScopedConfigValue light_threads(config::brpc_light_work_pool_threads, 1);
     ScopedConfigValue flight_threads(config::brpc_arrow_flight_work_pool_threads, 1);
     ScopedConfigValue rpc_timeout(config::fetch_remote_schema_rpc_timeout_ms, int64_t {5000});
     ScopedSchemaClientCache schema_cache;
-    CoverageSchemaWorker worker(replica);
+    CoverageSchemaWorker worker(replica, first_worker_covers);
     brpc::Server server;
     ASSERT_EQ(0, server.AddService(&worker, brpc::SERVER_DOESNT_OWN_SERVICE));
     ASSERT_EQ(0, start_schema_worker(server));
@@ -241,7 +249,8 @@ void check_replica_coverage(ReplicaReply replica, int expected_status,
     ASSERT_TRUE(response.has_status());
     EXPECT_EQ(expected_status, response.status().status_code());
     EXPECT_EQ(expected_status == 0, response.has_merged_schema());
-    EXPECT_EQ(expected_status == 0 && require_versions, response.tablet_versions_verified());
+    EXPECT_EQ(expected_status == 0 && require_versions && replica != ReplicaReply::LEGACY,
+              response.tablet_versions_verified());
 }
 
 void release_pending_schema_rpcs(std::future<google::protobuf::Closure*>& first_reply,
@@ -343,6 +352,12 @@ TEST(InternalServiceRemoteSchemaTest, RecoversOnlyWhenAnotherWorkerProvesCoverag
     check_replica_coverage(ReplicaReply::IO_ERROR, ErrorCode::IO_ERROR);
     check_replica_coverage(ReplicaReply::COVERED, 0, true);
     check_replica_coverage(ReplicaReply::LEGACY, ErrorCode::TABLE_NOT_FOUND, true);
+    check_replica_coverage(ReplicaReply::IO_ERROR, ErrorCode::IO_ERROR, true);
+}
+
+TEST(InternalServiceRemoteSchemaTest, UsesLegacySchemaWhenOnlyProofIsUnavailable) {
+    check_replica_coverage(ReplicaReply::LEGACY, 0, true, true);
+    check_replica_coverage(ReplicaReply::UNVERIFIED, ErrorCode::TABLE_NOT_FOUND, true, true);
 }
 
 } // namespace doris

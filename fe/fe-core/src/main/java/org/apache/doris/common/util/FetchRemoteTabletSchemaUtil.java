@@ -328,9 +328,11 @@ public class FetchRemoteTabletSchemaUtil {
         long timeoutNanos = TimeUnit.SECONDS.toNanos(timeoutSeconds);
         long startNanos = System.nanoTime();
         Exception lastFailure = null;
+        List<Column> compatibleColumns = null;
         for (Backend be : coordinatorBackend.subList(0, Math.min(2, coordinatorBackend.size()))) {
             // A second coordinator only gets the time left by the first attempt.
-            if (lastFailure != null && System.nanoTime() - startNanos >= timeoutNanos) {
+            if ((lastFailure != null || compatibleColumns != null)
+                    && System.nanoTime() - startNanos >= timeoutNanos) {
                 break;
             }
             PFetchRemoteSchemaResponse response;
@@ -370,17 +372,26 @@ public class FetchRemoteTabletSchemaUtil {
                 lastFailure = failure;
             } else if (!response.hasMergedSchema()) {
                 lastFailure = new AnalysisException("Missing merged schema from " + be.getBrpcAddress());
-            } else if (!response.getTabletVersionsVerified()) {
-                lastFailure = new AnalysisException("Coordinator could not verify tablet versions on "
-                        + be.getBrpcAddress());
             } else {
                 try {
-                    return decodeColumns(response.getMergedSchema());
+                    List<Column> columns = decodeColumns(response.getMergedSchema());
+                    if (response.getTabletVersionsVerified()) {
+                        return columns;
+                    }
+                    // A legacy coordinator omits the flag. A new coordinator sets it to false
+                    // when it needed a legacy worker. Prefer the latter if neither reply is verified.
+                    if (compatibleColumns == null || response.hasTabletVersionsVerified()) {
+                        compatibleColumns = columns;
+                    }
+                    continue;
                 } catch (AnalysisException e) {
                     lastFailure = e;
                 }
             }
             LOG.warn("Failed to fetch remote schema from {}", be.getBrpcAddress(), lastFailure);
+        }
+        if (compatibleColumns != null) {
+            return compatibleColumns;
         }
         throw new AnalysisException("Extended DESCRIBE failed to fetch a complete remote schema"
                 + (lastFailure == null ? "" : " (" + lastFailure.getMessage() + ")"), lastFailure);
