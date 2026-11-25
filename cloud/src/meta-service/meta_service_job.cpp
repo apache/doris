@@ -149,13 +149,14 @@ static inline bool may_conflict_by_type(TabletCompactionJobPB::CompactionType a,
 static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
                                              const std::string& instance_id, int64_t table_id,
                                              int64_t tablet_id, int64_t lock_id,
-                                             int64_t lock_initiator, std::string use_version);
+                                             int64_t lock_initiator,
+                                             DeleteBitmapLockVersion use_version);
 
 void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                           std::unique_ptr<Transaction>& txn, const StartTabletJobRequest* request,
                           StartTabletJobResponse* response, std::string& instance_id,
                           bool& need_commit, bool is_versioned_read, ResourceManager* resource_mgr,
-                          const std::string& use_version) {
+                          DeleteBitmapLockVersion use_version) {
     auto& compaction = request->job().compaction(0);
     if (!compaction.has_id() || compaction.id().empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -634,7 +635,7 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
     };
 
     if (!request->job().compaction().empty()) {
-        std::string use_version = delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(
+        const auto use_version = delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(
                 instance_id, request->job());
         start_compaction_job(code, msg, ss, txn, request, response, instance_id, need_commit,
                              is_versioned_read, resource_mgr_.get(), use_version);
@@ -648,10 +649,13 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
     }
 }
 
-static bool check_and_remove_delete_bitmap_update_lock(
-        MetaServiceCode& code, std::string& msg, std::stringstream& ss,
-        std::unique_ptr<Transaction>& txn, std::string& instance_id, int64_t table_id,
-        int64_t tablet_id, int64_t lock_id, int64_t lock_initiator, std::string use_version) {
+static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, std::string& msg,
+                                                       std::stringstream& ss,
+                                                       std::unique_ptr<Transaction>& txn,
+                                                       std::string& instance_id, int64_t table_id,
+                                                       int64_t tablet_id, int64_t lock_id,
+                                                       int64_t lock_initiator,
+                                                       DeleteBitmapLockVersion use_version) {
     VLOG_DEBUG << "check_and_remove_delete_bitmap_update_lock table_id=" << table_id
                << " tablet_id=" << tablet_id << " lock_id=" << lock_id
                << " initiator=" << lock_initiator << " use_version=" << use_version;
@@ -680,7 +684,7 @@ static bool check_and_remove_delete_bitmap_update_lock(
         code = MetaServiceCode::LOCK_EXPIRED;
         return false;
     }
-    if (use_version == "v2" && is_job_delete_bitmap_lock_id(lock_id)) {
+    if (use_version == DeleteBitmapLockVersion::V2 && is_job_delete_bitmap_lock_id(lock_id)) {
         // when upgrade ms, prevent old ms get delete bitmap update lock
         if (lock_info.initiators_size() > 0) {
             ss << "compaction lock has " << lock_info.initiators_size() << " initiators";
@@ -811,11 +815,12 @@ static void remove_delete_bitmap_update_lock_v1(std::unique_ptr<Transaction>& tx
 static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
                                              const std::string& instance_id, int64_t table_id,
                                              int64_t tablet_id, int64_t lock_id,
-                                             int64_t lock_initiator, std::string use_version) {
+                                             int64_t lock_initiator,
+                                             DeleteBitmapLockVersion use_version) {
     VLOG_DEBUG << "remove_delete_bitmap_update_lock table_id=" << table_id
                << " initiator=" << lock_initiator << " tablet_id=" << tablet_id
                << " lock_id=" << lock_id << " use_version=" << use_version;
-    if (use_version == "v2" && is_job_delete_bitmap_lock_id(lock_id)) {
+    if (use_version == DeleteBitmapLockVersion::V2 && is_job_delete_bitmap_lock_id(lock_id)) {
         std::string tablet_job_key = mow_tablet_job_key({instance_id, table_id, lock_initiator});
         std::string tablet_job_val;
         TxnErrorCode err = txn->get(tablet_job_key, &tablet_job_val);
@@ -1028,7 +1033,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                             const FinishTabletJobRequest* request,
                             FinishTabletJobResponse* response, TabletJobInfoPB& recorded_job,
                             std::string& instance_id, std::string& job_key, bool& need_commit,
-                            std::string& use_version, bool is_versioned_read,
+                            DeleteBitmapLockVersion use_version, bool is_versioned_read,
                             bool is_versioned_write, TxnKv* txn_kv, ResourceManager* resource_mgr) {
     //==========================================================================
     //                                check
@@ -1601,7 +1606,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                                const FinishTabletJobRequest* request,
                                FinishTabletJobResponse* response, TabletJobInfoPB& recorded_job,
                                std::string& instance_id, std::string& job_key, bool& need_commit,
-                               std::string& use_version, bool is_versioned_read,
+                               DeleteBitmapLockVersion use_version, bool is_versioned_read,
                                bool is_versioned_write, TxnKv* txn_kv,
                                ResourceManager* resource_mgr) {
     //==========================================================================
@@ -2221,7 +2226,7 @@ void _finish_tablet_job(const FinishTabletJobRequest* request, FinishTabletJobRe
                    << " job=" << proto_to_json(recorded_job);
         FinishTabletJobRequest_Action action = request->action();
 
-        std::string use_version = delete_bitmap_lock_white_list->get_delete_bitmap_lock_version(
+        const auto use_version = delete_bitmap_lock_white_list->get_delete_bitmap_lock_version(
                 instance_id, recorded_job);
         LOG(INFO) << "finish_tablet_job instance_id=" << instance_id
                   << " use_version=" << use_version;

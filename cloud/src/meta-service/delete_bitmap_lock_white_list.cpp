@@ -17,7 +17,13 @@
 
 #include "delete_bitmap_lock_white_list.h"
 
+#include <ostream>
+
 namespace doris::cloud {
+
+std::ostream& operator<<(std::ostream& os, DeleteBitmapLockVersion version) {
+    return os << (version == DeleteBitmapLockVersion::V2 ? "v2" : "v1");
+}
 
 bool use_new_version_random() {
     std::mt19937 gen {std::random_device {}()};
@@ -52,13 +58,10 @@ void DeleteBitmapLockWhiteList::update_white_list(std::string white_list) {
     _last_white_list_value = white_list;
 }
 
-std::string DeleteBitmapLockWhiteList::get_delete_bitmap_lock_version(std::string instance_id) {
+DeleteBitmapLockVersion DeleteBitmapLockWhiteList::get_delete_bitmap_lock_version(
+        const std::string& instance_id) {
     if (config::use_delete_bitmap_lock_random_version) {
-        if (use_new_version_random()) {
-            return "v2";
-        } else {
-            return "v1";
-        }
+        return use_new_version_random() ? DeleteBitmapLockVersion::V2 : DeleteBitmapLockVersion::V1;
     }
     std::string white_list;
     {
@@ -66,7 +69,7 @@ std::string DeleteBitmapLockWhiteList::get_delete_bitmap_lock_version(std::strin
         white_list = config::delete_bitmap_lock_v2_white_list;
     }
     if (white_list == "*") {
-        return "v2";
+        return DeleteBitmapLockVersion::V2;
     }
     if (_last_white_list_value != white_list) {
         update_white_list(white_list);
@@ -75,9 +78,9 @@ std::string DeleteBitmapLockWhiteList::get_delete_bitmap_lock_version(std::strin
         std::shared_lock<std::shared_mutex> lock(_rw_mutex);
         auto it = _delete_bitmap_lock_v2_white_list_set.find(instance_id);
         if (it != _delete_bitmap_lock_v2_white_list_set.end()) {
-            return "v2";
+            return DeleteBitmapLockVersion::V2;
         } else {
-            return "v1";
+            return DeleteBitmapLockVersion::V1;
         }
     }
 }

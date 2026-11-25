@@ -407,7 +407,7 @@ public:
     std::pair<MetaServiceCode, std::string> fix_tablet_db_id(const std::string& instance_id,
                                                              int64_t tablet_id, int64_t db_id);
 
-    void get_delete_bitmap_lock_version(std::string& use_version, std::string& instance_id);
+    DeleteBitmapLockVersion get_delete_bitmap_lock_version(const std::string& instance_id);
 
     void begin_snapshot(::google::protobuf::RpcController* controller,
                         const BeginSnapshotRequest* request, BeginSnapshotResponse* response,
@@ -458,7 +458,7 @@ private:
                                        const GetDeleteBitmapUpdateLockRequest* request,
                                        GetDeleteBitmapUpdateLockResponse* response,
                                        std::string& instance_id, std::string& lock_key,
-                                       std::string lock_use_version, KVStats& stats);
+                                       DeleteBitmapLockVersion lock_use_version, KVStats& stats);
 
     void get_delete_bitmap_update_lock_v2(google::protobuf::RpcController* controller,
                                           const GetDeleteBitmapUpdateLockRequest* request,
@@ -1011,8 +1011,8 @@ public:
         call_impl(&cloud::MetaService::get_schema_dict, controller, request, response, done);
     }
 
-    void get_delete_bitmap_lock_version(std::string& use_version, std::string& instance_id) {
-        impl_->get_delete_bitmap_lock_version(use_version, instance_id);
+    DeleteBitmapLockVersion get_delete_bitmap_lock_version(const std::string& instance_id) {
+        return impl_->get_delete_bitmap_lock_version(instance_id);
     }
 
     void begin_snapshot(::google::protobuf::RpcController* controller,

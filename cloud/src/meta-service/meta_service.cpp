@@ -3606,7 +3606,7 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
                                      std::unique_ptr<Transaction>& txn, std::string& instance_id,
                                      int64_t table_id, int64_t lock_id, int64_t lock_initiator,
                                      std::string& lock_key, DeleteBitmapUpdateLockPB& lock_info,
-                                     std::string use_version, std::string log = "") {
+                                     DeleteBitmapLockVersion use_version, std::string log = "") {
     std::string lock_val;
     LOG(INFO) << "check_delete_bitmap_lock, table_id=" << table_id << " lock_id=" << lock_id
               << " initiator=" << lock_initiator << " key=" << hex(lock_key) << log
@@ -3636,7 +3636,7 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
         code = MetaServiceCode::LOCK_EXPIRED;
         return false;
     }
-    if (use_version == "v2" && is_job_delete_bitmap_lock_id(lock_id)) {
+    if (use_version == DeleteBitmapLockVersion::V2 && is_job_delete_bitmap_lock_id(lock_id)) {
         std::string tablet_job_key = mow_tablet_job_key({instance_id, table_id, lock_initiator});
         std::string tablet_job_val;
         err = txn->get(tablet_job_key, &tablet_job_val);
@@ -3672,9 +3672,9 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
     return true;
 }
 
-void MetaServiceImpl::get_delete_bitmap_lock_version(std::string& use_version,
-                                                     std::string& instance_id) {
-    use_version = delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
+DeleteBitmapLockVersion MetaServiceImpl::get_delete_bitmap_lock_version(
+        const std::string& instance_id) {
+    return delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
 }
 
 static bool remove_pending_delete_bitmap(MetaServiceCode& code, std::string& msg,
@@ -4036,14 +4036,12 @@ static bool check_pre_rowset_aggregation(MetaServiceCode& code, std::string& msg
     return true;
 }
 
-static bool commit_and_renew_delete_bitmap_txn(MetaServiceCode& code, std::string& msg,
-                                               std::stringstream& ss,
-                                               const std::shared_ptr<TxnKv>& txn_kv,
-                                               std::unique_ptr<Transaction>& txn, KVStats& stats,
-                                               UpdateDeleteBitmapTxnStats& txn_stats,
-                                               const UpdateDeleteBitmapRequest* request,
-                                               std::string& instance_id, size_t request_index,
-                                               std::string& use_version, std::string& log) {
+static bool commit_and_renew_delete_bitmap_txn(
+        MetaServiceCode& code, std::string& msg, std::stringstream& ss,
+        const std::shared_ptr<TxnKv>& txn_kv, std::unique_ptr<Transaction>& txn, KVStats& stats,
+        UpdateDeleteBitmapTxnStats& txn_stats, const UpdateDeleteBitmapRequest* request,
+        std::string& instance_id, size_t request_index, DeleteBitmapLockVersion use_version,
+        std::string& log) {
     auto table_id = request->table_id();
     auto tablet_id = request->tablet_id();
     LOG(INFO) << "fdb txn size more than " << config::max_txn_commit_byte
@@ -4251,8 +4249,9 @@ static bool check_delete_bitmap_prefix(MetaServiceCode& code, std::string& msg, 
 
 bool _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                               std::shared_ptr<TxnKv> txn_kv, std::unique_ptr<Transaction>& txn,
-                              std::string& use_version, std::set<std::string>& non_exist_rowset_ids,
-                              size_t i, std::string& log, KVStats& stats,
+                              DeleteBitmapLockVersion use_version,
+                              std::set<std::string>& non_exist_rowset_ids, size_t i,
+                              std::string& log, KVStats& stats,
                               const UpdateDeleteBitmapRequest* request, std::string& instance_id,
                               std::string& key, const std::string& val,
                               UpdateDeleteBitmapTxnStats& txn_stats, bool is_versioned_read,
@@ -4522,7 +4521,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         return;
     }
 
-    std::string use_version =
+    const auto use_version =
             delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id, *request);
     RPC_RATE_LIMIT(update_delete_bitmap)
 
@@ -5185,7 +5184,8 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
                                                     const GetDeleteBitmapUpdateLockRequest* request,
                                                     GetDeleteBitmapUpdateLockResponse* response,
                                                     std::string& instance_id, std::string& lock_key,
-                                                    std::string lock_use_version, KVStats& stats) {
+                                                    DeleteBitmapLockVersion lock_use_version,
+                                                    KVStats& stats) {
     bool require_tablet_stats =
             request->has_require_compaction_stats() ? request->require_compaction_stats() : false;
     if (!require_tablet_stats) return true;
@@ -5757,8 +5757,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
         }
     }
 
-    if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key, "v2",
-                                       stats)) {
+    if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key,
+                                       DeleteBitmapLockVersion::V2, stats)) {
         return;
     }
 }
@@ -5875,8 +5875,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
         break;
     }
 
-    if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key, "v1",
-                                       stats)) {
+    if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key,
+                                       DeleteBitmapLockVersion::V1, stats)) {
         return;
     };
 }
@@ -5919,7 +5919,7 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v2(
         DeleteBitmapUpdateLockPB lock_info;
         if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, request->table_id(),
                                       request->lock_id(), request->initiator(), lock_key, lock_info,
-                                      "v2", ", remove lock")) {
+                                      DeleteBitmapLockVersion::V2, ", remove lock")) {
             LOG(WARNING) << "failed to check delete bitmap tablet lock"
                          << " table_id=" << request->table_id()
                          << " tablet_id=" << request->tablet_id()
@@ -6000,7 +6000,7 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v1(
     DeleteBitmapUpdateLockPB lock_info;
     if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, request->table_id(),
                                   request->lock_id(), request->initiator(), lock_key, lock_info,
-                                  "v1")) {
+                                  DeleteBitmapLockVersion::V1)) {
         LOG(WARNING) << "failed to check delete bitmap tablet lock"
                      << " table_id=" << request->table_id() << " tablet_id=" << request->tablet_id()
                      << " request lock_id=" << request->lock_id()
@@ -6069,11 +6069,11 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         return;
     }
     RPC_RATE_LIMIT(get_delete_bitmap_update_lock)
-    std::string use_version =
+    const auto use_version =
             delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id, *request);
     LOG(INFO) << "get_delete_bitmap_update_lock instance_id=" << instance_id
               << " use_version=" << use_version;
-    if (use_version == "v2") {
+    if (use_version == DeleteBitmapLockVersion::V2) {
         get_delete_bitmap_update_lock_v2(controller, request, response, done, instance_id, code,
                                          msg, ss, stats);
     } else {
@@ -6107,11 +6107,11 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
         return;
     }
     RPC_RATE_LIMIT(remove_delete_bitmap_update_lock)
-    std::string use_version =
+    const auto use_version =
             delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id, *request);
     LOG(INFO) << "remove_delete_bitmap_update_lock instance_id=" << instance_id
               << " use_version=" << use_version;
-    if (use_version == "v2") {
+    if (use_version == DeleteBitmapLockVersion::V2) {
         remove_delete_bitmap_update_lock_v2(controller, request, response, done, instance_id, code,
                                             msg, ss, stats);
     } else {

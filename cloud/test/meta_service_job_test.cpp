@@ -2865,17 +2865,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     // 2.5 if sc or load succeed，compaction1 remove lock in new way failed
     table_id = 222;
     for (int i = 1; i <= 2; i++) {
-        std::string lock_version = "v1";
-        if (i == 1) {
-            lock_version = "v1";
-        } else {
-            lock_version = "v2";
-        }
+        const auto lock_version =
+                i == 1 ? DeleteBitmapLockVersion::V1 : DeleteBitmapLockVersion::V2;
         // 1 lock key does not exist
         remove_delete_bitmap_lock(meta_service.get(), table_id);
         clear_rowsets(table_id);
         // 2 compaction1 get lock in old/new way
-        if (lock_version == "v1") {
+        if (lock_version == DeleteBitmapLockVersion::V1) {
             config::delete_bitmap_lock_v2_white_list = "";
         } else {
             config::delete_bitmap_lock_v2_white_list = "*";
@@ -2888,8 +2884,9 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         std::srand(std::time(0));
         for (int i = 0; i < 10; i++) {
             int num = std::rand() % 3;
-            std::string use_version = (std::rand() % 2 == 0 ? "v2" : "v1");
-            if (use_version == "v1") {
+            const auto use_version = std::rand() % 2 == 0 ? DeleteBitmapLockVersion::V2
+                                                          : DeleteBitmapLockVersion::V1;
+            if (use_version == DeleteBitmapLockVersion::V1) {
                 config::delete_bitmap_lock_v2_white_list = "";
             } else {
                 config::delete_bitmap_lock_v2_white_list = "*";
@@ -2942,7 +2939,7 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
             }
         }
         // 4 compaction2 get lock in old/new way
-        if (lock_version == "v1") {
+        if (lock_version == DeleteBitmapLockVersion::V1) {
             config::delete_bitmap_lock_v2_white_list = "";
         } else {
             config::delete_bitmap_lock_v2_white_list = "*";
@@ -2950,7 +2947,7 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 2502);
         ASSERT_EQ(res_code, MetaServiceCode::OK);
         // 5 if sc or load succeed，compaction1 remove lock in old/new way failed
-        if (lock_version == "v1") {
+        if (lock_version == DeleteBitmapLockVersion::V1) {
             config::delete_bitmap_lock_v2_white_list = "";
         } else {
             config::delete_bitmap_lock_v2_white_list = "*";
