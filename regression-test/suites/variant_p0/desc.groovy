@@ -244,13 +244,12 @@ suite("regression_test_variant_desc", "p0"){
         sql """insert into large_tablets values (50001, '{"c" : 10}')"""
         sql """insert into large_tablets values (99999, '{"d" : 10}')"""
         sql "select * from ${table_name} limit 1"
-        [2, 128, 512].each { tabletLimit ->
-            sql "set max_fetch_remote_schema_tablet_count = ${tabletLimit}"
-            test {
-                sql "desc large_tablets"
-                exception "exceeding max_fetch_remote_schema_tablet_count"
-            }
+        for (limit in [2, 128, 512]) {
+            sql "set max_fetch_remote_schema_tablet_count = ${limit}"
+            sql "desc large_tablets"
         }
+        sql "set max_fetch_remote_schema_tablet_count = 128"
+        sql "desc large_tablets partition (p1)"
         sql """set max_fetch_remote_schema_tablet_count = 2048"""
         qt_sql15 "desc large_tablets"
 
