@@ -169,6 +169,24 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
         // check incremental data
         qt_select_next_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
 
+        // A later committed marker proves the reader has passed the rolled-back transaction.
+        def expectedAfterRollback = connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            sql "BEGIN"
+            try {
+                sql """INSERT INTO ${mysqlDb}.${table1} VALUES ('rolled_back', 99)"""
+                sql """UPDATE ${mysqlDb}.${table1} SET age=99 WHERE name='B1'"""
+                sql """DELETE FROM ${mysqlDb}.${table1} WHERE name='Doris'"""
+            } finally {
+                sql "ROLLBACK"
+            }
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES ('AfterRollback', 50)"""
+            sql """SELECT name, age FROM ${mysqlDb}.${table1} ORDER BY name"""
+        }
+        Awaitility.await().pollInSameThread().atMost(300, SECONDS).pollInterval(1, SECONDS).until {
+            sql("SELECT name, age FROM ${currentDb}.${table1} ORDER BY name") == expectedAfterRollback
+        }
+        order_qt_after_rollback "SELECT name, age FROM ${currentDb}.${table1} ORDER BY name"
+
         sql """
             DROP JOB IF EXISTS where jobname =  '${jobName}'
         """

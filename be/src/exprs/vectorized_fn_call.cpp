@@ -1040,12 +1040,16 @@ Status VectorizedFnCall::evaluate_ann_range_search(
     // Track load index timing
     {
         SCOPED_TIMER(&(stats->load_index_costs_ns));
-        if (!ann_index_iterator->try_load_index()) {
-            VLOG_DEBUG << "ANN range search skipped: "
-                       << fmt::format("Failed to load ANN index for column {}", src_col_idx);
+        Status load_status = ann_index_iterator->load_index();
+        // A segment without the ANN index still evaluates this predicate on its vectors.
+        // Other load failures must not silently turn into a brute-force range search.
+        if (load_status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+            VLOG_DEBUG << "ANN range search skipped: index is missing for column " << src_col_idx
+                       << ": " << load_status;
             ann_index_stats.fall_back_brute_force_cnt += 1;
             return Status::OK();
         }
+        RETURN_IF_ERROR(load_status);
         double load_costs_ms = static_cast<double>(stats->load_index_costs_ns.value()) / 1000000.0;
         DorisMetrics::instance()->ann_index_load_costs_ms->increment(
                 static_cast<int64_t>(load_costs_ms));

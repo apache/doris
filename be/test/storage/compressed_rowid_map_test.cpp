@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cinttypes>
 #include <cstdio>
 #include <random>
 #include <utility>
@@ -546,10 +547,13 @@ TEST(CompressedRowIdMapBenchmark, ReportsWholeMapMemoryAndLookupCosts) {
             printf("ROWID_BENCH rows=%u sources=%u gap=%u dense_bytes=%zu oracle_bytes=%zu "
                    "directory=%zu payload=%zu metadata=%zu retained=%zu "
                    "owned_peak=%zu cursor_bytes=%zu workspace=%zu build_ms=%.3f sequential_ms=%.3f "
-                   "sequential_decodes=%lu sparse_4096_ms=%.3f random_4096_ms=%.3f checksum=%lu "
+                   "sequential_decodes=%" PRIu64
+                   " sparse_4096_ms=%.3f random_4096_ms=%.3f checksum=%" PRIu64
+                   " "
                    "cold_decode_ms=%.3f dense_build_ms=%.3f dense_sequential_ms=%.3f "
-                   "tracked_build_peak=%ld tracked_retained=%ld tracked_read_peak=%ld "
-                   "tracked_total_peak=%ld "
+                   "tracked_build_peak=%" PRId64 " tracked_retained=%" PRId64
+                   " tracked_read_peak=%" PRId64 " tracked_total_peak=%" PRId64
+                   " "
                    "builders_before_finish=%zu encoder_before_finish=%zu\n",
                    ROWS, sources, gap, ROWS * sizeof(uint64_t), ROWS * sizeof(uint64_t),
                    memory.directory_bytes, memory.payload_bytes, memory.metadata_bytes,
@@ -624,12 +628,14 @@ TEST(CompressedRowIdMapBenchmark, ReportsLargeJointMappingMemoryAndLookupCosts) 
     const auto memory = map.memory_usage();
     EXPECT_EQ(tracker.consumption(),
               memory.allocated_bytes() + cursor_bytes + workspace.memory_usage());
-    printf("ROWID_LARGE_BENCH rows=%u sources=%u output_rows=%lu dense_bytes=%zu "
+    printf("ROWID_LARGE_BENCH rows=%u sources=%u output_rows=%" PRIu64
+           " dense_bytes=%zu "
            "directory=%zu payload=%zu metadata=%zu retained=%zu owned_peak=%zu "
            "builders_before_finish=%zu encoder_before_finish=%zu cursor_bytes=%zu workspace=%zu "
-           "tracked_build_peak=%ld tracked_retained=%ld tracked_read_peak=%ld "
-           "tracked_total_peak=%ld "
-           "build_ms=%.3f sequential_ms=%.3f sequential_decodes=%lu checksum=%lu\n",
+           "tracked_build_peak=%" PRId64 " tracked_retained=%" PRId64 " tracked_read_peak=%" PRId64
+           " tracked_total_peak=%" PRId64
+           " build_ms=%.3f sequential_ms=%.3f sequential_decodes=%" PRIu64 " checksum=%" PRIu64
+           "\n",
            ROWS, SOURCES, output_rows, ROWS * sizeof(uint64_t), memory.directory_bytes,
            memory.payload_bytes, memory.metadata_bytes, memory.allocated_bytes(), memory.peak_bytes,
            before_finish.builder_bytes, before_finish.encoder_bytes, cursor_bytes,

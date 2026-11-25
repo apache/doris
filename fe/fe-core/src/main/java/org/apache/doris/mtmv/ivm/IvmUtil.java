@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.InternalCatalog;
@@ -67,6 +68,8 @@ import java.util.Set;
  * Column name constants are defined in {@link Column}.
  */
 public class IvmUtil {
+    public static final StreamScanType IVM_STREAM_SCAN_TYPE = StreamScanType.MIN_DELTA;
+
     // Exceptional hidden-column defaults. Numeric and string-like hidden columns use zero and
     // empty string by default; add an entry here only when a hidden column requires a different
     // value.

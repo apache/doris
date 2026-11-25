@@ -380,11 +380,6 @@ public:
 
     void finalize() override { get_nested_column().finalize(); }
 
-    void erase(size_t start, size_t length) override {
-        get_nested_column().erase(start, length);
-        get_null_map_column().erase(start, length);
-    }
-
     size_t serialize_impl(char* pos, const size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override {

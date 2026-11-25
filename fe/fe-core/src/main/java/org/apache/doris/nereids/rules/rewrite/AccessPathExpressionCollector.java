@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -404,14 +405,12 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         } else if (first.getDataType().isStructType()) {
             // struct field access (formerly struct_element): collect the selected field as the path
             Expression fieldName = arguments.get(1);
-            DataType fieldType = fieldName.getDataType();
-            if (fieldName.isLiteral() && (fieldType.isIntegerLikeType() || fieldType.isStringLikeType())) {
+            StructField field = resolveStructField((StructType) first.getDataType(), fieldName);
+            if (field != null) {
                 // Only emit META [s, field, NULL] when the selected field itself is nullable.
                 if (context.type == ColumnAccessPathType.META
                         && isUnderIsNull(context.accessPathBuilder.getPathList())) {
-                    StructField field = resolveStructField(
-                            (StructType) first.getDataType(), fieldName);
-                    if (field == null || !field.isNullable()) {
+                    if (!field.isNullable()) {
                         // Non-nullable leaf: no META NULL path for the field is needed.
                         // However the field must still appear in the type so pruneDataType
                         // preserves it — the filter expression still references
@@ -423,17 +422,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                     // Nullable leaf: fall through to add field prefix → META [s, field, NULL]
                 }
 
-                if (fieldType.isIntegerLikeType()) {
-                    int fieldIndex = ((Number) ((Literal) fieldName).getValue()).intValue();
-                    List<StructField> fields = ((StructType) first.getDataType()).getFields();
-                    if (fieldIndex >= 1 && fieldIndex <= fields.size()) {
-                        String realFieldName = fields.get(fieldIndex - 1).getName();
-                        context.accessPathBuilder.addPrefix(realFieldName);
-                        return continueCollectAccessPath(first, context);
-                    }
-                }
-                context.accessPathBuilder.addPrefix(
-                        ((Literal) fieldName).getStringValue().toLowerCase(Locale.ROOT));
+                context.accessPathBuilder.addPrefix(field.getName());
                 return continueCollectAccessPath(first, context);
             }
             return visit(elementAt, context);
@@ -820,16 +809,11 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         if (!fieldExpr.isLiteral()) {
             return null;
         }
-        if (fieldExpr.getDataType().isIntegerLikeType()) {
-            int index = ((Number) ((Literal) fieldExpr).getValue()).intValue();
-            List<StructField> fields = structType.getFields();
-            if (index >= 1 && index <= fields.size()) {
-                return fields.get(index - 1);
-            }
-            return null;
+        if (fieldExpr instanceof IntegerLikeLiteral) {
+            return structType.getFieldByOrdinal(((IntegerLikeLiteral) fieldExpr).getBigDecimalValue());
         }
         if (fieldExpr.getDataType().isStringLikeType()) {
-            String name = ((Literal) fieldExpr).getStringValue().toLowerCase();
+            String name = ((Literal) fieldExpr).getStringValue();
             return structType.getField(name);
         }
         return null;

@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.arrow.adbc.core.AdbcConnection;
 import org.apache.arrow.adbc.core.AdbcDatabase;
 import org.apache.arrow.adbc.core.AdbcException;
+import org.apache.arrow.adbc.core.AdbcInfoCode;
 import org.apache.arrow.adbc.core.AdbcStatement;
 import org.apache.arrow.adbc.core.AdbcStatusCode;
 import org.apache.arrow.memory.BufferAllocator;
@@ -36,6 +37,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -142,6 +144,30 @@ class AdbcClientTest {
             Assertions.assertEquals(List.of(new AdbcNamespace("main", "")), call.get(30, TimeUnit.SECONDS));
         } finally {
             caller.shutdownNow();
+        }
+    }
+
+    @Test
+    void closeDoesNotWaitForAVendorProbe(@TempDir Path tempDir) throws Exception {
+        RecordingClient client = new RecordingClient(Files.createFile(tempDir.resolve("driver.so")));
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Optional<String>> call = executor.submit(client::vendorName);
+            Assertions.assertTrue(client.database.vendorEntered.await(30, TimeUnit.SECONDS));
+            executor.submit(client::close).get(5, TimeUnit.SECONDS);
+            Assertions.assertEquals(0, client.database.closes.get());
+            Assertions.assertFalse(call.isDone());
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> client.withConnection(connection -> "late"));
+
+            client.database.vendorMayReturn.countDown();
+            Assertions.assertEquals(Optional.empty(), call.get(30, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, client.database.closes.get());
+        } finally {
+            client.database.vendorMayReturn.countDown();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
+            client.close();
         }
     }
 
@@ -302,6 +328,8 @@ class AdbcClientTest {
 
         private final AtomicInteger openConnections = new AtomicInteger();
         private final AtomicInteger closes = new AtomicInteger();
+        private final CountDownLatch vendorEntered = new CountDownLatch(1);
+        private final CountDownLatch vendorMayReturn = new CountDownLatch(1);
         private final boolean closeFails;
         /** The client's allocator, handed over when the client opens its database, as the JNI driver is given it. */
         private BufferAllocator allocator;
@@ -320,8 +348,23 @@ class AdbcClientTest {
                 }
 
                 @Override
-                public ArrowReader getInfo(int[] infoCodes) {
-                    throw new AssertionError("these tests ask for no info");
+                public ArrowReader getInfo(int[] infoCodes) throws AdbcException {
+                    if (infoCodes[0] == AdbcInfoCode.DRIVER_NAME.getValue()) {
+                        try {
+                            return AdbcVendorInfoSafetyTest.response(allocator, infoCodes[0], "Test ADBC Driver");
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    }
+                    Assertions.assertEquals(AdbcInfoCode.VENDOR_NAME.getValue(), infoCodes[0]);
+                    vendorEntered.countDown();
+                    try {
+                        Assertions.assertTrue(vendorMayReturn.await(30, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(e);
+                    }
+                    throw new AdbcException("unsupported vendor info", null, AdbcStatusCode.NOT_IMPLEMENTED, null, 0);
                 }
 
                 @Override

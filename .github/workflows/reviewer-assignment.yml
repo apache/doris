@@ -1,8 +1,8 @@
 name: Assign Reviewer Candidates
 
 on:
-  pull_request_target:
-    types: [labeled]
+  issue_comment:
+    types: [created]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -14,8 +14,8 @@ permissions:
   contents: read
   pull-requests: read
 
-# Keep every pending label event and serialize reviewer-assignment runs.
-# A new labeled event has a new run ID, even when reviewers-assigned already exists.
+# Keep every pending command and serialize reviewer-assignment runs.
+# A new comment has a new run ID, even when reviewers-assigned already exists.
 concurrency:
   group: reviewer-assignment-${{ github.repository }}
   cancel-in-progress: false
@@ -25,14 +25,14 @@ jobs:
   select:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.label.name == 'need-reviewers' && github.event.pull_request.state == 'open')
+      (github.event.issue.pull_request != null && github.event.comment.body == '/assign-reviewers')
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     permissions:
       contents: read
       pull-requests: read
     steps:
-      # pull_request_target defaults to trusted base code. Never check out the PR head.
+      # Comment events use trusted default-branch code. Never check out the PR head.
       - name: Checkout trusted routing tools
         timeout-minutes: 2
         uses: actions/checkout@v4
@@ -364,7 +364,7 @@ jobs:
 
   assign:
     needs: select
-    if: github.event_name == 'pull_request_target'
+    if: github.event_name == 'issue_comment'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

@@ -43,6 +43,7 @@
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
 #include "service/http/http_status.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris {
 namespace {
@@ -70,14 +71,16 @@ public:
 
 class GcpTokenProviderTest : public testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"gcp_token_provider"};
+
     void SetUp() override {
         for (size_t i = 0; i < ENV_NAMES.size(); ++i) {
             const char* value = std::getenv(ENV_NAMES[i]);
             saved_env[i] = value == nullptr ? std::nullopt : std::optional<std::string>(value);
             unsetenv(ENV_NAMES[i]);
         }
-        char path[] = "/tmp/doris_gcp_adc_XXXXXX";
-        int fd = mkstemp(path);
+        std::string path = (scoped_temp_dir_.path() / "adc_XXXXXX").string();
+        int fd = mkstemp(path.data());
         ASSERT_GE(fd, 0);
         close(fd);
         adc_path = path;

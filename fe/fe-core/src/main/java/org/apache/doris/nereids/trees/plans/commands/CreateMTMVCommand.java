@@ -26,7 +26,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
-import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -49,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -91,7 +91,7 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
     }
 
     /**
-     * If the MTMV enables IVM (explicit INCREMENTAL refresh), automatically
+     * If the MTMV enables IVM, automatically
      * creates a stream for each base table so the delta rewrite path can
      * read changelog data through the existing stream scan infrastructure.
      */
@@ -189,10 +189,8 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
             }
             Map<String, String> streamProps = new HashMap<>();
             streamProps.put(PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS, "true");
-            if (baseTable instanceof OlapTable && ((OlapTable) baseTable).isUniqKeyMergeOnWrite()) {
-                streamProps.put(PropertyAnalyzer.PROPERTIES_STREAM_TYPE,
-                        StreamScanType.MIN_DELTA.name().toLowerCase());
-            }
+            streamProps.put(PropertyAnalyzer.PROPERTIES_STREAM_TYPE,
+                    IvmUtil.IVM_STREAM_SCAN_TYPE.name().toLowerCase(Locale.ROOT));
             CreateStreamInfo streamInfo = new CreateStreamInfo(
                     false /* ifNotExists */, false /* orReplace */,
                     streamTableName, baseTableName,

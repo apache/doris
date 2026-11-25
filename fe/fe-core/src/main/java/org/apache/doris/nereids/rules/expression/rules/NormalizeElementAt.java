@@ -52,14 +52,13 @@ public class NormalizeElementAt implements ExpressionPatternRuleFactory {
         }
         Expression field = elementAt.getArgument(1);
         if (field instanceof IntegerLikeLiteral) {
-            int fieldIndex = ((Number) ((IntegerLikeLiteral) field).getValue()).intValue();
             StructType structType = (StructType) elementAt.child(0).getDataType();
-            List<StructField> fields = structType.getFields();
-            if (fieldIndex >= 1 && fieldIndex <= fields.size()) {
+            StructField selected = structType.getFieldByOrdinal(((IntegerLikeLiteral) field).getBigDecimalValue());
+            if (selected != null) {
                 return elementAt.withChildren(
                         ImmutableList.of(
                                 elementAt.child(0),
-                                new StringLiteral(fields.get(fieldIndex - 1).getName())
+                                new StringLiteral(selected.getName())
                         )
                 );
             }

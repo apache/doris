@@ -451,9 +451,8 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
 
 // do_projection: for some query(e.g. in MultiCastDataStreamerSourceOperator::get_block()),
 // output_vexpr_ctxs will output the same column more than once, and if the output_block
-// is mem-reused later, it will trigger DCHECK_EQ(d.column->use_count(), 1) failure when
-// doing Block::clear_column_data, set do_projection to true to copy the column data to
-// avoid this problem.
+// is mem-reused later, it may share columns that Block::clear_column_data needs to detach.
+// Set do_projection to true to reuse or copy the column data during projection.
 Status VExprContext::get_output_block_after_execute_exprs(
         const VExprContextSPtrs& output_vexpr_ctxs, const Block& input_block, Block* output_block,
         bool do_projection) {

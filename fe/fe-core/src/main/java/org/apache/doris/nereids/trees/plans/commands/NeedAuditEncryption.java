@@ -36,9 +36,14 @@ public interface NeedAuditEncryption {
         if (!needAuditEncryption()) {
             return sql;
         }
+        return maskSql(sql, false);
+    }
+
+    /** Apply audit masking rules, optionally retaining source formatting for FE logs. */
+    static String maskSql(String sql, boolean preserveFormatting) {
         TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
         NereidsParser parser = new NereidsParser();
-        parser.parseForEncryption(sql, indexInSqlToString);
+        parser.parseForEncryption(sql, indexInSqlToString, preserveFormatting);
         return BaseViewInfo.rewriteSql(indexInSqlToString, sql);
     }
 }

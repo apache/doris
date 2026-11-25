@@ -682,29 +682,6 @@ ColumnPtr ColumnStr<T>::convert_column_if_overflow() {
 }
 
 template <typename T>
-void ColumnStr<T>::erase(size_t start, size_t length) {
-    if (start >= offsets.size() || length == 0) {
-        return;
-    }
-    length = std::min(length, offsets.size() - start);
-
-    auto char_start = offsets[start - 1];
-    auto char_end = offsets[start + length - 1];
-    auto char_length = char_end - char_start;
-    memmove(chars.data() + char_start, chars.data() + char_end, chars.size() - char_end);
-    chars.resize(chars.size() - char_length);
-
-    const size_t remain_size = offsets.size() - length;
-    memmove(offsets.data() + start, offsets.data() + start + length,
-            (remain_size - start) * sizeof(T));
-    offsets.resize(remain_size);
-
-    for (size_t i = start; i < remain_size; ++i) {
-        offsets[i] -= char_length;
-    }
-}
-
-template <typename T>
 Field ColumnStr<T>::operator[](size_t n) const {
     assert(n < size());
     sanity_check_simple();

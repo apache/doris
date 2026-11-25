@@ -16,6 +16,8 @@
 // under the License.
 #pragma once
 
+#include <mutex>
+
 #include "agent/be_exec_version_manager.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
@@ -74,15 +76,20 @@ public:
                                           const io::IOContext* io_ctx = nullptr);
 
 private:
-    // Lookup function remains similar
+    // Health is checked outside the cache lock; unhealthy instances are removed.
     std::shared_ptr<ColumnReader> _lookup(const ColumnReaderCacheKey& key);
-    // Insert helper: assumes _cache_mutex already locked, will evict if needed
-    void _insert_locked_nocheck(const ColumnReaderCacheKey& key,
+    // The caller must hold _cache_mutex through lock; evicts if needed.
+    void _insert_locked_nocheck(const std::unique_lock<std::mutex>& lock,
+                                const ColumnReaderCacheKey& key,
                                 const std::shared_ptr<ColumnReader>& reader);
 
     // Insert an already-created reader directly into cache
-    void _insert_direct(const ColumnReaderCacheKey& key,
-                        const std::shared_ptr<ColumnReader>& column_reader);
+    std::shared_ptr<ColumnReader> _insert_direct(
+            const ColumnReaderCacheKey& key, const std::shared_ptr<ColumnReader>& column_reader);
+    std::list<CacheNode>::iterator _erase_locked(const std::unique_lock<std::mutex>& lock,
+                                                 std::list<CacheNode>::iterator it);
+    void _erase_if_same(const ColumnReaderCacheKey& key,
+                        const std::shared_ptr<ColumnReader>& reader);
     // keep _lru_list and _cache_map thread safe
     std::mutex _cache_mutex;
     // Doubly-linked list to maintain LRU order

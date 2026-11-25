@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileEncryptionInfo;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -67,6 +68,32 @@ class FileScanEncryptionGuardTest {
                         .setIcebergParams(new TIcebergFileDesc().setEncryptionInfo(info())))));
         assertUnavailable(() -> FileScanEncryptionGuard.checkFragments(
                 new TPipelineFragmentParamsList().setParamsList(List.of(fragment))));
+    }
+
+    @Test
+    void externalChannelsRejectKeysEvenWhenLocalPrivateTlsIsEnabled() {
+        boolean enabled = Config.enable_tls;
+        try {
+            Config.enable_tls = true;
+            FileScanEncryptionGuard.checkFragments(fragments(location(new TIcebergFileDesc())), false);
+            for (int content : List.of(0, 1, 2, 3)) {
+                TIcebergFileDesc iceberg = content == 0 ? new TIcebergFileDesc().setEncryptionInfo(info())
+                        : new TIcebergFileDesc().setDeleteFiles(List.of(new TIcebergDeleteFileDesc()
+                                .setContent(content).setEncryptionInfo(info())));
+                IllegalStateException error = Assertions.assertThrows(IllegalStateException.class,
+                        () -> FileScanEncryptionGuard.checkFragments(fragments(location(iceberg)), false));
+                Assertions.assertEquals("File encryption [KEY_TRANSPORT_UNAVAILABLE]", error.getMessage());
+            }
+            TPipelineFragmentParams shared = new TPipelineFragmentParams().setFileScanParams(Map.of(1,
+                    new TFileScanRangeParams().setTableFormatParams(new TTableFormatFileDesc()
+                            .setIcebergParams(new TIcebergFileDesc().setEncryptionInfo(info())))));
+            IllegalStateException error = Assertions.assertThrows(IllegalStateException.class,
+                    () -> FileScanEncryptionGuard.checkFragments(
+                            new TPipelineFragmentParamsList().setParamsList(List.of(shared)), false));
+            Assertions.assertEquals("File encryption [KEY_TRANSPORT_UNAVAILABLE]", error.getMessage());
+        } finally {
+            Config.enable_tls = enabled;
+        }
     }
 
     @Test

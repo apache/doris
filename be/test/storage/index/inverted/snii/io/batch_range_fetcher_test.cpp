@@ -32,6 +32,7 @@
 #include "storage/index/inverted/snii/common/slice.h"
 #include "storage/index/inverted/snii/io/local_file.h"
 #include "storage/index/inverted/snii/io/metered_file_reader.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using doris::Status;
@@ -43,7 +44,8 @@ using doris::snii::io::MeteredFileReader;
 namespace {
 
 std::string MakeRampFile() {
-    const std::string path = "/tmp/snii_brf_ramp.bin";
+    static const doris::test::ScopedTempDirectory temp_dir("snii_batch_range_fetcher");
+    const std::string path = (temp_dir.path() / "ramp.bin").string();
     LocalFileWriter w;
     EXPECT_TRUE(w.open(path).ok());
     std::vector<uint8_t> data(256);

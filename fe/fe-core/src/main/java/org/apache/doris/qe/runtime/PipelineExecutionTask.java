@@ -66,7 +66,6 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
     // immutable parameters
     private final long timeoutDeadline;
     private final CoordinatorContext coordinatorContext;
-    private final BackendServiceProxy backendServiceProxy;
     private final Set<Long> dispatchedBackendIds = ConcurrentHashMap.newKeySet();
 
     // mutable states
@@ -74,10 +73,16 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
             CoordinatorContext coordinatorContext,
             BackendServiceProxy backendServiceProxy,
             Map<BackendWorker, MultiFragmentsPipelineTask> fragmentTasks) {
+        this(coordinatorContext, fragmentTasks);
+        Objects.requireNonNull(backendServiceProxy, "backendServiceProxy can not be null");
+    }
+
+    public PipelineExecutionTask(
+            CoordinatorContext coordinatorContext,
+            Map<BackendWorker, MultiFragmentsPipelineTask> fragmentTasks) {
         // insert into stmt need latch to wait finish, but query stmt not need because result receiver can wait finish
         super(new ChildrenRuntimeTasks<>(fragmentTasks));
         this.coordinatorContext = Objects.requireNonNull(coordinatorContext, "coordinatorContext can not be null");
-        this.backendServiceProxy = Objects.requireNonNull(backendServiceProxy, "backendServiceProxy can not be null");
         this.timeoutDeadline = coordinatorContext.timeoutDeadline.get();
 
         // flatten to fragment tasks to quickly index by BackendFragmentId, when receive the report message
@@ -226,11 +231,11 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
             } catch (ExecutionException e) {
                 exception = e;
                 code = TStatusCode.THRIFT_RPC_ERROR;
-                backendServiceProxy.removeProxy(brpcAddress);
+                rpc.task.removeProxy();
             } catch (InterruptedException e) {
                 exception = e;
                 code = TStatusCode.INTERNAL_ERROR;
-                backendServiceProxy.removeProxy(brpcAddress);
+                rpc.task.removeProxy();
             } catch (TimeoutException e) {
                 exception = e;
                 errMsg = String.format(
@@ -238,7 +243,7 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
                         operation, queryOptions.getExecutionTimeout(), timeoutMs / 1000);
                 LOG.warn("Query {} {}", DebugUtil.printId(queryId), errMsg);
                 code = TStatusCode.TIMEOUT;
-                backendServiceProxy.removeProxy(brpcAddress);
+                rpc.task.removeProxy();
             }
 
             if (code != TStatusCode.OK) {

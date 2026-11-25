@@ -22,7 +22,9 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI entry point for the Lance connector.
@@ -54,21 +56,23 @@ public class LanceConnectorProvider implements ConnectorProvider {
         return new LanceConnector(properties, context);
     }
 
+    /** {@code s3("uri" = ..., "format" = "lance")}, and {@code file()} over S3-compatible storage. */
+    @Override
+    public Set<String> getFileFormats() {
+        return Collections.singleton(LanceScanPlanProvider.FILE_FORMAT);
+    }
+
+    @Override
+    public Connector createFileFormatConnector(String format, ConnectorContext context) {
+        return new LanceFileFormatConnector(context);
+    }
+
     /**
-     * The REST credentials are secrets: SHOW CREATE CATALOG masks them. Declared although this build reads
-     * only filesystem catalogs, because a REST catalog created by an earlier version still replays and is
-     * shown.
+     * The REST namespace server, which the engine's SSRF gate probes at CREATE / ALTER CATALOG, and the REST
+     * credentials, which SHOW CREATE CATALOG masks; see {@link LanceCatalogProperties#SECURITY_SURFACE}.
      */
     @Override
     public ConnectorSecuritySurface securitySurface() {
-        // These aliases feed the S3-compatible filesystem binding consumed by LanceS3StorageProvider.
-        // Include provider-specific spellings and the URI fallback, so ALTER cannot select a different
-        // destination without going through the engine's CREATE / ALTER endpoint gate.
-        return ConnectorSecuritySurface.ofSsrfEndpoints(
-                "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint",
-                "glue.endpoint", "aws.glue.endpoint", "oss.endpoint", "OSS_ENDPOINT",
-                "dlf.endpoint", "dlf.catalog.endpoint", "fs.oss.endpoint", "cos.endpoint",
-                "COS_ENDPOINT", "obs.endpoint", "OBS_ENDPOINT", "uri")
-                .withSensitiveKeys(LanceCatalogProperties.REST_BEARER_TOKEN, LanceCatalogProperties.REST_API_KEY);
+        return LanceCatalogProperties.SECURITY_SURFACE;
     }
 }

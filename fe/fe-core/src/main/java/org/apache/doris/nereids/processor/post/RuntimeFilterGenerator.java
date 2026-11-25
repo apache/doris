@@ -322,7 +322,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     // Currently, we only apply RF on PhysicalScan. So skip this rf.
                     // example: (select sum(x) as s from A) T join B on T.s=B.s
                     if (pushDownContext.isValid()) {
-                        join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
+                        new RuntimeFilterPushDownVisitor().pushDown(join, pushDownContext);
                     }
                 }
             }
@@ -437,8 +437,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                                 decoupledNdv, -1 /*sentinel: decoupled RF*/);
                 boolean decoupledRfPushed = false;
                 if (pushDownContext.isValid()) {
-                    decoupledRfPushed = join.right().accept(
-                            new RuntimeFilterPushDownVisitor(), pushDownContext);
+                    decoupledRfPushed = new RuntimeFilterPushDownVisitor().pushDown(join.right(), pushDownContext);
                 }
                 if (decoupledRfPushed) {
                     if (preferDecoupled) {
@@ -767,7 +766,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                                 TRuntimeFilterType.MIN_MAX, getMinMaxType(compare),
                                 false, -1, exprOrder);
                 if (pushDownContext.isValid()) {
-                    join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
+                    new RuntimeFilterPushDownVisitor().pushDown(join, pushDownContext);
                 }
             }
         }
@@ -860,7 +859,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                                     ctx, setOp, sourceExpression, targetExpression,
                                     type, hasUnknownColStats, buildNdvOrRowCount, slotIdx);
                     if (pushDownContext.isValid()) {
-                        setOp.child(childId).accept(pushDownVisitor, pushDownContext);
+                        pushDownVisitor.pushDown(setOp.child(childId), pushDownContext);
                     }
                 }
             }
@@ -1114,7 +1113,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         !rf.isBloomFilterSizeCalculatedByNdv(), rf.getBuildSideNdv(), rf.getExprOrder())
                         .withNonBlocking(nonBlocking);
         if (pushDownContext.isValid()) {
-            return inputPlanNode.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
+            return new RuntimeFilterPushDownVisitor().pushDown(inputPlanNode, pushDownContext);
         }
         return false;
     }

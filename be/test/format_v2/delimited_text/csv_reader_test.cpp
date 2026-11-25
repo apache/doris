@@ -545,9 +545,12 @@ TEST_F(PlainCsvSplitTest, FirstSplitStillHonorsHeadersAndSkipLines) {
 }
 
 class CsvV2ReaderTest : public testing::Test {
+protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"csv_reader_test"};
+
 public:
     void SetUp() override {
-        _test_dir = std::filesystem::temp_directory_path() / "doris_format_v2_csv_reader_test";
+        _test_dir = scoped_temp_dir_.path() / "doris_format_v2_csv_reader_test";
         std::filesystem::remove_all(_test_dir);
         std::filesystem::create_directories(_test_dir);
         _file_path = (_test_dir / "reader.csv").string();
