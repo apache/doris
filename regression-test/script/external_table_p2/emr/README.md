@@ -87,12 +87,8 @@ Use a private regression config with `enableExternalEmrTest=true`,
 `emrCatalogCommonProp` string with the HMS URI and required Hadoop/HMS properties.
 Set the required `emrPaimonWarehouse` to `HDFS_WAREHOUSE` in that configuration.
 It has no default service address; an enabled Paimon suite fails before catalog
-DDL when the value is missing or blank. For example, use an environment-backed
-entry in the private configuration:
-
-```groovy
-emrPaimonWarehouse = System.getenv("EMR_PAIMON_WAREHOUSE")
-```
+DDL when the value is missing or blank. Assign the target warehouse directly to
+`emrPaimonWarehouse` in the private regression configuration.
 
 Every FE and BE that accesses the catalog must have
 the configured keytab and Kerberos realm configuration, and network access to
