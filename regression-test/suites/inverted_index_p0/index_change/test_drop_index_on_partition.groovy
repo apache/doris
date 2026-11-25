@@ -51,6 +51,37 @@ suite("test_drop_index_on_partition", "inverted_index") {
         assertTrue(useTime <= OpTimeout, "wait_for_build_index_on_partition_finish timeout")
     }
 
+    // Cloud mode stores one rowset schema per schema version, so it cannot drop an index from only
+    // some partitions and rejects the statement before creating any job.
+    if (isCloudMode()) {
+        sql "DROP TABLE IF EXISTS test_drop_idx_on_partition_cloud"
+        sql """
+            CREATE TABLE test_drop_idx_on_partition_cloud (
+                k1 int NOT NULL,
+                v1 varchar(50),
+                INDEX idx_v1 (v1) USING INVERTED
+            )
+            DUPLICATE KEY(`k1`)
+            PARTITION BY RANGE(`k1`) (
+                PARTITION p1 VALUES LESS THAN (100),
+                PARTITION p2 VALUES LESS THAN (200)
+            )
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        """
+        // SHOW BUILD INDEX also lists jobs of earlier tables with this name, so compare counts.
+        def cloud_job_count = get_build_index_job_count("test_drop_idx_on_partition_cloud")
+        test {
+            sql "DROP INDEX idx_v1 ON test_drop_idx_on_partition_cloud PARTITION (p1)"
+            exception "DROP INDEX ON PARTITION is not supported in cloud mode"
+        }
+        test {
+            sql "ALTER TABLE test_drop_idx_on_partition_cloud DROP INDEX idx_v1 PARTITION (p1)"
+            exception "DROP INDEX ON PARTITION is not supported in cloud mode"
+        }
+        assertEquals(cloud_job_count, get_build_index_job_count("test_drop_idx_on_partition_cloud"))
+        return
+    }
+
     // case 1: basic DROP INDEX ON PARTITION with job count verification
     def tableName1 = "test_drop_idx_on_partition_basic"
     sql "DROP TABLE IF EXISTS ${tableName1}"

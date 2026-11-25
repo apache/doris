@@ -21,6 +21,7 @@ import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
@@ -101,6 +102,11 @@ public class DropIndexOp extends AlterTableOp {
             tableName.analyze(ctx.getNameSpaceContext());
         }
         if (partitionNamesInfo != null) {
+            // Cloud mode keeps one rowset schema per schema version, so it cannot drop an index from
+            // only some partitions while the table schema keeps it.
+            if (Config.isCloudMode()) {
+                throw new AnalysisException("DROP INDEX ON PARTITION is not supported in cloud mode");
+            }
             if (partitionNamesInfo.isTemp()) {
                 throw new AnalysisException(
                         "DROP INDEX ON PARTITION does not support temporary partitions");
