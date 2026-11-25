@@ -265,9 +265,8 @@ Status RowSourcesBuffer::_serialize() {
     const char* data_ptr = reinterpret_cast<const char*>(_buffer.data());
     size_t total_bytes = rows * sizeof(UInt16);
     size_t max_io_bytes = total_bytes;
-    DBUG_EXECUTE_IF("RowSourcesBuffer._serialize.max_io_bytes", {
-        max_io_bytes = dp->param<size_t>("value", total_bytes);
-    });
+    DBUG_EXECUTE_IF("RowSourcesBuffer._serialize.max_io_bytes",
+                    { max_io_bytes = dp->param<size_t>("value", total_bytes); });
     size_t offset = 0;
     while (offset < total_bytes) {
         size_t chunk_bytes = std::min(total_bytes - offset, max_io_bytes);
@@ -303,9 +302,8 @@ Status RowSourcesBuffer::_deserialize() {
     char* data_ptr = reinterpret_cast<char*>(_buffer.data());
     size_t total_bytes = rows * sizeof(UInt16);
     size_t max_io_bytes = total_bytes;
-    DBUG_EXECUTE_IF("RowSourcesBuffer._deserialize.max_io_bytes", {
-        max_io_bytes = dp->param<size_t>("value", total_bytes);
-    });
+    DBUG_EXECUTE_IF("RowSourcesBuffer._deserialize.max_io_bytes",
+                    { max_io_bytes = dp->param<size_t>("value", total_bytes); });
     size_t offset = 0;
     while (offset < total_bytes) {
         size_t chunk_bytes = std::min(total_bytes - offset, max_io_bytes);
