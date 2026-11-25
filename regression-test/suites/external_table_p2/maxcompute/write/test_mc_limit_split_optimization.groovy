@@ -23,7 +23,8 @@ suite("test_mc_limit_split_optimization", "p2,external,maxcompute,external_remot
     }
 
     String endpoint = context.config.otherConfigs.get("mcEndpoint")
-            ?: "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
+    assertTrue(endpoint != null && !endpoint.trim().isEmpty(),
+            "Configure mcEndpoint before enabling MaxCompute suites")
     String ak = context.config.otherConfigs.get("ak")
     String sk = context.config.otherConfigs.get("sk")
     String mc_catalog_name = "test_mc_limit_split_opt"

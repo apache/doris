@@ -19,10 +19,11 @@ suite("test_non_nullable_maxcompute_mtmv", "p2,external") {
     if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enableMaxComputeTest"))) {
         return
     }
-    sql "SET materialized_view_rewrite_enable_contain_external_table = true"
     String project = context.config.otherConfigs.get("mcDefaultProject") ?: "mc_datalake"
     String endpoint = context.config.otherConfigs.get("mcEndpoint")
-            ?: "https://service.cn-beijing.maxcompute.aliyun.com/api"
+    assertTrue(endpoint != null && !endpoint.trim().isEmpty(),
+            "Configure mcEndpoint before enabling MaxCompute suites")
+    sql "SET materialized_view_rewrite_enable_contain_external_table = true"
     String accessKey = context.config.otherConfigs.get("ak")
     String secretKey = context.config.otherConfigs.get("sk")
     sql "DROP CATALOG IF EXISTS non_nullable_mv_maxcompute"

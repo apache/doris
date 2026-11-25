@@ -50,8 +50,10 @@ to the test user are separate operations. Verify real Storage API read and
 write/commit/readback, not just SQL job execution.
 
 Set `enableMaxComputeTest=true`, `ak`, `sk`, the four project keys, and `mcEndpoint`
-for an endpoint reachable from Doris. Keep credentials outside source. A writer
-running outside the VPC can need a different endpoint from the Doris catalog.
+to a nonblank endpoint reachable from Doris. Service suites fail before executing
+SQL if `mcEndpoint` is missing or blank; they do not fall back to a region-specific
+endpoint. Keep credentials outside source. A writer running outside the VPC can
+need a different endpoint from the Doris catalog.
 
 ## Extract the current seed SQL
 

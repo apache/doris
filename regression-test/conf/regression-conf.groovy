@@ -237,6 +237,8 @@ extMinioBucket = "test-bucket"
 
 enableObjStorageTest=false
 enableMaxComputeTest=false
+// Required when MaxCompute suites are enabled; use an endpoint reachable from Doris.
+mcEndpoint=""
 aliYunAk="***********"
 dlfUid="***********"
 aliYunSk="***********"

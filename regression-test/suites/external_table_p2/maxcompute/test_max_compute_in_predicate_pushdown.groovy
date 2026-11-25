@@ -19,7 +19,8 @@ suite("test_max_compute_in_predicate_pushdown", "p2,external,maxcompute,external
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String endpoint = context.config.otherConfigs.get("mcEndpoint")
-                ?: "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
+        assertTrue(endpoint != null && !endpoint.trim().isEmpty(),
+                "Configure mcEndpoint before enabling MaxCompute suites")
         String ak = context.config.otherConfigs.get("ak")
         String sk = context.config.otherConfigs.get("sk")
         String mcCatalogName = "test_max_compute_in_predicate_pushdown"

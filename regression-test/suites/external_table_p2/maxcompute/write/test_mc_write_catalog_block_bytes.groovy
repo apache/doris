@@ -25,7 +25,8 @@ suite("test_mc_write_catalog_block_bytes", "p2,external") {
     String ak = context.config.otherConfigs.get("ak")
     String sk = context.config.otherConfigs.get("sk")
     String endpoint = context.config.otherConfigs.get("mcEndpoint")
-            ?: "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
+    assertTrue(endpoint != null && !endpoint.trim().isEmpty(),
+            "Configure mcEndpoint before enabling MaxCompute suites")
     String defaultProject = context.config.otherConfigs.get("mcWriteProject") ?: "mc_doris_test_write"
     String uuid = UUID.randomUUID().toString().replace("-", "").substring(0, 8)
 
