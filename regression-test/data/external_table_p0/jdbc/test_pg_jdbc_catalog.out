@@ -2249,6 +2249,17 @@ varchar_arr	array<text>	Yes	true	\N
 2	["hello", "world"]	[1, 2, 3]	["a", "b"]
 3	["foo", null]	[null, 4]	[null, "c"]
 
+-- !test_array_no_values_desc --
+all_null_1d	array<text>	Yes	true	\N	
+all_null_2d	array<array<text>>	Yes	true	\N	
+empty_1d	array<text>	Yes	true	\N	
+empty_2d	array<array<text>>	Yes	true	\N	
+id	int	No	true	\N	
+
+-- !test_array_no_values --
+1	\N	[]	\N	[]
+2	\N	[]	\N	[]
+
 -- !ctas --
 1	abc	def	2022-10-11	1	2	3	2022-10-22T10:59:59	34.123	false	12.123456	10.16.10.14/32	10.16.10.14	ff:ff:ff:ff:ff:aa	1010101010	01010	1	{"id": 1}	(1.0,1.0)	{1.0,1.0,1.0}	[(1.0,1.0),(2.0,2.0)]	(2.0,2.0),(1.0,1.0)	((1.0,1.0),(2.0,2.0),(2.0,1.0))	((1.0,1.0),(2.0,2.0),(2.0,1.0))	<(0.0,0.0),1.0>
 2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	2	\N	\N	\N	\N	\N	\N	\N	\N
@@ -2309,4 +2320,3 @@ mysql
 -- !varbinary_test_after_insert --
 1	0x01030000000100000005000000000000000000000000000000000000000000000000000000000000000000F03F000000000000F03F000000000000F03F000000000000F03F000000000000000000000000000000000000000000000000
 3	0x0101000000000000000000F03F0000000000000040
-
